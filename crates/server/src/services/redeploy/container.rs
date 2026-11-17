@@ -52,7 +52,7 @@ pub(super) async fn redeploy_container(
 ) -> Result<Vec<LinkReport>> {
     // Read before the node's ZTP takes a custom config out of it.
     let initialises_vault = vault::sherpa_initialises_vault(
-        redeploy.target_node.model,
+        redeploy.target_node.model_kind.model(),
         redeploy.target_node.ztp.config.is_some(),
     );
     let ztp_result = configure_container(redeploy, cert_paths)?;
@@ -113,7 +113,7 @@ pub(super) async fn redeploy_container(
             memory_mib: redeploy.db_node.memory.map(u64::from),
             cpu_count: redeploy.db_node.cpu_count,
         },
-        redeploy.target_node.model,
+        redeploy.target_node.model_kind,
         redeploy.progress,
     )
     .await?;
@@ -221,7 +221,7 @@ async fn plan_data_interfaces(redeploy: &Redeploy<'_>) -> Result<DataInterfaces>
             lab_id: &redeploy.lab_id,
             name: &redeploy.node_name,
             index: redeploy.db_node.index,
-            model: redeploy.target_node.model,
+            model_kind: redeploy.target_node.model_kind,
             record: &redeploy.node_record_id,
         };
         let veths = container_veths(&node, &links, &bridge_interfaces, data_indices)?;
@@ -281,13 +281,13 @@ async fn create_data_networks(
 ) -> Result<Vec<data::ContainerNetworkAttachment>> {
     let lab_id = redeploy.lab_id.as_str();
     let node_name = redeploy.node_name.as_str();
-    let model = &redeploy.target_node.model;
+    let model_kind = redeploy.target_node.model_kind;
     let docker = &redeploy.state.docker;
     let isolated = node_ops::node_isolated_network_data(node_name, redeploy.db_node.index, lab_id);
     let mut attachments = vec![];
 
     for idx in data_indices {
-        let iface_name = util::interface_from_idx(model, idx)?;
+        let iface_name = util::interface_from_idx(model_kind, idx)?;
         let connection = if let Some(bridge_name) = bridge_interfaces.get(&iface_name) {
             container::create_docker_macvlan_bridge_network(
                 docker,
@@ -307,7 +307,7 @@ async fn create_data_networks(
         };
         attachments.push(container_networks::data_attachment(
             node_name,
-            *model,
+            model_kind,
             &iface_name,
             idx,
             connection,
@@ -351,7 +351,7 @@ async fn restore_node_services(redeploy: &Redeploy<'_>, initialises_vault: bool)
         )
         .await?;
     }
-    if redeploy.target_node.model == data::NodeModel::KeycloakServer {
+    if redeploy.target_node.model_kind.model() == data::NodeModel::KeycloakServer {
         keycloak::ensure_keycloak_realm(
             lab_id,
             node_name,

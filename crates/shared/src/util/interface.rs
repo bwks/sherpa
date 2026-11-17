@@ -7,19 +7,19 @@ use crate::data::{
     CiscoCsr1000vInt, CiscoFtdvInt, CiscoIolInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int,
     CiscoNexus9300vInt, CumulusLinuxInt, EthernetInt, InterfaceTrait, JuniperCevolvedInt,
     JuniperVevolvedInt, JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt, MikrotikChrInt,
-    NodeModel, NokiaSrlinuxInt, PaloaltoPanosInt,
+    ModelKind, NodeModel, NokiaSrlinuxInt, PaloaltoPanosInt,
 };
 
 /// The interfaces cJunosEvolved creates for itself in its container, `eth1` to `eth3`.
 const CEVOLVED_INTERNAL_INTERFACES: u16 = 3;
 
-/// The index of the interface named `interface` on `device_model`.
+/// The index of the interface named `interface` on a node of `model_kind`.
 ///
 /// # Errors
 ///
 /// Fails when the model has no interface named `interface`.
-pub fn interface_to_idx(device_model: &NodeModel, interface: &str) -> Result<u8> {
-    let idx = match device_model {
+pub fn interface_to_idx(model_kind: ModelKind, interface: &str) -> Result<u8> {
+    let idx = match model_kind.model() {
         NodeModel::AristaVeos => AristaVeosInt::from_str(interface)?.to_idx(),
         NodeModel::AristaCeos => AristaCeosInt::from_str(interface)?.to_idx(),
         NodeModel::ArubaAoscx => ArubaAoscxInt::from_str(interface)?.to_idx(),
@@ -47,13 +47,13 @@ pub fn interface_to_idx(device_model: &NodeModel, interface: &str) -> Result<u8>
     Ok(idx)
 }
 
-/// The name of the interface at `idx` on `device_model`.
+/// The name of the interface at `idx` on a node of `model_kind`.
 ///
 /// # Errors
 ///
 /// Fails when the model has no interface at `idx`.
-pub fn interface_from_idx(device_model: &NodeModel, idx: u8) -> Result<String> {
-    let iface = match device_model {
+pub fn interface_from_idx(model_kind: ModelKind, idx: u8) -> Result<String> {
+    let iface = match model_kind.model() {
         NodeModel::AristaVeos => AristaVeosInt::from_idx(idx)?,
         NodeModel::AristaCeos => AristaCeosInt::from_idx(idx)?,
         NodeModel::ArubaAoscx => ArubaAoscxInt::from_idx(idx)?,
@@ -81,9 +81,10 @@ pub fn interface_from_idx(device_model: &NodeModel, idx: u8) -> Result<String> {
     Ok(iface)
 }
 
+/// Every interface name a node of `model_kind` has, in index order.
 #[must_use]
-pub fn node_model_interfaces(device_model: &NodeModel) -> Vec<String> {
-    match device_model {
+pub fn node_model_interfaces(model_kind: ModelKind) -> Vec<String> {
+    match model_kind.model() {
         NodeModel::AristaVeos => AristaVeosInt::all_interfaces(),
         NodeModel::AristaCeos => AristaCeosInt::all_interfaces(),
         NodeModel::ArubaAoscx => ArubaAoscxInt::all_interfaces(),
@@ -110,16 +111,18 @@ pub fn node_model_interfaces(device_model: &NodeModel) -> Vec<String> {
     }
 }
 
-/// The name of data interface `idx` of a `model` container, inside the container. SR Linux
-/// has its own names. cJunosEvolved creates `eth1` to `eth3` itself, so its first data
+/// The name of data interface `idx` of a `model_kind` container, inside the container. SR
+/// Linux has its own names. cJunosEvolved creates `eth1` to `eth3` itself, so its first data
 /// interface is `eth4`. Other models use `eth<idx>`.
 ///
 /// # Errors
 ///
 /// Fails when the model has no interface at `idx`.
-pub fn container_interface_name(model: &NodeModel, idx: u8) -> Result<String> {
-    match model {
-        NodeModel::NokiaSrlinux => srlinux_to_linux_interface(&interface_from_idx(model, idx)?),
+pub fn container_interface_name(model_kind: ModelKind, idx: u8) -> Result<String> {
+    match model_kind.model() {
+        NodeModel::NokiaSrlinux => {
+            srlinux_to_linux_interface(&interface_from_idx(model_kind, idx)?)
+        }
         NodeModel::JuniperCevolved => Ok(format!(
             "eth{}",
             u16::from(idx) + CEVOLVED_INTERNAL_INTERFACES
@@ -149,24 +152,25 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use super::*;
-    use crate::data::NodeConfig;
 
     #[test]
     fn container_interface_names_follow_each_model() {
         assert_eq!(
-            container_interface_name(&NodeModel::NokiaSrlinux, 3).unwrap(),
+            container_interface_name(ModelKind::default_for(NodeModel::NokiaSrlinux), 3).unwrap(),
             "e1-3"
         );
         assert_eq!(
-            container_interface_name(&NodeModel::JuniperCevolved, 1).unwrap(),
+            container_interface_name(ModelKind::default_for(NodeModel::JuniperCevolved), 1)
+                .unwrap(),
             "eth4"
         );
         assert_eq!(
-            container_interface_name(&NodeModel::JuniperCevolved, 36).unwrap(),
+            container_interface_name(ModelKind::default_for(NodeModel::JuniperCevolved), 36)
+                .unwrap(),
             "eth39"
         );
         assert_eq!(
-            container_interface_name(&NodeModel::AristaCeos, 2).unwrap(),
+            container_interface_name(ModelKind::default_for(NodeModel::AristaCeos), 2).unwrap(),
             "eth2"
         );
     }
@@ -176,17 +180,27 @@ mod tests {
         for model in [NodeModel::CiscoIol, NodeModel::CiscoIoll2] {
             for idx in 0..16u8 {
                 let name = format!("Ethernet{}/{}", idx / 4, idx % 4);
-                assert_eq!(interface_from_idx(&model, idx).unwrap(), name);
-                assert_eq!(interface_to_idx(&model, &name).unwrap(), idx);
                 assert_eq!(
-                    container_interface_name(&model, idx).unwrap(),
+                    interface_from_idx(ModelKind::default_for(model), idx).unwrap(),
+                    name
+                );
+                assert_eq!(
+                    interface_to_idx(ModelKind::default_for(model), &name).unwrap(),
+                    idx
+                );
+                assert_eq!(
+                    container_interface_name(ModelKind::default_for(model), idx).unwrap(),
                     format!("eth{idx}")
                 );
             }
-            assert!(interface_from_idx(&model, 16).is_err());
-            assert_eq!(node_model_interfaces(&model).len(), 16);
+            assert!(interface_from_idx(ModelKind::default_for(model), 16).is_err());
             assert_eq!(
-                NodeConfig::get_model(model)
+                node_model_interfaces(ModelKind::default_for(model)).len(),
+                16
+            );
+            assert_eq!(
+                ModelKind::default_for(model)
+                    .node_config()
                     .interfaces
                     .management
                     .to_string(),
@@ -198,10 +212,19 @@ mod tests {
     #[test]
     fn cevolved_interfaces_are_the_36_et_ports() {
         let model = NodeModel::JuniperCevolved;
-        assert_eq!(interface_from_idx(&model, 1).unwrap(), "et-0/0/0");
-        assert_eq!(interface_from_idx(&model, 36).unwrap(), "et-0/0/35");
-        assert_eq!(interface_to_idx(&model, "re0:mgmt-0").unwrap(), 0);
-        assert!(interface_from_idx(&model, 37).is_err());
+        assert_eq!(
+            interface_from_idx(ModelKind::default_for(model), 1).unwrap(),
+            "et-0/0/0"
+        );
+        assert_eq!(
+            interface_from_idx(ModelKind::default_for(model), 36).unwrap(),
+            "et-0/0/35"
+        );
+        assert_eq!(
+            interface_to_idx(ModelKind::default_for(model), "re0:mgmt-0").unwrap(),
+            0
+        );
+        assert!(interface_from_idx(ModelKind::default_for(model), 37).is_err());
     }
 
     #[test]
@@ -219,12 +242,12 @@ mod tests {
     #[test]
     fn test_interface_roundtrip_cisco_iosv() {
         let model = NodeModel::CiscoIosv;
-        let name = interface_from_idx(&model, 0).unwrap();
-        let idx = interface_to_idx(&model, &name).unwrap();
+        let name = interface_from_idx(ModelKind::default_for(model), 0).unwrap();
+        let idx = interface_to_idx(ModelKind::default_for(model), &name).unwrap();
         assert_eq!(idx, 0);
 
-        let name1 = interface_from_idx(&model, 1).unwrap();
-        let idx1 = interface_to_idx(&model, &name1).unwrap();
+        let name1 = interface_from_idx(ModelKind::default_for(model), 1).unwrap();
+        let idx1 = interface_to_idx(ModelKind::default_for(model), &name1).unwrap();
         assert_eq!(idx1, 1);
     }
 
@@ -232,8 +255,8 @@ mod tests {
     fn test_interface_roundtrip_arista_veos() {
         let model = NodeModel::AristaVeos;
         for idx in 0..5 {
-            let name = interface_from_idx(&model, idx).unwrap();
-            let back = interface_to_idx(&model, &name).unwrap();
+            let name = interface_from_idx(ModelKind::default_for(model), idx).unwrap();
+            let back = interface_to_idx(ModelKind::default_for(model), &name).unwrap();
             assert_eq!(back, idx, "round-trip failed for idx {idx}: name={name}");
         }
     }
@@ -241,24 +264,30 @@ mod tests {
     #[test]
     fn test_interface_roundtrip_generic_ethernet() {
         let model = NodeModel::UbuntuLinux;
-        let name = interface_from_idx(&model, 0).unwrap();
-        assert_eq!(interface_to_idx(&model, &name).unwrap(), 0);
-        let name3 = interface_from_idx(&model, 3).unwrap();
-        assert_eq!(interface_to_idx(&model, &name3).unwrap(), 3);
+        let name = interface_from_idx(ModelKind::default_for(model), 0).unwrap();
+        assert_eq!(
+            interface_to_idx(ModelKind::default_for(model), &name).unwrap(),
+            0
+        );
+        let name3 = interface_from_idx(ModelKind::default_for(model), 3).unwrap();
+        assert_eq!(
+            interface_to_idx(ModelKind::default_for(model), &name3).unwrap(),
+            3
+        );
     }
 
     #[test]
     fn test_node_model_interfaces_returns_nonempty() {
         assert_ne!(
-            node_model_interfaces(&NodeModel::CiscoIosv),
+            node_model_interfaces(ModelKind::default_for(NodeModel::CiscoIosv)),
             Vec::<String>::new()
         );
         assert_ne!(
-            node_model_interfaces(&NodeModel::NokiaSrlinux),
+            node_model_interfaces(ModelKind::default_for(NodeModel::NokiaSrlinux)),
             Vec::<String>::new()
         );
         assert_ne!(
-            node_model_interfaces(&NodeModel::UbuntuLinux),
+            node_model_interfaces(ModelKind::default_for(NodeModel::UbuntuLinux)),
             Vec::<String>::new()
         );
     }
@@ -266,8 +295,8 @@ mod tests {
     #[test]
     fn the_first_interface_of_every_model_round_trips() {
         for model in NodeModel::iter() {
-            let name = interface_from_idx(&model, 0).unwrap();
-            let back = interface_to_idx(&model, &name).unwrap();
+            let name = interface_from_idx(ModelKind::default_for(model), 0).unwrap();
+            let back = interface_to_idx(ModelKind::default_for(model), &name).unwrap();
             assert_eq!(
                 back, 0,
                 "{model:?}: round-trip failed for idx 0 (name={name})"
@@ -302,7 +331,7 @@ mod tests {
             NodeModel::PaloaltoPanos,
         ];
         for model in &named_models {
-            let ifaces = node_model_interfaces(model);
+            let ifaces = node_model_interfaces(ModelKind::default_for(*model));
             assert!(
                 !ifaces.is_empty(),
                 "{model:?} returned empty interface list"

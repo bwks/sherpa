@@ -1,4 +1,4 @@
-SELECT node.id, node.name, node_image.model, node.manifest_image, node.version,
+SELECT node.id, node.name, node_image.model, node_image.kind, node.manifest_image, node.version,
     node.manifest_memory, node.manifest_cpu_count, node.cpu_mode, node.cpu_sockets,
     node.cpu_cores, node.cpu_threads, node.numa_node, node.numa_memory_mode,
     node.boot_disk_size, node.boot_disk_clone_method, node.boot_disk_cache, node.boot_disk_io,

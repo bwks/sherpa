@@ -6,7 +6,7 @@ use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Session};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
 use shared::data::{
-    DbUser, LabNodeActionResponse, LabPhase, LabState, NodeConfig, NodeModel, NodeState,
+    DbUser, LabNodeActionResponse, LabPhase, LabState, ModelKind, NodeConfig, NodeModel, NodeState,
 };
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
@@ -279,7 +279,7 @@ async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<(
     bootstrap_images(&mut ws, &token).await?;
 
     // generic_container keeps the manifest's commands; alpine is in the dev server's Docker.
-    let mut alpine = NodeConfig::get_model(NodeModel::GenericContainer);
+    let mut alpine = ModelKind::default_for(NodeModel::GenericContainer).node_config();
     alpine.repo = Some("alpine".to_owned());
     alpine.version = "latest".to_owned();
     alpine.default = true;
@@ -348,7 +348,7 @@ async fn register_alpine(server: &TestServer) -> Result<()> {
         repo: Some("alpine".to_owned()),
         version: "latest".to_owned(),
         default: true,
-        ..NodeConfig::get_model(NodeModel::GenericContainer)
+        ..ModelKind::default_for(NodeModel::GenericContainer).node_config()
     };
     db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;
     Ok(())
@@ -478,7 +478,7 @@ async fn admin_clean_removes_a_running_lab() -> Result<()> {
     bootstrap_images(&mut ws, &token).await?;
 
     // generic_container keeps the manifest's commands; alpine is in the dev server's Docker.
-    let mut alpine = NodeConfig::get_model(NodeModel::GenericContainer);
+    let mut alpine = ModelKind::default_for(NodeModel::GenericContainer).node_config();
     alpine.repo = Some("alpine".to_owned());
     alpine.version = "latest".to_owned();
     alpine.default = true;
@@ -648,7 +648,7 @@ async fn a_redeploy_that_fails_after_teardown_fails_its_node() -> Result<()> {
     bootstrap_images(&mut ws, &token).await?;
 
     // generic_container keeps the manifest's commands; alpine is in the dev server's Docker.
-    let mut alpine = NodeConfig::get_model(NodeModel::GenericContainer);
+    let mut alpine = ModelKind::default_for(NodeModel::GenericContainer).node_config();
     alpine.repo = Some("alpine".to_owned());
     alpine.version = "latest".to_owned();
     alpine.default = true;
@@ -770,7 +770,7 @@ async fn frr_gets_its_config_mounts_and_command_only_with_ztp_on() -> Result<()>
     let token = ws.login_lab_admin(&server).await?;
     bootstrap_images(&mut ws, &token).await?;
 
-    let mut frr = NodeConfig::get_model(NodeModel::FrrLinux);
+    let mut frr = ModelKind::default_for(NodeModel::FrrLinux).node_config();
     frr.version = FRR_TEST_VERSION.to_owned();
     db::upsert_node_image(&server.db, frr, DefaultRequest::Make).await?;
 
@@ -840,7 +840,7 @@ async fn up_refuses_an_unsupported_ztp_setting_before_creating_anything() -> Res
     let token = ws.login_lab_admin(&server).await?;
     bootstrap_images(&mut ws, &token).await?;
 
-    let mut frr = NodeConfig::get_model(NodeModel::FrrLinux);
+    let mut frr = ModelKind::default_for(NodeModel::FrrLinux).node_config();
     frr.version = FRR_TEST_VERSION.to_owned();
     db::upsert_node_image(&server.db, frr, DefaultRequest::Make).await?;
 
@@ -908,7 +908,7 @@ async fn the_scanner_records_what_docker_reports_but_not_over_up() -> Result<()>
     bootstrap_images(&mut ws, &token).await?;
 
     // generic_container keeps the manifest's commands; alpine is in the dev server's Docker.
-    let mut alpine = NodeConfig::get_model(NodeModel::GenericContainer);
+    let mut alpine = ModelKind::default_for(NodeModel::GenericContainer).node_config();
     alpine.repo = Some("alpine".to_owned());
     alpine.version = "latest".to_owned();
     alpine.default = true;
@@ -1172,7 +1172,7 @@ async fn test_container_lab_destroy() -> Result<()> {
 /// Add the alpine `generic_container` image, which keeps the manifest's commands, and return a
 /// one-node manifest for lab `lab_name` that sleeps.
 async fn sleeping_container_lab(server: &TestServer, lab_name: &str) -> Result<serde_json::Value> {
-    let mut alpine = NodeConfig::get_model(NodeModel::GenericContainer);
+    let mut alpine = ModelKind::default_for(NodeModel::GenericContainer).node_config();
     alpine.repo = Some("alpine".to_owned());
     "latest".clone_into(&mut alpine.version);
     alpine.default = true;

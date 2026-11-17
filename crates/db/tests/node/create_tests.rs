@@ -3,7 +3,7 @@ use db::{
     DefaultRequest, LabDetails, count_nodes_by_lab, create_lab, create_node, create_user, get_node,
     get_node_by_name_and_lab, upsert_node_image,
 };
-use shared::data::{NodeConfig, NodeModel};
+use shared::data::{ModelKind, NodeModel};
 
 use crate::helper::{ipv4_lab_networks, setup_db};
 
@@ -29,7 +29,7 @@ async fn test_create_node_success() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -74,7 +74,7 @@ async fn test_create_node_with_lab() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::CiscoIosv),
+        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -116,7 +116,7 @@ async fn test_create_node_duplicate_name_per_lab_fails() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -176,7 +176,7 @@ async fn test_create_node_duplicate_index_per_lab_fails() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::CiscoIosv),
+        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -250,7 +250,7 @@ async fn test_create_node_same_name_different_labs_succeeds() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -303,7 +303,7 @@ async fn test_create_node_with_index_boundaries() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::CiscoIosv),
+        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -354,7 +354,7 @@ async fn test_create_node_increments_count() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -407,7 +407,7 @@ async fn test_create_node_can_retrieve_by_name_and_lab() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::CiscoIosv),
+        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -453,7 +453,7 @@ async fn test_create_node_can_retrieve_by_id() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;

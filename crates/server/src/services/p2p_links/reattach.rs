@@ -102,7 +102,7 @@ impl LabLinks {
                 let image = images
                     .iter()
                     .find(|image| image.id.as_ref() == Some(&node.image))?;
-                Some((node.id.clone()?, image.kind.clone()))
+                Some((node.id.clone()?, image.kind))
             })
             .collect();
         Ok(Self::new(lab_id, links, &nodes, kinds))
@@ -145,7 +145,7 @@ impl LabLinks {
             .iter()
             .filter(|(id, name)| {
                 let kind = self.kinds.get(*id).unwrap_or(&NodeKind::VirtualMachine);
-                runtimes.runtime_of(kind, &domain_name(name, &self.lab_id))
+                runtimes.runtime_of(*kind, &domain_name(name, &self.lab_id))
                     == Some(Runtime::Running)
             })
             .map(|(id, _)| id.clone())
@@ -372,7 +372,7 @@ pub(crate) async fn report_links(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::ReadyCheck;
+    use shared::data::{ModelKind, ReadyCheck};
 
     use std::process::Command;
     use std::sync::Arc;
@@ -588,7 +588,7 @@ mod tests {
             host_veth: host_veth.to_string(),
             host_alias: format!("alias-{host_veth}"),
             interface_idx: idx,
-            node_model: NodeModel::FrrLinux,
+            model_kind: ModelKind::default_for(NodeModel::FrrLinux),
             admin_down,
             bridge: None,
         };

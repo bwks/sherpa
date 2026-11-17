@@ -49,10 +49,11 @@ pub fn validate_data_interface_count_override(
             )
         })?;
 
-    if util::interface_from_idx(&node_image.model, requested_max_idx).is_err() {
-        let max_supported_idx = util::node_model_interfaces(&node_image.model)
+    let model_kind = node_image.model_kind()?;
+    if util::interface_from_idx(model_kind, requested_max_idx).is_err() {
+        let max_supported_idx = util::node_model_interfaces(model_kind)
             .iter()
-            .filter_map(|interface| util::interface_to_idx(&node_image.model, interface).ok())
+            .filter_map(|interface| util::interface_to_idx(model_kind, interface).ok())
             .max()
             .unwrap_or(0);
         let max_allowed_count =
@@ -75,7 +76,7 @@ pub fn validate_data_interface_count_override(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::{NodeConfig, NodeModel};
+    use crate::data::{ModelKind, NodeConfig, NodeModel};
 
     #[test]
     fn test_effective_data_interface_count_uses_default_without_override() {
@@ -115,7 +116,7 @@ mod tests {
     fn test_default_data_interface_counts_fit_model_interfaces() {
         let mut overruns = Vec::new();
         for model in NodeModel::to_vec() {
-            let node_image = NodeConfig::get_model(model);
+            let node_image = ModelKind::default_for(model).node_config();
             if let Err(err) = validate_data_interface_count_override(
                 "default",
                 node_image.interfaces.data_count,

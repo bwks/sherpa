@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 
-use crate::NodeExpanded;
-use shared::data::NodeKind;
+use crate::{Node, NodeExpanded};
+use shared::data::{NodeKind, model_kinds_list};
 
 const ALL: &[NodeKind] = &[
     NodeKind::VirtualMachine,
@@ -14,15 +14,35 @@ const UNIKERNEL: &[NodeKind] = &[NodeKind::Unikernel];
 const VM_AND_CONTAINER: &[NodeKind] = &[NodeKind::VirtualMachine, NodeKind::Container];
 const VM_AND_UNIKERNEL: &[NodeKind] = &[NodeKind::VirtualMachine, NodeKind::Unikernel];
 
+/// Check that a node's `kind`, when it sets one, is a kind its model takes. A node that sets
+/// none takes its model's default kind.
+///
+/// # Errors
+///
+/// Fails when the node sets a kind its model does not take, naming the kinds the model takes.
+pub fn check_node_model_kind(node: &Node) -> Result<()> {
+    if let Some(kind) = node.kind
+        && !node.model.kinds().contains(&kind)
+    {
+        bail!(
+            "Manifest - node: '{}' sets `kind = \"{kind}\"`, but '{}' comes only as: {}",
+            node.name,
+            node.model,
+            model_kinds_list(node.model)
+        );
+    }
+    Ok(())
+}
+
 /// Check that a node only sets what its kind takes: the kind groups (`vm`, `container`,
-/// `unikernel`) must match its model, and each shared setting must apply to its kind.
+/// `unikernel`) must match the node's kind, and each shared setting must apply to it.
 ///
 /// # Errors
 ///
 /// Fails on the first setting the node's kind does not take, naming the node, the key and the
 /// kind.
 pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
-    let kind = node.model.kind();
+    let kind = node.model_kind.kind();
     let cpu = &node.cpu;
     let disk = &node.boot_disk;
     // Each key the node sets, and the kinds of node that take it.
@@ -101,7 +121,7 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
         bail!(
             "Manifest - node: '{}' sets `{key}`, which does not apply to {kind} nodes; '{}' is a {kind}",
             node.name,
-            node.model,
+            node.model_kind.model(),
         );
     }
     Ok(())
@@ -110,15 +130,23 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{NodeContainer, NodeUnikernel, NodeVm, StartupScript};
+    use crate::{Manifest, NodeContainer, NodeUnikernel, NodeVm, StartupScript};
     use shared::data::{
-        DiskCache, NodeBootDisk, NodeCpu, NodeInterfaces, NodeModel, NodeNuma, WatchdogAction, Ztp,
+        DiskCache, ModelKind, NodeBootDisk, NodeCpu, NodeInterfaces, NodeModel, NodeNuma,
+        WatchdogAction, Ztp,
     };
+
+    /// The one node of a manifest written in TOML, as read.
+    fn manifest_node(node: &str) -> Node {
+        let manifest: Manifest = toml::from_str(&format!("name = \"lab\"\n\n[[nodes]]\n{node}"))
+            .expect("the manifest reads");
+        manifest.nodes[0].clone()
+    }
 
     fn node(model: NodeModel) -> NodeExpanded {
         NodeExpanded {
             name: "node1".to_string(),
-            model,
+            model_kind: ModelKind::default_for(model),
             ..NodeExpanded::default()
         }
     }
@@ -248,5 +276,74 @@ mod tests {
         let mut unikernel = node(NodeModel::UnikraftUnikernel);
         unikernel.environment_variables = Some(vec!["A=1".to_string()]);
         assert!(error(&unikernel).contains("sets `environment_variables`"));
+    }
+
+    #[test]
+    fn a_node_without_a_kind_takes_its_models_default_kind() {
+        for (model, kind) in [
+            ("ubuntu_linux", NodeKind::VirtualMachine),
+            ("frr_linux", NodeKind::Container),
+            ("nanos_unikernel", NodeKind::Unikernel),
+        ] {
+            let node = manifest_node(&format!("name = \"n1\"\nmodel = \"{model}\""));
+            assert_eq!(node.kind, None);
+            check_node_model_kind(&node).unwrap();
+            let expanded = NodeExpanded::new(1, &node).unwrap();
+            assert_eq!(expanded.model_kind, ModelKind::default_for(node.model));
+            assert_eq!(expanded.model_kind.kind(), kind, "{model}");
+        }
+    }
+
+    #[test]
+    fn a_kind_the_model_takes_is_accepted() {
+        for (model, kind) in [
+            ("ubuntu_linux", NodeKind::VirtualMachine),
+            ("frr_linux", NodeKind::Container),
+            ("nanos_unikernel", NodeKind::Unikernel),
+        ] {
+            let node = manifest_node(&format!(
+                "name = \"n1\"\nmodel = \"{model}\"\nkind = \"{kind}\""
+            ));
+            assert_eq!(node.kind, Some(kind));
+            check_node_model_kind(&node).unwrap();
+            let expanded = NodeExpanded::new(1, &node).unwrap();
+            assert_eq!(expanded.model_kind.kind(), kind, "{model}");
+        }
+    }
+
+    #[test]
+    fn a_kind_the_model_does_not_take_is_refused_naming_the_kinds_it_takes() {
+        let node = manifest_node("name = \"fw1\"\nmodel = \"cisco_asav\"\nkind = \"container\"");
+        assert_eq!(
+            check_node_model_kind(&node).unwrap_err().to_string(),
+            "Manifest - node: 'fw1' sets `kind = \"container\"`, but 'cisco_asav' comes only as: \
+             virtual_machine"
+        );
+        let error = NodeExpanded::new(1, &node).unwrap_err();
+        assert!(format!("{error:#}").contains("'fw1'"), "{error:#}");
+    }
+
+    #[test]
+    fn a_kind_that_is_not_one_of_the_words_is_refused_when_read() {
+        let manifest: Result<Manifest, _> = toml::from_str(
+            "name = \"lab\"\n\n[[nodes]]\nname = \"n1\"\nmodel = \"ubuntu_linux\"\nkind = \"vm\"",
+        );
+        let error = manifest.unwrap_err().to_string();
+        assert!(error.contains("unknown variant `vm`"), "{error}");
+    }
+
+    #[test]
+    fn a_kind_with_another_kinds_settings_group_is_refused() {
+        let node = manifest_node(
+            "name = \"n1\"\nmodel = \"ubuntu_linux\"\nkind = \"virtual_machine\"\n\
+             [nodes.container]\nprivileged = true",
+        );
+        check_node_model_kind(&node).unwrap();
+        let expanded = NodeExpanded::new(1, &node).unwrap();
+        assert_eq!(
+            error(&expanded),
+            "Manifest - node: 'n1' sets `container`, which does not apply to virtual_machine \
+             nodes; 'ubuntu_linux' is a virtual_machine"
+        );
     }
 }

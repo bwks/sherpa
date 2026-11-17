@@ -3,7 +3,7 @@ use db::{
     DefaultRequest, LabDetails, create_lab, create_user, delete_lab_from, get_lab, list_labs,
     upsert_node_image,
 };
-use shared::data::{LabPhase, NodeConfig, NodeModel};
+use shared::data::{LabPhase, ModelKind, NodeModel};
 
 use crate::helper::{create_test_node_with_model, ipv4_lab_networks, setup_db};
 
@@ -105,13 +105,13 @@ async fn test_delete_lab_with_cascade_in_schema() -> Result<()> {
     // Create node configs first
     upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
     upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::WindowsServer),
+        ModelKind::default_for(NodeModel::WindowsServer).node_config(),
         DefaultRequest::Keep,
     )
     .await?;

@@ -3,7 +3,7 @@ use db::{
     DefaultRequest, LabDetails, count_nodes_by_lab, create_lab, create_node, create_user, get_node,
     get_node_by_name_and_lab, list_nodes_by_lab, upsert_node_image,
 };
-use shared::data::{NodeConfig, NodeModel, RecordId};
+use shared::data::{ModelKind, NodeModel, RecordId};
 
 use crate::helper::{ipv4_lab_networks, setup_db};
 
@@ -45,7 +45,7 @@ async fn test_get_node_by_name_and_lab_success() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::CiscoIosv),
+        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -162,7 +162,7 @@ async fn test_list_nodes_by_lab_filters_correctly() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::CiscoIosv),
+        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -266,7 +266,7 @@ async fn test_count_nodes_by_lab_accurate() -> Result<()> {
     .await?;
     let config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::CiscoIosv),
+        ModelKind::default_for(NodeModel::CiscoIosv).node_config(),
         DefaultRequest::Keep,
     )
     .await?;

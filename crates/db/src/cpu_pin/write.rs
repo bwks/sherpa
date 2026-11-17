@@ -190,7 +190,7 @@ async fn holder_role(
 
 #[cfg(test)]
 mod tests {
-    use shared::data::{LabPhase, NodeConfig, NodeModel, NodeState};
+    use shared::data::{LabPhase, ModelKind, NodeModel, NodeState};
 
     use super::*;
     use crate::{
@@ -375,7 +375,7 @@ mod tests {
         let (db, first, second) = two_labs().await;
         let image = upsert_node_image(
             &db,
-            NodeConfig::get_model(NodeModel::UbuntuLinux),
+            ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
             DefaultRequest::Make,
         )
         .await

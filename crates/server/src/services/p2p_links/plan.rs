@@ -71,7 +71,7 @@ fn container_end(
             lab_id: node.lab_id,
             name,
             index: node.node.index,
-            model: image.model,
+            model_kind: image.model_kind()?,
             record: node.node_id,
         },
         links,
@@ -89,7 +89,7 @@ mod tests {
     use super::*;
     use crate::services::lab_definition::stored_definition;
     use crate::services::lab_definition::tests::{lab_with, store};
-    use shared::data::ReadyCheck;
+    use shared::data::{ModelKind, ReadyCheck};
 
     use std::collections::HashMap;
 
@@ -156,7 +156,7 @@ mod tests {
 
     fn end_of(
         name: &str,
-        kind: &NodeKind,
+        kind: NodeKind,
         image: Option<&NodeConfig>,
         definition: Option<&Manifest>,
     ) -> Option<RecreatedEnd> {
@@ -168,7 +168,7 @@ mod tests {
                 lab_id: "lab1",
                 node: &node,
                 node_id: &node_id,
-                kind,
+                kind: &kind,
                 image,
             },
             definition,
@@ -183,20 +183,20 @@ mod tests {
         // M8.1: only cold-booted VMs used to be re-attached; a unikernel's new tap was left
         // without a redirect, and its peer's pointed at the old one.
         assert!(matches!(
-            end_of("uk1", &NodeKind::Unikernel, None, definition.as_ref()),
+            end_of("uk1", NodeKind::Unikernel, None, definition.as_ref()),
             Some(RecreatedEnd::Domain)
         ));
         assert!(matches!(
-            end_of("vm1", &NodeKind::VirtualMachine, None, definition.as_ref()),
+            end_of("vm1", NodeKind::VirtualMachine, None, definition.as_ref()),
             Some(RecreatedEnd::Domain)
         ));
     }
 
     /// The host veths planned for a started `ctr1`.
     fn ctr1_host_veths(definition: Option<&Manifest>) -> Vec<String> {
-        let image = NodeConfig::get_model(NodeModel::FrrLinux);
+        let image = ModelKind::default_for(NodeModel::FrrLinux).node_config();
         let Some(RecreatedEnd::Container { container, veths }) =
-            end_of("ctr1", &NodeKind::Container, Some(&image), definition)
+            end_of("ctr1", NodeKind::Container, Some(&image), definition)
         else {
             panic!("a started container on a link has its ends made again");
         };
@@ -222,7 +222,7 @@ mod tests {
         let (db, lab) = lab_with(&[("ctr1", NodeModel::FrrLinux)]).await;
         let definition = stored_definition(&db, lab.id.as_ref().unwrap(), "lab1").await;
         assert_eq!(definition, None);
-        let image = NodeConfig::get_model(NodeModel::FrrLinux);
+        let image = ModelKind::default_for(NodeModel::FrrLinux).node_config();
         let veths = ctr1_host_veths(definition.as_ref());
         assert_eq!(veths.len(), usize::from(image.interfaces.data_count));
         assert_eq!(veths[0], "tpb1-lab1");
@@ -231,11 +231,11 @@ mod tests {
     #[tokio::test]
     async fn a_started_container_on_no_link_keeps_its_docker_networks() {
         let definition = definition().await;
-        let image = NodeConfig::get_model(NodeModel::FrrLinux);
+        let image = ModelKind::default_for(NodeModel::FrrLinux).node_config();
         assert!(
             end_of(
                 "ctr9",
-                &NodeKind::Container,
+                NodeKind::Container,
                 Some(&image),
                 definition.as_ref()
             )
@@ -246,7 +246,7 @@ mod tests {
     #[test]
     fn a_started_container_that_cannot_be_planned_fails_its_links() {
         assert!(matches!(
-            end_of("ctr1", &NodeKind::Container, None, None),
+            end_of("ctr1", NodeKind::Container, None, None),
             Some(RecreatedEnd::Unplanned(_))
         ));
     }

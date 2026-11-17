@@ -161,7 +161,7 @@ pub fn render_image_detail_table(image: &NodeConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{NodeKind, NodeModel};
+    use shared::data::{ModelKind, NodeKind, NodeModel};
 
     #[test]
     fn images_table_shows_each_image_and_whether_it_is_the_default() {
@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_render_image_detail_table() {
-        let image = NodeConfig::get_model(NodeModel::CiscoCat8000v);
+        let image = ModelKind::default_for(NodeModel::CiscoCat8000v).node_config();
 
         let table = render_image_detail_table(&image);
 
@@ -324,7 +324,7 @@ mod tests {
     #[test]
     fn image_detail_table_leaves_out_the_settings_a_container_does_not_use() {
         for model in [NodeModel::NokiaSrlinux, NodeModel::MongoDb] {
-            let table = render_image_detail_table(&NodeConfig::get_model(model));
+            let table = render_image_detail_table(&ModelKind::default_for(model).node_config());
             assert!(!table.contains(MACHINE_TYPE_ROW), "{model}\n{table}");
             for row in FIRMWARE_AND_DISK_ROWS {
                 assert!(!table.contains(row), "{model} {row}\n{table}");
@@ -339,7 +339,9 @@ mod tests {
 
     #[test]
     fn image_detail_table_shows_a_unikernel_its_machine_type_only() {
-        let table = render_image_detail_table(&NodeConfig::get_model(NodeModel::NanosUnikernel));
+        let table = render_image_detail_table(
+            &ModelKind::default_for(NodeModel::NanosUnikernel).node_config(),
+        );
         assert!(table.contains(MACHINE_TYPE_ROW), "{table}");
         for row in FIRMWARE_AND_DISK_ROWS {
             assert!(!table.contains(row), "{row}\n{table}");
@@ -348,7 +350,7 @@ mod tests {
 
     #[test]
     fn test_render_image_detail_table_container_model() {
-        let image = NodeConfig::get_model(NodeModel::NokiaSrlinux);
+        let image = ModelKind::default_for(NodeModel::NokiaSrlinux).node_config();
 
         let table = render_image_detail_table(&image);
 

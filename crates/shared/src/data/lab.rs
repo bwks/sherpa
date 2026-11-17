@@ -10,7 +10,7 @@ use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 use tracing::instrument;
 
-use super::{BridgeKind, DbNode, LabPhase, NodeKind, NodeModel, NodeState};
+use super::{BridgeKind, DbNode, LabPhase, ModelKind, NodeState};
 
 #[derive(Clone, Debug)]
 pub enum PeerSide {
@@ -151,8 +151,7 @@ impl FromStr for LabInfo {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct LabNodeData {
     pub name: String,
-    pub model: NodeModel,
-    pub kind: NodeKind,
+    pub model_kind: ModelKind,
     pub index: u16,
     pub record: DbNode,
 }

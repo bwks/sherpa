@@ -1,5 +1,6 @@
 use std::fmt;
 
+use anyhow::Result;
 use clap::ValueEnum;
 use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
@@ -15,11 +16,11 @@ use crate::konst::{
     CONTAINER_FORGEJO_REPO, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO,
     CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_JUNIPER_CEVOLVED_REPO, CONTAINER_KEYCLOAK_REPO,
     CONTAINER_MONGO_DB_REPO, CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_REPO,
-    CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD, SONIC_PORT_COUNT, SSH_PORT,
-    TALOS_API_PORT, TALOS_DEFAULT_BOOT_DISK_SIZE,
+    CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD, SONIC_PORT_COUNT,
 };
 
 use super::RecordId;
+use super::model_kind::ModelKind;
 use super::node_base;
 
 #[derive(
@@ -365,128 +366,78 @@ impl NodeModel {
         NodeModel::iter().collect()
     }
 
-    /// Get the `NodeKind` for this model
-    /// Uses the existing hardcoded mapping in `NodeConfig::get_model()`
+    /// The kinds this model takes, in a fixed order. The first is the model's default, the
+    /// kind a node gets when its manifest sets no `kind`, and it never changes. Every model is
+    /// named, so a new one does not compile until it has an entry, and every entry lists at
+    /// least one kind.
     #[must_use]
-    pub fn kind(&self) -> NodeKind {
-        NodeConfig::get_model(*self).kind
-    }
-
-    /// The ZTP methods this model takes, most models one, two models two, and models with no
-    /// config generator none. `Ztp::Disabled` is allowed for every model and is never listed.
-    /// Every model is named, so a new one does not compile until it has an entry.
-    #[must_use]
-    pub fn ztp_methods(self) -> &'static [Ztp] {
+    pub fn kinds(self) -> &'static [NodeKind] {
         match self {
-            NodeModel::CentosLinux
+            NodeModel::AristaVeos
+            | NodeModel::ArubaAoscx
+            | NodeModel::CiscoAsav
+            | NodeModel::CiscoCsr1000v
+            | NodeModel::CiscoCat8000v
+            | NodeModel::CiscoCat9000v
+            | NodeModel::CiscoIosxrv9000
+            | NodeModel::CiscoNexus9300v
+            | NodeModel::CiscoIosv
+            | NodeModel::CiscoIosvl2
+            | NodeModel::CiscoIse
+            | NodeModel::CiscoFtdv
+            | NodeModel::JuniperVrouter
+            | NodeModel::JuniperVswitch
+            | NodeModel::JuniperVevolved
+            | NodeModel::JuniperVsrxv3
+            | NodeModel::PaloaltoPanos
+            | NodeModel::MikrotikChr
             | NodeModel::AlmaLinux
-            | NodeModel::DevboxLinux
             | NodeModel::RockyLinux
+            | NodeModel::AlpineLinux
+            | NodeModel::CumulusLinux
+            | NodeModel::CentosLinux
+            | NodeModel::DevboxLinux
             | NodeModel::FedoraLinux
-            | NodeModel::OpensuseLinux
             | NodeModel::RedhatLinux
+            | NodeModel::OpensuseLinux
             | NodeModel::SuseLinux
             | NodeModel::UbuntuLinux
             | NodeModel::OmarchyLinux
             | NodeModel::NixosLinux
             | NodeModel::KaliLinux
+            | NodeModel::FlatcarLinux
+            | NodeModel::SonicLinux
+            | NodeModel::TalosLinux
+            | NodeModel::DevboxWindows
+            | NodeModel::WindowsServer
+            | NodeModel::FreeBsd
+            | NodeModel::OpenBsd
             | NodeModel::InfrahubServer
             | NodeModel::JenkinsServer
             | NodeModel::NautobotServer
             | NodeModel::NetboxServer
             | NodeModel::SignozServer
             | NodeModel::VirtServer
-            | NodeModel::GenericVm
-            | NodeModel::FreeBsd
-            | NodeModel::OpenBsd
-            | NodeModel::DevboxWindows
-            | NodeModel::WindowsServer
-            | NodeModel::AlpineLinux => &[Ztp::CloudInit],
-            NodeModel::AristaVeos | NodeModel::ArubaAoscx => &[Ztp::Tftp],
-            NodeModel::JuniperVsrxv3 => &[Ztp::Tftp, Ztp::Cdrom],
-            NodeModel::JuniperVevolved => &[Ztp::Tftp, Ztp::Usb],
-            NodeModel::CiscoCsr1000v
-            | NodeModel::CiscoCat8000v
-            | NodeModel::CiscoCat9000v
-            | NodeModel::CiscoAsav
-            | NodeModel::CiscoNexus9300v
-            | NodeModel::CiscoIosxrv9000
-            | NodeModel::CiscoFtdv
-            | NodeModel::JuniperVrouter
-            | NodeModel::JuniperVswitch
-            | NodeModel::PaloaltoPanos => &[Ztp::Cdrom],
-            NodeModel::CiscoIosv
-            | NodeModel::CiscoIosvl2
-            | NodeModel::CiscoIse
-            | NodeModel::MikrotikChr => &[Ztp::Disk],
-            NodeModel::CumulusLinux => &[Ztp::Usb],
-            NodeModel::SonicLinux => &[Ztp::Http],
-            NodeModel::FlatcarLinux => &[Ztp::Ignition],
-            NodeModel::TalosLinux => &[Ztp::NoCloud],
+            | NodeModel::GenericVm => &[NodeKind::VirtualMachine],
             NodeModel::AristaCeos
-            | NodeModel::NokiaSrlinux
-            | NodeModel::JuniperCevolved
             | NodeModel::CiscoIol
             | NodeModel::CiscoIoll2
-            | NodeModel::FrrLinux => &[Ztp::Volume],
-            NodeModel::GitlabCe
+            | NodeModel::JuniperCevolved
+            | NodeModel::NokiaSrlinux
+            | NodeModel::FrrLinux
             | NodeModel::ForgejoForge
+            | NodeModel::GitlabCe
+            | NodeModel::NatsBus
             | NodeModel::SurrealDb
             | NodeModel::MysqlDb
             | NodeModel::MongoDb
             | NodeModel::PostgresqlDb
-            | NodeModel::NatsBus
             | NodeModel::HashicorpVault
             | NodeModel::KeycloakServer
-            | NodeModel::GenericContainer
-            | NodeModel::GenericUnikernel
+            | NodeModel::GenericContainer => &[NodeKind::Container],
+            NodeModel::GenericUnikernel
             | NodeModel::UnikraftUnikernel
-            | NodeModel::NanosUnikernel => &[],
-        }
-    }
-
-    /// Whether nodes of this model accept SSH logins. Talos Linux has no SSH or shell.
-    #[must_use]
-    pub fn has_ssh(&self) -> bool {
-        !matches!(self, NodeModel::TalosLinux)
-    }
-
-    /// Whether every data interface of a container of this model stays up, disabled ones too.
-    /// cJunosEvolved waits at boot until all the data interfaces it is told about are up.
-    #[must_use]
-    pub fn keeps_data_interfaces_up(&self) -> bool {
-        matches!(self, NodeModel::JuniperCevolved)
-    }
-
-    /// Whether the host must finish the checksums of packets it sends to a container of this
-    /// model, so transmit checksum offload goes off on the host end of its veths. IOL reads its
-    /// interfaces through packet sockets, which hand it a packet whose checksum a veth left for
-    /// the "hardware" to fill in, and IOL drops it.
-    #[must_use]
-    pub fn needs_host_checksums(&self) -> bool {
-        matches!(self, NodeModel::CiscoIol | NodeModel::CiscoIoll2)
-    }
-
-    /// TCP port that shows a virtual machine of this model is ready.
-    ///
-    /// Talos Linux has no SSH, so its API port is used instead.
-    #[must_use]
-    pub fn ready_port(&self) -> u16 {
-        match self {
-            NodeModel::TalosLinux => TALOS_API_PORT,
-            _ => SSH_PORT,
-        }
-    }
-
-    /// Boot disk size in GB used when the manifest does not set `boot_disk.size`.
-    ///
-    /// `None` keeps the image's own size. The Talos Linux image is about 4 GB but Talos needs
-    /// at least 10 GB.
-    #[must_use]
-    pub fn default_boot_disk_size(&self) -> Option<u16> {
-        match self {
-            NodeModel::TalosLinux => Some(TALOS_DEFAULT_BOOT_DISK_SIZE),
-            _ => None,
+            | NodeModel::NanosUnikernel => &[NodeKind::Unikernel],
         }
     }
 }
@@ -775,8 +726,20 @@ pub enum Ztp {
 }
 
 #[derive(
-    Clone, Debug, Deserialize, Default, Serialize, PartialEq, Eq, Hash, EnumIter, JsonSchema,
+    Clone,
+    Copy,
+    Debug,
+    Deserialize,
+    Default,
+    Serialize,
+    PartialEq,
+    Eq,
+    Hash,
+    ValueEnum,
+    EnumIter,
+    JsonSchema,
 )]
+#[clap(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum NodeKind {
     #[default]
@@ -1043,110 +1006,13 @@ impl Default for NodeConfig {
 }
 
 impl NodeConfig {
-    #[must_use]
-    pub fn get_model(device_model: NodeModel) -> NodeConfig {
-        match device_model {
-            // Arista
-            NodeModel::AristaVeos => NodeConfig::arista_veos(),
-            NodeModel::AristaCeos => NodeConfig::arista_ceos(),
-
-            // Aruba
-            NodeModel::ArubaAoscx => NodeConfig::aruba_aoscx(),
-
-            // Cisco
-            NodeModel::CiscoAsav => NodeConfig::cisco_asav(),
-            NodeModel::CiscoCsr1000v => NodeConfig::cisco_csr1000v(),
-            NodeModel::CiscoCat8000v => NodeConfig::cisco_cat8000v(),
-            NodeModel::CiscoCat9000v => NodeConfig::cisco_cat9000v(),
-            NodeModel::CiscoIosxrv9000 => NodeConfig::cisco_iosxrv9000(),
-            NodeModel::CiscoNexus9300v => NodeConfig::cisco_nexus9300v(),
-            NodeModel::CiscoIosv => NodeConfig::cisco_iosv(),
-            NodeModel::CiscoIosvl2 => NodeConfig::cisco_iosvl2(),
-            NodeModel::CiscoIol => NodeConfig::cisco_iol(),
-            NodeModel::CiscoIoll2 => NodeConfig::cisco_ioll2(),
-            NodeModel::CiscoIse => NodeConfig::cisco_ise(),
-            NodeModel::CiscoFtdv => NodeConfig::cisco_ftdv(),
-
-            // Juniper
-            NodeModel::JuniperVrouter => NodeConfig::juniper_vrouter(),
-            NodeModel::JuniperVswitch => NodeConfig::juniper_vswitch(),
-            NodeModel::JuniperVevolved => NodeConfig::juniper_vevolved(),
-            NodeModel::JuniperCevolved => NodeConfig::juniper_cevolved(),
-            NodeModel::JuniperVsrxv3 => NodeConfig::juniper_vsrxv3(),
-
-            // Nokia
-            NodeModel::NokiaSrlinux => NodeConfig::nokia_srlinux(),
-
-            // Palo Alto
-            NodeModel::PaloaltoPanos => NodeConfig::paloalto_panos(),
-
-            // Mikrotik
-            NodeModel::MikrotikChr => NodeConfig::mikrotik_chr(),
-
-            // FRR
-            NodeModel::FrrLinux => NodeConfig::frr_linux(),
-
-            // Linux
-            NodeModel::AlmaLinux => NodeConfig::alma_linux(),
-            NodeModel::RockyLinux => NodeConfig::rocky_linux(),
-            NodeModel::AlpineLinux => NodeConfig::alpine_linux(),
-            NodeModel::CumulusLinux => NodeConfig::cumulus_linux(),
-            NodeModel::CentosLinux => NodeConfig::centos_linux(),
-            NodeModel::DevboxLinux => NodeConfig::devbox_linux(),
-            NodeModel::FedoraLinux => NodeConfig::fedora_linux(),
-            NodeModel::RedhatLinux => NodeConfig::redhat_linux(),
-            NodeModel::OpensuseLinux => NodeConfig::opensuse_linux(),
-            NodeModel::SuseLinux => NodeConfig::suse_linux(),
-            NodeModel::UbuntuLinux => NodeConfig::ubuntu_linux(),
-            NodeModel::OmarchyLinux => NodeConfig::omarchy_linux(),
-            NodeModel::NixosLinux => NodeConfig::nixos_linux(),
-            NodeModel::KaliLinux => NodeConfig::kali_linux(),
-            NodeModel::SonicLinux => NodeConfig::sonic_linux(),
-            NodeModel::FlatcarLinux => NodeConfig::flatcar_linux(),
-            NodeModel::TalosLinux => NodeConfig::talos_linux(),
-
-            // BSD
-            NodeModel::FreeBsd => NodeConfig::free_bsd(),
-            NodeModel::OpenBsd => NodeConfig::open_bsd(),
-
-            // Windows
-            NodeModel::DevboxWindows => NodeConfig::devbox_windows(),
-            NodeModel::WindowsServer => NodeConfig::windows_server(),
-
-            // Application
-            NodeModel::ForgejoForge => NodeConfig::forgejo_forge(),
-            NodeModel::GitlabCe => NodeConfig::gitlab_ce(),
-            NodeModel::InfrahubServer => NodeConfig::infrahub_server(),
-            NodeModel::JenkinsServer => NodeConfig::jenkins_server(),
-            NodeModel::NautobotServer => NodeConfig::nautobot_server(),
-            NodeModel::NetboxServer => NodeConfig::netbox_server(),
-            NodeModel::SignozServer => NodeConfig::signoz_server(),
-            NodeModel::VirtServer => NodeConfig::virt_server(),
-
-            // Messaging
-            NodeModel::NatsBus => NodeConfig::nats_bus(),
-
-            // SQL
-            NodeModel::MysqlDb => NodeConfig::mysql_db(),
-            NodeModel::MongoDb => NodeConfig::mongo_db(),
-            NodeModel::PostgresqlDb => NodeConfig::postgresql_db(),
-            NodeModel::SurrealDb => NodeConfig::surreal_db(),
-
-            // HashiCorp
-            NodeModel::HashicorpVault => NodeConfig::hashicorp_vault(),
-
-            // Identity
-            NodeModel::KeycloakServer => NodeConfig::keycloak_server(),
-
-            // Generic
-            NodeModel::GenericContainer => NodeConfig::generic_container(),
-            NodeModel::GenericUnikernel => NodeConfig::generic_unikernel(),
-            NodeModel::GenericVm => NodeConfig::generic_vm(),
-
-            // Unikernels
-            NodeModel::UnikraftUnikernel => NodeConfig::unikraft_unikernel(),
-            NodeModel::NanosUnikernel => NodeConfig::nanos_unikernel(),
-        }
+    /// The model and kind of this image.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the image's model does not take its kind, as a record edited by hand could.
+    pub fn model_kind(&self) -> Result<ModelKind> {
+        ModelKind::new(self.model, Some(self.kind))
     }
 
     /// The repo a container node runs, for the node's version as pulled (`self`): the
@@ -2282,9 +2148,10 @@ fn cisco_iol_interfaces() -> InterfaceSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::konst::TALOS_API_PORT;
 
     fn pulled(model: NodeModel, repo: Option<&str>) -> NodeConfig {
-        let mut config = NodeConfig::get_model(model);
+        let mut config = ModelKind::default_for(model).node_config();
         config.repo = repo.map(str::to_string);
         config
     }
@@ -2423,7 +2290,7 @@ mod tests {
             NodeModel::NanosUnikernel,
         ];
         for model in unikernel_models {
-            let config = NodeConfig::get_model(model);
+            let config = ModelKind::default_for(model).node_config();
             assert_eq!(
                 config.kind,
                 NodeKind::Unikernel,
@@ -2436,7 +2303,7 @@ mod tests {
     fn test_unikernel_config_boot_modes() {
         // DirectKernel models
         for model in [NodeModel::GenericUnikernel, NodeModel::UnikraftUnikernel] {
-            let config = NodeConfig::get_model(model);
+            let config = ModelKind::default_for(model).node_config();
             assert_eq!(
                 config.unikernel.map(|u| u.boot_mode),
                 Some(UnikernelBootMode::DirectKernel),
@@ -2445,7 +2312,7 @@ mod tests {
         }
 
         // DiskBoot model
-        let nanos_config = NodeConfig::get_model(NodeModel::NanosUnikernel);
+        let nanos_config = ModelKind::default_for(NodeModel::NanosUnikernel).node_config();
         assert_eq!(
             nanos_config.unikernel.map(|u| u.boot_mode),
             Some(UnikernelBootMode::DiskBoot),
@@ -2461,7 +2328,7 @@ mod tests {
             NodeModel::NanosUnikernel,
         ];
         for model in unikernel_models {
-            let config = NodeConfig::get_model(model);
+            let config = ModelKind::default_for(model).node_config();
             assert_eq!(
                 config.ztp.method,
                 Ztp::Disabled,
@@ -2472,7 +2339,7 @@ mod tests {
 
     #[test]
     fn test_unikernel_config_defaults() {
-        let config = NodeConfig::get_model(NodeModel::UnikraftUnikernel);
+        let config = ModelKind::default_for(NodeModel::UnikraftUnikernel).node_config();
         assert_eq!(config.memory, 512);
         assert_eq!(config.cpu.count, 1);
         assert_eq!(config.interfaces.kind.to_string(), "virtio");
@@ -2486,7 +2353,7 @@ mod tests {
             NodeModel::UbuntuLinux,
         ];
         for model in vm_models {
-            let config = NodeConfig::get_model(model);
+            let config = ModelKind::default_for(model).node_config();
             assert!(
                 config.unikernel.is_none(),
                 "VM model {model} should not have unikernel settings"
@@ -2496,7 +2363,7 @@ mod tests {
     #[test]
     fn test_omarchy_model_defaults() {
         let model: super::NodeModel = "omarchy_linux".parse().unwrap();
-        let config = super::NodeConfig::get_model(model);
+        let config = super::ModelKind::default_for(model).node_config();
         assert_eq!(model.to_string(), "omarchy_linux");
         assert!(matches!(config.machine.bios, super::BiosTypes::Uefi));
         assert_eq!(config.ztp.method, super::Ztp::CloudInit);
@@ -2513,7 +2380,7 @@ mod tests {
 
     #[test]
     fn sonic_linux_has_one_data_interface_per_front_panel_port() {
-        let config = NodeConfig::get_model(NodeModel::SonicLinux);
+        let config = ModelKind::default_for(NodeModel::SonicLinux).node_config();
         assert_eq!(config.interfaces.data_count, 32);
         assert_eq!(config.interfaces.prefix, "eth");
         assert_eq!(config.interfaces.first_index, 1);
@@ -2528,7 +2395,7 @@ mod tests {
         ] {
             let model: NodeModel = name.parse().unwrap();
             assert_eq!(model.to_string(), name);
-            let config = NodeConfig::get_model(model);
+            let config = ModelKind::default_for(model).node_config();
             assert_eq!(config.model, model);
             assert_eq!(config.kind, NodeKind::Container, "{name}");
             assert!(matches!(config.os_variant, OsVariant::Ios), "{name}");
@@ -2546,27 +2413,20 @@ mod tests {
             );
             assert_eq!(config.repo.as_deref(), Some(repo), "{name}");
             assert_eq!(config.ztp.method, Ztp::Volume, "{name}");
-            assert_eq!(model.ztp_methods(), &[Ztp::Volume], "{name}");
+            assert_eq!(
+                ModelKind::default_for(model).ztp_methods(),
+                &[Ztp::Volume],
+                "{name}"
+            );
             let encoded = serde_json::to_string(&model).unwrap();
             assert_eq!(serde_json::from_str::<NodeModel>(&encoded).unwrap(), model);
         }
     }
 
     #[test]
-    fn only_cisco_iol_containers_need_the_host_to_finish_checksums() {
-        for model in NodeModel::iter() {
-            assert_eq!(
-                model.needs_host_checksums(),
-                matches!(model, NodeModel::CiscoIol | NodeModel::CiscoIoll2),
-                "{model}"
-            );
-        }
-    }
-
-    #[test]
     fn test_nixos_model_defaults() {
         let model: super::NodeModel = "nixos_linux".parse().unwrap();
-        let config = super::NodeConfig::get_model(model);
+        let config = super::ModelKind::default_for(model).node_config();
         assert_eq!(model.to_string(), "nixos_linux");
         assert_eq!(config.kind, super::NodeKind::VirtualMachine);
         assert!(matches!(config.os_variant, super::OsVariant::Linux));
@@ -2595,7 +2455,7 @@ mod tests {
     #[test]
     fn talos_linux_model_defaults() {
         let model: super::NodeModel = "talos_linux".parse().unwrap();
-        let config = super::NodeConfig::get_model(model);
+        let config = super::ModelKind::default_for(model).node_config();
         assert_eq!(model.to_string(), "talos_linux");
         assert_eq!(config.kind, super::NodeKind::VirtualMachine);
         assert!(matches!(config.os_variant, super::OsVariant::Linux));
@@ -2611,22 +2471,15 @@ mod tests {
         assert!(config.cdrom.image.is_none());
         assert_eq!(config.cpu.count, 2);
         assert_eq!(config.memory, 4096);
-        assert_eq!(model.default_boot_disk_size(), Some(20));
-        assert!(!model.has_ssh());
-        assert_eq!(model.ready_port(), TALOS_API_PORT);
+        let model_kind = ModelKind::default_for(model);
+        assert_eq!(model_kind.default_boot_disk_size(), Some(20));
+        assert!(!model_kind.has_ssh());
+        assert_eq!(model_kind.ready_port(), Some(TALOS_API_PORT));
         let encoded = serde_json::to_string(&model).unwrap();
         assert_eq!(
             serde_json::from_str::<super::NodeModel>(&encoded).unwrap(),
             model
         );
-    }
-
-    #[test]
-    fn other_vm_models_keep_ssh_readiness_and_image_disk_size() {
-        assert_eq!(super::NodeModel::UbuntuLinux.ready_port(), SSH_PORT);
-        assert_eq!(super::NodeModel::FlatcarLinux.ready_port(), SSH_PORT);
-        assert_eq!(super::NodeModel::UbuntuLinux.default_boot_disk_size(), None);
-        assert!(super::NodeModel::UbuntuLinux.has_ssh());
     }
 
     #[test]
@@ -2643,108 +2496,6 @@ mod tests {
         }
     }
 
-    /// The methods each model takes, written out: the generators' model arms.
-    fn expected_ztp_methods(model: NodeModel) -> Vec<Ztp> {
-        match model {
-            NodeModel::CentosLinux
-            | NodeModel::AlmaLinux
-            | NodeModel::DevboxLinux
-            | NodeModel::RockyLinux
-            | NodeModel::FedoraLinux
-            | NodeModel::OpensuseLinux
-            | NodeModel::RedhatLinux
-            | NodeModel::SuseLinux
-            | NodeModel::UbuntuLinux
-            | NodeModel::OmarchyLinux
-            | NodeModel::NixosLinux
-            | NodeModel::KaliLinux
-            | NodeModel::InfrahubServer
-            | NodeModel::JenkinsServer
-            | NodeModel::NautobotServer
-            | NodeModel::NetboxServer
-            | NodeModel::SignozServer
-            | NodeModel::VirtServer
-            | NodeModel::GenericVm
-            | NodeModel::FreeBsd
-            | NodeModel::OpenBsd
-            | NodeModel::DevboxWindows
-            | NodeModel::WindowsServer
-            | NodeModel::AlpineLinux => vec![Ztp::CloudInit],
-            NodeModel::AristaVeos | NodeModel::ArubaAoscx => vec![Ztp::Tftp],
-            NodeModel::JuniperVsrxv3 => vec![Ztp::Tftp, Ztp::Cdrom],
-            NodeModel::JuniperVevolved => vec![Ztp::Tftp, Ztp::Usb],
-            NodeModel::CiscoCsr1000v
-            | NodeModel::CiscoCat8000v
-            | NodeModel::CiscoCat9000v
-            | NodeModel::CiscoAsav
-            | NodeModel::CiscoNexus9300v
-            | NodeModel::CiscoIosxrv9000
-            | NodeModel::CiscoFtdv
-            | NodeModel::JuniperVrouter
-            | NodeModel::JuniperVswitch
-            | NodeModel::PaloaltoPanos => vec![Ztp::Cdrom],
-            NodeModel::CiscoIosv
-            | NodeModel::CiscoIosvl2
-            | NodeModel::CiscoIse
-            | NodeModel::MikrotikChr => vec![Ztp::Disk],
-            NodeModel::CumulusLinux => vec![Ztp::Usb],
-            NodeModel::SonicLinux => vec![Ztp::Http],
-            NodeModel::FlatcarLinux => vec![Ztp::Ignition],
-            NodeModel::TalosLinux => vec![Ztp::NoCloud],
-            NodeModel::AristaCeos
-            | NodeModel::NokiaSrlinux
-            | NodeModel::JuniperCevolved
-            | NodeModel::CiscoIol
-            | NodeModel::CiscoIoll2
-            | NodeModel::FrrLinux => vec![Ztp::Volume],
-            NodeModel::GitlabCe
-            | NodeModel::ForgejoForge
-            | NodeModel::SurrealDb
-            | NodeModel::MysqlDb
-            | NodeModel::MongoDb
-            | NodeModel::PostgresqlDb
-            | NodeModel::NatsBus
-            | NodeModel::HashicorpVault
-            | NodeModel::KeycloakServer
-            | NodeModel::GenericContainer
-            | NodeModel::GenericUnikernel
-            | NodeModel::UnikraftUnikernel
-            | NodeModel::NanosUnikernel => Vec::new(),
-        }
-    }
-
-    #[test]
-    fn test_ztp_methods_of_every_model_match_the_generators() {
-        for model in NodeModel::iter() {
-            assert_eq!(
-                model.ztp_methods(),
-                expected_ztp_methods(model),
-                "methods of {model}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_no_model_lists_disabled_as_a_ztp_method() {
-        for model in NodeModel::iter() {
-            assert!(
-                !model.ztp_methods().contains(&Ztp::Disabled),
-                "{model} lists disabled"
-            );
-        }
-    }
-
-    #[test]
-    fn test_every_models_default_ztp_is_disabled_or_a_listed_method() {
-        for model in NodeModel::iter() {
-            let ztp = NodeConfig::get_model(model).ztp.method;
-            assert!(
-                ztp == Ztp::Disabled || model.ztp_methods().contains(&ztp),
-                "{model} defaults to {ztp}, which it does not list"
-            );
-        }
-    }
-
     #[test]
     fn test_container_and_unikernel_default_ztp() {
         let mounted = [
@@ -2756,7 +2507,7 @@ mod tests {
             NodeModel::FrrLinux,
         ];
         for model in NodeModel::iter() {
-            let config = NodeConfig::get_model(model);
+            let config = ModelKind::default_for(model).node_config();
             let expected = match config.kind {
                 NodeKind::Container if mounted.contains(&model) => Ztp::Volume,
                 NodeKind::Container | NodeKind::Unikernel => Ztp::Disabled,
@@ -2813,12 +2564,12 @@ mod tests {
         top.extend(groups.iter().map(|(group, _)| *group));
         top.sort_unstable();
         for model in NodeModel::iter() {
-            let json = serde_json::to_value(NodeConfig::get_model(model)).unwrap();
+            let json = serde_json::to_value(ModelKind::default_for(model).node_config()).unwrap();
             assert_eq!(keys(&json), top, "{model}");
             for (group, fields) in &groups {
                 assert_eq!(keys(&json[group]), *fields, "{model} {group}");
             }
-            match model.kind() {
+            match ModelKind::default_for(model).kind() {
                 NodeKind::Unikernel => {
                     assert_eq!(keys(&json["unikernel"]), ["boot_mode"], "{model}");
                 }
@@ -2875,7 +2626,7 @@ mod tests {
     #[test]
     fn models_carry_the_defaults_for_the_settings_their_kind_does_not_use() {
         for model in NodeModel::to_vec() {
-            let config = NodeConfig::get_model(model);
+            let config = ModelKind::default_for(model).node_config();
             if !config.kind.uses_machine_type() {
                 assert_eq!(config.machine.kind, MachineType::default(), "{model}");
             }

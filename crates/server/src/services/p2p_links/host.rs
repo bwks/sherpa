@@ -113,14 +113,14 @@ impl LinkHost for KernelHost<'_> {
 
     #[instrument(skip(self, veth), fields(host_veth = %veth.host_veth, pid), level = "debug")]
     async fn create_veth(&self, veth: &ContainerVeth, pid: u32) -> Result<()> {
-        let target_name = util::container_interface_name(&veth.node_model, veth.interface_idx)?;
-        let state = node_ops::netns_veth_state(veth.node_model, veth.admin_down);
+        let target_name = util::container_interface_name(veth.model_kind, veth.interface_idx)?;
+        let state = node_ops::netns_veth_state(veth.model_kind, veth.admin_down);
         network::create_veth_in_netns(&veth.host_veth, &veth.host_alias, &target_name, pid, state)
             .await
             .with_context(|| {
                 format!("failed to create interface {target_name} in the container")
             })?;
-        if veth.node_model.needs_host_checksums() {
+        if veth.model_kind.needs_host_checksums() {
             let ifindex = network::get_ifindex(&veth.host_veth).await?;
             network::disable_tx_checksum_offload(ifindex).with_context(|| {
                 format!(

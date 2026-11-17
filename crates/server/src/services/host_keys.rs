@@ -47,7 +47,7 @@ pub async fn refresh_node_host_key(
     let node_image = node_images
         .first()
         .with_context(|| format!("Node image config not found for node '{node_name}'"))?;
-    if node_image.kind != NodeKind::VirtualMachine || !node_image.model.has_ssh() {
+    if node_image.kind != NodeKind::VirtualMachine || !node_image.model_kind()?.has_ssh() {
         return Err(ServiceError::Conflict(format!(
             "Node '{node_name}' is not a virtual machine with SSH, so it has no recorded host key"
         ))

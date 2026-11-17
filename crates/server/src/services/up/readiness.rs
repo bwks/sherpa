@@ -266,8 +266,8 @@ impl Readiness<'_, '_> {
         self.connected.insert(node.name.clone());
         self.nodes.push(data::NodeInfo {
             name: node.name.clone(),
-            kind: node.model.kind(),
-            model: node.model,
+            kind: node.model_kind.kind(),
+            model: node.model_kind.model(),
             status: state,
             ip_address,
             ssh_port,
@@ -354,7 +354,7 @@ impl Readiness<'_, '_> {
                 image: container::image_reference(image_name, version),
                 env_vars: container.environment_variables.clone().unwrap_or_default(),
                 volumes,
-                capabilities: node_ops::model_capabilities(container.model),
+                capabilities: node_ops::model_capabilities(container.model_kind),
                 management_network,
                 additional_networks: data_networks,
                 commands: settings.commands.unwrap_or_default(),
@@ -364,7 +364,7 @@ impl Readiness<'_, '_> {
                 memory_mib: record.memory.map(u64::from),
                 cpu_count: record.cpu_count,
             },
-            container.model,
+            container.model_kind,
             self.build.progress,
         )
         .await?;
@@ -595,7 +595,12 @@ impl Readiness<'_, '_> {
         else {
             return Ok(());
         };
-        let ready_port = node_ops::vm_ready_port(vm.model, vm.ready_check.port);
+        // The manifest's port, else the model's own: SSH, or the Talos API for Talos Linux.
+        let ready_port = vm
+            .ready_check
+            .port
+            .or(vm.model_kind.ready_port())
+            .with_context(|| format!("VM '{}' has no readiness port", vm.name))?;
         let ready_label = node_ops::ready_port_label(ready_port);
         match node_ops::check_vm_ready(&record.ipv4_address.to_string(), ready_port).await? {
             VmReadiness::Ready { host_key } => {
@@ -615,7 +620,7 @@ impl Readiness<'_, '_> {
                     vm,
                     state,
                     Some(record.ipv4_address.to_string()),
-                    vm.model.has_ssh().then_some(SSH_PORT),
+                    vm.model_kind.has_ssh().then_some(SSH_PORT),
                 );
             }
             VmReadiness::NotReady => {

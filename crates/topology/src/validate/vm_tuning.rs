@@ -165,12 +165,12 @@ fn first_repeat(cpus: &[u16]) -> Option<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{CpuTopology, NodeCpu, NodeModel, NumaMemoryMode};
+    use shared::data::{CpuTopology, ModelKind, NodeCpu, NodeModel, NumaMemoryMode};
 
     fn node(cpu_count: Option<u8>) -> NodeExpanded {
         NodeExpanded {
             name: "dev".to_string(),
-            model: NodeModel::UbuntuLinux,
+            model_kind: ModelKind::default_for(NodeModel::UbuntuLinux),
             cpu: NodeCpu {
                 count: cpu_count,
                 ..NodeCpu::default()
@@ -180,7 +180,7 @@ mod tests {
     }
 
     fn ubuntu() -> NodeConfig {
-        NodeConfig::get_model(NodeModel::UbuntuLinux)
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config()
     }
 
     fn error(node: &NodeExpanded, image: &NodeConfig) -> String {

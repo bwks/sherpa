@@ -5,7 +5,7 @@ use db::{
     DefaultRequest, LabDetails, apply_schema, create_bridge, create_lab, create_link, create_user,
     list_links_by_lab, list_users, update_link_impairments, upsert_node_image,
 };
-use shared::data::{BridgeKind, BridgeMember, DbLink, LinkImpairment, NodeConfig, NodeModel};
+use shared::data::{BridgeKind, BridgeMember, DbLink, LinkImpairment, ModelKind, NodeModel};
 
 /// Schema application is idempotent — applying twice does not fail or corrupt data.
 /// `setup_db` already applies schema once. We apply it again and verify no error.
@@ -49,7 +49,7 @@ async fn test_schema_creates_all_tables() -> Result<()> {
     // node_image
     upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -135,7 +135,7 @@ async fn test_link_impairments_survive_schema_reapply() -> Result<()> {
     .await?;
     upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;

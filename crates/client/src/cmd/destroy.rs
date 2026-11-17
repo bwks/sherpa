@@ -133,7 +133,7 @@ fn show_lab_to_destroy(inspect_data: &InspectResponse) {
         .iter()
         .map(|device| NodeInfo {
             name: device.name.clone(),
-            kind: device.kind.clone(),
+            kind: device.kind,
             model: device.model,
             status: device.state,
             ip_address: if device.mgmt_ipv4.is_empty() {

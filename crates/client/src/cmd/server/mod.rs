@@ -12,8 +12,8 @@ mod user;
 
 use backup::backup;
 use clean::clean;
-pub use image::{ImageKindFlags, list_images, show_image};
 use image::{ServerImageCommands, image_commands};
+pub use image::{list_images, show_image};
 pub use rpc::{rpc_call, rpc_call_streaming};
 use status::status;
 use user::{UserCommands, user_commands};

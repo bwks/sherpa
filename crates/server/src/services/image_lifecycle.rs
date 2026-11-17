@@ -7,17 +7,35 @@ use dashmap::DashMap;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tracing::instrument;
 
-use shared::data::{DiskImageCloneMethod, NodeConfig, NodeKind, NodeModel};
+use shared::data::{DiskImageCloneMethod, ModelKind, NodeConfig, NodeKind, NodeModel};
 use shared::util::image_filename;
+
+use crate::services::error::ServiceError;
+
+/// The model and kind an image request names: its kind, or the model's default kind when it
+/// names none.
+///
+/// # Errors
+///
+/// Fails with [`ServiceError::Invalid`] when the model does not take the kind.
+pub(crate) fn image_model_kind(model: NodeModel, kind: Option<NodeKind>) -> Result<ModelKind> {
+    ModelKind::new(model, kind).map_err(|error| ServiceError::Invalid(format!("{error:#}")).into())
+}
 
 static IMAGE_LOCKS: OnceLock<DashMap<String, Arc<RwLock<()>>>> = OnceLock::new();
 
 pub(crate) type ImageLease = Arc<OwnedRwLockReadGuard<()>>;
 
-/// Shared across `AppState` instances and all image-mutating workflows in this process.
+/// The lock key of an image: its model, kind and version.
+fn image_lock_key(model_kind: ModelKind, version: &str) -> String {
+    format!("{}/{}/{version}", model_kind.model(), model_kind.kind())
+}
+
+/// Shared across `AppState` instances and all image-mutating workflows in this process. An
+/// image is locked by its model, kind and version.
 #[instrument(level = "debug")]
-pub(crate) async fn lock_image(model: NodeModel, version: &str) -> OwnedRwLockWriteGuard<()> {
-    let key = format!("{model}/{version}");
+pub(crate) async fn lock_image(model_kind: ModelKind, version: &str) -> OwnedRwLockWriteGuard<()> {
+    let key = image_lock_key(model_kind, version);
     let lock = IMAGE_LOCKS
         .get_or_init(DashMap::new)
         .entry(key)
@@ -30,8 +48,8 @@ pub(crate) async fn lock_image(model: NodeModel, version: &str) -> OwnedRwLockWr
 /// leases keep protection alive until blocking disk tasks finish even if their
 /// caller is cancelled.
 #[instrument(level = "debug")]
-pub(crate) async fn lease_image(model: NodeModel, version: &str) -> ImageLease {
-    let key = format!("{model}/{version}");
+pub(crate) async fn lease_image(model_kind: ModelKind, version: &str) -> ImageLease {
+    let key = image_lock_key(model_kind, version);
     let lock = IMAGE_LOCKS
         .get_or_init(DashMap::new)
         .entry(key)
@@ -102,9 +120,20 @@ mod tests {
 
     #[tokio::test]
     async fn lifecycle_lock_serializes_same_image_and_allows_other_versions() {
-        let held = lock_image(NodeModel::UbuntuLinux, "lock-test-one").await;
-        let waiting = tokio::spawn(lock_image(NodeModel::UbuntuLinux, "lock-test-one"));
-        let other = lock_image(NodeModel::UbuntuLinux, "lock-test-two").await;
+        let held = lock_image(
+            ModelKind::default_for(NodeModel::UbuntuLinux),
+            "lock-test-one",
+        )
+        .await;
+        let waiting = tokio::spawn(lock_image(
+            ModelKind::default_for(NodeModel::UbuntuLinux),
+            "lock-test-one",
+        ));
+        let other = lock_image(
+            ModelKind::default_for(NodeModel::UbuntuLinux),
+            "lock-test-two",
+        )
+        .await;
         tokio::task::yield_now().await;
         assert!(!waiting.is_finished());
         drop(held);
@@ -115,7 +144,7 @@ mod tests {
 
     #[test]
     fn unsupported_kinds_do_not_fall_back_to_copy() {
-        let mut image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let mut image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         for kind in [NodeKind::Container, NodeKind::Unikernel] {
             image.kind = kind;
             assert!(validate_disk_method(None, &image, "/missing", None).is_ok());
@@ -137,7 +166,7 @@ mod tests {
     #[test]
     fn omitted_vm_method_validates_the_base_as_an_overlay() {
         let root = tempdir().unwrap();
-        let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         let directory = root
             .path()
             .join(image.model.to_string())
@@ -217,11 +246,19 @@ mod tests {
         fs::create_dir(&version).unwrap();
         let base = version.join("disk.qcow2");
         fs::write(&base, dependency_header(None)).unwrap();
-        let provisioning = lock_image(NodeModel::UbuntuLinux, "concurrent-overlay-test").await;
+        let provisioning = lock_image(
+            ModelKind::default_for(NodeModel::UbuntuLinux),
+            "concurrent-overlay-test",
+        )
+        .await;
         let scan_storage = storage.clone();
         let scan_version = version.clone();
         let deletion = tokio::spawn(async move {
-            let _guard = lock_image(NodeModel::UbuntuLinux, "concurrent-overlay-test").await;
+            let _guard = lock_image(
+                ModelKind::default_for(NodeModel::UbuntuLinux),
+                "concurrent-overlay-test",
+            )
+            .await;
             libvirt::ensure_no_overlay_dependencies(&scan_storage, &scan_version)
         });
         tokio::task::yield_now().await;
@@ -252,10 +289,21 @@ mod tests {
     }
     #[tokio::test]
     async fn concurrent_provisioning_leases_exclude_image_deletion() {
-        let first = lease_image(NodeModel::UbuntuLinux, "read-leases-test").await;
-        let second = lease_image(NodeModel::UbuntuLinux, "read-leases-test").await;
+        let first = lease_image(
+            ModelKind::default_for(NodeModel::UbuntuLinux),
+            "read-leases-test",
+        )
+        .await;
+        let second = lease_image(
+            ModelKind::default_for(NodeModel::UbuntuLinux),
+            "read-leases-test",
+        )
+        .await;
         let blocking_task_lease = first.clone();
-        let deletion = tokio::spawn(lock_image(NodeModel::UbuntuLinux, "read-leases-test"));
+        let deletion = tokio::spawn(lock_image(
+            ModelKind::default_for(NodeModel::UbuntuLinux),
+            "read-leases-test",
+        ));
         drop(first);
         drop(second);
         tokio::task::yield_now().await;

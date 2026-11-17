@@ -4,7 +4,7 @@ use db::{
     update_node_host_key, update_node_mgmt_ipv4, update_node_mgmt_ipv6, update_node_mgmt_mac,
     update_node_resources, update_node_state_from, upsert_node_image,
 };
-use shared::data::{NodeConfig, NodeModel, NodeResources, NodeState};
+use shared::data::{ModelKind, NodeModel, NodeResources, NodeState};
 
 use crate::helper::{ipv4_lab_networks, setup_db};
 
@@ -26,7 +26,7 @@ async fn lab_with_nodes(db: &db::Database, count: u16) -> Result<Vec<shared::dat
     .await?;
     let image = upsert_node_image(
         db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;

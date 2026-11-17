@@ -189,7 +189,7 @@ async fn devices(
             .ok_or_else(|| anyhow!("Node image not found for node '{}'", node.name))?;
 
         let mut device = device_info(node, node_image, volumes, lab_info);
-        device.state = reported_state(node, &node_image.kind, &lab_info.id, containers.as_ref());
+        device.state = reported_state(node, node_image.kind, &lab_info.id, containers.as_ref());
         if device.state != node.state {
             tracing::debug!(node = %node.name, recorded = %node.state, reported = %device.state, "Reporting the container's state from Docker");
         }
@@ -217,7 +217,7 @@ fn device_info(
     DeviceInfo {
         name: node.name.clone(),
         model: image.model,
-        kind: image.kind.clone(),
+        kind: image.kind,
         state: node.state,
         mgmt_ipv4: node.mgmt_ipv4.clone().unwrap_or_default(),
         mgmt_ipv6: node.mgmt_ipv6.clone(),
@@ -225,14 +225,14 @@ fn device_info(
         disks,
         cpu_count: node.cpu_count,
         memory: node.memory,
-        console_address: console_address(node, &image.kind, lab_info),
+        console_address: console_address(node, image.kind, lab_info),
     }
 }
 
 /// The address of `node`'s serial console, or `None` for a container, which has none, or for
 /// an index past the lab's loopback network.
-fn console_address(node: &DbNode, kind: &NodeKind, lab_info: &LabInfo) -> Option<Ipv4Addr> {
-    if *kind == NodeKind::Container {
+fn console_address(node: &DbNode, kind: NodeKind, lab_info: &LabInfo) -> Option<Ipv4Addr> {
+    if kind == NodeKind::Container {
         return None;
     }
     get_ipv4_addr(&lab_info.loopback_network, u32::from(node.index))
@@ -249,11 +249,11 @@ fn console_address(node: &DbNode, kind: &NodeKind, lab_info: &LabInfo) -> Option
 /// recorded.
 fn reported_state(
     node: &DbNode,
-    kind: &NodeKind,
+    kind: NodeKind,
     lab_id: &str,
     containers: Option<&HashMap<String, ContainerStateStatusEnum>>,
 ) -> NodeState {
-    let Some(containers) = containers.filter(|_| *kind == NodeKind::Container) else {
+    let Some(containers) = containers.filter(|_| kind == NodeKind::Container) else {
         return node.state;
     };
     let status = containers.get(&format!("{}-{lab_id}", node.name)).copied();
@@ -304,8 +304,8 @@ fn node_name_from_id(nodes: &[DbNode], rid: &RecordId) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::ReadyCheck;
     use shared::data::{BridgeKind, LinkImpairment, NodeModel};
+    use shared::data::{ModelKind, ReadyCheck};
 
     fn db_node(name: &str) -> DbNode {
         DbNode {
@@ -342,7 +342,7 @@ mod tests {
     fn a_running_container_that_exited_is_reported_stopped() {
         let node = container_in(NodeState::Running);
         let containers = listing(ContainerStateStatusEnum::EXITED);
-        let state = reported_state(&node, &NodeKind::Container, "ab12cd34", Some(&containers));
+        let state = reported_state(&node, NodeKind::Container, "ab12cd34", Some(&containers));
         assert_eq!(state, NodeState::Stopped);
     }
 
@@ -351,7 +351,7 @@ mod tests {
         let node = container_in(NodeState::Running);
         let state = reported_state(
             &node,
-            &NodeKind::Container,
+            NodeKind::Container,
             "ab12cd34",
             Some(&HashMap::new()),
         );
@@ -403,7 +403,7 @@ mod tests {
             let containers = listing(status);
             let state = reported_state(
                 &container_in(recorded),
-                &NodeKind::Container,
+                NodeKind::Container,
                 "ab12cd34",
                 Some(&containers),
             );
@@ -428,7 +428,7 @@ mod tests {
         ] {
             let state = reported_state(
                 &ported(recorded),
-                &NodeKind::Container,
+                NodeKind::Container,
                 "ab12cd34",
                 Some(&containers),
             );
@@ -439,7 +439,7 @@ mod tests {
     #[test]
     fn a_container_is_reported_as_recorded_when_docker_did_not_answer() {
         let node = container_in(NodeState::Running);
-        let state = reported_state(&node, &NodeKind::Container, "ab12cd34", None);
+        let state = reported_state(&node, NodeKind::Container, "ab12cd34", None);
         assert_eq!(state, NodeState::Running);
     }
 
@@ -449,7 +449,7 @@ mod tests {
         let containers = listing(ContainerStateStatusEnum::EXITED);
         let state = reported_state(
             &node,
-            &NodeKind::VirtualMachine,
+            NodeKind::VirtualMachine,
             "ab12cd34",
             Some(&containers),
         );
@@ -508,7 +508,7 @@ mod tests {
     #[test]
     fn a_vm_and_a_unikernel_have_their_console_on_their_loopback_address() {
         for model in [NodeModel::UbuntuLinux, NodeModel::GenericUnikernel] {
-            let image = NodeConfig::get_model(model);
+            let image = ModelKind::default_for(model).node_config();
             let node = DbNode {
                 index: 4,
                 ..db_node("dev01")
@@ -524,7 +524,7 @@ mod tests {
 
     #[test]
     fn a_container_has_no_console_address() {
-        let image = NodeConfig::get_model(NodeModel::NokiaSrlinux);
+        let image = ModelKind::default_for(NodeModel::NokiaSrlinux).node_config();
         assert_eq!(image.kind, NodeKind::Container);
         let device = device_info(&db_node("srl01"), &image, &[], &lab_info());
         assert_eq!(device.console_address, None);
@@ -532,7 +532,7 @@ mod tests {
 
     #[test]
     fn device_details_come_from_the_database_and_pool() {
-        let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         let volumes = vec![
             "dev01-a1b2c3d4-hdd.qcow2".to_string(),
             "dev02-a1b2c3d4-hdd.qcow2".to_string(),

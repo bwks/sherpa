@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use shared::data::NodeModel;
+use shared::data::ModelKind;
 use shared::util::split_node_int;
 
 /// Bridge connection in manifest format
@@ -72,7 +72,7 @@ pub struct BridgeDetailed {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct BridgeLinkDetailed {
     pub node_name: String,
-    pub node_model: NodeModel,
+    pub node_model_kind: ModelKind,
     pub interface_name: String,
     pub interface_index: u8,
 }

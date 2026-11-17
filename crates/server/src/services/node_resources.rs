@@ -498,7 +498,7 @@ mod tests {
     use std::slice;
 
     use super::*;
-    use shared::data::NodeCpu;
+    use shared::data::{ModelKind, NodeCpu};
 
     fn node(cpu_count: Option<u8>, memory: Option<u16>) -> topology::NodeExpanded {
         topology::NodeExpanded {
@@ -514,7 +514,7 @@ mod tests {
 
     #[test]
     fn vms_and_unikernels_get_the_manifest_values_else_the_images() {
-        let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         assert_eq!(
             planned_resources(&node(Some(16), Some(32768)), &image),
             NodeResources {
@@ -527,7 +527,7 @@ mod tests {
         assert_eq!(defaults.cpu_count, Some(image.cpu.count));
         assert_eq!(defaults.memory, Some(image.memory));
 
-        let unikernel = NodeConfig::get_model(NodeModel::NanosUnikernel);
+        let unikernel = ModelKind::default_for(NodeModel::NanosUnikernel).node_config();
         assert_eq!(
             planned_resources(&node(Some(2), None), &unikernel).cpu_count,
             Some(2)
@@ -536,7 +536,7 @@ mod tests {
 
     #[test]
     fn containers_get_the_manifest_limits_only() {
-        let image = NodeConfig::get_model(NodeModel::MongoDb);
+        let image = ModelKind::default_for(NodeModel::MongoDb).node_config();
         assert_eq!(
             planned_resources(&node(Some(4), Some(4096)), &image),
             NodeResources {
@@ -554,7 +554,7 @@ mod tests {
 
     #[test]
     fn cevolved_gets_its_evo_vm_memory_and_overhead_and_no_cpu_quota() {
-        let image = NodeConfig::get_model(NodeModel::JuniperCevolved);
+        let image = ModelKind::default_for(NodeModel::JuniperCevolved).node_config();
         let defaults = planned_resources(&node(None, None), &image);
         assert_eq!(
             defaults.memory,
@@ -569,7 +569,7 @@ mod tests {
     #[test]
     fn iol_gets_its_memory_and_overhead_as_its_limit_and_the_manifest_cpus() {
         for model in [NodeModel::CiscoIol, NodeModel::CiscoIoll2] {
-            let image = NodeConfig::get_model(model);
+            let image = ModelKind::default_for(model).node_config();
             let defaults = planned_resources(&node(None, None), &image);
             assert_eq!(
                 defaults.memory,

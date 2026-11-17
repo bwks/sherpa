@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashSet};
 use anyhow::{Context, Result, ensure};
 use tracing::instrument;
 
-use shared::data::{NodeConfig, NodeKind, SecretFile};
+use shared::data::{ModelKind, NodeKind, SecretFile};
 use shared::validators::validate_secret_file;
 
 /// Check container secret files sent with a lab or a redeploy: each is for a container node in
@@ -24,7 +24,7 @@ pub fn validate_node_secrets(
             format!("Secret files were sent for node '{node_name}', which is not in the manifest")
         })?;
         ensure!(
-            NodeConfig::get_model(node.model).kind == NodeKind::Container,
+            ModelKind::new(node.model, node.kind)?.kind() == NodeKind::Container,
             "Secret files were sent for node '{node_name}', but only containers take them"
         );
         validate_secret_files(files).with_context(|| format!("Node '{node_name}'"))?;

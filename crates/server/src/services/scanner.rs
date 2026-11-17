@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use shared::data::{
-    DbLab, DbNode, LabPhase, NodeKind, NodeModel, NodeState, Observation, Probe, RecordId, Runtime,
+    DbLab, DbNode, LabPhase, ModelKind, NodeKind, NodeModel, NodeState, Observation, Probe,
+    RecordId, Runtime,
 };
 use shared::konst::SSH_PORT;
 use tokio_util::sync::CancellationToken;
@@ -111,7 +112,7 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
 
     let mut probes = HashMap::new();
     for node in &scanned {
-        let running = snapshot.runtime_of(&node.kind, &node.runtime_name) == Some(Runtime::Running);
+        let running = snapshot.runtime_of(node.kind, &node.runtime_name) == Some(Runtime::Running);
         let Some(port) = probe_port(node, running) else {
             continue;
         };
@@ -128,7 +129,7 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
             .context("Failed to list nodes for lab")?;
         let scanned = scanned_nodes(state, lab, &nodes).await?;
         for node in &scanned {
-            let Some(runtime) = runtimes.runtime_of(&node.kind, &node.runtime_name) else {
+            let Some(runtime) = runtimes.runtime_of(node.kind, &node.runtime_name) else {
                 tracing::debug!(node = %node.node.name, "Runtime not queried this cycle; keeping its state");
                 continue;
             };
@@ -184,13 +185,13 @@ async fn repair_links(
     }
     let kinds = scanned
         .iter()
-        .filter_map(|node| Some((node.node.id.clone()?, node.kind.clone())))
+        .filter_map(|node| Some((node.node.id.clone()?, node.kind)))
         .collect();
     let lab_links = LabLinks::new(&lab.lab_id, links, nodes, kinds);
     let running: HashSet<RecordId> = scanned
         .iter()
         .filter(|node| {
-            runtimes.runtime_of(&node.kind, &node.runtime_name) == Some(Runtime::Running)
+            runtimes.runtime_of(node.kind, &node.runtime_name) == Some(Runtime::Running)
                 && node.node.state != NodeState::Building
         })
         .filter_map(|node| node.node.id.clone())
@@ -283,14 +284,17 @@ async fn repair_management_checksums(
         let Some(model) = node.model else {
             continue;
         };
+        let Ok(model_kind) = ModelKind::new(model, Some(node.kind)) else {
+            continue;
+        };
         if node.kind != NodeKind::Container
             || node.node.state == NodeState::Building
-            || runtimes.runtime_of(&node.kind, &node.runtime_name) != Some(Runtime::Running)
+            || runtimes.runtime_of(node.kind, &node.runtime_name) != Some(Runtime::Running)
         {
             continue;
         }
         if let Err(error) =
-            node_ops::finish_management_checksums(host, &node.runtime_name, model).await
+            node_ops::finish_management_checksums(host, &node.runtime_name, model_kind).await
         {
             tracing::warn!(node = %node.node.name, error = %format!("{error:#}"), "Failed to repair checksum offload on the management veth");
         }
@@ -319,7 +323,7 @@ async fn scanned_nodes<'a>(
                 .find(|img| img.id.as_ref() == Some(&node.image));
             ScannedNode {
                 node,
-                kind: image.map_or(NodeKind::VirtualMachine, |img| img.kind.clone()),
+                kind: image.map_or(NodeKind::VirtualMachine, |img| img.kind),
                 model: image.map(|img| img.model),
                 runtime_name: format!("{}-{}", node.name, lab.lab_id),
             }
@@ -462,16 +466,13 @@ mod tests {
         for state in [NodeState::Stopped, NodeState::Starting, NodeState::Unknown] {
             let node = checked(state, true, SSH_CHECK);
             assert_eq!(
-                probe_port(&scanned(&node, vm.clone()), true),
+                probe_port(&scanned(&node, vm), true),
                 Some(SSH_PORT),
                 "{state}"
             );
         }
         let keyless = checked(NodeState::Running, false, SSH_CHECK);
-        assert_eq!(
-            probe_port(&scanned(&keyless, vm.clone()), true),
-            Some(SSH_PORT)
-        );
+        assert_eq!(probe_port(&scanned(&keyless, vm), true), Some(SSH_PORT));
         let known = checked(NodeState::Running, true, SSH_CHECK);
         assert_eq!(probe_port(&scanned(&known, vm), true), None);
     }

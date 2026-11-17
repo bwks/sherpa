@@ -295,9 +295,11 @@ async fn load_node(
         .ok_or_else(|| anyhow!("Node image config not found for node '{node_name}'"))?
         .clone();
     ensure!(
-        target_node.model == node_image.model,
-        "Redeploy cannot change node model; expected {}",
-        node_image.model
+        target_node.model_kind.model() == node_image.model
+            && target_node.model_kind.kind() == node_image.kind,
+        "Redeploy cannot change node model or kind; expected {} ({})",
+        node_image.model,
+        node_image.kind
     );
     ensure!(
         !matches!(node_image.kind, data::NodeKind::Unikernel),
@@ -310,7 +312,7 @@ async fn load_node(
             "Data interface count validation failed for node: {node_name}"
         ))?;
 
-    let image_guard = lease_image(node_image.model, &node_image.version).await;
+    let image_guard = lease_image(node_image.model_kind()?, &node_image.version).await;
     if node_image.kind == data::NodeKind::Container {
         let repo = validate_container_repo(
             node_name,
@@ -469,7 +471,7 @@ async fn check_fits_server(
 
 /// The node in the manifest, with its custom ZTP config decoded.
 fn manifest_node(manifest: &topology::Manifest, node_name: &str) -> Result<topology::NodeExpanded> {
-    let mut node = process_manifest_nodes(&manifest.nodes)
+    let mut node = process_manifest_nodes(&manifest.nodes)?
         .into_iter()
         .find(|n| n.name == node_name)
         .ok_or_else(|| anyhow!("Node '{node_name}' not found in manifest"))?;
@@ -546,7 +548,7 @@ fn node_management_addresses(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::ReadyCheck;
+    use shared::data::{ModelKind, ReadyCheck};
 
     use shared::data::{NodeModel, NodeState};
 
@@ -562,7 +564,7 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let mut node = topology::NodeExpanded {
             name: "n1".to_owned(),
-            model,
+            model_kind: ModelKind::default_for(model),
             ..Default::default()
         };
         if custom {
@@ -571,7 +573,7 @@ mod tests {
         node_login(
             &test_account(owner, &[OWNER_KEY]),
             &node,
-            &data::NodeConfig::get_model(model),
+            &data::ModelKind::default_for(model).node_config(),
             &ProgressSender::new(tx),
         )
     }

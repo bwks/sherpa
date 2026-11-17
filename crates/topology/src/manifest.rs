@@ -357,7 +357,7 @@ nodes = [
         let expanded: Vec<Option<Ztp>> = manifest
             .nodes
             .iter()
-            .map(|node| NodeExpanded::new(1, node).ztp.method)
+            .map(|node| NodeExpanded::new(1, node).unwrap().ztp.method)
             .collect();
         assert_eq!(expanded, set);
     }

@@ -243,7 +243,7 @@ fn shutdown_method(
         }
     }
     let role = membership.as_ref().map(|(_, role, _)| *role);
-    let route = shutdown_route(&node_image.kind, node_image.model, role);
+    let route = shutdown_route(node_image.kind, node_image.model, role);
     let method = match (route, membership, lookup_error) {
         (_, _, Some(error)) => {
             ShutdownMethod::Unavailable(format!("could not load the node's Talos cluster: {error}"))
@@ -288,7 +288,7 @@ async fn stop_tailscale_gateway(
 }
 
 /// How `down` stops a node, decided from its kind, model and Talos cluster role.
-fn shutdown_route(kind: &NodeKind, model: NodeModel, role: Option<ClusterRole>) -> Route {
+fn shutdown_route(kind: NodeKind, model: NodeModel, role: Option<ClusterRole>) -> Route {
     match kind {
         NodeKind::Container => Route::Pause,
         NodeKind::Unikernel => Route::PowerOff(UNIKERNEL_POWER_OFF),
@@ -489,6 +489,7 @@ mod tests {
     use crate::services::talos::secrets::generate_cluster_secrets;
 
     use super::*;
+    use shared::data::ModelKind;
 
     /// The clusters of `cluster_plans`, as `load_clusters` returns them.
     fn clusters() -> Vec<talos::LabCluster> {
@@ -503,7 +504,7 @@ mod tests {
 
     #[test]
     fn talos_nodes_shut_down_through_the_api_of_their_loaded_cluster() {
-        let talos = NodeConfig::get_model(NodeModel::TalosLinux);
+        let talos = ModelKind::default_for(NodeModel::TalosLinux).node_config();
         let clusters = Ok(clusters());
 
         let (method, role) = shutdown_method(&clusters, "w1", &talos);
@@ -525,8 +526,8 @@ mod tests {
 
     #[test]
     fn talos_nodes_power_off_when_the_clusters_cannot_be_loaded() {
-        let talos = NodeConfig::get_model(NodeModel::TalosLinux);
-        let ubuntu = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let talos = ModelKind::default_for(NodeModel::TalosLinux).node_config();
+        let ubuntu = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         let clusters = Err("secrets are missing".to_owned());
 
         let (method, _) = shutdown_method(&clusters, "w1", &talos);
@@ -560,27 +561,27 @@ mod tests {
     fn nodes_are_routed_by_kind_model_and_cluster_role() {
         let vm = NodeKind::VirtualMachine;
         assert_eq!(
-            shutdown_route(&vm, NodeModel::UbuntuLinux, None),
+            shutdown_route(vm, NodeModel::UbuntuLinux, None),
             Route::Acpi
         );
         assert_eq!(
-            shutdown_route(&vm, NodeModel::TalosLinux, Some(ClusterRole::Worker)),
+            shutdown_route(vm, NodeModel::TalosLinux, Some(ClusterRole::Worker)),
             Route::TalosApi
         );
         assert_eq!(
-            shutdown_route(&vm, NodeModel::TalosLinux, Some(ClusterRole::ControlPlane)),
+            shutdown_route(vm, NodeModel::TalosLinux, Some(ClusterRole::ControlPlane)),
             Route::TalosApi
         );
         assert_eq!(
-            shutdown_route(&vm, NodeModel::TalosLinux, None),
+            shutdown_route(vm, NodeModel::TalosLinux, None),
             Route::PowerOff(TALOS_POWER_OFF)
         );
         assert_eq!(
-            shutdown_route(&NodeKind::Unikernel, NodeModel::NanosUnikernel, None),
+            shutdown_route(NodeKind::Unikernel, NodeModel::NanosUnikernel, None),
             Route::PowerOff(UNIKERNEL_POWER_OFF)
         );
         assert_eq!(
-            shutdown_route(&NodeKind::Container, NodeModel::GenericContainer, None),
+            shutdown_route(NodeKind::Container, NodeModel::GenericContainer, None),
             Route::Pause
         );
     }

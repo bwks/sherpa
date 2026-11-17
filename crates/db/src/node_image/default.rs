@@ -90,7 +90,7 @@ pub(crate) async fn claim_default(
     let holder = DefaultHolder::of(version, current.as_ref());
     let is_default = resolve_default(holder, request).ok_or_else(|| LastDefaultImage {
         model,
-        kind: kind.clone(),
+        kind: *kind,
         version: version.to_owned(),
     })?;
     if is_default && holder == DefaultHolder::OtherVersion {
@@ -131,6 +131,7 @@ impl Error for LastDefaultImage {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::ModelKind;
 
     const HOLDERS: [DefaultHolder; 3] = [
         DefaultHolder::ThisVersion,
@@ -190,7 +191,7 @@ mod tests {
 
     #[test]
     fn the_holder_is_read_from_the_current_default() {
-        let mut image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let mut image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         image.version = "24.04".to_owned();
         assert_eq!(
             DefaultHolder::of("24.04", Some(&image)),

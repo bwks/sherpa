@@ -6,7 +6,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use tracing::instrument;
 use turso::{Connection, Row};
 
-use shared::data::{CpuTopology, NodeModel, RecordId, ZtpServer};
+use shared::data::{CpuTopology, ModelKind, NodeKind, NodeModel, RecordId, ZtpServer};
 use topology::{
     AuthorizedKeyFile, BinaryFile, Bridge, ContainerProvisioner, ContainerSecretFile, Link2,
     Manifest, ManifestImpairment, Node, NodeContainer, NodeUnikernel, NodeVm, Provisioner,
@@ -177,12 +177,17 @@ fn node_row(row: &Row) -> Result<NodeRow> {
     let key = cells.text("id")?;
     let name = cells.text("name")?;
     let model: NodeModel = cells.enumeration("model")?;
+    // The node's kind is its image's. The definition holds it only when it is not the model's
+    // default, so a node keeps the kind it was deployed as without a `kind` it never set.
+    let kind: NodeKind = cells.enumeration("kind")?;
+    let kind = (kind != ModelKind::default_for(model).kind()).then_some(kind);
     let image = cells.optional_text("manifest_image")?;
     let version = cells.optional_text("version")?;
     let memory = cells.optional_integer("manifest_memory")?;
     let mut node = Node {
         name,
         model,
+        kind,
         image,
         version,
         memory,

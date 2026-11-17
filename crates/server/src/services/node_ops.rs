@@ -473,8 +473,8 @@ fn disk_index(disks: &[data::NodeDisk]) -> Result<u8> {
 }
 
 /// Map a node model to its ZTP config filename for CDROM-based ZTP.
-pub fn ztp_config_filename(model: data::NodeModel) -> Result<String> {
-    let name = match model {
+pub fn ztp_config_filename(model_kind: data::ModelKind) -> Result<String> {
+    let name = match model_kind.model() {
         data::NodeModel::CiscoCsr1000v
         | data::NodeModel::CiscoCat8000v
         | data::NodeModel::CiscoCat9000v => CISCO_IOSXE_ZTP_CONFIG.replace('-', "_"),
@@ -486,7 +486,7 @@ pub fn ztp_config_filename(model: data::NodeModel) -> Result<String> {
         | data::NodeModel::JuniperVrouter
         | data::NodeModel::JuniperVswitch => JUNIPER_ZTP_CONFIG.to_string(),
         data::NodeModel::PaloaltoPanos => PALOALTO_ZTP_CONFIG.to_string(),
-        _ => bail!("No ZTP config filename mapping for model: {model}"),
+        model => bail!("No ZTP config filename mapping for model: {model}"),
     };
     Ok(name)
 }
@@ -522,8 +522,8 @@ pub fn get_node_data(node_name: &str, data: &[data::NodeSetupData]) -> Result<da
 // ============================================================================
 
 /// Return Linux capabilities required by a given container node model.
-pub fn model_capabilities(model: data::NodeModel) -> Vec<String> {
-    match model {
+pub fn model_capabilities(model_kind: data::ModelKind) -> Vec<String> {
+    match model_kind.model() {
         data::NodeModel::HashicorpVault => CONTAINER_HASHICORP_VAULT_CAPABILITIES
             .iter()
             .map(std::string::ToString::to_string)
@@ -645,7 +645,7 @@ fn container_start_settings(
     ztp: &ContainerZtp<'_>,
     setup: &mut ContainerSetup,
 ) -> Result<()> {
-    match node.model {
+    match node.model_kind.model() {
         data::NodeModel::AristaCeos => arista_ceos_start(node, setup),
         data::NodeModel::NokiaSrlinux => srlinux_start(node, setup),
         data::NodeModel::JuniperCevolved => cevolved_start(node, node_image, setup)?,
@@ -682,7 +682,7 @@ fn container_volume_ztp(
     ztp: &ContainerZtp<'_>,
     setup: &mut ContainerSetup,
 ) -> Result<()> {
-    match node.model {
+    match node.model_kind.model() {
         data::NodeModel::AristaCeos => arista_ceos_volume_ztp(node, ztp, setup),
         data::NodeModel::NokiaSrlinux => srlinux_volume_ztp(node, ztp, setup),
         data::NodeModel::JuniperCevolved => cevolved_volume_ztp(node, node_image, ztp, setup),
@@ -710,7 +710,7 @@ fn add_container_volumes(
 ) {
     let drops_manifest_volumes = setting == data::Ztp::Volume
         || matches!(
-            node.model,
+            node.model_kind.model(),
             data::NodeModel::GitlabCe
                 | data::NodeModel::SurrealDb
                 | data::NodeModel::HashicorpVault
@@ -967,7 +967,7 @@ fn iol_start(
         format!("IOL_MEMORY_MB={}", node.memory.unwrap_or(node_image.memory)),
         format!("IOL_ETH_PORTS={}", u16::from(data_interfaces) + 1),
     ];
-    setup.capabilities = model_capabilities(node.model);
+    setup.capabilities = model_capabilities(node.model_kind);
 
     let run_dir = format!("{}/run", ztp.dir);
     util::create_dir_with_permissions(Path::new(&run_dir), NODE_CONFIG_DIR_MODE)?;
@@ -1024,7 +1024,7 @@ fn iol_volume_ztp(
             mgmt_ipv4_address: node_ipv4_address,
             mgmt_ipv6_address: node.ipv6_address,
             mgmt_ipv6: mgmt_net.v6.clone(),
-            switch: node.model == data::NodeModel::CiscoIoll2,
+            switch: node.model_kind.model() == data::NodeModel::CiscoIoll2,
         }
         .render()?
     };
@@ -1217,7 +1217,7 @@ fn vault_container(
         .iter()
         .map(std::string::ToString::to_string)
         .collect();
-    setup.capabilities = model_capabilities(node.model);
+    setup.capabilities = model_capabilities(node.model_kind);
 
     node.environment_variables = Some(setup.env_vars.clone());
     node.container.get_or_insert_default().volumes = Some(vec![config_volume]);
@@ -1258,10 +1258,10 @@ fn keycloak_container(
 
 /// How a P2p container's data interface veth comes up: a disabled one stays down, unless the
 /// model keeps every data interface up, when only its host end is down.
-pub(crate) fn netns_veth_state(model: data::NodeModel, admin_down: bool) -> NetnsVethState {
+pub(crate) fn netns_veth_state(model_kind: data::ModelKind, admin_down: bool) -> NetnsVethState {
     if !admin_down {
         NetnsVethState::Enabled
-    } else if model.keeps_data_interfaces_up() {
+    } else if model_kind.keeps_data_interfaces_up() {
         NetnsVethState::DisabledUp
     } else {
         NetnsVethState::Disabled
@@ -1367,7 +1367,7 @@ pub(crate) fn generate_vm_ztp(
     };
     let (clone_disks, disks) = vm_disks(node, node_image, images_dir, &node_name_with_lab, &media)?;
     let firmware = VmFirmware {
-        qemu_commands: vm_qemu_commands(node_image.model),
+        qemu_commands: vm_qemu_commands(node.model_kind),
         ignition_config: media.ignition.map(|(_, dst)| dst),
     };
 
@@ -1378,7 +1378,7 @@ pub(crate) fn generate_vm_ztp(
         ipv6_address: None,
         mac_address: mac_address.clone(),
         ztp: setting,
-        ssh_port: node_image.model.has_ssh().then_some(SSH_PORT),
+        ssh_port: node.model_kind.has_ssh().then_some(SSH_PORT),
     };
 
     Ok(VmZtpResult {
@@ -1552,8 +1552,8 @@ fn vm_disks(
 }
 
 /// The extra QEMU arguments of a VM model.
-fn vm_qemu_commands(model: data::NodeModel) -> Vec<data::QemuCommand> {
-    match model {
+fn vm_qemu_commands(model_kind: data::ModelKind) -> Vec<data::QemuCommand> {
+    match model_kind.model() {
         data::NodeModel::JuniperVrouter => data::QemuCommand::juniper_vrouter(),
         data::NodeModel::JuniperVswitch => data::QemuCommand::juniper_vswitch(),
         data::NodeModel::JuniperVsrxv3 => data::QemuCommand::juniper_vsrxv3(),
@@ -2073,8 +2073,11 @@ fn build_windows_private_file_acls(
 ///
 /// OpenBSD gets none: cloud-init's OpenBSD renderer never writes IPv6 addresses, and it
 /// crashes on the IPv6 default route, which leaves the node with no network at all.
-fn cloud_init_ipv6_address(model: data::NodeModel, address: Option<Ipv6Addr>) -> Option<Ipv6Addr> {
-    match model {
+fn cloud_init_ipv6_address(
+    model_kind: data::ModelKind,
+    address: Option<Ipv6Addr>,
+) -> Option<Ipv6Addr> {
+    match model_kind.model() {
         data::NodeModel::OpenBsd => None,
         _ => address,
     }
@@ -2084,15 +2087,15 @@ fn cloud_init_ipv6_address(model: data::NodeModel, address: Option<Ipv6Addr>) ->
 ///
 /// OpenBSD does not: cloud-init ships no hosts template for it, so the module fails and
 /// cloud-init reports an error. The node's name resolves through the lab DNS instead.
-fn cloud_init_manage_etc_hosts(model: data::NodeModel) -> bool {
-    !matches!(model, data::NodeModel::OpenBsd)
+fn cloud_init_manage_etc_hosts(model_kind: data::ModelKind) -> bool {
+    !matches!(model_kind.model(), data::NodeModel::OpenBsd)
 }
 
 /// The doas rule giving `wheel` admin rights on OpenBSD, where doas is the native tool: the
 /// stock `/etc/examples/doas.conf` rule, without a password, as the owner keeps passwordless
 /// admin rights on every node. The image has no `/etc/doas.conf`.
-fn cloud_init_doas_file(model: data::NodeModel) -> Option<template::CloudInitWriteFile> {
-    if model != data::NodeModel::OpenBsd {
+fn cloud_init_doas_file(model_kind: data::ModelKind) -> Option<template::CloudInitWriteFile> {
+    if model_kind.model() != data::NodeModel::OpenBsd {
         return None;
     }
     Some(template::CloudInitWriteFile {
@@ -2106,8 +2109,8 @@ fn cloud_init_doas_file(model: data::NodeModel) -> Option<template::CloudInitWri
 
 /// The cloud-init `sudo` rule for admin logins, except on OpenBSD, which uses doas, and NixOS,
 /// whose generated `/etc/sudoers` does not read `/etc/sudoers.d`; there `wheel` grants sudo.
-fn cloud_init_sudo_rule(model: data::NodeModel) -> Option<String> {
-    match model {
+fn cloud_init_sudo_rule(model_kind: data::ModelKind) -> Option<String> {
+    match model_kind.model() {
         data::NodeModel::OpenBsd | data::NodeModel::NixosLinux => None,
         _ => Some(NODE_CLOUD_INIT_SUDO_RULE.to_owned()),
     }
@@ -2116,8 +2119,8 @@ fn cloud_init_sudo_rule(model: data::NodeModel) -> Option<String> {
 /// Whether cloud-init allows SSH password logins, or `None` to leave the SSH server alone. NixOS
 /// generates `sshd_config`, which cloud-init cannot edit, and its image allows password logins
 /// itself.
-fn cloud_init_ssh_pwauth(model: data::NodeModel) -> Option<bool> {
-    match model {
+fn cloud_init_ssh_pwauth(model_kind: data::ModelKind) -> Option<bool> {
+    match model_kind.model() {
         data::NodeModel::NixosLinux => None,
         _ => Some(true),
     }
@@ -2135,7 +2138,7 @@ fn generate_cloud_init_ztp(
     );
 
     let dir = ztp.boot_dir.to_owned();
-    match node.model {
+    match node.model_kind.model() {
         data::NodeModel::CentosLinux
         | data::NodeModel::AlmaLinux
         | data::NodeModel::DevboxLinux
@@ -2263,24 +2266,26 @@ fn linux_cloud_init(
         )
     })?;
     let (mut write_files, runcmd) = cloud_init_files(node, cert_paths, &account.username)?;
-    if let Some(doas_file) = cloud_init_doas_file(node.model) {
+    if let Some(doas_file) = cloud_init_doas_file(node.model_kind) {
         write_files.push(doas_file);
     }
 
-    let mut user = match (node.model, &node_image.os_variant) {
+    let mut user = match (node.model_kind.model(), &node_image.os_variant) {
         (data::NodeModel::NixosLinux, _) => guest_account::nixos_cloud_init_user(account)?,
-        (_, data::OsVariant::Bsd) => guest_account::bsd_cloud_init_user(account, node.model)?,
+        (_, data::OsVariant::Bsd) => {
+            guest_account::bsd_cloud_init_user(account, node.model_kind.model())?
+        }
         _ => guest_account::cloud_init_user(account)?,
     };
-    user.sudo = cloud_init_sudo_rule(node.model);
+    user.sudo = cloud_init_sudo_rule(node.model_kind);
     let users = vec![user];
 
     let cloud_init_config = template::CloudInitConfig {
         ca_certs: cloud_init_ca_certs(cert_paths)?,
         hostname: node.name.clone(),
         fqdn: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
-        manage_etc_hosts: cloud_init_manage_etc_hosts(node.model),
-        ssh_pwauth: cloud_init_ssh_pwauth(node.model),
+        manage_etc_hosts: cloud_init_manage_etc_hosts(node.model_kind),
+        ssh_pwauth: cloud_init_ssh_pwauth(node.model_kind),
         users,
         write_files: (!write_files.is_empty()).then_some(write_files),
         runcmd: (!runcmd.is_empty()).then_some(runcmd),
@@ -2295,7 +2300,7 @@ fn linux_cloud_init(
         node_ipv4_address,
         mac_address.to_string(),
         &mgmt_net.v4,
-        cloud_init_ipv6_address(node.model, node.ipv6_address),
+        cloud_init_ipv6_address(node.model_kind, node.ipv6_address),
         mgmt_net.v6.as_ref(),
     );
     write_cloud_init_seed(
@@ -2460,8 +2465,8 @@ fn alpine_cloud_init(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>, dir: &str
         ca_certs: cloud_init_ca_certs(cert_paths)?,
         hostname: node.name.clone(),
         fqdn: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
-        manage_etc_hosts: cloud_init_manage_etc_hosts(node.model),
-        ssh_pwauth: cloud_init_ssh_pwauth(node.model),
+        manage_etc_hosts: cloud_init_manage_etc_hosts(node.model_kind),
+        ssh_pwauth: cloud_init_ssh_pwauth(node.model_kind),
         // Alpine's network renderer leaves DNS to a resolvconf tool the image lacks.
         manage_resolv_conf: Some(true),
         resolv_conf: Some(template::CloudInitResolvConf::lab_dns(
@@ -2521,7 +2526,7 @@ fn generate_tftp_ztp(
             TFTP_CONFIG_FILE_MODE,
         )?;
     } else {
-        match node.model {
+        match node.model_kind.model() {
             data::NodeModel::AristaVeos => {
                 let arista_template = template::AristaVeosZtpTemplate {
                     hostname: node.name.clone(),
@@ -2613,12 +2618,12 @@ fn generate_cdrom_ztp(
     let config = match custom_ztp {
         Some(custom_config) => custom_config.to_owned(),
         // PAN-OS boots from a bootstrap layout of its own, not one config file.
-        None if node.model == data::NodeModel::PaloaltoPanos => {
+        None if node.model_kind.model() == data::NodeModel::PaloaltoPanos => {
             return write_panos_bootstrap(node, ztp, &dir);
         }
         None => cdrom_config(node, node_image, ztp)?,
     };
-    let ztp_config = format!("{dir}/{}", ztp_config_filename(node.model)?);
+    let ztp_config = format!("{dir}/{}", ztp_config_filename(node.model_kind)?);
     util::create_dir_with_permissions(Path::new(&dir), NODE_CONFIG_DIR_MODE)?;
     util::write_file_with_permissions(
         Path::new(&ztp_config),
@@ -2642,7 +2647,7 @@ fn cdrom_config(
         guest_account,
         ..
     } = *ztp;
-    match node.model {
+    match node.model_kind.model() {
         data::NodeModel::CiscoCsr1000v
         | data::NodeModel::CiscoCat8000v
         | data::NodeModel::CiscoCat9000v => iosxe_config(node, node_image, ztp),
@@ -2711,7 +2716,7 @@ fn iosxe_config(
         guest_account,
         ..
     } = *ztp;
-    let license_boot_command = match node.model {
+    let license_boot_command = match node.model_kind.model() {
         data::NodeModel::CiscoCat8000v => {
             Some("license boot level network-premier addon dna-premier".to_string())
         }
@@ -2869,7 +2874,7 @@ fn generate_disk_ztp(
     );
 
     let dir = ztp.boot_dir.to_owned();
-    match node.model {
+    match node.model_kind.model() {
         data::NodeModel::CiscoIosv | data::NodeModel::CiscoIosvl2 => {
             let rendered_template = match custom_ztp {
                 Some(config) => config.to_owned(),
@@ -2917,7 +2922,7 @@ fn iosv_config(
     } = *ztp;
     let owner = guest_account::owner_user(guest_account, KeyFormat::CiscoMd5, PasswordForm::Plain)?;
     let mgmt_interface = node_image.interfaces.management.to_string();
-    let rendered = if node.model == data::NodeModel::CiscoIosvl2 {
+    let rendered = if node.model_kind.model() == data::NodeModel::CiscoIosvl2 {
         template::CiscoIosvl2ZtpTemplate {
             hostname: node.name.clone(),
             owner,
@@ -3551,7 +3556,7 @@ pub fn build_domain_template(
         None => node_image.cpu.model.clone(),
     };
     let management_interface_type =
-        management_interface_type_for_model(node_image.model, &node_image.interfaces.kind);
+        management_interface_type_for_model(node.model_kind, &node_image.interfaces.kind);
 
     Ok(template::DomainTemplate {
         qemu_bin: qemu_bin.to_string(),
@@ -3575,7 +3580,7 @@ pub fn build_domain_template(
         ),
         management_interface_type,
         reserved_interface_type: reserved_interface_type_for_model(
-            node_image.model,
+            node.model_kind,
             &node_image.interfaces.kind,
         ),
         loopback_ipv4: parts.loopback_ipv4,
@@ -3590,7 +3595,7 @@ pub fn build_domain_template(
             node_image.model,
             data::NodeModel::WindowsServer | data::NodeModel::DevboxWindows
         ),
-        cpu_features: cpu_features_for_model(node_image.model),
+        cpu_features: cpu_features_for_model(node.model_kind),
         video_model: video_model.to_owned(),
         video_vram,
         vnc_port,
@@ -3602,10 +3607,10 @@ pub fn build_domain_template(
 /// Some platforms (e.g. IOS-XRv9000) require e1000 for the management NIC
 /// while using virtio for data interfaces.
 fn management_interface_type_for_model(
-    model: data::NodeModel,
+    model_kind: data::ModelKind,
     default: &data::InterfaceType,
 ) -> data::InterfaceType {
-    match model {
+    match model_kind.model() {
         data::NodeModel::CiscoIosxrv9000 => data::InterfaceType::E1000,
         _ => default.clone(),
     }
@@ -3615,18 +3620,18 @@ fn management_interface_type_for_model(
 /// Some platforms (e.g. IOS-XRv9000) use e1000 for the reserved system NICs
 /// per Cisco documentation.
 fn reserved_interface_type_for_model(
-    model: data::NodeModel,
+    model_kind: data::ModelKind,
     default: &data::InterfaceType,
 ) -> data::InterfaceType {
-    match model {
+    match model_kind.model() {
         data::NodeModel::CiscoIosxrv9000 => data::InterfaceType::E1000,
         _ => default.clone(),
     }
 }
 
 /// Return CPU feature overrides for specific node models.
-fn cpu_features_for_model(model: data::NodeModel) -> Vec<data::CpuFeature> {
-    match model {
+fn cpu_features_for_model(model_kind: data::ModelKind) -> Vec<data::CpuFeature> {
+    match model_kind.model() {
         data::NodeModel::JuniperVsrxv3 => {
             // FreeBSD-based vSRX requires disabling several CPU features that
             // cause boot hangs on KVM. Matches vrnetlab's working configuration.
@@ -3907,7 +3912,7 @@ pub async fn start_container_node(
     docker: &Arc<bollard::Docker>,
     qemu: &Arc<Qemu>,
     spec: ContainerSpec,
-    model: data::NodeModel,
+    model_kind: data::ModelKind,
     progress: &ProgressSender,
 ) -> Result<bool> {
     let container_name = spec.name.clone();
@@ -3916,10 +3921,11 @@ pub async fn start_container_node(
     if !is_running {
         return Ok(false);
     }
-    finish_management_checksums(&KernelHost::new(docker, qemu), &container_name, model).await?;
+    finish_management_checksums(&KernelHost::new(docker, qemu), &container_name, model_kind)
+        .await?;
 
     // SR Linux: flush default namespace IP to avoid DUP pings
-    if model == data::NodeModel::NokiaSrlinux {
+    if model_kind.model() == data::NodeModel::NokiaSrlinux {
         let flush_cmd = "for i in $(seq 1 30); do ip netns list 2>/dev/null | grep -q srbase-mgmt && break; sleep 1; done; ip addr flush dev mgmt0";
         container::exec_container_detached(docker, &container_name, vec!["sh", "-c", flush_cmd])
             .await
@@ -3941,9 +3947,9 @@ pub async fn start_container_node(
 pub(crate) async fn finish_management_checksums(
     host: &impl LinkHost,
     container_name: &str,
-    model: data::NodeModel,
+    model_kind: data::ModelKind,
 ) -> Result<bool> {
-    if !model.needs_host_checksums() {
+    if !model_kind.needs_host_checksums() {
         return Ok(false);
     }
     let ifindex = host
@@ -4028,12 +4034,6 @@ pub async fn check_node_ssh_ready(ip: &str, port: u16) -> Result<Option<String>>
     }
 }
 
-/// Port that shows a virtual machine is ready: the manifest's `ready_port`, else the model's
-/// own port (SSH for most models, the Talos API for Talos Linux).
-pub fn vm_ready_port(model: data::NodeModel, ready_port: Option<u16>) -> u16 {
-    ready_port.unwrap_or(model.ready_port())
-}
-
 /// Port that shows a container is ready once it has kept running: the manifest's
 /// `ready_check.port`. A container has no model port, so without one it is ready once it keeps
 /// running; a skipped check has none either.
@@ -4046,19 +4046,14 @@ pub fn container_ready_port(ready_check: &NodeReadyCheck) -> Option<u16> {
 }
 
 /// The readiness check stored with a node, from its manifest `ready_check`: the manifest's
-/// port, else a virtual machine's model port (`vm_ready_port`). A container or unikernel has no
-/// model port, so without a manifest port it has none and is ready once it runs.
+/// port, else its model and kind's port. Only a virtual machine has one; a container or
+/// unikernel without a manifest port has none and is ready once it runs.
 pub fn stored_ready_check(
-    kind: &data::NodeKind,
-    model: data::NodeModel,
+    model_kind: data::ModelKind,
     ready_check: &NodeReadyCheck,
 ) -> data::ReadyCheck {
-    let port = match kind {
-        data::NodeKind::VirtualMachine => Some(vm_ready_port(model, ready_check.port)),
-        data::NodeKind::Container | data::NodeKind::Unikernel => ready_check.port,
-    };
     data::ReadyCheck {
-        port,
+        port: ready_check.port.or(model_kind.ready_port()),
         skip: ready_check.skip.unwrap_or(false),
     }
 }
@@ -4423,6 +4418,7 @@ mod tests {
     use crate::services::guest_account::tests::test_account;
     use nix::sys::stat::{Mode, umask};
     use sha_crypt::{PasswordVerifier, ShaCrypt};
+    use shared::data::ModelKind;
     use std::env;
     use std::os::unix::fs::PermissionsExt;
     use std::process::Command;
@@ -4469,15 +4465,21 @@ mod tests {
     #[test]
     fn disabled_veths_stay_down_unless_the_model_keeps_them_up() {
         assert_eq!(
-            netns_veth_state(data::NodeModel::JuniperCevolved, false),
+            netns_veth_state(
+                ModelKind::default_for(data::NodeModel::JuniperCevolved),
+                false
+            ),
             NetnsVethState::Enabled
         );
         assert_eq!(
-            netns_veth_state(data::NodeModel::JuniperCevolved, true),
+            netns_veth_state(
+                ModelKind::default_for(data::NodeModel::JuniperCevolved),
+                true
+            ),
             NetnsVethState::DisabledUp
         );
         assert_eq!(
-            netns_veth_state(data::NodeModel::AristaCeos, true),
+            netns_veth_state(ModelKind::default_for(data::NodeModel::AristaCeos), true),
             NetnsVethState::Disabled
         );
     }
@@ -4788,37 +4790,51 @@ mod tests {
     fn test_openbsd_gets_no_ipv6_in_cloud_init_network_config() {
         let address: Ipv6Addr = "fd00::16".parse().unwrap();
         assert_eq!(
-            cloud_init_ipv6_address(data::NodeModel::OpenBsd, Some(address)),
+            cloud_init_ipv6_address(
+                ModelKind::default_for(data::NodeModel::OpenBsd),
+                Some(address)
+            ),
             None
         );
         assert_eq!(
-            cloud_init_ipv6_address(data::NodeModel::FreeBsd, Some(address)),
+            cloud_init_ipv6_address(
+                ModelKind::default_for(data::NodeModel::FreeBsd),
+                Some(address)
+            ),
             Some(address)
         );
         assert_eq!(
-            cloud_init_ipv6_address(data::NodeModel::UbuntuLinux, Some(address)),
+            cloud_init_ipv6_address(
+                ModelKind::default_for(data::NodeModel::UbuntuLinux),
+                Some(address)
+            ),
             Some(address)
         );
     }
 
     #[test]
     fn test_openbsd_wheel_gets_passwordless_doas() {
-        let file = cloud_init_doas_file(data::NodeModel::OpenBsd).unwrap();
+        let file = cloud_init_doas_file(ModelKind::default_for(data::NodeModel::OpenBsd)).unwrap();
         assert_eq!(file.path, "/etc/doas.conf");
         assert_eq!(file.content, "permit nopass keepenv :wheel\n");
         assert_eq!(file.permissions, "0400");
         // Root-owned files leave the owner out, so BSD uses root:wheel.
         assert_eq!(file.owner, None);
-        assert!(cloud_init_doas_file(data::NodeModel::FreeBsd).is_none());
-        assert!(cloud_init_doas_file(data::NodeModel::UbuntuLinux).is_none());
+        assert!(cloud_init_doas_file(ModelKind::default_for(data::NodeModel::FreeBsd)).is_none());
+        assert!(
+            cloud_init_doas_file(ModelKind::default_for(data::NodeModel::UbuntuLinux)).is_none()
+        );
     }
 
     #[test]
     fn test_openbsd_logins_get_no_sudo_rule() {
-        assert_eq!(cloud_init_sudo_rule(data::NodeModel::OpenBsd), None);
+        assert_eq!(
+            cloud_init_sudo_rule(ModelKind::default_for(data::NodeModel::OpenBsd)),
+            None
+        );
         for model in [data::NodeModel::FreeBsd, data::NodeModel::UbuntuLinux] {
             assert_eq!(
-                cloud_init_sudo_rule(model).as_deref(),
+                cloud_init_sudo_rule(ModelKind::default_for(model)).as_deref(),
                 Some("ALL=(ALL) NOPASSWD:ALL"),
                 "{model}"
             );
@@ -4827,9 +4843,15 @@ mod tests {
 
     #[test]
     fn test_openbsd_cloud_init_does_not_manage_etc_hosts() {
-        assert!(!cloud_init_manage_etc_hosts(data::NodeModel::OpenBsd));
-        assert!(cloud_init_manage_etc_hosts(data::NodeModel::FreeBsd));
-        assert!(cloud_init_manage_etc_hosts(data::NodeModel::UbuntuLinux));
+        assert!(!cloud_init_manage_etc_hosts(ModelKind::default_for(
+            data::NodeModel::OpenBsd
+        )));
+        assert!(cloud_init_manage_etc_hosts(ModelKind::default_for(
+            data::NodeModel::FreeBsd
+        )));
+        assert!(cloud_init_manage_etc_hosts(ModelKind::default_for(
+            data::NodeModel::UbuntuLinux
+        )));
     }
 
     fn script(filename: &str) -> topology::StartupScript {
@@ -5091,16 +5113,23 @@ mod tests {
     #[test]
     fn test_nixos_cloud_init_gets_no_sudo_rule() {
         // NixOS generates /etc/sudoers without /etc/sudoers.d, so wheel grants sudo instead.
-        assert!(cloud_init_sudo_rule(data::NodeModel::NixosLinux).is_none());
-        assert!(cloud_init_sudo_rule(data::NodeModel::UbuntuLinux).is_some());
+        assert!(
+            cloud_init_sudo_rule(ModelKind::default_for(data::NodeModel::NixosLinux)).is_none()
+        );
+        assert!(
+            cloud_init_sudo_rule(ModelKind::default_for(data::NodeModel::UbuntuLinux)).is_some()
+        );
     }
 
     #[test]
     fn test_nixos_cloud_init_leaves_ssh_password_auth_to_the_image() {
         // NixOS generates sshd_config, which cloud-init cannot edit.
-        assert_eq!(cloud_init_ssh_pwauth(data::NodeModel::NixosLinux), None);
         assert_eq!(
-            cloud_init_ssh_pwauth(data::NodeModel::UbuntuLinux),
+            cloud_init_ssh_pwauth(ModelKind::default_for(data::NodeModel::NixosLinux)),
+            None
+        );
+        assert_eq!(
+            cloud_init_ssh_pwauth(ModelKind::default_for(data::NodeModel::UbuntuLinux)),
             Some(true)
         );
     }
@@ -5110,7 +5139,7 @@ mod tests {
         let config = data::NodeConfig::omarchy_linux();
         let node = topology::NodeExpanded {
             name: "desktop".to_owned(),
-            model: config.model,
+            model_kind: ModelKind::default_for(config.model),
             ..Default::default()
         };
         let domain = build_domain_template(
@@ -5187,11 +5216,11 @@ mod tests {
         .unwrap();
         let mut node = topology::NodeExpanded {
             name: "vm".to_owned(),
-            model: data::NodeModel::FlatcarLinux,
+            model_kind: ModelKind::default_for(data::NodeModel::FlatcarLinux),
             ..Default::default()
         };
         node.ssh.authorized_keys = Some(vec!["ssh-ed25519 manifest-key-fixture".to_owned()]);
-        let image = data::NodeConfig::get_model(data::NodeModel::FlatcarLinux);
+        let image = data::ModelKind::default_for(data::NodeModel::FlatcarLinux).node_config();
         let account = test_account("alice", &[OWNER_KEY]);
         let network = nocloud_test_network();
         let (tx, _rx) = mpsc::unbounded_channel();
@@ -5285,10 +5314,10 @@ mod tests {
         ] {
             let node = topology::NodeExpanded {
                 name: model.to_string(),
-                model,
+                model_kind: ModelKind::default_for(model),
                 ..Default::default()
             };
-            let image = data::NodeConfig::get_model(model);
+            let image = data::ModelKind::default_for(model).node_config();
             let node_dir = format!("{root}/{model}");
             match model {
                 data::NodeModel::WindowsServer => {
@@ -5352,7 +5381,7 @@ mod tests {
         ] {
             let node = topology::NodeExpanded {
                 name: model.to_string(),
-                model,
+                model_kind: ModelKind::default_for(model),
                 startup_scripts: Some(vec![script("setup.ps1")]),
                 ..Default::default()
             };
@@ -5471,19 +5500,6 @@ mod tests {
     }
 
     #[test]
-    fn vm_ready_port_prefers_the_manifest_then_the_model() {
-        assert_eq!(
-            vm_ready_port(data::NodeModel::TalosLinux, None),
-            TALOS_API_PORT
-        );
-        assert_eq!(vm_ready_port(data::NodeModel::UbuntuLinux, None), SSH_PORT);
-        assert_eq!(
-            vm_ready_port(data::NodeModel::UbuntuLinux, Some(8443)),
-            8443
-        );
-    }
-
-    #[test]
     fn a_container_is_checked_on_its_manifest_port_unless_the_check_is_skipped() {
         let check = |port, skip| NodeReadyCheck { port, skip };
         assert_eq!(container_ready_port(&check(Some(80), None)), Some(80));
@@ -5496,31 +5512,34 @@ mod tests {
     }
 
     #[test]
-    fn the_stored_check_has_a_vms_model_port_and_only_the_manifest_port_of_others() {
+    fn the_stored_check_has_the_pairs_port_unless_the_manifest_sets_one() {
         let check = |port, skip| NodeReadyCheck { port, skip };
         let stored = |port, skip| data::ReadyCheck { port, skip };
-        let ubuntu = data::NodeModel::UbuntuLinux;
-        let vm = data::NodeKind::VirtualMachine;
+        let ubuntu = ModelKind::default_for(data::NodeModel::UbuntuLinux);
+        let talos = ModelKind::default_for(data::NodeModel::TalosLinux);
         assert_eq!(
-            stored_ready_check(&vm, ubuntu, &check(None, None)),
+            stored_ready_check(ubuntu, &check(None, None)),
             stored(Some(SSH_PORT), false)
         );
         assert_eq!(
-            stored_ready_check(&vm, data::NodeModel::TalosLinux, &check(None, None)),
+            stored_ready_check(talos, &check(None, None)),
             stored(Some(TALOS_API_PORT), false)
         );
         assert_eq!(
-            stored_ready_check(&vm, ubuntu, &check(Some(8443), Some(true))),
+            stored_ready_check(ubuntu, &check(Some(8443), Some(true))),
             stored(Some(8443), true)
         );
-        for kind in [data::NodeKind::Container, data::NodeKind::Unikernel] {
-            let model = data::NodeModel::GenericContainer;
+        for model in [
+            data::NodeModel::GenericContainer,
+            data::NodeModel::NanosUnikernel,
+        ] {
+            let model_kind = ModelKind::default_for(model);
             assert_eq!(
-                stored_ready_check(&kind, model, &check(None, None)),
+                stored_ready_check(model_kind, &check(None, None)),
                 stored(None, false)
             );
             assert_eq!(
-                stored_ready_check(&kind, model, &check(Some(80), Some(false))),
+                stored_ready_check(model_kind, &check(Some(80), Some(false))),
                 stored(Some(80), false)
             );
         }
@@ -5666,7 +5685,7 @@ mod tests {
             node.ztp.method = ztp;
             generate_container_ztp(
                 node,
-                &data::NodeConfig::get_model(node.model),
+                &node.model_kind.node_config(),
                 &self.lab(),
                 "192.0.2.10".parse().unwrap(),
                 None,
@@ -5695,7 +5714,7 @@ mod tests {
     fn named_node(name: &str, model: data::NodeModel) -> topology::NodeExpanded {
         topology::NodeExpanded {
             name: name.to_owned(),
-            model,
+            model_kind: ModelKind::default_for(model),
             ..Default::default()
         }
     }
@@ -5716,7 +5735,7 @@ mod tests {
         let mut lab = ZtpLab::new();
         let mut node = named_node("vm01", data::NodeModel::UbuntuLinux);
         node.ztp.method = Some(data::Ztp::Disabled);
-        let image = data::NodeConfig::get_model(data::NodeModel::UbuntuLinux);
+        let image = data::ModelKind::default_for(data::NodeModel::UbuntuLinux).node_config();
 
         let result = generate_vm_ztp(
             &mut node,
@@ -5761,7 +5780,7 @@ mod tests {
             ..lab.lab()
         };
         let mut node = named_node("flatcar01", data::NodeModel::FlatcarLinux);
-        let image = data::NodeConfig::get_model(data::NodeModel::FlatcarLinux);
+        let image = data::ModelKind::default_for(data::NodeModel::FlatcarLinux).node_config();
 
         let result = generate_vm_ztp(
             &mut node,
@@ -5841,17 +5860,27 @@ mod tests {
                 data::QemuCommand::juniper_vevolved(),
             ),
         ] {
-            assert_eq!(vm_qemu_commands(model), commands, "{model}");
+            assert_eq!(
+                vm_qemu_commands(ModelKind::default_for(model)),
+                commands,
+                "{model}"
+            );
         }
-        assert_eq!(vm_qemu_commands(data::NodeModel::FlatcarLinux), Vec::new());
-        assert_eq!(vm_qemu_commands(data::NodeModel::UbuntuLinux), Vec::new());
+        assert_eq!(
+            vm_qemu_commands(ModelKind::default_for(data::NodeModel::FlatcarLinux)),
+            Vec::new()
+        );
+        assert_eq!(
+            vm_qemu_commands(ModelKind::default_for(data::NodeModel::UbuntuLinux)),
+            Vec::new()
+        );
     }
 
     #[test]
     fn a_vm_follows_its_images_ztp_when_the_manifest_sets_none() {
         let lab = ZtpLab::new();
         let mut node = named_node("talos01", data::NodeModel::TalosLinux);
-        let image = data::NodeConfig::get_model(data::NodeModel::TalosLinux);
+        let image = data::ModelKind::default_for(data::NodeModel::TalosLinux).node_config();
 
         let result = generate_vm_ztp(
             &mut node,
@@ -5880,7 +5909,7 @@ mod tests {
         let lab = ZtpLab::new();
         let mut node = named_node("vm01", data::NodeModel::UbuntuLinux);
         node.ztp.method = Some(data::Ztp::Volume);
-        let image = data::NodeConfig::get_model(data::NodeModel::UbuntuLinux);
+        let image = data::ModelKind::default_for(data::NodeModel::UbuntuLinux).node_config();
 
         let error = generate_vm_ztp(
             &mut node,
@@ -6189,13 +6218,19 @@ mod tests {
 
     #[test]
     fn iol_is_the_only_network_os_container_given_net_admin() {
-        assert_eq!(model_capabilities(data::NodeModel::CiscoIol), ["NET_ADMIN"]);
         assert_eq!(
-            model_capabilities(data::NodeModel::CiscoIoll2),
+            model_capabilities(ModelKind::default_for(data::NodeModel::CiscoIol)),
+            ["NET_ADMIN"]
+        );
+        assert_eq!(
+            model_capabilities(ModelKind::default_for(data::NodeModel::CiscoIoll2)),
             ["NET_ADMIN"]
         );
         for model in MOUNTED_CONFIG_MODELS {
-            assert!(model_capabilities(model).is_empty(), "{model}");
+            assert!(
+                model_capabilities(ModelKind::default_for(model)).is_empty(),
+                "{model}"
+            );
         }
     }
 
@@ -6278,7 +6313,7 @@ mod tests {
         let models: Vec<data::NodeModel> = data::NodeModel::to_vec()
             .into_iter()
             .filter(|model| {
-                let config = data::NodeConfig::get_model(*model);
+                let config = data::ModelKind::default_for(*model).node_config();
                 config.kind == data::NodeKind::Container && config.repo.is_some()
             })
             .collect();
@@ -6292,7 +6327,7 @@ mod tests {
 
             let result = generate_container_ztp(
                 &mut node,
-                &data::NodeConfig::get_model(model),
+                &data::ModelKind::default_for(model).node_config(),
                 &lab.lab(),
                 "192.0.2.10".parse().unwrap(),
                 Some(&certs),
@@ -6362,7 +6397,7 @@ mod tests {
 
         let result = generate_container_ztp(
             &mut node,
-            &data::NodeConfig::get_model(data::NodeModel::KeycloakServer),
+            &data::ModelKind::default_for(data::NodeModel::KeycloakServer).node_config(),
             &lab.lab(),
             "192.0.2.10".parse().unwrap(),
             Some(&certs),
@@ -6723,7 +6758,7 @@ mod tests {
             let mut node = named_node(name, model);
             generate_vm_ztp(
                 &mut node,
-                &data::NodeConfig::get_model(model),
+                &data::ModelKind::default_for(model).node_config(),
                 &lab_ztp,
                 "192.0.2.10".parse().unwrap(),
                 None,
@@ -6762,7 +6797,7 @@ mod tests {
             let mut node = named_node(name, model);
             generate_vm_ztp(
                 &mut node,
-                &data::NodeConfig::get_model(model),
+                &data::ModelKind::default_for(model).node_config(),
                 &lab.lab(),
                 "192.0.2.10".parse().unwrap(),
                 None,

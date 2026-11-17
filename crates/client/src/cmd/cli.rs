@@ -526,68 +526,111 @@ mod tests {
         }
     }
 
+    /// Every image command, as `sherpa` arguments with what each needs besides `--kind`.
+    const IMAGE_COMMANDS: [&[&str]; 9] = [
+        &["image", "show", "ubuntu_linux"],
+        &["image", "list"],
+        &["server", "image", "show", "ubuntu_linux"],
+        &["server", "image", "list"],
+        &["server", "image", "scan"],
+        &[
+            "server",
+            "image",
+            "import",
+            "--src",
+            "/tmp/a.qcow2",
+            "--version",
+            "1",
+            "--model",
+            "ubuntu_linux",
+        ],
+        &[
+            "server",
+            "image",
+            "pull",
+            "--model",
+            "ubuntu_linux",
+            "--version",
+            "1",
+        ],
+        &[
+            "server",
+            "image",
+            "delete",
+            "--model",
+            "ubuntu_linux",
+            "--version",
+            "1",
+        ],
+        &[
+            "server",
+            "image",
+            "set-default",
+            "--model",
+            "ubuntu_linux",
+            "--version",
+            "1",
+        ],
+    ];
+
+    fn parses(command: &[&str], extra: &[&str]) -> bool {
+        let argv = std::iter::once("sherpa")
+            .chain(command.iter().copied())
+            .chain(extra.iter().copied());
+        Cli::try_parse_from(argv).is_ok()
+    }
+
     #[test]
-    fn at_most_one_image_kind_can_be_given() {
-        for args in [
-            &["sherpa", "image", "list", "--container", "--unikernel"][..],
-            &[
-                "sherpa",
-                "server",
-                "image",
-                "list",
-                "--unikernel",
-                "--virtual-machine",
-            ],
-            &[
-                "sherpa",
-                "server",
-                "image",
-                "scan",
-                "--container",
-                "--virtual-machine",
-            ],
-        ] {
-            assert!(Cli::try_parse_from(args).is_err(), "{args:?}");
+    fn every_image_command_takes_kind_with_each_kind() {
+        for command in IMAGE_COMMANDS {
+            assert!(parses(command, &[]), "{command:?}");
+            for kind in ["virtual_machine", "container", "unikernel"] {
+                assert!(parses(command, &["--kind", kind]), "{command:?} {kind}");
+            }
         }
-        assert!(Cli::try_parse_from(["sherpa", "server", "image", "scan", "--container"]).is_ok());
     }
 
     #[test]
-    fn a_scan_takes_a_model_and_repo_with_container() {
-        assert!(
-            Cli::try_parse_from([
-                "sherpa",
-                "server",
-                "image",
-                "scan",
-                "--container",
-                "--model",
-                "mysql_db",
-                "--repo",
-                "mysql",
-            ])
-            .is_ok()
-        );
+    fn an_image_command_refuses_a_kind_that_is_not_one_of_the_words() {
+        for command in IMAGE_COMMANDS {
+            for kind in ["vm", "virtual-machine", "docker"] {
+                assert!(!parses(command, &["--kind", kind]), "{command:?} {kind}");
+            }
+        }
     }
 
     #[test]
-    fn a_scan_refuses_a_model_or_repo_alone_or_without_container() {
-        for args in [
-            &["--container", "--model", "mysql_db"][..],
-            &["--container", "--repo", "mysql"],
-            &["--model", "mysql_db", "--repo", "mysql"],
+    fn the_old_image_kind_flags_are_gone() {
+        for command in IMAGE_COMMANDS {
+            for flag in ["--virtual-machine", "--container", "--unikernel"] {
+                assert!(!parses(command, &[flag]), "{command:?} {flag}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_scan_takes_a_model_and_repo_with_kind() {
+        assert!(parses(
+            &["server", "image", "scan"],
             &[
-                "--virtual-machine",
+                "--kind",
+                "container",
                 "--model",
                 "mysql_db",
                 "--repo",
-                "mysql",
+                "mysql"
             ],
+        ));
+    }
+
+    #[test]
+    fn a_scan_refuses_a_model_or_repo_alone_or_without_kind() {
+        for args in [
+            &["--kind", "container", "--model", "mysql_db"][..],
+            &["--kind", "container", "--repo", "mysql"],
+            &["--model", "mysql_db", "--repo", "mysql"],
         ] {
-            let argv = ["sherpa", "server", "image", "scan"]
-                .into_iter()
-                .chain(args.iter().copied());
-            assert!(Cli::try_parse_from(argv).is_err(), "{args:?}");
+            assert!(!parses(&["server", "image", "scan"], args), "{args:?}");
         }
     }
 

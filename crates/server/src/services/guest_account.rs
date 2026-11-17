@@ -613,7 +613,7 @@ pub(crate) mod tests {
     use db::SecretKey;
     use jiff::Timestamp;
     use sha_crypt::{PasswordVerifier, ShaCrypt};
-    use shared::data::{NodeKind, RecordId};
+    use shared::data::{ModelKind, NodeKind, RecordId};
     use shared::konst::{ADMIN_USERNAME, SHERPA_PASSWORD, SHERPA_USERNAME};
     use shared::util::base64_decode;
     use template::{CloudInitConfig, IgnitionConfig};
@@ -814,13 +814,13 @@ pub(crate) mod tests {
     #[test]
     fn a_model_that_cannot_take_the_owners_name_is_refused() {
         let long = test_account(&"a".repeat(21), &[KEY]);
-        let image = NodeConfig::get_model(NodeModel::WindowsServer);
+        let image = ModelKind::default_for(NodeModel::WindowsServer).node_config();
         let error = node_account(&long, "win1", &image).unwrap_err().to_string();
         assert!(
             error.contains("Node 'win1' (windows_server) takes login names of at most 20"),
             "{error}"
         );
-        let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         assert!(node_account(&long, "vm1", &image).is_ok());
     }
 
@@ -873,7 +873,7 @@ pub(crate) mod tests {
             NodeModel::CumulusLinux,
             NodeModel::SonicLinux,
         ] {
-            let image = NodeConfig::get_model(model);
+            let image = ModelKind::default_for(model).node_config();
             assert!(supports_guest_account(model, image.ztp.method), "{model}");
             assert!(!supports_guest_account(model, Ztp::Disabled), "{model}");
         }
@@ -885,7 +885,10 @@ pub(crate) mod tests {
             NodeModel::NanosUnikernel,
         ] {
             assert!(
-                !supports_guest_account(model, NodeConfig::get_model(model).ztp.method),
+                !supports_guest_account(
+                    model,
+                    ModelKind::default_for(model).node_config().ztp.method
+                ),
                 "{model}"
             );
         }
@@ -893,7 +896,7 @@ pub(crate) mod tests {
 
     /// The models each generator wrote the owner's account for, as the lists kept here by hand
     /// had them before the per-model table replaced them.
-    fn listed_by_the_generators(model: NodeModel, kind: &NodeKind, ztp: Ztp) -> bool {
+    fn listed_by_the_generators(model: NodeModel, kind: NodeKind, ztp: Ztp) -> bool {
         match kind {
             NodeKind::VirtualMachine => match ztp {
                 Ztp::CloudInit => matches!(
@@ -974,12 +977,16 @@ pub(crate) mod tests {
     #[test]
     fn the_owner_account_follows_the_generators_for_every_model_and_setting() {
         for model in NodeModel::to_vec() {
-            let kind = NodeConfig::get_model(model).kind;
-            let settings = model.ztp_methods().iter().copied().chain([Ztp::Disabled]);
+            let kind = ModelKind::default_for(model).node_config().kind;
+            let settings = ModelKind::default_for(model)
+                .ztp_methods()
+                .iter()
+                .copied()
+                .chain([Ztp::Disabled]);
             for ztp in settings {
                 assert_eq!(
                     supports_guest_account(model, ztp),
-                    listed_by_the_generators(model, &kind, ztp),
+                    listed_by_the_generators(model, kind, ztp),
                     "{model} with {ztp}"
                 );
             }
@@ -988,10 +995,10 @@ pub(crate) mod tests {
 
     #[test]
     fn a_manifest_ztp_decides_the_owner_account_over_the_images() {
-        let image = NodeConfig::get_model(NodeModel::FrrLinux);
+        let image = ModelKind::default_for(NodeModel::FrrLinux).node_config();
         let mut node = topology::NodeExpanded {
             name: "frr01".to_owned(),
-            model: NodeModel::FrrLinux,
+            model_kind: ModelKind::default_for(NodeModel::FrrLinux),
             ..Default::default()
         };
         assert!(provisions_owner(&node, &image));
@@ -1002,10 +1009,10 @@ pub(crate) mod tests {
     #[test]
     fn frr_keeps_the_owner_account_with_a_custom_frr_conf() {
         // FRR's custom config is `frr.conf`; the account is in its generated startup script.
-        let image = NodeConfig::get_model(NodeModel::FrrLinux);
+        let image = ModelKind::default_for(NodeModel::FrrLinux).node_config();
         let mut node = topology::NodeExpanded {
             name: "frr01".to_owned(),
-            model: NodeModel::FrrLinux,
+            model_kind: ModelKind::default_for(NodeModel::FrrLinux),
             ..Default::default()
         };
         node.ztp.config = Some("router bgp 65000\n".to_owned());
@@ -1023,8 +1030,8 @@ pub(crate) mod tests {
             },
             ..Default::default()
         };
-        let nodes = crate::services::up::process_manifest_nodes(&[node]);
-        let image = NodeConfig::get_model(NodeModel::CiscoIosv);
+        let nodes = crate::services::up::process_manifest_nodes(&[node]).unwrap();
+        let image = ModelKind::default_for(NodeModel::CiscoIosv).node_config();
         assert!(!provisions_owner(&nodes[0], &image));
         let mut node = nodes[0].clone();
         node.ztp.config = None;
@@ -1033,7 +1040,7 @@ pub(crate) mod tests {
 
     #[test]
     fn linux_nodes_take_every_registered_key() {
-        let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         let node_account =
             node_account(&account(&[KEY, RSA_KEY, ECDSA_KEY]), "vm", &image).unwrap();
         assert_eq!(node_account.account.username, "alice");
@@ -1043,7 +1050,7 @@ pub(crate) mod tests {
 
     #[test]
     fn devices_take_only_the_key_types_they_accept() {
-        let image = NodeConfig::get_model(NodeModel::CiscoNexus9300v);
+        let image = ModelKind::default_for(NodeModel::CiscoNexus9300v).node_config();
         let node_account = node_account(&account(&[KEY, ECDSA_KEY]), "nx1", &image).unwrap();
         assert_eq!(node_account.account.ssh_keys, vec![ECDSA_KEY]);
         assert_eq!(node_account.skipped_keys, vec!["ssh-ed25519"]);
@@ -1051,7 +1058,7 @@ pub(crate) mod tests {
 
     #[test]
     fn devices_take_no_more_keys_than_they_hold() {
-        let image = NodeConfig::get_model(NodeModel::PaloaltoPanos);
+        let image = ModelKind::default_for(NodeModel::PaloaltoPanos).node_config();
         let node_account = node_account(&account(&[RSA_KEY, KEY]), "fw1", &image).unwrap();
         assert_eq!(node_account.account.ssh_keys, vec![RSA_KEY]);
         assert_eq!(node_account.skipped_keys, vec!["ssh-ed25519"]);
@@ -1059,7 +1066,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_device_without_an_accepted_key_fails_with_how_to_make_one() {
-        let image = NodeConfig::get_model(NodeModel::CiscoIosv);
+        let image = ModelKind::default_for(NodeModel::CiscoIosv).node_config();
         let error = node_account(&account(&[KEY, ECDSA_KEY]), "r1", &image)
             .unwrap_err()
             .to_string();
@@ -1074,7 +1081,7 @@ pub(crate) mod tests {
     #[test]
     fn iol_takes_rsa_keys_only_as_ios_key_hashes_do() {
         for model in [NodeModel::CiscoIol, NodeModel::CiscoIoll2] {
-            let image = NodeConfig::get_model(model);
+            let image = ModelKind::default_for(model).node_config();
             let node_account =
                 node_account(&account(&[KEY, RSA_KEY, ECDSA_KEY]), "r1", &image).unwrap();
             assert_eq!(node_account.account.ssh_keys, vec![RSA_KEY], "{model}");
@@ -1088,7 +1095,7 @@ pub(crate) mod tests {
 
     #[test]
     fn ise_admin_is_the_owner_with_their_first_rsa_key() {
-        let image = NodeConfig::get_model(NodeModel::CiscoIse);
+        let image = ModelKind::default_for(NodeModel::CiscoIse).node_config();
         let node_account = node_account(&account(&[KEY, RSA_KEY]), "ise1", &image).unwrap();
         assert_eq!(node_account.account.username, "alice");
         assert_eq!(node_account.account.ssh_keys, vec![RSA_KEY]);

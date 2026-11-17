@@ -2,14 +2,17 @@ use anyhow::{Context, Result};
 use opentelemetry::KeyValue;
 use std::time::Instant;
 
-use shared::data::{ContainerPullRequest, ContainerPullResponse, NodeConfig, StatusKind};
+use shared::data::{
+    ContainerPullRequest, ContainerPullResponse, ModelKind, NodeConfig, NodeKind, StatusKind,
+};
 
 use tracing::instrument;
 
 use db::DefaultRequest;
 
 use crate::daemon::state::AppState;
-use crate::services::image_lifecycle::lock_image;
+use crate::services::error::ServiceError;
+use crate::services::image_lifecycle::{image_model_kind, lock_image};
 use crate::services::progress::ProgressSender;
 use crate::validate::validate_image_version;
 
@@ -22,7 +25,16 @@ pub async fn pull_container_image(
 ) -> Result<ContainerPullResponse> {
     let start = Instant::now();
     validate_image_version(&request.tag)?;
-    let _image_guard = lock_image(request.model, &request.tag).await;
+    let model_kind = image_model_kind(request.model, request.kind)?;
+    if model_kind.kind() != NodeKind::Container {
+        return Err(ServiceError::Invalid(format!(
+            "'{}' is a {}: only a container image is pulled from a registry",
+            request.model,
+            model_kind.kind()
+        ))
+        .into());
+    }
+    let _image_guard = lock_image(model_kind, &request.tag).await;
 
     tracing::info!(
         model = %request.model,
@@ -47,15 +59,19 @@ pub async fn pull_container_image(
     } else {
         DefaultRequest::Keep
     };
-    let recorded = db::upsert_node_image(&state.db, pulled_node_image(&request), request_default)
-        .await
-        .with_context(|| {
-            format!(
-                "Pulled {}:{} but failed to record it in the database; pull again or run \
+    let recorded = db::upsert_node_image(
+        &state.db,
+        pulled_node_image(model_kind, &request),
+        request_default,
+    )
+    .await
+    .with_context(|| {
+        format!(
+            "Pulled {}:{} but failed to record it in the database; pull again or run \
                  'sherpa server image scan'",
-                request.repo, request.tag
-            )
-        })?;
+            request.repo, request.tag
+        )
+    })?;
     // A version pulled before from another repo runs from the repo pulled now.
     if recorded.repo.as_deref() != Some(request.repo.as_str()) {
         let repulled = NodeConfig {
@@ -98,8 +114,8 @@ pub async fn pull_container_image(
 /// The node image record for a pulled container image: the model's defaults, with the version
 /// and repo it was pulled from. A container node runs the repo recorded here unless its manifest
 /// names an `image`.
-fn pulled_node_image(request: &ContainerPullRequest) -> NodeConfig {
-    let mut config = NodeConfig::get_model(request.model);
+fn pulled_node_image(model_kind: ModelKind, request: &ContainerPullRequest) -> NodeConfig {
+    let mut config = model_kind.node_config();
     config.version.clone_from(&request.tag);
     config.repo = Some(request.repo.clone());
     config.id = None;
@@ -115,12 +131,13 @@ mod tests {
     fn test_pulled_node_image_records_the_repo_it_was_pulled_from() {
         let request = ContainerPullRequest {
             model: NodeModel::PostgresqlDb,
+            kind: None,
             repo: "postgres".to_string(),
             tag: "17".to_string(),
             default: false,
         };
 
-        let config = pulled_node_image(&request);
+        let config = pulled_node_image(ModelKind::default_for(NodeModel::PostgresqlDb), &request);
 
         assert_eq!(config.model, NodeModel::PostgresqlDb);
         assert_eq!(config.repo.as_deref(), Some("postgres"));

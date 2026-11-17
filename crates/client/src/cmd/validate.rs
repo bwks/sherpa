@@ -1,14 +1,14 @@
 use anyhow::{Context, Result};
 
-use super::manifest_processing::{get_node_image, process_manifest_nodes};
-use shared::data::{NodeConfig, NodeCpuPins, NodeModel};
+use super::manifest_processing::process_manifest_nodes;
+use shared::data::NodeCpuPins;
 use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_lab_description,
-    check_link_impairments, check_no_p2p_field, check_node_kind_settings, check_node_names,
-    check_node_ztp, check_ptx_platform, check_text_file_modes, check_vm_tuning,
+    check_link_impairments, check_no_p2p_field, check_node_kind_settings, check_node_model_kind,
+    check_node_names, check_node_ztp, check_ptx_platform, check_text_file_modes, check_vm_tuning,
     validate_provisioners, validate_tailscale, validate_talos_clusters,
 };
 use topology::{Manifest, process_manifest_bridges, process_manifest_links};
@@ -22,10 +22,6 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     validate_tailscale(&manifest)?;
     println!("✓ Manifest loaded successfully");
     println!();
-
-    // Get all node configs (without database)
-    let all_models = NodeModel::to_vec();
-    let node_images: Vec<NodeConfig> = all_models.into_iter().map(NodeConfig::get_model).collect();
 
     util::term_msg_underline("Validating Manifest");
 
@@ -55,8 +51,14 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     check_text_file_modes(&manifest.nodes)?;
     println!("  ✓ Text file modes are valid");
 
+    println!("→ Checking each node's kind...");
+    for node in &manifest.nodes {
+        check_node_model_kind(node)?;
+    }
+    println!("  ✓ Every node's kind is one its model takes");
+
     // Process manifest data (same as up.rs)
-    let nodes_expanded = process_manifest_nodes(&manifest.nodes);
+    let nodes_expanded = process_manifest_nodes(&manifest.nodes)?;
     println!("→ Checking node settings against each node's kind...");
     for node in &nodes_expanded {
         check_node_kind_settings(node)?;
@@ -75,7 +77,8 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     // Per-node validators
     println!("→ Checking interface configurations...");
     for node in &nodes_expanded {
-        let node_image = get_node_image(node.model, &node_images)?;
+        // Without a server, a node's image is its model and kind's built-in settings.
+        let node_image = node.model_kind.node_config();
 
         let data_interface_count =
             effective_data_interface_count(&node.name, node.interfaces.data_count, &node_image)?;
@@ -94,7 +97,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
 
     println!("→ Checking VM tuning...");
     for node in &nodes_expanded {
-        let node_image = get_node_image(node.model, &node_images)?;
+        let node_image = node.model_kind.node_config();
         check_vm_tuning(node, &node_image)?;
         check_ptx_platform(node, &node_image)?;
         check_node_ztp(node)?;

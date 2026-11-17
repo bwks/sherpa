@@ -3,7 +3,7 @@ use db::{
     DefaultRequest, LabDetails, create_lab, create_link, create_user, list_links_by_lab,
     upsert_node_image,
 };
-use shared::data::{BridgeKind, NodeConfig, NodeModel};
+use shared::data::{BridgeKind, ModelKind, NodeModel};
 
 use crate::helper::{create_test_node_with_model, ipv4_lab_networks, setup_db, test_link};
 
@@ -69,7 +69,7 @@ async fn test_list_links_by_lab_filters_correctly() -> Result<()> {
     .await?;
     let _config = upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;

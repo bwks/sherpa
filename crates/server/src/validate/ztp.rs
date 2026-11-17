@@ -19,7 +19,7 @@ pub fn validate_node_ztp(
     talos_clusters: &[TalosCluster],
 ) -> Result<Ztp> {
     let ztp = effective_ztp(node.ztp.method, image);
-    check_ztp(node.model, ztp)
+    check_ztp(node.model_kind, ztp)
         .with_context(|| format!("ZTP validation failed for node: {}", node.name))?;
     if let Some((cluster, _)) = find_talos_cluster(talos_clusters, &node.name)
         && ztp == Ztp::Disabled
@@ -32,7 +32,7 @@ pub fn validate_node_ztp(
         );
     }
     if node.ztp.config.is_some() {
-        check_ztp_config_is_used(&node.name, node.model, ztp)?;
+        check_ztp_config_is_used(&node.name, node.model_kind.model(), ztp)?;
     }
     Ok(ztp)
 }
@@ -59,12 +59,13 @@ fn check_ztp_config_is_used(node_name: &str, model: NodeModel, ztp: Ztp) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::ModelKind;
     use topology::NodeZtp;
 
     fn node(model: NodeModel, ztp: Option<Ztp>, ztp_config: Option<&str>) -> NodeExpanded {
         NodeExpanded {
             name: "node1".to_owned(),
-            model,
+            model_kind: ModelKind::default_for(model),
             ztp: NodeZtp {
                 method: ztp,
                 config: ztp_config.map(str::to_owned),
@@ -76,7 +77,7 @@ mod tests {
     fn validate(model: NodeModel, ztp: Option<Ztp>, ztp_config: Option<&str>) -> Result<Ztp> {
         validate_node_ztp(
             &node(model, ztp, ztp_config),
-            &NodeConfig::get_model(model),
+            &ModelKind::default_for(model).node_config(),
             &[],
         )
     }
@@ -105,7 +106,7 @@ mod tests {
         assert!(error.contains("allows: disabled, volume"), "{error}");
 
         // An image whose stored setting its model does not take, however it got there.
-        let mut image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let mut image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         image.ztp.method = Ztp::Volume;
         let error =
             validate_node_ztp(&node(NodeModel::UbuntuLinux, None, None), &image, &[]).unwrap_err();
@@ -115,7 +116,11 @@ mod tests {
     #[test]
     fn a_config_is_accepted_only_where_a_generator_reads_it() {
         for model in NodeModel::to_vec() {
-            let settings = model.ztp_methods().iter().copied().chain([Ztp::Disabled]);
+            let settings = ModelKind::default_for(model)
+                .ztp_methods()
+                .iter()
+                .copied()
+                .chain([Ztp::Disabled]);
             for ztp in settings {
                 let read = match ztp {
                     Ztp::Tftp | Ztp::Cdrom | Ztp::Disk | Ztp::Usb | Ztp::NoCloud | Ztp::Volume => {
@@ -154,7 +159,7 @@ mod tests {
             controllers: vec!["node1".to_owned()],
             ..TalosCluster::default()
         }];
-        let image = NodeConfig::get_model(NodeModel::TalosLinux);
+        let image = ModelKind::default_for(NodeModel::TalosLinux).node_config();
         let member = node(NodeModel::TalosLinux, Some(Ztp::Disabled), None);
         let error = validate_node_ztp(&member, &image, &clusters)
             .unwrap_err()

@@ -1,7 +1,7 @@
 use anyhow::{Context, Error, Result};
 use serde_derive::{Deserialize, Serialize};
 
-use shared::data::{LinkImpairment, NodeModel};
+use shared::data::{LinkImpairment, ModelKind};
 use shared::util::split_node_int;
 
 /// Link impairment configuration from the manifest.
@@ -54,12 +54,12 @@ pub struct LinkExpanded {
 pub struct LinkDetailed {
     pub node_a: String,
     pub node_a_idx: u16,
-    pub node_a_model: NodeModel,
+    pub node_a_model_kind: ModelKind,
     pub int_a: String,
     pub int_a_idx: u8,
     pub node_b: String,
     pub node_b_idx: u16,
-    pub node_b_model: NodeModel,
+    pub node_b_model_kind: ModelKind,
     pub int_b: String,
     pub int_b_idx: u8,
     pub link_idx: u16,

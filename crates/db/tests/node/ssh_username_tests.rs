@@ -3,7 +3,7 @@ use db::{
     DefaultRequest, LabDetails, create_lab, create_node, create_user, get_node, list_nodes_by_lab,
     update_node_ssh_username, upsert_node_image,
 };
-use shared::data::{DbNode, NodeConfig, NodeModel, RecordId};
+use shared::data::{DbNode, ModelKind, NodeModel, RecordId};
 
 use crate::helper::{ipv4_lab_networks, setup_db};
 
@@ -25,7 +25,7 @@ async fn lab_with_node(db: &db::Database) -> Result<DbNode> {
     .await?;
     let image = upsert_node_image(
         db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;

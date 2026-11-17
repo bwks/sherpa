@@ -5,7 +5,7 @@ use db::{
     find_node_image_by_model_kind_version, get_node_image_versions, list_node_images,
     upsert_node_image,
 };
-use shared::data::{NodeConfig, NodeKind, NodeModel};
+use shared::data::{ModelKind, NodeKind, NodeModel};
 
 use crate::{create_test_config, setup_db};
 
@@ -167,7 +167,7 @@ async fn test_every_model_image_reads_back_as_written() -> Result<()> {
     let db = setup_db().await?;
 
     for model in NodeModel::to_vec() {
-        let written = NodeConfig::get_model(model);
+        let written = ModelKind::default_for(model).node_config();
         let created = upsert_node_image(&db, written.clone(), DefaultRequest::Keep).await?;
         let id = created.id.clone().expect("Created image should have an ID");
 

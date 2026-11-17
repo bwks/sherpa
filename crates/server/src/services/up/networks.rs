@@ -310,7 +310,7 @@ pub(super) async fn create_isolated_container_networks(
 
         // Only process container nodes (skip P2p containers — they use veth+netns)
         let node_data = match lab_node_data.iter().find(|n| n.name == nsd.name) {
-            Some(n) if n.kind == data::NodeKind::Container => n,
+            Some(n) if n.model_kind.kind() == data::NodeKind::Container => n,
             _ => continue,
         };
         if p2p_container_names.contains(&nsd.name) {
@@ -461,7 +461,7 @@ async fn join_bridge_members(
             interface: link.interface_name.clone(),
         });
 
-        if node_data.kind != data::NodeKind::Container {
+        if node_data.model_kind.kind() != data::NodeKind::Container {
             continue;
         }
 
@@ -481,7 +481,7 @@ async fn join_bridge_members(
                         lab_id, link.node_name, link.interface_name
                     ),
                     interface_idx: link.interface_index,
-                    node_model: node_data.model,
+                    model_kind: node_data.model_kind,
                     admin_down: false,
                     bridge: Some(bridge.bridge_name.clone()),
                 },
@@ -551,7 +551,7 @@ pub(super) fn container_data_attachments(
     // the correct docker network name and linux_interface_name.
     for nsd in node_setup_data {
         let node_data = match lab_node_data.iter().find(|n| n.name == nsd.name) {
-            Some(n) if n.kind == data::NodeKind::Container => n,
+            Some(n) if n.model_kind.kind() == data::NodeKind::Container => n,
             _ => continue,
         };
 
@@ -564,7 +564,7 @@ pub(super) fn container_data_attachments(
 
         let attachments = container_networks::data_attachments(
             &nsd.name,
-            node_data.model,
+            node_data.model_kind,
             &nsd.interfaces,
             lab_id,
         )

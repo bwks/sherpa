@@ -7,7 +7,7 @@ use db::{
     list_nodes_by_lab, upsert_node_image,
 };
 use shared::data::{
-    BridgeKind, BridgeMember, DbLab, DbLink, DbNode, LabPhase, LinkImpairment, NodeConfig,
+    BridgeKind, BridgeMember, DbLab, DbLink, DbNode, LabPhase, LinkImpairment, ModelKind,
     NodeModel, RecordId,
 };
 
@@ -32,7 +32,7 @@ async fn test_delete_lab_cascade_removes_nodes_links_bridges() -> Result<()> {
     .await?;
     upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -140,7 +140,7 @@ async fn test_bridge_members_are_removed_with_their_lab() -> Result<()> {
     .await?;
     upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -217,7 +217,7 @@ async fn test_delete_user_is_rejected_while_they_own_labs() -> Result<()> {
     let user_id = user.id.clone().expect("user has id");
     upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -268,7 +268,7 @@ async fn test_list_nodes_by_lab_isolation() -> Result<()> {
     let user = create_user(&db, "iso_user".to_string(), "TestPass123!", false, vec![]).await?;
     upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -335,7 +335,7 @@ async fn test_list_links_by_lab_isolation() -> Result<()> {
     .await?;
     upsert_node_image(
         &db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -468,7 +468,7 @@ async fn lab_fixture(db: &Database, lab_id: &str, octet: u8) -> Result<DbLab> {
     let user = create_user(db, format!("owner{octet}"), "TestPass123!", false, vec![]).await?;
     upsert_node_image(
         db,
-        NodeConfig::get_model(NodeModel::UbuntuLinux),
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
         DefaultRequest::Keep,
     )
     .await?;
@@ -563,7 +563,7 @@ async fn test_delete_lab_cascades_through_every_level() -> Result<()> {
 async fn test_node_image_in_use_cannot_be_deleted() -> Result<()> {
     let db = setup_db().await?;
     let lab = lab_fixture(&db, "fkey0004", 13).await?;
-    let template = NodeConfig::get_model(NodeModel::UbuntuLinux);
+    let template = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
     let image = find_node_image_by_model_kind_version(
         &db,
         &template.model,
@@ -642,7 +642,7 @@ async fn test_concurrent_writes_through_one_database_all_succeed() -> Result<()>
     let db = setup_db().await?;
     let lab = lab_fixture(&db, "conc0001", 15).await?;
     let lab_rid = lab.id.clone().expect("lab has id");
-    let template = NodeConfig::get_model(NodeModel::UbuntuLinux);
+    let template = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
     let image_id = find_node_image_by_model_kind_version(
         &db,
         &template.model,

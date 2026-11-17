@@ -16,7 +16,7 @@ impl KindBadge {
         Self {
             label: match kind {
                 NodeKind::VirtualMachine => "VM",
-                NodeKind::Container | NodeKind::Unikernel => kind_label(&kind),
+                NodeKind::Container | NodeKind::Unikernel => kind_label(kind),
             },
             kind,
         }
@@ -25,14 +25,14 @@ impl KindBadge {
     /// The pill for a detail page, with the full label.
     pub fn full(kind: NodeKind) -> Self {
         Self {
-            label: kind_label(&kind),
+            label: kind_label(kind),
             kind,
         }
     }
 }
 
 /// A node kind's name as the web UI shows it.
-pub fn kind_label(kind: &NodeKind) -> &'static str {
+pub fn kind_label(kind: NodeKind) -> &'static str {
     match kind {
         NodeKind::VirtualMachine => "Virtual Machine",
         NodeKind::Container => "Container",
@@ -55,18 +55,9 @@ mod tests {
         ];
         assert_eq!(cases.len(), NodeKind::iter().count());
         for (kind, full, short) in cases {
-            assert_eq!(kind_label(&kind), full, "{kind:?}");
-            assert_eq!(
-                KindBadge::full(kind.clone()),
-                KindBadge {
-                    label: full,
-                    kind: kind.clone()
-                }
-            );
-            assert_eq!(
-                KindBadge::short(kind.clone()),
-                KindBadge { label: short, kind }
-            );
+            assert_eq!(kind_label(kind), full, "{kind:?}");
+            assert_eq!(KindBadge::full(kind), KindBadge { label: full, kind });
+            assert_eq!(KindBadge::short(kind), KindBadge { label: short, kind });
         }
     }
 }

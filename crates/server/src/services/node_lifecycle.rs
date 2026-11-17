@@ -116,7 +116,7 @@ impl Runtimes {
 
     /// What the runtime reports for the node of `kind` whose domain or container is named
     /// `runtime_name`, or `None` when its runtime was not queried.
-    pub(crate) fn runtime_of(&self, kind: &NodeKind, runtime_name: &str) -> Option<Runtime> {
+    pub(crate) fn runtime_of(&self, kind: NodeKind, runtime_name: &str) -> Option<Runtime> {
         Some(match kind {
             NodeKind::VirtualMachine | NodeKind::Unikernel => {
                 libvirt_runtime(self.domains.as_ref()?.get(runtime_name).copied())
@@ -242,7 +242,7 @@ pub(crate) mod tests {
         DefaultRequest, LabDetails, LabNetworks, create_lab, create_node, create_user,
         upsert_node_image,
     };
-    use shared::data::{LabState, NodeConfig, NodeModel, Probe, Refused};
+    use shared::data::{LabState, ModelKind, NodeModel, Probe, Refused};
 
     #[test]
     fn a_runtime_that_could_not_be_queried_leaves_its_nodes_undecided() {
@@ -254,16 +254,16 @@ pub(crate) mod tests {
         };
         // libvirt did not answer: its nodes are undecided, not missing.
         assert_eq!(
-            runtimes.runtime_of(&NodeKind::VirtualMachine, "r1-abc12345"),
+            runtimes.runtime_of(NodeKind::VirtualMachine, "r1-abc12345"),
             None
         );
         assert_eq!(
-            runtimes.runtime_of(&NodeKind::Unikernel, "r1-abc12345"),
+            runtimes.runtime_of(NodeKind::Unikernel, "r1-abc12345"),
             None
         );
         // Docker answered, so its nodes are still decided.
         assert_eq!(
-            runtimes.runtime_of(&NodeKind::Container, "r1-abc12345"),
+            runtimes.runtime_of(NodeKind::Container, "r1-abc12345"),
             Some(Runtime::Running)
         );
     }
@@ -279,11 +279,11 @@ pub(crate) mod tests {
             containers: Some(HashMap::new()),
         };
         assert_eq!(
-            runtimes.runtime_of(&NodeKind::VirtualMachine, "r1-abc12345"),
+            runtimes.runtime_of(NodeKind::VirtualMachine, "r1-abc12345"),
             Some(Runtime::Absent)
         );
         assert_eq!(
-            runtimes.runtime_of(&NodeKind::Container, "r1-abc12345"),
+            runtimes.runtime_of(NodeKind::Container, "r1-abc12345"),
             Some(Runtime::Absent)
         );
     }
@@ -299,7 +299,7 @@ pub(crate) mod tests {
             )])),
         };
         assert_eq!(
-            runtimes.runtime_of(&NodeKind::Container, "r1-abc12345"),
+            runtimes.runtime_of(NodeKind::Container, "r1-abc12345"),
             Some(Runtime::Faulted("dead"))
         );
     }
@@ -404,7 +404,7 @@ pub(crate) mod tests {
         .unwrap();
         let image = upsert_node_image(
             &db,
-            NodeConfig::get_model(NodeModel::UbuntuLinux),
+            ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
             DefaultRequest::Keep,
         )
         .await

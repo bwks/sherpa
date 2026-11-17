@@ -28,13 +28,13 @@ pub fn process_manifest_links(
         detailed.push(LinkDetailed {
             node_a: node_a.name.clone(),
             node_a_idx: node_a.index,
-            node_a_model: node_a.model,
-            int_a_idx: interface_to_idx(&node_a.model, &link.int_a)?,
+            node_a_model_kind: node_a.model_kind,
+            int_a_idx: interface_to_idx(node_a.model_kind, &link.int_a)?,
             int_a: link.int_a,
             node_b: node_b.name.clone(),
             node_b_idx: node_b.index,
-            node_b_model: node_b.model,
-            int_b_idx: interface_to_idx(&node_b.model, &link.int_b)?,
+            node_b_model_kind: node_b.model_kind,
+            int_b_idx: interface_to_idx(node_b.model_kind, &link.int_b)?,
             int_b: link.int_b,
             link_idx,
             impairment: link.impairment,
@@ -72,8 +72,8 @@ pub fn process_manifest_bridges(
                     )
                 })?;
             links.push(BridgeLinkDetailed {
-                node_model: node.model,
-                interface_index: interface_to_idx(&node.model, &link.interface)?,
+                node_model_kind: node.model_kind,
+                interface_index: interface_to_idx(node.model_kind, &link.interface)?,
                 node_name: link.node,
                 interface_name: link.interface,
             });
@@ -101,7 +101,7 @@ fn link_node<'a>(nodes: &'a [NodeExpanded], name: &str) -> Result<&'a NodeExpand
 
 #[cfg(test)]
 mod tests {
-    use shared::data::NodeModel;
+    use shared::data::{ModelKind, NodeModel};
 
     use super::*;
     use crate::Node;
@@ -119,6 +119,7 @@ mod tests {
                         ..Default::default()
                     },
                 )
+                .unwrap()
             })
             .collect()
     }
@@ -236,7 +237,10 @@ mod tests {
         assert_eq!(result[0].index, 0);
         assert_eq!(result[0].links.len(), 2);
         assert_eq!(result[0].links[1].node_name, "dev02");
-        assert_eq!(result[0].links[1].node_model, NodeModel::UbuntuLinux);
+        assert_eq!(
+            result[0].links[1].node_model_kind,
+            ModelKind::default_for(NodeModel::UbuntuLinux)
+        );
         assert_eq!(result[0].links[1].interface_name, "eth2");
         assert_eq!(result[0].links[1].interface_index, 2);
     }

@@ -469,7 +469,9 @@ mod tests {
         ContainerSpec, docker_connection, kill_container, remove_container, run_container,
     };
     use libvirt::Qemu;
-    use shared::data::{ContainerNetworkAttachment, NodeCpu, NodeModel, NodeNuma, NumaMemoryMode};
+    use shared::data::{
+        ContainerNetworkAttachment, ModelKind, NodeCpu, NodeModel, NodeNuma, NumaMemoryMode,
+    };
     use shared::error::CpuPinRole;
 
     fn running(name: &str, mib: u64, numa_node: Option<u32>) -> DomainMemory {
@@ -594,9 +596,9 @@ mod tests {
 
     #[test]
     fn lab_requests_take_memory_and_numa_node_by_kind() {
-        let vm_image = NodeConfig::get_model(NodeModel::UbuntuLinux);
-        let unikernel_image = NodeConfig::get_model(NodeModel::NanosUnikernel);
-        let container_image = NodeConfig::get_model(NodeModel::MongoDb);
+        let vm_image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
+        let unikernel_image = ModelKind::default_for(NodeModel::NanosUnikernel).node_config();
+        let container_image = ModelKind::default_for(NodeModel::MongoDb).node_config();
         let cpu = NodeCpu {
             pinning: Some(vec![2, 3]),
             ..NodeCpu::default()
@@ -696,7 +698,7 @@ mod tests {
 
     #[test]
     fn a_vm_preferring_a_numa_node_claims_memory_on_the_server_only() {
-        let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         let vm = |numa_memory_mode| topology::NodeExpanded {
             name: "vm".to_string(),
             memory: Some(8192),
@@ -837,7 +839,7 @@ mod tests {
         let conn = Qemu::default().connect().unwrap();
         let docker = docker_connection().unwrap();
         let settings = HostMemorySettings::default();
-        let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         let left = guest_memory_left(&conn, &docker, settings).await;
         let size = left / 2 + 1;
         let Some(memory) = u16::try_from(size)
@@ -928,7 +930,7 @@ mod tests {
         let conn = Qemu::default().connect().unwrap();
         let docker = docker_connection().unwrap();
         let settings = HostMemorySettings::default();
-        let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         let node = |name: &str| topology::NodeExpanded {
             name: name.to_string(),
             memory: Some(256),
@@ -1027,7 +1029,7 @@ mod tests {
         let conn = Qemu::default().connect().unwrap();
         let docker = docker_connection().unwrap();
         let settings = HostMemorySettings::default();
-        let image = NodeConfig::get_model(NodeModel::GenericContainer);
+        let image = ModelKind::default_for(NodeModel::GenericContainer).node_config();
         let left = guest_memory_left(&conn, &docker, settings).await;
         let count = left / u64::from(u16::MAX) + 1;
         let nodes: Vec<topology::NodeExpanded> = (0..count)
@@ -1071,7 +1073,7 @@ mod tests {
         let conn = Qemu::default().connect().unwrap();
         let docker = docker_connection().unwrap();
         let settings = HostMemorySettings::default();
-        let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         let name = "admtest-ctr-limit";
         let _ = kill_container(&docker, name).await;
         let _ = remove_container(&docker, name).await;
@@ -1181,7 +1183,7 @@ mod tests {
             requests.push(tokio::spawn(async move {
                 let conn = Qemu::default().connect().unwrap();
                 let docker = docker_connection().unwrap();
-                let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+                let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
                 let node = pinned_vm("vm");
                 admit_lab_nodes(
                     &db,
@@ -1233,7 +1235,7 @@ mod tests {
             waiters.push(tokio::spawn(async move {
                 let conn = Qemu::default().connect().unwrap();
                 let docker = docker_connection().unwrap();
-                let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+                let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
                 let node = pinned_vm("vm");
                 let result = admit_lab_nodes(
                     &db,

@@ -217,7 +217,11 @@ impl Configuring<'_, '_> {
     }
 
     fn image(&self, node: &topology::NodeExpanded) -> Result<data::NodeConfig> {
-        get_node_image(node.model, node.version.as_deref(), self.inputs.node_images)
+        get_node_image(
+            node.model_kind,
+            node.version.as_deref(),
+            self.inputs.node_images,
+        )
     }
 
     /// Configure a container node. Returns the volumes it is created with: its own and the lab
@@ -510,7 +514,7 @@ fn domain_interfaces(
                 )
             }
             data::NodeInterface::Disabled => (
-                util::dasher(&util::interface_from_idx(&node.model, interface.index)?),
+                util::dasher(&util::interface_from_idx(node.model_kind, interface.index)?),
                 node_image.interfaces.mtu,
                 util::random_mac(KVM_OUI),
                 data::ConnectionTypes::Disabled,
@@ -651,7 +655,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use crate::konst::{LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, ZTP_ISO};
-    use shared::data::{NodeKind, NodeModel};
+    use shared::data::{ModelKind, NodeKind, NodeModel};
 
     use super::super::networks::management_network;
     use super::*;
@@ -733,8 +737,7 @@ mod tests {
                 };
                 let node = data::LabNodeData {
                     name: (*name).to_owned(),
-                    model: *model,
-                    kind: model.kind(),
+                    model_kind: ModelKind::default_for(*model),
                     index: record.index,
                     record: data::DbNode {
                         cpu_count: Some(1),
@@ -749,13 +752,13 @@ mod tests {
     }
 
     /// The nodes of `MODELS` of `kind`, as the manifest gives them.
-    fn nodes_of(kind: &NodeKind) -> Vec<topology::NodeExpanded> {
+    fn nodes_of(kind: NodeKind) -> Vec<topology::NodeExpanded> {
         MODELS
             .iter()
-            .filter(|(_, model)| model.kind() == *kind)
+            .filter(|(_, model)| ModelKind::default_for(*model).kind() == kind)
             .map(|(name, model)| topology::NodeExpanded {
                 name: (*name).to_owned(),
-                model: *model,
+                model_kind: ModelKind::default_for(*model),
                 ..Default::default()
             })
             .collect()
@@ -773,7 +776,7 @@ mod tests {
             .iter()
             .map(|(_, model)| data::NodeConfig {
                 default: true,
-                ..data::NodeConfig::get_model(*model)
+                ..data::ModelKind::default_for(*model).node_config()
             })
             .collect();
         let lab_dir = tempfile::tempdir().unwrap();
@@ -804,9 +807,9 @@ mod tests {
                 owner_account: &test_account("alice", &[]),
                 talos_clusters: &[],
             },
-            &mut nodes_of(&NodeKind::Container),
-            &mut nodes_of(&NodeKind::VirtualMachine),
-            &mut nodes_of(&NodeKind::Unikernel),
+            &mut nodes_of(NodeKind::Container),
+            &mut nodes_of(NodeKind::VirtualMachine),
+            &mut nodes_of(NodeKind::Unikernel),
         )
         .await
         .unwrap();
