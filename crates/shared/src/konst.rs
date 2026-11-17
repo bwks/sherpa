@@ -173,6 +173,12 @@ pub const CONSOLE_CONNECT_TIMEOUT: u64 = 10;
 /// in use. QEMU negotiates at once with the client it serves and says nothing to a second one.
 pub const CONSOLE_NEGOTIATION_TIMEOUT: u64 = 3;
 pub const HTTP_PORT: u16 = 8080;
+/// Front-panel ports of the `sonic_linux` virtual switch: its `Force10-S6000` hardware
+/// SKU has 32, `Ethernet0` to `Ethernet124`, each the next multiple of
+/// `SONIC_PORT_NAME_STEP`. The VM maps data interface `ethN` to `Ethernet(4 × (N − 1))`.
+pub const SONIC_PORT_COUNT: u8 = 32;
+/// The step between `sonic_linux` front-panel port numbers: each port is four lanes.
+pub const SONIC_PORT_NAME_STEP: u16 = 4;
 pub const KVM_OUI: &str = "52:54:00";
 pub const BOOT_SERVER_NAME: &str = "boot01";
 

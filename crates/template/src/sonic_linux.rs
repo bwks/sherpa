@@ -1,10 +1,10 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 use askama::Template;
-use serde_json::json;
+use serde_json::{Map, Value, json};
 
 use shared::data::{NetworkV4, NetworkV6, OwnerUser};
-use shared::konst::{HTTP_PORT, NODE_CONFIGS_DIR};
+use shared::konst::{HTTP_PORT, NODE_CONFIGS_DIR, SONIC_PORT_COUNT, SONIC_PORT_NAME_STEP};
 
 #[derive(Template)]
 #[template(path = "sonic/ztp_user.jinja", ext = "txt")]
@@ -27,18 +27,42 @@ impl SonicLinuxZtp {
         format!("{device_name}_ztp_user.sh")
     }
 
+    /// The ZTP JSON: load the node's `config_db.json`, run its account script, then load the
+    /// `config_db.json` again to bring the linked ports back up.
+    ///
+    /// The first `configdb-json` step sets two options away from the plugin's defaults:
+    /// - `clear-config: false` loads the file on top of the configuration the switch generated at
+    ///   first boot (`config load`) instead of replacing it (`config reload`). The file holds only
+    ///   what Sherpa sets, and the generated configuration holds the `PORT` table, so a reload
+    ///   left the switch with no front-panel ports.
+    /// - `save-config: true` then writes the merged configuration back to
+    ///   `/etc/sonic/config_db.json` (`config save`). The download replaced that file with
+    ///   Sherpa's partial one, which the switch loads on every boot after, so without the save the
+    ///   ports were gone again after a reboot.
+    ///
+    /// Either option makes the plugin stop ZTP's in-band discovery by restarting the network
+    /// configuration, which takes down the kernel interface of every port linked at boot while
+    /// the configuration still has it up. So the last step loads the same file again, neither
+    /// clearing nor saving and with no destination: discovery is over, so nothing restarts,
+    /// the load sets `admin_status` again and the switch brings those interfaces back up. With
+    /// no destination the plugin deletes the download, so the saved configuration stays whole.
     #[must_use]
     pub fn file_map(device_name: &str, ztp_server: &Ipv4Addr) -> String {
         let user_script = Self::user_script_filename(device_name);
+        let config_url = format!(
+            "http://{ztp_server}:{HTTP_PORT}/{NODE_CONFIGS_DIR}/{device_name}_config_db.json"
+        );
         let sonic_ztp_template = json!(
             {
                 "ztp": {
                   "001-configdb-json": {
                     "url": {
-                      "source": format!("http://{ztp_server}:{HTTP_PORT}/{NODE_CONFIGS_DIR}/{device_name}_config_db.json"),
+                      "source": config_url,
                       "destination": "/etc/sonic/config_db.json",
                       "secure": false
-                    }
+                    },
+                    "clear-config": false,
+                    "save-config": true
                   },
                   "002-set-password": {
                       "plugin": {
@@ -46,14 +70,33 @@ impl SonicLinuxZtp {
                         "shell": "true"
                        },
                        "reboot-on-success": false
-                    }
+                    },
+                  "003-configdb-json": {
+                    "url": {
+                      "source": config_url,
+                      "secure": false
+                    },
+                    "clear-config": false,
+                    "save-config": false
+                  }
                 }
             }
         );
         sonic_ztp_template.to_string()
     }
+    /// The node's `config_db.json`, which ZTP loads on top of the generated configuration: the
+    /// hostname, local login, every front-panel port admin up, and the management address when
+    /// the node has a static one.
     #[must_use]
     pub fn config(&self) -> String {
+        let ports: Map<String, Value> = (0..u16::from(SONIC_PORT_COUNT))
+            .map(|index| {
+                (
+                    format!("Ethernet{}", index * SONIC_PORT_NAME_STEP),
+                    json!({ "admin_status": "up" }),
+                )
+            })
+            .collect();
         let mut template = json!({
           "DEVICE_METADATA": {
             "localhost": {
@@ -64,7 +107,8 @@ impl SonicLinuxZtp {
             "authentication": {
               "login": "local"
             }
-          }
+          },
+          "PORT": ports
         });
 
         // Add MGMT_PORT and MGMT_INTERFACE only if mgmt_ip is provided
