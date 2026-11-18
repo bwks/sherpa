@@ -96,6 +96,7 @@ async fn create_test_container(docker: &Docker, name: &str, net: &TestNet) -> Re
         docker,
         ContainerSpec {
             name: name.to_string(),
+            hostname: None,
             image: TEST_IMAGE.to_string(),
             env_vars: vec![],
             volumes: vec![],
@@ -491,6 +492,7 @@ async fn test_run_container_with_env_vars() -> Result<()> {
             &docker,
             ContainerSpec {
                 name: name.to_string(),
+                hostname: None,
                 image: TEST_IMAGE.to_string(),
                 env_vars: vec!["MY_VAR=hello".to_string(), "OTHER=world".to_string()],
                 volumes: vec![],
@@ -541,7 +543,7 @@ async fn test_run_container_privileged() -> Result<()> {
 
         run_container(
             &docker,
-            ContainerSpec { name: name.to_string(), image: TEST_IMAGE.to_string(), env_vars: vec![], volumes: vec![], capabilities: vec![], management_network: test_network(&net.name), additional_networks: vec![], commands: vec!["sleep".to_string(), "3600".to_string()], privileged: true, shm_size: // privileged
+            ContainerSpec { name: name.to_string(), hostname: None, image: TEST_IMAGE.to_string(), env_vars: vec![], volumes: vec![], capabilities: vec![], management_network: test_network(&net.name), additional_networks: vec![], commands: vec!["sleep".to_string(), "3600".to_string()], privileged: true, shm_size: // privileged
             None, user: None, memory_mib: None, cpu_count: None },
         )
         .await?;
@@ -660,6 +662,7 @@ async fn a_container_runs_with_its_memory_and_cpu_limits() -> Result<()> {
             &docker,
             ContainerSpec {
                 name: name.to_string(),
+                hostname: None,
                 image: TEST_IMAGE.to_string(),
                 env_vars: vec![],
                 volumes: vec![],
@@ -724,6 +727,7 @@ async fn test_run_container_removes_a_container_it_cannot_set_up() -> Result<()>
         &docker,
         ContainerSpec {
             name: name.to_string(),
+            hostname: None,
             image: TEST_IMAGE.to_string(),
             env_vars: vec![],
             volumes: vec![],
@@ -759,6 +763,7 @@ async fn a_container_that_exits_at_once_reports_its_exit_code_and_last_log_lines
             &docker,
             ContainerSpec {
                 name: name.to_string(),
+                hostname: None,
                 image: TEST_IMAGE.to_string(),
                 env_vars: vec![],
                 volumes: vec![],
@@ -884,6 +889,7 @@ async fn iol_runs_unprivileged_owns_its_management_address_and_relays_its_interf
             &docker,
             ContainerSpec {
                 name: name.to_string(),
+                hostname: None,
                 image: image.clone(),
                 env_vars: vec![
                     "IOL_ID=7".to_string(),

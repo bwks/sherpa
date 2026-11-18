@@ -277,6 +277,10 @@ pub const JUNIPER_EVOLVED_CONTAINER_OVERHEAD_MIB: u16 = 2048;
 
 pub const CONTAINER_FRR_REPO: &str = "quay.io/frrouting/frr";
 
+/// The repo of the `sonic_linux` container, the name upstream's `docker-sonic-vs` archive
+/// carries. No registry publishes a current image, so it is built and imported.
+pub const CONTAINER_SONIC_LINUX_REPO: &str = "docker-sonic-vs";
+
 pub const CONTAINER_GITLAB_CE_REPO: &str = "gitlab/gitlab-ce";
 
 pub const CONTAINER_SURREAL_DB_REPO: &str = "surrealdb/surrealdb";

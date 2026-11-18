@@ -58,7 +58,10 @@ pub use juniper_junos::JunipervJunosZtpTemplate;
 pub use mikrotik_routeros::MikrotikRouterosZtpTemplate;
 pub use nokia_srlinux::build_srlinux_config;
 pub use paloalto_panos::{PaloAltoPanosBootstrapTemplate, PaloAltoPanosZtpTemplate};
-pub use sonic_linux::{SonicLinuxUserTemplate, SonicLinuxZtp};
+pub use sonic_linux::{
+    SonicLinuxContainerInitTemplate, SonicLinuxContainerSupervisordTemplate,
+    SonicLinuxUserTemplate, SonicLinuxZtp,
+};
 pub use ssh::{KnownHostsEntry, KnownHostsTemplate, SshConfigTemplate, SshHostConfig};
 pub use talos::{
     CiliumConfig, ClusterOidcConfig, ClusterVaultConfig, TalosClientCredentials,

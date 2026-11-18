@@ -180,6 +180,30 @@ mod tests {
     }
 
     #[test]
+    fn a_sonic_node_finds_the_image_of_its_own_kind_when_both_have_the_version() {
+        let sonic = |kind| data::ModelKind::new(data::NodeModel::SonicLinux, Some(kind)).unwrap();
+        let images = [
+            data::NodeConfig {
+                version: "202511".to_owned(),
+                default: true,
+                ..sonic(data::NodeKind::VirtualMachine).node_config()
+            },
+            data::NodeConfig {
+                version: "202511".to_owned(),
+                default: true,
+                ..sonic(data::NodeKind::Container).node_config()
+            },
+        ];
+        for kind in [data::NodeKind::VirtualMachine, data::NodeKind::Container] {
+            for version in [None, Some("202511")] {
+                let found = get_node_image(sonic(kind), version, &images).unwrap();
+                assert_eq!(found.kind(), kind, "{version:?}");
+                assert_eq!(found.version, "202511");
+            }
+        }
+    }
+
+    #[test]
     fn a_node_image_is_found_by_model_kind_and_version() {
         // An image row of another kind is never the node's, default or not.
         let images = [

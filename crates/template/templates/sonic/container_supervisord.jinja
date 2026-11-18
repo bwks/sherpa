@@ -1,0 +1,14 @@
+[supervisord]
+nodaemon=true
+user=root
+logfile=/dev/null
+logfile_maxbytes=0
+pidfile=/run/sherpa-supervisord.pid
+
+[program:sherpa-init]
+command=/bin/bash {{ init_script }}
+autorestart=false
+startsecs=0
+stdout_logfile=/dev/fd/1
+stdout_logfile_maxbytes=0
+redirect_stderr=true

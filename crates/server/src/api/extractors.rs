@@ -550,30 +550,12 @@ impl FromRequestParts<AppState> for AdminUser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::log_capture::capture_log;
     use axum::http::HeaderMap;
     use jsonwebtoken::{EncodingKey, Header, encode};
     use shared::auth::jwt::Claims;
-    use std::io::Write;
-    use std::sync::{Arc, Mutex};
 
     const TEST_SECRET: &[u8] = b"test_secret_32_bytes_long_enough";
-
-    #[derive(Clone)]
-    struct CapturedWriter(Arc<Mutex<Vec<u8>>>);
-
-    impl Write for CapturedWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0
-                .lock()
-                .expect("trace buffer lock poisoned")
-                .extend(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
 
     fn make_token(username: &str, is_admin: bool) -> String {
         let now = jiff::Timestamp::now().as_second();
@@ -804,22 +786,13 @@ mod tests {
     #[test]
     fn test_rejected_session_trace_does_not_include_raw_cookie() {
         const RAW_COOKIE: &str = "sherpa_auth=SUPER_SECRET_RAW_TOKEN";
-        let output = Arc::new(Mutex::new(Vec::new()));
-        let writer = CapturedWriter(Arc::clone(&output));
-        let subscriber = tracing_subscriber::fmt()
-            .with_ansi(false)
-            .without_time()
-            .with_writer(move || writer.clone())
-            .finish();
         let error = validate_cookie_session(Some(RAW_COOKIE), TEST_SECRET)
             .expect_err("malformed session should be rejected");
 
-        tracing::subscriber::with_default(subscriber, || {
+        let ((), output) = capture_log(|| {
             trace_rejected_session("/", &error, "redirect_to_login");
         });
 
-        let output = output.lock().expect("trace buffer lock poisoned");
-        let output = String::from_utf8_lossy(&output);
         assert!(output.contains("auth.session_rejected"));
         assert!(output.contains("malformed"));
         assert!(!output.contains("SUPER_SECRET_RAW_TOKEN"));

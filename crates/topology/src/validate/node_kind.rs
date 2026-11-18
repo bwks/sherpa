@@ -382,6 +382,41 @@ mod tests {
     }
 
     #[test]
+    fn sonic_linux_takes_a_container_kind_and_stays_a_virtual_machine_by_default() {
+        let node = manifest_node("name = \"sw1\"\nmodel = \"sonic_linux\"");
+        check_node_model_kind(&node).unwrap();
+        let expanded = NodeExpanded::new(1, &node).unwrap();
+        assert_eq!(expanded.model_kind.kind(), NodeKind::VirtualMachine);
+
+        let node = manifest_node(
+            "name = \"sw1\"\nmodel = \"sonic_linux\"\nkind = \"container\"\n\
+             [nodes.interfaces]\ndata_count = 2",
+        );
+        check_node_model_kind(&node).unwrap();
+        let expanded = NodeExpanded::new(1, &node).unwrap();
+        assert_eq!(expanded.model_kind.kind(), NodeKind::Container);
+        check_node_kind_settings(&expanded).unwrap();
+
+        let node = manifest_node(
+            "name = \"sw1\"\nmodel = \"sonic_linux\"\nkind = \"container\"\n\
+             [nodes.vm]\nwatchdog = \"reset\"",
+        );
+        let expanded = NodeExpanded::new(1, &node).unwrap();
+        assert_eq!(
+            error(&expanded),
+            "Manifest - node: 'sw1' sets `vm`, which does not apply to container nodes; \
+             'sonic_linux' is a container unless the node sets `kind = \"virtual_machine\"`"
+        );
+
+        let node = manifest_node("name = \"sw1\"\nmodel = \"sonic_linux\"\nkind = \"unikernel\"");
+        assert_eq!(
+            check_node_model_kind(&node).unwrap_err().to_string(),
+            "Manifest - node: 'sw1' sets `kind = \"unikernel\"`, but 'sonic_linux' comes only \
+             as: virtual_machine, container"
+        );
+    }
+
+    #[test]
     fn another_kinds_group_on_a_merged_model_says_which_kind_takes_it() {
         let node = manifest_node(
             "name = \"r1\"\nmodel = \"arista_eos\"\n[nodes.container]\nprivileged = true",

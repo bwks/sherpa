@@ -12,7 +12,7 @@ use ssh_key::{Algorithm, PublicKey};
 use tracing::instrument;
 
 use db::DevicePassword;
-use shared::data::{DbUser, NodeConfig, NodeModel, OwnerSshKey, OwnerUser, Ztp};
+use shared::data::{DbUser, NodeConfig, NodeKind, NodeModel, OwnerSshKey, OwnerUser, Ztp};
 use shared::konst::{
     DEVICE_PASSWORD_DOCS_URL, NODE_CLOUD_INIT_SUDO_RULE, RESERVED_USERNAMES, SSH_KEYS_DOCS_URL,
 };
@@ -124,13 +124,15 @@ pub(crate) fn supports_guest_account(model: NodeModel, ztp: Ztp) -> bool {
 }
 
 /// Whether the node gets the owner's account: its ZTP setting adds one and the node has no custom
-/// ZTP config, which replaces the generated config the account is written into. FRR is the
-/// exception: its custom config is `frr.conf`, and the account is in its startup script, which
-/// is always generated.
+/// ZTP config, which replaces the generated config the account is written into. FRR and the
+/// `sonic_linux` container are the exceptions: their custom config is `frr.conf` or `config_db.json`,
+/// and the account is in their start script, which is always generated.
 #[instrument(level = "debug", skip(node, image))]
 pub(crate) fn provisions_owner(node: &topology::NodeExpanded, image: &NodeConfig) -> bool {
+    let account_outside_config = image.model == NodeModel::FrrLinux
+        || (image.model == NodeModel::SonicLinux && image.kind() == NodeKind::Container);
     supports_guest_account(image.model, effective_ztp(node.ztp.method, image))
-        && (node.ztp.config.is_none() || image.model == NodeModel::FrrLinux)
+        && (node.ztp.config.is_none() || account_outside_config)
 }
 
 /// The owner keys a model takes, from each vendor's documentation of user public keys.
@@ -614,7 +616,7 @@ pub(crate) mod tests {
     use db::SecretKey;
     use jiff::Timestamp;
     use sha_crypt::{PasswordVerifier, ShaCrypt};
-    use shared::data::{ModelKind, NodeKind, RecordId};
+    use shared::data::{ModelKind, RecordId};
     use shared::konst::{ADMIN_USERNAME, SHERPA_USERNAME};
     use shared::util::base64_decode;
     use template::{CloudInitConfig, IgnitionConfig};
@@ -957,6 +959,7 @@ pub(crate) mod tests {
                         NodeModel::AristaEos
                             | NodeModel::NokiaSrlinux
                             | NodeModel::FrrLinux
+                            | NodeModel::SonicLinux
                             | NodeModel::JuniperEvolved
                             | NodeModel::CiscoIol
                             | NodeModel::CiscoIoll2
@@ -1009,6 +1012,27 @@ pub(crate) mod tests {
         };
         node.ztp.config = Some("router bgp 65000\n".to_owned());
         assert!(provisions_owner(&node, &image));
+    }
+
+    #[test]
+    fn the_sonic_container_keeps_the_owner_account_with_a_custom_config_db_and_the_vm_does_not() {
+        // The container's custom config is `config_db.json`; the account is in its start
+        // script. The VM's account is in a ZTP step a custom config replaces.
+        let container = ModelKind::new(NodeModel::SonicLinux, Some(NodeKind::Container)).unwrap();
+        let vm = ModelKind::default_for(NodeModel::SonicLinux);
+        for (model_kind, keeps) in [(container, true), (vm, false)] {
+            let mut node = topology::NodeExpanded {
+                name: "sonic01".to_owned(),
+                model_kind,
+                ..Default::default()
+            };
+            node.ztp.config = Some("{}".to_owned());
+            assert_eq!(
+                provisions_owner(&node, &model_kind.node_config()),
+                keeps,
+                "{model_kind}"
+            );
+        }
     }
 
     #[test]

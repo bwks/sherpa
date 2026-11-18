@@ -21,7 +21,8 @@ use crate::konst::{
     CONTAINER_FORGEJO_REPO, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO,
     CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_JUNIPER_EVOLVED_REPO, CONTAINER_KEYCLOAK_REPO,
     CONTAINER_MONGO_DB_REPO, CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_REPO,
-    CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD, SONIC_PORT_COUNT,
+    CONTAINER_SONIC_LINUX_REPO, CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD,
+    SONIC_PORT_COUNT,
 };
 
 use super::RecordId;
@@ -486,7 +487,7 @@ impl NodeModel {
     #[must_use]
     pub fn kinds(self) -> &'static [NodeKind] {
         match self {
-            NodeModel::AristaEos | NodeModel::JuniperEvolved => {
+            NodeModel::AristaEos | NodeModel::JuniperEvolved | NodeModel::SonicLinux => {
                 &[NodeKind::VirtualMachine, NodeKind::Container]
             }
             NodeModel::Generic => &[
@@ -525,7 +526,6 @@ impl NodeModel {
             | NodeModel::NixosLinux
             | NodeModel::KaliLinux
             | NodeModel::FlatcarLinux
-            | NodeModel::SonicLinux
             | NodeModel::TalosLinux
             | NodeModel::DevboxWindows
             | NodeModel::WindowsServer
@@ -2062,7 +2062,7 @@ impl NodeConfig {
         node_base::cloud_init_vm(NodeModel::KaliLinux)
     }
     #[must_use]
-    pub fn sonic_linux() -> NodeConfig {
+    pub fn sonic_linux_vm() -> NodeConfig {
         let vm = node_base::network_os_vm_settings(
             OsVariant::Linux,
             InterfaceDeviceSettings {
@@ -2092,6 +2092,24 @@ impl NodeConfig {
                     ztp: ZtpSettings { method: Ztp::Http },
                     ..vm
                 }),
+            )
+        }
+    }
+    /// The `docker-sonic-vs` container: 2 CPUs and 1 GiB, of which it uses about 150 MiB idle,
+    /// and the VM's 32 front-panel ports, `eth1` to `eth32`.
+    #[must_use]
+    pub fn sonic_linux_container() -> NodeConfig {
+        NodeConfig {
+            cpu: CpuSettings { count: 2 },
+            ..node_base::network_os_container(
+                NodeModel::SonicLinux,
+                1024,
+                CONTAINER_SONIC_LINUX_REPO,
+                InterfaceSettings {
+                    data_count: SONIC_PORT_COUNT,
+                    management: MgmtInterfaces::Eth0,
+                    reserved_count: 0,
+                },
             )
         }
     }
@@ -2662,6 +2680,37 @@ mod tests {
     }
 
     #[test]
+    fn sonic_linux_comes_as_a_vm_by_default_and_as_a_container() {
+        assert_eq!(
+            NodeModel::SonicLinux.kinds(),
+            [NodeKind::VirtualMachine, NodeKind::Container]
+        );
+        assert_eq!(
+            ModelKind::new(NodeModel::SonicLinux, None).unwrap().kind(),
+            NodeKind::VirtualMachine
+        );
+    }
+
+    #[test]
+    fn the_sonic_container_is_a_network_os_container_from_docker_sonic_vs() {
+        let config = ModelKind::new(NodeModel::SonicLinux, Some(NodeKind::Container))
+            .unwrap()
+            .node_config();
+        assert_eq!(config.model, NodeModel::SonicLinux);
+        assert_eq!(config.kind(), NodeKind::Container);
+        assert_eq!(config.cpu.count, 2);
+        assert_eq!(config.memory, 1024);
+        assert_eq!(config.interfaces.data_count, 32);
+        assert_eq!(config.interfaces.reserved_count, 0);
+        assert_eq!(config.interfaces.management, MgmtInterfaces::Eth0);
+        assert_eq!(config.ztp(), Ztp::Volume);
+        assert_eq!(
+            config.container_repo(None).as_deref(),
+            Some("docker-sonic-vs")
+        );
+    }
+
+    #[test]
     fn cisco_iol_models_are_network_os_containers_with_16_ethernet_ports() {
         for (name, repo) in [
             ("cisco_iol", "localrepo/cisco_iol"),
@@ -2774,6 +2823,7 @@ mod tests {
             NodeModel::CiscoIol,
             NodeModel::CiscoIoll2,
             NodeModel::FrrLinux,
+            NodeModel::SonicLinux,
         ];
         for model_kind in ModelKind::all() {
             let model = model_kind.model();

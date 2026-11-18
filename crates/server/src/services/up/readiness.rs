@@ -351,6 +351,8 @@ impl Readiness<'_, '_> {
             self.build.qemu,
             ContainerSpec {
                 name: container_name.clone(),
+                // The node name, as its own config names it; Docker's default is the ID.
+                hostname: Some(container.name.clone()),
                 image: container::image_reference(image_name, version),
                 env_vars: container.environment_variables.clone().unwrap_or_default(),
                 volumes,
@@ -427,7 +429,8 @@ impl Readiness<'_, '_> {
         started: Instant,
     ) -> Result<()> {
         let container_name = format!("{}-{}", container.name, self.build.lab_id);
-        let ready_port = node_ops::container_ready_port(&container.ready_check);
+        let ready_port =
+            node_ops::container_ready_port(container.model_kind, &container.ready_check);
         let ready_label = ready_port.map(node_ops::ready_port_label);
         let status = match container::container_state(self.build.docker_conn, &container_name).await
         {

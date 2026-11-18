@@ -190,7 +190,8 @@ AOS-CX, by key only. Never use a
 | SR Linux | AAA `user` with an `ssh-key` list; `admin-user` | `srl-admin` (superuser) | plain; SR Linux hashes it on commit |
 | PAN-OS | bootstrap `mgt-config` user with a `public-key`; `admin` | superuser | `phash`, `$5$` |
 | MikroTik | `/user add`, `/user ssh-keys import` of one file per key on the config disk (`sata1`, `konst::MIKROTIK_CONFIG_DISK`); `/user set 0` for `admin` | `full` | plain |
-| SONiC | `useradd`, `authorized_keys`, `/etc/sudoers.d` | `sudo`, `admin`, `docker` groups, passwordless sudo | `$6$` through `chpasswd -e` |
+| SONiC VM | `useradd`, `authorized_keys`, `/etc/sudoers.d` | `sudo`, `admin`, `docker` groups, passwordless sudo | `$6$` through `chpasswd -e` |
+| SONiC container | `useradd` in its start script on the first start, `authorized_keys`, `/etc/sudoers.d/90-sherpa-owner` when the image has `sudo` | `frrvty` group, passwordless sudo; none without `sudo` in the image | `$6$` through `chpasswd -e` |
 | FRR | `adduser`, `authorized_keys`, `/etc/sudoers.d` | `frr`, `frrvty` groups, passwordless sudo | `$6$` through `chpasswd -e` |
 
 The MikroTik config disk carries the rendered `config.rsc` and the owner's key files only. Up to
