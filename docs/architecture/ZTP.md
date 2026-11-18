@@ -251,11 +251,16 @@ program is Sherpa's start script (`sherpa-init.sh`). The script, as root:
    hash and every owner key in `authorized_keys`. If the image has `sudo`, it writes
    `/etc/sudoers.d/90-sherpa-owner` (`0440`, passwordless); if not, it logs that the owner has no
    root access. There is no fallback: root gets no password and no fake `sudo` is written;
-2. locks root's password and links `/usr/local/bin/rvtysh` to `vtysh`, which `show ip route`
+2. on the first start only (marker `/etc/ssh/.sherpa-host-keys`), deletes the image's
+   `/etc/ssh/ssh_host_*` keys and makes the node's own with `ssh-keygen -A`: every container
+   from one image ships with the same set. The container keeps them across a restart and a
+   `down`/`resume`; a redeploy makes a new container, so new keys, which its readiness probe
+   records as for any node with an SSH ready port;
+3. locks root's password and links `/usr/local/bin/rvtysh` to `vtysh`, which `show ip route`
    runs and the image lacks;
-3. waits for the node's data interfaces, as many as it has, up to 300 seconds, then `exec`s the
+4. waits for the node's data interfaces, as many as it has, up to 300 seconds, then `exec`s the
    image's `supervisord`;
-4. in the background, once `CONFIG_DB_INITIALIZED` is set and `start.sh` has finished: with
+5. in the background, once `CONFIG_DB_INITIALIZED` is set and `start.sh` has finished: with
    `volume`, on the first start only (marker `/etc/sonic/.sherpa-config-loaded`), merges
    `config_db.json` into the running config with `sonic-cfggen -j … --write-to-db` and saves the
    result to `/etc/sonic/config_db.json`. Then it turns IPv6 forwarding on, starts `bgpd`, which

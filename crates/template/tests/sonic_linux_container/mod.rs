@@ -198,3 +198,37 @@ fn test_init_starts_ssh_last_after_the_switch_and_its_config() {
     assert!(output.contains("sysctl -w net.ipv6.conf.all.forwarding=1"));
     assert!(output.contains("supervisorctl start bgpd"));
 }
+
+#[test]
+fn test_init_makes_the_nodes_own_ssh_host_keys_on_the_first_start_only() {
+    for (hash, config_db) in [(None, None), (Some("HASH"), Some(CONFIG_DB))] {
+        let output = init(hash, config_db);
+        let keys = block(
+            &output,
+            "if [ ! -e /etc/ssh/.sherpa-host-keys ]; then",
+            "fi",
+        );
+        // The image's shared keys go, new ones are made, then the marker a restart finds.
+        assert_eq!(
+            keys,
+            [
+                "  rm -f /etc/ssh/ssh_host_*",
+                "  ssh-keygen -A && touch /etc/ssh/.sherpa-host-keys",
+            ],
+            "{output}"
+        );
+        assert_eq!(output.matches("ssh-keygen").count(), 1);
+        assert_eq!(output.matches("ssh_host_").count(), 1);
+    }
+}
+
+#[test]
+fn test_init_makes_the_ssh_host_keys_before_sshd_starts() {
+    let output = init(Some("HASH"), Some(CONFIG_DB));
+    let keygen = output.find("ssh-keygen -A").expect("makes host keys");
+    let sshd = output.find("/usr/sbin/sshd").expect("starts sshd");
+    let supervisord = output
+        .find("exec /usr/local/bin/supervisord")
+        .expect("hands over");
+    assert!(keygen < sshd && keygen < supervisord, "{output}");
+}

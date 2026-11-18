@@ -28,6 +28,13 @@ else
 fi
 {%- endif %}
 
+# The node's own SSH host keys, made on the first start: every container from one image ships
+# with the same set. The container keeps them across a restart; a redeploy makes new ones.
+if [ ! -e /etc/ssh/.sherpa-host-keys ]; then
+  rm -f /etc/ssh/ssh_host_*
+  ssh-keygen -A && touch /etc/ssh/.sherpa-host-keys
+fi
+
 # Root has no password and no SSH login.
 usermod -L root
 # `show ip route` runs rvtysh, which the image does not have.
