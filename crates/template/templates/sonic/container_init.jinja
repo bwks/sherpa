@@ -1,0 +1,71 @@
+#!/bin/bash
+# Sherpa's start script for a SONiC container. It waits for the node's data interfaces, which
+# Sherpa attaches after the container starts, then hands over to the image's supervisord.
+# The container keeps its filesystem across a restart, so each step is safe to run again.
+{%- if let Some(owner) = owner %}
+
+# The owner's account, made on the first start. The owner logs in by key, or with their
+# device password, set from its SHA-512-crypt hash.
+if ! id {{ owner.username }} >/dev/null 2>&1; then
+  useradd -m -s /bin/bash -G frrvty {{ owner.username }}
+  echo '{{ owner.username }}:{{ owner.password }}' | chpasswd -e
+  install -d -m 700 -o {{ owner.username }} -g {{ owner.username }} /home/{{ owner.username }}/.ssh
+  cat >/home/{{ owner.username }}/.ssh/authorized_keys <<'SHERPA_KEYS'
+{%- for key in owner.ssh_keys %}
+{{ key.kind }} {{ key.value }}
+{%- endfor %}
+SHERPA_KEYS
+  chown {{ owner.username }}:{{ owner.username }} /home/{{ owner.username }}/.ssh/authorized_keys
+  chmod 600 /home/{{ owner.username }}/.ssh/authorized_keys
+fi
+
+# Root rights through sudo, which the image has only when it was built with it.
+if command -v sudo >/dev/null 2>&1; then
+  echo '{{ owner.username }} ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/90-sherpa-owner
+  chmod 0440 /etc/sudoers.d/90-sherpa-owner
+else
+  echo "sherpa-init: this image has no sudo, so {{ owner.username }} has no root access: build the image with sudo"
+fi
+{%- endif %}
+
+# Root has no password and no SSH login.
+usermod -L root
+# `show ip route` runs rvtysh, which the image does not have.
+[ -e /usr/local/bin/rvtysh ] || ln -s /usr/bin/vtysh /usr/local/bin/rvtysh
+
+# The image maps the data interfaces it finds at start to front-panel ports, once.
+DATA_COUNT={{ data_count }}
+WAIT_SECONDS=300
+echo "sherpa-init: waiting for $DATA_COUNT data interfaces"
+waited=0
+until [ "$(ls /sys/class/net | grep -c -E '^eth[1-9][0-9]*$')" -ge "$DATA_COUNT" ]; do
+  if [ "$waited" -ge "$WAIT_SECONDS" ]; then
+    echo "sherpa-init: gave up waiting after $WAIT_SECONDS s; starting SONiC with the data interfaces present"
+    break
+  fi
+  sleep 1
+  waited=$((waited + 1))
+done
+echo "sherpa-init: starting SONiC"
+
+# Once the image's start script has finished: Sherpa's settings, then the SSH server last, so
+# an answer on port 22 means the node is ready.
+(
+  until [ "$(sonic-db-cli CONFIG_DB GET CONFIG_DB_INITIALIZED 2>/dev/null)" = "1" ]; do sleep 1; done
+  while supervisorctl status start.sh | grep -q -E 'RUNNING|STARTING'; do sleep 1; done
+{%- if let Some(config_db) = config_db %}
+  # Sherpa's config is loaded on the first start only and saved, so a config the owner saves
+  # later is the one a restart loads.
+  if [ ! -e /etc/sonic/.sherpa-config-loaded ]; then
+    sonic-cfggen -j {{ config_db }} --write-to-db
+    sonic-cfggen -d --print-data >/etc/sonic/config_db.json
+    touch /etc/sonic/.sherpa-config-loaded
+  fi
+{%- endif %}
+  sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null
+  supervisorctl start bgpd >/dev/null
+  mkdir -p /run/sshd
+  /usr/sbin/sshd -o PermitRootLogin=no
+  echo "sherpa-init: ready"
+) &
+exec /usr/local/bin/supervisord

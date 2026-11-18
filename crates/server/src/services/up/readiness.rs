@@ -427,7 +427,8 @@ impl Readiness<'_, '_> {
         started: Instant,
     ) -> Result<()> {
         let container_name = format!("{}-{}", container.name, self.build.lab_id);
-        let ready_port = node_ops::container_ready_port(&container.ready_check);
+        let ready_port =
+            node_ops::container_ready_port(container.model_kind, &container.ready_check);
         let ready_label = ready_port.map(node_ops::ready_port_label);
         let status = match container::container_state(self.build.docker_conn, &container_name).await
         {

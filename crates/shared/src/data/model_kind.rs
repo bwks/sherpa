@@ -177,7 +177,10 @@ impl ModelKind {
             NodeModel::OmarchyLinux => NodeConfig::omarchy_linux(),
             NodeModel::NixosLinux => NodeConfig::nixos_linux(),
             NodeModel::KaliLinux => NodeConfig::kali_linux(),
-            NodeModel::SonicLinux => NodeConfig::sonic_linux(),
+            NodeModel::SonicLinux => match self.kind {
+                NodeKind::Container => NodeConfig::sonic_linux_container(),
+                NodeKind::VirtualMachine | NodeKind::Unikernel => NodeConfig::sonic_linux_vm(),
+            },
             NodeModel::FlatcarLinux => NodeConfig::flatcar_linux(),
             NodeModel::TalosLinux => NodeConfig::talos_linux(),
 
@@ -285,7 +288,10 @@ impl ModelKind {
             | NodeModel::CiscoIse
             | NodeModel::MikrotikChr => &[Ztp::Disk],
             NodeModel::CumulusLinux => &[Ztp::Usb],
-            NodeModel::SonicLinux => &[Ztp::Http],
+            NodeModel::SonicLinux => match self.kind {
+                NodeKind::Container => &[Ztp::Volume],
+                NodeKind::VirtualMachine | NodeKind::Unikernel => &[Ztp::Http],
+            },
             NodeModel::FlatcarLinux => &[Ztp::Ignition],
             NodeModel::TalosLinux => &[Ztp::NoCloud],
             NodeModel::NokiaSrlinux
@@ -332,7 +338,9 @@ impl ModelKind {
 
     /// The TCP port that shows a node of this model and kind is ready, when the manifest sets
     /// none: SSH for a virtual machine, or the Talos API for Talos Linux, which has no SSH.
-    /// `None` for a container or a unikernel, which is ready once it runs.
+    /// The `sonic_linux` container has SSH too: Sherpa's start script starts its SSH server last, once
+    /// the switch is up and its config loaded. `None` for any other container or a unikernel,
+    /// which is ready once it runs.
     #[must_use]
     pub fn ready_port(self) -> Option<u16> {
         match self.kind {
@@ -340,6 +348,7 @@ impl ModelKind {
                 NodeModel::TalosLinux => TALOS_API_PORT,
                 _ => SSH_PORT,
             }),
+            NodeKind::Container if self.model == NodeModel::SonicLinux => Some(SSH_PORT),
             NodeKind::Container | NodeKind::Unikernel => None,
         }
     }
@@ -497,6 +506,25 @@ mod tests {
     }
 
     #[test]
+    fn each_kind_of_sonic_has_its_own_settings_and_ztp() {
+        let vm = ModelKind::default_for(NodeModel::SonicLinux);
+        let container = ModelKind::new(NodeModel::SonicLinux, Some(NodeKind::Container)).unwrap();
+        assert_eq!(vm.kind(), NodeKind::VirtualMachine);
+        assert_eq!(vm.ztp_methods(), [Ztp::Http]);
+        assert_eq!(container.ztp_methods(), [Ztp::Volume]);
+        assert_eq!(vm.node_config().ztp(), Ztp::Http);
+        assert_eq!(container.node_config().ztp(), Ztp::Volume);
+        assert_eq!(vm.node_config().container_repo(None), None);
+        assert_eq!(
+            container.node_config().container_repo(None).as_deref(),
+            Some("docker-sonic-vs")
+        );
+        assert!(container.has_ssh());
+        assert!(!container.keeps_data_interfaces_up());
+        assert_eq!(container.to_string(), "sonic_linux, container");
+    }
+
+    #[test]
     fn a_kind_the_model_takes_is_accepted() {
         for model in NodeModel::iter() {
             for &kind in model.kinds() {
@@ -567,14 +595,17 @@ mod tests {
     }
 
     #[test]
-    fn only_virtual_machines_have_a_ready_port_of_their_own() {
+    fn only_virtual_machines_and_the_sonic_container_have_a_ready_port_of_their_own() {
+        let sonic_container =
+            ModelKind::new(NodeModel::SonicLinux, Some(NodeKind::Container)).unwrap();
         for model_kind in ModelKind::all() {
             assert_eq!(
                 model_kind.ready_port().is_some(),
-                model_kind.kind() == NodeKind::VirtualMachine,
+                model_kind.kind() == NodeKind::VirtualMachine || model_kind == sonic_container,
                 "{model_kind:?}"
             );
         }
+        assert_eq!(sonic_container.ready_port(), Some(SSH_PORT));
         assert_eq!(
             ModelKind::default_for(NodeModel::TalosLinux).ready_port(),
             Some(TALOS_API_PORT)

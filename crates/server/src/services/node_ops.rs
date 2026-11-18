@@ -159,6 +159,15 @@ const CONTAINER_FRR_ENV_VARS: &[&str] = &[];
 const FRR_ZTP_DAEMONS_MOUNT: &str = "/etc/frr/daemons";
 const FRR_ZTP_CONFIG_MOUNT: &str = "/etc/frr/frr.conf";
 const FRR_ZTP_STARTUP_MOUNT: &str = "/tmp/sherpa-init.sh";
+/// Where a `sonic_linux` container's start files are mounted, read-only. None goes at
+/// `/etc/sonic/config_db.json`: the image's start script renames a file over that path, which a
+/// bind mount cannot take.
+const SONIC_CONTAINER_SUPERVISORD_MOUNT: &str = "/mnt/sherpa-ztp/supervisord.conf";
+const SONIC_CONTAINER_INIT_MOUNT: &str = "/mnt/sherpa-ztp/sherpa-init.sh";
+const SONIC_CONTAINER_CONFIG_DB_MOUNT: &str = "/mnt/sherpa-ztp/config_db.json";
+/// The image's entrypoint is `supervisord`, so the command is its arguments: Sherpa's config,
+/// whose only program is the start script.
+const CONTAINER_SONIC_COMMANDS: &[&str] = &["-c", SONIC_CONTAINER_SUPERVISORD_MOUNT];
 const CONTAINER_GITLAB_CE_COMMANDS: &[&str] = &[];
 const CONTAINER_GITLAB_CE_SHM_SIZE: i64 = 256;
 /// `SurrealDB` starts in memory; its root user comes from the environment
@@ -664,6 +673,7 @@ fn container_start_settings(
             iol_start(node, node_image, ztp, setup)?;
         }
         data::NodeModel::FrrLinux => frr_start(node, setup),
+        data::NodeModel::SonicLinux => sonic_container_start(node, node_image, ztp, setup)?,
         data::NodeModel::GitlabCe => {
             app_container(node, setup, CONTAINER_GITLAB_CE_COMMANDS);
             // GitLab CE requires a larger /dev/shm for bundled PostgreSQL
@@ -701,6 +711,7 @@ fn container_volume_ztp(
             iol_volume_ztp(node, node_image, ztp, setup)
         }
         data::NodeModel::FrrLinux => frr_volume_ztp(node, ztp, setup),
+        data::NodeModel::SonicLinux => sonic_container_volume_ztp(node, node_image, ztp, setup),
         model => bail!(
             "ZTP setting 'volume' of container node '{}' was not validated: Sherpa generates \
              no config for model {model}",
@@ -1159,6 +1170,145 @@ fn frr_volume_ztp(
         Some(vec![daemons_volume, config_volume, startup_volume]);
     node.container.get_or_insert_default().commands = Some(setup.commands.clone());
     Ok(())
+}
+
+/// `sonic_linux` container start settings: privileged, and Sherpa's `supervisord` config and start
+/// script, mounted whatever the ZTP setting, so the image always waits for the data interfaces
+/// before it maps them to ports. The script has no account and no config here; `volume` writes
+/// it again with them.
+fn sonic_container_start(
+    node: &mut topology::NodeExpanded,
+    node_image: &data::NodeConfig,
+    ztp: &ContainerZtp<'_>,
+    setup: &mut ContainerSetup,
+) -> Result<()> {
+    let dir = ztp.dir;
+    let supervisord = template::SonicLinuxContainerSupervisordTemplate {
+        init_script: SONIC_CONTAINER_INIT_MOUNT.to_owned(),
+    }
+    .render()?;
+    let supervisord_file = format!("{dir}/supervisord.conf");
+    util::create_dir_with_permissions(Path::new(dir), NODE_CONFIG_DIR_MODE)?;
+    util::write_file_with_permissions(
+        Path::new(&supervisord_file),
+        supervisord.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
+    )?;
+    let init_file = write_sonic_container_init(node, node_image, dir, None, None)?;
+
+    setup.privileged = true;
+    // Mounted with the manifest's, which a node with ZTP off keeps, so the node's own mounts
+    // stay as the manifest has them.
+    setup.volumes.extend([
+        format!("{supervisord_file}:{SONIC_CONTAINER_SUPERVISORD_MOUNT}:ro"),
+        format!("{init_file}:{SONIC_CONTAINER_INIT_MOUNT}:ro"),
+    ]);
+    setup.commands = CONTAINER_SONIC_COMMANDS
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
+
+    let container = node.container.get_or_insert_default();
+    container.privileged = Some(setup.privileged);
+    container.commands = Some(setup.commands.clone());
+    Ok(())
+}
+
+/// `sonic_linux` container ZTP: its `config_db.json`, which the start script loads on the first start,
+/// and the start script again with the owner's account. A custom config replaces the
+/// `config_db.json` only; the account is in the start script, so the owner still gets it.
+fn sonic_container_volume_ztp(
+    node: &mut topology::NodeExpanded,
+    node_image: &data::NodeConfig,
+    ztp: &ContainerZtp<'_>,
+    setup: &mut ContainerSetup,
+) -> Result<()> {
+    let ContainerZtp {
+        dir,
+        custom_ztp,
+        guest_account,
+        mgmt_net,
+        ..
+    } = *ztp;
+    // Docker addresses `eth0`, so the config has no management entries.
+    let config_db = match custom_ztp {
+        Some(config) => config.to_owned(),
+        None => template::SonicLinuxZtp {
+            hostname: node.name.clone(),
+            mgmt_ipv4: mgmt_net.v4.clone(),
+            mgmt_ipv4_address: None,
+            mgmt_ipv6_address: None,
+            mgmt_ipv6: None,
+        }
+        .config(),
+    };
+    let config_file = format!("{dir}/config_db.json");
+    util::create_dir_with_permissions(Path::new(dir), NODE_CONFIG_DIR_MODE)?;
+    util::write_file_with_permissions(
+        Path::new(&config_file),
+        config_db.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
+    )?;
+    let owner = guest_account::owner_user(
+        guest_account,
+        KeyFormat::OpenSsh,
+        PasswordForm::Hashed(CryptHash::Sha512),
+    )?;
+    write_sonic_container_init(
+        node,
+        node_image,
+        dir,
+        Some(owner),
+        Some(SONIC_CONTAINER_CONFIG_DB_MOUNT),
+    )?;
+
+    setup.volumes.push(format!(
+        "{config_file}:{SONIC_CONTAINER_CONFIG_DB_MOUNT}:ro"
+    ));
+    // `volume` drops the manifest's mounts, so the node's are Sherpa's three.
+    node.container.get_or_insert_default().volumes = Some(vec![
+        topology::VolumeMount {
+            src: format!("{dir}/supervisord.conf"),
+            dst: SONIC_CONTAINER_SUPERVISORD_MOUNT.to_owned(),
+        },
+        topology::VolumeMount {
+            src: format!("{dir}/sherpa-init.sh"),
+            dst: SONIC_CONTAINER_INIT_MOUNT.to_owned(),
+        },
+        topology::VolumeMount {
+            src: config_file,
+            dst: SONIC_CONTAINER_CONFIG_DB_MOUNT.to_owned(),
+        },
+    ]);
+    Ok(())
+}
+
+/// Render a `sonic_linux` container's start script into `dir` and return its path. It waits for the
+/// node's data interfaces, as many as the node has.
+fn write_sonic_container_init(
+    node: &topology::NodeExpanded,
+    node_image: &data::NodeConfig,
+    dir: &str,
+    owner: Option<data::OwnerUser>,
+    config_db: Option<&str>,
+) -> Result<String> {
+    let init = template::SonicLinuxContainerInitTemplate {
+        data_count: effective_data_interface_count(
+            &node.name,
+            node.interfaces.data_count,
+            node_image,
+        )?,
+        owner,
+        config_db: config_db.map(str::to_owned),
+    }
+    .render()?;
+    let init_file = format!("{dir}/sherpa-init.sh");
+    util::write_file_with_permissions(
+        Path::new(&init_file),
+        init.as_bytes(),
+        NODE_CONFIG_FILE_MODE,
+    )?;
+    Ok(init_file)
 }
 
 /// An application container: its model's command.
@@ -4153,22 +4303,25 @@ pub async fn check_node_ssh_ready(ip: &str, port: u16) -> Result<Option<String>>
 }
 
 /// Port that shows a container is ready once it has kept running: the manifest's
-/// `ready_check.port`. A container has no model port, so without one it is ready once it keeps
-/// running; a skipped check has none either.
-pub fn container_ready_port(ready_check: &NodeReadyCheck) -> Option<u16> {
+/// `ready_check.port`, else its model and kind's port, which only the `sonic_linux` container has.
+/// Without one it is ready once it keeps running; a skipped check has none either.
+pub fn container_ready_port(
+    model_kind: data::ModelKind,
+    ready_check: &NodeReadyCheck,
+) -> Option<u16> {
     if ready_check.skip.unwrap_or(false) {
         None
     } else {
-        ready_check.port
+        ready_check.port.or(model_kind.ready_port())
     }
 }
 
 /// The readiness check stored with a node, from its manifest `ready_check` and its effective
 /// `ztp`: the manifest's port, else its model and kind's port, and, when that is SSH, whether
 /// its SSH server must show Sherpa's ready marker (`ModelKind::waits_for_sshd_ready_marker`);
-/// a Windows node checked on another port is checked as that port. Only a virtual
-/// machine has a model port; a container or unikernel without a manifest port has none and is
-/// ready once it runs. Every readiness probe, in `up`, `redeploy`, `resume`, the scanner and
+/// a Windows node checked on another port is checked as that port. A virtual machine and the
+/// `sonic_linux` container have a model port; any other container or a unikernel without a manifest
+/// port has none and is ready once it runs. Every readiness probe, in `up`, `redeploy`, `resume`, the scanner and
 /// `node.host_keys`, reads this check.
 pub fn stored_ready_check(
     model_kind: data::ModelKind,
@@ -5682,13 +5835,38 @@ pub(crate) mod tests {
     #[test]
     fn a_container_is_checked_on_its_manifest_port_unless_the_check_is_skipped() {
         let check = |port, skip| NodeReadyCheck { port, skip };
-        assert_eq!(container_ready_port(&check(Some(80), None)), Some(80));
+        let frr = ModelKind::default_for(data::NodeModel::FrrLinux);
+        assert_eq!(container_ready_port(frr, &check(Some(80), None)), Some(80));
         assert_eq!(
-            container_ready_port(&check(Some(80), Some(false))),
+            container_ready_port(frr, &check(Some(80), Some(false))),
             Some(80)
         );
-        assert_eq!(container_ready_port(&check(None, None)), None);
-        assert_eq!(container_ready_port(&check(Some(80), Some(true))), None);
+        assert_eq!(container_ready_port(frr, &check(None, None)), None);
+        assert_eq!(
+            container_ready_port(frr, &check(Some(80), Some(true))),
+            None
+        );
+    }
+
+    #[test]
+    fn the_sonic_container_is_checked_on_ssh_unless_the_manifest_says_otherwise() {
+        let check = |port, skip| NodeReadyCheck { port, skip };
+        let sonic =
+            ModelKind::new(data::NodeModel::SonicLinux, Some(data::NodeKind::Container)).unwrap();
+        assert_eq!(
+            container_ready_port(sonic, &check(None, None)),
+            Some(SSH_PORT)
+        );
+        assert_eq!(
+            container_ready_port(sonic, &check(Some(80), None)),
+            Some(80)
+        );
+        assert_eq!(container_ready_port(sonic, &check(None, Some(true))), None);
+        // `up` probes the port the node's stored check holds.
+        assert_eq!(
+            container_ready_port(sonic, &check(None, None)),
+            stored_ready_check(sonic, &check(None, None), data::Ztp::Volume).port
+        );
     }
 
     #[test]
@@ -6452,6 +6630,103 @@ pub(crate) mod tests {
         assert!(off.privileged);
     }
 
+    #[test]
+    fn sonic_container_mounts_its_start_files_its_config_and_the_owner_with_volume_ztp() {
+        let lab = ZtpLab::new();
+        let mut node = named_container("sonic01", data::NodeModel::SonicLinux);
+        let result = lab.container(&mut node, None).unwrap();
+
+        let dir = format!("{}/sonic01", lab.root());
+        assert_eq!(result.ztp_record.ztp, data::Ztp::Volume);
+        assert_eq!(
+            lab.files(),
+            [
+                "sonic01/config_db.json",
+                "sonic01/sherpa-init.sh",
+                "sonic01/supervisord.conf"
+            ]
+        );
+        assert_eq!(
+            result.volumes,
+            [
+                format!("{dir}/supervisord.conf:{SONIC_CONTAINER_SUPERVISORD_MOUNT}:ro"),
+                format!("{dir}/sherpa-init.sh:{SONIC_CONTAINER_INIT_MOUNT}:ro"),
+                format!("{dir}/config_db.json:{SONIC_CONTAINER_CONFIG_DB_MOUNT}:ro"),
+            ]
+        );
+        assert_eq!(result.commands, ["-c", "/mnt/sherpa-ztp/supervisord.conf"]);
+        assert!(result.privileged);
+        assert_eq!(result.image, "");
+
+        let init = fs::read_to_string(format!("{dir}/sherpa-init.sh")).unwrap();
+        assert!(init.contains("if ! id alice >/dev/null 2>&1; then"));
+        assert!(init.contains("echo 'alice:$6$"));
+        assert!(init.contains(&format!(
+            "sonic-cfggen -j {SONIC_CONTAINER_CONFIG_DB_MOUNT}"
+        )));
+        // One wait per data interface the model has.
+        assert!(init.contains("DATA_COUNT=32\n"));
+        assert!(!init.contains("sherpa ALL="));
+
+        let config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(format!("{dir}/config_db.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            config["DEVICE_METADATA"]["localhost"]["hostname"],
+            "sonic01"
+        );
+        assert_eq!(config["PORT"].as_object().unwrap().len(), 32);
+        // Docker addresses the management interface.
+        assert!(config.get("MGMT_INTERFACE").is_none());
+        assert!(config.get("MGMT_PORT").is_none());
+
+        let mounts = node.container.unwrap().volumes.unwrap();
+        assert_eq!(mounts.len(), 3);
+    }
+
+    #[test]
+    fn sonic_container_with_ztp_off_still_waits_for_its_interfaces() {
+        let lab = ZtpLab::new();
+        let mut node = named_container("sonic01", data::NodeModel::SonicLinux);
+        node.interfaces.data_count = Some(4);
+        let off = lab.container(&mut node, Some(data::Ztp::Disabled)).unwrap();
+
+        let dir = format!("{}/sonic01", lab.root());
+        assert_eq!(
+            lab.files(),
+            ["sonic01/sherpa-init.sh", "sonic01/supervisord.conf"]
+        );
+        assert_eq!(
+            off.volumes,
+            [
+                format!("{dir}/supervisord.conf:{SONIC_CONTAINER_SUPERVISORD_MOUNT}:ro"),
+                format!("{dir}/sherpa-init.sh:{SONIC_CONTAINER_INIT_MOUNT}:ro"),
+            ]
+        );
+        assert_eq!(off.commands, strings(CONTAINER_SONIC_COMMANDS));
+        assert!(off.privileged);
+        let init = fs::read_to_string(format!("{dir}/sherpa-init.sh")).unwrap();
+        assert!(init.contains("DATA_COUNT=4\n"));
+        assert!(!init.contains("useradd"));
+        assert!(!init.contains("sonic-cfggen -j"));
+    }
+
+    #[test]
+    fn sonic_container_with_a_custom_config_mounts_it_and_still_adds_the_owner() {
+        let lab = ZtpLab::new();
+        let mut node = named_container("sonic01", data::NodeModel::SonicLinux);
+        node.ztp.config = Some("{\"DEVICE_METADATA\": {}}".to_owned());
+        lab.container(&mut node, None).unwrap();
+
+        let dir = format!("{}/sonic01", lab.root());
+        assert_eq!(
+            fs::read_to_string(format!("{dir}/config_db.json")).unwrap(),
+            "{\"DEVICE_METADATA\": {}}"
+        );
+        let init = fs::read_to_string(format!("{dir}/sherpa-init.sh")).unwrap();
+        assert!(init.contains("useradd -m -s /bin/bash -G frrvty alice"));
+    }
+
     const IOL_MODELS: [data::NodeModel; 2] =
         [data::NodeModel::CiscoIol, data::NodeModel::CiscoIoll2];
 
@@ -6716,7 +6991,7 @@ pub(crate) mod tests {
                     && model_kind.node_config().container_repo(None).is_some()
             })
             .collect();
-        assert_eq!(pairs.len(), 13, "{pairs:?}");
+        assert_eq!(pairs.len(), 14, "{pairs:?}");
         for model_kind in pairs {
             let model = model_kind.model();
             // IOL's logins take an RSA key, and its application ID is the node's place in the

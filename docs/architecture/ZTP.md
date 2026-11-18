@@ -50,10 +50,10 @@ today, so the table is per model. `Disabled` is allowed for every pair and is ne
 | `cdrom` | the Cisco IOS XE, ASA, NX-OS, IOS XR and FTD VMs, `juniper_srxv3`, `juniper_router`, `juniper_switch`, `paloalto_panos` |
 | `disk` | `cisco_ios`, `cisco_iosl2`, `cisco_ise`, `mikrotik_chr` |
 | `usb` | `cumulus_linux` |
-| `http` | `sonic_linux` |
+| `http` | the `sonic_linux` VM |
 | `ignition` | `flatcar_linux` |
 | `nocloud` | `talos_linux` |
-| `volume` | the `arista_eos` and `juniper_evolved` containers, `nokia_srlinux`, `cisco_iol`, `cisco_ioll2`, `frr_linux` |
+| `volume` | the `arista_eos`, `juniper_evolved` and `sonic_linux` containers, `nokia_srlinux`, `cisco_iol`, `cisco_ioll2`, `frr_linux` |
 | none | every other container, and the unikernels |
 
 Each pair's default from `ModelKind::node_config` is `Disabled` or a listed method; unit tests in
@@ -199,6 +199,7 @@ error saying the setting was not validated. It is reached only if a write or a p
 | `juniper_evolved` container | image repo, privileged, the `CPTX_*` environment its entrypoint reads | `juniper.conf` in `configdisk` and its mount |
 | `cisco_iol`, `cisco_ioll2` | image repo, not privileged, `NET_ADMIN`, the `IOL_ID`, `IOL_MEMORY_MB` and `IOL_ETH_PORTS` environment its entrypoint writes the launcher config from, and IOL's NVRAM directory `run/` mounted at `/tmp/run` | `ios_config.txt` in `config/` and its read-only mount at `/config` |
 | `frr_linux` | image repo, privileged, environment | the `daemons` file, `frr.conf`, `sherpa-init.sh`, their mounts, and the command that runs the script |
+| `sonic_linux` container | image repo, privileged, `supervisord.conf` and `sherpa-init.sh` (no account, no config) with their read-only mounts, and the command `-c /mnt/sherpa-ztp/supervisord.conf` | `config_db.json` and its read-only mount, and `sherpa-init.sh` written again with the owner's account and the config load |
 | `hashicorp_vault` | image, `config.hcl` (generated, or the node's `ztp.config`), its mount, environment, command, capabilities | nothing; its only setting is `disabled` |
 | `keycloak_server` | image, user, environment with the node's own admin, command; needs the lab certificate | nothing |
 | `gitlab_ce` | image, command, `container.shm_size` | nothing |
@@ -235,6 +236,53 @@ entry in the lab's SSH config is still written.
 unless the node's setting is `volume`, or the model is `hashicorp_vault`, `gitlab_ce` or
 `surreal_db`. So a node of the first five with ZTP off takes the manifest's volumes, which is how
 a user mounts a config of their own.
+
+### SONiC container
+
+The `sonic_linux` container runs upstream's `docker-sonic-vs`. Its entrypoint is
+`supervisord`, which runs the image's `start.sh`: it reads the container's `ethN` interfaces
+**once**, maps them to ports through `lanemap.ini`, and generates the switch config. Sherpa
+attaches the data interfaces after the container starts, so the image cannot be started as it
+is. The command passes `supervisord` Sherpa's own config (`supervisord.conf`), whose only
+program is Sherpa's start script (`sherpa-init.sh`). The script, as root:
+
+1. with `volume`, makes the owner's account if `id <owner>` fails: uid 1000 from `useradd`,
+   `/bin/bash`, group `frrvty` (so `vtysh` works without `sudo`), `chpasswd -e` with the `$6$`
+   hash and every owner key in `authorized_keys`. If the image has `sudo`, it writes
+   `/etc/sudoers.d/90-sherpa-owner` (`0440`, passwordless); if not, it logs that the owner has no
+   root access. There is no fallback: root gets no password and no fake `sudo` is written;
+2. locks root's password and links `/usr/local/bin/rvtysh` to `vtysh`, which `show ip route`
+   runs and the image lacks;
+3. waits for the node's data interfaces, as many as it has, up to 300 seconds, then `exec`s the
+   image's `supervisord`;
+4. in the background, once `CONFIG_DB_INITIALIZED` is set and `start.sh` has finished: with
+   `volume`, on the first start only (marker `/etc/sonic/.sherpa-config-loaded`), merges
+   `config_db.json` into the running config with `sonic-cfggen -j … --write-to-db` and saves the
+   result to `/etc/sonic/config_db.json`. Then it turns IPv6 forwarding on, starts `bgpd`, which
+   the image defines but does not start, and starts `sshd` with `PermitRootLogin=no`, last.
+
+So port 22 answering means the node is ready, and `ModelKind::ready_port` gives the container
+SSH. Nothing is mounted at `/etc/sonic/config_db.json`: `start.sh` renames a file over that path,
+which a bind mount cannot take, and a partial file there would stop it generating the `PORT`
+table. `config_db.json` is what `SonicLinuxZtp::config` builds for the VM (hostname, local AAA,
+all 32 ports admin up) without the management entries, as Docker addresses `eth0`. A custom
+`ztp.config` replaces `config_db.json` only; the account is in the start script, so the owner
+still gets it (`guest_account::provisions_owner`).
+
+With ZTP off the start files are still mounted (#679 decision 4), so the interface wait always
+applies; the node gets no account and no config, and its SSH server still starts, as the
+readiness signal.
+
+The container keeps its filesystem across a restart, so each step is safe to run again. `down`
+pauses the container and `resume` unpauses it, keeping everything, saved or not. A container
+that was stopped is started again by `resume` (a cold boot): the script waits for the
+re-attached links, does not load Sherpa's config again, and `start.sh` loads the saved one.
+`redeploy` makes a new container, which loads Sherpa's config again.
+
+Observed with the 202511 image (build `1278069`) with `sudo` added: 50 seconds from start to
+ready with 32 data interfaces; `show` and `vtysh` work without `sudo`, `config …` needs `sudo`,
+and `show version` fails, as it calls `docker`. Every container from one image has the image's
+SSH host keys.
 
 ### Cisco IOL
 

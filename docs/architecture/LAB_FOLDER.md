@@ -89,7 +89,7 @@ through `shared::util::create_dir_with_permissions`. The modes are constants in 
 | A VM's boot files: cloud-init, cloudbase-init and NoCloud seeds, CD-ROM, disk, USB and Ignition sources, the PAN-OS bootstrap | `vm-boot.d/<node>/` and its subfolders | `0600` | `0700` | `sherpad`, building and uploading the media |
 | SONiC's HTTP files | `ztp/configs/`, the boot container's HTTP root | `0600` | `0700` | the boot container's HTTP server, as root |
 | TFTP configs (the `arista_eos` and `juniper_evolved` VMs, `aruba_aoscx`) | `ztp/tftp/`, the TFTP root, not served over HTTP | `0604` | `0705` | dnsmasq in the boot container, as root |
-| Container config mounts (cEOS, SR Linux, cJunosEvolved, IOL, FRR, Vault) | `<node>/` and its subfolders | `0600` | `0700` | the container's own processes, as root |
+| Container config mounts (cEOS, SR Linux, cJunosEvolved, IOL, FRR, the SONiC container, Vault) | `<node>/` and its subfolders | `0600` | `0700` | the container's own processes, as root |
 
 `ztp/` itself is `0700`. A container reads its mounts through Docker, which resolves the bind
 mount's source as root, so the folders above a mount do not need to let the container in; only
@@ -111,7 +111,8 @@ the mounted file or folder's own mode matters to the process in the container.
   files'.
 - Each container model's reader runs as root: cEOS (`/sbin/init`), SR Linux (`0:0`), FRR (the
   startup script, `frrinit.sh` and `vtysh -b`; the daemons run as `frr` but do not read
-  `frr.conf`), Vault (Sherpa's command runs `vault` without the image's switch to the `vault`
+  `frr.conf`), the SONiC container (`supervisord` and Sherpa's start script, which reads
+  `config_db.json` with `sonic-cfggen`), Vault (Sherpa's command runs `vault` without the image's switch to the `vault`
   user), and IOL and cJunosEvolved, whose launchers need `NET_ADMIN` and a privileged container,
   which only root has.
 - **SR Linux takes its config over.** Its startup, as root, gives `config.json` to its

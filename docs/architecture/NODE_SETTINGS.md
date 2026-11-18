@@ -68,7 +68,7 @@ off it:
 |---|---|
 | `node_config()` | the built-in image settings an import, pull or scan starts from |
 | `ztp_methods()` | the ZTP methods the pair takes (see [`ZTP.md`](ZTP.md)) |
-| `ready_port()` | the pair's readiness port: SSH, or the Talos API for Talos Linux, for a virtual machine; `None` for a container or a unikernel |
+| `ready_port()` | the pair's readiness port: SSH, or the Talos API for Talos Linux, for a virtual machine; SSH for the `sonic_linux` container, whose start script starts its SSH server last; `None` for any other container or a unikernel |
 | `has_ssh()`, `default_boot_disk_size()`, `keeps_data_interfaces_up()`, `needs_host_checksums()` | per pair |
 | `all()` | every model with each of its kinds, for tests and for walks such as the container scan's |
 | `Display` | the model, and its kind when the model takes several (`arista_eos, container`), for messages such as the login-name and SSH-key refusals |
@@ -88,9 +88,16 @@ pair.
 The interface enums are per pair: `AristaEosVmInt` and `AristaEosContainerInt`,
 `JuniperEvolvedVmInt` and `JuniperEvolvedContainerInt`. So are the built-in image settings
 (`NodeConfig::arista_eos_vm()`, `arista_eos_container()`, `juniper_evolved_vm()`,
-`juniper_evolved_container()`, `generic_vm()`, `generic_container()`, `generic_unikernel()`) and
-the EOS templates (`arista_eos_vm.jinja`, `arista_eos_container.jinja`). The built-in container
-repos of the merged models are `localrepo/arista_eos` and `localrepo/juniper_evolved`.
+`juniper_evolved_container()`, `sonic_linux_vm()`, `sonic_linux_container()`, `generic_vm()`,
+`generic_container()`, `generic_unikernel()`) and the EOS templates (`arista_eos_vm.jinja`,
+`arista_eos_container.jinja`). The built-in container repos of the merged models are
+`localrepo/arista_eos` and `localrepo/juniper_evolved`.
+
+`sonic_linux` gained its container kind after the merge: the VM stays its default, and the
+container (`docker-sonic-vs`, 2 CPUs, 1024 MiB, 32 data interfaces `eth1` to `eth32` with the
+default naming) takes `volume` ZTP. Its interfaces need no enum of their own: inside the
+container the image maps `ethN` to `Ethernet(4 × (N − 1))` through `lanemap.ini`, as the VM does.
+Its start settings and ZTP are in [`ZTP.md`](ZTP.md#sonic-container).
 
 Which pair a node is: its manifest `kind`, or its model's default (see
 [Manifest node](#manifest-node)). Which pair an image request is: the request's `kind`, or the
@@ -301,14 +308,15 @@ It runs in `sherpa validate`, in the server's `up` before images are leased, and
   `node_resources::CISCO_IOL_CONTAINER_OVERHEAD_MIB` (128 MiB) for the launcher and the bridge, always,
   so IOL fits inside the limit. `cpu.count` is a CPU quota as for any container; IOL is
   single-threaded, and the image's count is 1.
-- A container has no model port. Without `ready_check.port` its readiness is that it keeps
-  running for `CONTAINER_SETTLE` (5 seconds); with one, it must also answer on that port on
-  its management IPv4, checked as a VM's port is (`node_ops::check_vm_ready`; an SSH handshake
-  on port 22, a TCP connection on any other). `node_ops::container_ready_port` gives the port,
-  and none when `ready_check.skip` is set: a skipped check wins over a port.
+- A container has no model port, except the `sonic_linux` container's SSH. Without a port its
+  readiness is that it keeps running for `CONTAINER_SETTLE` (5 seconds); with one, it must also
+  answer on that port on its management IPv4, checked as a VM's port is
+  (`node_ops::check_vm_ready`; an SSH handshake on port 22, a TCP connection on any other).
+  `node_ops::container_ready_port` gives the port, the manifest's `ready_check.port` else the
+  pair's, and none when `ready_check.skip` is set: a skipped check wins over a port.
 - `ready_check` is stored on the node's record when `up` creates it and when `redeploy`
   rebuilds it (`node.ready_port`, `node.skip_ready_check` and `node.ready_sshd_marker`, from
-  `node_ops::stored_ready_check`): the port, else a VM's model port, the skip, and whether a
+  `node_ops::stored_ready_check`): the port, else the pair's model port, the skip, and whether a
   Windows node's SSH server must show Sherpa's ready marker. `resume`, `node.host_keys`,
   `redeploy`'s wait, `inspect` and the scanner read that record, not the lab's definition, so a
   container whose port does not answer stays `Starting` scan after scan, and a VM with a port

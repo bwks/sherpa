@@ -23,6 +23,7 @@ mod nokia_srlinux;
 mod owner_accounts;
 mod paloalto_panos;
 mod sonic_linux;
+mod sonic_linux_container;
 mod ssh;
 mod talos;
 mod vault;

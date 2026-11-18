@@ -12,6 +12,25 @@ pub struct SonicLinuxUserTemplate {
     pub owner: OwnerUser,
 }
 
+/// The `supervisord` config a `sonic_linux` container starts with: its only program is
+/// `init_script`, Sherpa's start script, which hands over to the image's own `supervisord`.
+#[derive(Template)]
+#[template(path = "sonic/container_supervisord.jinja", ext = "txt")]
+pub struct SonicLinuxContainerSupervisordTemplate {
+    pub init_script: String,
+}
+
+/// Sherpa's start script for a `sonic_linux` container: the owner's account when there is one, a wait
+/// for the `data_count` data interfaces, the config at `config_db` when there is one, then the
+/// SSH server, last, as the readiness signal.
+#[derive(Template)]
+#[template(path = "sonic/container_init.jinja", ext = "txt")]
+pub struct SonicLinuxContainerInitTemplate {
+    pub data_count: u8,
+    pub owner: Option<OwnerUser>,
+    pub config_db: Option<String>,
+}
+
 pub struct SonicLinuxZtp {
     pub hostname: String,
     pub mgmt_ipv4: NetworkV4,

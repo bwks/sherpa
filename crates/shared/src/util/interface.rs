@@ -205,6 +205,24 @@ mod tests {
     }
 
     #[test]
+    fn both_kinds_of_sonic_name_their_data_interfaces_eth1_to_eth32() {
+        let vm = ModelKind::default_for(NodeModel::SonicLinux);
+        let container = ModelKind::new(NodeModel::SonicLinux, Some(NodeKind::Container)).unwrap();
+        for model_kind in [vm, container] {
+            assert_eq!(interface_from_idx(model_kind, 0).unwrap(), "eth0");
+            assert_eq!(interface_from_idx(model_kind, 1).unwrap(), "eth1");
+            assert_eq!(interface_from_idx(model_kind, 32).unwrap(), "eth32");
+            assert_eq!(interface_to_idx(model_kind, "eth32").unwrap(), 32);
+        }
+        for idx in 1..=32u8 {
+            assert_eq!(
+                container_interface_name(container, idx).unwrap(),
+                format!("eth{idx}")
+            );
+        }
+    }
+
+    #[test]
     fn cisco_iol_interfaces_are_ethernet_slot_and_port_and_container_eth_by_index() {
         for model in [NodeModel::CiscoIol, NodeModel::CiscoIoll2] {
             for idx in 0..16u8 {
