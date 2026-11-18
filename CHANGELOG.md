@@ -2,6 +2,113 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-11-18
+
+### Upgrade notes
+
+This is a breaking release. Read "Updating to 0.7.0" on the documentation site's update page before updating, and update the CLI and the server together: a 0.7.0 CLI and an older server, or the other way round, don't work together.
+
+- **Back up first.** The update runs database migrations 25 to 35. Back up with `sherpa server backup`, and keep `/opt/sherpa/.secret/db.key` backed up separately.
+- **Set a device password before your next `sherpa up` or `sherpa redeploy`** (`sherpa server user device-password`, or the web UI's Profile page). Both refuse to run without one.
+- **You log in to nodes as yourself.** New nodes have no `sherpa` account and no `Everest1953!`. Vendor `admin` and `root` accounts take your device password, hashed where the device takes a hash. Labs built before 0.7.0 keep `sherpa` until a node is redeployed.
+- **Edit your manifests:**
+  - delete `provision_current_user`;
+  - use the renamed models: for example `arista_veos` and `arista_ceos` are now `arista_eos`, `juniper_vsrxv3` is `juniper_srxv3`, `cisco_iosv` is `cisco_ios`, and `generic_vm` is `generic` with `kind = "virtual_machine"`;
+  - add `kind` where a model has more than one;
+  - move SONiC links off `eth33` to `eth52`;
+  - drop `ztp = { method = "tftp" }` from vSRX nodes.
+  
+  `sherpa validate`, `up`, `resume` and `redeploy` refuse old names, and the message names the new model.
+- **Image commands take `--kind`,** replacing `--virtual-machine`, `--container` and `--unikernel`. Image API paths carry the kind, and images hold only their kind's settings.
+- **The lab SSH key is gone,** and `.sherpa/ssh/key` is no longer written.
+- **Consoles go through `sherpad`:**
+  - no SSH hop and no `telnet`, and only the lab's owner can open one;
+  - nodes running at the upgrade need a stop and resume, or a redeploy, before their console works.
+- **Admins can still see and manage other users' labs, but can't log in to their nodes:**
+  - they can't download those labs' files or connect to the nodes, and console and VNC details are hidden;
+  - `user create` takes no SSH keys, and adding a key is self only.
+- **Keycloak and SurrealDB nodes have their own generated admin,** written to the lab folder for the owner. Existing nodes keep the old password until redeployed.
+- **Aruba AOS-CX logs in by key only,** with `admin` locked. **vSRX takes its config from CD-ROM only.** **The lab router's HTTP service** serves only the files of HTTP-booting nodes.
+- **The installer and update script create the blank disk images** that USB and disk ZTP need.
+
+### Bug Fixes
+
+- Deleting one kind's image keeps the other kind's file at its version by @bwks ([2b2c9e3](https://github.com/bwks/sherpa/commit/2b2c9e3ae981d2c8f6349c87d1ee3d1b19525b7e))
+- Another tag of a container image does not block its delete by @bwks ([502093b](https://github.com/bwks/sherpa/commit/502093bee8177b1f546205da795ddaec4613c56a))
+- Juniper_srxv3 takes its config from CD-ROM only by @bwks ([a0c11ed](https://github.com/bwks/sherpa/commit/a0c11edb57ccc377ff812ce399ab244c91348df9))
+- SurrealDB nodes log at info, so a /signin password stays out of docker logs by @bwks ([2c03349](https://github.com/bwks/sherpa/commit/2c03349e91e906110f80cfe4c3110d08bf50f70a))
+- IOS XE day-0 config stops PnP discovery first by @bwks ([033ff7c](https://github.com/bwks/sherpa/commit/033ff7c38f6caeac22384175c3939b2000d6c650))
+- Read overlay bases through libvirt, and refuse old names on the CLI by @bwks ([58c8012](https://github.com/bwks/sherpa/commit/58c801213f3d2afdbd88e8700ae80a9e17953ac4))
+- Boot server serves over HTTP only the files of HTTP-booting nodes by @bwks ([0cb79b2](https://github.com/bwks/sherpa/commit/0cb79b211a5570e783a65c658941e0df610c1cde))
+- AOS-CX config carries no password; owner by key only, admin locked by @bwks ([d8c1b82](https://github.com/bwks/sherpa/commit/d8c1b82b57cb8632b89ec7d6d44d8eb812631bc7))
+- Image.import over RPC no longer refuses the caller's token by @bwks ([f2273b6](https://github.com/bwks/sherpa/commit/f2273b6922af5f8ca85cb815d27be595fdb44d44))
+- Create missing blank disks on install and update by @bwks ([d56ae7f](https://github.com/bwks/sherpa/commit/d56ae7f7b651a2a7d29825fa54abc3a7461da651))
+- Sonic_linux VMs keep their 32 front-panel ports after ZTP by @bwks ([94607cc](https://github.com/bwks/sherpa/commit/94607cc0ce31c1b42665de74d677483d42a0eaa7))
+- Pass Flatcar's Ignition file as a libvirt fwcfg entry by @bwks ([bf3e933](https://github.com/bwks/sherpa/commit/bf3e933e581dc0757c1644fb0c979cd416d9ae74))
+- Write rendered node configs 0600 in 0700 folders by @bwks ([7c5bc1f](https://github.com/bwks/sherpa/commit/7c5bc1f3a09e96a6e9985dc2c258f8ce8c9aaaf7))
+- Point a hand-linked pull request to where its item is counted by @bwks ([94007d7](https://github.com/bwks/sherpa/commit/94007d73bb99d1eb284a51cd5508c1cd89c3f2c4))
+- Host waits on the user only while no task is open; guest clock stops at result by @bwks ([7868466](https://github.com/bwks/sherpa/commit/78684669eb23136fe9f4d1fdc55432796b95b0ba))
+- Log the removed-settings path once by @bwks ([68b5efe](https://github.com/bwks/sherpa/commit/68b5efe7ddc562a8eb372a76fb4995e14151f7d2))
+- Drop the server's ztp_server setting, run init as sherpa only by @bwks ([18ac70b](https://github.com/bwks/sherpa/commit/18ac70be4f4b67b30920dded251822cee11daa58))
+- Keep sherpa.toml and the env files sherpa's alone by @bwks ([e35e087](https://github.com/bwks/sherpa/commit/e35e08707f111fcd4750bd23513c962e97aab7ab))
+
+### CI
+
+- Run every client test on Windows, not a filter that matches nothing by @bwks ([390b946](https://github.com/bwks/sherpa/commit/390b9460df51bf4531db8b650bffb8253f5bd084))
+
+### Documentation
+
+- Consoles go through sherpad over a UNIX socket, with sherpa console on its API [skip ci] by @bwks ([04a2605](https://github.com/bwks/sherpa/commit/04a2605be3d2225f4013db8d160b257a935231fa))
+- A container image's delete is blocked only by containers that use its tag [skip ci] by @bwks ([80a6477](https://github.com/bwks/sherpa/commit/80a6477accec79a83eb7f5f8c0f96bc6bffdf636))
+- Per-kind image settings, image delete and redeploy by version [skip ci] by @bwks ([5ed74a8](https://github.com/bwks/sherpa/commit/5ed74a823375d5fdefeb40bd9040237ffba1262e))
+- Keycloak and SurrealDB get per-node admins, and every readiness path reads the Windows marker [skip ci] by @bwks ([aaf4b8c](https://github.com/bwks/sherpa/commit/aaf4b8cb5ef9aae675692b9e4ee63216a8a48b7a))
+- Admins cannot connect to other users' nodes, and Windows readiness waits for Sherpa's sshd config [skip ci] by @bwks ([6a88529](https://github.com/bwks/sherpa/commit/6a88529e8e4af1137651fed3ec75b78e7318cc68))
+- AOS-CX logs in by key only, and the boot server serves only HTTP boot files [skip ci] by @bwks ([8469ff7](https://github.com/bwks/sherpa/commit/8469ff74018a1fee5b900a847894740b4d562e5f))
+- Node models take a kind, and ModelKind carries what depends on both [skip ci] by @bwks ([9960df2](https://github.com/bwks/sherpa/commit/9960df2c3ce273d34e50d7078328c56634685415))
+- The install and update scripts make the blank disks [skip ci] by @bwks ([42a10df](https://github.com/bwks/sherpa/commit/42a10df2554edc51ea9a85d4dbe339b636f9ca59))
+- No lab SSH key, and Windows has one enabled login [skip ci] by @bwks ([6932a0f](https://github.com/bwks/sherpa/commit/6932a0fce0bb570df429ffec3f77b708b7efe710))
+- Flatcar's Ignition file is a libvirt fwcfg entry, 0600 like every volume [skip ci] by @bwks ([09b93c6](https://github.com/bwks/sherpa/commit/09b93c61be0937becd0c0ab23754bb0a1360d088))
+- Nodes get the owner's login with their device password [skip ci] by @bwks ([562be71](https://github.com/bwks/sherpa/commit/562be71f6a5061cc026f005926748a96025783f6))
+- Scoped commands while iterating, server constants beside their code [skip ci] by @bwks ([2c3ad90](https://github.com/bwks/sherpa/commit/2c3ad90e7ca71a17bbda07feb4bd07a302932d32))
+- The removed ztp_server setting and init's account check [skip ci] by @bwks ([a76ca39](https://github.com/bwks/sherpa/commit/a76ca3940c2e31666cad8611a5afa783e48e9f97))
+- Modes of the config, env and log files [skip ci] by @bwks ([7598b54](https://github.com/bwks/sherpa/commit/7598b54673f4c9a656b35f7a73501f9afa91fb98))
+
+### Features
+
+- Serial consoles are UNIX sockets only sherpad reaches, and sherpa console goes through its API by @bwks ([7530805](https://github.com/bwks/sherpa/commit/75308052b4fc641d584ebbe1610c539e5b39780b))
+- Node images hold only their kind's settings, and fix image delete and redeploy by @bwks ([a2a2653](https://github.com/bwks/sherpa/commit/a2a265355751b68af1e33c7603628a8d1fc40db9))
+- Sherpa up's Nodes table has a Kind column by @bwks ([0385650](https://github.com/bwks/sherpa/commit/0385650e0f58b6ebb50b400e8f39eade657b839f))
+- Keycloak and SurrealDB get their own admin per node; the published password is gone by @bwks ([186f509](https://github.com/bwks/sherpa/commit/186f509f74f7f80441edc2ec584581d8417eef22))
+- Drop the "v" from every renamed model name by @bwks ([fdcb8f0](https://github.com/bwks/sherpa/commit/fdcb8f02d75b92007b0e0cdb42cee507318ba989))
+- Move image folders of renamed models at startup by @bwks ([95dcea1](https://github.com/bwks/sherpa/commit/95dcea1ba0f80780a0344cb769adeee80ffb2290))
+- Rename and merge node models, and put the kind in image paths by @bwks ([57b30e1](https://github.com/bwks/sherpa/commit/57b30e18cb48f0ef163f66ff82d199429217fdb0))
+- Admins can see other users' labs but not log in to their nodes by @bwks ([fda4eff](https://github.com/bwks/sherpa/commit/fda4eff7841a746d29527181504e69c6d4239067))
+- Node models take a kind, and image commands take --kind by @bwks ([0cf4763](https://github.com/bwks/sherpa/commit/0cf476348f96815936f88ad3036d92d6c1c2fb39))
+- Remove the per-lab SSH key, and leave the owner as Windows' only login by @bwks ([c95ffbb](https://github.com/bwks/sherpa/commit/c95ffbb64aefcb506e6dee33fd3148b7932c4fbb))
+- Nodes get the lab owner's login with their device password by @bwks ([efced9f](https://github.com/bwks/sherpa/commit/efced9f3f0e3907421cd6e903d275039ef05bcdc))
+- Per-user device password, sealed and set by its owner only by @bwks ([077e957](https://github.com/bwks/sherpa/commit/077e95719b38de469c96d9fa30c8c52355eb3736))
+- Generation sections by pull request, not by work item by @bwks ([6735cbb](https://github.com/bwks/sherpa/commit/6735cbb08d366db3177b8aa4759b46265776965c))
+
+### Miscellaneous
+
+- No slow nested VMs in lab tests, and Windows checks run by the host [skip ci] by @bwks ([95a4f2c](https://github.com/bwks/sherpa/commit/95a4f2ca1e17340e6e1ad11b9a7aebd8f136d33c))
+- Cut agent waiting with a bigger build cache and debug dev installs [skip ci] by @bwks ([2407836](https://github.com/bwks/sherpa/commit/24078360ff0b67a2e2135a6c1c6bd6447f9382af))
+- Seed every VM model the host has into the dev servers by @bwks ([dc23e2b](https://github.com/bwks/sherpa/commit/dc23e2bfe0c712e2ecfb2a698ed42694f6d73696))
+- Seed the vEOS Aboot ISO into the dev servers by @bwks ([3b7cd7f](https://github.com/bwks/sherpa/commit/3b7cd7f38b57d5875188a0127fb1d877c6649492))
+- Remove the 0.6.4/0.6.5 startup imports and the import mark by @bwks ([6d9ea38](https://github.com/bwks/sherpa/commit/6d9ea38eec6fddb5379dd1cc09a54b3805fba3b5))
+- Log the dev servers in as the lab owner, make sherpa a service account by @bwks ([795cb3e](https://github.com/bwks/sherpa/commit/795cb3e086bc6b45574d3a9520e95cadcf370e35))
+
+### Refactor
+
+- Seal text with the hex crate by @bwks ([3624a30](https://github.com/bwks/sherpa/commit/3624a30b768dbd509847663e1b819eeae904df5c))
+- Remove the image ZTP username, password and password auth by @bwks ([655d991](https://github.com/bwks/sherpa/commit/655d991c28ea864db71f2befd1d69ada7c12ea6c))
+- Remove dead shared exports, move daemon-only constants by @bwks ([d96e2b1](https://github.com/bwks/sherpa/commit/d96e2b19e68c51880a5068f55c07f7aa019c108d))
+- Move server-only constants out of shared::konst by @bwks ([54ad4e0](https://github.com/bwks/sherpa/commit/54ad4e064d489a73c54d4c01d062cba0efdf21dc))
+
+### Testing
+
+- Cover Keycloak login and Vault secret sync in the ha lab by @bwks ([28dea0f](https://github.com/bwks/sherpa/commit/28dea0fac72336027f07d9d4499dfe763b26467b))
+
 ## [0.6.5] - 2026-11-15
 
 ### Upgrade notes
