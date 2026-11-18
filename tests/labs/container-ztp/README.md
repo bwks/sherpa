@@ -8,11 +8,16 @@ config Sherpa mounts runs twice: with its image's setting (`volume`), and with
 |---|---|---|
 | `ceos01`, `ceos02` | `arista_eos` container 4.35.1F | image's, `disabled` |
 | `srl01`, `srl02` | `nokia_srlinux` 26.7.2 | image's, `disabled` |
-| `ptx01`, `ptx02` | `juniper_evolved` container 26.2R1.7 | image's, `disabled` |
 | `frr01`, `frr02` | `frr_linux` 10.5.2 | image's, `disabled` |
 | `nats01` | `nats_bus` 2.11 | none to set: an application container |
 
 The lab has no links.
+
+cJunosEvolved (`juniper_evolved`, kind `container`) is not in the lab, though Sherpa mounts its
+config too: its container boots a VM, which is nested in the dev servers, where these tests run,
+and takes many minutes there. Its Junos config is covered by the template unit tests
+(`crates/template/tests/juniper_junos`); its config mount and ZTP-off behaviour are not checked
+live.
 
 ## Requirements
 
@@ -20,8 +25,8 @@ The lab has no links.
   for the lab owner, and FRR with ZTP off has no SSH server, so the runner reads each node's container state
   and mounts with `docker inspect`.
 - The node images above, pulled or imported with `sherpa server image pull` or
-  `sherpa server image import`. The run fails early if one is missing. `arista_eos` and
-  `juniper_evolved` (both with `--kind container`) are not in a public registry; on a server without them, run the other
+  `sherpa server image import`. The run fails early if one is missing. `arista_eos`
+  (`--kind container`) is not in a public registry; on a server without it, run the other
   models with `--models`.
 - The `sherpa` CLI logged in, with a device password set (`sherpa server user device-password`)
   and an SSH key registered, `ssh` and `ping`. The run stops early when the password is not set.
@@ -52,9 +57,6 @@ Each run logs every command and its output under
     the address their container was given, so the SSH connection finds no route and the address
     does not answer a ping. While they boot the container still holds the address, and SR Linux's
     SSH server refuses the login there for about a minute; on cEOS nothing listens yet;
-  - `ptx02` answers a ping and its SSH server refuses the owner: the cJunosEvolved entrypoint
-    configures the address from the image's own config, which has an SSH server and only the
-    image's `admin` user;
   - `frr02` answers a ping on its address and refuses the SSH connection, because nothing
     installed an SSH server;
 - every node, the application container included, is still running, never restarted, after the

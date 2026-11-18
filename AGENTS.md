@@ -24,10 +24,17 @@ database is Turso, embedded in sherpad as a single file (see `docs/architecture/
   SSH config or mounts.
 - Dev server installs are debug builds with `dev/rebuild`. Never build `--release` for a live
   test: a release build takes 6–7 minutes.
-- Live tests cover only the models the change touches. Do not boot slow network VMs unless the
-  change is about that model; exercise generic paths on fast nodes (Alpine, Ubuntu, containers).
-- The Windows dev box (`tests/environments/dev-windows/`) stays up between tasks and is reused.
-  Bring it up only if it is down; do not destroy it.
+- Never boot network-OS VMs (vEOS, vSRX, vEvolved, CSR, Cat8000/9000, IOSv, IOS XR, NX-OS, ASA,
+  FTD, PAN-OS, AOS-CX, ISE, RouterOS, SONiC VM and the like), Windows or cJunosEvolved in the dev
+  servers. They are nested there and too slow.
+- Test generic paths on Alpine, Ubuntu and containers.
+- A change to one of those models' configs is covered by template unit tests, not a live boot.
+- Windows checks are run by the host, on a bare-metal Windows VM on the Sherpa host. Agents don't
+  use a Windows VM.
+- When a change needs a Windows check, cross-compile the client (`cargo build -p sherpa --target
+  x86_64-pc-windows-gnu`), leave `sherpa.exe` in `/var/tmp`, and say so in your report. Only some
+  changes need one: changes to the interactive terminal (Jato's console code, `sherpa console`,
+  `sherpa ssh`) and the installer. CI covers the rest.
 
 ## Project Tasks
 - Features to implement are tracked in the PROJECT.md file.

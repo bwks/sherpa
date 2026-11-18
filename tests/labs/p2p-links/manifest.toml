@@ -2,7 +2,9 @@ name = "p2p-links"
 
 # Every link is P2p, and each pair of node kinds is covered: VM ⟷ VM, VM ⟷ container and
 # container ⟷ container. Linux endpoints carry the raw L2, capture, impairment and jumbo
-# checks; Arista nodes form LLDP neighbours and a two-link LACP bundle on each pair.
+# checks. On the bundle links, Linux bonds on b1 and b2 and cEOS port-channels form LLDP
+# neighbours and a two-link LACP bundle on each pair. No network-OS VM: those are nested in the
+# dev servers and too slow to boot.
 
 [[nodes]]
 name = "u1"
@@ -38,14 +40,20 @@ image = "alpine"
 version = "3.22"
 
 [[nodes]]
-name = "veos1"
-model = "arista_eos"
-version = "4.35.3F"
+name = "b1"
+model = "ubuntu_linux"
+version = "24.04"
+
+[nodes.interfaces]
+data_count = 4
 
 [[nodes]]
-name = "veos2"
-model = "arista_eos"
-version = "4.35.3F"
+name = "b2"
+model = "ubuntu_linux"
+version = "24.04"
+
+[nodes.interfaces]
+data_count = 2
 
 [[nodes]]
 name = "ceos1"
@@ -76,21 +84,21 @@ dst = "c1::eth1"
 src = "c1::eth2"
 dst = "c2::eth1"
 
-# Arista LACP bundles, two links per pair.
+# LACP bundles, two links per pair: Linux bonds on the VMs, port-channels on cEOS.
 [[links]]
-src = "veos1::eth1"
-dst = "veos2::eth1"
+src = "b1::eth1"
+dst = "b2::eth1"
 
 [[links]]
-src = "veos1::eth2"
-dst = "veos2::eth2"
+src = "b1::eth2"
+dst = "b2::eth2"
 
 [[links]]
-src = "veos1::eth3"
+src = "b1::eth3"
 dst = "ceos1::eth1"
 
 [[links]]
-src = "veos1::eth4"
+src = "b1::eth4"
 dst = "ceos1::eth2"
 
 [[links]]

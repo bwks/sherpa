@@ -7,7 +7,7 @@
 
 Checks the #391 requirements for eBPF links on VM ⟷ VM, VM ⟷ container and container ⟷ container
 links: L2 transparency (raw LLDP, STP, pause, LACP, 802.1X, CDP, VLAN, QinQ and jumbo frames,
-plus Arista LLDP neighbours and LACP bundles), host packet capture, per-direction impairment
+plus LLDP neighbours and two-link LACP bundles between Linux bonds and cEOS), host packet capture, per-direction impairment
 through `sherpa link impair`, MTU 9600, and connectivity after `up`, redeploys, a guest reboot,
 `down`/`resume` and, optionally, a `sherpad` restart. Always destroys the lab and checks nothing
 is left. Runs on the Sherpa server; see README.md.
@@ -36,13 +36,15 @@ LAB = Path(__file__).resolve().parent
 ROOT = LAB.parent.parent.parent
 RUNS = ROOT / ".tmp" / "lab-tests"
 FRAME_TOOL = LAB / "l2frames.py"
+LLDP_TOOL = LAB / "lldp.py"
 # Joins a container node's network namespace to drive its interfaces, and the host's to
 # capture and read qdiscs. It has Python, ping, tcpdump and tc.
 SIDECAR_IMAGE = "nicolaka/netshoot:v0.14"
 
-VMS = ("u1", "u2")
+# Every VM is Ubuntu, reached over SSH. u1 and u2 are Linux link endpoints, b1 and b2 bundle ends.
+VMS = ("u1", "u2", "b1", "b2")
 CONTAINERS = ("c1", "c2")
-ARISTA = ("veos1", "veos2", "ceos1", "ceos2")
+ARISTA = ("ceos1", "ceos2")
 # Frame kinds l2frames.py sends; every one must arrive, from each end.
 FRAME_KINDS = ("lldp", "stp", "pause", "lacp", "eapol", "garp", "cdp", "vlan10", "qinq100.10",
                "jumbo9000")
@@ -65,6 +67,11 @@ SENDER_START_DELAY = 4
 CAPTURE_LIMIT_SECONDS = 600
 # Extra round-trip time allowed over the configured delay.
 RTT_SLACK_MS = 8.0
+# How long lldp.py sends and listens on a VM's bundle ports. cEOS sends LLDP every 5 s.
+LLDP_SECONDS = 12
+ARISTA_LLDP_TIMER = 5
+# LACP port state bits a bundled port has: synchronised, collecting and distributing.
+LACP_BUNDLED = 0x38
 
 
 class LinuxLink(NamedTuple):
@@ -88,7 +95,8 @@ class LinuxLink(NamedTuple):
 
 
 class Bundle(NamedTuple):
-    """A two-link LACP bundle between Arista nodes."""
+    """A two-link LACP bundle: a Linux bond on a VM, a port-channel on cEOS. Ports are named as
+    the node names them: the manifest's `ethN` on a VM, `EthernetN` on cEOS."""
 
     pair: str
     channel: int
@@ -104,8 +112,8 @@ LINUX_LINKS = (
     LinuxLink("container-container", 2, "c1", "eth2", "c2", "eth1", "10.47.2"),
 )
 BUNDLES = (
-    Bundle("vm-vm", 1, "veos1", ("Ethernet1", "Ethernet2"), "veos2", ("Ethernet1", "Ethernet2")),
-    Bundle("vm-container", 2, "veos1", ("Ethernet3", "Ethernet4"), "ceos1", ("Ethernet1", "Ethernet2")),
+    Bundle("vm-vm", 1, "b1", ("eth1", "eth2"), "b2", ("eth1", "eth2")),
+    Bundle("vm-container", 2, "b1", ("eth3", "eth4"), "ceos1", ("Ethernet1", "Ethernet2")),
     Bundle("container-container", 3, "ceos1", ("Ethernet3", "Ethernet4"), "ceos2",
            ("Ethernet1", "Ethernet2")),
 )
@@ -289,11 +297,53 @@ def bundled_ports(show_json, channel):
     return set(active)
 
 
+def bond_bundled(proc_bonding):
+    """The member ports of a Linux 802.3ad bond that are in its active aggregator, and synchronised,
+    collecting and distributing at both ends, from `/proc/net/bonding/<bond>`."""
+    active = re.search(r"Active Aggregator Info:\s*\n\s*Aggregator ID: (\d+)", proc_bonding)
+    if not active:
+        return set()
+    bundled = set()
+    for section in proc_bonding.split("Slave Interface: ")[1:]:
+        name = section.split()[0]
+        aggregator = re.search(r"^Aggregator ID: (\d+)", section, re.MULTILINE)
+        states = [int(state) for state in re.findall(r"port state: (\d+)", section)]
+        if (aggregator and aggregator.group(1) == active.group(1) and len(states) == 2
+                and all(state & LACP_BUNDLED == LACP_BUNDLED for state in states)):
+            bundled.add(name)
+    return bundled
+
+
+def lldp_heard(output):
+    """{interface: (neighbour device, neighbour port)} from lldp.py output."""
+    heard = {}
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) == 3:
+            heard[fields[0]] = (fields[1].split(".")[0], fields[2])
+    return heard
+
+
+def manifest_interface(port):
+    """The manifest's name for a bundle port: `Ethernet3` on cEOS is `eth3`."""
+    return f"eth{port.removeprefix('Ethernet')}" if port.startswith("Ethernet") else port
+
+
+def bond_script(channel, members):
+    """Shell that makes `bond<channel>` an 802.3ad bond of `members`, from scratch."""
+    bond = f"bond{channel}"
+    enslave = " && ".join(f"ip link set {member} down && ip link set {member} master {bond}"
+                          for member in members)
+    up = " && ".join(f"ip link set {member} up" for member in members)
+    return (f"modprobe bonding && {{ ip link del {bond} 2>/dev/null; true; }} && "
+            f"ip link add {bond} type bond mode 802.3ad lacp_rate fast miimon 100 && {enslave} && "
+            f"ip link set {bond} up && {up}")
+
+
 def arista_config(bundle_ports):
-    """EOS configuration lines for bundles, as {channel: ports}, saved with `write memory`. A vEOS
-    VM cold boots on resume, so it needs the saved configuration; on cEOS the save checks that
-    its startup-config can be written."""
-    lines = ["enable", "configure", "lldp run"]
+    """EOS configuration lines for bundles, as {channel: ports}, saved with `write memory`, which
+    checks that cEOS can write its startup-config."""
+    lines = ["enable", "configure", "lldp run", f"lldp timer {ARISTA_LLDP_TIMER}"]
     for channel, ports in sorted(bundle_ports.items()):
         lines += [f"interface {ports[0]}-{ports[-1].removeprefix('Ethernet')}", "no switchport",
                   f"channel-group {channel} mode active", "exit"]
@@ -301,8 +351,8 @@ def arista_config(bundle_ports):
     return "\n".join(lines) + "\n"
 
 
-def arista_bundles(node):
-    """{channel: ports} for one Arista node."""
+def node_bundles(node):
+    """{channel: ports} for one bundle node."""
     ports = {}
     for bundle in BUNDLES:
         if bundle.a == node:
@@ -437,7 +487,7 @@ class LabRun:
         self.check_host_mtus()
         self.check_connectivity("after up")
         self.check_frames_and_capture("after up")
-        self.check_arista("after up")
+        self.check_bundles("after up")
         self.check_impairment("after up")
         self.change_impairment()
 
@@ -458,14 +508,14 @@ class LabRun:
         self.check_host_mtus()
         self.check_connectivity("after resume")
         self.check_frames_and_capture("after resume")
-        self.check_arista("after resume")
+        self.check_bundles("after resume")
         self.check_impairment("after resume")
 
         if self.sherpad_restart:
             self.command("restart sherpad", shlex.split(self.sherpad_restart))
             time.sleep(POLL_INTERVAL)
             self.check_connectivity("after a sherpad restart")
-            self.check_arista("after a sherpad restart")
+            self.check_bundles("after a sherpad restart")
             self.check_impairment("after a sherpad restart")
 
     # -- Linux endpoints ---------------------------------------------------------------------
@@ -477,14 +527,16 @@ class LabRun:
             time.sleep(POLL_INTERVAL)
 
     def prepare_linux(self, nodes):
-        """Find VM interface names, copy the frame tool, then bring up and address each end."""
+        """Find VM interface names, copy the tools, then bring up and address each Linux link
+        end and make each VM's bonds."""
         for node in nodes:
             if node in VMS:
                 self.wait_for_ssh(node)
                 self.find_guest_interfaces(node)
-                self.command(f"copy frame tool to {node}",
+                self.command(f"copy tools to {node}",
                              ["scp", "-F", ".sherpa/ssh/config", "-o", "BatchMode=yes", "-o",
-                              "LogLevel=ERROR", str(FRAME_TOOL), f"{node}.{self.lab_id}:/tmp/l2frames.py"])
+                              "LogLevel=ERROR", str(FRAME_TOOL), str(LLDP_TOOL),
+                              f"{node}.{self.lab_id}:/tmp/"])
         for link in LINUX_LINKS:
             for node, interface, address in ((link.src, link.src_interface, link.src_address),
                                              (link.dst, link.dst_interface, link.dst_address)):
@@ -493,15 +545,22 @@ class LabRun:
                     self.at(f"address {node} {interface}", node,
                             f"ip link set {name} up promisc on && ip link set {name} mtu {JUMBO_MTU} && "
                             f"ip addr replace {address}/30 dev {name} && ip neigh flush dev {name}")
+        for node in nodes:
+            if node in VMS:
+                for channel, ports in sorted(node_bundles(node).items()):
+                    members = [self.interface(node, port) for port in ports]
+                    self.at(f"bond{channel} on {node}", node, bond_script(channel, members))
 
     def find_guest_interfaces(self, node):
+        """Every link interface of a VM, found by the MAC of its tap. A VM cold boots on resume,
+        so its bonds, which give their members the bond's MAC, are gone when this runs."""
         listing = self.ssh(f"{node} interfaces", node, "ip -o link")
-        for link in LINUX_LINKS:
-            for side, end, interface in (("a", link.src, link.src_interface),
-                                         ("b", link.dst, link.dst_interface)):
-                if end != node:
+        for index, link in enumerate(self.manifest["links"]):
+            for side, end in (("a", link["src"]), ("b", link["dst"])):
+                end_node, interface = end.split("::")
+                if end_node != node:
                     continue
-                tap = Path("/sys/class/net") / host_end(link.index, side, self.lab_id) / "address"
+                tap = Path("/sys/class/net") / host_end(index, side, self.lab_id) / "address"
                 mac = guest_mac(tap.read_text())
                 name = interface_by_mac(listing.stdout, mac)
                 require(name, f"{node} has no interface with MAC {mac} for {interface}")
@@ -652,11 +711,11 @@ class LabRun:
         self.delays[1] = {"src_to_dst": None, "dst_to_src": 15}
         self.check_impairment("after setting impairment for the lifecycle checks")
 
-    # -- Arista ------------------------------------------------------------------------------
+    # -- LACP bundles and LLDP --------------------------------------------------------------
 
     def configure_arista(self, node):
         """Configure the node's bundles, retrying while EOS is still starting."""
-        config = arista_config(arista_bundles(node))
+        config = arista_config(node_bundles(node))
         deadline = time.monotonic() + READY_TIMEOUT
         while True:
             outcome = self.ssh(f"configure {node}", node, None, check=False, stdin=config)
@@ -665,31 +724,63 @@ class LabRun:
             require(time.monotonic() < deadline, f"could not configure {node} within {READY_TIMEOUT}s")
             time.sleep(POLL_INTERVAL)
 
-    def arista_problems(self):
+    def vm_lldp(self):
+        """{node: {manifest interface: neighbour}} from lldp.py run on every bundle VM at once,
+        so each hears the other while it sends."""
+        running = []
+        for node in sorted({end for bundle in BUNDLES for end in (bundle.a, bundle.b)} & set(VMS)):
+            ports = [port for _, node_ports in sorted(node_bundles(node).items()) for port in node_ports]
+            pairs = " ".join(f"{self.interface(node, port)}={port}" for port in ports)
+            arguments = self.endpoint_arguments(node, f"python3 /tmp/lldp.py {LLDP_SECONDS} {node} {pairs}")
+            running.append((node, arguments, self.start(f"{node} LLDP", arguments)))
+        heard = {}
+        for node, arguments, process in running:
+            outcome = self.finish(f"{node} LLDP", arguments, process)
+            names = {self.interface(node, port): port
+                     for ports in node_bundles(node).values() for port in ports}
+            heard[node] = {names.get(interface, interface): neighbour
+                           for interface, neighbour in lldp_heard(outcome.stdout).items()}
+        return heard
+
+    def bundle_end_state(self, node, channel, vm_heard):
+        """(LLDP neighbours by port, bundled ports) of one end of a bundle, or None when the
+        commands failed. A VM's neighbours are what lldp.py heard, from `vm_heard`."""
+        if node in ARISTA:
+            lldp = self.ssh(f"{node} LLDP", node, "show lldp neighbors | json", check=False)
+            port_channel = self.ssh(f"{node} Port-Channel{channel}", node,
+                                    f"show port-channel {channel} | json", check=False)
+            if lldp.code != 0 or port_channel.code != 0:
+                return None
+            return lldp_neighbours(lldp.stdout), bundled_ports(port_channel.stdout, channel)
+        bond = self.at(f"{node} bond{channel}", node, f"cat /proc/net/bonding/bond{channel}", check=False)
+        if bond.code != 0:
+            return None
+        names = {self.interface(node, port): port for port in node_bundles(node)[channel]}
+        return vm_heard.get(node, {}), {names.get(name, name) for name in bond_bundled(bond.stdout)}
+
+    def bundle_problems(self):
+        vm_heard = self.vm_lldp()
         problems = []
         for bundle in BUNDLES:
             for node, ports, peer, peer_ports in ((bundle.a, bundle.a_ports, bundle.b, bundle.b_ports),
                                                   (bundle.b, bundle.b_ports, bundle.a, bundle.a_ports)):
-                lldp = self.ssh(f"{node} LLDP", node, "show lldp neighbors | json", check=False)
-                channel = self.ssh(f"{node} Port-Channel{bundle.channel}", node,
-                                   f"show port-channel {bundle.channel} | json", check=False)
-                if lldp.code != 0 or channel.code != 0:
-                    problems.append(f"{node}: show commands failed")
+                state = self.bundle_end_state(node, bundle.channel, vm_heard)
+                if state is None:
+                    problems.append(f"{node}: reading bundle {bundle.channel} failed")
                     continue
-                neighbours = lldp_neighbours(lldp.stdout)
+                neighbours, bundled = state
                 for port, peer_port in zip(ports, peer_ports):
                     if neighbours.get(port) != (peer, peer_port):
                         problems.append(f"{node} {port}: LLDP neighbour {neighbours.get(port)}, "
                                         f"expected {peer} {peer_port}")
-                bundled = bundled_ports(channel.stdout, bundle.channel)
                 if bundled != set(ports):
-                    problems.append(f"{node} Port-Channel{bundle.channel}: bundled {sorted(bundled)}")
+                    problems.append(f"{node} bundle {bundle.channel}: bundled {sorted(bundled)}")
         return problems
 
-    def check_arista(self, stage):
+    def check_bundles(self, stage):
         """Each bundle's ends see each other over LLDP and bundle both links, waiting for LACP."""
         deadline = time.monotonic() + READY_TIMEOUT
-        while problems := self.arista_problems():
+        while problems := self.bundle_problems():
             require(time.monotonic() < deadline, f"{stage}: {'; '.join(problems)}")
             time.sleep(POLL_INTERVAL)
 
@@ -854,9 +945,11 @@ class SelfTest(unittest.TestCase):
         links = {(link["src"], link["dst"]) for link in self.manifest()["links"]}
         for bundle in BUNDLES:
             for a_port, b_port in zip(bundle.a_ports, bundle.b_ports):
-                pair = (f"{bundle.a}::eth{a_port.removeprefix('Ethernet')}",
-                        f"{bundle.b}::eth{b_port.removeprefix('Ethernet')}")
+                pair = (f"{bundle.a}::{manifest_interface(a_port)}",
+                        f"{bundle.b}::{manifest_interface(b_port)}")
                 self.assertIn(pair, links)
+            for node in (bundle.a, bundle.b):
+                self.assertIn(node, VMS + ARISTA)
         self.assertEqual({bundle.pair for bundle in BUNDLES},
                          {"vm-vm", "vm-container", "container-container"})
 
@@ -865,16 +958,52 @@ class SelfTest(unittest.TestCase):
         self.assertTrue(all(models[node] == "ubuntu_linux" for node in VMS))
         kinds = {node["name"]: node.get("kind") for node in self.manifest()["nodes"]}
         self.assertTrue(all(models[node] == "generic" and kinds[node] == "container" for node in CONTAINERS))
-        self.assertEqual(set(REDEPLOYED) | {REBOOTED}, set(VMS) | {"c1"})
+        self.assertEqual(set(REDEPLOYED) | {REBOOTED}, {"u1", "u2", "c1"})
+        self.assertTrue(all(models[node] == "arista_eos" and kinds[node] == "container" for node in ARISTA))
 
     def test_arista_config_bundles_each_ports_pair(self):
-        config = arista_config(arista_bundles("veos1"))
-        self.assertIn("interface Ethernet1-2\nno switchport\nchannel-group 1 mode active", config)
-        self.assertIn("interface Ethernet3-4\nno switchport\nchannel-group 2 mode active", config)
+        config = arista_config(node_bundles("ceos1"))
+        self.assertIn("interface Ethernet1-2\nno switchport\nchannel-group 2 mode active", config)
+        self.assertIn("interface Ethernet3-4\nno switchport\nchannel-group 3 mode active", config)
+        self.assertIn(f"lldp timer {ARISTA_LLDP_TIMER}\n", config)
         self.assertTrue(config.endswith("write memory\n"))
-        self.assertTrue(arista_config(arista_bundles("ceos1")).endswith("write memory\n"))
-        self.assertEqual(arista_bundles("ceos1"), {2: ("Ethernet1", "Ethernet2"),
-                                                   3: ("Ethernet3", "Ethernet4")})
+        self.assertEqual(node_bundles("ceos1"), {2: ("Ethernet1", "Ethernet2"),
+                                                 3: ("Ethernet3", "Ethernet4")})
+        self.assertEqual(node_bundles("b1"), {1: ("eth1", "eth2"), 2: ("eth3", "eth4")})
+
+    def test_bond_script_makes_an_lacp_bond_of_the_members(self):
+        script = bond_script(2, ["enp3s0", "enp4s0"])
+        self.assertIn("ip link add bond2 type bond mode 802.3ad", script)
+        self.assertIn("ip link set enp3s0 master bond2", script)
+        self.assertIn("ip link set enp4s0 master bond2", script)
+        self.assertTrue(script.endswith("ip link set enp3s0 up && ip link set enp4s0 up"))
+
+    def test_bond_bundled_needs_the_active_aggregator_and_both_ends_in_sync(self):
+        def member(name, aggregator, actor, partner):
+            return (f"Slave Interface: {name}\nMII Status: up\nAggregator ID: {aggregator}\n"
+                    f"details actor lacp pdu:\n    port state: {actor}\n"
+                    f"details partner lacp pdu:\n    port state: {partner}\n\n")
+
+        head = ("Bonding Mode: IEEE 802.3ad Dynamic link aggregation\n\n802.3ad info\n"
+                "Active Aggregator Info:\n\tAggregator ID: 1\n\tNumber of ports: 2\n\n")
+        both = head + member("enp3s0", 1, 63, 63) + member("enp4s0", 1, 61, 63)
+        self.assertEqual(bond_bundled(both), {"enp3s0", "enp4s0"})
+        self.assertEqual(bond_bundled(head + member("enp3s0", 1, 63, 63) + member("enp4s0", 2, 63, 63)),
+                         {"enp3s0"})
+        # Partner not yet collecting and distributing.
+        self.assertEqual(bond_bundled(head + member("enp3s0", 1, 63, 7)), set())
+        self.assertEqual(bond_bundled("Bonding Mode: IEEE 802.3ad\n"), set())
+
+    def test_lldp_tool_frames_parse_back_and_their_output_is_read(self):
+        tool = {}
+        exec(compile(LLDP_TOOL.read_text(), str(LLDP_TOOL), "exec"), tool)
+        frame = tool["lldpdu"](bytes(6), "b1", "eth3")
+        self.assertEqual(tool["neighbour"](frame), ("b1", "eth3"))
+        self.assertIsNone(tool["neighbour"](bytes(12) + b"\x08\x00" + bytes(20)))
+        self.assertEqual(lldp_heard("enp3s0 ceos1.sherpa.lab.local Ethernet1\n"),
+                         {"enp3s0": ("ceos1", "Ethernet1")})
+        self.assertEqual(manifest_interface("Ethernet3"), "eth3")
+        self.assertEqual(manifest_interface("eth3"), "eth3")
 
     def test_guest_mac_and_interface_lookup(self):
         mac = guest_mac("fe:54:00:b6:39:ad\n")
@@ -915,9 +1044,9 @@ class SelfTest(unittest.TestCase):
         self.assertIsNone(netem_delay("qdisc noqueue 0: root refcnt 2"))
 
     def test_lldp_and_port_channel_parsing(self):
-        lldp = json.dumps({"lldpNeighbors": [{"port": "Ethernet1", "neighborDevice": "veos2.sherpa.lab.local",
+        lldp = json.dumps({"lldpNeighbors": [{"port": "Ethernet1", "neighborDevice": "ceos2.sherpa.lab.local",
                                               "neighborPort": "Ethernet1", "ttl": 120}]})
-        self.assertEqual(lldp_neighbours(lldp), {"Ethernet1": ("veos2", "Ethernet1")})
+        self.assertEqual(lldp_neighbours(lldp), {"Ethernet1": ("ceos2", "Ethernet1")})
         channel = json.dumps({"portChannels": {"Port-Channel1": {"activePorts": {"Ethernet1": {},
                                                                                  "Ethernet2": {}}}}})
         self.assertEqual(bundled_ports(channel, 1), {"Ethernet1", "Ethernet2"})
