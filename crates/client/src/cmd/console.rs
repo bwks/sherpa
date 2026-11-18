@@ -125,13 +125,7 @@ pub(super) fn console_url(
 /// What the user is told when the `route` console of `name` cannot be opened: the server's own
 /// words when it refused it, and otherwise the error with its cause.
 pub(super) fn open_error(name: &str, route: Route, error: anyhow::Error) -> OpenError {
-    let refusal = error.chain().find_map(|cause| match cause.downcast_ref() {
-        Some(tungstenite::Error::Http(response)) => {
-            Some((response.status().as_u16(), response.body().clone()))
-        }
-        _ => None,
-    });
-    match refusal {
+    match http_answer(&error) {
         Some((status, body)) => OpenError::Refused {
             status,
             message: refusal_message(name, route, status, body.as_deref()),
@@ -140,6 +134,17 @@ pub(super) fn open_error(name: &str, route: Route, error: anyhow::Error) -> Open
             "Failed to open the {route} of {name} through the Sherpa server"
         ))),
     }
+}
+
+/// The HTTP status and body the server answered a WebSocket handshake with, when it answered
+/// with something other than the upgrade: a refusal, or the answer to a check.
+pub(super) fn http_answer(error: &anyhow::Error) -> Option<(u16, Option<Vec<u8>>)> {
+    error.chain().find_map(|cause| match cause.downcast_ref() {
+        Some(tungstenite::Error::Http(response)) => {
+            Some((response.status().as_u16(), response.body().clone()))
+        }
+        _ => None,
+    })
 }
 
 /// The message for a `route` console the server refused with HTTP `status` and `body`.

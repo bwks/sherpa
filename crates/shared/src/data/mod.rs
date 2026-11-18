@@ -2,6 +2,7 @@ mod auth;
 mod backup;
 mod cluster;
 mod config;
+mod console;
 mod container;
 mod cpu;
 mod db;
@@ -48,6 +49,7 @@ pub use config::{
     ClientConfig, Config, HostMemorySettings, OtelConfig, ScannerConfig, ServerConnection, Sherpa,
     TailscaleGatewaySettings, TlsConfig, ZtpServer,
 };
+pub use console::ConsoleCheck;
 pub use container::{ContainerImage, ContainerNetworkAttachment};
 pub use cpu::{CpuFeature, CpuFeaturePolicy, CpuModels};
 pub use db::{

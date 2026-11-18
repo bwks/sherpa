@@ -1874,16 +1874,16 @@ socket and its VNC on a port, so only its VNC is refused.
 
 `GET /api/v1/labs/{id}/nodes/{node_name}/console[?force=true]` (`node_console_handler`, the
 serial console) and `GET /api/v1/labs/{id}/nodes/{node_name}/vnc[?force=true]`
-(`node_vnc_handler`), upgraded to a WebSocket. Both run `upgrade_to_console` with their
+(`node_vnc_handler`), upgraded to a WebSocket. Both run `serve_console` with their
 `ConsoleKind`. Everything that can refuse is checked before the upgrade, so a refusal is an
-ordinary `ApiError`, logged as `event = "console.refused"`:
+ordinary `ApiError`, logged as `event = "console.refused"` (with `check`, below):
 
 1. `BearerUser`: the `Authorization: Bearer` token only, never the session cookie, as a browser
    sends its cookie with a WebSocket upgrade from any site (401). The session behind it must be
    usable, as for `AuthenticatedUser`. With no cookie taken, no `Origin` check is needed: a web
    page cannot set the header on a WebSocket. A browser viewer would need one (the follow-up to
    #674).
-2. `console::console_target`: `require_lab_owner`, so admins are refused too (403, `only the
+2. `check_console`, which runs 2 and 3: `console::console_target`: `require_lab_owner`, so admins are refused too (403, `only the
    owner of lab '<id>' can open its consoles`); the node in the lab (404); not a container, and
    for VNC not a unikernel (400).
 3. `console::console_socket`: the live domain's serial device, or VNC graphics, must be a socket
@@ -1895,6 +1895,17 @@ ordinary `ApiError`, logged as `event = "console.refused"`:
    is cancelled and told. Another user's session is never taken over. One VNC session per
    console means one viewer at a time drives the node's screen.
 5. Connect to the socket.
+
+`?check=true` asks whether the console can be opened now, for `sherpa vnc` to ask before it
+opens its local port. The route takes the upgrade as `Result<WebSocketUpgrade, _>`, so a check
+needs none, and `serve_console` runs only steps 1 to 3, the same `check_console`, so a check
+cannot pass a console that opening would refuse, nor the other way round, except for a session
+that claims or lets go between the two. A refusal is the same `ApiError`, logged with
+`check = true`. A console that can be opened is answered `200` with `shared::data::ConsoleCheck`,
+`{"held_by": <holder or null>}` (`check_answer`, from `ConsoleSessions::holder`): a held console
+is not refused by a check, as `force` may take it over or the holder may let go before a viewer
+connects. Nothing is claimed and no socket is connected. Without `check`, a request that is not a
+WebSocket upgrade gets axum's rejection (400) as before.
 
 The relay (`pump`) copies binary frames to the socket and socket reads (up to 4096 bytes for a
 serial console, 64 KiB for VNC, whose screen updates come in large writes) to binary frames,
@@ -1922,7 +1933,15 @@ socket's folder and the owner-only route are what keep it to the owner.
   of a domain's console.
 - `daemon::console_sessions`: one session per console, a node's serial and VNC consoles held
   apart, `force` taking over the owner's own session and not another user's, and how a holder is
-  named. `api::handlers::console`: the close frames and the in-use message of each kind.
+  named. `api::handlers::console`: the close frames, the in-use message of each kind, and a
+  check's answer naming the holder without claiming.
+- `crates/server/tests/integration/lab_authorization.rs`,
+  `a_console_check_refuses_as_opening_the_console_does` (`#[ignore]`, libvirt): `?check=true` on
+  both routes, against the server's router, refused with no token (401), to another user and to
+  an admin (403), for a container (400), a node not running (409) and one that does not exist
+  (404); without `check`, a request that is no upgrade gets 400. A running node's `200` and a
+  node still on TCP need a running domain; they are covered by the unit tests of `check_answer`
+  and `socket_of`, and end to end by the console lab test.
 - `crates/libvirt/tests/console_socket.rs` (`#[ignore]`, root, run by the VM release suite): a
   domain with a TCP console and a VNC port moved to its sockets and started, nothing listening on
   `127.127.0.0/16` or 5900 to 6999, `sherpa` opening both sockets and an account in no groups

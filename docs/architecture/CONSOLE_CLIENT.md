@@ -89,15 +89,29 @@ socket on the server that only sherpad reaches.
 1. The lab's identity, the route (`console_url` with `Route::Vnc`) and the token are found as
    for `sherpa console`. `--force` is sent with every connection, so each takes the console over
    from a session of the user's own.
-2. A `TcpListener` on `127.0.0.1`, port 0, so the system picks a free port. The address is
+2. `check` asks the server first, at the route with `?check=true` (see
+   [`SERVER.md`](SERVER.md#the-console-routes)), through `WebSocketClient::open` with the token
+   and TLS settings every connection uses. The server answers a check with plain HTTP, not the
+   upgrade, so the answer comes back as the handshake's `tungstenite::Error::Http`, read by
+   `console::http_answer`, as a refusal is: the client has no HTTP client of its own, and this
+   needs none. A `200` passes, with the `ConsoleCheck` body naming who holds the console, if
+   anyone; a body that did not arrive with the headers only loses the holder. Any refusal ends the
+   command before a port is opened, with the server's words (`refusal_message`) and exit code 1,
+   as a refusal a viewer met ended it before: not logged in, not the owner (admins included), no
+   such node, a container or unikernel, a node not running or still on its old VNC port. A server
+   it cannot reach ends it too. A held console is not a refusal: after the address,
+   `The VNC console of <node> is in use by <holder>: viewers are refused until that session ends,
+   or take it over with 'sherpa vnc <node> --force'.` is printed on stderr (with `--force`: `...:
+   a viewer connecting takes it over.`), and the command listens.
+3. A `TcpListener` on `127.0.0.1`, port 0, so the system picks a free port. The address is
    printed on stdout: `VNC console of <node> in lab <lab>: connect a VNC viewer to
    127.0.0.1:<port>. Ctrl+C to stop.`
-3. Each connection accepted is served in a task (`serve_viewer`): it opens the VNC route with
+4. Each connection accepted is served in a task (`serve_viewer`): it opens the VNC route with
    `WebSocketClient::open`, as `sherpa console` does, then `relay` copies the viewer's reads (up
    to 16 KiB) to binary frames and binary frames to the viewer, until either side closes. The
    WebSocket is opened per connection, so a viewer that reconnects gets a new session, and the
    console is held only while a viewer is connected.
-4. Ctrl+C (`tokio::signal::ctrl_c`, on Windows as well) stops listening and ends the command
+5. Ctrl+C (`tokio::signal::ctrl_c`, on Windows as well) stops listening and ends the command
    with code 0 and `Stopped relaying the VNC console of <node>.` on stderr; open connections end
    with it. The Ctrl+C future is made once and polled before the address is printed, and
    `serve_until` waits on that one future: a new one per loop turn would miss a Ctrl+C that
@@ -107,8 +121,9 @@ Lines on stderr, per connection: `Viewer <address> connected to the VNC console 
 then `Viewer <address> disconnected from the VNC console of <node>.` when the viewer closed, or
 `The VNC console of <node> closed for viewer <address>: <reason>` when the server did.
 
-A refusal is told per connection, and the viewer's connection is closed with nothing sent.
-`OpenError::lasting` decides what follows: a 409 (the console held by another session, a node
+A refusal after the check is told per connection, and the viewer's connection is closed with
+nothing sent: the console taken by another session meanwhile, the node stopped, or the login
+ended. `OpenError::lasting` decides what follows: a 409 (the console held by another session, a node
 not running or still on its old VNC port) is printed and the command keeps listening, as the
 next connection may succeed; any other refusal (401, 403, 404, 400) ends the command with the
 message and a failing exit code, as every connection would meet it. A connection that fails to
@@ -133,7 +148,10 @@ passed.
 - Unit tests in `console.rs`: the route made from the server URL, for both consoles, a node name
   kept to one path segment, each refusal message, which refusals are lasting, a refused
   handshake found under the connect context, a connection failure keeping its cause, and the
-  two lines. In `vnc.rs`: the listening and close lines, `serve_until` ending on an interrupt that
+  two lines. In `vnc.rs`: the listening, in-use and close lines, `check` against a local server
+  answering as sherpad does (each refusal, 403, 400, 409 not running and still on a VNC port,
+  401, told in the server's words with exit code 1, the request carrying `check=true` and the
+  bearer token; a `200` with and without a holder; a server that cannot be reached), `serve_until` ending on an interrupt that
   comes as a viewer ends (50 times) and on a lasting refusal, and `relay` against a local WebSocket
   server: the RFB banner and the viewer's reply passed each way, the WebSocket closed when the
   viewer leaves, and the server's close reason ending the viewer's connection. `cli.rs` tests

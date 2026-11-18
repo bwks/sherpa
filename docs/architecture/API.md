@@ -66,6 +66,19 @@ Sherpa exposes the same operations via three transports:
 - Not in the spec's `transports`. `sherpa vnc` relays it to a local VNC viewer; see
   [`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md#sherpa-vnc)
 
+### Node console check
+
+- Endpoint: `GET https://<server>:3030/api/v1/labs/{id}/nodes/{node_name}/console?check=true`,
+  and `.../vnc?check=true`
+- Auth as for the console WebSockets: the bearer token only. No upgrade is needed, and none is
+  made: the route runs the checks of opening the console (login, owner, node, kind, the node
+  running with its console on a socket) and takes no session
+- Refusals are the same API errors as opening the console gets. A console that can be opened is
+  `200` with `{"held_by": "<user> from <address> since <time> UTC"}`, or `{"held_by": null}` when
+  no session holds it; a held console is not a refusal here
+- `sherpa vnc` asks before it opens its local port; see
+  [`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md#sherpa-vnc)
+
 ### CLI
 
 - Binary: `sherpa`

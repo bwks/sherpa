@@ -29,15 +29,18 @@ The runner writes the manifest for each run itself; there is no manifest file he
 7. `Ctrl+]` ends the console that took over with exit code 0 and one close line, starting on a
    new line.
 8. A new console, at the login prompt again, ends with Enter and `~.` the same way.
-9. `sherpa vnc ctr01` prints its local address; a viewer connecting to it gets nothing, and the
-   command ends, failing, with the message that containers have no VNC console.
-10. The other user and the admin each run `sherpa vnc alp01` in their folder: a viewer
-    connecting gets nothing, and the command ends with the same `Access denied` as for the console.
+9. `sherpa vnc ctr01` ends with exit code 1 and the message that containers have no VNC
+   console, without printing a local address: it asks the server before it opens a port, so no
+   viewer connects.
+10. The other user and the admin each run `sherpa vnc alp01` in their folder: it ends the same
+    way, with the same `Access denied` as for the console.
 11. `sherpa vnc alp01` prints its local address on `127.0.0.1`. A viewer (a plain TCP connection)
-    gets the server's `RFB 003.008` banner. A second viewer while the first is connected gets
-    nothing, the command says the VNC console is in use by the owner, and keeps running. Once the
-    first viewer leaves, a new one gets the banner again. Ctrl+C (`SIGINT`) ends the command with
-    code 0 and its stop line.
+    gets the server's `RFB 003.008` banner. A second `sherpa vnc alp01` started then prints its
+    address, says the VNC console is in use by the owner, and keeps running until Ctrl+C, which
+    ends it with code 0. A second viewer of the first command while its first viewer is connected
+    gets nothing, the command says the VNC console is in use by the owner, and keeps running. Once
+    the first viewer leaves, a new one gets the banner again. Ctrl+C (`SIGINT`) ends the command
+    with code 0 and its stop line.
 12. `sherpa destroy`, and the lab is gone.
 
 ## Running it

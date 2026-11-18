@@ -2,8 +2,9 @@
 //! server. A listener on `127.0.0.1`, on a port the system picks, takes the viewer's
 //! connections; each is relayed to the server's VNC WebSocket, opened with the login's bearer
 //! token and the client's TLS settings, until either side closes it. The listener runs until
-//! Ctrl+C. The server decides who may open the console and says why it refuses it; see
-//! `docs/architecture/CONSOLE_CLIENT.md`.
+//! Ctrl+C. The server decides who may open the console and says why it refuses it: the command
+//! asks it first, with the route's `?check=true`, and ends with the refusal before it opens the
+//! port. See `docs/architecture/CONSOLE_CLIENT.md`.
 
 use std::future::Future;
 use std::io;
@@ -19,9 +20,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
 use tokio_tungstenite::tungstenite::Message;
 
-use shared::data::{ClientConfig, LabIdentity};
+use shared::data::{ClientConfig, ConsoleCheck, LabIdentity};
 
-use super::console::{Route, console_url, open_error};
+use super::console::{Route, console_url, http_answer, open_error};
 use crate::token::load_token;
 use crate::ws_client::{WebSocketClient, WsStream};
 
@@ -51,9 +52,10 @@ enum Ended {
 ///
 /// # Errors
 ///
-/// Fails when the listener cannot be opened, or the server refuses the console for a reason
-/// asking again cannot change: not logged in, not the owner, no such node, or a node with no
-/// VNC console.
+/// Fails when the server refuses the console before the listener is opened (not logged in, not
+/// the owner, no such node, a node with no VNC console, not running or still on a VNC port), when
+/// the listener cannot be opened, or when the server later refuses a viewer for a reason asking
+/// again cannot change.
 #[tracing::instrument(skip_all, fields(%name, lab_id = %lab.id, force))]
 pub async fn vnc(
     name: &str,
@@ -62,15 +64,25 @@ pub async fn vnc(
     server_url: &str,
     config: &ClientConfig,
 ) -> Result<()> {
+    let timeout = Duration::from_secs(config.server_connection.timeout_secs);
     let url = console_url(server_url, &lab.id, name, Route::Vnc, force)?;
-    let route = Arc::new(VncRoute {
-        name: name.to_owned(),
-        client: WebSocketClient::new(
-            url.to_string(),
-            Duration::from_secs(config.server_connection.timeout_secs),
+    let mut check_url = console_url(server_url, &lab.id, name, Route::Vnc, false)?;
+    check_url.set_query(Some("check=true"));
+    let token = load_token()?;
+    let held_by = check(
+        &WebSocketClient::new(
+            check_url.to_string(),
+            timeout,
             config.server_connection.clone(),
         ),
-        token: load_token()?,
+        &token,
+        name,
+    )
+    .await?;
+    let route = Arc::new(VncRoute {
+        name: name.to_owned(),
+        client: WebSocketClient::new(url.to_string(), timeout, config.server_connection.clone()),
+        token,
     });
     // One Ctrl+C future for the whole command, polled once now so its handler is in place before
     // the address is printed. A new one per loop turn would miss a Ctrl+C that came while another
@@ -87,6 +99,9 @@ pub async fn vnc(
         .local_addr()
         .context("Cannot read the local port for the VNC viewer")?;
     println!("{}", listening_line(name, &lab.name, address));
+    if let Some(holder) = held_by {
+        eprintln!("{}", in_use_line(name, &holder, force));
+    }
 
     serve_until(listener, interrupt, |viewer, peer| {
         serve_viewer(Arc::clone(&route), viewer, peer)
@@ -95,6 +110,36 @@ pub async fn vnc(
     .context("Cannot wait for Ctrl+C")?;
     eprintln!("\nStopped relaying the VNC console of {name}.");
     Ok(())
+}
+
+/// Ask the server, through `client` at the route's `?check=true`, whether the VNC console of
+/// `name` can be opened now, and say who holds it, if anyone. The server answers a check with
+/// HTTP instead of the WebSocket upgrade: `200` with a [`ConsoleCheck`], or the refusal opening
+/// the console would get.
+///
+/// # Errors
+///
+/// The server's refusal, in its words, or the error when it cannot be reached.
+async fn check(client: &WebSocketClient, token: &str, name: &str) -> Result<Option<String>> {
+    let error = match client
+        .open(&[("Authorization", format!("Bearer {token}"))])
+        .await
+    {
+        Ok(mut stream) => {
+            // A server that upgraded did not take the check: let the session go, and let each
+            // viewer's connection be refused, as before checks.
+            let _ = stream.close(None).await;
+            return Ok(None);
+        }
+        Err(error) => error,
+    };
+    match http_answer(&error) {
+        // A body cut off from the answer only loses who holds the console.
+        Some((200, body)) => Ok(body
+            .and_then(|body| serde_json::from_slice::<ConsoleCheck>(&body).ok())
+            .and_then(|check| check.held_by)),
+        _ => Err(open_error(name, Route::Vnc, error).into_error()),
+    }
 }
 
 /// Accept viewers on `listener`, each served by `serve` in a task of its own, until `interrupt`
@@ -202,6 +247,21 @@ fn listening_line(name: &str, lab_name: &str, address: SocketAddr) -> String {
     )
 }
 
+/// The line on stderr when the console is held by `holder` as the listener opens: viewers are
+/// refused until it lets go, or with `force` take it over.
+fn in_use_line(name: &str, holder: &str, force: bool) -> String {
+    if force {
+        format!(
+            "The VNC console of {name} is in use by {holder}: a viewer connecting takes it over."
+        )
+    } else {
+        format!(
+            "The VNC console of {name} is in use by {holder}: viewers are refused until that \
+             session ends, or take it over with 'sherpa vnc {name} --force'."
+        )
+    }
+}
+
 /// The line on stderr when the connection of the viewer at `peer` ends.
 fn closed_line(name: &str, peer: SocketAddr, ended: &Ended) -> String {
     match ended {
@@ -216,11 +276,17 @@ fn closed_line(name: &str, peer: SocketAddr, ended: &Ended) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cmd::exit_status;
     use std::future::pending;
     use std::sync::Mutex;
 
     use anyhow::anyhow;
+    use shared::data::ServerConnection;
     use tokio::sync::oneshot;
+    use tokio::task::JoinHandle;
+
+    /// The exit status of a failed command, as a refused viewer's ended it before checks.
+    const FAILED: u8 = 1;
     use tokio_tungstenite::tungstenite::protocol::CloseFrame;
     use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
     use tokio_tungstenite::{WebSocketStream, accept_async, connect_async};
@@ -233,6 +299,163 @@ mod tests {
             "VNC console of ubu01 in lab test: connect a VNC viewer to 127.0.0.1:40123. Ctrl+C \
              to stop."
         );
+    }
+
+    #[test]
+    fn a_held_console_is_told_with_its_holder_and_how_to_take_it_over() {
+        let holder = "dev from 192.0.2.10 since 2026-11-18 09:08:07 UTC";
+        assert_eq!(
+            in_use_line("ubu01", holder, false),
+            "The VNC console of ubu01 is in use by dev from 192.0.2.10 since 2026-11-18 09:08:07 \
+             UTC: viewers are refused until that session ends, or take it over with 'sherpa vnc \
+             ubu01 --force'."
+        );
+        assert_eq!(
+            in_use_line("ubu01", holder, true),
+            "The VNC console of ubu01 is in use by dev from 192.0.2.10 since 2026-11-18 09:08:07 \
+             UTC: a viewer connecting takes it over."
+        );
+    }
+
+    /// A server that answers one request with HTTP `status` and the JSON `body`, as sherpad
+    /// answers a check, and the request it got.
+    async fn answering(status: &str, body: &str) -> (WebSocketClient, JoinHandle<String>) {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let url = format!(
+            "ws://{}/api/v1/labs/abcd1234/nodes/ubu01/vnc?check=true",
+            listener.local_addr().unwrap()
+        );
+        let response = format!(
+            "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n\
+             {body}",
+            body.len()
+        );
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.ends_with(b"\r\n\r\n") {
+                let count = socket.read(&mut buffer).await.unwrap();
+                assert!(count > 0, "the request ended early");
+                request.extend_from_slice(&buffer[..count]);
+            }
+            socket.write_all(response.as_bytes()).await.unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        let client = WebSocketClient::new(url, Duration::from_secs(5), ServerConnection::default());
+        (client, server)
+    }
+
+    fn api_error(code: &str, message: &str, details: Option<&str>) -> String {
+        serde_json::json!({
+            "error": { "code": code, "message": message, "details": details }
+        })
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn a_refused_check_ends_the_command_in_the_servers_words() {
+        for (status, body, message) in [
+            (
+                "403 Forbidden",
+                api_error(
+                    "FORBIDDEN",
+                    "Access denied: only the owner of lab 'abcd1234' can open its consoles",
+                    None,
+                ),
+                "Access denied: only the owner of lab 'abcd1234' can open its consoles",
+            ),
+            (
+                "400 Bad Request",
+                api_error(
+                    "BAD_REQUEST",
+                    "Invalid request",
+                    Some(
+                        "ctr01 is a container, and containers have no VNC console. Connect \
+                         with 'sherpa ssh ctr01' instead.",
+                    ),
+                ),
+                "ctr01 is a container, and containers have no VNC console. Connect with 'sherpa \
+                 ssh ctr01' instead.",
+            ),
+            (
+                "409 Conflict",
+                api_error(
+                    "CONFLICT",
+                    "Node 'ubu01' is not running. Start it with 'sherpa resume'.",
+                    None,
+                ),
+                "Node 'ubu01' is not running. Start it with 'sherpa resume'.",
+            ),
+            (
+                "409 Conflict",
+                api_error(
+                    "CONFLICT",
+                    "Node 'ubu01' was started before its VNC console moved behind Sherpa. Stop \
+                     and resume the lab ('sherpa down', then 'sherpa resume'), or redeploy the \
+                     node, to use its VNC console.",
+                    None,
+                ),
+                "Node 'ubu01' was started before its VNC console moved behind Sherpa. Stop and \
+                 resume the lab ('sherpa down', then 'sherpa resume'), or redeploy the node, to \
+                 use its VNC console.",
+            ),
+            (
+                "401 Unauthorized",
+                api_error("UNAUTHORIZED", "Missing or invalid bearer token", None),
+                "Not logged in to the Sherpa server, or the login has expired: run 'sherpa \
+                 login'.",
+            ),
+        ] {
+            let (client, server) = answering(status, &body).await;
+            let error = check(&client, "the-token", "ubu01").await.unwrap_err();
+            assert_eq!(error.to_string(), message, "{status}");
+            assert_eq!(exit_status(&error), FAILED, "{status}");
+            let request = server.await.unwrap();
+            assert!(
+                request.starts_with("GET /api/v1/labs/abcd1234/nodes/ubu01/vnc?check=true "),
+                "{request}"
+            );
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("authorization: bearer the-token\r\n"),
+                "{request}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_passed_check_says_who_holds_the_console() {
+        let (client, _server) = answering("200 OK", r#"{"held_by":null}"#).await;
+        assert_eq!(check(&client, "t", "ubu01").await.unwrap(), None);
+        let holder = "dev from 192.0.2.10 since 2026-11-18 09:08:07 UTC";
+        let (client, _server) = answering("200 OK", &format!(r#"{{"held_by":"{holder}"}}"#)).await;
+        assert_eq!(
+            check(&client, "t", "ubu01").await.unwrap(),
+            Some(holder.to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_check_that_cannot_reach_the_server_ends_the_command() {
+        // A port nothing listens on: bound, then closed.
+        let address = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let client = WebSocketClient::new(
+            format!("ws://{address}/api/v1/labs/abcd1234/nodes/ubu01/vnc?check=true"),
+            Duration::from_secs(5),
+            ServerConnection::default(),
+        );
+        let error = check(&client, "t", "ubu01").await.unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Failed to open the VNC console of ubu01 through the Sherpa server"
+        );
+        assert_eq!(exit_status(&error), FAILED);
     }
 
     #[test]

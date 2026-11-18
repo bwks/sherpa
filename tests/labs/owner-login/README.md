@@ -82,8 +82,9 @@ is how an admin names a lab they do not own:
 - `sherpa inspect` lists the nodes;
 - `sherpa download <lab id>`, in an empty folder, is refused with `Only the owner of lab '<id>' can
   perform this operation`, and writes nothing;
-- `sherpa ssh` on each node and `sherpa console` on the VM are refused with `Only the owner of lab
-  '<id>' can connect to its nodes`, before anything connects;
+- `sherpa ssh` on each node is refused with `Only the owner of lab '<id>' can connect to its
+  nodes`, and `sherpa console` on the VM by the server with `Access denied: only the owner of lab
+  '<id>' can open its consoles`, before anything connects;
 - `ssh` straight to each node's management address through the Sherpa server (the server hop and
   addresses come from the owner's lab SSH config), with only the admin's own throwaway key, is
   refused (`Permission denied`) as the admin's username and as the owner's username;

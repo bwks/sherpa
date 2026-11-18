@@ -68,6 +68,8 @@ BUILT_IN_ADMIN = "admin"
 # and `{owner}` the owner's name.
 OWNER_ONLY_SERVER = "Only the owner of lab '{lab}' can perform this operation"
 OWNER_ONLY_CONNECT = "Only the owner of lab '{lab}' can connect to its nodes"
+# The server's refusal of a console, serial or VNC, to anyone but the lab's owner.
+OWNER_ONLY_CONSOLE = "only the owner of lab '{lab}' can open its consoles"
 OWN_ACCOUNT_ONLY = "only user '{owner}' can do this for their own account"
 
 COMMAND_TIMEOUT = 180
@@ -782,11 +784,12 @@ class LabRun:
         require(not files, f"the refused download wrote files: {files}")
 
     def check_admin_connect_refused(self):
-        for arguments in (["ssh", VM], ["ssh", CONTAINER], ["console", VM]):
+        for arguments, refusal in ((["ssh", VM], OWNER_ONLY_CONNECT), (["ssh", CONTAINER], OWNER_ONLY_CONNECT),
+                                   (["console", VM], OWNER_ONLY_CONSOLE)):
             outcome = self.admin(f"sherpa {' '.join(arguments)}", arguments, REFUSAL_TIMEOUT, check=False)
             command = f"sherpa {' '.join(arguments)}"
             require(outcome.code not in (0, None), f"{command} did not fail for the admin")
-            require(OWNER_ONLY_CONNECT.format(lab=self.lab_id) in outcome.output,
+            require(refusal.format(lab=self.lab_id) in outcome.output,
                     f"{command} was not refused for the owner only: {outcome.output.strip()}")
             require("Connected to" not in outcome.output, f"{command} connected for the admin")
 
@@ -1101,6 +1104,9 @@ class SelfTest(unittest.TestCase):
     def test_node_refusals_and_messages_are_matched_as_contained_text(self):
         self.assertEqual(OWNER_ONLY_SERVER.format(lab="ab12"), "Only the owner of lab 'ab12' can perform this operation")
         self.assertEqual(OWNER_ONLY_CONNECT.format(lab="ab12"), "Only the owner of lab 'ab12' can connect to its nodes")
+        self.assertEqual(OWNER_ONLY_CONSOLE.format(lab="ab12"), "only the owner of lab 'ab12' can open its consoles")
+        self.assertIn(OWNER_ONLY_CONSOLE.format(lab="ab12"),
+                      "Error: Access denied: only the owner of lab 'ab12' can open its consoles\n")
         self.assertEqual(OWN_ACCOUNT_ONLY.format(owner="alice"), "only user 'alice' can do this for their own account")
         output = "Error: Download failed: Only the owner of lab 'ab12' can perform this operation\n"
         self.assertIn(OWNER_ONLY_SERVER.format(lab="ab12"), output)

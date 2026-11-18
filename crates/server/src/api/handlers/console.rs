@@ -14,27 +14,35 @@
 //! last three are told in the close frame's reason. Each session opened, refused and closed is
 //! logged as a `console.*` event with the user, lab, node and console (`serial` or `vnc`), never
 //! the bytes.
+//!
+//! `?check=true` asks the same route whether the console can be opened now, without a WebSocket
+//! upgrade and without taking it: the same checks run, a refusal is the same API error, and a
+//! console that can be opened is answered `200` with a [`ConsoleCheck`] naming the session that
+//! holds it, if any. `sherpa vnc` asks before it opens its local port.
 
 use std::fmt;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use axum::Extension;
 use axum::extract::connect_info::ConnectInfo;
+use axum::extract::ws::rejection::WebSocketUpgradeRejection;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade, close_code};
 use axum::extract::{Path, Query, State};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
+use axum::{Extension, Json};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tracing::instrument;
 
+use shared::data::ConsoleCheck;
+
 use crate::api::errors::ApiError;
 use crate::api::extractors::BearerUser;
 use crate::auth::context::AuthContext;
 use crate::auth::session::{self, SessionLookup};
-use crate::daemon::console_sessions::{Claimant, ConsoleClaim};
+use crate::daemon::console_sessions::{Claimant, ConsoleClaim, ConsoleSessions};
 use crate::daemon::state::AppState;
 use crate::konst::CONSOLE_SESSION_CHECK_SECS;
 use crate::services::console::{self, ConsoleKind, ConsoleTarget};
@@ -57,7 +65,14 @@ pub struct ConsoleQuery {
     /// Take the console over from a session of the caller's own that holds it.
     #[serde(default)]
     pub force: bool,
+    /// Only check that the console can be opened now: run the route's checks and answer, with
+    /// no upgrade, and take no session.
+    #[serde(default)]
+    pub check: bool,
 }
+
+/// A WebSocket upgrade, or why the request is not one: a check needs none.
+type Upgrade = Result<WebSocketUpgrade, WebSocketUpgradeRejection>;
 
 /// A request for a node console, from the route's path and query and the connection.
 struct ConsoleRequest {
@@ -66,6 +81,12 @@ struct ConsoleRequest {
     node_name: String,
     force: bool,
     client: Option<SocketAddr>,
+}
+
+/// A console the caller may open, and the socket its running node was started with.
+struct CheckedConsole {
+    target: ConsoleTarget,
+    path: String,
 }
 
 /// A console checked and claimed, with its socket connected, ready to relay.
@@ -93,9 +114,9 @@ enum Ended {
     Failed(String),
 }
 
-/// Open a node's serial console as a WebSocket.
+/// Open a node's serial console as a WebSocket, or with `?check=true` say whether it can be.
 ///
-/// GET `/api/v1/labs/{id}/nodes/{node_name}/console[?force=true]`
+/// GET `/api/v1/labs/{id}/nodes/{node_name}/console[?force=true|?check=true]`
 ///
 /// # Errors
 ///
@@ -109,7 +130,7 @@ pub async fn node_console_handler(
     Path((lab_id, node_name)): Path<(String, String)>,
     Query(query): Query<ConsoleQuery>,
     client: Option<Extension<ConnectInfo<SocketAddr>>>,
-    upgrade: WebSocketUpgrade,
+    upgrade: Upgrade,
 ) -> Result<Response, ApiError> {
     let request = ConsoleRequest {
         kind: ConsoleKind::Serial,
@@ -118,12 +139,13 @@ pub async fn node_console_handler(
         force: query.force,
         client: client.map(|Extension(ConnectInfo(address))| address),
     };
-    upgrade_to_console(auth.into_context(), state, request, upgrade).await
+    serve_console(auth.into_context(), state, request, query.check, upgrade).await
 }
 
-/// Open a node's VNC console as a WebSocket, carrying the RFB protocol.
+/// Open a node's VNC console as a WebSocket, carrying the RFB protocol, or with `?check=true`
+/// say whether it can be.
 ///
-/// GET `/api/v1/labs/{id}/nodes/{node_name}/vnc[?force=true]`
+/// GET `/api/v1/labs/{id}/nodes/{node_name}/vnc[?force=true|?check=true]`
 ///
 /// # Errors
 ///
@@ -134,7 +156,7 @@ pub async fn node_vnc_handler(
     Path((lab_id, node_name)): Path<(String, String)>,
     Query(query): Query<ConsoleQuery>,
     client: Option<Extension<ConnectInfo<SocketAddr>>>,
-    upgrade: WebSocketUpgrade,
+    upgrade: Upgrade,
 ) -> Result<Response, ApiError> {
     let request = ConsoleRequest {
         kind: ConsoleKind::Vnc,
@@ -143,33 +165,94 @@ pub async fn node_vnc_handler(
         force: query.force,
         client: client.map(|Extension(ConnectInfo(address))| address),
     };
-    upgrade_to_console(auth.into_context(), state, request, upgrade).await
+    serve_console(auth.into_context(), state, request, query.check, upgrade).await
 }
 
-/// Open the console `request` names for `ctx` and relay it over `upgrade`, or say why not.
-async fn upgrade_to_console(
+/// Answer the console `request` names for `ctx`: with `check`, whether it can be opened now;
+/// otherwise open it and relay it over `upgrade`. Either way a refusal is an API error.
+async fn serve_console(
     ctx: AuthContext,
     state: AppState,
     request: ConsoleRequest,
-    upgrade: WebSocketUpgrade,
+    check: bool,
+    upgrade: Upgrade,
 ) -> Result<Response, ApiError> {
+    if check {
+        return match check_console(&ctx, &state, &request).await {
+            Ok(console) => Ok(Json(check_answer(
+                &state.console_sessions,
+                &console.target,
+                request.kind,
+            ))
+            .into_response()),
+            Err(error) => Err(refused(&ctx, &request, true, error)),
+        };
+    }
+    let upgrade = match upgrade {
+        Ok(upgrade) => upgrade,
+        Err(rejection) => return Ok(rejection.into_response()),
+    };
     match open_console(&ctx, &state, &request).await {
         Ok(console) => Ok(upgrade.on_upgrade(move |websocket| relay(websocket, console, state))),
-        Err(error) => {
-            tracing::warn!(
-                event = "console.refused",
-                username = %ctx.username,
-                lab_id = %request.lab_id,
-                node = %request.node_name,
-                console = request.kind.suffix(),
-                client = ?request.client,
-                force = request.force,
-                reason = %format!("{error:#}"),
-                "Console refused"
-            );
-            Err(ApiError::from(error))
-        }
+        Err(error) => Err(refused(&ctx, &request, false, error)),
     }
+}
+
+/// The answer to a check of `target`'s `kind` console, which may be opened: who holds it, if
+/// anyone. Nothing is claimed.
+fn check_answer(
+    sessions: &ConsoleSessions,
+    target: &ConsoleTarget,
+    kind: ConsoleKind,
+) -> ConsoleCheck {
+    ConsoleCheck {
+        held_by: sessions
+            .holder(&target.lab_id, &target.node_name, kind)
+            .map(|holder| holder.to_string()),
+    }
+}
+
+/// Log the refusal of the console `request` names to `ctx`, by a check or an open, and turn it
+/// into the API's error.
+fn refused(
+    ctx: &AuthContext,
+    request: &ConsoleRequest,
+    check: bool,
+    error: anyhow::Error,
+) -> ApiError {
+    tracing::warn!(
+        event = "console.refused",
+        username = %ctx.username,
+        lab_id = %request.lab_id,
+        node = %request.node_name,
+        console = request.kind.suffix(),
+        client = ?request.client,
+        force = request.force,
+        check,
+        reason = %format!("{error:#}"),
+        "Console refused"
+    );
+    ApiError::from(error)
+}
+
+/// Check that `ctx` may open the console `request` names and that its node runs with it on a
+/// socket: the checks of both opening a console and asking whether it can be.
+#[instrument(skip(ctx, state, request), fields(username = %ctx.username, lab_id = %request.lab_id, node = %request.node_name, console = request.kind.suffix()))]
+async fn check_console(
+    ctx: &AuthContext,
+    state: &AppState,
+    request: &ConsoleRequest,
+) -> Result<CheckedConsole> {
+    let target = console::console_target(
+        ctx,
+        &state.db,
+        &request.lab_id,
+        &request.node_name,
+        request.kind,
+    )
+    .await?;
+    let path = console::console_socket(state, &target, request.kind).await?;
+    Ok(CheckedConsole { target, path })
 }
 
 /// Check that `ctx` may open the console `request` names and that it can be opened, claim it,
@@ -187,8 +270,7 @@ async fn open_console(
         force,
         client,
     } = *request;
-    let target = console::console_target(ctx, &state.db, lab_id, node_name, kind).await?;
-    let path = console::console_socket(state, &target, kind).await?;
+    let CheckedConsole { target, path } = check_console(ctx, state, request).await?;
     let claimant = Claimant {
         username: ctx.username.clone(),
         client,
@@ -417,6 +499,55 @@ mod tests {
             in_use(ConsoleKind::Vnc, "ubu01", holder),
             "The VNC console of ubu01 is in use by alice from 192.0.2.10 since 2026-11-18 \
              09:08:07 UTC. Close that session, or take it over with 'sherpa vnc ubu01 --force'."
+        );
+    }
+
+    fn target(node_name: &str) -> ConsoleTarget {
+        ConsoleTarget {
+            lab_id: "abcd1234".to_owned(),
+            node_name: node_name.to_owned(),
+            domain: format!("{node_name}-abcd1234"),
+        }
+    }
+
+    #[test]
+    fn a_check_names_the_holder_of_the_console_and_takes_nothing() {
+        let sessions = ConsoleSessions::default();
+        let ubu01 = target("ubu01");
+        assert_eq!(
+            check_answer(&sessions, &ubu01, ConsoleKind::Vnc),
+            ConsoleCheck { held_by: None }
+        );
+        let alice = Claimant {
+            username: "alice".to_owned(),
+            client: Some(SocketAddr::from(([192, 0, 2, 10], 50000))),
+        };
+        let claim = sessions
+            .claim("abcd1234", "ubu01", ConsoleKind::Vnc, alice.clone(), false)
+            .unwrap();
+        let held_by = check_answer(&sessions, &ubu01, ConsoleKind::Vnc)
+            .held_by
+            .unwrap();
+        assert!(
+            held_by.starts_with("alice from 192.0.2.10 since "),
+            "{held_by}"
+        );
+        // The serial console is held apart, and the check left the VNC one to its holder.
+        assert_eq!(
+            check_answer(&sessions, &ubu01, ConsoleKind::Serial),
+            ConsoleCheck { held_by: None }
+        );
+        assert_eq!(
+            sessions
+                .holder("abcd1234", "ubu01", ConsoleKind::Vnc)
+                .unwrap()
+                .claimant,
+            alice
+        );
+        drop(claim);
+        assert_eq!(
+            check_answer(&sessions, &ubu01, ConsoleKind::Vnc),
+            ConsoleCheck { held_by: None }
         );
     }
 
