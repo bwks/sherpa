@@ -43,7 +43,7 @@ use shared::data::StatusKind;
 use shared::konst::{
     CONTAINER_DISK_NAME, KVM_OUI, NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR, NODE_USER_ENV_FILE,
     SHERPA_DOMAIN_NAME, SHERPA_SSHD_READY_MARKER, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
-    SHERPA_USERNAME, SSH_PORT, TALOS_API_PORT, TELNET_PORT, TFTP_DIR, UNIKERNEL_DISK_FILENAME,
+    SHERPA_USERNAME, SSH_PORT, TALOS_API_PORT, TFTP_DIR, UNIKERNEL_DISK_FILENAME,
     UNIKERNEL_KERNEL_FILENAME, VM_DISK_FILENAME, ZTP_DIR,
 };
 use shared::util;
@@ -323,7 +323,8 @@ pub enum VmReadiness {
 pub struct DomainParts {
     pub disks: Vec<data::NodeDisk>,
     pub interfaces: Vec<data::Interface>,
-    pub loopback_ipv4: String,
+    /// The UNIX socket of the node's serial console (`console::serial_socket_path`).
+    pub serial_socket: String,
     pub management_network: String,
     /// Empty when the node has no isolated network.
     pub isolated_network: String,
@@ -3641,8 +3642,7 @@ pub fn build_domain_template(
             node.model_kind,
             &vm.interfaces.kind,
         ),
-        loopback_ipv4: parts.loopback_ipv4,
-        telnet_port: TELNET_PORT,
+        serial_socket: parts.serial_socket,
         qemu_commands: firmware.qemu_commands,
         ignition_config: firmware.ignition_config,
         lab_id: lab_id.to_string(),
@@ -4333,8 +4333,7 @@ pub fn build_unikernel_domain_template(
         interface_type: unikernel.interfaces.kind.clone(),
         management_interface_type: unikernel.interfaces.kind.clone(),
         reserved_interface_type: unikernel.interfaces.kind.clone(),
-        loopback_ipv4: parts.loopback_ipv4,
-        telnet_port: TELNET_PORT,
+        serial_socket: parts.serial_socket,
         management_network: parts.management_network,
         isolated_network: parts.isolated_network,
         reserved_network: parts.reserved_network,
@@ -5332,7 +5331,7 @@ pub(crate) mod tests {
             DomainParts {
                 disks: vec![],
                 interfaces: vec![],
-                loopback_ipv4: "127.0.0.1".to_owned(),
+                serial_socket: "/opt/sherpa/run/console/lab1/1.serial".to_owned(),
                 management_network: "mgmt".to_owned(),
                 isolated_network: String::new(),
                 reserved_network: String::new(),
@@ -6172,7 +6171,7 @@ pub(crate) mod tests {
             DomainParts {
                 disks: result.disks,
                 interfaces: vec![],
-                loopback_ipv4: "127.0.0.1".to_owned(),
+                serial_socket: "/opt/sherpa/run/console/lab1/1.serial".to_owned(),
                 management_network: "mgmt".to_owned(),
                 isolated_network: String::new(),
                 reserved_network: String::new(),

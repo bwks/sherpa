@@ -163,7 +163,6 @@ user = "sherpa"
 ipv4_network = "192.0.2.0/24"
 ipv4_gateway = "192.0.2.1"
 ipv4_router = "192.0.2.2"
-loopback_network = "198.51.100.0/24"
 "#;
 
     /// Write `text` as the lab info of the lab folder `dir`, returning its path.

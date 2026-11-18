@@ -6,10 +6,11 @@
 """End-to-end test of `sherpa console` through the sherpa CLI (Python 3.15+, stdlib only).
 
 Brings up an Alpine VM and an Alpine container. Runs `sherpa console` on the VM in a
-pseudo-terminal, as a user does: the console is reached through the Sherpa server with the
-client's own telnet, with no system `telnet` on PATH. Checks the login prompt and typed input,
-leaving with Ctrl+] and with `~.`, that a second console on the same node reports it in use, and
-that the container is refused. Always destroys the lab. See README.md.
+pseudo-terminal, as a user does: the console is relayed by the Sherpa server over its API, with no
+system `telnet` or `ssh` on PATH. Checks the login prompt and typed input, leaving with Ctrl+] and
+with `~.`, that a second console on the same node names who holds it, that `--force` takes it over,
+that another Sherpa user and an admin are refused, and that the container is refused. Always
+destroys the lab. See README.md.
 """
 
 import argparse
@@ -44,6 +45,18 @@ NODES = (
 )
 IMAGES = (("alpine_linux", None, None), ("generic", "container", "3.22"))
 
+# The other two accounts: a normal user and an admin, neither owning the lab. Their passwords are
+# only read from the environment.
+ENV_OTHER_USER = "SHERPA_LAB_TEST_OTHER_USER"
+ENV_OTHER_PASSWORD = "SHERPA_LAB_TEST_OTHER_PASSWORD"
+ENV_ADMIN_USER = "SHERPA_LAB_TEST_ADMIN_USER"
+ENV_ADMIN_PASSWORD = "SHERPA_LAB_TEST_ADMIN_PASSWORD"
+# How `sherpa login` takes a user name and password without asking.
+LOGIN_USER_ENV = "SHERPA_USER_NAME"
+LOGIN_PASSWORD_ENV = "SHERPA_USER_PASSWORD"
+# Tools a console must not need.
+NOT_NEEDED = ("telnet", "ssh")
+
 COMMAND_TIMEOUT = 180
 UP_TIMEOUT = 1200
 # How long the VM may take to show its login prompt on the console after `sherpa up`.
@@ -55,7 +68,8 @@ CTRL_RIGHT_BRACKET = b"\x1d"
 LOGIN_PROMPT = re.compile(rb"login: ")
 CONNECTED = f"Connected to the console of {VM} in lab "
 CLOSED_AFTER_ESCAPE = f"\nConnection to the console of {VM} closed."
-IN_USE = f"The console of {VM} is in use: another client holds it"
+IN_USE = f"The console of {VM} is in use by "
+TAKEN_OVER = f"Connection to the console of {VM} closed: Taken over by "
 CONTAINER_REFUSED = f"{CONTAINER} is a container, and containers have no serial console."
 # The text typed at the login prompt, checked for in the guest's echo. It is never submitted.
 TYPED = "sherpa-console-check"
@@ -118,24 +132,52 @@ def render_manifest(name):
     return "\n".join([*lines, "]"]) + "\n"
 
 
-def path_without(tool):
-    """PATH with every directory holding `tool` left out, so a check proves it is not needed.
-    `sherpa` must stay reachable, so the result is checked by the caller."""
+def path_without(*tools):
+    """PATH with every directory holding one of `tools` left out, so a check proves they are not
+    needed. `sherpa` must stay reachable, so the result is checked by the caller."""
     kept = [entry for entry in os.environ.get("PATH", "").split(os.pathsep)
-            if entry and not (Path(entry) / tool).exists()]
+            if entry and not any((Path(entry) / tool).exists() for tool in tools)]
     return os.pathsep.join(kept)
+
+
+def refused_to(lab_id):
+    """What the server says to anyone but the owner of lab `lab_id` asking for a console."""
+    return f"Access denied: only the owner of lab '{lab_id}' can open its consoles"
+
+
+class Account(NamedTuple):
+    """A Sherpa account other than the lab's owner, logged in to a HOME of its own."""
+
+    role: str
+    username: str
+    env: dict
+
+
+def prepare_home(run_root, role):
+    """A HOME for another account: the owner's client config and trusted server certificate, and
+    no token."""
+    home = run_root / f"{role}-home"
+    (home / ".sherpa").mkdir(parents=True, mode=0o700)
+    source = Path.home() / ".sherpa"
+    for part in ("config", "trusted_certs"):
+        if (source / part).is_dir():
+            shutil.copytree(source / part, home / ".sherpa" / part)
+    env = {key: value for key, value in os.environ.items() if key not in (LOGIN_USER_ENV, LOGIN_PASSWORD_ENV)}
+    env["HOME"] = str(home)
+    env["PATH"] = path_without(*NOT_NEEDED)
+    return env
 
 
 class Console:
     """`sherpa console <node>` in a pseudo-terminal of its own, as a user's terminal runs it."""
 
-    def __init__(self, log, label, sherpa, node, cwd, env):
+    def __init__(self, log, label, sherpa, node, cwd, env, options=()):
         self.log = log
         self.label = label
         self.transcript = bytearray()
         master, slave = os.openpty()
         self.master = master
-        self.process = subprocess.Popen([sherpa, "console", node], cwd=cwd, env=env, stdin=slave,
+        self.process = subprocess.Popen([sherpa, "console", node, *options], cwd=cwd, env=env, stdin=slave,
                                         stdout=slave, stderr=slave, start_new_session=True)
         os.close(slave)
         print(f"[{cwd.name}] {label}", flush=True)
@@ -191,16 +233,19 @@ class Console:
 
 
 class LabRun:
-    def __init__(self, run_root, keep_failed):
+    def __init__(self, run_root, keep_failed, owner, others):
         self.name = f"console-{run_root.name[-6:]}"
         self.directory = run_root / "lab"
+        self.run_root = run_root
         self.keep_failed = keep_failed
+        self.owner = owner
+        self.others = others
         self.started = False
         self.lab_id = None
         self.log = None
         self.sherpa_path = shutil.which("sherpa")
-        # Every console runs with no system `telnet` on PATH.
-        self.console_env = {**os.environ, "PATH": path_without("telnet")}
+        # Every console runs with no system `telnet` or `ssh` on PATH.
+        self.console_env = {**os.environ, "PATH": path_without(*NOT_NEEDED)}
 
     def sherpa(self, label, arguments, timeout=COMMAND_TIMEOUT, check=True):
         outcome = run_logged(self.log, label, [self.sherpa_path, *arguments], self.directory, timeout,
@@ -209,8 +254,8 @@ class LabRun:
             raise TestFailure(f"{label} failed (exit {outcome.code}); see {self.log.name}")
         return outcome
 
-    def console(self, label, node=VM):
-        return Console(self.log, label, self.sherpa_path, node, self.directory, self.console_env)
+    def console(self, label, node=VM, options=()):
+        return Console(self.log, label, self.sherpa_path, node, self.directory, self.console_env, options)
 
     def run(self):
         self.directory.mkdir(parents=True)
@@ -245,10 +290,14 @@ class LabRun:
 
     def checks(self):
         self.check_container_refused()
-        first = self.open_at_login("console, left with Ctrl+]")
+        for account in self.others:
+            self.check_refused_to(account)
+        first = self.open_at_login("console, taken over with --force")
         self.check_in_use()
-        first.send(CTRL_RIGHT_BRACKET)
-        self.check_closed(first)
+        taken = self.open_at_login("console taking it over, left with Ctrl+]", ("--force",))
+        self.check_taken_over(first)
+        taken.send(CTRL_RIGHT_BRACKET)
+        self.check_closed(taken)
 
         second = self.open_at_login("console, left with ~.")
         second.send(b"\r~.")
@@ -260,12 +309,25 @@ class LabRun:
         require(CONTAINER_REFUSED in outcome.output,
                 f"sherpa console {CONTAINER} did not say containers have no console; see {self.log.name}")
 
-    def open_at_login(self, label):
+    def check_refused_to(self, account):
+        """Another Sherpa account, in a folder holding a copy of the owner's lab-info.toml, is
+        refused the console by the server, before anything connects."""
+        directory = self.run_root / account.role
+        (directory / ".sherpa").mkdir(parents=True, exist_ok=True)
+        shutil.copy(self.directory / ".sherpa" / "lab-info.toml", directory / ".sherpa" / "lab-info.toml")
+        label = f"console as the {account.role} {account.username}"
+        outcome = run_logged(self.log, label, [self.sherpa_path, "console", VM], directory, CONSOLE_TIMEOUT,
+                             account.env)
+        require(outcome.code not in (0, None), f"{label} succeeded")
+        require(refused_to(self.lab_id) in outcome.output,
+                f"{label} was not refused as not the owner; see {self.log.name}")
+
+    def open_at_login(self, label, options=()):
         """A console on the VM at its login prompt, with typed text echoed back. Enter is pressed
         until the prompt shows, as the VM may still be booting."""
         deadline = time.monotonic() + LOGIN_TIMEOUT
         while True:
-            console = self.console(label)
+            console = self.console(label, options=options)
             try:
                 console.expect(re.compile(re.escape(CONNECTED.encode())), CONSOLE_TIMEOUT)
                 break
@@ -293,7 +355,16 @@ class LabRun:
         other = self.console("second console while one is open")
         code = other.finish()
         require(code != 0, "a second console on the node succeeded")
-        require(IN_USE in other.text(), f"a second console did not report it in use; see {self.log.name}")
+        require(f"{IN_USE}{self.owner} " in other.text(),
+                f"a second console did not name who holds it; see {self.log.name}")
+        require("--force" in other.text(), f"a second console did not offer --force; see {self.log.name}")
+
+    def check_taken_over(self, console):
+        """The console taken over ends, with code 0, saying who took it."""
+        code = console.finish()
+        require(code == 0, f"{console.label} exited {code}; see {self.log.name}")
+        require(f"{TAKEN_OVER}{self.owner} " in console.text(),
+                f"{console.label} did not say it was taken over; see {self.log.name}")
 
     def check_closed(self, console):
         code = console.finish()
@@ -321,6 +392,9 @@ DEVICE_PASSWORD_SET = re.compile(r"^\s*Device password:\s*set\s*$", re.MULTILINE
 INFO_USERNAME = re.compile(r"^\s*Username:\s*(\S+)\s*$", re.MULTILINE)
 
 
+INFO_ADMIN = re.compile(r"^\s*Admin:\s*(Yes|No)\s*$", re.MULTILINE)
+
+
 def require_device_password(log, run_root):
     """Stop unless the lab owner has a device password, which `sherpa up` needs; return the owner."""
     info = run_logged(log, "sherpa server user info", ["sherpa", "server", "user", "info"], run_root)
@@ -333,14 +407,33 @@ def require_device_password(log, run_root):
     return owner.group(1)
 
 
-def preflight(run_root):
+def log_in(log, run_root, role, username, password, owner, admin):
+    """Log `username` in to a HOME of its own and check it is another account than the owner's,
+    and an admin when `admin` is set; return it."""
+    require(username != owner, f"the {role} and the owner must be different accounts")
+    env = prepare_home(run_root, role)
+    login = run_logged(log, f"sherpa login ({role})", ["sherpa", "login"], run_root,
+                       env={**env, LOGIN_USER_ENV: username, LOGIN_PASSWORD_ENV: password})
+    require(login.code == 0, f"could not log in as {username}; see {log.name}")
+    info = run_logged(log, f"sherpa server user info ({role})", ["sherpa", "server", "user", "info"], run_root,
+                      env=env)
+    found = INFO_ADMIN.search(info.stdout)
+    require(info.code == 0 and found, f"could not read {username}'s details; see {log.name}")
+    require((found.group(1) == "Yes") == admin, f"{username} is {'not ' if admin else ''}an admin")
+    return Account(role, username, env)
+
+
+def preflight(run_root, other_user, admin_user, passwords):
+    """Check the server and the three accounts; return the owner and the other two accounts."""
     require(shutil.which("sherpa"), "sherpa is not on PATH")
-    require(shutil.which("sherpa", path=path_without("telnet")),
-            "sherpa is in the same directory as telnet; install it elsewhere for this test")
+    require(shutil.which("sherpa", path=path_without(*NOT_NEEDED)),
+            "sherpa is in the same directory as telnet or ssh; install it elsewhere for this test")
     with (run_root / "preflight.log").open("w") as log:
         whoami = run_logged(log, "sherpa whoami", ["sherpa", "whoami"], run_root)
         require(whoami.code == 0, "the sherpa CLI is not logged in (run `sherpa login`)")
-        require_device_password(log, run_root)
+        owner = require_device_password(log, run_root)
+        others = (log_in(log, run_root, "user", other_user, passwords[0], owner, admin=False),
+                  log_in(log, run_root, "admin", admin_user, passwords[1], owner, admin=True))
         for model, kind, version in IMAGES:
             arguments = ["sherpa", "server", "image", "show", model]
             if kind:
@@ -349,6 +442,7 @@ def preflight(run_root):
                 arguments += ["--version", version]
             image = run_logged(log, f"{model} image present", arguments, run_root)
             require(image.code == 0, f"the server has no {model} {version or 'default'} image")
+    return owner, others
 
 
 class SelfTest(unittest.TestCase):
@@ -366,21 +460,26 @@ class SelfTest(unittest.TestCase):
                     with self.assertRaises(TestFailure):
                         require_device_password(None, run_root)
 
+    def test_another_account_is_refused_in_the_servers_words(self):
+        self.assertEqual(refused_to("abcd1234"),
+                         "Access denied: only the owner of lab 'abcd1234' can open its consoles")
+
     def test_the_manifest_has_the_vm_and_the_container(self):
         manifest = tomllib.loads(render_manifest("console-abc123"))
         self.assertEqual(manifest["name"], "console-abc123")
         self.assertEqual([node["name"] for node in manifest["nodes"]], [VM, CONTAINER])
         self.assertEqual(manifest["nodes"][1]["image"], "alpine")
 
-    def test_path_without_leaves_out_the_directories_holding_the_tool(self):
+    def test_path_without_leaves_out_the_directories_holding_the_tools(self):
         directory = RUNS / f"self-test-{uuid.uuid4().hex[:8]}"
-        (directory / "with").mkdir(parents=True)
-        (directory / "without").mkdir()
-        (directory / "with" / "telnet").touch()
+        for name in ("telnet", "ssh", "without"):
+            (directory / name).mkdir(parents=True)
+        (directory / "telnet" / "telnet").touch()
+        (directory / "ssh" / "ssh").touch()
         original = os.environ["PATH"]
-        os.environ["PATH"] = os.pathsep.join([str(directory / "with"), str(directory / "without")])
+        os.environ["PATH"] = os.pathsep.join(str(directory / name) for name in ("telnet", "ssh", "without"))
         try:
-            self.assertEqual(path_without("telnet"), str(directory / "without"))
+            self.assertEqual(path_without(*NOT_NEEDED), str(directory / "without"))
         finally:
             os.environ["PATH"] = original
             shutil.rmtree(directory)
@@ -389,6 +488,12 @@ class SelfTest(unittest.TestCase):
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--other-user", default=os.environ.get(ENV_OTHER_USER),
+                        help=f"A normal user who does not own the lab (default: ${ENV_OTHER_USER}). Its "
+                             f"password is read from ${ENV_OTHER_PASSWORD}")
+    parser.add_argument("--admin-user", default=os.environ.get(ENV_ADMIN_USER),
+                        help=f"An admin who does not own the lab (default: ${ENV_ADMIN_USER}). Its "
+                             f"password is read from ${ENV_ADMIN_PASSWORD}")
     parser.add_argument("--keep-failed", action="store_true", help="Leave a failed lab running for debugging")
     parser.add_argument("--self-test", action="store_true", help="Run the runner's own unit tests")
     args = parser.parse_args()
@@ -396,13 +501,21 @@ def main():
         sys.argv = sys.argv[:1]
         unittest.main()
         return 0
+    passwords = (os.environ.get(ENV_OTHER_PASSWORD), os.environ.get(ENV_ADMIN_PASSWORD))
+    missing = [name for name, value in ((f"--other-user or ${ENV_OTHER_USER}", args.other_user),
+                                        (f"${ENV_OTHER_PASSWORD}", passwords[0]),
+                                        (f"--admin-user or ${ENV_ADMIN_USER}", args.admin_user),
+                                        (f"${ENV_ADMIN_PASSWORD}", passwords[1])) if not value]
+    if missing:
+        print(f"FAIL: missing {', '.join(missing)}", file=sys.stderr)
+        return 1
     signal.signal(signal.SIGTERM, stop_on_sigterm)
     run_root = RUNS / f"console-{uuid.uuid4().hex[:12]}"
     run_root.mkdir(parents=True)
     print(f"Logs: {run_root}", flush=True)
     try:
-        preflight(run_root)
-        LabRun(run_root, args.keep_failed).run()
+        owner, others = preflight(run_root, args.other_user, args.admin_user, passwords)
+        LabRun(run_root, args.keep_failed, owner, others).run()
     except TestFailure as error:
         print(f"FAIL: {error}", file=sys.stderr)
         return 1

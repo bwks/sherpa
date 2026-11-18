@@ -40,6 +40,20 @@ Sherpa exposes the same operations via three transports:
 - Streaming operations send `status` messages before the final `rpc_response`
 - Method names are defined in the spec under `transports.rpc`
 
+### Node console WebSocket
+
+- Endpoint: `wss://<server>:3030/api/v1/labs/{id}/nodes/{node_name}/console[?force=true]`
+- Auth: JWT Bearer token in the `Authorization` header of the upgrade request only; the session
+  cookie is not taken, so no web page can open a console from the owner's browser
+- The lab's owner only, admins included. Refusals are API errors before the upgrade (401, 403,
+  404, 400 for a container, 409 for a node not running, still on its old TCP console, or a
+  console another session holds); see [Error Format](#error-format)
+- Once open: raw serial bytes in binary frames both ways; text frames are ignored; the server
+  says in its close frame why it ended a session (`1000` node stopped, `4001` taken over by
+  `force`, `4002` login session ended, `1011` relay failed)
+- Not in the spec's `transports`: it is not a request and response. See
+  [`SERVER.md`](SERVER.md#node-consoles) and [`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md)
+
 ### CLI
 
 - Binary: `sherpa`

@@ -23,12 +23,7 @@ async fn tailnet_inventory_survives_lab_phase_updates() -> Result<()> {
         "tailnet",
         "tailnet1",
         &user,
-        &ipv4_lab_networks(
-            "192.0.2.0/24",
-            "198.51.100.0/24",
-            "198.51.100.1",
-            "198.51.100.2",
-        ),
+        &ipv4_lab_networks("198.51.100.0/24", "198.51.100.1", "198.51.100.2"),
         &LabDetails::default(),
     )
     .await?;

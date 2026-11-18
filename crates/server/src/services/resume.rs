@@ -13,6 +13,7 @@ use topology::Manifest;
 use tracing::instrument;
 
 use super::admission::{self, Admission};
+use super::console;
 use super::lab_definition::stored_definition;
 use super::lab_lifecycle;
 use super::lab_nodes::load_target_nodes;
@@ -135,6 +136,8 @@ pub async fn start_lab_nodes(
 
     let tailscale =
         resume_tailscale(state, &db_lab, node_name, tailscale_auth_key, progress).await?;
+    // A lab started before consoles moved behind sherpad has no console folder yet.
+    console::create_console_dir(lab_id)?;
 
     // Build futures for all node operations concurrently
     let mut futures = Vec::new();
@@ -153,13 +156,17 @@ pub async fn start_lab_nodes(
         let node_name = node.name.clone();
         let node_id = node.id.clone();
         let state = state.clone();
+        let serial_socket = console::serial_socket_path(lab_id, node.index);
 
         futures.push(async move {
-            let outcome = match kind {
-                NodeKind::VirtualMachine | NodeKind::Unikernel => {
-                    start_vm(&device_name, &state).await
+            let outcome = match (kind, serial_socket) {
+                (NodeKind::VirtualMachine | NodeKind::Unikernel, Ok(serial_socket)) => {
+                    start_vm(&device_name, &serial_socket, &state).await
                 }
-                NodeKind::Container => start_container_node(&device_name, model, &state).await,
+                (NodeKind::VirtualMachine | NodeKind::Unikernel, Err(error)) => {
+                    StartOutcome::Failed(format!("{error:#}"))
+                }
+                (NodeKind::Container, _) => start_container_node(&device_name, model, &state).await,
             };
 
             (outcome, node_name, node_id, kind)
@@ -621,9 +628,12 @@ async fn record_all(
     Ok(())
 }
 
-async fn start_vm(device_name: &str, state: &AppState) -> StartOutcome {
+/// Start a shut-off domain, or unpause a paused one. A domain defined before consoles moved
+/// behind sherpad has its console moved to `serial_socket` before it boots.
+async fn start_vm(device_name: &str, serial_socket: &str, state: &AppState) -> StartOutcome {
     let qemu = state.qemu.clone();
     let device_name = device_name.to_string();
+    let serial_socket = serial_socket.to_string();
 
     match tokio::task::spawn_blocking(move || -> Result<StartOutcome> {
         let conn = qemu.connect().context("Failed to connect to libvirt")?;
@@ -640,10 +650,17 @@ async fn start_vm(device_name: &str, state: &AppState) -> StartOutcome {
             Err(e) => return Ok(StartOutcome::Failed(format!("Failed to get state: {e}"))),
         };
         let outcome = match start_step(node_lifecycle::libvirt_runtime(Some(code)), "domain") {
-            Ok(StartStep::Boot) => match domain.create() {
-                Ok(_) => StartOutcome::ColdBooted,
-                Err(e) => StartOutcome::Failed(format!("Failed to start: {e}")),
-            },
+            Ok(StartStep::Boot) => {
+                match libvirt::move_serial_to_socket(&conn, &device_name, &serial_socket) {
+                    Ok(_) => match domain.create() {
+                        Ok(_) => StartOutcome::ColdBooted,
+                        Err(e) => StartOutcome::Failed(format!("Failed to start: {e}")),
+                    },
+                    Err(e) => StartOutcome::Failed(format!(
+                        "Failed to move the console to its socket: {e:#}"
+                    )),
+                }
+            }
             Ok(StartStep::Resume) => match domain.resume() {
                 Ok(_) => StartOutcome::Resumed,
                 Err(e) => StartOutcome::Failed(format!("Failed to resume: {e}")),

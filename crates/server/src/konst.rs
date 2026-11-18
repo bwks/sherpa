@@ -47,6 +47,20 @@ pub(crate) const NODE_NIXOS_SHELL: &str = "/run/current-system/sw/bin/bash";
 /// RAM-backed server directory holding container secret files, under the daemon's
 /// systemd `RuntimeDirectory` (`/run/sherpa`, mode 0700).
 pub(crate) const SHERPA_SECRETS_DIR: &str = "/run/sherpa/secrets";
+/// Folder of the labs' serial console sockets, one folder per lab below it. On disk, not under
+/// `/run`, so a domain defined with its socket here still starts after the server reboots.
+pub(crate) const SHERPA_CONSOLE_DIR: &str = "/opt/sherpa/run/console";
+/// Group of the console folders. libvirt binds the serial sockets as root; the QEMU user
+/// (`libvirt-qemu`) is in it, and so is `sherpa`, which connects to them.
+pub(crate) const CONSOLE_GROUP: &str = "kvm";
+/// Mode of [`SHERPA_CONSOLE_DIR`]: no one outside `sherpa` and [`CONSOLE_GROUP`] can list it.
+pub(crate) const CONSOLE_DIR_MODE: u32 = 0o2750;
+/// Mode of a lab's console folder, `sherpa:kvm`: no one outside the two can reach a socket in it.
+pub(crate) const CONSOLE_LAB_DIR_MODE: u32 = 0o2770;
+/// The longest path a UNIX socket can have: `sun_path` holds 108 bytes, the last a NUL.
+pub(crate) const UNIX_SOCKET_PATH_MAX: usize = 107;
+/// Seconds between checks that the login session behind an open console is still valid.
+pub(crate) const CONSOLE_SESSION_CHECK_SECS: u64 = 30;
 pub(crate) const READINESS_SLEEP: u64 = 10;
 /// Keycloak HTTPS port.
 pub(crate) const KEYCLOAK_HTTPS_PORT: u16 = 8443;

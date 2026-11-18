@@ -25,10 +25,8 @@ nodes take the user's own keys. Then:
    `ShellEnd::exit_code`.
 
 `ssh_client` holds only what is Sherpa's to decide: which hops may ask (`PromptScope`) and,
-for provisioners, which failures are worth retrying (`retryable`). `ssh_client::connect_server`
-connects to the route's last jump host, the server, through the jump hosts before it, with the
-same hops, prompts and host key policy; `sherpa console` uses it to tunnel to a node's console
-(see [`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md)).
+for provisioners, which failures are worth retrying (`retryable`). `sherpa console` makes no SSH
+connection; it goes through sherpad's API (see [`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md)).
 
 ## Lines
 

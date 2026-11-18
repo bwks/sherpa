@@ -40,8 +40,7 @@ fn base_domain_template() -> DomainTemplate {
         interface_type: InterfaceType::Virtio,
         management_interface_type: InterfaceType::Virtio,
         reserved_interface_type: InterfaceType::Virtio,
-        loopback_ipv4: "127.0.0.10".to_string(),
-        telnet_port: 5000,
+        serial_socket: "/opt/sherpa/run/console/a10736e8/1.serial".to_string(),
         qemu_commands: vec![],
         ignition_config: None,
         lab_id: "a10736e8".to_string(),
@@ -71,6 +70,23 @@ fn p2p_interface() -> Interface {
 // ============================================================================
 // Tests
 // ============================================================================
+
+#[test]
+fn test_domain_serial_console_is_a_unix_socket() {
+    let xml = base_domain_template().render().expect("renders domain XML");
+    // libvirt binds the socket; only sherpad connects to it. Nothing listens on TCP.
+    let source = "<source mode='bind' path='/opt/sherpa/run/console/a10736e8/1.serial'/>";
+    assert!(
+        xml.contains(&format!("<serial type='unix'>\n      {source}")),
+        "{xml}"
+    );
+    assert!(
+        xml.contains(&format!("<console type='unix'>\n      {source}")),
+        "{xml}"
+    );
+    assert!(!xml.contains("telnet"), "{xml}");
+    assert!(!xml.contains("type='tcp'"), "{xml}");
+}
 
 #[test]
 fn test_domain_vnc_console_has_a_fixed_port() {

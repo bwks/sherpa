@@ -235,15 +235,21 @@ pub(super) fn trace_rejected_session(path: &str, error: &CookieSessionError, act
 }
 
 // Extractor logic helper: extract and validate token from Authorization header or Cookie
+/// The claims of a valid token in the `Authorization: Bearer` header, if there is one.
+fn bearer_claims(headers: &axum::http::HeaderMap, jwt_secret: &[u8]) -> Option<Claims> {
+    let token = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())?
+        .strip_prefix("Bearer ")?;
+    jwt::validate_token(jwt_secret, token).ok()
+}
+
 fn extract_and_validate_token(
     headers: &axum::http::HeaderMap,
     jwt_secret: &[u8],
 ) -> Result<Claims, &'static str> {
     // Try Authorization header first
-    if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok())
-        && let Some(token) = auth_header.strip_prefix("Bearer ")
-        && let Ok(claims) = jwt::validate_token(jwt_secret, token)
-    {
+    if let Some(claims) = bearer_claims(headers, jwt_secret) {
         return Ok(claims);
     }
 
@@ -287,26 +293,52 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
     ) -> Result<Self, Self::Rejection> {
         let claims = extract_and_validate_token(&parts.headers, &state.jwt_secret)
             .map_err(ApiError::unauthorized)?;
-        let username = claims.sub;
-        match session::lookup(&state.db, &claims.sid).await {
-            Ok(SessionLookup::Active(ctx)) => Ok(AuthenticatedUser {
-                username: ctx.username,
-                is_admin: ctx.is_admin,
-                session_id: ctx.session_id,
-            }),
-            Ok(SessionLookup::Rejected(rejection)) => {
-                tracing::warn!(
-                    event = "auth.session_unusable",
-                    %username,
-                    %rejection,
-                    "Rejected a signed token whose session cannot be used"
-                );
-                Err(ApiError::unauthorized("Missing or invalid authentication"))
-            }
-            Err(error) => {
-                tracing::error!(%username, error = ?error, "Failed to resolve authenticated user");
-                Err(ApiError::internal("Failed to resolve authenticated user"))
-            }
+        resolve_session(state, claims).await
+    }
+}
+
+/// An authenticated user from the `Authorization: Bearer` header only, never from a cookie.
+///
+/// For routes a web page must not reach with the browser's session cookie, such as the node
+/// console WebSocket: a browser sends its cookies with a WebSocket upgrade from any site, and
+/// the upgrade is not held to CORS.
+#[derive(Debug, Clone)]
+pub struct BearerUser(pub AuthenticatedUser);
+
+impl FromRequestParts<AppState> for BearerUser {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let claims = bearer_claims(&parts.headers, &state.jwt_secret)
+            .ok_or_else(|| ApiError::unauthorized("Missing or invalid bearer token"))?;
+        resolve_session(state, claims).await.map(BearerUser)
+    }
+}
+
+/// The user of the login session `claims` name, when that session can still be used.
+async fn resolve_session(state: &AppState, claims: Claims) -> Result<AuthenticatedUser, ApiError> {
+    let username = claims.sub;
+    match session::lookup(&state.db, &claims.sid).await {
+        Ok(SessionLookup::Active(ctx)) => Ok(AuthenticatedUser {
+            username: ctx.username,
+            is_admin: ctx.is_admin,
+            session_id: ctx.session_id,
+        }),
+        Ok(SessionLookup::Rejected(rejection)) => {
+            tracing::warn!(
+                event = "auth.session_unusable",
+                %username,
+                %rejection,
+                "Rejected a signed token whose session cannot be used"
+            );
+            Err(ApiError::unauthorized("Missing or invalid authentication"))
+        }
+        Err(error) => {
+            tracing::error!(%username, error = ?error, "Failed to resolve authenticated user");
+            Err(ApiError::internal("Failed to resolve authenticated user"))
         }
     }
 }

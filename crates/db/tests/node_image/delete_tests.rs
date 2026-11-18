@@ -129,12 +129,7 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
         "test-lab-constraint",
         &lab_id,
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;

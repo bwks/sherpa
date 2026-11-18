@@ -629,7 +629,6 @@ mod tests {
         index: usize,
     ) {
         let networks = db::LabNetworks {
-            loopback_network: format!("127.127.{index}.0/24"),
             management_network: format!("172.31.{index}.0/24"),
             gateway_ipv4: format!("172.31.{index}.1"),
             router_ipv4: format!("172.31.{index}.2"),

@@ -127,9 +127,10 @@ mod tests {
     use super::*;
     use crate::persistence::{enum_text, key_of, new_key};
     use crate::{
-        DefaultRequest, count_nodes_by_ssh_username, device_password_set, find_lab,
-        find_node_image_by_id, get_user, list_cpu_pins, list_node_images, list_nodes_by_lab,
-        open_in_memory, read_lab_definition, update_node_image, upsert_node_image,
+        DefaultRequest, LabDetails, LabNetworks, count_nodes_by_ssh_username, create_lab,
+        device_password_set, find_lab, find_node_image_by_id, get_user, list_cpu_pins,
+        list_node_images, list_nodes_by_lab, open_in_memory, read_lab_definition,
+        update_node_image, upsert_node_image,
     };
 
     /// The eleven ZTP methods a release before the one `ztp` column could store.
@@ -1735,6 +1736,73 @@ mod tests {
                 .contains("user.device_password must be sealed"),
             "{error}"
         );
+    }
+
+    #[tokio::test]
+    async fn the_loopback_network_is_retired_and_a_new_lab_stores_its_own_id_there() {
+        // A version 34 database, from before consoles moved behind sherpad, with a lab that was
+        // given a loopback network.
+        let before = migrations_before(migrations::RETIRE_LAB_LOOPBACK_NETWORK);
+        assert_eq!(before + 1, 34);
+        let db = database_at(before).await;
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute_batch(
+                    "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys,
+                         created_at, updated_at)
+                     VALUES ('u1', 'alice', 'x', 0, '[]', '2026-01-01T00:00:00Z',
+                         '2026-01-01T00:00:00Z');
+                     INSERT INTO lab (id, lab_id, name, user, loopback_network,
+                         management_network, gateway_ipv4, router_ipv4)
+                     VALUES ('l1', 'lab-0001', 'Old', 'u1', '127.127.1.0/24', '172.31.1.0/24',
+                         '172.31.1.1', '172.31.1.2');",
+                )
+                .await
+                .unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        assert_eq!(
+            find_lab(&db, "lab-0001").await.unwrap().unwrap().name,
+            "Old"
+        );
+        let networks = LabNetworks {
+            management_network: "172.31.2.0/24".to_owned(),
+            gateway_ipv4: "172.31.2.1".to_owned(),
+            router_ipv4: "172.31.2.2".to_owned(),
+            management_network_v6: None,
+            loopback_network_v6: None,
+            gateway_ipv6: None,
+            router_ipv6: None,
+        };
+        let user = get_user(&db, "alice").await.unwrap();
+        create_lab(
+            &db,
+            "New",
+            "lab-0002",
+            &user,
+            &networks,
+            &LabDetails::default(),
+        )
+        .await
+        .unwrap();
+        let conn = db.reader().await.unwrap();
+        for (lab_id, retired) in [("lab-0001", "127.127.1.0/24"), ("lab-0002", "lab-0002")] {
+            let rows = query_count(
+                &conn,
+                Query::new(
+                    "SELECT count(*) FROM lab \
+                     WHERE lab_id = ?1 AND retired_loopback_network = ?2",
+                )
+                .bind([Value::from(lab_id), Value::from(retired)]),
+            )
+            .await
+            .unwrap();
+            assert_eq!(rows, 1, "{lab_id}");
+        }
     }
 
     /// The position of `migration` in `migrations::ALL`: the number of migrations before it.

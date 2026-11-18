@@ -129,7 +129,8 @@ flowchart TB
         jwt["load JWT secret, or generate it if missing<br/>(a new one written 0600 in a 0700 directory;<br/>a file of the wrong length stops startup)"] --> database["open the database file"] --> schema["apply DB schema"] --> dbkey["load the database key, or generate it if missing<br/>and the database has no key check<br/>(0600 in /opt/sherpa/.secret); verify_secret_key"] --> seed["optionally seed admin user"] --> storage["restrict lab and database storage<br/>(daemon::storage::secure_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
     end
     registry --> recover["services::lab_lifecycle::recover:<br/>labs left Creating become Interrupted,<br/>left Destroying become DestroyFailed,<br/>nodes left Building become Failed"]
-    recover --> cancel["create CancellationToken for background services"]
+    recover --> consoles["services::console::move_stopped_consoles:<br/>each lab's console folder; shut-off domains<br/>still on a TCP console moved to their socket"]
+    consoles --> cancel["create CancellationToken for background services"]
     cancel --> scanner["if scanner enabled:<br/>spawn services::scanner::run_scanner(...)"]
     scanner --> sweeper["spawn auth::session::run_sweeper<br/>(deletes expired sessions at startup, then hourly)"]
     sweeper --> router
@@ -146,7 +147,7 @@ flowchart TB
     plain6 --> serveplain["serve with graceful shutdown future"]
 ```
 
-In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), warns about removed settings ([below](#removed-settings)), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
+In `daemon/server.rs`, `run_server` calls `init_telemetry` (filter, OTel, logging), warns about removed settings ([below](#removed-settings)), `apply_env_overrides`, builds `AppState`, recovers the labs and nodes the operations running when the server last stopped left mid-way (`lab_lifecycle::recover`, before anything takes requests; see [`STATE_MACHINES.md`](STATE_MACHINES.md#2-lab-phase-and-status-labphase-and-labstate)), moves the consoles of stopped domains to their sockets ([Node consoles](#node-consoles)), starts the scanner and the session sweeper, then `serve_tls` or `serve_plain` with the bound `Listening` addresses; `serve_cert_endpoint` serves `/cert` on each address family.
 
 #### Removed settings
 
@@ -205,6 +206,7 @@ every start and calls `restrict_dir` on:
 | `/opt/sherpa/libvirt/images` (storage pool) | `2750`, `kvm` | `SHERPA_STORAGE_POOL_DIR_MODE`, `SHERPA_STORAGE_POOL_GROUP` |
 | `/opt/sherpa/db` | `750` | `SHERPA_DB_DIR_MODE` |
 | `/opt/sherpa/db/backups` | `700`; the backup service restricts it again before each backup | `SHERPA_DB_BACKUP_DIR_MODE` |
+| `/opt/sherpa/run/console` (node console sockets) | `2750`, `kvm`; each lab's folder below it `2770`, `kvm` | `CONSOLE_DIR_MODE`, `CONSOLE_LAB_DIR_MODE`, `CONSOLE_GROUP`; see [Node consoles](#node-consoles) |
 
 - QEMU runs as `libvirt-qemu` in `kvm`, so it can reach the pool. Nothing reads `/opt/sherpa/labs`
   through the directory except `sherpad`: the dnsmasq router and container nodes get lab files
@@ -329,6 +331,8 @@ The state object deliberately holds clients rather than opening new connections 
 | `jwt_secret` | Secret used by JWT login, cookie auth, REST bearer auth, and RPC token auth. |
 | `metrics` | OTel metric instruments or no-op instruments when OTel is disabled. |
 | `pending_jobs` | A small one-shot job handoff registry for HTML form submissions that redirect to a job page and then open an SSE stream. |
+| `link_states` | The last known state of each lab's P2p links, for `inspect`. |
+| `console_sessions` | The node console sessions open now, one per console (`daemon::console_sessions`); see [Node consoles](#node-consoles). |
 
 ## Transport architecture
 
@@ -553,25 +557,25 @@ through Sherpa lets them log in:
 - **Files.** `download` (RPC, and the web lab zip; REST has none) and `node.host_keys` are
   `require_lab_owner`. The lab page offers the download link only to the owner
   (`labs_web::lab_offers_download`).
-- **Consoles.** `inspect` stays owner or admin, but `inspect::shown_to` blanks each node's
-  `console_address` and `vnc_port` for anyone but the owner, using `check_lab_rule` with
-  `LabRule::OwnerOnly`, and logs `event = "auth.owner_only_hidden"`. RPC, REST, the CLI and the
-  web lab and node pages all read the same response.
+- **Consoles.** A node's serial console is opened only through the console route, which is
+  `require_lab_owner` (see [Node consoles](#node-consoles)). `inspect` stays owner or admin, but
+  `inspect::shown_to` blanks each node's `vnc_port` for anyone but the owner, using
+  `check_lab_rule` with `LabRule::OwnerOnly`, and logs `event = "auth.owner_only_hidden"`. RPC,
+  REST, the CLI and the web lab and node pages all read the same response.
 - **Keys.** `user.ssh_key.add` is `require_self`, so an admin cannot put a key on another
   account for its owner's next `up` or `redeploy` to install; the admin user page has no add
   form. `user.create` takes no `ssh_keys`, and `CreateUserRequest` refuses unknown fields so an
   old request with keys fails instead of creating a keyless user. Removing a key stays self or
   admin. `sherpad init`, run as root on the host, still takes the first user's key.
-- **Client.** `sherpa ssh`, `sherpa console` and `sherpa provision` call
-  `lab_identity::require_lab_owner` before anything connects: when the folder's
-  `lab-info.toml` names an owner other than the logged-in user they stop with `Only the owner of
-  lab '<id>' can connect to its nodes`. This is a courtesy; the server rules above are the
-  boundary.
+- **Client.** `sherpa ssh` and `sherpa provision` call `lab_identity::require_lab_owner`
+  before anything connects: when the folder's `lab-info.toml` names an owner other than the
+  logged-in user they stop with `Only the owner of lab '<id>' can connect to its nodes`. This is
+  a courtesy; the server rules above are the boundary. `sherpa console` leaves it to the server.
 
 What remains: an admin who resets a user's Sherpa password can sign in as them (logged, and it
 ends the user's sessions). An admin may start privileged containers and host mounts, which is
-root on the host, and root reaches the database key, disks, serial consoles (`127.127.x.y:23`)
-and VNC (`localhost:59xx`); host-level isolation is #674 and #683. The boundary is for the admin
+root on the host, and root reaches the database key, disks, serial consoles (their sockets, as
+do members of `kvm`) and VNC (`localhost:59xx`); host-level VNC isolation is #683. The boundary is for the admin
 role through Sherpa's interfaces, with an audit trail, not a defence against root.
 
 Refusals are returned as a typed `services::error::ServiceError` inside `anyhow::Error`: `Denied` (not allowed), `NotFound`, or `Conflict` (allowed, but the current state forbids it, such as deleting a user who owns labs). Transports find it with `ServiceError::find`, which works through added context:
@@ -730,13 +734,13 @@ flowchart TB
     startguard --> hostnets
     subgraph phase3["3. DatabaseRecords"]
         subgraph reserve["reserve_lab_networks (retried while concurrent labs win a subnet)"]
-            hostnets["read host interface networks (IPv4 and IPv6)"] --> mgmtsubnets["allocate IPv4/IPv6 management subnets<br/>(not in DB, not overlapping host)"] --> loopsubnets["allocate IPv4/IPv6 loopback subnets (not in DB)"] --> createlab["db::create_lab: unique subnet indexes make the insert the reservation"]
+            hostnets["read host interface networks (IPv4 and IPv6)"] --> mgmtsubnets["allocate IPv4/IPv6 management subnets<br/>(not in DB, not overlapping host)"] --> loopsubnets["allocate the IPv6 loopback subnet (not in DB)"] --> createlab["db::create_lab: unique subnet indexes make the insert the reservation"]
         end
         createlab --> createnode["for each node:<br/>db::create_node<br/>node_resources::reserve_node_resources (vCPUs, memory, VNC port)<br/>create the node's isolated and reserved libvirt networks and bridges"]
     end
     createnode --> labfiles
     subgraph phase4["4. LabNetworkSetup"]
-        labfiles["create /opt/sherpa/labs/{lab_id}<br/>store_ssh_usernames: each node's SSH account on its record<br/>(no lab info, SSH config or manifest file: the database holds them)"] --> mgmtnets["libvirt NAT management network<br/>Docker bridge management network"] --> tailscale["tailscale::provision when the lab joins a tailnet"]
+        labfiles["create /opt/sherpa/labs/{lab_id}<br/>and the console folder /opt/sherpa/run/console/{lab_id}<br/>store_ssh_usernames: each node's SSH account on its record<br/>(no lab info, SSH config or manifest file: the database holds them)"] --> mgmtnets["libvirt NAT management network<br/>Docker bridge management network"] --> tailscale["tailscale::provision when the lab joins a tailnet"]
     end
     tailscale --> links
     subgraph phase5["5. LinkCreation"]
@@ -1153,6 +1157,10 @@ the scanner leaves the lab alone while they run. Both move nodes only through th
 lifecycle (`node_lifecycle::record`): a node another operation is building (`Building`), or one
 with no domain or container (`Missing`), is refused before anything is done to it.
 
+Resume makes the lab's console folder if it is missing, and before it boots a shut-off domain it
+moves the domain's console to its socket if the domain was defined with a TCP console
+(`libvirt::move_serial_to_socket`; see [Node consoles](#node-consoles)).
+
 Both are idempotent per node. A VM already stopped or running is reported as such. Resume
 reads the node's runtime through the one mapping table (`node_lifecycle::libvirt_runtime` and
 `container_runtime`) and decides with `start_step`: it boots a shut-off domain or an exited or
@@ -1420,7 +1428,7 @@ checked until a resume or redeploy re-attaches them, which sets their carrier to
 | Protected browser routes | `GET /`; `GET /labs`, `/labs/grid`, `/labs/create`; `GET /jobs/{job_id}`, `/jobs/{job_id}/stream`; `GET /labs/{lab_id}`; `GET /labs/{lab_id}/nodes[/node]`; `POST` lab/node start/stop/redeploy/destroy actions; `GET/POST` profile, device-password and SSH-key routes |
 | Admin browser routes | `/admin/users...`, `/admin/labs`, `/admin/tools...`, `/admin/images...` |
 | Public API routes | `GET /health`, `GET /cert`, `GET /api/v1/spec`, `GET /api/v1/openapi.json`, `GET /api/docs`, `POST /api/v1/auth/login` |
-| REST API routes | labs: list/create/inspect/delete/down/resume/redeploy; links: impairment update; images: list/show/import/upload/delete/default/pull/download; admin tools: clean/scan; users: create/list/info/delete/password/device-password |
+| REST API routes | labs: list/create/inspect/delete/down/resume/redeploy, node console (WebSocket); links: impairment update; images: list/show/import/upload/delete/default/pull/download; admin tools: clean/scan; users: create/list/info/delete/password/device-password |
 | Layers | `TraceLayer::new_for_http()` |
 | Catch-all | static asset route `/{*path}` |
 
@@ -1781,14 +1789,110 @@ flowchart TB
         dockernets["Step 3: Docker networks"]
         libvirtnets["Step 4: libvirt networks"]
         interfaces["Step 5: Linux host interfaces"]
-        records["Step 6: database lab/link/node records"]
+        consoledir["Step 6: /opt/sherpa/run/console/{lab_id}, when nothing failed"]
         labdir["Step 7: /opt/sherpa/labs/{lab_id} directory"]
-        containers --> domains --> dockernets --> libvirtnets --> interfaces --> records --> labdir
+        records["Step 8: database lab/link/node records"]
+        containers --> domains --> dockernets --> libvirtnets --> interfaces --> consoledir --> labdir --> records
     end
     labdir --> response["DestroyResponse<br/>success = errors.is_empty()<br/>summary of each cleanup category<br/>detailed DestroyError[] for failed categories"]
 ```
 
 The best-effort rule is important: failing to delete a disk should not prevent the server from attempting to delete Docker networks or database records. Operators need a complete summary of what was cleaned and what still requires manual repair.
+
+## Node consoles
+
+Each VM's and unikernel's serial console is a UNIX socket that only sherpad reaches, relayed to
+the lab's owner over a WebSocket on the API (#674). The code is `services/console.rs` (paths,
+folders, the owner check, the startup rewrite), `api/handlers/console.rs` (the route and the
+relay), `daemon/console_sessions.rs` (one session per console) and `libvirt::console` (reading
+and rewriting the domain's serial device). The client is in
+[`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md).
+
+### The socket
+
+The domain templates define `<serial type='unix'>` and `<console type='unix'>` with
+`<source mode='bind' path='…'/>`; libvirt binds the socket itself and hands QEMU the descriptor.
+The path is `console::serial_socket_path`: `/opt/sherpa/run/console/<lab-id>/<node-index>.serial`
+(`konst::SHERPA_CONSOLE_DIR`). It is checked against `UNIX_SOCKET_PATH_MAX` (107 bytes; libvirt
+accepts a longer path at define and fails at start) when `up` and `redeploy` build the domain and
+when `resume` and startup rewrite one, and a path too long is refused with a message.
+
+- **Folders.** `secure_storage` makes `/opt/sherpa/run/console` `sherpa:kvm` `2750` at startup.
+  `console::create_console_dir` makes a lab's folder `sherpa:kvm` `2770` (`restrict_dir`) in
+  `up`, before any domain starts, and again, if it is missing, in `redeploy`, `resume` and at
+  startup, for labs made before. `tear_down_lab` removes it once the domains are gone; a folder
+  that cannot be removed is a destroy error and keeps the lab record, as the lab folder does.
+- **Who reaches it.** libvirt creates the socket `libvirt-qemu:kvm` `0775`. `sherpa` is in `kvm`;
+  an account outside `sherpa` and `kvm` is refused by the folder. Members of `kvm` can already
+  read every lab disk. The folder is on disk, not under `/run`, so domains defined with a path in
+  it still start after a reboot.
+- **No telnet.** The socket carries raw serial bytes. Nothing listens on `127.127.0.0/16`: labs
+  are no longer given an IPv4 loopback network (the `lab.loopback_network` column is renamed
+  `retired_loopback_network` and new labs store their `lab_id` in it; it is UNIQUE, so it cannot
+  be dropped).
+
+### Domains defined before
+
+Domains defined before this have `<serial type='tcp'>` with `<protocol type='telnet'/>` on
+`127.127.x.N:2323`. `libvirt::move_serial_to_socket` rewrites a domain's stored definition
+(read with `VIR_DOMAIN_XML_INACTIVE | VIR_DOMAIN_XML_SECURE`) with quick-xml, as `interface.rs`
+edits interfaces: every event is written back as read, and only each `serial` and `console` on
+TCP changes, to `type='unix'`, its `source` to `mode` and `path`, and its `protocol` removed. A
+domain already on a socket, or with no serial device, is left alone. It runs:
+
+- in `resume`, before a shut-off domain is booted;
+- at startup (`console::move_stopped_consoles`), for every shut-off domain of every lab. A domain
+  still running is counted in one warning: its console is on TCP until it stops.
+
+A running domain keeps the TCP listener it was started with; redefining it changes only its
+next start. `libvirt::serial_console` reads the live XML, so the console route refuses it with
+`Node '<node>' was started before consoles moved behind Sherpa. Stop and resume the lab ('sherpa
+down', then 'sherpa resume'), or redeploy the node, to use its console.`
+
+### The console route
+
+`GET /api/v1/labs/{id}/nodes/{node_name}/console[?force=true]`, `node_console_handler`, upgraded
+to a WebSocket. Everything that can refuse is checked before the upgrade, so a refusal is an
+ordinary `ApiError`, logged as `event = "console.refused"`:
+
+1. `BearerUser`: the `Authorization: Bearer` token only, never the session cookie, as a browser
+   sends its cookie with a WebSocket upgrade from any site (401). The session behind it must be
+   usable, as for `AuthenticatedUser`.
+2. `console::console_target`: `require_lab_owner`, so admins are refused too (403, `only the
+   owner of lab '<id>' can open its consoles`); the node in the lab (404); not a container (400).
+3. `console::console_socket`: the live domain's serial device must be a socket (409 when the
+   node is not running, still on TCP, or has none).
+4. `ConsoleSessions::claim`: one session per console (409, `The console of <node> is in use by
+   <user> from <address> since <time> UTC. ...`). With `force` the claimant's own session is
+   taken over: it is cancelled and told. Another user's session is never taken over.
+5. Connect to the socket.
+
+The relay (`pump`) copies binary frames to the socket and socket reads (up to 4096 bytes) to
+binary frames, ignoring text frames, until the client closes, the socket closes (the node
+stopped: close `1000`), the session is taken over (`4001`, naming who), the login session behind
+the token is no longer usable (checked every `CONSOLE_SESSION_CHECK_SECS`, 30 s: `4002`), or the
+relay fails (`1011`). Each session logs `console.opened` (with whom it took over from) and
+`console.closed` (duration and reason), never the bytes. The client address comes from
+`ConnectInfo`: every listener is served with `into_make_service_with_connect_info`.
+
+The guest is not told when a client leaves, so a session left logged in on the node stays; only
+the owner can attach to it.
+
+### Tests
+
+- `libvirt::console`: the rewrite (TCP to socket with every other byte the same, already on a
+  socket, no serial device, a source with children, an escaped path, XML not well formed) and
+  reading the serial device.
+- `services::console`: the socket path and its length limit, the folder's mode and group, its
+  removal, the owner-only rule as the owner, an admin and another user against an in-memory
+  database, a missing lab or node, a container, and each refusal of a domain's serial device.
+- `daemon::console_sessions`: one session per console, `force` taking over the owner's own
+  session and not another user's, and how a holder is named. `api::handlers::console`: the close
+  frames.
+- `crates/libvirt/tests/console_socket.rs` (`#[ignore]`, root, run by the VM release suite): a
+  TCP-console domain moved to its socket and started, nothing listening on `127.127.0.0/16`,
+  `sherpa` opening the socket and an account in no groups refused.
+- `tests/labs/console/`: end to end through the CLI.
 
 ## TLS/listener architecture
 

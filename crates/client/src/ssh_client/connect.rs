@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use jato::{
     ConnectOptions, Error, HostConfig, Node, PromptCache, Route, Session, TerminalPrompter,
 };
@@ -86,27 +86,6 @@ pub async fn connect(
     }
 }
 
-/// Connect to the Sherpa server: the last jump host on `route`, the way to a lab node, through
-/// the jump hosts before it. Its host key is checked and its login asked for as `connect` does
-/// for the jump hosts, with answers kept in `cache`. The session opens the server's own
-/// addresses to the client, such as the lab's node consoles on its loopback.
-#[tracing::instrument(skip(route, options, cache), fields(node = %route.target.alias))]
-pub async fn connect_server(
-    route: &Route,
-    options: &ConnectOptions,
-    cache: &PromptCache,
-) -> Result<Session> {
-    let (server, jumps) = route.jumps.split_last().ok_or_else(|| {
-        anyhow!(
-            "The lab SSH config gives no Sherpa server to connect through for {}",
-            route.target.alias
-        )
-    })?;
-    attempt(jumps, server, options, PromptScope::AllHops, cache)
-        .await
-        .with_context(|| format!("Failed to connect to the Sherpa server {}", server.hostname))
-}
-
 /// One connection attempt to `target` through `jumps`.
 async fn attempt(
     jumps: &[HostConfig],
@@ -159,12 +138,8 @@ pub fn retryable(error: &anyhow::Error, target: &Node) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use std::io;
     use std::path::PathBuf;
-
-    use jato::SshConfig;
-    use tempfile::tempdir;
 
     fn node() -> Node {
         Node::new("172.31.1.21", 22)
@@ -276,23 +251,5 @@ mod tests {
             &anyhow::anyhow!("Host key verification failed"),
             &node()
         ));
-    }
-
-    #[tokio::test]
-    async fn a_route_with_no_jump_host_has_no_server_to_connect_to() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("config");
-        fs::write(&path, "Host vm.abcd1234\n    HostName 192.0.2.10\n").unwrap();
-        let route = SshConfig::load_file(&path)
-            .unwrap()
-            .route("vm.abcd1234")
-            .unwrap();
-        let error = connect_server(&route, &ConnectOptions::default(), &PromptCache::new())
-            .await
-            .unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "The lab SSH config gives no Sherpa server to connect through for vm.abcd1234"
-        );
     }
 }

@@ -786,7 +786,6 @@ async fn the_profile_password_change_needs_the_current_password() -> Result<()> 
 /// IPv4-only lab networks for tests that seed lab records directly.
 fn ipv4_lab_networks() -> db::LabNetworks {
     db::LabNetworks {
-        loopback_network: "127.125.1.0/24".to_string(),
         management_network: "10.202.1.0/24".to_string(),
         gateway_ipv4: "10.202.1.1".to_string(),
         router_ipv4: "10.202.1.2".to_string(),

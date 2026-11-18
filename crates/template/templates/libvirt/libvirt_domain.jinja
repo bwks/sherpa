@@ -245,18 +245,16 @@
     {%   endmatch %}
     {% endfor %}
 
-    <serial type='tcp'>
-      <source mode='bind' host='{{ loopback_ipv4 }}' service='{{ telnet_port }}'/>
-      <protocol type='telnet'/>
+    <serial type='unix'>
+      <source mode='bind' path='{{ serial_socket }}'/>
       <target type='isa-serial' port='0'>
         <model name='isa-serial'/>
       </target>
       <alias name='serial0'/>
     </serial>
 
-    <console type='tcp'>
-      <source mode='bind' host='{{ loopback_ipv4 }}' service='{{ telnet_port }}'/>
-      <protocol type='telnet'/>
+    <console type='unix'>
+      <source mode='bind' path='{{ serial_socket }}'/>
       <target type='serial' port='0'/>
       <alias name='serial0'/>
     </console>

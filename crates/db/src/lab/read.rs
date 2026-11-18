@@ -117,20 +117,6 @@ pub async fn count_labs_by_user(db: &Database, user_id: RecordId) -> Result<usiz
     .context("Failed to count labs for user")
 }
 
-/// Get all loopback networks currently allocated to labs.
-///
-/// Returns a vector of `Ipv4Net` representing the loopback subnets
-/// in use by existing labs. Used when allocating a new loopback subnet
-/// to avoid collisions.
-///
-/// # Errors
-///
-/// Fails when the labs cannot be read, or a lab holds a network that does not parse.
-#[instrument(skip(db), level = "debug")]
-pub async fn get_used_loopback_networks(db: &Database) -> Result<Vec<Ipv4Net>> {
-    used_networks(db, queries::lab::LOOPBACK_NETWORKS, "loopback_network").await
-}
-
 /// Get all management networks currently allocated to labs.
 ///
 /// Returns a vector of `Ipv4Net` representing the management subnets

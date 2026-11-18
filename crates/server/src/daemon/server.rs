@@ -29,6 +29,7 @@ use crate::daemon::pidfile::{SHERPAD_LOG_FILE_PATH, open_log_file};
 use crate::daemon::removed_settings::warn_on_removed_settings;
 use crate::daemon::state::AppState;
 use crate::konst::SHERPA_CONFIG_FILE_PATH;
+use crate::services::console;
 use crate::services::lab_lifecycle::{self, Recovery};
 use crate::services::node_resources;
 use crate::services::scanner::run_scanner;
@@ -264,6 +265,15 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     node_resources::warn_shared_cpu_pins(&state.db)
         .await
         .context("Failed to check the stored CPU pins")?;
+
+    // Domains defined before consoles moved behind sherpad listen on TCP: those shut off come
+    // up on their socket at their next start; those running are refused a console until then.
+    if let Err(error) = console::move_stopped_consoles(&state).await {
+        tracing::warn!(
+            error = %format!("{error:#}"),
+            "Cannot move the consoles of stopped nodes to their sockets"
+        );
+    }
 
     // Set up shutdown cancellation token for background services
     let cancel_token = CancellationToken::new();
@@ -544,7 +554,7 @@ async fn serve_tls(listening: Listening<'_>, http_state: AppState) -> Result<()>
             tracing::info!("Starting IPv6 TLS listener on wss://[{}]", ipv6_addr);
             if let Err(e) = axum_server::bind_rustls(ipv6_addr, ipv6_tls_config)
                 .handle(ipv6_handle)
-                .serve(ipv6_app.into_make_service())
+                .serve(ipv6_app.into_make_service_with_connect_info::<SocketAddr>())
                 .await
             {
                 tracing::error!("IPv6 TLS listener error: {}", e);
@@ -555,7 +565,7 @@ async fn serve_tls(listening: Listening<'_>, http_state: AppState) -> Result<()>
     // Use axum-server with TLS for main server
     axum_server::bind_rustls(addr, tls_config)
         .handle(handle)
-        .serve(app.into_make_service())
+        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .await
         .context("Failed to start TLS server")
 }
@@ -588,7 +598,12 @@ async fn serve_plain(listening: Listening<'_>) -> Result<()> {
             match tokio::net::TcpListener::bind(&ipv6_addr).await {
                 Ok(listener) => {
                     tracing::info!("sherpad also listening on ws://[{}]", ipv6_addr);
-                    if let Err(e) = axum::serve(listener, ipv6_app).await {
+                    if let Err(e) = axum::serve(
+                        listener,
+                        ipv6_app.into_make_service_with_connect_info::<SocketAddr>(),
+                    )
+                    .await
+                    {
                         tracing::error!("IPv6 listener error: {}", e);
                     }
                 }
@@ -600,13 +615,16 @@ async fn serve_plain(listening: Listening<'_>) -> Result<()> {
     }
 
     let shutdown_token = cancel_token.clone();
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async move {
-            shutdown_signals.wait().await;
-            shutdown_token.cancel();
-        })
-        .await
-        .context("Failed to start server")
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        shutdown_signals.wait().await;
+        shutdown_token.cancel();
+    })
+    .await
+    .context("Failed to start server")
 }
 
 /// The server certificate's SANs: the configured ones, or else the server's addresses (every

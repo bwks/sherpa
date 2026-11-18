@@ -39,7 +39,7 @@ pub use helpers::{get_image_id, get_lab_id, get_node_id, get_user_id};
 // Lab CRUD operations
 pub use lab::{
     LabDetails, LabNetworks, count_labs_by_user, create_lab, delete_lab_from, find_lab, get_lab,
-    get_used_ipv6_loopback_networks, get_used_ipv6_management_networks, get_used_loopback_networks,
+    get_used_ipv6_loopback_networks, get_used_ipv6_management_networks,
     get_used_management_networks, list_labs, list_labs_by_user, update_lab_phase_from,
     update_lab_tailscale_container, validate_lab_id,
 };

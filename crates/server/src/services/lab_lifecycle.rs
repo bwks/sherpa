@@ -272,7 +272,6 @@ mod tests {
                 lab_id,
                 &user,
                 &db::LabNetworks {
-                    loopback_network: format!("127.127.{octet}.0/24"),
                     management_network: format!("172.31.{octet}.0/24"),
                     gateway_ipv4: format!("172.31.{octet}.1"),
                     router_ipv4: format!("172.31.{octet}.2"),

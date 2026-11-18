@@ -4,15 +4,18 @@ use rustls::ClientConfig;
 use shared::data::{ConnectedMsg, ServerConnection};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio_tungstenite::tungstenite::ClientRequestBuilder;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::http::Uri;
 use tokio_tungstenite::{
     Connector, MaybeTlsStream, WebSocketStream, connect_async, connect_async_tls_with_config,
-    tungstenite::Message,
 };
 
 use super::messages::{RpcRequest, RpcResponse};
 use shared::tls::TlsConfigBuilder;
 
-type WsStream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+/// A WebSocket to the server, over TLS or not.
+pub type WsStream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// How long `RpcClient::call` waits for its response once the request is sent, so a server
 /// that stops answering does not hang the command.
@@ -35,10 +38,14 @@ impl WebSocketClient {
         }
     }
 
-    /// Open the secure WebSocket with `config`, within the connection timeout.
-    async fn connect_tls(&self, config: Arc<ClientConfig>) -> Result<WsStream> {
+    /// Open the secure WebSocket of `request` with `config`, within the connection timeout.
+    async fn connect_tls(
+        &self,
+        request: ClientRequestBuilder,
+        config: Arc<ClientConfig>,
+    ) -> Result<WsStream> {
         let connector = Connector::Rustls(config);
-        let connect_future = connect_async_tls_with_config(&self.url, None, false, Some(connector));
+        let connect_future = connect_async_tls_with_config(request, None, false, Some(connector));
         let (ws_stream, _) = tokio::time::timeout(self.timeout, connect_future)
             .await
             .context("Connection timeout")?
@@ -46,51 +53,67 @@ impl WebSocketClient {
         Ok(ws_stream)
     }
 
-    /// Connect to the WebSocket server and return an RPC client
-    pub async fn connect(&self) -> Result<RpcClient> {
-        tracing::debug!("Connecting to WebSocket: {}", self.url);
+    /// Open the WebSocket at this client's URL with the extra `headers`, such as a bearer token,
+    /// with the client's TLS settings: a server certificate no public CA issued is trusted on
+    /// first use, as for every other command.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the URL is not a URI, the TLS settings cannot be built, or the connection or
+    /// the WebSocket handshake fails or times out. A server that answers the handshake with an
+    /// HTTP error leaves a `tungstenite::Error::Http` in the chain, with its status and body.
+    pub async fn open(&self, headers: &[(&str, String)]) -> Result<WsStream> {
+        let uri: Uri = self.url.parse().context("Invalid server URL")?;
+        let mut request = ClientRequestBuilder::new(uri);
+        for (name, value) in headers {
+            request = request.with_header(*name, value.clone());
+        }
 
-        let is_secure = self.url.starts_with("wss://");
-
-        let ws_stream = if is_secure {
-            // TLS connection with custom configuration
-            tracing::debug!("Using secure WebSocket connection (wss://)");
-
-            // Build TLS configuration with trust-on-first-use flow
-            let tls_builder = TlsConfigBuilder::new(&self.server_connection);
-            let tls = tls_builder
-                .build_with_trust_flow(&self.url)
-                .await
-                .context("Failed to build TLS configuration")?;
-
-            match self.connect_tls(Arc::clone(&tls.config)).await {
-                Ok(ws_stream) => ws_stream,
-                Err(error) if tls.refused_unknown_issuer() => {
-                    tracing::info!(
-                        error = format!("{error:#}"),
-                        "No public CA issued the server's certificate; trusting it on first use"
-                    );
-                    let config = tls_builder
-                        .trust_on_first_use(&self.url)
-                        .await
-                        .context("Failed to build TLS configuration")?;
-                    self.connect_tls(config).await?
-                }
-                Err(error) => return Err(error),
-            }
-        } else {
-            // Plain WebSocket connection
+        if !self.url.starts_with("wss://") {
             tracing::debug!("Using plain WebSocket connection (ws://)");
             tracing::warn!("Connection is NOT encrypted - data transmitted in plaintext");
-
-            let connect_future = connect_async(&self.url);
+            let connect_future = connect_async(request);
             let (ws_stream, _) = tokio::time::timeout(self.timeout, connect_future)
                 .await
                 .context("Connection timeout")?
                 .context("Failed to connect to WebSocket")?;
+            return Ok(ws_stream);
+        }
 
-            ws_stream
-        };
+        // TLS connection with custom configuration
+        tracing::debug!("Using secure WebSocket connection (wss://)");
+
+        // Build TLS configuration with trust-on-first-use flow
+        let tls_builder = TlsConfigBuilder::new(&self.server_connection);
+        let tls = tls_builder
+            .build_with_trust_flow(&self.url)
+            .await
+            .context("Failed to build TLS configuration")?;
+
+        match self
+            .connect_tls(request.clone(), Arc::clone(&tls.config))
+            .await
+        {
+            Ok(ws_stream) => Ok(ws_stream),
+            Err(error) if tls.refused_unknown_issuer() => {
+                tracing::info!(
+                    error = format!("{error:#}"),
+                    "No public CA issued the server's certificate; trusting it on first use"
+                );
+                let config = tls_builder
+                    .trust_on_first_use(&self.url)
+                    .await
+                    .context("Failed to build TLS configuration")?;
+                self.connect_tls(request, config).await
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Connect to the WebSocket server and return an RPC client
+    pub async fn connect(&self) -> Result<RpcClient> {
+        tracing::debug!("Connecting to WebSocket: {}", self.url);
+        let ws_stream = self.open(&[]).await?;
 
         tracing::debug!("WebSocket connected successfully");
 

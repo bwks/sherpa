@@ -187,7 +187,7 @@ mod tests {
     }
 
     fn lab_info() -> LabInfo {
-        "id='abcd1234'\nname='test'\nuser='alice'\nipv4_network='192.0.2.0/24'\nipv4_gateway='192.0.2.1'\nipv4_router='192.0.2.2'\nloopback_network='127.127.0.0/24'\n[[ssh_usernames]]\nnode_name='vm'\nusername='alice'".parse().unwrap()
+        "id='abcd1234'\nname='test'\nuser='alice'\nipv4_network='192.0.2.0/24'\nipv4_gateway='192.0.2.1'\nipv4_router='192.0.2.2'\n[[ssh_usernames]]\nnode_name='vm'\nusername='alice'".parse().unwrap()
     }
 
     #[test]

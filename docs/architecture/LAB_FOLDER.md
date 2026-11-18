@@ -143,7 +143,7 @@ labs keep those IDs through `lab-info.toml`.
 | Command | Needs `manifest.toml` | Data from the server |
 |---|---|---|
 | `inspect`, `ssh`, `down`, `resume`, `destroy` | no; `resume` reads it when present for the Tailscale key, `ssh` to check the node name | |
-| `console` | no | the node's kind and `console_address` from `inspect` |
+| `console` | no | none: the server's console route takes the lab ID and node name, and refuses a container itself |
 | `link impair` | no | the link's `index` from `inspect`, matched by either end (`node::interface`) |
 | `up`, `redeploy`, `provision` | yes; `lab_identity::load_source_manifest` says so in a folder without one | |
 
@@ -151,10 +151,11 @@ labs keep those IDs through `lab-info.toml`.
 manifest: the definition the server holds is not the user's source (it has no file contents
 and no secrets).
 
-A server older than `console_address` and link `index` sends neither. `console` and
-`link impair` then fall back to the folder's manifest, by the node's place and the link's
-place in it, as clients before them did, and without a manifest say the server is too old.
-Older clients ignore the two fields.
+A server older than link `index` sends none. `link impair` then falls back to the folder's
+manifest, by the link's place in it, as clients before it did, and without a manifest says the
+server is too old. Older clients ignore the field. A server older than the console route answers
+`console` with a 404, and the client says the server is too old (see
+[`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md#errors)).
 
 ## Destroy
 

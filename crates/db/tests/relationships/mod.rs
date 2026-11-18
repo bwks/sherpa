@@ -42,12 +42,7 @@ async fn test_delete_lab_cascade_removes_nodes_links_bridges() -> Result<()> {
         "Cascade Lab",
         "casc0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -150,12 +145,7 @@ async fn test_bridge_members_are_removed_with_their_lab() -> Result<()> {
         "Bridge Lab",
         "brdg0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.2.1",
-            "172.31.2.2",
-        ),
+        &ipv4_lab_networks("172.31.2.0/24", "172.31.2.1", "172.31.2.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -227,12 +217,7 @@ async fn test_delete_user_is_rejected_while_they_own_labs() -> Result<()> {
         "Doomed Lab",
         "doom0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -278,12 +263,7 @@ async fn test_list_nodes_by_lab_isolation() -> Result<()> {
         "Lab A",
         "laba0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -292,12 +272,7 @@ async fn test_list_nodes_by_lab_isolation() -> Result<()> {
         "Lab B",
         "labb0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.2.1",
-            "172.31.2.2",
-        ),
+        &ipv4_lab_networks("172.31.2.0/24", "172.31.2.1", "172.31.2.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -345,12 +320,7 @@ async fn test_list_links_by_lab_isolation() -> Result<()> {
         "Link Lab A",
         "llka0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -359,12 +329,7 @@ async fn test_list_links_by_lab_isolation() -> Result<()> {
         "Link Lab B",
         "llkb0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.2.1",
-            "172.31.2.2",
-        ),
+        &ipv4_lab_networks("172.31.2.0/24", "172.31.2.1", "172.31.2.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -411,12 +376,7 @@ async fn test_list_labs_by_user_isolation() -> Result<()> {
         "Alice Lab 1",
         "alab0001",
         &user_a,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -425,12 +385,7 @@ async fn test_list_labs_by_user_isolation() -> Result<()> {
         "Alice Lab 2",
         "alab0002",
         &user_a,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.2.1",
-            "172.31.2.2",
-        ),
+        &ipv4_lab_networks("172.31.2.0/24", "172.31.2.1", "172.31.2.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -439,12 +394,7 @@ async fn test_list_labs_by_user_isolation() -> Result<()> {
         "Bob Lab 1",
         "blab0001",
         &user_b,
-        &ipv4_lab_networks(
-            "127.127.3.0/24",
-            "172.31.3.0/24",
-            "172.31.3.1",
-            "172.31.3.2",
-        ),
+        &ipv4_lab_networks("172.31.3.0/24", "172.31.3.1", "172.31.3.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -478,7 +428,6 @@ async fn lab_fixture(db: &Database, lab_id: &str, octet: u8) -> Result<DbLab> {
         lab_id,
         &user,
         &ipv4_lab_networks(
-            &format!("127.127.{octet}.0/24"),
             &format!("172.31.{octet}.0/24"),
             &format!("172.31.{octet}.1"),
             &format!("172.31.{octet}.2"),
@@ -498,12 +447,7 @@ async fn test_delete_lab_cascades_through_every_level() -> Result<()> {
         "Other",
         "fkey0003",
         &get_user(&db, "owner11").await?,
-        &ipv4_lab_networks(
-            "127.127.12.0/24",
-            "172.31.12.0/24",
-            "172.31.12.1",
-            "172.31.12.2",
-        ),
+        &ipv4_lab_networks("172.31.12.0/24", "172.31.12.1", "172.31.12.2"),
         &LabDetails::default(),
     )
     .await?;

@@ -79,10 +79,6 @@ pub(crate) fn lab_info_from_records(
             .router_ipv4
             .parse()
             .context("Invalid stored router address")?,
-        loopback_network: lab
-            .loopback_network
-            .parse()
-            .context("Invalid stored loopback network")?,
         ipv6_network: lab
             .management_network_v6
             .as_deref()
@@ -122,7 +118,6 @@ mod tests {
             lab_id: "ab12cd34".to_string(),
             name: "core".to_string(),
             user: RecordId::new("user", "alice"),
-            loopback_network: "127.127.1.0/24".to_string(),
             management_network: "172.31.1.0/24".to_string(),
             gateway_ipv4: "172.31.1.1".to_string(),
             router_ipv4: "172.31.1.2".to_string(),
@@ -143,7 +138,6 @@ mod tests {
         assert_eq!(info.user, "alice");
         assert_eq!(info.ipv4_network.to_string(), "172.31.1.0/24");
         assert_eq!(info.ipv4_router.to_string(), "172.31.1.2");
-        assert_eq!(info.loopback_network.to_string(), "127.127.1.0/24");
         assert_eq!(
             info.ipv6_gateway
                 .map(|gateway| gateway.to_string())
@@ -181,7 +175,6 @@ user = \"alice\"
 ipv4_network = \"172.31.1.0/24\"
 ipv4_gateway = \"172.31.1.1\"
 ipv4_router = \"172.31.1.2\"
-loopback_network = \"127.127.1.0/24\"
 
 [[ssh_usernames]]
 node_name = \"vm1\"

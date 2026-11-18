@@ -29,7 +29,6 @@ struct Caller {
 /// IPv4-only lab networks for tests that seed lab records directly.
 fn ipv4_lab_networks(index: usize) -> db::LabNetworks {
     db::LabNetworks {
-        loopback_network: format!("127.126.{index}.0/24"),
         management_network: format!("10.201.{index}.0/24"),
         gateway_ipv4: format!("10.201.{index}.1"),
         router_ipv4: format!("10.201.{index}.2"),

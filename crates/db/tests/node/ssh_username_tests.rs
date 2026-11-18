@@ -14,12 +14,7 @@ async fn lab_with_node(db: &db::Database) -> Result<DbNode> {
         "Test Lab",
         "lab-0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;

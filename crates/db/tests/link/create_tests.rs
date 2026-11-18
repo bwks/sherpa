@@ -18,12 +18,7 @@ async fn test_create_link_success() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -79,12 +74,7 @@ async fn test_create_link_with_lab() -> Result<()> {
         "Bob's Lab",
         "lab-0002",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -142,12 +132,7 @@ async fn test_create_link_duplicate_peers_fails() -> Result<()> {
         "Lab One",
         "lab-0003",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -213,12 +198,7 @@ async fn test_create_link_different_interfaces_succeeds() -> Result<()> {
         "Lab Two",
         "lab-0004",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -294,12 +274,7 @@ async fn test_create_link_with_bridge_kinds() -> Result<()> {
         "Lab Test",
         "lab-0005",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -373,12 +348,7 @@ async fn test_create_link_increments_count() -> Result<()> {
         "Lab Count",
         "lab-0006",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;

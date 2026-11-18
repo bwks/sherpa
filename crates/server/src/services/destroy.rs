@@ -25,8 +25,10 @@ use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 use crate::konst::{
-    BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_HOST_VETH_PREFIX, SHERPA_SECRETS_DIR, TAP_PREFIX,
+    BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_HOST_VETH_PREFIX, SHERPA_CONSOLE_DIR,
+    SHERPA_SECRETS_DIR, TAP_PREFIX,
 };
+use crate::services::console;
 use crate::services::lab_lifecycle;
 use crate::services::lab_operations::{self, LabHold, StopReason};
 use crate::services::node_secrets::remove_lab_secrets;
@@ -174,6 +176,17 @@ pub(crate) async fn tear_down_lab(
     destroy_lab_resources(lab_id, state, summary, errors, progress).await;
     // Its links are gone with its interfaces.
     state.link_states.forget_lab(lab_id);
+    // Its domains are gone, so nothing binds a socket in its console folder. A folder that
+    // cannot be removed keeps the record, as the lab folder does.
+    if errors.is_empty()
+        && let Err(error) = console::remove_console_dir(Path::new(SHERPA_CONSOLE_DIR), lab_id)
+    {
+        errors.push(DestroyError::new(
+            "filesystem",
+            console::console_dir(Path::new(SHERPA_CONSOLE_DIR), lab_id).to_string_lossy(),
+            format!("{error:#}"),
+        ));
+    }
 
     let remove_record = async {
         if recorded {

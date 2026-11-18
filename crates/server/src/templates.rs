@@ -839,7 +839,6 @@ mod tests {
             disks: vec![],
             cpu_count: None,
             memory: None,
-            console_address: None,
         }
     }
 
@@ -1253,7 +1252,7 @@ mod tests {
     fn lab_detail(lab_state: LabState, lab_phase: LabPhase) -> String {
         let lab_info: LabInfo = "id='abcd1234'\nname='test-lab'\nuser='alice'\n\
             ipv4_network='192.0.2.0/24'\nipv4_gateway='192.0.2.1'\n\
-            ipv4_router='192.0.2.2'\nloopback_network='127.127.0.0/24'"
+            ipv4_router='192.0.2.2'"
             .parse()
             .expect("lab info");
         LabDetailTemplate {

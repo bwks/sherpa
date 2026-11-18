@@ -296,7 +296,6 @@ pub(crate) fn lab_from_row(row: &Row) -> Result<DbLab> {
         lab_id: cells.text("lab_id")?,
         name: cells.text("name")?,
         user: cells.record(USER_TABLE, "user")?,
-        loopback_network: cells.text("loopback_network")?,
         management_network: cells.text("management_network")?,
         gateway_ipv4: cells.text("gateway_ipv4")?,
         router_ipv4: cells.text("router_ipv4")?,
@@ -312,14 +311,14 @@ pub(crate) fn lab_from_row(row: &Row) -> Result<DbLab> {
     })
 }
 
-/// A lab's column values in the `lab` table's column order, under `key`.
-pub(crate) fn lab_values(lab: &DbLab, key: &str) -> Result<[Value; 17]> {
+/// A lab's column values for `queries::lab::CREATE`, in its parameter order, under `key`. The
+/// unused `retired_loopback_network` column takes the lab's `lab_id` there.
+pub(crate) fn lab_values(lab: &DbLab, key: &str) -> Result<[Value; 16]> {
     Ok([
         key.into(),
         lab.lab_id.as_str().into(),
         lab.name.as_str().into(),
         key_of(&lab.user, USER_TABLE)?.into(),
-        lab.loopback_network.as_str().into(),
         lab.management_network.as_str().into(),
         lab.gateway_ipv4.as_str().into(),
         lab.router_ipv4.as_str().into(),

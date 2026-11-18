@@ -165,14 +165,6 @@ pub const TALOS_LOAD_BALANCER_HOST_OFFSETS: RangeInclusive<u32> = 13..=20;
 pub const TALOS_LOAD_BALANCER_BLOCK_SIZE: u32 = 4;
 /// Boot disk size in GB for Talos Linux nodes; Talos needs at least 10 GB.
 pub const TALOS_DEFAULT_BOOT_DISK_SIZE: u16 = 20;
-/// The port of each VM's and unikernel's serial console, a QEMU telnet chardev on the node's
-/// address in the lab's loopback network on the server.
-pub const TELNET_PORT: u16 = 2323;
-/// Seconds `sherpa console` waits for the server to open the tunnel to a node's console.
-pub const CONSOLE_CONNECT_TIMEOUT: u64 = 10;
-/// Seconds a node's console may stay silent once connected before `sherpa console` reports it
-/// in use. QEMU negotiates at once with the client it serves and says nothing to a second one.
-pub const CONSOLE_NEGOTIATION_TIMEOUT: u64 = 3;
 pub const HTTP_PORT: u16 = 8080;
 /// Front-panel ports of the `sonic_linux` virtual switch: its `Force10-S6000` hardware
 /// SKU has 32, `Ethernet0` to `Ethernet124`, each the next multiple of
@@ -181,7 +173,6 @@ pub const SONIC_PORT_COUNT: u8 = 32;
 /// The step between `sonic_linux` front-panel port numbers: each port is four lanes.
 pub const SONIC_PORT_NAME_STEP: u16 = 4;
 pub const KVM_OUI: &str = "52:54:00";
-pub const BOOT_SERVER_NAME: &str = "boot01";
 
 pub const MTU_STD: u16 = 1500;
 pub const MTU_JUMBO_INT: u16 = 9216;

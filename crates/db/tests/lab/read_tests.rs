@@ -1,7 +1,7 @@
 use anyhow::Result;
 use db::{
     LabDetails, LabNetworks, count_labs_by_user, create_lab, create_user, find_lab, get_lab,
-    get_used_ipv6_loopback_networks, get_used_ipv6_management_networks, get_used_loopback_networks,
+    get_used_ipv6_loopback_networks, get_used_ipv6_management_networks,
     get_used_management_networks, list_labs, list_labs_by_user,
 };
 
@@ -17,12 +17,7 @@ async fn test_get_lab_by_lab_id() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -58,12 +53,7 @@ async fn test_list_labs() -> Result<()> {
         "Lab 1",
         "lab-0004",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -72,12 +62,7 @@ async fn test_list_labs() -> Result<()> {
         "Lab 2",
         "lab-0005",
         &user,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.2.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -86,12 +71,7 @@ async fn test_list_labs() -> Result<()> {
         "Lab 3",
         "lab-0006",
         &user,
-        &ipv4_lab_networks(
-            "127.127.3.0/24",
-            "172.31.3.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.3.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -126,12 +106,7 @@ async fn test_list_labs_by_user() -> Result<()> {
         "Frank Lab 1",
         "lab-0007",
         &user1,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -140,12 +115,7 @@ async fn test_list_labs_by_user() -> Result<()> {
         "Frank Lab 2",
         "lab-0008",
         &user1,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.2.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -154,12 +124,7 @@ async fn test_list_labs_by_user() -> Result<()> {
         "Grace Lab",
         "lab-0009",
         &user2,
-        &ipv4_lab_networks(
-            "127.127.3.0/24",
-            "172.31.3.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.3.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -184,12 +149,7 @@ async fn test_list_labs_returns_all_fields() -> Result<()> {
         "Complete Lab",
         "lab-0010",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -219,12 +179,7 @@ async fn test_count_labs_by_user() -> Result<()> {
         "Judy Lab 1",
         "lab-0013",
         &user1,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -233,12 +188,7 @@ async fn test_count_labs_by_user() -> Result<()> {
         "Judy Lab 2",
         "lab-0014",
         &user1,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.2.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -247,12 +197,7 @@ async fn test_count_labs_by_user() -> Result<()> {
         "Judy Lab 3",
         "lab-0015",
         &user1,
-        &ipv4_lab_networks(
-            "127.127.3.0/24",
-            "172.31.3.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.3.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -261,12 +206,7 @@ async fn test_count_labs_by_user() -> Result<()> {
         "Karl Lab",
         "lab-0016",
         &user2,
-        &ipv4_lab_networks(
-            "127.127.4.0/24",
-            "172.31.4.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.4.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -296,12 +236,7 @@ async fn test_get_used_management_networks() -> Result<()> {
         "Lab A",
         "lab-0017",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -310,12 +245,7 @@ async fn test_get_used_management_networks() -> Result<()> {
         "Lab B",
         "lab-0018",
         &user,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.2.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -341,12 +271,7 @@ async fn find_lab_returns_none_for_a_missing_lab() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -367,12 +292,7 @@ async fn every_network_a_lab_holds_is_reported_as_used() -> Result<()> {
         loopback_network_v6: Some("fd00:1001:0:9::/64".to_string()),
         gateway_ipv6: Some("fd00:b00b:0:9::1".to_string()),
         router_ipv6: Some("fd00:b00b:0:9::2".to_string()),
-        ..ipv4_lab_networks(
-            "127.127.9.0/24",
-            "172.31.9.0/24",
-            "172.31.9.1",
-            "172.31.9.2",
-        )
+        ..ipv4_lab_networks("172.31.9.0/24", "172.31.9.1", "172.31.9.2")
     };
     create_lab(
         &db,
@@ -384,14 +304,6 @@ async fn every_network_a_lab_holds_is_reported_as_used() -> Result<()> {
     )
     .await?;
 
-    assert_eq!(
-        get_used_loopback_networks(&db)
-            .await?
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>(),
-        ["127.127.9.0/24"]
-    );
     assert_eq!(
         get_used_ipv6_management_networks(&db)
             .await?
