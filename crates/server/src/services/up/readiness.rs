@@ -351,6 +351,8 @@ impl Readiness<'_, '_> {
             self.build.qemu,
             ContainerSpec {
                 name: container_name.clone(),
+                // The node name, as its own config names it; Docker's default is the ID.
+                hostname: Some(container.name.clone()),
                 image: container::image_reference(image_name, version),
                 env_vars: container.environment_variables.clone().unwrap_or_default(),
                 volumes,

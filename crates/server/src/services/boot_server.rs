@@ -263,6 +263,7 @@ fn boot_container_spec(
 ) -> ContainerSpec {
     ContainerSpec {
         name: format!("{CONTAINER_DNSMASQ_NAME}-{lab_id}"),
+        hostname: None,
         image: CONTAINER_DNSMASQ_REPO.to_owned(),
         env_vars: vec![format!("DNS1={}", mgmt_net.v4.first), "DNS2=".to_owned()],
         volumes: vec![

@@ -274,6 +274,12 @@ all 32 ports admin up) without the management entries, as Docker addresses `eth0
 `ztp.config` replaces `config_db.json` only; the account is in the start script, so the owner
 still gets it (`guest_account::provisions_owner`).
 
+SONiC's hostname (`DEVICE_METADATA|localhost`) comes from that `config_db.json` only: the
+image's `start.sh` does not read the Linux hostname, which Sherpa sets on the container itself
+(`ContainerSpec::hostname`, the node name). The two agree, so the prompt and
+`show runningconfiguration all` show the same name, and nothing in the start script renames the
+host.
+
 With ZTP off the start files are still mounted (#679 decision 4), so the interface wait always
 applies; the node gets no account and no config, and its SSH server still starts, as the
 readiness signal.

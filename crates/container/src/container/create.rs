@@ -34,6 +34,8 @@ const NANO_CPUS_PER_CPU: i64 = 1_000_000_000;
 #[derive(Clone, Debug)]
 pub struct ContainerSpec {
     pub name: String,
+    /// The container's Linux hostname. `None` leaves Docker's default, the container ID.
+    pub hostname: Option<String>,
     pub image: String,
     pub env_vars: Vec<String>,
     /// Bind mounts, as `host:container[:options]`.
@@ -65,56 +67,10 @@ pub struct ContainerSpec {
 /// interface cannot be set up in it.
 #[instrument(skip(docker, spec), fields(container_name = %spec.name), level = "debug")]
 pub async fn run_container(docker: &Docker, spec: ContainerSpec) -> Result<bool> {
-    let ContainerSpec {
-        name,
-        image,
-        env_vars,
-        volumes,
-        capabilities,
-        management_network,
-        additional_networks,
-        commands,
-        privileged,
-        shm_size,
-        user,
-        memory_mib,
-        cpu_count,
-    } = spec;
-
-    // Only the management network is attached at creation, so it is the first interface.
-    let endpoints_config = HashMap::from([(
-        management_network.name.clone(),
-        EndpointSettings {
-            ipam_config: Some(EndpointIpamConfig {
-                ipv4_address: management_network.ipv4_address,
-                ipv6_address: management_network.ipv6_address,
-                link_local_ips: None,
-            }),
-            ..Default::default()
-        },
-    )]);
-
-    let config = ContainerCreateBody {
-        image: Some(image),
-        env: Some(env_vars),
-        host_config: Some(HostConfig {
-            binds: Some(volumes),
-            cap_add: Some(capabilities),
-            auto_remove: Some(false),
-            privileged: Some(privileged),
-            shm_size,
-            ..resource_limits(memory_mib, cpu_count)
-                .with_context(|| format!("Invalid resource limits for container {name}"))?
-        }),
-        networking_config: Some(NetworkingConfig {
-            endpoints_config: Some(endpoints_config),
-        }),
-        tty: Some(true),
-        open_stdin: Some(true),
-        cmd: Some(commands),
-        user,
-        ..Default::default()
-    };
+    let name = spec.name.clone();
+    let additional_networks = spec.additional_networks.clone();
+    let config = create_body(spec)
+        .with_context(|| format!("Invalid resource limits for container {name}"))?;
 
     let create_opts = CreateContainerOptions {
         name: Some(name.clone()),
@@ -204,6 +160,61 @@ async fn start_and_attach(
     Ok(state.status == Some(ContainerStateStatusEnum::RUNNING))
 }
 
+/// The body Docker creates the container from. Only the management network is attached at
+/// creation, so it is the first interface.
+fn create_body(spec: ContainerSpec) -> Result<ContainerCreateBody> {
+    let ContainerSpec {
+        name: _,
+        hostname,
+        image,
+        env_vars,
+        volumes,
+        capabilities,
+        management_network,
+        additional_networks: _,
+        commands,
+        privileged,
+        shm_size,
+        user,
+        memory_mib,
+        cpu_count,
+    } = spec;
+
+    let endpoints_config = HashMap::from([(
+        management_network.name,
+        EndpointSettings {
+            ipam_config: Some(EndpointIpamConfig {
+                ipv4_address: management_network.ipv4_address,
+                ipv6_address: management_network.ipv6_address,
+                link_local_ips: None,
+            }),
+            ..Default::default()
+        },
+    )]);
+
+    Ok(ContainerCreateBody {
+        hostname,
+        image: Some(image),
+        env: Some(env_vars),
+        host_config: Some(HostConfig {
+            binds: Some(volumes),
+            cap_add: Some(capabilities),
+            auto_remove: Some(false),
+            privileged: Some(privileged),
+            shm_size,
+            ..resource_limits(memory_mib, cpu_count)?
+        }),
+        networking_config: Some(NetworkingConfig {
+            endpoints_config: Some(endpoints_config),
+        }),
+        tty: Some(true),
+        open_stdin: Some(true),
+        cmd: Some(commands),
+        user,
+        ..Default::default()
+    })
+}
+
 /// The host config of a container's limits: `memory_mib` as a hard limit in bytes, with the
 /// swap limit equal to it so the container cannot swap, and `cpu_count` as a CPU quota in
 /// billionths of a CPU. A limit that is not set stays unlimited, Docker's default.
@@ -273,6 +284,37 @@ mod tests {
             linux_interface_name: linux_interface_name.map(str::to_string),
             admin_down,
         }
+    }
+
+    fn spec(hostname: Option<&str>) -> ContainerSpec {
+        ContainerSpec {
+            name: "sw1-lab1".to_string(),
+            hostname: hostname.map(str::to_string),
+            image: "docker-sonic-vs:202511".to_string(),
+            env_vars: vec![],
+            volumes: vec![],
+            capabilities: vec![],
+            management_network: attachment(None, false),
+            additional_networks: vec![],
+            commands: vec![],
+            privileged: true,
+            shm_size: None,
+            user: None,
+            memory_mib: None,
+            cpu_count: None,
+        }
+    }
+
+    #[test]
+    fn the_container_hostname_is_the_one_its_spec_names() {
+        let body = create_body(spec(Some("sw1"))).unwrap();
+        // The node name, not the container name, which carries the lab ID.
+        assert_eq!(body.hostname.as_deref(), Some("sw1"));
+    }
+
+    #[test]
+    fn a_spec_without_a_hostname_leaves_dockers_default() {
+        assert_eq!(create_body(spec(None)).unwrap().hostname, None);
     }
 
     #[test]

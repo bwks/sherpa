@@ -1096,6 +1096,7 @@ mod tests {
             &docker,
             ContainerSpec {
                 name: name.to_string(),
+                hostname: None,
                 image: "alpine:latest".to_string(),
                 env_vars: vec![],
                 volumes: vec![],

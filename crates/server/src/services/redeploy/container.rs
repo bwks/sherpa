@@ -100,6 +100,8 @@ pub(super) async fn redeploy_container(
         &redeploy.state.qemu,
         ContainerSpec {
             name: container_name.clone(),
+            // The node name, as its own config names it; Docker's default is the ID.
+            hostname: Some(node_name.to_owned()),
             image: container::image_reference(&ztp_result.image, &redeploy.node_image.version),
             env_vars: ztp_result.env_vars,
             volumes,
