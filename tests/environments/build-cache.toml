@@ -7,8 +7,9 @@ image = "redis:8.10.3-alpine@sha256:71885d8cc6e42f2bc0aa2eb853bfc4be200b5108a46a
 container = "sherpa-test-build-cache"
 port = 6379
 # Beyond this Redis evicts the least recently used entries. One release's test build stores
-# about 1.2 GB.
-max_memory = "4gb"
+# about 1.2 GB. Two dev servers share the cache: at 4 GB it ran full, with 31,331 evictions
+# and about a 67% hit rate. The host has the memory to spare.
+max_memory = "16gb"
 
 [sccache]
 url = "https://github.com/mozilla/sccache/releases/download/v0.19.0/sccache-v0.19.0-x86_64-unknown-linux-musl.tar.gz"
