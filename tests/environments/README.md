@@ -17,9 +17,12 @@ one guest agent on the agent bus. The rules below apply to them only where they 
 are not disposable and install more than cloud-init needs. Both are described in
 [dev's README](dev/README.md).
 
-[dev-windows](dev-windows/README.md) is not a test environment either: it is a Windows 11
-`devbox_windows` node for building and testing the client's Windows code, which the Linux dev
-server cannot compile. It stays up between tasks and is reused.
+[dev-windows](dev-windows/README.md) is not a test environment either: it is the Windows 11
+`devbox_windows` node the host runs Windows checks of the client on. It runs on the Sherpa host
+(lab `win-test`, node `win`), not inside a dev server, where it would be nested and too slow.
+Agents don't use it: when a change needs a Windows check, the agent cross-compiles the client
+(`cargo build -p sherpa --target x86_64-pc-windows-gnu`), leaves `sherpa.exe` in `/var/tmp` and
+says so in its report. Its manifest is what that box was made from. Nothing is built on Windows.
 
 ## Rules
 

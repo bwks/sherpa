@@ -5,8 +5,8 @@
 # ///
 """End-to-end test of the ZTP setting on container nodes through the sherpa CLI (Python 3.15+, stdlib only).
 
-Brings up each container model whose config Sherpa mounts (cEOS, SR Linux, cJunosEvolved, FRR)
-twice, with its image's ZTP setting and with `ztp.method = "disabled"`, plus an application container.
+Brings up each container model whose config Sherpa mounts (cEOS, SR Linux, FRR) twice, with its
+image's ZTP setting and with `ztp.method = "disabled"`, plus an application container.
 Checks a node with ZTP on has Sherpa's config mounts, takes the lab owner's SSH login by key and
 refuses the old `sherpa` login, and a node with ZTP off is running with no such mount and no
 owner login, for the reason its model has (SR Linux: no management address; FRR: no SSH server):
@@ -42,14 +42,12 @@ DISABLED = "disabled"
 ZTP_MOUNTS = {
     "arista_eos": ("/mnt/sherpa-ztp/startup-config",),
     "nokia_srlinux": ("/etc/opt/srlinux/config.json",),
-    "juniper_evolved": ("/home/evo/configdisk",),
     "frr_linux": ("/etc/frr/daemons", "/etc/frr/frr.conf", "/tmp/sherpa-init.sh"),
 }
 # A command that succeeds over SSH once the lab owner's login works, by model.
 LOGIN_COMMANDS = {
     "arista_eos": "show version",
     "nokia_srlinux": "show version",
-    "juniper_evolved": "show version",
     "frr_linux": "true",
 }
 SSH_OPTIONS = ("-F", ".sherpa/ssh/config", "-o", "BatchMode=yes", "-o", "LogLevel=ERROR",
@@ -70,13 +68,10 @@ SSH_REFUSALS = (
 # SR Linux and cEOS take their management interface without the address their container was
 # given, so nothing answers there. While they boot, the container still holds the address and
 # the image's SSH server refuses the login (SR Linux, for about a minute) or nothing listens yet
-# (cEOS). cJunosEvolved's entrypoint configures the address from the image's own config, with an
-# SSH server and the image's `admin` user, so the address answers and Junos refuses `sherpa`.
-# FRR is a Linux container: its address answers, and nothing listens for SSH.
+# (cEOS). FRR is a Linux container: its address answers, and nothing listens for SSH.
 ZTP_OFF_REFUSAL = {
     "arista_eos": NO_ADDRESS,
     "nokia_srlinux": NO_ADDRESS,
-    "juniper_evolved": LOGIN_REFUSED,
     "frr_linux": NO_SSH_SERVER,
 }
 REFUSED_METHOD = "cdrom"
@@ -387,7 +382,7 @@ class LabRun:
         if expected == NO_ADDRESS:
             require(not self.answers_ping(node),
                     f"{stage}, {name} has ZTP off but answers on its management address")
-        if expected in (NO_SSH_SERVER, LOGIN_REFUSED):
+        if expected == NO_SSH_SERVER:
             require(self.answers_ping(node),
                     f"{stage}, {name} does not answer on its management address")
 

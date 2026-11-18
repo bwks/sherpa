@@ -246,6 +246,11 @@ model becomes its default, so `images.toml` lists the default first.
 Unikernel images (`nanos_unikernel`, `unikraft_unikernel`) are not seeded: their folders hold
 `disk.qcow2` or `kernel.elf`, not a `virtioa.qcow2`.
 
+The network-OS and Windows images are seeded for image and config work only. Never boot them in
+a dev server: a dev server is a VM, so they run nested there and take many minutes to boot. Test
+generic paths on Alpine, Ubuntu and containers. Windows checks are run by the host on its own
+Windows box ([dev-windows](../dev-windows/README.md)).
+
 Some images need a file that an import does not bring: vEOS boots from the Aboot ISO,
 `/opt/sherpa/images/arista_eos/aboot_iso/aboot.iso` in the guest, and without it `sherpa up`
 fails for a VM `arista_eos` node. Each `[[images]]` entry in `images.toml` has a `model`, a

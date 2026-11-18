@@ -8,9 +8,9 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 |---|---|---|
 | [private-bridge](private-bridge/README.md) | `[[bridges]]` with a VM and containers, through up, redeploy and destroy | about 5–10 min |
 | [p2p-containers](p2p-containers/README.md) | P2p links on network OS, application and OS containers, some without `ip` or a shell, through up, redeploy and destroy | about 2–5 min |
-| [container-ztp](container-ztp/README.md) | The `ztp` setting on cEOS, SR Linux, cJunosEvolved and FRR containers: config mounts and the lab owner's login with ZTP on, neither with it off, through up, redeploy and destroy | about 5–15 min |
+| [container-ztp](container-ztp/README.md) | The `ztp` setting on cEOS, SR Linux and FRR containers: config mounts and the lab owner's login with ZTP on, neither with it off, through up, redeploy and destroy | about 5–15 min |
 | [cisco-iol](cisco-iol/README.md) | `cisco_iol` routers built from your own CML image: generated config and SSH, P2p links, TCP into IOL, `write memory` across a cold boot. Needs the IOL image | about 3–5 min |
-| [p2p-links](p2p-links/README.md) | P2p (eBPF) link requirements on VM ⟷ VM, VM ⟷ container and container ⟷ container: L2 protocols, LACP, capture, per-direction impairment, jumbo frames, lifecycle | about 15–20 min |
+| [p2p-links](p2p-links/README.md) | P2p (eBPF) link requirements on VM ⟷ VM, VM ⟷ container and container ⟷ container: L2 protocols, LLDP and LACP bundles, capture, per-direction impairment, jumbo frames, lifecycle | about 15–20 min |
 | [nixos-linux](nixos-linux/README.md) | `nixos_linux` VMs built from [bwks/nixos-image](https://github.com/bwks/nixos-image): lab owner login, sudo, text files, cloud-init, a P2p link | about 5 min |
 | [console](console/README.md) | `sherpa console` in a pseudo-terminal through sherpad, with no system `telnet` or `ssh`: login prompt, `Ctrl+]` and `~.`, a console in use naming its holder, `--force`, another user and an admin refused, a container refused | about 3–5 min |
 | [owner-login](owner-login/README.md) | The lab owner's login on a Linux VM and a network OS container, by key and by device password, with admin rights and no old `sherpa` login; what a second, admin account may not do: connect, download, add the owner a key. Needs an admin account | about 5–10 min |

@@ -3,6 +3,8 @@ name = "container-ztp"
 # Each model whose config Sherpa mounts, twice: once with its image's ZTP setting (`volume`)
 # and once with `ztp.method = "disabled"`, which must start it without the config, the mount and the
 # logins. nats01 is an application container, whose only setting is `disabled`.
+# cJunosEvolved (`juniper_evolved`, kind `container`) is left out: it boots a VM inside its
+# container, which is nested and too slow in the dev servers. See README.md.
 
 [[nodes]]
 name = "ceos01"
@@ -28,21 +30,6 @@ version = "26.7.2"
 name = "srl02"
 model = "nokia_srlinux"
 version = "26.7.2"
-
-[nodes.ztp]
-method = "disabled"
-
-[[nodes]]
-name = "ptx01"
-model = "juniper_evolved"
-kind = "container"
-version = "26.2R1.7"
-
-[[nodes]]
-name = "ptx02"
-model = "juniper_evolved"
-kind = "container"
-version = "26.2R1.7"
 
 [nodes.ztp]
 method = "disabled"
