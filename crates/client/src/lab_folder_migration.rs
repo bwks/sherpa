@@ -382,7 +382,6 @@ user = "dev"
 ipv4_network = "172.31.3.0/24"
 ipv4_gateway = "172.31.3.1"
 ipv4_router = "172.31.3.2"
-loopback_network = "127.127.3.0/24"
 "#;
     const VAULT: &str = "address = \"https://v\"\nroot_token = \"t\"\nunseal_key = \"k\"\n";
     const KEYCLOAK: &str = "address = \"https://k\"\nrealm = \"r\"\nissuer = \"i\"\n\

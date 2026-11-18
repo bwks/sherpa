@@ -22,7 +22,6 @@ use shared::konst::{MANAGEMENT_GATEWAY_HOST_OFFSET, SHERPA_MANAGEMENT_IP_INDEX};
 use shared::util;
 
 const SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX: &str = "brm";
-const SHERPA_LOOPBACK_PREFIX: &str = "127.127.0.0/16";
 const SHERPA_LOOPBACK_PREFIX_IPV6: &str = "fd00:1001::/48";
 /// Attempts to reserve lab subnets when concurrent labs take the chosen ones first.
 const LAB_SUBNET_ALLOCATION_ATTEMPTS: u32 = 8;
@@ -100,7 +99,6 @@ pub(super) async fn create_management_networks(
 /// The lab record fields for a set of reserved subnets.
 pub(super) fn lab_networks(subnets: &LabSubnets) -> db::LabNetworks {
     db::LabNetworks {
-        loopback_network: subnets.loopback_subnet.to_string(),
         management_network: subnets.management_subnet.to_string(),
         gateway_ipv4: subnets.gateway_ipv4.to_string(),
         router_ipv4: subnets.router_ipv4.to_string(),
@@ -123,14 +121,6 @@ pub(super) async fn allocate_lab_networks(
         .context("Failed to read host IPv4 networks for subnet allocation")?;
     let host_networks_v6 = util::get_interface_networks_v6()
         .context("Failed to read host IPv6 networks for subnet allocation")?;
-
-    let loopback_prefix = util::get_ipv4_network(SHERPA_LOOPBACK_PREFIX)
-        .context("Failed to parse loopback prefix")?;
-    let used_loopback = db::get_used_loopback_networks(db)
-        .await
-        .context("Failed to query existing loopback networks")?;
-    let loopback_subnet = util::allocate_loopback_subnet(&loopback_prefix, &used_loopback)
-        .context("Failed to allocate loopback subnet for lab")?;
 
     let used_management = db::get_used_management_networks(db)
         .await
@@ -166,7 +156,6 @@ pub(super) async fn allocate_lab_networks(
             .context("Failed to allocate IPv6 loopback subnet for lab")?;
 
     Ok(LabSubnets {
-        loopback_subnet,
         management_subnet,
         gateway_ipv4: util::get_ipv4_addr(&management_subnet, MANAGEMENT_GATEWAY_HOST_OFFSET)?,
         router_ipv4: util::get_ipv4_addr(&management_subnet, SHERPA_MANAGEMENT_IP_INDEX)?,
@@ -180,12 +169,9 @@ pub(super) async fn allocate_lab_networks(
 /// Whether any chosen subnet is now held by a lab record.
 #[instrument(skip(db), level = "debug")]
 pub(super) async fn networks_taken(db: &db::Database, networks: &LabSubnets) -> Result<bool> {
-    Ok(db::get_used_loopback_networks(db)
+    Ok(db::get_used_management_networks(db)
         .await?
-        .contains(&networks.loopback_subnet)
-        || db::get_used_management_networks(db)
-            .await?
-            .contains(&networks.management_subnet)
+        .contains(&networks.management_subnet)
         || db::get_used_ipv6_management_networks(db)
             .await?
             .contains(&networks.ipv6_management_subnet)
@@ -227,7 +213,6 @@ pub(super) async fn reserve_lab(
             Ok(lab) => {
                 tracing::info!(
                     lab_id = %lab_id,
-                    loopback_subnet = %networks.loopback_subnet,
                     management_subnet = %networks.management_subnet,
                     ipv6_management_subnet = %networks.ipv6_management_subnet,
                     ipv6_loopback_subnet = %networks.ipv6_loopback_subnet,
@@ -594,7 +579,6 @@ mod tests {
     #[test]
     fn the_management_network_spans_its_subnets() {
         let subnets = LabSubnets {
-            loopback_subnet: "127.127.1.0/24".parse().unwrap(),
             management_subnet: "172.31.4.0/24".parse().unwrap(),
             gateway_ipv4: "172.31.4.1".parse().unwrap(),
             router_ipv4: "172.31.4.2".parse().unwrap(),
@@ -674,7 +658,6 @@ mod tests {
             lab_id: "ab12cd34".to_string(),
             name: name.to_string(),
             user: user.clone(),
-            loopback_network: String::new(),
             management_network: String::new(),
             gateway_ipv4: String::new(),
             router_ipv4: String::new(),

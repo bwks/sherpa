@@ -83,13 +83,11 @@ async fn container_image(docker: &Docker, name: &str) -> Result<(Option<String>,
 
 /// IPv4-only lab networks for tests that seed lab records directly.
 fn ipv4_lab_networks(
-    loopback_network: &str,
     management_network: &str,
     gateway_ipv4: &str,
     router_ipv4: &str,
 ) -> db::LabNetworks {
     db::LabNetworks {
-        loopback_network: loopback_network.to_string(),
         management_network: management_network.to_string(),
         gateway_ipv4: gateway_ipv4.to_string(),
         router_ipv4: router_ipv4.to_string(),
@@ -1381,11 +1379,6 @@ async fn test_concurrent_lab_up_allocates_distinct_subnets() -> Result<()> {
             first_record.management_network
         );
         ensure!(
-            first_record.loopback_network != second_record.loopback_network,
-            "Concurrent labs share loopback network {}",
-            first_record.loopback_network
-        );
-        ensure!(
             first_record.management_network_v6 != second_record.management_network_v6,
             "Concurrent labs share IPv6 management network"
         );
@@ -1541,7 +1534,7 @@ async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
         "duplicate-test-lab",
         lab_id,
         &admin_user,
-        &ipv4_lab_networks("10.0.0.0/24", "10.0.1.0/24", "10.0.1.1", "10.0.1.254"),
+        &ipv4_lab_networks("10.0.1.0/24", "10.0.1.1", "10.0.1.254"),
         &db::LabDetails::default(),
     )
     .await?;
@@ -1833,7 +1826,6 @@ async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
             &lab_id,
             owner,
             &ipv4_lab_networks(
-                &format!("127.127.{index}.0/24"),
                 &format!("10.200.{index}.0/24"),
                 &format!("10.200.{index}.1"),
                 &format!("10.200.{index}.2"),

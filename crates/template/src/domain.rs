@@ -1,9 +1,9 @@
 use askama::Template;
 
 use shared::data::{
-    BiosTypes, CloneDisk, ConnectionTypes, CpuArchitecture, CpuFeature, CpuModels, CpuTopology,
-    DiskBuses, DiskCache, DiskDevices, DiskIo, Interface, InterfaceType, MachineType, NodeBootDisk,
-    NodeCpu, NodeDisk, NodeInterfaces, NodeNuma, NumaMemoryMode, QemuCommand, UnikernelBootMode,
+    BiosTypes, ConnectionTypes, CpuArchitecture, CpuFeature, CpuModels, CpuTopology, DiskBuses,
+    DiskCache, DiskDevices, DiskIo, Interface, InterfaceType, MachineType, NodeBootDisk, NodeCpu,
+    NodeDisk, NodeInterfaces, NodeNuma, NumaMemoryMode, QemuCommand, UnikernelBootMode,
     WatchdogAction, cpuset,
 };
 
@@ -24,8 +24,8 @@ pub struct DomainTemplate {
     pub interface_type: InterfaceType,
     pub management_interface_type: InterfaceType,
     pub reserved_interface_type: InterfaceType,
-    pub loopback_ipv4: String,
-    pub telnet_port: u16,
+    /// The UNIX socket libvirt binds for the serial console, which only sherpad connects to.
+    pub serial_socket: String,
     pub qemu_commands: Vec<QemuCommand>,
     /// Flatcar's Ignition config in the storage pool, given to the guest as the firmware config
     /// entry `opt/org.flatcar-linux/config`. libvirt hands the file to QEMU like a disk: it
@@ -114,11 +114,6 @@ impl DomainTuning {
     }
 }
 
-pub struct BootServer {
-    pub template: DomainTemplate,
-    pub copy_disks: Vec<CloneDisk>,
-}
-
 #[derive(Debug, Template)]
 #[template(path = "libvirt/unikernel_domain.jinja", ext = "xml", escape = "xml")]
 pub struct UnikernelDomainTemplate {
@@ -137,8 +132,8 @@ pub struct UnikernelDomainTemplate {
     pub interface_type: InterfaceType,
     pub management_interface_type: InterfaceType,
     pub reserved_interface_type: InterfaceType,
-    pub loopback_ipv4: String,
-    pub telnet_port: u16,
+    /// The UNIX socket libvirt binds for the serial console, which only sherpad connects to.
+    pub serial_socket: String,
     pub management_network: String,
     pub isolated_network: String,
     pub reserved_network: String,
@@ -241,8 +236,7 @@ mod tests {
             interface_type: InterfaceType::Virtio,
             management_interface_type: InterfaceType::Virtio,
             reserved_interface_type: InterfaceType::Virtio,
-            loopback_ipv4: "127.0.0.1".to_string(),
-            telnet_port: 5000,
+            serial_socket: "/opt/sherpa/run/console/lab1/1.serial".to_string(),
             management_network: "mgmt-lab1".to_string(),
             isolated_network: "iso-lab1".to_string(),
             reserved_network: "rsv-lab1".to_string(),
@@ -299,10 +293,11 @@ mod tests {
         let tmpl = base_unikernel_template(UnikernelBootMode::DirectKernel);
         let xml = tmpl.render().unwrap();
 
-        assert!(xml.contains("<serial type='tcp'>"));
-        assert!(xml.contains("<console type='tcp'>"));
-        assert!(xml.contains("service='5000'"));
-        assert!(xml.contains("host='127.0.0.1'"));
+        let source = "<source mode='bind' path='/opt/sherpa/run/console/lab1/1.serial'/>";
+        assert!(xml.contains(&format!("<serial type='unix'>\n      {source}")));
+        assert!(xml.contains(&format!("<console type='unix'>\n      {source}")));
+        assert!(!xml.contains("telnet"));
+        assert!(!xml.contains("type='tcp'"));
     }
 
     #[test]

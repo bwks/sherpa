@@ -16,12 +16,7 @@ async fn impairments_are_set_and_the_rest_of_the_link_is_kept() -> Result<()> {
         "Impaired",
         "imp00001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.8.0/24",
-            "172.31.8.0/24",
-            "172.31.8.1",
-            "172.31.8.2",
-        ),
+        &ipv4_lab_networks("172.31.8.0/24", "172.31.8.1", "172.31.8.2"),
         &LabDetails::default(),
     )
     .await?;

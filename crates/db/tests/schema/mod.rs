@@ -60,12 +60,7 @@ async fn test_schema_creates_all_tables() -> Result<()> {
         "Schema Lab",
         "schm0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -144,12 +139,7 @@ async fn test_link_impairments_survive_schema_reapply() -> Result<()> {
         "Impair Lab",
         "impr0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.4.0/24",
-            "172.31.4.0/24",
-            "172.31.4.1",
-            "172.31.4.2",
-        ),
+        &ipv4_lab_networks("172.31.4.0/24", "172.31.4.1", "172.31.4.2"),
         &LabDetails::default(),
     )
     .await?;

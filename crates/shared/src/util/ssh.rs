@@ -881,7 +881,6 @@ user = "test-user"
 ipv4_network = "172.31.1.0/24"
 ipv4_gateway = "172.31.1.1"
 ipv4_router = "172.31.1.254"
-loopback_network = "127.127.1.0/24"
 "#
         )
     }

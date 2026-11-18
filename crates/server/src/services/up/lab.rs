@@ -28,6 +28,7 @@ use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_host_access, require_lab_starter};
 use crate::daemon::state::AppState;
 use crate::services::clean;
+use crate::services::console;
 use crate::services::guest_account::{self, GuestAccount};
 use crate::services::lab_definition;
 use crate::services::lab_lifecycle;
@@ -458,7 +459,6 @@ impl LabUp<'_> {
         )?;
         let lab_id = self.build.lab_id;
         let LabSubnets {
-            loopback_subnet,
             management_subnet,
             gateway_ipv4,
             router_ipv4,
@@ -485,7 +485,6 @@ impl LabUp<'_> {
             ipv4_network: lab_net,
             ipv4_gateway: gateway_ipv4,
             ipv4_router: router_ipv4,
-            loopback_network: loopback_subnet,
             ipv6_network: Some(ipv6_management_subnet),
             ipv6_gateway: Some(gateway_ipv6),
             ipv6_router: Some(router_ipv6),
@@ -495,6 +494,7 @@ impl LabUp<'_> {
         };
 
         util::create_dir(self.build.lab_dir)?;
+        console::create_console_dir(lab_id)?;
         store_ssh_usernames(
             self.build.db,
             &records.lab_node_data,
@@ -625,7 +625,6 @@ impl LabUp<'_> {
                 lab_node_data: &records.lab_node_data,
                 mgmt_net: &network.mgmt_net,
                 dns: &network.dns,
-                subnets: &records.subnets,
                 owner_account: &self.plan.owner_account,
                 talos_clusters: self.manifest.talos_clusters.as_deref().unwrap_or_default(),
             },

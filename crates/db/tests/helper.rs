@@ -76,13 +76,11 @@ pub async fn create_test_node_with_model(
 /// IPv4-only lab networks for tests that do not exercise IPv6 allocation.
 #[must_use]
 pub fn ipv4_lab_networks(
-    loopback_network: &str,
     management_network: &str,
     gateway_ipv4: &str,
     router_ipv4: &str,
 ) -> LabNetworks {
     LabNetworks {
-        loopback_network: loopback_network.to_string(),
         management_network: management_network.to_string(),
         gateway_ipv4: gateway_ipv4.to_string(),
         router_ipv4: router_ipv4.to_string(),

@@ -387,7 +387,6 @@ async fn lab_in(db: &Database) -> DbLab {
         "lab-0001",
         &user,
         &LabNetworks {
-            loopback_network: "127.127.1.0/24".to_owned(),
             management_network: "172.31.1.0/24".to_owned(),
             gateway_ipv4: "172.31.1.1".to_owned(),
             router_ipv4: "172.31.1.2".to_owned(),

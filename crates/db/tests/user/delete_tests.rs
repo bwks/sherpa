@@ -74,12 +74,7 @@ async fn test_delete_user_with_labs_is_rejected() -> Result<()> {
         "test-lab",
         "lab-0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -108,12 +103,7 @@ async fn test_delete_user_with_multiple_labs_is_rejected() -> Result<()> {
         "lab-1",
         "lab-0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -122,12 +112,7 @@ async fn test_delete_user_with_multiple_labs_is_rejected() -> Result<()> {
         "lab-2",
         "lab-0002",
         &user,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.2.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -136,12 +121,7 @@ async fn test_delete_user_with_multiple_labs_is_rejected() -> Result<()> {
         "lab-3",
         "lab-0003",
         &user,
-        &ipv4_lab_networks(
-            "127.127.3.0/24",
-            "172.31.3.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.3.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -166,12 +146,7 @@ async fn test_delete_user_with_labs_needs_manual_cleanup() -> Result<()> {
         "test-lab",
         "lab-0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;

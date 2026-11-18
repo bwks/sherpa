@@ -14,6 +14,7 @@ use super::context::Redeploy;
 use super::ready::wait_until_ready;
 use crate::konst::{NODE_CONFIG_DIR_MODE, SHERPA_MANAGEMENT_NETWORK_NAME, TFTP_DIR_MODE};
 use crate::services::boot_server;
+use crate::services::console;
 use crate::services::node_lifecycle::{self, query_runtimes};
 use crate::services::node_ops::{self, DomainParts, LabZtp, VmZtpResult};
 use crate::services::node_resources;
@@ -59,8 +60,6 @@ pub(super) async fn redeploy_vm(
     )?;
 
     let node_idx = redeploy.db_node.index;
-    let loopback_host = u8::try_from(node_idx)
-        .with_context(|| format!("Node '{node_name}' has an index past the loopback network"))?;
     let isolated_net = node_ops::node_isolated_network_data(node_name, node_idx, lab_id);
     let reserved_network = if redeploy.node_image.interfaces.reserved_count > 0 {
         node_ops::node_reserved_network_data(node_name, node_idx, lab_id).network_name
@@ -79,8 +78,7 @@ pub(super) async fn redeploy_vm(
         DomainParts {
             disks: vm_ztp.disks,
             interfaces,
-            loopback_ipv4: util::get_ip(&redeploy.lab_info.loopback_network, loopback_host)
-                .to_string(),
+            serial_socket: console::serial_socket_path(lab_id, node_idx)?,
             management_network: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
             isolated_network: isolated_net.network_name,
             reserved_network,
@@ -90,6 +88,8 @@ pub(super) async fn redeploy_vm(
     )?;
 
     let _ = progress.send_status(format!("Creating VM: {node_name}"), StatusKind::Progress);
+    // A lab started before consoles moved behind sherpad has no console folder yet.
+    console::create_console_dir(lab_id)?;
     node_ops::create_vm(redeploy.qemu_conn.clone(), domain, progress).await?;
     node_lifecycle::record(
         &redeploy.state.db,

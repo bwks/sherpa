@@ -56,7 +56,7 @@ pub fn set_interface_link(conn: &Connect, domain: &str, tap: &str, up: bool) -> 
 }
 
 /// The live XML of domain `domain`, or `None` when it does not exist or is not running.
-fn live_xml(conn: &Connect, domain: &str) -> Result<Option<String>> {
+pub(crate) fn live_xml(conn: &Connect, domain: &str) -> Result<Option<String>> {
     let handle = match Domain::lookup_by_name(conn, domain) {
         Ok(handle) => handle,
         Err(error) if error.code() == ErrorNumber::NoDomain => return Ok(None),
@@ -151,7 +151,11 @@ fn find_interface<'a>(xml: &'a str, tap: &str) -> Result<Option<Vec<(usize, Even
 
 /// The value of attribute `name` when `event` opens an element named `tag`; `None` for any
 /// other event, or when the element does not have the attribute.
-fn attribute<'a>(event: &'a Event, tag: &str, name: &str) -> Result<Option<Cow<'a, str>>> {
+pub(crate) fn attribute<'a>(
+    event: &'a Event,
+    tag: &str,
+    name: &str,
+) -> Result<Option<Cow<'a, str>>> {
     let (Event::Start(element) | Event::Empty(element)) = event else {
         return Ok(None);
     };
@@ -171,7 +175,7 @@ fn attribute<'a>(event: &'a Event, tag: &str, name: &str) -> Result<Option<Cow<'
 }
 
 /// Whether `event` opens an element named `tag`.
-fn opens(event: &Event, tag: &str) -> bool {
+pub(crate) fn opens(event: &Event, tag: &str) -> bool {
     matches!(event, Event::Start(element) | Event::Empty(element) if element.name().as_ref() == tag)
 }
 

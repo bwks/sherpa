@@ -216,8 +216,7 @@ mod tests {
             &path,
             format!(
                 "id = '{id}'\nname = '{name}'\nuser = 'dev'\nipv4_network = '172.31.1.0/24'\n\
-                 ipv4_gateway = '172.31.1.1'\nipv4_router = '172.31.1.2'\n\
-                 loopback_network = '127.127.1.0/24'\n"
+                 ipv4_gateway = '172.31.1.1'\nipv4_router = '172.31.1.2'\n"
             ),
         )
         .unwrap();

@@ -9,7 +9,10 @@ use tracing::instrument;
 
 use shared::konst::{SHERPA_LABS_PATH, SHERPA_STORAGE_POOL_PATH};
 
-use crate::konst::{SHERPA_DB_BACKUP_DIR_MODE, SHERPA_DB_BACKUP_PATH, SHERPA_DB_PATH};
+use crate::konst::{
+    CONSOLE_DIR_MODE, CONSOLE_GROUP, SHERPA_CONSOLE_DIR, SHERPA_DB_BACKUP_DIR_MODE,
+    SHERPA_DB_BACKUP_PATH, SHERPA_DB_PATH,
+};
 
 /// Lab directories hold node configs and user data: the `sherpa` user and group only.
 const SHERPA_LABS_DIR_MODE: u32 = 0o2750;
@@ -24,9 +27,10 @@ const SHERPA_DB_DIR_MODE: u32 = 0o750;
 /// Restrict the directories that hold lab data and the database, so other server users cannot
 /// read node configs, user data, ZTP media, VM disks, password hashes or database backups: lab
 /// directories and the database to the `sherpa` user and group, backups to `sherpa`, and the
-/// storage pool to `sherpa` and the QEMU group. Directory modes cover files created before
-/// this, whatever their own mode. A failure is logged rather than fatal, so the server still
-/// starts, for example when an administrator created a directory under another owner.
+/// storage pool and the node console sockets to `sherpa` and the QEMU group. Directory modes
+/// cover files created before this, whatever their own mode. A failure is logged rather than
+/// fatal, so the server still starts, for example when an administrator created a directory
+/// under another owner.
 #[instrument]
 pub fn secure_storage() {
     let dirs = [
@@ -38,6 +42,7 @@ pub fn secure_storage() {
             SHERPA_STORAGE_POOL_DIR_MODE,
             Some(SHERPA_STORAGE_POOL_GROUP),
         ),
+        (SHERPA_CONSOLE_DIR, CONSOLE_DIR_MODE, Some(CONSOLE_GROUP)),
     ];
     for (path, mode, group) in dirs {
         match restrict_dir(Path::new(path), mode, group) {

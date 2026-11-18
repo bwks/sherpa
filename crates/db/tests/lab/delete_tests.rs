@@ -17,12 +17,7 @@ async fn test_delete_lab_success() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -47,12 +42,7 @@ async fn test_delete_lab_decreases_count() -> Result<()> {
         "Lab 1",
         "lab-0003",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -61,12 +51,7 @@ async fn test_delete_lab_decreases_count() -> Result<()> {
         "Lab 2",
         "lab-0004",
         &user,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.2.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -92,12 +77,7 @@ async fn test_delete_lab_with_cascade_in_schema() -> Result<()> {
         "Auto Cascade Lab",
         "lab-0009",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;

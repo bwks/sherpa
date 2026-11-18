@@ -14,7 +14,6 @@ async fn lab_for(db: &Database, user: &DbUser, lab_id: &str, octet: u8) -> Resul
         lab_id,
         user,
         &ipv4_lab_networks(
-            &format!("127.127.{octet}.0/24"),
             &format!("172.31.{octet}.0/24"),
             &format!("172.31.{octet}.1"),
             &format!("172.31.{octet}.2"),

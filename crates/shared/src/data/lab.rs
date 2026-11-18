@@ -82,8 +82,6 @@ pub struct LabInfo {
     pub ipv4_gateway: Ipv4Addr,
     #[schemars(with = "String")]
     pub ipv4_router: Ipv4Addr,
-    #[schemars(with = "String")]
-    pub loopback_network: Ipv4Net,
     #[serde(default)]
     #[schemars(with = "Option<String>")]
     pub ipv6_network: Option<Ipv6Net>,
@@ -314,7 +312,6 @@ mod tests {
             ipv4_network: "192.168.100.0/24".parse().unwrap(),
             ipv4_gateway: "192.168.100.1".parse().unwrap(),
             ipv4_router: "192.168.100.2".parse().unwrap(),
-            loopback_network: "127.127.127.0/24".parse().unwrap(),
             ipv6_network: None,
             ipv6_gateway: None,
             ipv6_router: None,

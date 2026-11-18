@@ -10,7 +10,6 @@ use strum_macros::EnumIter;
 /// Subnets and addresses reserved for a new lab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LabSubnets {
-    pub loopback_subnet: Ipv4Net,
     pub management_subnet: Ipv4Net,
     pub gateway_ipv4: Ipv4Addr,
     pub router_ipv4: Ipv4Addr,

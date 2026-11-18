@@ -14,6 +14,7 @@ use crate::konst::{
     DNSMASQ_CONFIG_FILE, LAB_CERTS_DIR, NODE_CONFIG_DIR_MODE, TAP_PREFIX, TFTP_DIR_MODE,
 };
 use crate::services::boot_server;
+use crate::services::console;
 use crate::services::guest_account::GuestAccount;
 use crate::services::node_ops::{self, DomainParts, LabZtp};
 use crate::services::node_resources;
@@ -22,7 +23,7 @@ use crate::services::talos::LabCluster;
 use crate::tls::lab_ca::{self, LabCa, NodeCertPaths, NodeIdentity};
 
 use shared::data;
-use shared::data::{ClusterMember, LabSubnets, RecordId, StatusKind};
+use shared::data::{ClusterMember, RecordId, StatusKind};
 use shared::konst::{
     DNSMASQ_DIR, KVM_OUI, MTU_JUMBO_NET, NODE_CONFIGS_DIR, SSH_PORT, TFTP_DIR, ZTP_DIR,
 };
@@ -37,7 +38,6 @@ pub(super) struct ConfigInputs<'a> {
     pub(super) lab_node_data: &'a [data::LabNodeData],
     pub(super) mgmt_net: &'a data::SherpaNetwork,
     pub(super) dns: &'a data::Dns,
-    pub(super) subnets: &'a LabSubnets,
     pub(super) owner_account: &'a GuestAccount,
     pub(super) talos_clusters: &'a [topology::TalosCluster],
 }
@@ -349,12 +349,6 @@ impl Configuring<'_, '_> {
             .find(|n| n.name == node.name)
             .map(|n| &n.record)
             .with_context(|| format!("Node '{}' has no database record", node.name))?;
-        let loopback_host = u8::try_from(node_data.index).with_context(|| {
-            format!(
-                "Node '{}' has an index past the loopback network",
-                node.name
-            )
-        })?;
         node_ops::build_domain_template(
             node,
             &node_image,
@@ -363,8 +357,7 @@ impl Configuring<'_, '_> {
             DomainParts {
                 disks: ztp_result.disks,
                 interfaces,
-                loopback_ipv4: util::get_ip(&self.inputs.subnets.loopback_subnet, loopback_host)
-                    .to_string(),
+                serial_socket: console::serial_socket_path(self.build.lab_id, node_data.index)?,
                 management_network: node_data.management_network.clone(),
                 isolated_network: node_data
                     .isolated_network
@@ -416,12 +409,6 @@ impl Configuring<'_, '_> {
             &setup_result.mac_address,
             self.build.lab_id,
         )?;
-        let loopback_host = u8::try_from(node_data.index).with_context(|| {
-            format!(
-                "Node '{}' has an index past the loopback network",
-                node.name
-            )
-        })?;
         let domain = node_ops::build_unikernel_domain_template(
             node,
             &node_image,
@@ -430,8 +417,7 @@ impl Configuring<'_, '_> {
             DomainParts {
                 disks: setup_result.disks,
                 interfaces,
-                loopback_ipv4: util::get_ip(&self.inputs.subnets.loopback_subnet, loopback_host)
-                    .to_string(),
+                serial_socket: console::serial_socket_path(self.build.lab_id, node_data.index)?,
                 management_network: node_data.management_network.clone(),
                 isolated_network: node_data
                     .isolated_network
@@ -584,7 +570,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use crate::konst::{LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, ZTP_ISO};
-    use shared::data::{ModelKind, NodeKind, NodeModel};
+    use shared::data::{LabSubnets, ModelKind, NodeKind, NodeModel};
 
     use super::super::networks::management_network;
     use super::*;
@@ -594,7 +580,6 @@ mod tests {
 
     fn subnets() -> LabSubnets {
         LabSubnets {
-            loopback_subnet: "127.127.1.0/24".parse().unwrap(),
             management_subnet: "172.31.1.0/24".parse().unwrap(),
             gateway_ipv4: "172.31.1.1".parse().unwrap(),
             router_ipv4: "172.31.1.2".parse().unwrap(),
@@ -732,7 +717,6 @@ mod tests {
                 lab_node_data: &lab_node_data,
                 mgmt_net: &mgmt_net,
                 dns: &util::default_dns(&mgmt_net.v4.prefix).unwrap(),
-                subnets: &subnets(),
                 owner_account: &test_account("alice", &[]),
                 talos_clusters: &[],
             },

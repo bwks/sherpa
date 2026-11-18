@@ -1616,7 +1616,7 @@ mod tests {
             &lab_info,
             "id = \"abc123\"\nname = \"it\"\nuser = \"sherpa\"\n\
              ipv4_network = \"127.0.0.0/24\"\nipv4_gateway = \"127.0.0.1\"\n\
-             ipv4_router = \"127.0.0.2\"\nloopback_network = \"127.0.1.0/24\"\n",
+             ipv4_router = \"127.0.0.2\"\n",
         )
         .unwrap();
         let (gateway, lab) = state::lab_gateway(&lab_dir).unwrap();

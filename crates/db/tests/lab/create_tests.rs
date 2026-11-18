@@ -20,12 +20,7 @@ async fn test_create_lab_success() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -53,12 +48,7 @@ async fn create_lab_stores_its_description_and_where_it_was_started() -> Result<
         "Core",
         "lab-0003",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &details,
     )
     .await?;
@@ -82,12 +72,7 @@ async fn create_lab_stores_its_description_and_where_it_was_started() -> Result<
         "Web",
         "lab-0004",
         &user,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.2.1",
-            "172.31.2.2",
-        ),
+        &ipv4_lab_networks("172.31.2.0/24", "172.31.2.1", "172.31.2.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -114,12 +99,7 @@ async fn test_create_lab_with_user() -> Result<()> {
         "Bob's Lab",
         "lab-0002",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -142,12 +122,7 @@ async fn test_create_lab_duplicate_lab_id_fails() -> Result<()> {
         "Lab One",
         "lab-0003",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -158,12 +133,7 @@ async fn test_create_lab_duplicate_lab_id_fails() -> Result<()> {
         "Lab Two",
         "lab-0003",
         &user,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.2.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await;
@@ -191,12 +161,7 @@ async fn test_create_lab_duplicate_name_per_user_fails() -> Result<()> {
         "My Lab",
         "lab-0004",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -207,12 +172,7 @@ async fn test_create_lab_duplicate_name_per_user_fails() -> Result<()> {
         "My Lab",
         "lab-0005",
         &user,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.2.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await;
@@ -244,12 +204,7 @@ async fn test_create_lab_same_name_different_users_succeeds() -> Result<()> {
         "Shared Name",
         "lab-0006",
         &user1,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -258,12 +213,7 @@ async fn test_create_lab_same_name_different_users_succeeds() -> Result<()> {
         "Shared Name",
         "lab-0007",
         &user2,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.2.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -287,12 +237,7 @@ async fn test_create_lab_invalid_lab_id_too_short() -> Result<()> {
         "Invalid Lab",
         "lab-01",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await;
@@ -319,12 +264,7 @@ async fn test_create_lab_invalid_lab_id_too_long() -> Result<()> {
         "Invalid Lab",
         "lab-00001",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await;
@@ -351,12 +291,7 @@ async fn test_create_lab_invalid_lab_id_chars() -> Result<()> {
         "Invalid Lab",
         "lab_0008",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await;
@@ -399,12 +334,7 @@ async fn test_create_lab_increases_count() -> Result<()> {
         "Count Test",
         "lab-0011",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -418,7 +348,6 @@ async fn test_create_lab_increases_count() -> Result<()> {
 
 fn dual_stack_networks(index: u8) -> LabNetworks {
     LabNetworks {
-        loopback_network: format!("127.127.{index}.0/24"),
         management_network: format!("172.31.{index}.0/24"),
         gateway_ipv4: format!("172.31.{index}.1"),
         router_ipv4: format!("172.31.{index}.2"),
@@ -439,12 +368,7 @@ async fn test_create_lab_duplicate_management_network_fails() -> Result<()> {
         "Lab One",
         "lab-0101",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -453,12 +377,7 @@ async fn test_create_lab_duplicate_management_network_fails() -> Result<()> {
         "Lab Two",
         "lab-0102",
         &user,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await;
@@ -467,21 +386,6 @@ async fn test_create_lab_duplicate_management_network_fails() -> Result<()> {
         "A management subnet must belong to one lab"
     );
 
-    let result = create_lab(
-        &db,
-        "Lab Three",
-        "lab-0103",
-        &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.3.0/24",
-            "172.31.3.1",
-            "172.31.3.2",
-        ),
-        &LabDetails::default(),
-    )
-    .await;
-    assert!(result.is_err(), "A loopback subnet must belong to one lab");
     assert_eq!(
         list_labs(&db).await?.len(),
         1,
@@ -543,12 +447,7 @@ async fn test_labs_without_ipv6_do_not_conflict() -> Result<()> {
         "Lab One",
         "lab-0121",
         &user,
-        &ipv4_lab_networks(
-            "127.127.1.0/24",
-            "172.31.1.0/24",
-            "172.31.1.1",
-            "172.31.1.2",
-        ),
+        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
         &LabDetails::default(),
     )
     .await?;
@@ -557,12 +456,7 @@ async fn test_labs_without_ipv6_do_not_conflict() -> Result<()> {
         "Lab Two",
         "lab-0122",
         &user,
-        &ipv4_lab_networks(
-            "127.127.2.0/24",
-            "172.31.2.0/24",
-            "172.31.2.1",
-            "172.31.2.2",
-        ),
+        &ipv4_lab_networks("172.31.2.0/24", "172.31.2.1", "172.31.2.2"),
         &LabDetails::default(),
     )
     .await?;

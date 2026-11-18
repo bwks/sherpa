@@ -199,7 +199,6 @@ user = "dev"
 ipv4_network = "172.31.3.0/24"
 ipv4_gateway = "172.31.3.1"
 ipv4_router = "172.31.3.2"
-loopback_network = "127.127.3.0/24"
 "#;
 
     fn lab_files(lab_info: &LabInfo) -> LabFiles<'_> {

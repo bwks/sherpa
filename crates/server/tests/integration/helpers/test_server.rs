@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use sherpad::api::build_router;
 use sherpad::api::websocket;
+use sherpad::daemon::console_sessions::ConsoleSessions;
 use sherpad::daemon::link_states::LinkStates;
 use sherpad::daemon::metrics::Metrics;
 use sherpad::daemon::run_scanner;
@@ -78,6 +79,7 @@ impl TestServer {
             metrics: Metrics::noop(),
             pending_jobs: Arc::new(DashMap::new()),
             link_states: LinkStates::default(),
+            console_sessions: ConsoleSessions::default(),
         };
 
         if state.config.scanner.enabled {

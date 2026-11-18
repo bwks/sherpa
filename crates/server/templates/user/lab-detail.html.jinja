@@ -56,10 +56,6 @@
             <span class="block text-sm font-medium text-muted mb-1">State</span>
             <span class="block text-base">{% let badge = state_badge %}{% include "snippets/badge.html.jinja" %}</span>
         </div>
-        <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-muted mb-1">Loopback Network</span>
-            <span class="block text-base text-heading font-mono">{{ lab_info.loopback_network }}</span>
-        </div>
         {% if let Some(ipv6_network) = lab_info.ipv6_network %}
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">IPv6 Management Network</span>

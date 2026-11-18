@@ -6,9 +6,7 @@ use shared::data::{
     LinkState, NodeConfig, NodeKind, NodeState, Observation, Probe, RecordId,
 };
 use shared::konst::SHERPA_STORAGE_POOL;
-use shared::util::get_ipv4_addr;
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
 use std::time::Instant;
 use tracing::Instrument;
 use tracing::instrument;
@@ -204,8 +202,7 @@ async fn devices(
 }
 
 /// The `devices` of the lab `lab_info` as `ctx` may see them: in full for the lab's owner; for
-/// anyone else, an admin, without the serial console addresses and VNC ports, which only the
-/// owner may connect to.
+/// anyone else, an admin, without the VNC ports, which only the owner may connect to.
 fn shown_to(
     ctx: &AuthContext,
     lab_info: &LabInfo,
@@ -219,18 +216,16 @@ fn shown_to(
         username = %ctx.username,
         lab_id = %lab_info.id,
         owner = %lab_info.user,
-        "Serial consoles and VNC ports hidden from a caller who does not own the lab"
+        "VNC ports hidden from a caller who does not own the lab"
     );
     for device in &mut devices {
-        device.console_address = None;
         device.vnc_port = None;
     }
     devices
 }
 
 /// A node's details: its state, addresses and resources from the database, and its disks
-/// from the storage pool. A VM's or unikernel's serial console is on its index in the lab's
-/// loopback network, where `up` and `redeploy` put its telnet chardev.
+/// from the storage pool.
 fn device_info(
     node: &DbNode,
     image: &NodeConfig,
@@ -255,19 +250,7 @@ fn device_info(
         disks,
         cpu_count: node.cpu_count,
         memory: node.memory,
-        console_address: console_address(node, image.kind(), lab_info),
     }
-}
-
-/// The address of `node`'s serial console, or `None` for a container, which has none, or for
-/// an index past the lab's loopback network.
-fn console_address(node: &DbNode, kind: NodeKind, lab_info: &LabInfo) -> Option<Ipv4Addr> {
-    if kind == NodeKind::Container {
-        return None;
-    }
-    get_ipv4_addr(&lab_info.loopback_network, u32::from(node.index))
-        .inspect_err(|error| tracing::warn!(node = %node.name, %error, "No console address"))
-        .ok()
 }
 
 /// The state to report for `node` of `kind` in lab `lab_id`. A container's comes from Docker's
@@ -531,34 +514,9 @@ mod tests {
     }
 
     fn lab_info() -> LabInfo {
-        "id='a1b2c3d4'\nname='core'\nuser='alice'\nipv4_network='172.31.0.0/24'\nipv4_gateway='172.31.0.1'\nipv4_router='172.31.0.2'\nloopback_network='127.127.3.0/24'"
+        "id='a1b2c3d4'\nname='core'\nuser='alice'\nipv4_network='172.31.0.0/24'\nipv4_gateway='172.31.0.1'\nipv4_router='172.31.0.2'"
             .parse()
             .unwrap()
-    }
-
-    #[test]
-    fn a_vm_and_a_unikernel_have_their_console_on_their_loopback_address() {
-        for model in [NodeModel::UbuntuLinux, NodeModel::UnikraftUnikernel] {
-            let image = ModelKind::default_for(model).node_config();
-            let node = DbNode {
-                index: 4,
-                ..db_node("dev01")
-            };
-            let device = device_info(&node, &image, &[], &lab_info());
-            assert_eq!(
-                device.console_address,
-                Some("127.127.3.4".parse().unwrap()),
-                "{model}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_container_has_no_console_address() {
-        let image = ModelKind::default_for(NodeModel::NokiaSrlinux).node_config();
-        assert_eq!(image.kind(), NodeKind::Container);
-        let device = device_info(&db_node("srl01"), &image, &[], &lab_info());
-        assert_eq!(device.console_address, None);
     }
 
     fn lab_devices() -> Vec<DeviceInfo> {
@@ -567,28 +525,23 @@ mod tests {
     }
 
     #[test]
-    fn the_owner_sees_the_console_address_and_vnc_port() {
+    fn the_owner_sees_the_vnc_port() {
         let devices = shown_to(
             &AuthContext::for_test("alice", false),
             &lab_info(),
             lab_devices(),
         );
         assert_eq!(devices[0].vnc_port, Some(5903));
-        assert_eq!(
-            devices[0].console_address,
-            Some("127.127.3.1".parse().unwrap())
-        );
     }
 
     #[test]
-    fn anyone_but_the_owner_sees_no_console_address_or_vnc_port() {
+    fn anyone_but_the_owner_sees_no_vnc_port() {
         for caller in [
             AuthContext::for_test("dana", true),
             AuthContext::for_test("bob", false),
         ] {
             let devices = shown_to(&caller, &lab_info(), lab_devices());
             assert_eq!(devices[0].vnc_port, None, "{}", caller.username);
-            assert_eq!(devices[0].console_address, None, "{}", caller.username);
             // The rest of the node is shown as it is to the owner.
             assert_eq!(devices[0].mgmt_ipv4, "172.31.0.21");
         }

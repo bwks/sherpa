@@ -1,5 +1,3 @@
-use std::net::Ipv4Addr;
-
 use super::TailnetStatus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -50,12 +48,6 @@ pub struct DeviceInfo {
     /// Memory in MB the node was given; `None` as for `cpu_count`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory: Option<u16>,
-    /// Where the node's serial console listens on the server, on the telnet port: its address
-    /// in the lab's loopback network. `None` for a container, which has no serial console, for
-    /// anyone but the lab's owner, and from servers that do not report it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "Option<String>")]
-    pub console_address: Option<Ipv4Addr>,
 }
 
 /// Display-ready information about a point-to-point link between two nodes
@@ -134,7 +126,7 @@ mod tests {
         assert_eq!(back.index, None);
     }
 
-    fn device(console_address: Option<Ipv4Addr>) -> DeviceInfo {
+    fn device() -> DeviceInfo {
         DeviceInfo {
             name: "vm1".to_string(),
             model: NodeModel::AlpineLinux,
@@ -146,20 +138,16 @@ mod tests {
             disks: Vec::new(),
             cpu_count: None,
             memory: None,
-            console_address,
         }
     }
 
     #[test]
-    fn a_device_carries_its_console_address_and_none_from_an_older_server() {
-        let value = serde_json::to_value(device(Some(Ipv4Addr::new(127, 127, 3, 1)))).unwrap();
-        assert_eq!(value["console_address"], serde_json::json!("127.127.3.1"));
+    fn a_device_has_no_console_address_and_one_from_an_older_server_is_ignored() {
+        // The console is reached through sherpad's API, not at an address (#674).
+        let mut value = serde_json::to_value(device()).unwrap();
+        assert!(value.get("console_address").is_none(), "{value}");
+        value["console_address"] = serde_json::json!("127.127.3.1");
         let back: DeviceInfo = serde_json::from_value(value).unwrap();
-        assert_eq!(back.console_address, Some(Ipv4Addr::new(127, 127, 3, 1)));
-
-        let mut old = serde_json::to_value(device(None)).unwrap();
-        assert!(old.get("console_address").is_none(), "{old}");
-        let back: DeviceInfo = serde_json::from_value(old.take()).unwrap();
-        assert_eq!(back.console_address, None);
+        assert_eq!(back.name, "vm1");
     }
 }

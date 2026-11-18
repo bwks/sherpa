@@ -1,6 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 #![forbid(unsafe_code)]
 
+mod console;
 mod host;
 mod interface;
 mod names;
@@ -12,6 +13,7 @@ mod size;
 mod storage;
 mod vm;
 
+pub use console::{SerialConsole, move_serial_to_socket, serial_console};
 pub use host::{
     DomainMemory, HostCpus, HostMemory, NumaCell, host_cpus, host_memory, list_domain_memory,
 };

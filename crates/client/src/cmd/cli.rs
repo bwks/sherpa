@@ -164,7 +164,13 @@ enum Commands {
     Validate,
 
     /// Connect to a node's serial console, through the Sherpa server
-    Console { name: String },
+    Console {
+        name: String,
+        /// Take the console over from a session of yours that holds it, such as one left open
+        /// on another machine
+        #[arg(long)]
+        force: bool,
+    },
 
     /// SSH to a device.
     Ssh { name: String },
@@ -367,9 +373,9 @@ async fn run_remote(command: &Commands, server_url: &str, config: &ClientConfig)
             inspect(&lab.name, &lab.id, server_url, config).await
         }
         Commands::Download { lab_id, force } => download(lab_id, *force, server_url, config).await,
-        Commands::Console { name } => {
+        Commands::Console { name, force } => {
             let lab = resolve_lab_identity(Path::new(""))?;
-            console(name, &lab.id, server_url, config).await
+            console(name, &lab, *force, server_url, config).await
         }
         Commands::Ssh { name } => {
             let lab = resolve_lab_identity(Path::new(""))?;
@@ -512,6 +518,23 @@ mod tests {
         }
         for args in [&["login"][..], &["whoami"], &["logout"], &["validate"]] {
             assert!(!uses(args), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn console_takes_force_to_take_the_console_over() {
+        for (args, expected) in [
+            (&["sherpa", "console", "alp01"][..], false),
+            (&["sherpa", "console", "alp01", "--force"], true),
+        ] {
+            let cli = Cli::try_parse_from(args).unwrap();
+            match cli.commands {
+                Commands::Console { name, force } => {
+                    assert_eq!(name, "alp01");
+                    assert_eq!(force, expected, "{args:?}");
+                }
+                other => panic!("unexpected command: {other:?}"),
+            }
         }
     }
 

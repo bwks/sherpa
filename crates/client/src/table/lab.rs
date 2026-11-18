@@ -219,10 +219,6 @@ pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
         ],
         ["IPv4 Gateway".to_owned(), lab_info.ipv4_gateway.to_string()],
         ["IPv4 Router".to_owned(), lab_info.ipv4_router.to_string()],
-        [
-            "Loopback Network".to_owned(),
-            lab_info.loopback_network.to_string(),
-        ],
     ];
     if let Some(description) = &lab_info.description {
         rows.insert(2, ["Description".to_owned(), description.clone()]);
@@ -553,7 +549,6 @@ mod tests {
             disks: vec!["/var/lib/sherpa/labs/test/router01.qcow2".to_string()],
             cpu_count: None,
             memory: None,
-            console_address: None,
         }];
 
         let table = render_devices_table(&devices, "a1b2c3d4");
@@ -587,7 +582,6 @@ mod tests {
                 ],
                 cpu_count: None,
                 memory: None,
-                console_address: None,
             },
             DeviceInfo {
                 name: "switch01".to_string(),
@@ -600,7 +594,6 @@ mod tests {
                 disks: vec!["/var/lib/sherpa/labs/test/switch01.qcow2".to_string()],
                 cpu_count: None,
                 memory: None,
-                console_address: None,
             },
         ];
 
@@ -632,7 +625,6 @@ mod tests {
                 disks: vec![],
                 cpu_count: Some(16),
                 memory: Some(32768),
-                console_address: None,
             },
             DeviceInfo {
                 name: "db01".to_string(),
@@ -645,7 +637,6 @@ mod tests {
                 disks: vec![],
                 cpu_count: None,
                 memory: None,
-                console_address: None,
             },
         ];
 
@@ -675,7 +666,6 @@ mod tests {
             disks: vec![],
             cpu_count: None,
             memory: None,
-            console_address: None,
         }];
 
         let table = render_devices_table(&devices, "a1b2c3d4");
@@ -711,7 +701,6 @@ mod tests {
             ipv4_network: "172.31.0.0/24".parse().unwrap(),
             ipv4_gateway: Ipv4Addr::new(172, 31, 0, 1),
             ipv4_router: Ipv4Addr::new(172, 31, 0, 2),
-            loopback_network: "127.127.1.0/24".parse().unwrap(),
             ipv6_network: None,
             ipv6_gateway: None,
             ipv6_router: None,
@@ -756,7 +745,6 @@ mod tests {
             ipv4_network: "172.31.0.0/24".parse().unwrap(),
             ipv4_gateway: "172.31.0.1".parse().unwrap(),
             ipv4_router: "172.31.0.2".parse().unwrap(),
-            loopback_network: "127.127.1.0/24".parse().unwrap(),
             ipv6_network: None,
             ipv6_gateway: None,
             ipv6_router: None,

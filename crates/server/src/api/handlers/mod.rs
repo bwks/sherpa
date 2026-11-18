@@ -2,6 +2,7 @@
 
 mod admin_web;
 mod auth;
+mod console;
 mod images_api;
 mod images_web;
 mod labs_api;
@@ -12,6 +13,7 @@ mod users_api;
 
 pub use admin_web::*;
 pub use auth::*;
+pub use console::*;
 pub use images_api::*;
 pub use images_web::*;
 pub use labs_api::*;

@@ -84,7 +84,6 @@ mod tests {
             lab_id: key.to_string(),
             name: key.to_string(),
             user: RecordId::new("user", "alice".to_string()),
-            loopback_network: String::new(),
             management_network: String::new(),
             gateway_ipv4: String::new(),
             router_ipv4: String::new(),

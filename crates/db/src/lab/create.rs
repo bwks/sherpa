@@ -12,7 +12,6 @@ use crate::sql::query_optional;
 /// The subnets and addresses allocated to one lab.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LabNetworks {
-    pub loopback_network: String,
     pub management_network: String,
     pub gateway_ipv4: String,
     pub router_ipv4: String,
@@ -101,7 +100,6 @@ pub async fn create_lab(
         lab_id: lab_id.to_string(),
         name: name.to_string(),
         user: user_id,
-        loopback_network: networks.loopback_network.clone(),
         management_network: networks.management_network.clone(),
         gateway_ipv4: networks.gateway_ipv4.clone(),
         router_ipv4: networks.router_ipv4.clone(),

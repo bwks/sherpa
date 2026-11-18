@@ -4,6 +4,7 @@ pub mod backup;
 pub(crate) mod boot_server;
 pub mod cancel;
 pub mod clean;
+pub mod console;
 pub(crate) mod container_networks;
 pub mod container_pull;
 pub(crate) mod container_scan;
