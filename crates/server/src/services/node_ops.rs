@@ -4732,6 +4732,7 @@ pub async fn destroy_container_node(
 pub(crate) mod tests {
     use super::*;
     use crate::konst::TFTP_DIR_MODE;
+    use crate::log_capture::capture_log;
     use crate::services::guest_account::tests::test_account;
     use nix::sys::stat::{Mode, umask};
     use sha_crypt::{PasswordVerifier, ShaCrypt};
@@ -7147,34 +7148,10 @@ pub(crate) mod tests {
         );
     }
 
-    /// Log lines written by a test's subscriber.
-    #[derive(Clone, Default)]
-    struct CapturedLog(Arc<std::sync::Mutex<Vec<u8>>>);
-
-    impl io::Write for CapturedLog {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
     #[test]
     fn admin_passwords_are_in_no_log_line() {
-        let log = CapturedLog::default();
-        let writer = log.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_ansi(false)
-            .without_time()
-            .with_max_level(tracing::Level::TRACE)
-            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
-            .with_writer(move || writer.clone())
-            .finish();
         let lab = ZtpLab::new();
-        let (keycloak, surreal_db) = tracing::subscriber::with_default(subscriber, || {
+        let ((keycloak, surreal_db), output) = capture_log(|| {
             let mut db01 = named_node("db01", data::NodeModel::SurrealDb);
             // Created, then redeployed.
             keycloak_settings(&lab, "kc01");
@@ -7186,7 +7163,6 @@ pub(crate) mod tests {
             )
         });
 
-        let output = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
         assert!(output.contains("db01"), "the setup was logged: {output}");
         for password in [
             env_value(&keycloak.env_vars, "KC_BOOTSTRAP_ADMIN_PASSWORD").unwrap(),
