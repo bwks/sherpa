@@ -10,7 +10,7 @@ Brings up a lab started by the owner (the CLI's current login) with an Ubuntu VM
 container. Checks the owner reaches each node with `sherpa ssh` by key and with ssh by the device
 password, has administrator rights on each, is refused as the old shared `sherpa` user, and has no
 key file in the lab folder. Then checks a second account, an admin who does not own the lab, which
-works with its own HOME: it can inspect the lab but sees no VNC ports, is refused `sherpa download`,
+works with its own HOME: it can inspect the lab, is refused `sherpa download`,
 `sherpa ssh` and `sherpa console`, cannot reach the nodes with ssh and its own key, and cannot add a
 key to the owner's account; the admin then destroys the lab. Always destroys the lab. See README.md.
 """
@@ -116,7 +116,6 @@ INFO_ADMIN = re.compile(r"^\s*Admin:\s*(Yes|No)\s*$", re.MULTILINE)
 # A terminal control sequence, such as the colours and cursor moves of SR Linux's CLI.
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 PRIVATE_KEY = re.compile(rb"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|openssh-key-v1")
-VNC_PORT = re.compile(r"^\d+$")
 CELL_SEPARATOR = "│"
 SECRETS = []
 
@@ -640,7 +639,7 @@ class LabRun:
         for node in (VM, CONTAINER):
             self.wait_for_login(node)
         self.check_no_key_in_lab_folder()
-        self.check_owner_sees_vnc_port()
+        self.check_owner_inspect()
         for node in (VM, CONTAINER):
             self.check_key_login(node)
         password_config = self.run_root / "password_ssh_config"
@@ -665,13 +664,12 @@ class LabRun:
         found = private_key_files(self.directory / ".sherpa")
         require(not found, f"the lab folder has private key files: {[str(path) for path in found]}")
 
-    def check_owner_sees_vnc_port(self):
-        """The owner's inspect shows the VM's VNC port, so the admin's not showing one means something."""
+    def check_owner_inspect(self):
+        """The owner's inspect lists both nodes, with no VNC port: VNC goes through `sherpa vnc`."""
         rows = {row["Device"]: row for row in parse_devices_table(self.sherpa("sherpa inspect", ["inspect"]).stdout)}
         require(self.alias(VM) in rows and self.alias(CONTAINER) in rows,
                 f"sherpa inspect does not list both nodes: {sorted(rows)}")
-        require(VNC_PORT.match(rows[self.alias(VM)]["VNC Port"]),
-                f"the owner's inspect shows no VNC port for {VM}: {rows[self.alias(VM)]['VNC Port']!r}")
+        require("VNC Port" not in rows[self.alias(VM)], "the owner's inspect has a VNC Port column")
 
     def check_key_login(self, node):
         """`sherpa ssh` logs in by key, runs the node's probe command and leaves."""
@@ -767,13 +765,11 @@ class LabRun:
         self.admin_destroy()
 
     def check_admin_inspect(self):
-        """An admin sees the lab and its nodes, but no VNC port: the way to connect to the node."""
+        """An admin sees the lab and its nodes."""
         outcome = self.admin("sherpa inspect", ["inspect"])
         rows = {row["Device"]: row for row in parse_devices_table(outcome.stdout)}
         for node in (VM, CONTAINER):
             require(self.alias(node) in rows, f"the admin's inspect does not list {node}: {sorted(rows)}")
-        shown = {device: row["VNC Port"] for device, row in rows.items() if row["VNC Port"] != "-"}
-        require(not shown, f"the admin's inspect shows VNC ports: {shown}")
 
     def check_admin_download_refused(self):
         outcome = self.admin("sherpa download", ["download", self.lab_id], cwd=self.download_directory,
@@ -1054,18 +1050,16 @@ class SelfTest(unittest.TestCase):
                 "┌──────────┬───────┐\n│ Property │ Value │\n└──────────┴───────┘\n\n"
                 "┌──────────────────────────────────┐\n│           Active Nodes           │\n"
                 "├────────────────┬─────────┬───────┤\n"
-                "│ Device         │ Model   │ VNC Port │ Disks │\n"
+                "│ Device         │ Model   │ Memory (MB) │ Disks │\n"
                 "├────────────────┼─────────┼───────┤\n"
-                "│ ubu01.abcd1234 │ ubuntu  │ -        │ a.qcow2 │\n"
-                "│                │         │          │ b.qcow2 │\n"
+                "│ ubu01.abcd1234 │ ubuntu  │ -           │ a.qcow2 │\n"
+                "│                │         │             │ b.qcow2 │\n"
                 "├────────────────┼─────────┼───────┤\n"
-                "│ srl01.abcd1234 │ srlinux │ 5903     │ -       │\n"
+                "│ srl01.abcd1234 │ srlinux │ 2048        │ -       │\n"
                 "└────────────────┴─────────┴───────┘\n\n│ Node A │ Node B │\n")
         rows = parse_devices_table(text)
         self.assertEqual([row["Device"] for row in rows], ["ubu01.abcd1234", "srl01.abcd1234"])
-        self.assertEqual([row["VNC Port"] for row in rows], ["-", "5903"])
-        self.assertTrue(VNC_PORT.match("5903"))
-        self.assertFalse(VNC_PORT.match("-"))
+        self.assertEqual([row["Memory (MB)"] for row in rows], ["-", "2048"])
         self.assertEqual(parse_devices_table("nothing here"), [])
 
     def test_password_prompts_name_the_host_that_asks(self):

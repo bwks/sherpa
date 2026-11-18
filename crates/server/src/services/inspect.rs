@@ -14,7 +14,7 @@ use uuid::Uuid;
 use virt::storage_pool::StoragePool;
 
 use crate::auth::context::AuthContext;
-use crate::auth::policy::{LabRule, check_lab_rule, require_lab_access};
+use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 use crate::services::lab_info;
 use crate::services::node_lifecycle;
@@ -30,8 +30,7 @@ use crate::services::node_ops;
 /// - the server's in-memory link states (`AppState::link_states`) for each P2p link's last
 ///   state: none before the scanner first checks the lab
 ///
-/// The caller must own the lab or be an admin. An admin who does not own the lab is not shown
-/// the nodes' serial console addresses or VNC ports, which are for connecting to the nodes.
+/// The caller must own the lab or be an admin.
 #[instrument(skip(ctx, state), fields(username = %ctx.username, %lab_id))]
 pub async fn inspect_lab(
     ctx: &AuthContext,
@@ -143,11 +142,7 @@ async fn inspect_lab_inner(
         })
         .collect();
 
-    let devices = shown_to(
-        ctx,
-        &lab_info,
-        devices(state, &db_nodes, &node_images, &volumes, &lab_info).await?,
-    );
+    let devices = devices(state, &db_nodes, &node_images, &volumes, &lab_info).await?;
     let node_states: Vec<NodeState> = devices.iter().map(|device| device.state).collect();
 
     Ok(InspectResponse {
@@ -201,29 +196,6 @@ async fn devices(
     Ok(devices)
 }
 
-/// The `devices` of the lab `lab_info` as `ctx` may see them: in full for the lab's owner; for
-/// anyone else, an admin, without the VNC ports, which only the owner may connect to.
-fn shown_to(
-    ctx: &AuthContext,
-    lab_info: &LabInfo,
-    mut devices: Vec<DeviceInfo>,
-) -> Vec<DeviceInfo> {
-    if check_lab_rule(ctx, LabRule::OwnerOnly, &lab_info.id, &lab_info.user).is_ok() {
-        return devices;
-    }
-    tracing::info!(
-        event = "auth.owner_only_hidden",
-        username = %ctx.username,
-        lab_id = %lab_info.id,
-        owner = %lab_info.user,
-        "VNC ports hidden from a caller who does not own the lab"
-    );
-    for device in &mut devices {
-        device.vnc_port = None;
-    }
-    devices
-}
-
 /// A node's details: its state, addresses and resources from the database, and its disks
 /// from the storage pool.
 fn device_info(
@@ -246,7 +218,6 @@ fn device_info(
         state: node.state,
         mgmt_ipv4: node.mgmt_ipv4.clone().unwrap_or_default(),
         mgmt_ipv6: node.mgmt_ipv6.clone(),
-        vnc_port: node.vnc_port,
         disks,
         cpu_count: node.cpu_count,
         memory: node.memory,
@@ -333,7 +304,6 @@ mod tests {
             state: NodeState::Running,
             cpu_count: Some(16),
             memory: Some(32768),
-            vnc_port: Some(5903),
             ssh_host_key: None,
             ready_check: ReadyCheck::default(),
             ssh_username: None,
@@ -519,34 +489,6 @@ mod tests {
             .unwrap()
     }
 
-    fn lab_devices() -> Vec<DeviceInfo> {
-        let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
-        vec![device_info(&db_node("dev01"), &image, &[], &lab_info())]
-    }
-
-    #[test]
-    fn the_owner_sees_the_vnc_port() {
-        let devices = shown_to(
-            &AuthContext::for_test("alice", false),
-            &lab_info(),
-            lab_devices(),
-        );
-        assert_eq!(devices[0].vnc_port, Some(5903));
-    }
-
-    #[test]
-    fn anyone_but_the_owner_sees_no_vnc_port() {
-        for caller in [
-            AuthContext::for_test("dana", true),
-            AuthContext::for_test("bob", false),
-        ] {
-            let devices = shown_to(&caller, &lab_info(), lab_devices());
-            assert_eq!(devices[0].vnc_port, None, "{}", caller.username);
-            // The rest of the node is shown as it is to the owner.
-            assert_eq!(devices[0].mgmt_ipv4, "172.31.0.21");
-        }
-    }
-
     #[test]
     fn device_details_come_from_the_database_and_pool() {
         let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
@@ -557,7 +499,6 @@ mod tests {
         let device = device_info(&db_node("dev01"), &image, &volumes, &lab_info());
         assert_eq!(device.name, "dev01");
         assert_eq!(device.mgmt_ipv4, "172.31.0.21");
-        assert_eq!(device.vnc_port, Some(5903));
         assert_eq!(device.cpu_count, Some(16));
         assert_eq!(device.memory, Some(32768));
         assert_eq!(device.disks, vec!["dev01-a1b2c3d4-hdd.qcow2"]);

@@ -1,9 +1,11 @@
-//! The node console sessions sherpad relays: one per console.
+//! The node console sessions sherpad relays: one per console, serial or VNC.
 //!
 //! A serial console serves one client. sherpad holds the session open on each and answers a
 //! second at once, naming who holds it, instead of leaving it connected and silent as the
-//! socket would. The owner can take a console over from a session of their own left open
-//! elsewhere (`sherpa console --force`); the session taken over is told and closed.
+//! socket would. A VNC console is held the same way, so one viewer at a time sees and drives
+//! the node's screen. The owner can take a console over from a session of their own left open
+//! elsewhere (`sherpa console --force`, `sherpa vnc --force`); the session taken over is told
+//! and closed.
 
 use std::fmt;
 use std::net::SocketAddr;
@@ -15,17 +17,20 @@ use jiff::Timestamp;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use crate::services::console::ConsoleKind;
+
 /// The console sessions open now, by lab and node.
 #[derive(Clone, Default)]
 pub struct ConsoleSessions {
     held: Arc<DashMap<ConsoleKey, Holder>>,
 }
 
-/// A node console: its lab and the node's name.
+/// A node console: its lab, the node's name and which of its consoles.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ConsoleKey {
     lab_id: String,
     node_name: String,
+    kind: ConsoleKind,
 }
 
 /// Who asks for a console.
@@ -58,7 +63,7 @@ pub struct ConsoleClaim {
 }
 
 impl ConsoleSessions {
-    /// Claim the console of `node_name` in lab `lab_id` for `claimant`. A console another
+    /// Claim the `kind` console of `node_name` in lab `lab_id` for `claimant`. A console another
     /// session holds is refused with that session, unless `force` is set and the session is
     /// the claimant's own: it is then taken over, told so, and named in
     /// [`ConsoleClaim::displaced`].
@@ -70,12 +75,14 @@ impl ConsoleSessions {
         &self,
         lab_id: &str,
         node_name: &str,
+        kind: ConsoleKind,
         claimant: Claimant,
         force: bool,
     ) -> Result<ConsoleClaim, Holder> {
         let key = ConsoleKey {
             lab_id: lab_id.to_owned(),
             node_name: node_name.to_owned(),
+            kind,
         };
         let holder = Holder {
             claimant,
@@ -111,13 +118,14 @@ impl ConsoleSessions {
         })
     }
 
-    /// The session holding the console of `node_name` in lab `lab_id`, if any.
+    /// The session holding the `kind` console of `node_name` in lab `lab_id`, if any.
     #[must_use]
-    pub fn holder(&self, lab_id: &str, node_name: &str) -> Option<Holder> {
+    pub fn holder(&self, lab_id: &str, node_name: &str, kind: ConsoleKind) -> Option<Holder> {
         self.held
             .get(&ConsoleKey {
                 lab_id: lab_id.to_owned(),
                 node_name: node_name.to_owned(),
+                kind,
             })
             .map(|holder| holder.clone())
     }
@@ -153,6 +161,8 @@ impl fmt::Display for Holder {
 mod tests {
     use super::*;
 
+    const SERIAL: ConsoleKind = ConsoleKind::Serial;
+
     fn alice(port: u16) -> Claimant {
         Claimant {
             username: "alice".to_owned(),
@@ -163,47 +173,85 @@ mod tests {
     #[test]
     fn a_console_is_held_by_one_session_and_let_go_when_it_ends() {
         let sessions = ConsoleSessions::default();
-        let first = sessions.claim("lab1", "alp01", alice(1), false).unwrap();
+        let first = sessions
+            .claim("lab1", "alp01", SERIAL, alice(1), false)
+            .unwrap();
         assert!(first.displaced.is_none());
         let refused = sessions
-            .claim("lab1", "alp01", alice(2), false)
+            .claim("lab1", "alp01", SERIAL, alice(2), false)
             .err()
             .unwrap();
         assert_eq!(refused.claimant, alice(1));
         // The refused claim did not let go of the holder's console.
-        assert_eq!(sessions.holder("lab1", "alp01").unwrap().claimant, alice(1));
+        assert_eq!(
+            sessions.holder("lab1", "alp01", SERIAL).unwrap().claimant,
+            alice(1)
+        );
         // Another node's console, or the same node in another lab, is its own.
-        let _other = sessions.claim("lab1", "srx01", alice(3), false).unwrap();
-        let _elsewhere = sessions.claim("lab2", "alp01", alice(4), false).unwrap();
+        let _other = sessions
+            .claim("lab1", "srx01", SERIAL, alice(3), false)
+            .unwrap();
+        let _elsewhere = sessions
+            .claim("lab2", "alp01", SERIAL, alice(4), false)
+            .unwrap();
+        // The node's VNC console is held apart from its serial console.
+        let vnc = sessions
+            .claim("lab1", "alp01", ConsoleKind::Vnc, alice(5), false)
+            .unwrap();
+        assert!(
+            sessions
+                .claim("lab1", "alp01", ConsoleKind::Vnc, alice(6), false)
+                .is_err()
+        );
+        drop(vnc);
+        assert!(sessions.holder("lab1", "alp01", ConsoleKind::Vnc).is_none());
+        assert_eq!(
+            sessions.holder("lab1", "alp01", SERIAL).unwrap().claimant,
+            alice(1)
+        );
         drop(first);
-        assert!(sessions.holder("lab1", "alp01").is_none());
-        let _again = sessions.claim("lab1", "alp01", alice(2), false).unwrap();
+        assert!(sessions.holder("lab1", "alp01", SERIAL).is_none());
+        let _again = sessions
+            .claim("lab1", "alp01", SERIAL, alice(2), false)
+            .unwrap();
     }
 
     #[tokio::test]
     async fn force_takes_over_the_owners_own_session_and_tells_it() {
         let sessions = ConsoleSessions::default();
-        let first = sessions.claim("lab1", "alp01", alice(1), false).unwrap();
-        let second = sessions.claim("lab1", "alp01", alice(2), true).unwrap();
+        let first = sessions
+            .claim("lab1", "alp01", SERIAL, alice(1), false)
+            .unwrap();
+        let second = sessions
+            .claim("lab1", "alp01", SERIAL, alice(2), true)
+            .unwrap();
         assert_eq!(second.displaced.as_ref().unwrap().claimant, alice(1));
         first.taken_over().await;
         // The session taken over ends after the new one holds the console: it must not let go
         // of the new one's.
         drop(first);
-        assert_eq!(sessions.holder("lab1", "alp01").unwrap().claimant, alice(2));
+        assert_eq!(
+            sessions.holder("lab1", "alp01", SERIAL).unwrap().claimant,
+            alice(2)
+        );
         drop(second);
-        assert!(sessions.holder("lab1", "alp01").is_none());
+        assert!(sessions.holder("lab1", "alp01", SERIAL).is_none());
     }
 
     #[test]
     fn force_does_not_take_over_another_users_session() {
         let sessions = ConsoleSessions::default();
-        let _first = sessions.claim("lab1", "alp01", alice(1), false).unwrap();
+        let _first = sessions
+            .claim("lab1", "alp01", SERIAL, alice(1), false)
+            .unwrap();
         let bob = Claimant {
             username: "bob".to_owned(),
             client: None,
         };
-        let refused = sessions.claim("lab1", "alp01", bob, true).err().unwrap();
+        let refused = sessions
+            .claim("lab1", "alp01", SERIAL, bob, true)
+            .err()
+            .unwrap();
         assert_eq!(refused.claimant, alice(1));
     }
 

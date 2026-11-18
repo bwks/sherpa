@@ -91,9 +91,8 @@ Tests: `demoted_admin_token_loses_admin_rights_on_all_transports` and
 
 - Owner-or-admin operations (inspect, destroy, down, resume, link impairment) allow the owner and admins and refuse other users, on RPC, REST and every web route `[integration]` **P0**
 - `download` (RPC and the web zip) and `node.host_keys` are for the lab's owner only: an admin gets the owner-only refusal, another user is refused, and the owner is allowed `[integration]` **P0** (`lab_files_and_host_keys_are_for_the_lab_owner_only`)
-- `inspect` shows the VNC port to the owner only; for an admin or anyone else it is empty, and the rest of the node is unchanged `[unit]` **P0** (`inspect::tests::anyone_but_the_owner_sees_no_vnc_port`)
-- Only the lab's owner opens a node's console, admins included; a container, a missing lab and a missing node are refused `[unit]` **P0** (`services::console::tests::only_the_lab_owner_may_open_a_console`)
-- One session holds a console; `force` takes over only the owner's own `[unit]` **P0** (`daemon::console_sessions::tests`)
+- Only the lab's owner opens a node's serial or VNC console, admins included; a container, a unikernel's VNC, a missing lab and a missing node are refused `[unit]` **P0** (`services::console::tests::only_the_lab_owner_may_open_a_console`, `a_unikernel_has_a_serial_console_and_no_vnc_console`)
+- One session holds a console, a node's serial and VNC consoles apart; `force` takes over only the owner's own `[unit]` **P0** (`daemon::console_sessions::tests`)
 - The lab page offers the download to the owner only `[unit]` **P1** (`the_lab_detail_offers_the_download_only_to_the_owner_of_a_lab_with_known_nodes`)
 - Refused streaming requests send no progress, and a refused destroy leaves the lab `[integration]` **P0**
 - Authorization failures are typed (`ServiceError`) and map to 403/404/409 and RPC `AccessDenied`/`NotFound`, never by matching error text `[unit]` **P0**

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use futures::future::join_all;
+use libvirt::ConsoleSockets;
 use opentelemetry::KeyValue;
 use shared::data::{
     self, DbLab, Halt, LabNodeActionResponse, ModelKind, NodeActionResult, NodeKind,
@@ -156,12 +157,12 @@ pub async fn start_lab_nodes(
         let node_name = node.name.clone();
         let node_id = node.id.clone();
         let state = state.clone();
-        let serial_socket = console::serial_socket_path(lab_id, node.index);
+        let sockets = console::console_sockets(lab_id, node.index);
 
         futures.push(async move {
-            let outcome = match (kind, serial_socket) {
-                (NodeKind::VirtualMachine | NodeKind::Unikernel, Ok(serial_socket)) => {
-                    start_vm(&device_name, &serial_socket, &state).await
+            let outcome = match (kind, sockets) {
+                (NodeKind::VirtualMachine | NodeKind::Unikernel, Ok(sockets)) => {
+                    start_vm(&device_name, sockets, &state).await
                 }
                 (NodeKind::VirtualMachine | NodeKind::Unikernel, Err(error)) => {
                     StartOutcome::Failed(format!("{error:#}"))
@@ -629,11 +630,10 @@ async fn record_all(
 }
 
 /// Start a shut-off domain, or unpause a paused one. A domain defined before consoles moved
-/// behind sherpad has its console moved to `serial_socket` before it boots.
-async fn start_vm(device_name: &str, serial_socket: &str, state: &AppState) -> StartOutcome {
+/// behind sherpad has its serial and VNC consoles moved to `sockets` before it boots.
+async fn start_vm(device_name: &str, sockets: ConsoleSockets, state: &AppState) -> StartOutcome {
     let qemu = state.qemu.clone();
     let device_name = device_name.to_string();
-    let serial_socket = serial_socket.to_string();
 
     match tokio::task::spawn_blocking(move || -> Result<StartOutcome> {
         let conn = qemu.connect().context("Failed to connect to libvirt")?;
@@ -651,13 +651,13 @@ async fn start_vm(device_name: &str, serial_socket: &str, state: &AppState) -> S
         };
         let outcome = match start_step(node_lifecycle::libvirt_runtime(Some(code)), "domain") {
             Ok(StartStep::Boot) => {
-                match libvirt::move_serial_to_socket(&conn, &device_name, &serial_socket) {
+                match libvirt::move_consoles_to_sockets(&conn, &device_name, &sockets) {
                     Ok(_) => match domain.create() {
                         Ok(_) => StartOutcome::ColdBooted,
                         Err(e) => StartOutcome::Failed(format!("Failed to start: {e}")),
                     },
                     Err(e) => StartOutcome::Failed(format!(
-                        "Failed to move the console to its socket: {e:#}"
+                        "Failed to move the consoles to their sockets: {e:#}"
                     )),
                 }
             }
@@ -893,7 +893,6 @@ mod tests {
             state: NodeState::Running,
             cpu_count: None,
             memory: None,
-            vnc_port: None,
             ssh_host_key: None,
             ready_check: stored(port, skip),
             ssh_username: None,

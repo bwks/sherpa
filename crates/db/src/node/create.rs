@@ -55,7 +55,6 @@ pub async fn create_node(
         state: NodeState::Building,
         cpu_count: None,
         memory: None,
-        vnc_port: None,
         ssh_host_key: None,
         ready_check: ReadyCheck::default(),
         ssh_username: None,

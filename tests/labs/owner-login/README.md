@@ -73,14 +73,13 @@ As the owner, on each node:
 - the old shared `sherpa` user is refused, with the owner's key and with its old published
   password;
 - the lab folder has no `.sherpa/ssh/key` and no private key anywhere under `.sherpa/`;
-- the owner's `sherpa inspect` shows a VNC port for the VM, so the admin's not showing one means
-  something.
+- the owner's `sherpa inspect` lists both nodes, with no VNC port column: VNC goes through
+  `sherpa vnc`, which `tests/labs/console` checks.
 
 As the admin, working in a folder that holds a copy of the owner's `.sherpa/lab-info.toml`, which
 is how an admin names a lab they do not own:
 
-- `sherpa inspect` lists the nodes and shows no VNC port for any (the CLI's table does not show
-  the serial console address, so the console address is not checked here);
+- `sherpa inspect` lists the nodes;
 - `sherpa download <lab id>`, in an empty folder, is refused with `Only the owner of lab '<id>' can
   perform this operation`, and writes nothing;
 - `sherpa ssh` on each node and `sherpa console` on the VM are refused with `Only the owner of lab

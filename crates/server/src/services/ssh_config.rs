@@ -373,7 +373,6 @@ mod tests {
             state: NodeState::Running,
             cpu_count: None,
             memory: None,
-            vnc_port: None,
             ssh_host_key: None,
             ready_check: ReadyCheck::default(),
             ssh_username: None,

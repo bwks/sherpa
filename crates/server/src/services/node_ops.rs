@@ -36,7 +36,7 @@ use crate::tls::lab_ca::NodeCertPaths;
 use container::ContainerSpec;
 use db::DevicePassword;
 use iso::create_iso;
-use libvirt::Qemu;
+use libvirt::{ConsoleSockets, Qemu};
 use network::NetnsVethState;
 use shared::data;
 use shared::data::StatusKind;
@@ -323,8 +323,9 @@ pub enum VmReadiness {
 pub struct DomainParts {
     pub disks: Vec<data::NodeDisk>,
     pub interfaces: Vec<data::Interface>,
-    /// The UNIX socket of the node's serial console (`console::serial_socket_path`).
-    pub serial_socket: String,
+    /// The UNIX sockets of the node's serial and VNC consoles (`console::console_sockets`). A
+    /// unikernel has no VNC console, and binds only the serial one.
+    pub consoles: ConsoleSockets,
     pub management_network: String,
     /// Empty when the node has no isolated network.
     pub isolated_network: String,
@@ -3606,9 +3607,6 @@ pub fn build_domain_template(
     let cpu_count = resources
         .cpu_count
         .with_context(|| format!("Node '{}' has no vCPUs recorded", node.name))?;
-    let vnc_port = resources
-        .vnc_port
-        .with_context(|| format!("Node '{}' has no VNC port reserved", node.name))?;
     let vm = vm_settings(node_image)?;
     let cpu_model = match node.cpu.mode {
         Some(mode) => data::CpuModels::from(mode),
@@ -3642,7 +3640,8 @@ pub fn build_domain_template(
             node.model_kind,
             &vm.interfaces.kind,
         ),
-        serial_socket: parts.serial_socket,
+        serial_socket: parts.consoles.serial,
+        vnc_socket: parts.consoles.vnc,
         qemu_commands: firmware.qemu_commands,
         ignition_config: firmware.ignition_config,
         lab_id: lab_id.to_string(),
@@ -3656,7 +3655,6 @@ pub fn build_domain_template(
         cpu_features: cpu_features_for_model(node.model_kind),
         video_model: video_model.to_owned(),
         video_vram,
-        vnc_port,
         watchdog: node.vm.as_ref().and_then(|vm| vm.watchdog),
     })
 }
@@ -4333,7 +4331,7 @@ pub fn build_unikernel_domain_template(
         interface_type: unikernel.interfaces.kind.clone(),
         management_interface_type: unikernel.interfaces.kind.clone(),
         reserved_interface_type: unikernel.interfaces.kind.clone(),
-        serial_socket: parts.serial_socket,
+        serial_socket: parts.consoles.serial,
         management_network: parts.management_network,
         isolated_network: parts.isolated_network,
         reserved_network: parts.reserved_network,
@@ -5331,7 +5329,10 @@ pub(crate) mod tests {
             DomainParts {
                 disks: vec![],
                 interfaces: vec![],
-                serial_socket: "/opt/sherpa/run/console/lab1/1.serial".to_owned(),
+                consoles: ConsoleSockets {
+                    serial: "/opt/sherpa/run/console/lab1/1.serial".to_owned(),
+                    vnc: "/opt/sherpa/run/console/lab1/1.vnc".to_owned(),
+                },
                 management_network: "mgmt".to_owned(),
                 isolated_network: String::new(),
                 reserved_network: String::new(),
@@ -5340,7 +5341,6 @@ pub(crate) mod tests {
             &data::NodeResources {
                 cpu_count: Some(2),
                 memory: Some(4096),
-                vnc_port: Some(5900),
             },
         )
         .unwrap();
@@ -6171,7 +6171,10 @@ pub(crate) mod tests {
             DomainParts {
                 disks: result.disks,
                 interfaces: vec![],
-                serial_socket: "/opt/sherpa/run/console/lab1/1.serial".to_owned(),
+                consoles: ConsoleSockets {
+                    serial: "/opt/sherpa/run/console/lab1/1.serial".to_owned(),
+                    vnc: "/opt/sherpa/run/console/lab1/1.vnc".to_owned(),
+                },
                 management_network: "mgmt".to_owned(),
                 isolated_network: String::new(),
                 reserved_network: String::new(),
@@ -6180,7 +6183,6 @@ pub(crate) mod tests {
             &data::NodeResources {
                 cpu_count: Some(2),
                 memory: Some(2048),
-                vnc_port: Some(5900),
             },
         )
         .unwrap();

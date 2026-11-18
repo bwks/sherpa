@@ -121,7 +121,7 @@ The Sherpa CLI (`sherpad-client`) is the user-facing tool that communicates with
 
 | File | Purpose |
 |------|---------|
-| `cli-commands.md` | What to test for every CLI command: `up`, `down`, `destroy`, `resume`, `redeploy`, `inspect`, `validate`, `login`, `logout`, `init`, `new`, `console`, `ssh`, `image`, `cert`, and `server` admin subcommands. Covers argument parsing, manifest loading, environment variable expansion, output formatting, and error reporting for each command. |
+| `cli-commands.md` | What to test for every CLI command: `up`, `down`, `destroy`, `resume`, `redeploy`, `inspect`, `validate`, `login`, `logout`, `init`, `new`, `console`, `vnc`, `ssh`, `image`, `cert`, and `server` admin subcommands. Covers argument parsing, manifest loading, environment variable expansion, output formatting, and error reporting for each command. |
 | `websocket-client.md` | What to test for the WebSocket transport layer: connection establishment (plain and TLS), authentication handshake, request/response message handling, streaming message consumption (for long-running ops like `up` and `destroy`), timeout behavior, reconnection logic, and graceful disconnection. |
 | `token-management.md` | What to test for JWT token persistence: saving tokens to disk, loading from disk, detecting expired tokens, handling missing/corrupt token files, and file permission safety. |
 

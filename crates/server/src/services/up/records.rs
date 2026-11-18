@@ -107,11 +107,10 @@ pub(super) async fn create_node_records(
             lab_record_id.clone(),
         )
         .await?;
-        // Record its vCPUs, memory and, for a VM, its VNC console port.
-        let lab_node = node_resources::reserve_node_resources(
+        // Record its vCPUs and memory.
+        let lab_node = node_resources::store_node_resources(
             db,
             &lab_node,
-            &node_image.kind(),
             node_resources::planned_resources(node, &node_image),
         )
         .await?;

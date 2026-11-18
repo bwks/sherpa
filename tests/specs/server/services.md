@@ -92,7 +92,7 @@
 
 **What to test:**
 - Returns lab info (networks, gateways, subnets) `[integration]` **P0**
-- Returns per-node state, VNC ports, disk paths `[integration]` **P0**
+- Returns per-node state and disk paths, and no way to connect to a node (no console address or VNC port) `[integration]` **P0**
 - Returns links and bridges `[integration]` **P0**
 - Lab ownership validated `[integration]` **P0**
 - Missing lab file on filesystem handled `[integration]` **P1**

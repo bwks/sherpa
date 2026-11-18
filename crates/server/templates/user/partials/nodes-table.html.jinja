@@ -30,9 +30,6 @@
                     Mgmt IPv6
                 </th>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-table-head-text uppercase tracking-wider">
-                    VNC Port
-                </th>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-table-head-text uppercase tracking-wider">
                     Disks
                 </th>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-table-head-text uppercase tracking-wider">
@@ -64,9 +61,6 @@
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-body font-mono">
                     {% if let Some(ipv6) = device.mgmt_ipv6 %}{{ ipv6 }}{% else %}-{% endif %}
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-body font-mono">
-                    {% if let Some(port) = device.vnc_port %}{{ port }}{% else %}-{% endif %}
                 </td>
                 <td class="px-6 py-4 text-sm text-body font-mono">
                     {% if device.disks.is_empty() %}-{% else %}{{ device.disks.join(", ") }}{% endif %}

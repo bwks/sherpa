@@ -12,8 +12,9 @@ mod qemu;
 mod size;
 mod storage;
 mod vm;
+mod vnc;
 
-pub use console::{SerialConsole, move_serial_to_socket, serial_console};
+pub use console::{ConsoleSockets, SerialConsole, move_consoles_to_sockets, serial_console};
 pub use host::{
     DomainMemory, HostCpus, HostMemory, NumaCell, host_cpus, host_memory, list_domain_memory,
 };
@@ -28,3 +29,4 @@ pub use storage::{
     refresh_pool,
 };
 pub use vm::{clone_disk, create_vm, delete_disk, get_mgmt_ip, resize_disk};
+pub use vnc::{VncConsole, vnc_console};

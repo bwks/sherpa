@@ -1,9 +1,10 @@
-//! A domain's serial console: a UNIX socket that only sherpad reaches.
+//! A domain's serial console: a UNIX socket that only sherpad reaches, and the move of a domain
+//! defined before onto its console sockets (the serial console's here, VNC's in `crate::vnc`).
 //!
 //! Domains are defined with `<serial type='unix'>` and `<console type='unix'>`, bound by libvirt
 //! at a path sherpad chooses. A domain defined before had a telnet listener on TCP instead,
-//! reachable by any account on the server; [`move_serial_to_socket`] rewrites its stored
-//! definition so it comes up on a socket at its next start. A running domain keeps the
+//! reachable by any account on the server; [`move_consoles_to_sockets`] rewrites its stored
+//! definition so it comes up on sockets at its next start. A running domain keeps the
 //! character device it was started with until it stops, which [`serial_console`] reports.
 //!
 //! The rewrite reads the definition with quick-xml and writes every event back as it was read,
@@ -21,9 +22,19 @@ use virt::error::ErrorNumber;
 use virt::sys::{VIR_DOMAIN_XML_INACTIVE, VIR_DOMAIN_XML_SECURE};
 
 use crate::interface::{attribute, live_xml, opens};
+use crate::vnc::graphics_on_socket;
 
 /// The character devices of a domain that carry its serial console.
 const CHARDEVS: [&str; 2] = ["serial", "console"];
+
+/// The UNIX sockets of a domain's consoles.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsoleSockets {
+    /// The serial console's.
+    pub serial: String,
+    /// The VNC console's. A domain with no VNC graphics, such as a unikernel, has none bound.
+    pub vnc: String,
+}
 
 /// How a domain's serial console is reached.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,16 +64,20 @@ pub fn serial_console(conn: &Connect, domain: &str) -> Result<Option<SerialConso
     serial_console_in(&xml).map(Some)
 }
 
-/// Rewrite the stored definition of domain `domain` so its serial console is the UNIX socket at
-/// `path` from its next start, if it is still on TCP. Returns whether the definition changed. A
-/// running domain keeps its TCP listener until it stops.
+/// Rewrite the stored definition of domain `domain` so its serial and VNC consoles are the
+/// UNIX sockets of `sockets` from its next start, those still on TCP. Returns whether the
+/// definition changed. A running domain keeps its TCP listeners until it stops.
 ///
 /// # Errors
 ///
 /// Fails when the domain does not exist, libvirt cannot read its definition or refuses the new
 /// one, or the definition cannot be parsed.
 #[instrument(level = "debug", skip(conn))]
-pub fn move_serial_to_socket(conn: &Connect, domain: &str, path: &str) -> Result<bool> {
+pub fn move_consoles_to_sockets(
+    conn: &Connect,
+    domain: &str,
+    sockets: &ConsoleSockets,
+) -> Result<bool> {
     let handle = match Domain::lookup_by_name(conn, domain) {
         Ok(handle) => handle,
         Err(error) if error.code() == ErrorNumber::NoDomain => {
@@ -76,13 +91,21 @@ pub fn move_serial_to_socket(conn: &Connect, domain: &str, path: &str) -> Result
     let xml = handle
         .get_xml_desc(VIR_DOMAIN_XML_INACTIVE | VIR_DOMAIN_XML_SECURE)
         .with_context(|| format!("Cannot read the definition of domain '{domain}'"))?;
-    let Some(rewritten) = serial_on_socket(&xml, path)? else {
+    let Some(rewritten) = consoles_on_sockets(&xml, sockets)? else {
         return Ok(false);
     };
     Domain::define_xml(conn, &rewritten)
-        .with_context(|| format!("Cannot define domain '{domain}' with its console on a socket"))?;
-    tracing::info!(%domain, %path, "Moved the domain's serial console to a UNIX socket");
+        .with_context(|| format!("Cannot define domain '{domain}' with its consoles on sockets"))?;
+    tracing::info!(%domain, ?sockets, "Moved the domain's consoles to UNIX sockets");
     Ok(true)
+}
+
+/// Domain XML `xml` with its serial and VNC consoles on TCP moved to `sockets`, `None` when
+/// neither is on TCP.
+fn consoles_on_sockets(xml: &str, sockets: &ConsoleSockets) -> Result<Option<String>> {
+    let serial = serial_on_socket(xml, &sockets.serial)?;
+    let vnc = graphics_on_socket(serial.as_deref().unwrap_or(xml), &sockets.vnc)?;
+    Ok(vnc.or(serial))
 }
 
 /// How the serial console of domain XML `xml` is reached: its first `serial` element.
@@ -242,7 +265,7 @@ fn serial_on_socket(xml: &str, path: &str) -> Result<Option<String>> {
 
 /// The next event of `reader`, with every attribute of an element checked, so XML that is not
 /// well formed is refused wherever it fails.
-fn read<'a>(reader: &mut Reader<&'a [u8]>) -> Result<Event<'a>> {
+pub(crate) fn read<'a>(reader: &mut Reader<&'a [u8]>) -> Result<Event<'a>> {
     let event = reader.read_event().with_context(|| {
         format!(
             "Cannot parse the domain XML at byte {}",
@@ -258,7 +281,7 @@ fn read<'a>(reader: &mut Reader<&'a [u8]>) -> Result<Event<'a>> {
 }
 
 /// Write `event` to `writer`.
-fn write(writer: &mut Writer<Vec<u8>>, event: Event) -> Result<()> {
+pub(crate) fn write(writer: &mut Writer<Vec<u8>>, event: Event) -> Result<()> {
     writer
         .write_event(event)
         .context("Cannot write the domain XML")
@@ -419,6 +442,28 @@ mod tests {
         assert_eq!(
             serial_console_in(pty).unwrap(),
             SerialConsole::Other("pty".to_owned())
+        );
+    }
+
+    #[test]
+    fn both_consoles_move_in_one_definition() {
+        let sockets = ConsoleSockets {
+            serial: PATH.to_owned(),
+            vnc: "/opt/sherpa/run/console/abcd1234/1.vnc".to_owned(),
+        };
+        let both = consoles_on_sockets(TCP, &sockets).unwrap().unwrap();
+        let expected = UNIX.replace(
+            "<graphics type='vnc' port='5901' autoport='no' listen='127.0.0.1'>
+      <listen type='address' address='127.0.0.1'/>",
+            "<graphics type=\"vnc\">
+      <listen type=\"socket\" socket=\"/opt/sherpa/run/console/abcd1234/1.vnc\"/>",
+        );
+        assert_eq!(both, expected);
+        assert_eq!(consoles_on_sockets(&both, &sockets).unwrap(), None);
+        // Only the VNC console left on TCP: it moves alone.
+        assert_eq!(
+            consoles_on_sockets(UNIX, &sockets).unwrap().as_deref(),
+            Some(expected.as_str())
         );
     }
 

@@ -8,7 +8,7 @@ use shared::util::{TableLayout, render_table};
 use tracing::instrument;
 
 const NODE_HEADERS: [&str; 5] = ["Node", "Mgmt IP", "Connection", "Node Model", "Kind"];
-const DEVICE_HEADERS: [&str; 10] = [
+const DEVICE_HEADERS: [&str; 9] = [
     "Device",
     "Model",
     "Kind",
@@ -17,7 +17,6 @@ const DEVICE_HEADERS: [&str; 10] = [
     "Mgmt IPv6",
     "CPU",
     "Memory (MB)",
-    "VNC Port",
     "Disks",
 ];
 const LINK_HEADERS: [&str; 6] = [
@@ -65,11 +64,11 @@ fn node_cells(node: &NodeInfo, lab_id: &str) -> [String; 5] {
     ]
 }
 
-/// Renders a table of devices with their model, kind, state, management IPs, vCPUs, memory,
-/// VNC port and disks. Each device is named `<name>.<lab_id>`.
+/// Renders a table of devices with their model, kind, state, management IPs, vCPUs, memory
+/// and disks. Each device is named `<name>.<lab_id>`.
 #[must_use]
 pub fn render_devices_table(devices: &[DeviceInfo], lab_id: &str) -> String {
-    let rows: Vec<[String; 10]> = devices
+    let rows: Vec<[String; 9]> = devices
         .iter()
         .map(|device| device_cells(device, lab_id))
         .collect();
@@ -83,7 +82,7 @@ pub fn render_devices_table(devices: &[DeviceInfo], lab_id: &str) -> String {
     )
 }
 
-fn device_cells(device: &DeviceInfo, lab_id: &str) -> [String; 10] {
+fn device_cells(device: &DeviceInfo, lab_id: &str) -> [String; 9] {
     let mgmt_ip = if device.mgmt_ipv4.is_empty() {
         "-".to_string()
     } else {
@@ -94,10 +93,6 @@ fn device_cells(device: &DeviceInfo, lab_id: &str) -> [String; 10] {
         "-".to_string()
     } else {
         device.disks.join("\n")
-    };
-    let vnc_port = match device.vnc_port {
-        Some(port) => port.to_string(),
-        None => "-".to_string(),
     };
     // A container without a limit shows "-".
     let cpu_count = match device.cpu_count {
@@ -117,7 +112,6 @@ fn device_cells(device: &DeviceInfo, lab_id: &str) -> [String; 10] {
         device.mgmt_ipv6.as_deref().unwrap_or("-").to_string(),
         cpu_count,
         memory,
-        vnc_port,
         disks,
     ]
 }
@@ -545,7 +539,6 @@ mod tests {
             state: NodeState::Running,
             mgmt_ipv4: "172.31.0.11".to_string(),
             mgmt_ipv6: None,
-            vnc_port: None,
             disks: vec!["/var/lib/sherpa/labs/test/router01.qcow2".to_string()],
             cpu_count: None,
             memory: None,
@@ -575,7 +568,6 @@ mod tests {
                 state: NodeState::Running,
                 mgmt_ipv4: "172.31.0.11".to_string(),
                 mgmt_ipv6: None,
-                vnc_port: Some(5900),
                 disks: vec![
                     "/var/lib/sherpa/labs/test/router01.qcow2".to_string(),
                     "/var/lib/sherpa/labs/test/router01-disk2.qcow2".to_string(),
@@ -590,7 +582,6 @@ mod tests {
                 state: NodeState::Running,
                 mgmt_ipv4: "172.31.0.12".to_string(),
                 mgmt_ipv6: None,
-                vnc_port: None,
                 disks: vec!["/var/lib/sherpa/labs/test/switch01.qcow2".to_string()],
                 cpu_count: None,
                 memory: None,
@@ -621,7 +612,6 @@ mod tests {
                 state: NodeState::Running,
                 mgmt_ipv4: "172.31.0.21".to_string(),
                 mgmt_ipv6: None,
-                vnc_port: Some(5901),
                 disks: vec![],
                 cpu_count: Some(16),
                 memory: Some(32768),
@@ -633,7 +623,6 @@ mod tests {
                 state: NodeState::Running,
                 mgmt_ipv4: "172.31.0.22".to_string(),
                 mgmt_ipv6: None,
-                vnc_port: None,
                 disks: vec![],
                 cpu_count: None,
                 memory: None,
@@ -644,13 +633,11 @@ mod tests {
         assert!(table.contains("CPU"), "{table}");
         assert!(table.contains("Memory (MB)"), "{table}");
         let vm = table.lines().find(|line| line.contains("dev01")).unwrap();
-        assert!(
-            vm.contains("│ 16 ") && vm.contains("│ 32768 ") && vm.contains("│ 5901 "),
-            "{vm}"
-        );
+        assert!(vm.contains("│ 16 ") && vm.contains("│ 32768 "), "{vm}");
         // Containers are not limited.
         let container = table.lines().find(|line| line.contains("db01")).unwrap();
-        assert_eq!(container.matches("│ - ").count(), 5, "{container}");
+        assert_eq!(container.matches("│ - ").count(), 4, "{container}");
+        assert!(!table.contains("VNC"), "{table}");
     }
 
     #[test]
@@ -662,7 +649,6 @@ mod tests {
             state: NodeState::Stopped,
             mgmt_ipv4: String::new(),
             mgmt_ipv6: None,
-            vnc_port: None,
             disks: vec![],
             cpu_count: None,
             memory: None,

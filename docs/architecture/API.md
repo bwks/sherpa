@@ -54,6 +54,18 @@ Sherpa exposes the same operations via three transports:
 - Not in the spec's `transports`: it is not a request and response. See
   [`SERVER.md`](SERVER.md#node-consoles) and [`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md)
 
+### Node VNC WebSocket
+
+- Endpoint: `wss://<server>:3030/api/v1/labs/{id}/nodes/{node_name}/vnc[?force=true]`
+- Auth, owner rule, `force` and close codes as for the console WebSocket above. One session per
+  VNC console, held apart from the node's serial console
+- Refusals as for the console, and 400 for a unikernel, which has no VNC console; 409 for a VM
+  still on its old VNC port
+- Once open: the RFB protocol of the node's VNC server, as QEMU speaks it, in binary frames both
+  ways; text frames are ignored. A `1000` close says the VNC console closed the connection
+- Not in the spec's `transports`. `sherpa vnc` relays it to a local VNC viewer; see
+  [`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md#sherpa-vnc)
+
 ### CLI
 
 - Binary: `sherpa`

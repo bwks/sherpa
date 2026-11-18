@@ -414,7 +414,6 @@ mod tests {
             state,
             cpu_count: None,
             memory: None,
-            vnc_port: None,
             ssh_host_key: has_key.then(|| "ssh-ed25519 AAAA".to_string()),
             ready_check: ReadyCheck::default(),
             ssh_username: None,
