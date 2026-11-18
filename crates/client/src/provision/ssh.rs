@@ -172,7 +172,11 @@ async fn copy_file(session: &NodeSession, file: &FileCopy) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+
     use topology::ProvisionerFile;
+
+    use crate::provision::remote::shell_quote;
 
     use tempfile::tempdir;
 
@@ -206,7 +210,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(
             dir.path().join("dev.env"),
-            "WHERE=$HOME\nPATH=$HOME/bin:$PATH\n",
+            "WHERE=$PATH\nPATH=$HOME/bin:$PATH\n",
         )
         .unwrap();
         let provisioner = SshProvisioner {
@@ -214,10 +218,11 @@ mod tests {
             ..Default::default()
         };
         let (_, env_files, _) = read_client_files(&provisioner, dir.path()).unwrap();
-        let home = std::env::var("HOME").unwrap();
+        // PATH is set on every client platform; HOME is not set on Windows.
+        let path = shell_quote(&env::var("PATH").unwrap());
         assert_eq!(
             String::from_utf8(env_files[0].content.clone()).unwrap(),
-            format!("WHERE='{home}'\nPATH=$HOME/bin:$PATH\n")
+            format!("WHERE={path}\nPATH=$HOME/bin:$PATH\n")
         );
     }
 

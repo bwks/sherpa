@@ -187,10 +187,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run client clippy
-        run: cargo clippy -p sherpa -- -D warnings
+        run: cargo clippy -p sherpa --all-targets -- -D warnings
 
-      - name: Test native private key permissions
-        run: cargo test -p sherpa private_key::tests
+      - name: Test the client
+        run: cargo test -p sherpa
 
   macos-client:
     name: macOS Client
