@@ -82,10 +82,24 @@ pub fn cloud_init_wait_command() -> String {
         .to_string()
 }
 
-// The commands run on Linux and BSD nodes; the tests run them with the local `sh`.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paths_resolve_home_relative_destinations() {
+        assert_eq!(remote_path("~/.config/a"), r#""$HOME"/'.config/a'"#);
+        assert_eq!(remote_path("/etc/a"), "'/etc/a'");
+        assert_eq!(sftp_path("~/.config/a"), ".config/a");
+        assert_eq!(sftp_path("/etc/a"), "/etc/a");
+    }
+}
+
+// The commands run on Linux and BSD nodes; these tests run them with the local `sh`, so they
+// run only on Unix clients.
 #[cfg(test)]
 #[cfg(unix)]
-mod tests {
+mod shell_tests {
     use super::*;
     use std::fs;
     use std::io::Write;
@@ -123,14 +137,6 @@ mod tests {
 
     fn mode(path: &Path) -> u32 {
         fs::metadata(path).unwrap().permissions().mode() & 0o777
-    }
-
-    #[test]
-    fn paths_resolve_home_relative_destinations() {
-        assert_eq!(remote_path("~/.config/a"), r#""$HOME"/'.config/a'"#);
-        assert_eq!(remote_path("/etc/a"), "'/etc/a'");
-        assert_eq!(sftp_path("~/.config/a"), ".config/a");
-        assert_eq!(sftp_path("/etc/a"), "/etc/a");
     }
 
     #[test]
