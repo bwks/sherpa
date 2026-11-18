@@ -890,7 +890,14 @@ claude -p --output-format stream-json --verbose
   `git restore`, `git clean` or `git checkout -- <path>`. It also says to give each subagent
   the cheapest model that fits (haiku for searches, reading files and lookups; sonnet for
   routine edits, builds, tests and docs; opus only for design, hard debugging and review) and to
-  do small things itself rather than spawn one. A GitHub sentence follows (below).
+  do small things itself rather than spawn one. Every wait has a deadline: a command that waits
+  (a poll or until-loop, `tail -f`, a lab or test runner) is wrapped in `timeout` or the loop
+  given a deadline, and when it expires the agent finds out why instead of waiting again; a
+  process it started is waited for by its PID (`$!`), never with `pgrep -f` or `pkill -f` on a
+  pattern in its own command line, which matches the waiting command itself. A GitHub sentence
+  follows (below). The rules text is a base-session input (see
+  [Base sessions and forking](#base-sessions-and-forking)): changing it changes the inputs
+  hash, so each base is re-primed on the next task that needs it.
 
 The outcome is read from the `result` event: `is_error` true (or missing) is `failed`, a line
 starting `QUESTION:` (after leading spaces) is `question`, anything else is `completed`. A run

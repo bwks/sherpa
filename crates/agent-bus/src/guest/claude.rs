@@ -84,7 +84,11 @@ git checkout -- <path>: the working tree is the only copy of uncommitted work. T
 were before, use `git show HEAD:<path>` or `git diff`. When you delegate to subagents, give each \
 the cheapest model that fits: haiku for searches, reading files and simple lookups; sonnet for \
 routine edits, builds, tests and docs; opus only for design, hard debugging and review. Do small \
-things yourself rather than spawning a subagent.";
+things yourself rather than spawning a subagent. Every wait has a deadline: wrap a command that \
+waits (a poll or until-loop, tail -f, a lab or test runner) in timeout, or give the loop a \
+deadline, and when it expires find out why instead of waiting again. To wait for a process you \
+started, use its PID ($!), never pgrep -f or pkill -f with a pattern that appears in your own \
+command line, which matches the waiting command itself.";
 /// What a base session is primed with. Nothing is done with the reply.
 pub(super) const PRIME_PROMPT: &str = "You are a guest agent. Tasks will follow, one per session. \
 Reply with exactly: ready.";
@@ -610,6 +614,23 @@ mod tests {
     fn the_rules_tell_the_agent_its_git_status_may_be_old() {
         for github in [false, true] {
             assert!(rules(github).contains("run git status yourself"));
+        }
+    }
+
+    #[test]
+    fn the_rules_give_every_wait_a_deadline() {
+        for github in [false, true] {
+            let rules = rules(github);
+            for expected in [
+                "Every wait has a deadline",
+                "in timeout",
+                "find out why instead of waiting again",
+                "use its PID ($!)",
+                "never pgrep -f or pkill -f",
+                "matches the waiting command itself",
+            ] {
+                assert!(rules.contains(expected), "{expected}");
+            }
         }
     }
 
