@@ -147,15 +147,16 @@
 ## `console` — Serial Console
 
 **What to test:**
-- Device name mapped to correct loopback IP `[unit]` **P0**
-- "boot-server" maps to device ID 255 `[unit]` **P1**
+- The console route is made from the server URL, the node name one path segment, `--force` as
+  `?force=true` `[unit]` **P0**
 - Missing `.sherpa/lab-info.toml` produces clear error `[unit]` **P0**
-- Unknown device name produces error `[unit]` **P0**
-- Container node refused before connecting `[unit]` **P0**
-- Refused, timed out, in use and closed consoles each give their own message `[unit]` **P0**
-- Connect and close lines name the node and the escapes `[unit]` **P1**
-- The console is reached through the server hop, with Jato's telnet client, and shows the
-  node's prompt `[lab]` **P1**
+- The server's refusal (not the owner, a container, not running, in use naming its holder, an
+  old TCP console) is printed in its words; 401 and an old server without the route are
+  explained `[unit]` **P0**
+- Connect and close lines name the node and the escapes, and the server's close reason `[unit]` **P1**
+- The console is reached through sherpad with no `telnet` or `ssh`, shows the node's prompt, is
+  refused to another user and an admin, names its holder, and is taken over with `--force`
+  `[lab]` **P1**
 
 **Existing coverage:** unit tests in `crates/client/src/cmd/console.rs`; the console lab test
 in `tests/labs/console/`.
