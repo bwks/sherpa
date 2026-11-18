@@ -278,14 +278,21 @@ through one: `ssh -F .sherpa/ssh/direct_config dev 'bash -lc "cargo --version"'`
   only working copies: commit and push from there. Git authenticates through `gh` with
   `GH_TOKEN`, which is read-only in a login shell; a push needs the write token (see
   [Secrets](#secrets)).
-- **Build and install:**
+- **Build and install:** install a debug build. `dev/rebuild` builds the eBPF program, the
+  Tailwind CSS and the workspace in debug mode, installs `sherpad` and `sherpa` in
+  `/opt/sherpa/bin` and restarts `sherpad`:
   ```
   cd ~/code/rust/sherpa
-  cargo build --release -p sherpad
-  sudo install -o sherpa -g sherpa -m 755 target/release/sherpad /opt/sherpa/bin/sherpad
-  sudo systemctl restart sherpad
+  dev/rebuild
   ```
-  `cargo build --release` at the workspace root does not rebuild `sherpad`.
+  A release build takes 6–7 minutes against a debug build's incremental seconds, and no live
+  test on the dev server needs one: do not build `--release` to install. The VM code suite
+  builds its own release archives, and `scripts/sherpa_update.sh` installs published ones.
+- **Rebuilt artifacts:** `dev/rebuild` rewrites two committed files,
+  `crates/ebpf-redirect/ebpf-redirect.elf` and `crates/server/web/static/css/tailwind.css`.
+  Do not commit them from a rebuild: put them back with
+  `git restore crates/ebpf-redirect/ebpf-redirect.elf crates/server/web/static/css/tailwind.css`.
+  Commit them only with a change to the eBPF program, or to the templates' Tailwind classes.
 - **Update to a release:** `sudo bash ~/code/rust/sherpa/scripts/sherpa_update.sh --version vX.Y.Z`.
 - **Tests:** formatting, clippy, unit and database tests, integration tests and the lab tests all
   run in the guest, as described in [running tests](../../README.md). The guest's `sherpa` CLI

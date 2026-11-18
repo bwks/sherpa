@@ -2,7 +2,8 @@
 
 A Windows 11 node for building and testing the Sherpa client's Windows code, such as
 `crates/client/src/windows_acl.rs`, which the Linux [dev server](../dev/README.md) cannot
-compile. It is disposable: bring it up when Windows code changes and destroy it after.
+compile. It stays up between tasks and is reused: do not destroy it after use. Bring it up only
+if it is down.
 
 ## Node
 
@@ -17,7 +18,8 @@ password.
 
 ## Bring it up
 
-From this folder, on a Sherpa server that has the image. Set your device password first, once:
+Only if it is down: `sherpa inspect` in this folder shows whether the lab is running. From this
+folder, on a Sherpa server that has the image. Set your device password first, once:
 `sherpa up` is refused without one. It asks for your Sherpa login password, then the device
 password twice.
 
@@ -63,6 +65,8 @@ for example by signing in on the node's display (`virsh send-key` and `virsh scr
 the server can drive it).
 
 ## Destroy it
+
+Only when the user asks, for example to rebuild it from a new image:
 
 ```bash
 sherpa destroy

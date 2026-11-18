@@ -11,17 +11,23 @@ database is Turso, embedded in sherpad as a single file (see `docs/architecture/
 ## Agent Hints
 - In planning mode, don't generate implementation code. Stick to high level implementation plan only.
   Code samples don't add value and will likely change during implementation. Do not show code in the terminal.
-- While iterating, check and test only the crate you change: `cargo check -p <crate>`,
-  `cargo test -p <crate> [filter]`. After an edit in `shared`, `cargo test -p shared --lib` builds
-  in about 8 s and `cargo check -p sherpad` in about 20 s, against about 50 s for a workspace build.
-  See "While iterating" in `tests/README.md`.
-- Once before each commit, run `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings`
-  and `cargo test --workspace`, in that order. Formatting and linting must pass first; CI fails on
-  either.
+- While iterating, run only `cargo check -p <crate>` and `cargo test -p <crate> [filter]` on the
+  crate you change. After an edit in `shared`, `cargo test -p shared --lib` builds in about 8 s
+  and `cargo check -p sherpad` in about 20 s, against about 50 s for a workspace build. See
+  "While iterating" in `tests/README.md`.
+- Once before each commit, not after each edit, run `cargo fmt`, `cargo clippy --workspace
+  --all-targets -- -D warnings` and `cargo test --workspace`, once each, in that order.
+  Formatting and linting must pass first; CI fails on either.
 - Development, builds, installs and tests can run in the dev server, a Sherpa lab with root and
   the toolchains. How to bring it up, connect to it and work in it is in
   `tests/environments/dev/README.md`. Follow it; do not hard-code its address or add host-side
   SSH config or mounts.
+- Dev server installs are debug builds with `dev/rebuild`. Never build `--release` for a live
+  test: a release build takes 6–7 minutes.
+- Live tests cover only the models the change touches. Do not boot slow network VMs unless the
+  change is about that model; exercise generic paths on fast nodes (Alpine, Ubuntu, containers).
+- The Windows dev box (`tests/environments/dev-windows/`) stays up between tasks and is reused.
+  Bring it up only if it is down; do not destroy it.
 
 ## Project Tasks
 - Features to implement are tracked in the PROJECT.md file.

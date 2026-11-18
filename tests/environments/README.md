@@ -17,9 +17,9 @@ one guest agent on the agent bus. The rules below apply to them only where they 
 are not disposable and install more than cloud-init needs. Both are described in
 [dev's README](dev/README.md).
 
-[dev-windows](dev-windows/README.md) is not a test environment either: it is a disposable
-Windows 11 `devbox_windows` node for building and testing the client's Windows code, which the
-Linux dev server cannot compile.
+[dev-windows](dev-windows/README.md) is not a test environment either: it is a Windows 11
+`devbox_windows` node for building and testing the client's Windows code, which the Linux dev
+server cannot compile. It stays up between tasks and is reused.
 
 ## Rules
 
