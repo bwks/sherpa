@@ -73,12 +73,33 @@ of some dependencies: 160–270 s, once.
 
 ## Before a commit
 
-Formatting and linting must pass first, then the [unit tests](#unit-tests); CI fails on either:
+Once before each commit, not after each edit, run format, lint and the
+[unit tests](#unit-tests) (`cargo test --workspace`), once each, in that order. Formatting and
+linting must pass first; CI fails on either:
 
 ```sh
 cargo fmt
 cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+## Where to build and test
+
+- Development, builds, installs and tests can run in the dev servers, nodes `dev01` and `dev02`
+  of the Sherpa lab `sherpa-dev`, with root and the toolchains. How to bring them up, connect to
+  them and work in them is in [`environments/dev/README.md`](environments/dev/README.md). Follow
+  it; do not hard-code their addresses or add host-side SSH config or mounts.
+- Dev server installs are debug builds with `dev/rebuild`. Never build `--release` for a live
+  test: a release build takes 6–7 minutes.
+- Never boot network-OS VMs (vEOS, vSRX, vEvolved, CSR, Cat8000/9000, IOSv, IOS XR, NX-OS, ASA,
+  FTD, PAN-OS, AOS-CX, ISE, RouterOS, SONiC VM and the like), Windows or cJunosEvolved in the dev
+  servers. They are nested there and too slow. Test generic paths on Alpine, Ubuntu and
+  containers; a change to one of those models' configs is covered by template unit tests, not a
+  live boot.
+- Windows checks are run by the host, on a bare-metal Windows VM on the Sherpa host; agents
+  don't use a Windows VM. Only some changes need one: changes to the interactive terminal
+  (Jato's console code, `sherpa console`, `sherpa ssh`) and the installer. CI covers the rest.
+  For one, cross-compile the client (`cargo build -p sherpa --target x86_64-pc-windows-gnu`),
+  leave `sherpa.exe` in `/var/tmp`, and say so in your report.
 
 ## Unit tests
 
