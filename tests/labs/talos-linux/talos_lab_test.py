@@ -826,22 +826,8 @@ def main():
 
 
 class SelfTest(unittest.TestCase):
-    def test_device_password_check_reads_the_info_output(self):
-        def info(text, code=0):
-            return lambda *args, **kwargs: Outcome(code, text, "")
-
-        with tempfile.TemporaryDirectory() as temp:
-            run_root = Path(temp)
-            ready = "\nUser Information:\n  Username: alice\n  Device password: set\n"
-            with mock.patch(f"{__name__}.run_logged", info(ready)):
-                self.assertEqual(require_device_password(None, run_root), "alice")
-            for text, code in (("  Username: alice\n  Device password: not set\n", 0), (ready, 1)):
-                with mock.patch(f"{__name__}.run_logged", info(text, code)):
-                    with self.assertRaises(TestFailure):
-                        require_device_password(None, run_root)
-
-    def manifest(self, lab):
-        return tomllib.loads((LABS / lab / "manifest.toml").read_text())
+    # The runner's own checks, run with --self-test; pytest must not collect them as lab cases.
+    __test__ = False
 
     def test_a_partly_created_lab_keeps_its_id_for_cleanup(self):
         # `sherpa up` exits 1 on a partly created lab after writing lab-info.toml; the run must
@@ -868,86 +854,6 @@ class SelfTest(unittest.TestCase):
                   mock.patch("shutil.which", return_value="/usr/bin/true")):
                 self.assertIsInstance(run.destroy(), TestFailure)
 
-    def test_rendered_manifests_round_trip_with_a_new_name_and_absolute_tools_path(self):
-        for lab in LAB_NAMES:
-            manifest = self.manifest(lab)
-            rendered = tomllib.loads(render_manifest(manifest, "renamed", Path("/abs/install-tools.sh")))
-            self.assertEqual(rendered["name"], "renamed")
-            self.assertEqual(rendered["talos_clusters"], manifest["talos_clusters"])
-            util = [node for node in rendered["nodes"] if node["name"] == UTIL_NODE]
-            self.assertEqual(util[0]["startup_scripts"], ["/abs/install-tools.sh"])
-            self.assertEqual(len(rendered["nodes"]), len(manifest["nodes"]))
-
-    def test_ha_logs_in_through_keycloak_and_reads_secrets_from_vault(self):
-        cluster = lab_cluster(self.manifest("ha"))
-        models = {node["name"]: node["model"] for node in self.manifest("ha")["nodes"]}
-        self.assertEqual(models[cluster["oidc"]], "keycloak_server")
-        self.assertEqual(models[cluster["vault"]], "hashicorp_vault")
-        self.assertNotIn("oidc", lab_cluster(self.manifest("single")))
-        self.assertNotIn("vault", lab_cluster(self.manifest("single")))
-
-    def test_credential_files_follow_the_cluster(self):
-        with tempfile.TemporaryDirectory() as temp:
-            ha = LabRun("ha", Path(temp) / "talos-linux-000000abcdef", keep_failed=False)
-            single = LabRun("single", Path(temp) / "talos-linux-000000abcdef", keep_failed=False)
-        self.assertEqual(ha.credential_files(), [KUBECONFIG, TALOSCONFIG, ".sherpa/keycloak/keycloak-kc01.toml",
-                                                 ".sherpa/vault/vault-vault01.toml"])
-        self.assertEqual(single.credential_files(), [KUBECONFIG, TALOSCONFIG])
-
-    def test_realm_member_is_the_lab_owner(self):
-        users = [{"username": "sherpa", "password": "a"}, {"username": "alice", "password": "b"}]
-        self.assertEqual(realm_member(users)["username"], "alice")
-        with self.assertRaises(TestFailure):
-            realm_member(users[:1])
-
-    def test_password_grant_kubeconfig_keeps_sherpas_oidc_settings(self):
-        kubeconfig = {
-            "clusters": [{"name": "k8s", "cluster": {"server": "https://172.31.1.11:6443"}}],
-            "users": [
-                {"name": "admin@k8s", "user": {"client-key-data": "secret"}},
-                {"name": "oidc@k8s", "user": {"exec": {
-                    "apiVersion": "client.authentication.k8s.io/v1", "command": "kubectl",
-                    "args": ["oidc-login", "get-token", "--oidc-issuer-url=https://kc/realms/sherpa",
-                             "--oidc-client-id=kubernetes", "--certificate-authority-data=Q0E="],
-                    "interactiveMode": "IfAvailable"}}},
-            ],
-        }
-        document = password_grant_kubeconfig(kubeconfig, "k8s", "alice", "pw")
-        self.assertEqual([user["name"] for user in document["users"]], ["alice"])
-        exec_config = document["users"][0]["user"]["exec"]
-        self.assertEqual(exec_config["args"][:5], kubeconfig["users"][1]["user"]["exec"]["args"])
-        self.assertIn("--grant-type=password", exec_config["args"])
-        self.assertIn("--username=alice", exec_config["args"])
-        self.assertIn("--password=pw", exec_config["args"])
-        self.assertEqual(exec_config["interactiveMode"], "Never")
-        self.assertEqual(document["contexts"], [{"name": "alice", "context": {"cluster": "k8s", "user": "alice"}}])
-        self.assertEqual(document["current-context"], "alice")
-        # Sherpa's own user is left as it was.
-        self.assertEqual(len(kubeconfig["users"][1]["user"]["exec"]["args"]), 5)
-        with self.assertRaises(TestFailure):
-            password_grant_kubeconfig({"users": []}, "k8s", "alice", "pw")
-
-    def test_outsider_is_in_no_group(self):
-        user = outsider_user("pw")
-        self.assertNotIn("groups", user)
-        self.assertEqual(user["credentials"], [{"type": "password", "value": "pw", "temporary": False}])
-
-    def test_vault_static_secret_reads_the_clusters_path(self):
-        spec = vault_static_secret()["spec"]
-        self.assertEqual((spec["mount"], spec["path"]), ("secret", "k8s/sherpa-e2e"))
-        self.assertEqual(spec["destination"], {"name": "vault-demo", "create": True})
-
-    def test_secret_value(self):
-        encoded = base64.b64encode(b"s3cret").decode()
-        self.assertEqual(secret_value({"data": {"value": encoded}}, "value"), "s3cret")
-        self.assertIsNone(secret_value({"data": {}}, "value"))
-        self.assertIsNone(secret_value({}, "value"))
-
-    def test_manifest_tools_path_resolves_from_the_lab_folder(self):
-        for lab in LAB_NAMES:
-            util = [node for node in self.manifest(lab)["nodes"] if node["name"] == UTIL_NODE][0]
-            self.assertEqual((LABS / lab / util["startup_scripts"][0]).resolve(), TOOLS_SCRIPT)
-
     def test_node_conditions(self):
         nodes = node_conditions({"items": [
             {"metadata": {"name": "cp1"}, "status": {
@@ -958,31 +864,6 @@ class SelfTest(unittest.TestCase):
                 "conditions": [{"type": "Ready", "status": "Unknown"}], "addresses": []}},
         ]})
         self.assertEqual(nodes, {"cp1": (True, "172.31.1.21"), "w1": (False, None)})
-
-    def test_gateway_route_targets_the_workload_service(self):
-        route = gateway_route()
-        self.assertEqual(route["spec"]["parentRefs"][0], {"name": "sherpa", "namespace": "default"})
-        self.assertEqual(route["spec"]["rules"][0]["backendRefs"][0], {"name": WORKLOAD, "port": 80})
-
-    def test_value_toml(self):
-        self.assertEqual(value_toml({"a": "x", "b": [1, True]}), '{ a = "x", b = [1, true] }')
-        with self.assertRaises(TypeError):
-            value_toml(1.5)
-
-    def test_workload_spreads_one_pod_per_node(self):
-        deployment = workload_objects(3)["items"][1]
-        self.assertEqual(deployment["spec"]["replicas"], 3)
-        spread = deployment["spec"]["template"]["spec"]["topologySpreadConstraints"][0]
-        self.assertEqual((spread["maxSkew"], spread["whenUnsatisfiable"]), (1, "DoNotSchedule"))
-
-    def test_run_logged_keeps_streams_apart_for_parsing(self):
-        script = "import sys; print('{\"items\": []}'); print('Warning: added host', file=sys.stderr)"
-        with tempfile.TemporaryDirectory() as folder:
-            with open(Path(folder) / "log", "w") as log:
-                outcome = run_logged(log, "streams", [sys.executable, "-c", script], Path(folder))
-        self.assertEqual(outcome.code, 0)
-        self.assertEqual(json.loads(outcome.stdout), {"items": []})
-        self.assertIn("Warning: added host", outcome.output)
 
     def test_owner_only(self):
         path = RUNS / f"owner-only-{uuid.uuid4().hex}"

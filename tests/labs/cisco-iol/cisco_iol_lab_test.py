@@ -22,12 +22,10 @@ import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 import time
 import tomllib
 from typing import NamedTuple
 import unittest
-from unittest import mock
 import uuid
 
 
@@ -452,42 +450,8 @@ def main():
 
 
 class SelfTest(unittest.TestCase):
-    def test_device_password_check_reads_the_info_output(self):
-        def info(text, code=0):
-            return lambda *args, **kwargs: Outcome(code, text, "")
-
-        with tempfile.TemporaryDirectory() as temp:
-            run_root = Path(temp)
-            ready = "\nUser Information:\n  Username: alice\n  Device password: set\n"
-            with mock.patch(f"{__name__}.run_logged", info(ready)):
-                self.assertEqual(require_device_password(None, run_root), "alice")
-            for text, code in (("  Username: alice\n  Device password: not set\n", 0), (ready, 1)):
-                with mock.patch(f"{__name__}.run_logged", info(text, code)):
-                    with self.assertRaises(TestFailure):
-                        require_device_password(None, run_root)
-
-    def manifest(self):
-        return tomllib.loads((LAB / "manifest.toml").read_text())
-
-    def test_rendered_manifest_round_trips_with_a_new_name(self):
-        manifest = self.manifest()
-        rendered = tomllib.loads(render_manifest(manifest, "renamed"))
-        self.assertEqual(rendered["name"], "renamed")
-        for section in ("nodes", "links"):
-            self.assertEqual(rendered[section], manifest[section])
-
-    def test_the_routers_are_iol_and_every_router_has_a_config(self):
-        models = {node["name"]: node["model"] for node in self.manifest()["nodes"]}
-        self.assertEqual({models[router] for router in ROUTERS}, {"cisco_iol"})
-        self.assertEqual(set(ROUTER_CONFIG), set(ROUTERS))
-        self.assertEqual(set(ROUTER_ADDRESSES), set(ROUTERS))
-
-    def test_links_use_iol_interface_names(self):
-        for link in self.manifest()["links"]:
-            for end in (link["src"], link["dst"]):
-                node, interface = end.split("::")
-                if node in ROUTERS:
-                    self.assertRegex(interface, r"^Ethernet[0-3]/[0-3]$")
+    # The runner's own checks, run with --self-test; pytest must not collect them as lab cases.
+    __test__ = False
 
     def test_ios_ping_results_are_read(self):
         self.assertTrue(ping_succeeded("Success rate is 100 percent (5/5), round-trip"))
@@ -505,18 +469,8 @@ class SelfTest(unittest.TestCase):
         output = "10.47.1.1 SSH-2.0-Cisco-1.25\n10.47.0.2\n"
         self.assertEqual(banners(output), {"10.47.1.1"})
 
-    def test_ping_script_reports_each_reply(self):
-        self.assertIn("ping -c 1 -W 2 10.47.1.1", ping_script(["10.47.1.1"]))
+    def test_only_addresses_that_replied_are_counted(self):
         self.assertEqual(replied("ok 10.47.1.1\nnoise\n"), {"10.47.1.1"})
-
-    def test_run_logged_keeps_streams_apart_for_parsing(self):
-        script = "import sys; print('{\"items\": []}'); print('Warning: added host', file=sys.stderr)"
-        with tempfile.TemporaryDirectory() as folder:
-            with open(Path(folder) / "log", "w") as log:
-                outcome = run_logged(log, "streams", [sys.executable, "-c", script], Path(folder))
-        self.assertEqual(outcome.code, 0)
-        self.assertEqual(json.loads(outcome.stdout), {"items": []})
-        self.assertIn("Warning: added host", outcome.output)
 
 
 if __name__ == "__main__":

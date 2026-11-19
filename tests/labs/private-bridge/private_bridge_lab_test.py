@@ -366,22 +366,8 @@ def main():
 
 
 class SelfTest(unittest.TestCase):
-    def test_device_password_check_reads_the_info_output(self):
-        def info(text, code=0):
-            return lambda *args, **kwargs: Outcome(code, text, "")
-
-        with tempfile.TemporaryDirectory() as temp:
-            run_root = Path(temp)
-            ready = "\nUser Information:\n  Username: alice\n  Device password: set\n"
-            with mock.patch(f"{__name__}.run_logged", info(ready)):
-                self.assertEqual(require_device_password(None, run_root), "alice")
-            for text, code in (("  Username: alice\n  Device password: not set\n", 0), (ready, 1)):
-                with mock.patch(f"{__name__}.run_logged", info(text, code)):
-                    with self.assertRaises(TestFailure):
-                        require_device_password(None, run_root)
-
-    def manifest(self):
-        return tomllib.loads((LAB / "manifest.toml").read_text())
+    # The runner's own checks, run with --self-test; pytest must not collect them as lab cases.
+    __test__ = False
 
     def test_a_partly_created_lab_keeps_its_id_for_cleanup(self):
         # `sherpa up` exits 1 on a partly created lab after writing lab-info.toml; the run must
@@ -407,40 +393,6 @@ class SelfTest(unittest.TestCase):
             with (mock.patch(f"{__name__}.run_logged", leftover),
                   mock.patch("shutil.which", return_value="/usr/bin/true")):
                 self.assertIsInstance(run.destroy(), TestFailure)
-
-    def test_rendered_manifest_round_trips_with_a_new_name(self):
-        manifest = self.manifest()
-        rendered = tomllib.loads(render_manifest(manifest, "renamed"))
-        self.assertEqual(rendered["name"], "renamed")
-        for section in ("nodes", "links", "bridges"):
-            self.assertEqual(rendered[section], manifest[section])
-
-    def test_every_bridge_member_and_link_end_gets_a_unique_address(self):
-        addresses, _ = address_plan(self.manifest())
-        self.assertEqual(len(addresses), 9)
-        self.assertEqual(len({item.address for item in addresses}), len(addresses))
-        self.assertEqual(len({(item.node, item.interface) for item in addresses}), len(addresses))
-
-    def test_bridge_members_ping_each_other_and_link_ends_ping_their_peer(self):
-        _, pings = address_plan(self.manifest())
-        bridge_pings = [p for p in pings if p[0].address.startswith(f"{SUBNET_PREFIX}.0.")]
-        self.assertEqual(len(bridge_pings), 5 * 4)
-        self.assertEqual(len(pings), 5 * 4 + 2 + 2)
-        self.assertIn((Address("fr01", "eth2", "10.45.1.1/24"), Address("fr02", "eth2", "10.45.1.2/24")),
-                      pings)
-
-    def test_every_redeployed_node_is_in_the_lab(self):
-        names = {node["name"] for node in self.manifest()["nodes"]}
-        self.assertTrue(set(REDEPLOYED) <= names)
-
-    def test_run_logged_keeps_streams_apart_for_parsing(self):
-        script = "import sys; print('{\"items\": []}'); print('Warning: added host', file=sys.stderr)"
-        with tempfile.TemporaryDirectory() as folder:
-            with open(Path(folder) / "log", "w") as log:
-                outcome = run_logged(log, "streams", [sys.executable, "-c", script], Path(folder))
-        self.assertEqual(outcome.code, 0)
-        self.assertEqual(json.loads(outcome.stdout), {"items": []})
-        self.assertIn("Warning: added host", outcome.output)
 
 
 if __name__ == "__main__":

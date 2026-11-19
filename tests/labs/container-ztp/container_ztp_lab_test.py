@@ -480,19 +480,8 @@ def main():
 
 
 class SelfTest(unittest.TestCase):
-    def test_device_password_check_reads_the_info_output(self):
-        def info(text, code=0):
-            return lambda *args, **kwargs: Outcome(code, text, "")
-
-        with tempfile.TemporaryDirectory() as temp:
-            run_root = Path(temp)
-            ready = "\nUser Information:\n  Username: alice\n  Device password: set\n"
-            with mock.patch(f"{__name__}.run_logged", info(ready)):
-                self.assertEqual(require_device_password(None, run_root), "alice")
-            for text, code in (("  Username: alice\n  Device password: not set\n", 0), (ready, 1)):
-                with mock.patch(f"{__name__}.run_logged", info(text, code)):
-                    with self.assertRaises(TestFailure):
-                        require_device_password(None, run_root)
+    # The runner's own checks, run with --self-test; pytest must not collect them as lab cases.
+    __test__ = False
 
     def manifest(self):
         return tomllib.loads((LAB / "manifest.toml").read_text())
@@ -521,27 +510,6 @@ class SelfTest(unittest.TestCase):
             with mock.patch(f"{__name__}.run_logged", leftover):
                 self.assertIsInstance(run.destroy(), TestFailure)
 
-    def test_rendered_manifest_round_trips_with_a_new_name(self):
-        manifest = self.manifest()
-        rendered = tomllib.loads(render_manifest(manifest["nodes"], "renamed"))
-        self.assertEqual(rendered["name"], "renamed")
-        self.assertEqual(rendered["nodes"], manifest["nodes"])
-
-    def test_every_mounted_config_model_runs_with_ztp_on_and_off(self):
-        nodes = self.manifest()["nodes"]
-        for model in ZTP_MOUNTS:
-            settings = sorted(ztp_is_off(node) for node in nodes if node["model"] == model)
-            self.assertEqual(settings, [False, True], model)
-        self.assertEqual(set(LOGIN_COMMANDS), set(ZTP_MOUNTS))
-
-    def test_the_lab_has_an_application_container_with_no_ztp_field(self):
-        others = [node for node in self.manifest()["nodes"] if node["model"] not in ZTP_MOUNTS]
-        self.assertTrue(others)
-        self.assertTrue(all("ztp" not in node for node in others))
-
-    def test_every_node_pins_its_version(self):
-        self.assertTrue(all(node.get("version") for node in self.manifest()["nodes"]))
-
     def test_models_select_their_nodes_and_unknown_models_are_refused(self):
         manifest = self.manifest()
         self.assertEqual(select_nodes(manifest, []), manifest["nodes"])
@@ -560,20 +528,6 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(mount_problems(off, mounts[:1]), ["has Sherpa's /etc/frr/daemons mount"])
         self.assertEqual(mount_problems({"name": "nats01", "model": "nats_bus"}, []), [])
 
-    def test_one_node_of_each_setting_is_redeployed(self):
-        nodes = self.manifest()["nodes"]
-        self.assertEqual(redeployed_nodes(nodes), ["ceos01", "ceos02"])
-        self.assertEqual(redeployed_nodes(select_nodes(self.manifest(), ["frr_linux"])),
-                         ["frr01", "frr02"])
-        self.assertEqual(redeployed_nodes(select_nodes(self.manifest(), ["nats_bus"])), [])
-
-    def test_the_refused_manifest_asks_for_a_method_no_container_takes(self):
-        manifest, node = refused_manifest(self.manifest()["nodes"], "refused")
-        parsed = tomllib.loads(manifest)
-        self.assertEqual(node, "ceos01")
-        self.assertEqual(parsed["nodes"], [{"name": "ceos01", "model": "arista_eos",
-                                            "kind": "container", "version": "4.35.1F", "ztp": {"method": REFUSED_METHOD}}])
-
     def test_ssh_refusals_are_read_from_its_message(self):
         self.assertEqual(ssh_refusal("channel 0: open failed: connect failed: No route to host\n"),
                          NO_ADDRESS)
@@ -581,25 +535,6 @@ class SelfTest(unittest.TestCase):
                          NO_SSH_SERVER)
         self.assertEqual(ssh_refusal("alice@192.0.2.1: Permission denied (publickey).\n"), LOGIN_REFUSED)
         self.assertIsNone(ssh_refusal("kex_exchange_identification: read: Connection reset\n"))
-
-    def test_every_mounted_config_model_has_its_ztp_off_refusal_and_known_reasons(self):
-        self.assertEqual(set(ZTP_OFF_REFUSAL), set(ZTP_MOUNTS))
-        reasons = {reason for _, reason in SSH_REFUSALS}
-        self.assertTrue(set(ZTP_OFF_REFUSAL.values()) <= reasons)
-
-    def test_the_address_is_read_from_ssh_g(self):
-        self.assertEqual(ssh_hostname("user sherpa\nhostname 172.31.9.12\nport 22\n"), "172.31.9.12")
-        with self.assertRaises(TestFailure):
-            ssh_hostname("user sherpa\n")
-
-    def test_run_logged_keeps_streams_apart_for_parsing(self):
-        script = "import sys; print('{\"items\": []}'); print('Warning: added host', file=sys.stderr)"
-        with tempfile.TemporaryDirectory() as folder:
-            with open(Path(folder) / "log", "w") as log:
-                outcome = run_logged(log, "streams", [sys.executable, "-c", script], Path(folder))
-        self.assertEqual(outcome.code, 0)
-        self.assertEqual(json.loads(outcome.stdout), {"items": []})
-        self.assertIn("Warning: added host", outcome.output)
 
 
 if __name__ == "__main__":

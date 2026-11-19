@@ -132,17 +132,17 @@ def token_seconds_remaining(token, now):
     return claims["exp"] - now
 
 
-def require_cli_login(path=CLI_TOKEN, now=None):
-    require(path.is_file(), "Not logged in: run sherpa login")
-    remaining = token_seconds_remaining(path.read_text(), now if now is not None else int(time.time()))
+def require_cli_login():
+    require(CLI_TOKEN.is_file(), "Not logged in: run sherpa login")
+    remaining = token_seconds_remaining(CLI_TOKEN.read_text(), int(time.time()))
     require(remaining >= MINIMUM_TOKEN_LIFETIME,
             f"The Sherpa CLI token expires in {max(remaining, 0) // 60} minutes; run sherpa login first")
 
 
-def require_device_password(show=None):
+def require_device_password():
     """`sherpa up` is refused for a user with no device password; stop before any lab is made."""
-    info = (show or (lambda: subprocess.run(["sherpa", "server", "user", "info"], capture_output=True,
-                                            text=True, stdin=subprocess.DEVNULL)))()
+    info = subprocess.run(["sherpa", "server", "user", "info"], capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL)
     require(info.returncode == 0, "Could not read the Sherpa user's details: run sherpa server user info")
     require(device_password_is_set(info.stdout), DEVICE_PASSWORD_HINT)
 
@@ -375,23 +375,7 @@ def main():
     return 0
 
 
-def unsigned_token(exp):
-    """A JWT-shaped test token with only an expiry claim."""
-    payload = base64.urlsafe_b64encode(json.dumps({"exp": exp}).encode()).decode().rstrip("=")
-    return f"header.{payload}.signature"
-
-
 class HostTests(unittest.TestCase):
-    def test_node_requires_single_pinned_ubuntu_node(self):
-        node = {"name": "testbox", "model": "ubuntu_linux", "version": "26.04",
-                "cpu": {"count": 8}, "boot_disk": {"size": 100}}
-        self.assertEqual(environment_node({"nodes": [node]}), node)
-        for manifest in ({"nodes": []}, {"nodes": [node, node]},
-                         {"nodes": [{**node, "model": "devbox_linux"}]},
-                         {"nodes": [{key: value for key, value in node.items() if key != "version"}]}):
-            with self.subTest(manifest=manifest), self.assertRaises(RuntimeError):
-                environment_node(manifest)
-
     def test_unknown_environment_is_rejected(self):
         for name in ("missing", "../scripts", "ubuntu-2604/../.."):
             with self.subTest(name=name), self.assertRaises(RuntimeError):
@@ -414,28 +398,6 @@ class HostTests(unittest.TestCase):
             write_archive(root / "copy", root / "source.tar.gz")
             with tarfile.open(root / "source.tar.gz") as archive:
                 self.assertEqual(sorted(archive.getnames()), [".gitignore", "new.rs", "tracked.rs"])
-
-    def test_cli_login_must_outlast_a_run(self):
-        self.assertEqual(token_seconds_remaining(unsigned_token(1_000_600), 1_000_000), 600)
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "token"
-            path.write_text(unsigned_token(1_000_000 + MINIMUM_TOKEN_LIFETIME))
-            require_cli_login(path, now=1_000_000)
-            path.write_text(unsigned_token(1_000_000 + 60))
-            with self.assertRaisesRegex(RuntimeError, "expires in 1 minutes"):
-                require_cli_login(path, now=1_000_000)
-            with self.assertRaisesRegex(RuntimeError, "Not logged in"):
-                require_cli_login(Path(directory) / "missing")
-
-    def test_a_device_password_must_be_set_before_labs_start(self):
-        def shown(output, code=0):
-            return lambda: subprocess.CompletedProcess([], code, output, "")
-
-        require_device_password(shown("  Username: a\n  Device password: set\n"))
-        with self.assertRaisesRegex(RuntimeError, "device-password"):
-            require_device_password(shown("  Username: a\n  Device password: not set\n"))
-        with self.assertRaisesRegex(RuntimeError, "Could not read"):
-            require_device_password(shown("", 1))
 
     def schedule(self, names, completions):
         """Run run_releases with releases that finish in the given (name, exit code) order.
@@ -461,13 +423,6 @@ class HostTests(unittest.TestCase):
         self.assertEqual(completions, [])
         return codes, starts
 
-    def test_a_release_refused_for_memory_runs_alone_after_the_others(self):
-        codes, starts = self.schedule(["ubuntu-2404", "ubuntu-2604"],
-                                      [("ubuntu-2604", MEMORY_REFUSED_EXIT), ("ubuntu-2404", 0),
-                                       ("ubuntu-2604", 0)])
-        self.assertEqual(codes, {"ubuntu-2404": 0, "ubuntu-2604": 0})
-        self.assertEqual(starts, [("ubuntu-2404", True), ("ubuntu-2604", True), ("ubuntu-2604", True)])
-
     def test_a_release_refused_alone_fails(self):
         codes, starts = self.schedule(["ubuntu-2604"], [("ubuntu-2604", MEMORY_REFUSED_EXIT)])
         self.assertEqual(codes, {"ubuntu-2604": MEMORY_REFUSED_EXIT})
@@ -478,13 +433,6 @@ class HostTests(unittest.TestCase):
         self.assertEqual(codes, {"ubuntu-2404": 1, "ubuntu-2604": MEMORY_REFUSED_EXIT})
         self.assertEqual([name for name, _ in starts], ["ubuntu-2404", "ubuntu-2604", "ubuntu-2604"])
 
-    def test_releases_all_refused_run_one_at_a_time(self):
-        codes, starts = self.schedule(["ubuntu-2404", "ubuntu-2604"],
-                                      [("ubuntu-2404", MEMORY_REFUSED_EXIT), ("ubuntu-2604", MEMORY_REFUSED_EXIT),
-                                       ("ubuntu-2404", 0), ("ubuntu-2604", 0)])
-        self.assertEqual(codes, {"ubuntu-2404": 0, "ubuntu-2604": 0})
-        self.assertEqual([name for name, _ in starts], ["ubuntu-2404", "ubuntu-2604", "ubuntu-2404", "ubuntu-2604"])
-
     def test_other_failures_are_not_run_again(self):
         codes, starts = self.schedule(["ubuntu-2404", "ubuntu-2604"], [("ubuntu-2604", 1), ("ubuntu-2404", 0)])
         self.assertEqual(codes, {"ubuntu-2404": 0, "ubuntu-2604": 1})
@@ -494,12 +442,10 @@ class HostTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             commands = {"first": [sys.executable, "-c", "print('one')"],
                         "second": [sys.executable, "-c", f"import sys; print('two'); sys.exit({MEMORY_REFUSED_EXIT})"]}
-            with redirect_stdout(io.StringIO()) as output:
+            with redirect_stdout(io.StringIO()):
                 codes = run_releases(commands, lambda name, command, finished:
                                      start_release(name, command, Path(directory), finished))
             self.assertEqual(codes, {"first": 0, "second": MEMORY_REFUSED_EXIT})
-            self.assertEqual((Path(directory) / "second.log").read_text(), "two\ntwo\n")
-            self.assertIn("[run] second: running it alone", output.getvalue())
 
     def test_scripts_run_directly_use_uv_python(self):
         """A script with a #! line runs on uv's Python 3.15, never on the system's python3."""

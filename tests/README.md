@@ -320,19 +320,27 @@ See [labs/README.md](labs/README.md) for the rules and each lab's README for wha
 
 ```sh
 uv run tests/harness/test_env.py --self-test
-uv run tests/harness/test_env_guest.py --self-test
 uv run tests/harness/build_cache.py --self-test
 uv run tests/harness/host_memory.py --self-test
 uv run tests/harness/vm_release_test.py --self-test
 uv run tests/harness/vm_release_guest.py --self-test
+uv run tests/harness/vm_release_faults.py --self-test
+uv run tests/harness/verify_release_test.py --self-test
 uv run tests/labs/private-bridge/private_bridge_lab_test.py --self-test
 uv run tests/labs/p2p-containers/p2p_containers_lab_test.py --self-test
 uv run tests/labs/p2p-links/p2p_links_lab_test.py --self-test
 uv run tests/labs/console/console_lab_test.py --self-test
 uv run tests/labs/talos-linux/talos_lab_test.py --self-test
+uv run tests/labs/cisco-iol/cisco_iol_lab_test.py --self-test
+uv run tests/labs/container-ztp/container_ztp_lab_test.py --self-test
+uv run tests/labs/nixos-linux/nixos_linux_lab_test.py --self-test
 ```
 
-Run these after changing anything in `tests/harness/` or a lab runner.
+Run these after changing anything in `tests/harness/` or a lab runner. They test the tooling, not
+Sherpa, so they stay outside the behaviour IDs of `tests/specs/README.md`, and each keeps only
+checks whose failure means a lab or VM run could pass when it should fail, or the tooling could
+touch what it does not own on the host or leak a credential. The lab runners' `SelfTest` classes
+set `__test__ = False` so pytest does not collect them as lab cases.
 
 ## When to run what
 

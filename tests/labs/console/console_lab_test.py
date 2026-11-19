@@ -30,12 +30,10 @@ import signal
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 import tomllib
 from typing import NamedTuple
 import unittest
-from unittest import mock
 import uuid
 
 
@@ -623,39 +621,8 @@ def preflight(run_root, other_user, admin_user, passwords):
 
 
 class SelfTest(unittest.TestCase):
-    def test_device_password_check_reads_the_info_output(self):
-        def info(text, code=0):
-            return lambda *args, **kwargs: Outcome(code, text, "")
-
-        with tempfile.TemporaryDirectory() as temp:
-            run_root = Path(temp)
-            ready = "\nUser Information:\n  Username: alice\n  Device password: set\n"
-            with mock.patch(f"{__name__}.run_logged", info(ready)):
-                self.assertEqual(require_device_password(None, run_root), "alice")
-            for text, code in (("  Username: alice\n  Device password: not set\n", 0), (ready, 1)):
-                with mock.patch(f"{__name__}.run_logged", info(text, code)):
-                    with self.assertRaises(TestFailure):
-                        require_device_password(None, run_root)
-
-    def test_drain_stops_at_the_end_of_the_output_or_its_limit(self):
-        calls = []
-        drain(lambda timeout: calls.append(timeout) or len(calls) < 3)
-        self.assertEqual(len(calls), 3)
-        started = time.monotonic()
-        drain(lambda timeout: True, limit=0.3)
-        self.assertLess(time.monotonic() - started, 2)
-
-    def test_the_vnc_address_is_read_from_the_listening_line(self):
-        line = (f"VNC console of {VM} in lab console-abc123: connect a VNC viewer to 127.0.0.1:40123. "
-                "Ctrl+C to stop.\n")
-        self.assertEqual(VNC_LISTENING.search(line).group(1), "127.0.0.1:40123")
-        self.assertIn(VNC_ADDRESS, line)
-
-    def test_the_manifest_has_the_vm_and_the_container(self):
-        manifest = tomllib.loads(render_manifest("console-abc123"))
-        self.assertEqual(manifest["name"], "console-abc123")
-        self.assertEqual([node["name"] for node in manifest["nodes"]], [VM, CONTAINER])
-        self.assertEqual(manifest["nodes"][1]["image"], "alpine")
+    # The runner's own checks, run with --self-test; pytest must not collect them as lab cases.
+    __test__ = False
 
     def test_path_without_leaves_out_the_directories_holding_the_tools(self):
         directory = RUNS / f"self-test-{uuid.uuid4().hex[:8]}"

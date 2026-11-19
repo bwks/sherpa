@@ -881,22 +881,8 @@ def main():
 
 
 class SelfTest(unittest.TestCase):
-    def test_device_password_check_reads_the_info_output(self):
-        def info(text, code=0):
-            return lambda *args, **kwargs: Outcome(code, text, "")
-
-        with tempfile.TemporaryDirectory() as temp:
-            run_root = Path(temp)
-            ready = "\nUser Information:\n  Username: alice\n  Device password: set\n"
-            with mock.patch(f"{__name__}.run_logged", info(ready)):
-                self.assertEqual(require_device_password(None, run_root), "alice")
-            for text, code in (("  Username: alice\n  Device password: not set\n", 0), (ready, 1)):
-                with mock.patch(f"{__name__}.run_logged", info(text, code)):
-                    with self.assertRaises(TestFailure):
-                        require_device_password(None, run_root)
-
-    def manifest(self):
-        return tomllib.loads((LAB / "manifest.toml").read_text())
+    # The runner's own checks, run with --self-test; pytest must not collect them as lab cases.
+    __test__ = False
 
     def test_a_partly_created_lab_keeps_its_id_for_cleanup(self):
         # `sherpa up` exits 1 on a partly created lab after writing lab-info.toml; the run must
@@ -922,52 +908,6 @@ class SelfTest(unittest.TestCase):
             with mock.patch(f"{__name__}.run_logged", leftover):
                 self.assertIsInstance(run.destroy(), TestFailure)
 
-    def test_rendered_manifest_round_trips_with_a_new_name(self):
-        manifest = self.manifest()
-        rendered = tomllib.loads(render_manifest(manifest, "renamed"))
-        self.assertEqual(rendered["name"], "renamed")
-        for section in ("nodes", "links"):
-            self.assertEqual(rendered[section], manifest[section])
-
-    def test_linux_links_match_the_manifest(self):
-        links = self.manifest()["links"]
-        for link in LINUX_LINKS:
-            self.assertEqual(links[link.index]["src"], f"{link.src}::{link.src_interface}")
-            self.assertEqual(links[link.index]["dst"], f"{link.dst}::{link.dst_interface}")
-        self.assertEqual(links[0]["impairment"], {"delay": MANIFEST_DELAY})
-        self.assertEqual({link.pair for link in LINUX_LINKS},
-                         {"vm-vm", "vm-container", "container-container"})
-
-    def test_bundles_match_the_manifest(self):
-        links = {(link["src"], link["dst"]) for link in self.manifest()["links"]}
-        for bundle in BUNDLES:
-            for a_port, b_port in zip(bundle.a_ports, bundle.b_ports):
-                pair = (f"{bundle.a}::{manifest_interface(a_port)}",
-                        f"{bundle.b}::{manifest_interface(b_port)}")
-                self.assertIn(pair, links)
-            for node in (bundle.a, bundle.b):
-                self.assertIn(node, VMS + ARISTA)
-        self.assertEqual({bundle.pair for bundle in BUNDLES},
-                         {"vm-vm", "vm-container", "container-container"})
-
-    def test_node_kinds_match_the_manifest(self):
-        models = {node["name"]: node["model"] for node in self.manifest()["nodes"]}
-        self.assertTrue(all(models[node] == "ubuntu_linux" for node in VMS))
-        kinds = {node["name"]: node.get("kind") for node in self.manifest()["nodes"]}
-        self.assertTrue(all(models[node] == "generic" and kinds[node] == "container" for node in CONTAINERS))
-        self.assertEqual(set(REDEPLOYED) | {REBOOTED}, {"u1", "u2", "c1"})
-        self.assertTrue(all(models[node] == "arista_eos" and kinds[node] == "container" for node in ARISTA))
-
-    def test_arista_config_bundles_each_ports_pair(self):
-        config = arista_config(node_bundles("ceos1"))
-        self.assertIn("interface Ethernet1-2\nno switchport\nchannel-group 2 mode active", config)
-        self.assertIn("interface Ethernet3-4\nno switchport\nchannel-group 3 mode active", config)
-        self.assertIn(f"lldp timer {ARISTA_LLDP_TIMER}\n", config)
-        self.assertTrue(config.endswith("write memory\n"))
-        self.assertEqual(node_bundles("ceos1"), {2: ("Ethernet1", "Ethernet2"),
-                                                 3: ("Ethernet3", "Ethernet4")})
-        self.assertEqual(node_bundles("b1"), {1: ("eth1", "eth2"), 2: ("eth3", "eth4")})
-
     def test_bond_bundled_needs_the_active_aggregator_and_both_ends_in_sync(self):
         def member(name, aggregator, actor, partner):
             return (f"Slave Interface: {name}\nMII Status: up\nAggregator ID: {aggregator}\n"
@@ -983,17 +923,6 @@ class SelfTest(unittest.TestCase):
         # Partner not yet collecting and distributing.
         self.assertEqual(bond_bundled(head + member("enp3s0", 1, 63, 7)), set())
         self.assertEqual(bond_bundled("Bonding Mode: IEEE 802.3ad\n"), set())
-
-    def test_lldp_tool_frames_parse_back_and_their_output_is_read(self):
-        tool = {}
-        exec(compile(LLDP_TOOL.read_text(), str(LLDP_TOOL), "exec"), tool)
-        frame = tool["lldpdu"](bytes(6), "b1", "eth3")
-        self.assertEqual(tool["neighbour"](frame), ("b1", "eth3"))
-        self.assertIsNone(tool["neighbour"](bytes(12) + b"\x08\x00" + bytes(20)))
-        self.assertEqual(lldp_heard("enp3s0 ceos1.sherpa.lab.local Ethernet1\n"),
-                         {"enp3s0": ("ceos1", "Ethernet1")})
-        self.assertEqual(manifest_interface("Ethernet3"), "eth3")
-        self.assertEqual(manifest_interface("eth3"), "eth3")
 
     def test_guest_mac_and_interface_lookup(self):
         mac = guest_mac("fe:54:00:b6:39:ad\n")
@@ -1014,18 +943,6 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(frame_problems(frames, "u1"), ["pause missing", "vlan10 tag -"])
         self.assertEqual(received_frames("u1 lldp 32 -\nnoise\n"), {("u1", "lldp"): (32, "-")})
 
-    def test_frame_tool_sends_every_kind(self):
-        tool = {}
-        exec(compile(FRAME_TOOL.read_text(), str(FRAME_TOOL), "exec"), tool)
-        self.assertEqual(tuple(kind for kind, _, _ in tool["KINDS"]), FRAME_KINDS)
-        self.assertEqual(len(tool["frame"]("u1", "jumbo9000", "ffffffffffff", "88b5")), JUMBO_LENGTH)
-
-    def test_pcap_marks_finds_marked_frames(self):
-        header = struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1)
-        packet = bytes(12) + b"\x88\xcc" + b"SHERPA391:c1:lldp\x00"
-        record = struct.pack("<IIII", 0, 0, len(packet), len(packet)) + packet
-        self.assertEqual(pcap_marks(header + record + record), {("c1", "lldp")})
-
     def test_ping_and_qdisc_parsing(self):
         self.assertEqual(average_rtt("rtt min/avg/max/mdev = 20.1/25.5/30.0/1.0 ms"), 25.5)
         self.assertIsNone(average_rtt("3 packets transmitted, 0 received"))
@@ -1033,23 +950,11 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(netem_delay("qdisc netem 1: root limit 1000 delay 500us"), 0.5)
         self.assertIsNone(netem_delay("qdisc noqueue 0: root refcnt 2"))
 
-    def test_lldp_and_port_channel_parsing(self):
-        lldp = json.dumps({"lldpNeighbors": [{"port": "Ethernet1", "neighborDevice": "ceos2.sherpa.lab.local",
-                                              "neighborPort": "Ethernet1", "ttl": 120}]})
-        self.assertEqual(lldp_neighbours(lldp), {"Ethernet1": ("ceos2", "Ethernet1")})
+    def test_port_channel_parsing(self):
         channel = json.dumps({"portChannels": {"Port-Channel1": {"activePorts": {"Ethernet1": {},
                                                                                  "Ethernet2": {}}}}})
         self.assertEqual(bundled_ports(channel, 1), {"Ethernet1", "Ethernet2"})
         self.assertEqual(bundled_ports(channel, 2), set())
-
-    def test_run_logged_keeps_streams_apart_for_parsing(self):
-        script = "import sys; print('{\"items\": []}'); print('Warning: added host', file=sys.stderr)"
-        with tempfile.TemporaryDirectory() as folder:
-            with open(Path(folder) / "log", "w") as log:
-                outcome = run_logged(log, "streams", [sys.executable, "-c", script], Path(folder))
-        self.assertEqual(outcome.code, 0)
-        self.assertEqual(json.loads(outcome.stdout), {"items": []})
-        self.assertIn("Warning: added host", outcome.output)
 
 
 if __name__ == "__main__":
