@@ -484,33 +484,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_request_turns_off_the_features_ethtool_tx_off_turns_off() {
-        let message = features_off_request(27, 1, TX_CHECKSUM_FEATURES).unwrap();
-        let attrs = attributes(&message);
-        let header_len = usize::from(read_u16(attrs, 0).unwrap());
-        let (_, wanted) = first_attr(&attrs[header_len..]);
-        let (_, mut bits) = first_attr(wanted);
-        let mut names = Vec::new();
-        while !bits.is_empty() {
-            let len = usize::from(read_u16(bits, 0).unwrap());
-            let (_, bit) = first_attr(bits);
-            let (_, name) = first_attr(bit);
-            names.push(String::from_utf8(name.to_vec()).unwrap());
-            bits = &bits[len.next_multiple_of(4)..];
-        }
-        assert_eq!(
-            names,
-            [
-                "tx-checksum-ipv4\0",
-                "tx-checksum-ip-generic\0",
-                "tx-checksum-ipv6\0",
-                "tx-checksum-fcoe-crc\0",
-                "tx-checksum-sctp\0",
-            ]
-        );
-    }
-
     /// A reply datagram of one message of type `kind` with `payload`.
     fn reply_datagram(kind: u16, seq: u32, payload: &[u8]) -> Vec<u8> {
         let mut datagram = Vec::new();

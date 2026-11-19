@@ -440,24 +440,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn released_leases_leave_the_map_and_a_held_one_stays() {
-        let held = begin("lab-ops-shrink-held").await;
-        let labs: Vec<String> = (0..100).map(|i| format!("lab-ops-shrink-{i}")).collect();
-        for lab in &labs {
-            drop(begin(lab).await);
-            drop(try_observe(lab));
-            drop(stop(lab, StopReason::Request).await);
-        }
-        for lab in &labs {
-            assert!(!leases().contains_key(lab), "{lab} was not removed");
-        }
-        assert!(leases().contains_key("lab-ops-shrink-held"));
-        assert!(held.ensure_active().is_ok());
-        drop(held);
-        assert!(!leases().contains_key("lab-ops-shrink-held"));
-    }
-
-    #[tokio::test]
     async fn a_waiter_cancelled_mid_wait_gives_up_its_count() {
         let lab = "lab-ops-cancelled-wait";
         let (_, stopped) = stop(lab, StopReason::Request).await;

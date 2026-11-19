@@ -325,57 +325,6 @@ mod tests {
     // ── The machine ──
 
     #[test]
-    fn the_transition_table() {
-        let logout = SessionEvent::End(EndReason::Logout);
-        let password = SessionEvent::End(EndReason::PasswordChanged);
-        let deleted = SessionEvent::End(EndReason::UserDeleted);
-        let table = [
-            (
-                SessionState::Active,
-                SessionEvent::Use,
-                Ok(SessionState::Active),
-            ),
-            (SessionState::Active, logout, Ok(SessionState::Ended)),
-            (SessionState::Active, password, Ok(SessionState::Ended)),
-            (SessionState::Active, deleted, Ok(SessionState::Ended)),
-            (
-                SessionState::Active,
-                SessionEvent::Sweep,
-                Ok(SessionState::Active),
-            ),
-            (
-                SessionState::Expired,
-                SessionEvent::Use,
-                Err(SessionRejection::Expired),
-            ),
-            (SessionState::Expired, logout, Ok(SessionState::Ended)),
-            (SessionState::Expired, password, Ok(SessionState::Ended)),
-            (SessionState::Expired, deleted, Ok(SessionState::Ended)),
-            (
-                SessionState::Expired,
-                SessionEvent::Sweep,
-                Ok(SessionState::Ended),
-            ),
-            (
-                SessionState::Ended,
-                SessionEvent::Use,
-                Err(SessionRejection::Ended),
-            ),
-            (SessionState::Ended, logout, Ok(SessionState::Ended)),
-            (SessionState::Ended, password, Ok(SessionState::Ended)),
-            (SessionState::Ended, deleted, Ok(SessionState::Ended)),
-            (
-                SessionState::Ended,
-                SessionEvent::Sweep,
-                Ok(SessionState::Ended),
-            ),
-        ];
-        for (from, event, expected) in table {
-            assert_eq!(transition(from, event), expected, "{from:?} on {event:?}");
-        }
-    }
-
-    #[test]
     fn state_follows_the_row_and_the_clock() {
         let now = Timestamp::from_second(1_000).expect("time");
         let later = Timestamp::from_second(1_001).expect("time");

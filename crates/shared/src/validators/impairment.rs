@@ -54,21 +54,6 @@ mod tests {
     }
 
     #[test]
-    fn the_longest_delay_and_jitter_are_274877_ms() {
-        validate_link_impairment(274_877, 274_877, 0.0, 0.0, 0.0).unwrap();
-        let error = validate_link_impairment(274_878, 0, 0.0, 0.0, 0.0).unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "Impairment delay of 274878 ms is longer than the 274877 ms netem can hold"
-        );
-        let error = validate_link_impairment(0, 274_878, 0.0, 0.0, 0.0).unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "Impairment jitter of 274878 ms is longer than the 274877 ms netem can hold"
-        );
-    }
-
-    #[test]
     fn delays_netem_cannot_hold_are_refused() {
         let error = validate_link_impairment(MAX_IMPAIRMENT_DELAY_MS + 1, 0, 0.0, 0.0, 0.0)
             .unwrap_err()

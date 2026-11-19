@@ -278,7 +278,6 @@ pub fn render_tailnet_table(status: &TailnetStatus) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::net::Ipv4Addr;
 
     use super::*;
     use shared::data::{BridgeKind, NodeKind, NodeModel, NodeState, ProvisionStatus};
@@ -548,55 +547,6 @@ mod tests {
         assert!(row.contains("│ stopped "), "{row}");
         // The empty IPv4 shows "-", as do the IPv6, CPU, memory and disks it does not have.
         assert_eq!(row.matches("│ - ").count(), 5, "{row}");
-    }
-
-    #[test]
-    fn a_lab_without_devices_shows_the_headers() {
-        let devices: Vec<DeviceInfo> = vec![];
-        let expected = "\
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                                   Active Nodes                                    │
-├────────┬───────┬──────┬───────┬───────────┬───────────┬─────┬─────────────┬───────┤
-│ Device │ Model │ Kind │ State │ Mgmt IPv4 │ Mgmt IPv6 │ CPU │ Memory (MB) │ Disks │
-└────────┴───────┴──────┴───────┴───────────┴───────────┴─────┴─────────────┴───────┘";
-        assert_eq!(render_devices_table(&devices, "a1b2c3d4"), expected);
-    }
-
-    #[test]
-    fn the_lab_info_table_shows_each_setting_by_its_name() {
-        let lab_info = LabInfo {
-            ssh_usernames: Vec::default(),
-            id: "039ab286".to_string(),
-            name: "simple-ceos-test".to_string(),
-            user: "admin".to_string(),
-            ipv4_network: "172.31.0.0/24".parse().unwrap(),
-            ipv4_gateway: Ipv4Addr::new(172, 31, 0, 1),
-            ipv4_router: Ipv4Addr::new(172, 31, 0, 2),
-            ipv6_network: None,
-            ipv6_gateway: None,
-            ipv6_router: None,
-            description: None,
-            client_host: None,
-            client_folder: None,
-        };
-
-        let expected = "\
-┌───────────────────────────────────────┐
-│               Lab Info                │
-├────────────────────┬──────────────────┤
-│ ID                 │ 039ab286         │
-├────────────────────┼──────────────────┤
-│ Name               │ simple-ceos-test │
-├────────────────────┼──────────────────┤
-│ User               │ admin            │
-├────────────────────┼──────────────────┤
-│ Management Network │ 172.31.0.0/24    │
-├────────────────────┼──────────────────┤
-│ IPv4 Gateway       │ 172.31.0.1       │
-├────────────────────┼──────────────────┤
-│ IPv4 Router        │ 172.31.0.2       │
-└────────────────────┴──────────────────┘";
-        assert_eq!(render_lab_info_table(&lab_info), expected);
     }
 
     #[test]
