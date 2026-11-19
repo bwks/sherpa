@@ -44,10 +44,9 @@
 **What to test:**
 - Template renders valid SSH config file `[unit]` **P0**
 - Template renders precomputed typed host entries, including usernames and optional identity files `[unit]` **P0**
-- Server resolves aliases, ProxyJump, personal usernames and legacy identity settings from ZTP records and saved SSH metadata before rendering `[unit]` **P0**
+- Server resolves aliases, personal usernames and legacy identity settings from ZTP records and saved SSH metadata before rendering `[unit]` **P0**
 - Host line uses scoped `<node>.<lab-id>` naming format `[unit]` **P0**
 - Host FQDN uses `<node>.<lab-id>.<domain>` format `[unit]` **P0**
-- Proxy settings (user, server IP) configured `[unit]` **P0**
 - Each node gets a Host block with correct hostname `[unit]` **P1**
 - Multiple ZTP records produce multiple Host blocks `[unit]` **P1**
 

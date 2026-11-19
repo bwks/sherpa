@@ -89,14 +89,8 @@ pub(super) async fn download(
 ) -> Result<Value, RpcError> {
     let lab = lab_params(params)?;
     respond(
-        download::download_lab_files(
-            ctx,
-            &lab.lab_id,
-            &state.db,
-            state.config.server_ipv4,
-            Path::new(SHERPA_LABS_PATH),
-        )
-        .await,
+        download::download_lab_files(ctx, &lab.lab_id, &state.db, Path::new(SHERPA_LABS_PATH))
+            .await,
         RPC_MSG_DOWNLOAD_FAILED,
     )
 }

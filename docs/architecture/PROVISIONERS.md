@@ -5,8 +5,9 @@ provisioner's definition (its paths and settings), never the contents of a file 
 are two types:
 
 - `ssh`, for Linux and BSD VMs: the `sherpa` CLI runs it on the node once it is ready, with the
-  lab's `.sherpa/ssh/config`, through the server as an SSH jump host. The server only forwards the
-  encrypted stream.
+  lab's `.sherpa/ssh/config`, which reaches the node directly. With `--ssh-jump` on `sherpa up`,
+  `sherpa provision` or `sherpa redeploy` it goes through the server as an SSH jump host instead,
+  which only forwards the encrypted stream.
 - `container`, for containers: the CLI sends the files to the server outside the manifest, and
   the server keeps them in RAM and mounts them read-only at `/run/secrets` before the container
   starts. See [Container secret files](#container-secret-files).
@@ -77,16 +78,20 @@ server ignores the field.
   but only failures at the node itself (`ssh_client::retryable`): refused or timed-out
   connections, a tunnel or connection the starting node drops, and the login refused because
   cloud-init has not created the account yet. A host key problem, the Sherpa server refusing
-  the login, or a local file or SSH config that cannot be read fails at once. All steps then share the connection.
+  the login, or a local file or SSH config that cannot be read fails at once. So does a node
+  reached directly that has no route from the client: `ssh_client::connect` checks for one
+  first and fails with a hint to use `--ssh-jump` or the lab's tailnet (see "Unreachable nodes"
+  in [`SSH_CLIENT.md`](SSH_CLIENT.md)). All steps then share the connection.
 - **Unknown nodes fail at once.** A `<node>.<lab-id>` alias with no `Host` block in
   `.sherpa/ssh/config`, such as a node added to the manifest after the lab was created, would
   resolve as in `ssh` to a direct connection to the alias as a hostname and fail its DNS
-  lookup until the ready timeout. `SshTarget::new` refuses a route with no jump host instead,
-  as every lab node is reached through the server.
-- **Prompts.** Only the jump to the Sherpa server may ask for a key passphrase or password
-  (`PromptScope::JumpHostsOnly`); a node is never asked about, as its login fails while it
-  boots. One `jato::PromptCache` serves the whole run, so provisioning many nodes asks once. An
-  unknown server host key is asked about as in `sherpa ssh`. The authentication limit is
+  lookup. Every lab node's block has a `HostName`, its management address, so
+  `SshTarget::new` refuses a route whose target is the alias itself instead.
+- **Prompts** (`PromptScope::NoNodePassword`). Any hop may ask for the passphrase of the user's
+  key, the node included, which is the first hop without `--ssh-jump`; only the jump to the
+  Sherpa server may ask for a password, as a node's login fails while it boots and must be
+  retried, not answered. One `jato::PromptCache` serves the whole run, so provisioning many
+  nodes asks once. An unknown server host key is asked about as in `sherpa ssh`. The authentication limit is
   `konst::SSH_PROMPT_AUTH_TIMEOUT` (300 s) so typing is not cut off. Jato's `PromptCache`
   (from v0.4.3) asks one question at a time across all its prompters and re-checks the cache
   once it has its turn, so nodes connecting at once ask once.

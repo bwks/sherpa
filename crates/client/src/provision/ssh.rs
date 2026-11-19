@@ -174,9 +174,13 @@ mod tests {
     use super::*;
     use std::env;
 
+    use jato::{PromptCache, SshConfig};
+    use shared::data::ClientConfig;
     use topology::ProvisionerFile;
 
     use tempfile::tempdir;
+
+    use crate::ssh_client::{HostKeyRefresh, SshAccess};
 
     #[test]
     fn client_files_are_read_with_their_node_destinations() {
@@ -257,5 +261,64 @@ mod tests {
         };
         let error = format!("{error:#}");
         assert!(error.contains("missing.env"), "{error}");
+    }
+
+    /// A target for `web01` of lab `ab12cd34`, whose SSH config puts it at `address`, reached
+    /// with no jump host.
+    fn direct_target(dir: &Path, address: &str) -> SshTarget {
+        let path = dir.join("config");
+        fs::write(
+            &path,
+            format!(
+                "Host {address} web01.ab12cd34\n    HostName {address}\n    User alice\n    \
+                 StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null\n"
+            ),
+        )
+        .unwrap();
+        let access = SshAccess {
+            refresh: HostKeyRefresh::new(
+                "ab12cd34",
+                "wss://sherpa.example:3030/ws",
+                &ClientConfig::default(),
+                dir,
+            ),
+            jump: None,
+        };
+        SshTarget::new(
+            &SshConfig::load_file(&path).unwrap(),
+            "web01",
+            "ab12cd34",
+            &PromptCache::new(),
+            &access,
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    #[ignore = "opens a TCP connection to TEST-NET-1, which must have no route from this machine"]
+    async fn ssh_access_006_an_unreachable_node_fails_at_once_with_a_hint() {
+        let dir = tempdir().unwrap();
+        let target = direct_target(dir.path(), "192.0.2.10");
+        let started = Instant::now();
+        let Err(error) = wait_for_node(&target, Duration::from_secs(600)).await else {
+            panic!("a node with no route was reached");
+        };
+        let waited = started.elapsed();
+        let message = format!("{error:#}");
+        assert!(
+            waited < Duration::from_secs(60),
+            "waited {waited:?} before failing: {message}"
+        );
+        assert!(
+            message.contains("web01 at 192.0.2.10:22 is not reachable from this machine"),
+            "{message}"
+        );
+        assert!(
+            message.contains(
+                "Use --ssh-jump to go through the Sherpa server, or join the lab's tailnet and \
+                 accept its routes."
+            ),
+            "{message}"
+        );
     }
 }

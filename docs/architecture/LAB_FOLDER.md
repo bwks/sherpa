@@ -29,11 +29,13 @@ the old one; a current-user-only DACL on Windows). Folders are made by
 nothing is ever written through a link. Folder modes are set on Unix only.
 
 The server still sends the files' contents with its own names. Its SSH config names the known
-hosts relatively (`UserKnownHostsFile sherpa_known_hosts`) and names no identity file, so a node
-logs in with the client's own keys;
-`lab_files::rewrite_ssh_config_for_client` replaces the known hosts path with the absolute path
-of `.sherpa/ssh/known_hosts`. The config therefore works from anywhere:
-through the `Include` in `~/.ssh/sherpa_lab_hosts`, with `ssh -F .sherpa/ssh/config <node>` from
+hosts relatively (`UserKnownHostsFile sherpa_known_hosts`), names no identity file, so a node
+logs in with the client's own keys, and has no `ProxyJump`, so every node is reached directly
+(a jump through the server is added per command; see [`SSH_CLIENT.md`](SSH_CLIENT.md#the-jump)).
+A lab whose folder has a config from an older server, with the jump, gets this one at its next
+`sherpa up` or `sherpa download`. `lab_files::rewrite_ssh_config_for_client` replaces the known
+hosts path with the absolute path of `.sherpa/ssh/known_hosts`. The config therefore works from
+any folder, on a machine with a route to the lab's management network: through the `Include` in `~/.ssh/sherpa_lab_hosts`, with `ssh -F .sherpa/ssh/config <node>` from
 the lab folder, for `sherpa ssh` and for the provisioners. The server's own lab folder
 (`/opt/sherpa/labs/<lab-id>`) keeps the `sherpa_*` names.
 

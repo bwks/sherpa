@@ -13,7 +13,7 @@ use shared::konst::{SHERPA_DOMAIN_NAME, SHERPA_MANIFEST_FILE, SSH_PROMPT_AUTH_TI
 use shared::util::{LabFolder, term_msg_surround};
 
 use super::lab_identity::require_lab_owner;
-use crate::ssh_client::{self, HostKeyRefresh, PromptScope};
+use crate::ssh_client::{self, PromptScope, SshAccess, node_route};
 
 /// Qualify a device name with the lab ID suffix if not already present.
 ///
@@ -63,36 +63,36 @@ impl fmt::Display for ShellExit {
 
 impl std::error::Error for ShellExit {}
 
-/// Open an interactive shell on a lab node, through the Sherpa server as the lab's SSH
-/// configuration says. Only the lab's owner may: anyone else is stopped before anything
-/// connects. A non-zero exit code from the node's shell is returned as a `ShellExit` error.
+/// Open an interactive shell on a lab node, as the lab's SSH configuration says: directly, or
+/// through the Sherpa server when `ssh_jump` is set. Only the lab's owner may: anyone else is
+/// stopped before anything connects. A non-zero exit code from the node's shell is returned as
+/// a `ShellExit` error.
 #[tracing::instrument(skip(client_config), fields(%name, %lab_id))]
 pub async fn ssh(
     name: &str,
     lab_id: &str,
     server_url: &str,
     client_config: &ClientConfig,
+    ssh_jump: bool,
 ) -> Result<()> {
     let lab_dir = Path::new("");
     require_lab_owner(lab_dir)?;
     let qualified_name = load_ssh_connection(name, lab_id, lab_dir)?;
     let config = SshConfig::load_file(LabFolder::new(lab_dir).ssh_config())
         .context("Failed to read the lab SSH config")?;
-    let route = config
-        .route(&qualified_name)
-        .with_context(|| format!("Failed to resolve '{qualified_name}' in the lab SSH config"))?;
+    let access = SshAccess::new(lab_id, server_url, client_config, lab_dir, ssh_jump)?;
+    let route = node_route(&config, &qualified_name, access.jump.as_ref())?;
     term_msg_surround(&format!("Connecting to: {qualified_name}"));
 
     let mut options = ConnectOptions::default();
     options.auth_timeout = Duration::from_secs(SSH_PROMPT_AUTH_TIMEOUT);
-    let refresh = HostKeyRefresh::new(lab_id, server_url, client_config, lab_dir);
     let session = ssh_client::connect(
         &route,
         &options,
         PromptScope::AllHops,
         &PromptCache::new(),
         node_name(name, lab_id),
-        &refresh,
+        &access.refresh,
     )
     .await?;
     eprintln!("{}", connected_line(&qualified_name));

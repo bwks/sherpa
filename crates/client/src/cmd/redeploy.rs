@@ -11,7 +11,7 @@ use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
 use crate::provision::{container_results, node_secrets, provision_lab};
-use crate::ssh_client::HostKeyRefresh;
+use crate::ssh_client::SshAccess;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -20,7 +20,8 @@ use super::outcome::print_link_reports;
 use super::progress::print_status;
 use super::up::resolve_manifest_files;
 
-/// Redeploy a single node: destroy and recreate with fresh ZTP
+/// Redeploy a single node: destroy and recreate with fresh ZTP, then run its provisioners,
+/// reaching it through the Sherpa server when `ssh_jump` is set.
 #[tracing::instrument(skip_all, fields(%lab_name, %lab_id, %node_name))]
 pub async fn redeploy(
     lab_name: &str,
@@ -29,6 +30,7 @@ pub async fn redeploy(
     manifest_path: &str,
     server_url: &str,
     config: &ClientConfig,
+    ssh_jump: bool,
 ) -> Result<()> {
     term_msg_surround(&format!(
         "Redeploy node '{node_name}' - {lab_name}-{lab_id}"
@@ -53,6 +55,7 @@ pub async fn redeploy(
             secrets = node_secrets(node, manifest_dir)?;
         }
     }
+    let access = SshAccess::new(lab_id, server_url, config, manifest_dir, ssh_jump)?;
 
     let manifest_value =
         serde_json::to_value(&manifest).context("Failed to serialize manifest to JSON")?;
@@ -135,7 +138,7 @@ pub async fn redeploy(
         None,
         Some(node_name),
         container_results(&mounted),
-        &HostKeyRefresh::new(lab_id, server_url, config, manifest_dir),
+        &access,
     )
     .await?;
 

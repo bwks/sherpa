@@ -11,15 +11,21 @@ use topology::validate::validate_provisioners;
 
 use super::lab_identity::{load_source_manifest, manifest_lab_identity, require_lab_owner};
 use crate::provision::{container_secrets, provision_lab};
-use crate::ssh_client::HostKeyRefresh;
+use crate::ssh_client::SshAccess;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
 /// Run the lab's node provisioners again, from the lab folder: the server rewrites container
-/// nodes' secret files, and the CLI runs ssh provisioners. Only the lab's owner may: anyone else
-/// is stopped before anything runs.
-#[tracing::instrument(skip_all, fields(?node))]
-pub async fn provision(node: Option<&str>, server_url: &str, config: &ClientConfig) -> Result<()> {
+/// nodes' secret files, and the CLI runs ssh provisioners, reaching the nodes through the Sherpa
+/// server when `ssh_jump` is set. Only the lab's owner may: anyone else is stopped before
+/// anything runs.
+#[tracing::instrument(skip_all, fields(?node, ssh_jump))]
+pub async fn provision(
+    node: Option<&str>,
+    server_url: &str,
+    config: &ClientConfig,
+    ssh_jump: bool,
+) -> Result<()> {
     let manifest = load_source_manifest(Path::new(SHERPA_MANIFEST_FILE), "provision")?;
     let lab_id = manifest_lab_identity(Path::new(""), &manifest)?.id;
     require_lab_owner(Path::new(""))?;
@@ -30,6 +36,7 @@ pub async fn provision(node: Option<&str>, server_url: &str, config: &ClientConf
         .parent()
         .unwrap_or(Path::new("."));
     let mut secrets = container_secrets(&manifest, manifest_dir)?;
+    let access = SshAccess::new(&lab_id, server_url, config, manifest_dir, ssh_jump)?;
     if let Some(only) = node {
         let mut kept = BTreeMap::new();
         if let Some(files) = secrets.remove(only) {
@@ -83,7 +90,6 @@ pub async fn provision(node: Option<&str>, server_url: &str, config: &ClientConf
         rpc_client.close().await.ok();
     }
 
-    let refresh = HostKeyRefresh::new(&lab_id, server_url, config, manifest_dir);
     let provisioned = provision_lab(
         &manifest,
         manifest_dir,
@@ -91,7 +97,7 @@ pub async fn provision(node: Option<&str>, server_url: &str, config: &ClientConf
         None,
         node,
         results,
-        &refresh,
+        &access,
     )
     .await?;
     if provisioned == 0 {

@@ -3,7 +3,6 @@ Host {{ host.aliases }}
     HostName {{ host.hostname }}
     Port {{ host.port }}
     User {{ host.username }}
-    ProxyJump {{ proxy_jump }}
     {%- if let Some(known_hosts_file) = host.known_hosts_file %}
     StrictHostKeyChecking yes
     UserKnownHostsFile {{ known_hosts_file }}

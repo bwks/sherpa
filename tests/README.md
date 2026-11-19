@@ -29,6 +29,7 @@ instead of repeating these instructions.
 | Container ZTP lab test | `uv run tests/labs/container-ztp/container_ztp_lab_test.py` | On the Sherpa server: the node images, Docker access, logged-in CLI, internet for the FRR node's packages | about 5–15 min |
 | Cisco IOL lab test | `uv run tests/labs/cisco-iol/cisco_iol_lab_test.py` | On the Sherpa server: the `cisco_iol` image built with docker-cisco-iol, `alpine:3.22`, Docker access, logged-in CLI | about 3–5 min |
 | P2p links lab test | `uv run tests/labs/p2p-links/p2p_links_lab_test.py` | On the Sherpa server: the node images, `nicolaka/netshoot:v0.14`, Docker access, logged-in CLI | about 15–20 min |
+| SSH access lab test | `uv run tests/labs/ssh-access/ssh_access_lab_test.py` | A route to the lab's management network (the Sherpa server), `ss`, the `alpine_linux` image, logged-in CLI; for `--ssh-jump`, a host account named as the Sherpa user | about 2 min |
 | Console lab test | `uv run tests/labs/console/console_lab_test.py` | Logged-in CLI; the `alpine_linux` and `generic` container `alpine` 3.22 images | about 3–5 min |
 | Talos lab test | `uv run tests/labs/talos-linux/talos_lab_test.py` | Sherpa host with the Talos, Ubuntu, Keycloak and Vault images, logged-in CLI, internet | about 25–35 min |
 | Web UI JavaScript | `node tests/web/test_theme.cjs` | Node.js | seconds |
@@ -134,6 +135,7 @@ tests. Run the crates you need:
 | db (importer) | `cargo test -p db --test mod import -- --ignored` | Test database |
 | container | `cargo test -p container -- --ignored --test-threads=1` | Docker, `alpine:latest`; the IOL test also needs a `localrepo/cisco_iol` image built with docker-cisco-iol, and passes without running when there is none |
 | network | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p network -- --ignored --test-threads=1` | root (rtnetlink) |
+| sherpa (client) | `cargo test -p sherpa -- --ignored` | No route to TEST-NET-1 (`192.0.2.0/24`) other than a default route; takes about 10 s |
 | libvirt | `cargo test -p libvirt -- --ignored --test-threads=1` | libvirtd, `sherpa-pool` |
 | sherpad | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p sherpad -- --ignored --test-threads=1` | root, Docker, libvirt, test images |
 
@@ -311,6 +313,7 @@ uv run tests/labs/container-ztp/container_ztp_lab_test.py    # ZTP on and off on
 uv run tests/labs/p2p-links/p2p_links_lab_test.py            # P2p link requirements on every pair of node kinds
 uv run tests/labs/cisco-iol/cisco_iol_lab_test.py            # Cisco IOL: config, SSH, links, TCP, write memory
 uv run tests/labs/console/console_lab_test.py               # sherpa console: prompt, escapes, in use, containers
+uv run tests/labs/ssh-access/ssh_access_lab_test.py         # sherpa ssh and provisioners: direct, and --ssh-jump
 uv run tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: single and ha labs in parallel; ha with Keycloak login and Vault secrets
 ```
 
@@ -330,6 +333,7 @@ uv run tests/labs/private-bridge/private_bridge_lab_test.py --self-test
 uv run tests/labs/p2p-containers/p2p_containers_lab_test.py --self-test
 uv run tests/labs/p2p-links/p2p_links_lab_test.py --self-test
 uv run tests/labs/console/console_lab_test.py --self-test
+uv run tests/labs/ssh-access/ssh_access_lab_test.py --self-test
 uv run tests/labs/talos-linux/talos_lab_test.py --self-test
 uv run tests/labs/cisco-iol/cisco_iol_lab_test.py --self-test
 uv run tests/labs/container-ztp/container_ztp_lab_test.py --self-test
@@ -353,6 +357,7 @@ set `__test__ = False` so pytest does not collect them as lab cases.
 | Lab networking (links, bridges, container or VM interfaces) | The private bridge lab test, against a server running the change; for P2p or container interfaces, also the P2p containers lab test |
 | Talos nodes or clusters | The Talos lab test, against a server running the change |
 | `sherpa console` or `sherpa ssh` terminal code | The console lab test |
+| How `sherpa ssh` or provisioners connect to nodes (routes, jump, prompts) | The SSH access lab test, on the Sherpa server, and the client's ignored tests |
 | Before a release, or periodically | The VM code suite on both releases |
 
 These are guidelines, not gates: none of them blocks a commit, a merge or a release. Run the

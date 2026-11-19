@@ -16,7 +16,7 @@ use topology::{Manifest, Node, Provisioner};
 use super::output::NodeOutput;
 use super::ssh::{provision, wait_for_node};
 use super::transport::SshTarget;
-use crate::ssh_client::HostKeyRefresh;
+use crate::ssh_client::SshAccess;
 use crate::table::render_provision_table;
 
 /// What every node of one run shares.
@@ -26,7 +26,7 @@ struct LabRun<'a> {
     ready_nodes: Option<&'a [String]>,
     ssh_config: Option<&'a SshConfig>,
     prompts: &'a PromptCache,
-    refresh: &'a HostKeyRefresh,
+    access: &'a SshAccess,
     timeout: Duration,
     /// The longest node name, so every node's output lines up.
     name_width: usize,
@@ -37,8 +37,8 @@ struct LabRun<'a> {
 /// waits until it is ready, then is provisioned, without waiting for the others. With
 /// `ready_nodes`, nodes missing from it are skipped as not ready.
 /// `results` holds nodes already provisioned another way, such as container nodes, whose
-/// provisioners the server applies. Prints a table of all results and fails if any node was not
-/// provisioned. Returns how many nodes were provisioned.
+/// provisioners the server applies. Nodes are reached as `access` says. Prints a table of all
+/// results and fails if any node was not provisioned. Returns how many nodes were provisioned.
 #[tracing::instrument(skip_all, fields(%lab_id, ?only_node))]
 pub async fn provision_lab(
     manifest: &Manifest,
@@ -47,7 +47,7 @@ pub async fn provision_lab(
     ready_nodes: Option<&[String]>,
     only_node: Option<&str>,
     mut results: Vec<ProvisionResult>,
-    refresh: &HostKeyRefresh,
+    access: &SshAccess,
 ) -> Result<usize> {
     let nodes = nodes_to_provision(manifest, only_node)?;
     if nodes.is_empty() && results.is_empty() {
@@ -74,7 +74,7 @@ pub async fn provision_lab(
         ready_nodes,
         ssh_config: ssh_config.as_ref(),
         prompts: &prompts,
-        refresh,
+        access,
         timeout: Duration::from_secs(manifest.ready_timeout.unwrap_or(READINESS_TIMEOUT)),
         name_width: name_width(&nodes),
     };
@@ -138,7 +138,7 @@ async fn provision_target(lab: &LabRun<'_>, node: &Node, output: &mut NodeOutput
     let ssh_config = lab
         .ssh_config
         .context("The lab SSH config was not loaded")?;
-    let target = SshTarget::new(ssh_config, &node.name, lab.lab_id, lab.prompts, lab.refresh)?;
+    let target = SshTarget::new(ssh_config, &node.name, lab.lab_id, lab.prompts, lab.access)?;
     output.status(&format!("provisioning {}", target.host()));
     provision_node(&target, node, lab.manifest_dir, lab.timeout, output).await
 }
@@ -246,6 +246,7 @@ fn skip_reason(node: &str, ready_nodes: Option<&[String]>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ssh_client::HostKeyRefresh;
     use shared::data::ClientConfig;
 
     fn manifest() -> Manifest {
@@ -318,13 +319,16 @@ mod tests {
         );
     }
 
-    fn refresh() -> HostKeyRefresh {
-        HostKeyRefresh::new(
-            "abcd1234",
-            "wss://sherpa.example:3030/ws",
-            &ClientConfig::default(),
-            Path::new("/nonexistent"),
-        )
+    fn access() -> SshAccess {
+        SshAccess {
+            refresh: HostKeyRefresh::new(
+                "abcd1234",
+                "wss://sherpa.example:3030/ws",
+                &ClientConfig::default(),
+                Path::new("/nonexistent"),
+            ),
+            jump: None,
+        }
     }
 
     fn result(node: &str, status: ProvisionStatus) -> ProvisionResult {
@@ -345,7 +349,7 @@ mod tests {
             None,
             Some("db01"),
             vec![result("db01", ProvisionStatus::Provisioned)],
-            &refresh(),
+            &access(),
         )
         .await
         .unwrap();
@@ -358,7 +362,7 @@ mod tests {
             None,
             Some("db01"),
             vec![result("db01", ProvisionStatus::Failed)],
-            &refresh(),
+            &access(),
         )
         .await
         .unwrap_err();
@@ -414,7 +418,7 @@ mod tests {
             None,
             None,
             vec![],
-            &refresh(),
+            &access(),
         )
         .await
         .unwrap();

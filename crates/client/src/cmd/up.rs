@@ -23,7 +23,7 @@ use crate::lab_files::{LabFiles, register_ssh_config, save_lab_files};
 use crate::provision::{
     client_variable, container_results, container_secrets, provision_lab, resolve_client_path,
 };
-use crate::ssh_client::HostKeyRefresh;
+use crate::ssh_client::SshAccess;
 use crate::table::{render_lab_info_table, render_nodes_table, render_tailnet_table};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
@@ -44,6 +44,8 @@ struct LogMessage {
 /// 3. Connect to server with extended timeout (15 minutes for long-running operation)
 /// 4. Send RPC request and stream progress updates
 /// 5. Display final results
+/// 6. Run the ssh provisioners, reaching the nodes through the Sherpa server when `ssh_jump`
+///    is set
 #[tracing::instrument(skip_all, fields(%lab_name, %lab_id))]
 pub async fn up(
     lab_name: &str,
@@ -51,6 +53,7 @@ pub async fn up(
     manifest_path: &str,
     server_url: &str,
     config: &ClientConfig,
+    ssh_jump: bool,
 ) -> Result<()> {
     term_msg_surround(&format!("Start Lab - {lab_name}-{lab_id}"));
 
@@ -80,6 +83,7 @@ pub async fn up(
     // Container secret files go outside the manifest, so the server never stores them.
     let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
     let node_secrets = container_secrets(&manifest, manifest_dir)?;
+    let access = SshAccess::new(lab_id, server_url, config, manifest_dir, ssh_jump)?;
 
     // Where the lab is started from, stored with it and shown by `sherpa inspect`.
     let client_host = gethostname().to_string_lossy().into_owned();
@@ -168,7 +172,7 @@ pub async fn up(
         Some(&ready_nodes),
         None,
         container_results(&node_secrets),
-        &HostKeyRefresh::new(lab_id, server_url, config, manifest_dir),
+        &access,
     )
     .await;
 

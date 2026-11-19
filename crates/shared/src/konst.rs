@@ -218,6 +218,9 @@ pub const NODE_USER_ENV_DIR: &str = ".env.d";
 pub const PROVISIONER_FILE_DEFAULT_MODE: u32 = 600;
 /// Seconds an SSH provisioner waits for each connection to a node to open.
 pub const PROVISIONER_SSH_CONNECT_TIMEOUT: u64 = 15;
+/// Seconds `sherpa ssh` and SSH provisioners wait for a node reached with no jump host to
+/// answer on its SSH port before saying it is not reachable from this machine.
+pub const SSH_DIRECT_ROUTE_TIMEOUT: u64 = 10;
 /// Seconds between attempts to log in to a node that is not accepting the login yet.
 pub const PROVISIONER_SSH_RETRY_INTERVAL: u64 = 5;
 /// How many nodes the CLI runs ssh provisioners on at once, unless the manifest's

@@ -18,7 +18,7 @@ One file per area a user sees, flat in this folder.
 | Consoles | not yet written | serial console, VNC, the relay through sherpad |
 | ZTP | not yet written | ZTP methods and configs per model |
 | Provisioning | not yet written | provisioners, text files, scripts, environment variables |
-| Client lab files and secrets | not yet written | lab folder, SSH config, known hosts, kubeconfig and other secret files |
+| Client lab files and secrets | [client-lab-files.md](client-lab-files.md) | lab folder, SSH config, known hosts, kubeconfig and other secret files, how the CLI reaches nodes (only `ssh_access` written so far) |
 | Tailnet | not yet written | Tailscale gateway, enrollment, routes |
 | Talos | not yet written | Talos clusters, Cilium, OIDC, Vault |
 | Install and update | not yet written | install, update and uninstall scripts |

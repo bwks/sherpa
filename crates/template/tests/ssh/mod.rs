@@ -13,7 +13,6 @@ Host 172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local
     HostName 172.20.0.10
     Port 22
     User alice
-    ProxyJump alice@10.0.0.1
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
     PubkeyAcceptedAlgorithms +ssh-rsa
@@ -25,7 +24,6 @@ Host 172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local
     HostName 172.20.0.10
     Port 22
     User alice
-    ProxyJump alice@10.0.0.1
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
     PubkeyAcceptedAlgorithms +ssh-rsa
@@ -35,7 +33,6 @@ Host 172.20.0.11 switch1.abcd1234 switch1.abcd1234.sherpa.lab.local
     HostName 172.20.0.11
     Port 830
     User admin
-    ProxyJump alice@10.0.0.1
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
     PubkeyAcceptedAlgorithms +ssh-rsa
@@ -67,7 +64,6 @@ fn test_ssh_config_multiple_hosts() {
                 port: 830,
             },
         ],
-        proxy_jump: "alice@10.0.0.1".to_string(),
     };
     let output = t.render().expect("template renders");
     assert_eq!(output, EXPECTED_SSH_CONFIG_MULTI);
@@ -83,7 +79,6 @@ fn a_host_with_a_known_hosts_file_is_checked_strictly() {
             hostname: Ipv4Addr::new(172, 20, 0, 10),
             port: 22,
         }],
-        proxy_jump: "alice@10.0.0.1".to_string(),
     };
     let output = t.render().expect("template renders");
     let expected = EXPECTED_SSH_CONFIG
