@@ -1,13 +1,13 @@
 ---
 name: gh-commit
-description: Commit staged and unstaged changes with Claude as author, using GH_TOKEN for auth
+description: Commit staged and unstaged changes as the checkout's own git identity, with a co-author trailer for the model, using GH_TOKEN for auth
 allowed-tools: Bash, Read, Grep, Glob
 model: haiku
 ---
 
 # Git Commit
 
-Commit all current changes with Claude as the author.
+Commit all current changes as the checkout's own git identity: the person the checkout belongs to is the author, and the model is credited in a `Co-Authored-By` trailer.
 
 ## Arguments
 
@@ -16,12 +16,16 @@ Commit all current changes with Claude as the author.
 
 ## Instructions
 
-### 1. Configure git identity
+### 1. Check git identity
+
+Never set or change `user.name` or `user.email`: not with `git config`, not with `-c` flags, not with `--author`. The commit uses the identity the checkout already has.
 
 ```bash
-git config user.email "noreply@anthropic.com"
-git config user.name "Claude"
+git config user.name
+git config user.email
 ```
+
+If either is empty, stop and report that the checkout has no git identity; don't commit.
 
 ### 2. Set up GitHub auth
 
