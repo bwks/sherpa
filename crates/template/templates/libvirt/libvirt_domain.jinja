@@ -175,7 +175,9 @@
     {%   endif %}
     {% endif %}
 
-    <graphics type='vnc' port='{{ vnc_port }}' autoport='no'/>
+    <graphics type='vnc'>
+      <listen type='socket' socket='{{ vnc_socket }}'/>
+    </graphics>
     <video>
       <model type='{{ video_model }}'{% if let Some(vram) = video_vram %} vram='{{ vram }}'{% endif %} heads='1'/>
     </video>

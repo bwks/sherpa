@@ -163,6 +163,28 @@ in `tests/labs/console/`.
 
 ---
 
+## `vnc` — VNC Console
+
+**What to test:**
+- The VNC route is made from the server URL as for `console`, path `.../vnc` `[unit]` **P0**
+- The listener is on `127.0.0.1` on a free port, and the address is printed `[unit]` **P0**
+- Bytes pass both ways between a viewer and the WebSocket; the viewer leaving closes the
+  WebSocket, and the server's close reason ends the viewer's connection `[unit]` **P0**
+- The server is asked first (`?check=true`): any refusal (401, 403, 400, 409 not running or
+  still on a VNC port) ends the command in the server's words with exit code 1 before a port is
+  opened; a held console is not a refusal, and its holder is printed `[unit]` **P0**
+- A refusal of a viewer is printed in the server's words; a 409 keeps listening, any other
+  refusal ends the command with a failing exit code `[unit]` **P0**
+- A viewer gets the node's RFB banner; a second `sherpa vnc` then names the holder and keeps
+  listening; a second viewer is refused while one is connected; the console is free once it
+  leaves; Ctrl+C ends the command with code 0; another user, an admin and a container are
+  refused with exit code 1 and no address printed `[lab]` **P1**
+
+**Existing coverage:** unit tests in `crates/client/src/cmd/vnc.rs` and `console.rs`; the
+console lab test in `tests/labs/console/`.
+
+---
+
 ## `ssh` — SSH to Node
 
 **What to test:**

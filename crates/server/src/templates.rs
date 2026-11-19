@@ -835,7 +835,6 @@ mod tests {
             state: NodeState::Running,
             mgmt_ipv4: "172.31.0.11".to_string(),
             mgmt_ipv6: None,
-            vnc_port: None,
             disks: vec![],
             cpu_count: None,
             memory: None,

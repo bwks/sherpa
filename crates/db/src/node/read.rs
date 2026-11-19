@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbNode, NodeState, RecordId};
 use tracing::instrument;
-use turso::{Connection, Row};
+use turso::Connection;
 
 use crate::Database;
 use crate::persistence::{Cells, LAB_TABLE, NODE_TABLE, USER_TABLE, key_of, node_from_row};
@@ -155,21 +155,4 @@ pub async fn count_nodes_by_ssh_username(db: &Database, username: &str) -> Resul
     )
     .await
     .context("Failed to count nodes by SSH login")
-}
-
-fn vnc_port_from_row(row: &Row) -> Result<u16> {
-    Cells::new(row).integer("vnc_port")
-}
-
-/// The VNC ports held by nodes, in ascending order.
-///
-/// # Errors
-///
-/// Fails when the database cannot be read.
-#[instrument(skip(db), level = "debug")]
-pub async fn list_vnc_ports(db: &Database) -> Result<Vec<u16>> {
-    let conn = db.reader().await?;
-    query_all(&conn, queries::node::VNC_PORTS.bind([]), vnc_port_from_row)
-        .await
-        .context("Failed to list node VNC ports")
 }

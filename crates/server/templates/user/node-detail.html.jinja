@@ -46,10 +46,6 @@
             <span class="block text-base text-heading font-mono">{% if let Some(mac) = mgmt_mac %}{{ mac }}{% else %}-{% endif %}</span>
         </div>
         <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-muted mb-1">VNC Port</span>
-            <span class="block text-base text-heading font-mono">{% if let Some(port) = device.vnc_port %}{{ port }}{% else %}-{% endif %}</span>
-        </div>
-        <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">Mgmt Interface</span>
             <span class="block text-base text-heading font-mono">{{ node_config.interfaces.management }}</span>
         </div>

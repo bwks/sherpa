@@ -90,10 +90,6 @@ pub struct DbNode {
     /// Memory in MB the node was given; `None` as for `cpu_count`.
     #[serde(default)]
     pub memory: Option<u16>,
-    /// The VM's VNC console port on the server, fixed for the node's life. `None` for nodes
-    /// without a console.
-    #[serde(default)]
-    pub vnc_port: Option<u16>,
     /// The SSH host key the server recorded when the node last became ready, in OpenSSH
     /// public key form (`ssh-ed25519 AAAA...`). `None` for nodes without SSH, or before then.
     #[serde(default)]
@@ -129,7 +125,6 @@ pub struct ReadyCheck {
 pub struct NodeResources {
     pub cpu_count: Option<u8>,
     pub memory: Option<u16>,
-    pub vnc_port: Option<u16>,
 }
 
 /// The host CPUs a node holds, as the `cpu_pin` table stores them: its lab, and its pins under

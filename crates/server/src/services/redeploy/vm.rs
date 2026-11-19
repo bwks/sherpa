@@ -78,7 +78,7 @@ pub(super) async fn redeploy_vm(
         DomainParts {
             disks: vm_ztp.disks,
             interfaces,
-            serial_socket: console::serial_socket_path(lab_id, node_idx)?,
+            consoles: console::console_sockets(lab_id, node_idx)?,
             management_network: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
             isolated_network: isolated_net.network_name,
             reserved_network,

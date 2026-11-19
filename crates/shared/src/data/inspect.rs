@@ -38,9 +38,6 @@ pub struct DeviceInfo {
     pub state: NodeState,
     pub mgmt_ipv4: String,
     pub mgmt_ipv6: Option<String>,
-    /// The VM's VNC console port on the server. `None` for a node without one, and for anyone
-    /// but the lab's owner.
-    pub vnc_port: Option<u16>,
     pub disks: Vec<String>,
     /// vCPUs the node was given: a container's CPU quota. `None` for a container without one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -134,7 +131,6 @@ mod tests {
             state: NodeState::Running,
             mgmt_ipv4: "172.31.0.11".to_string(),
             mgmt_ipv6: None,
-            vnc_port: None,
             disks: Vec::new(),
             cpu_count: None,
             memory: None,

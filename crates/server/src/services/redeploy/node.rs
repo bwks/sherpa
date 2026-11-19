@@ -219,11 +219,10 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
         StatusKind::Progress,
     );
 
-    // The node keeps its VNC port; its vCPUs and memory follow the manifest.
-    redeploy.db_node = node_resources::reserve_node_resources(
+    // Its vCPUs and memory follow the manifest.
+    redeploy.db_node = node_resources::store_node_resources(
         &redeploy.state.db,
         &redeploy.db_node,
-        &redeploy.node_image.kind(),
         node_resources::planned_resources(&redeploy.target_node, &redeploy.node_image),
     )
     .await?;

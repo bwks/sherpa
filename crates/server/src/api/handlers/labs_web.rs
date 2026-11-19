@@ -467,7 +467,7 @@ pub async fn node_detail_handler(
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    // Inspect lab to get runtime device info (VNC port, disks, state)
+    // Inspect lab to get runtime device info (disks, state)
     let inspect_response = match inspect::inspect_lab(&auth.context(), &lab_id, &state).await {
         Ok(r) => r,
         Err(e) => {

@@ -557,11 +557,10 @@ through Sherpa lets them log in:
 - **Files.** `download` (RPC, and the web lab zip; REST has none) and `node.host_keys` are
   `require_lab_owner`. The lab page offers the download link only to the owner
   (`labs_web::lab_offers_download`).
-- **Consoles.** A node's serial console is opened only through the console route, which is
-  `require_lab_owner` (see [Node consoles](#node-consoles)). `inspect` stays owner or admin, but
-  `inspect::shown_to` blanks each node's `vnc_port` for anyone but the owner, using
-  `check_lab_rule` with `LabRule::OwnerOnly`, and logs `event = "auth.owner_only_hidden"`. RPC,
-  REST, the CLI and the web lab and node pages all read the same response.
+- **Consoles.** A node's serial and VNC consoles are opened only through the console routes,
+  which are `require_lab_owner` (see [Node consoles](#node-consoles)). `inspect` stays owner or
+  admin, and shows no way to connect to a node: no console address and no VNC port. RPC, REST,
+  the CLI and the web lab and node pages all read the same response.
 - **Keys.** `user.ssh_key.add` is `require_self`, so an admin cannot put a key on another
   account for its owner's next `up` or `redeploy` to install; the admin user page has no add
   form. `user.create` takes no `ssh_keys`, and `CreateUserRequest` refuses unknown fields so an
@@ -574,8 +573,8 @@ through Sherpa lets them log in:
 
 What remains: an admin who resets a user's Sherpa password can sign in as them (logged, and it
 ends the user's sessions). An admin may start privileged containers and host mounts, which is
-root on the host, and root reaches the database key, disks, serial consoles (their sockets, as
-do members of `kvm`) and VNC (`localhost:59xx`); host-level VNC isolation is #683. The boundary is for the admin
+root on the host, and root reaches the database key, disks, and the serial and VNC consoles
+(their sockets, as do members of `kvm`). The boundary is for the admin
 role through Sherpa's interfaces, with an audit trail, not a defence against root.
 
 Refusals are returned as a typed `services::error::ServiceError` inside `anyhow::Error`: `Denied` (not allowed), `NotFound`, or `Conflict` (allowed, but the current state forbids it, such as deleting a user who owns labs). Transports find it with `ServiceError::find`, which works through added context:
@@ -736,7 +735,7 @@ flowchart TB
         subgraph reserve["reserve_lab_networks (retried while concurrent labs win a subnet)"]
             hostnets["read host interface networks (IPv4 and IPv6)"] --> mgmtsubnets["allocate IPv4/IPv6 management subnets<br/>(not in DB, not overlapping host)"] --> loopsubnets["allocate the IPv6 loopback subnet (not in DB)"] --> createlab["db::create_lab: unique subnet indexes make the insert the reservation"]
         end
-        createlab --> createnode["for each node:<br/>db::create_node<br/>node_resources::reserve_node_resources (vCPUs, memory, VNC port)<br/>create the node's isolated and reserved libvirt networks and bridges"]
+        createlab --> createnode["for each node:<br/>db::create_node<br/>node_resources::store_node_resources (vCPUs, memory)<br/>create the node's isolated and reserved libvirt networks and bridges"]
     end
     createnode --> labfiles
     subgraph phase4["4. LabNetworkSetup"]
@@ -1012,12 +1011,12 @@ pins the node held before (`take_pins_before`). The node keeps one set at one of
 | Stage 1, refused | old, running | old | old (nothing was claimed) |
 | `RebuildStarted`, host key, teardown (`destroy_node`) | old, or partly torn down | old and new | old (`keep_old_pins`) |
 | VM networks (`recreate_vm_networks`) | none | old and new | old (`keep_old_pins`) |
-| `reserve_node_resources` | none | old and new | new: `rebuild` keeps them right after it |
+| `store_node_resources` | none | old and new | new: `rebuild` keeps them right after it |
 | Certificate, domain or container, readiness | new, or none | new | new |
 | Success | new | new | new |
 
 Each row's "kept after" covers the domain that may run: a failure before the old domain is
-gone keeps the old pins, which it may still use, and from `reserve_node_resources` on the node
+gone keeps the old pins, which it may still use, and from `store_node_resources` on the node
 keeps the new ones. No other request can take either set while the redeploy runs, so no two
 nodes end up on one vCPU CPU. A server restart in the middle leaves the node holding both sets,
 a superset, until it is redeployed or destroyed; a failure to give the new pins back is logged
@@ -1095,7 +1094,7 @@ flowchart TB
     starting --> destroy
     subgraph rebuild["rebuild (node.rs): a failure records the node Failed"]
         destroy["2. destroy_node (teardown.rs): the VM or container, the node's ZTP directory"] --> vmnets["3. recreate_vm_networks (teardown.rs): isolated and reserved networks, VMs only"]
-        vmnets --> resources["reserve_node_resources (keeps the VNC port)<br/>reissue the node certificate"]
+        vmnets --> resources["store_node_resources<br/>reissue the node certificate"]
         resources --> ctr["container.rs: generate_container_ztp<br/>no links: Docker macvlan data networks; P2p: a veth per data interface<br/>start_container_node (Starting), veths into the netns, reattach_p2p_redirects<br/>Vault unsealed, Keycloak realm made again<br/>ready_check.port answers (ready.rs), if set, then Running"]
         resources --> vm["vm.rs: generate_vm_ztp, clone_node_disks<br/>vm_interfaces from the DB links and bridges<br/>build_domain_template, create_vm (Starting), reattach_p2p_redirects<br/>isolated bridge down; wait for the ready port, host key, Running"]
     end
@@ -1636,7 +1635,7 @@ flowchart LR
 
 Destroy and clean paths must account for all of these locations. That is why cleanup is not a single database delete.
 
-### Node resources and VNC ports
+### Node resources
 
 What a node is given is stored on its database record (`DbNode`), not read back from the
 hypervisor, by `services::node_resources`:
@@ -1648,13 +1647,11 @@ hypervisor, by `services::node_resources`:
   overhead (see `NODE_SETTINGS.md`). `up` (`readiness.rs`) and redeploy
   (`redeploy/container.rs`) create the container with the stored values, so Docker and the
   database agree; resume starts the existing container, which keeps its limits.
-- `reserve_node_resources` (`up`, right after each node record is created, and `redeploy`): a
-  VM also gets a VNC port, the lowest in `node_resources::VNC_PORT_FIRST..=VNC_PORT_LAST` that no node
-  holds and nothing on the server listens on. `unique_node_vnc_port` settles a race with a
-  concurrent lab, which is retried, as lab subnets are. A redeployed VM keeps its port.
+- `store_node_resources` (`up`, right after each node record is created, and `redeploy`) writes
+  them. A VM gets no VNC port: its VNC console is a UNIX socket (see
+  [Node consoles](#node-consoles)).
 - `node_ops::build_domain_template` takes the stored values, so the domain and the database
-  agree. The domain has `port='N' autoport='no'`, so libvirt never moves the console, also
-  across down/resume.
+  agree.
 - `inspect` and the web UI node page read them from the record, with no domain lookup.
 
 ### VM performance tuning
@@ -1803,98 +1800,155 @@ The best-effort rule is important: failing to delete a disk should not prevent t
 
 ## Node consoles
 
-Each VM's and unikernel's serial console is a UNIX socket that only sherpad reaches, relayed to
-the lab's owner over a WebSocket on the API (#674). The code is `services/console.rs` (paths,
-folders, the owner check, the startup rewrite), `api/handlers/console.rs` (the route and the
-relay), `daemon/console_sessions.rs` (one session per console) and `libvirt::console` (reading
-and rewriting the domain's serial device). The client is in
+Each VM's and unikernel's serial console, and each VM's VNC console, is a UNIX socket that only
+sherpad reaches, relayed to the lab's owner over a WebSocket on the API (#674). The code is
+`services/console.rs` (`ConsoleKind`, paths, folders, the owner check, the startup rewrite),
+`api/handlers/console.rs` (the two routes and the relay), `daemon/console_sessions.rs` (one
+session per console) and the `libvirt` crate's `console` and `vnc` modules (reading and
+rewriting the domain's serial device and VNC graphics). The clients are in
 [`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md).
 
-### The socket
+### The sockets
 
 The domain templates define `<serial type='unix'>` and `<console type='unix'>` with
-`<source mode='bind' path='…'/>`; libvirt binds the socket itself and hands QEMU the descriptor.
-The path is `console::serial_socket_path`: `/opt/sherpa/run/console/<lab-id>/<node-index>.serial`
-(`konst::SHERPA_CONSOLE_DIR`). It is checked against `UNIX_SOCKET_PATH_MAX` (107 bytes; libvirt
-accepts a longer path at define and fails at start) when `up` and `redeploy` build the domain and
-when `resume` and startup rewrite one, and a path too long is refused with a message.
+`<source mode='bind' path='…'/>`; libvirt binds that socket itself and hands QEMU the
+descriptor. The VM template (`libvirt_domain.jinja`) also defines
+`<graphics type='vnc'><listen type='socket' socket='…'/></graphics>`, which QEMU binds itself.
+Unikernels have no VNC graphics. `console::console_sockets` gives both paths
+(`libvirt::ConsoleSockets`): `/opt/sherpa/run/console/<lab-id>/<node-index>.serial` and
+`.vnc` (`konst::SHERPA_CONSOLE_DIR`). Each is checked against `UNIX_SOCKET_PATH_MAX` (107 bytes;
+libvirt accepts a longer path at define and fails at start) when `up` and `redeploy` build the
+domain and when `resume` and startup rewrite one, and a path too long is refused with a message.
 
 - **Folders.** `secure_storage` makes `/opt/sherpa/run/console` `sherpa:kvm` `2750` at startup.
   `console::create_console_dir` makes a lab's folder `sherpa:kvm` `2770` (`restrict_dir`) in
   `up`, before any domain starts, and again, if it is missing, in `redeploy`, `resume` and at
   startup, for labs made before. `tear_down_lab` removes it once the domains are gone; a folder
   that cannot be removed is a destroy error and keeps the lab record, as the lab folder does.
-- **Who reaches it.** libvirt creates the socket `libvirt-qemu:kvm` `0775`. `sherpa` is in `kvm`;
-  an account outside `sherpa` and `kvm` is refused by the folder. Members of `kvm` can already
-  read every lab disk. The folder is on disk, not under `/run`, so domains defined with a path in
-  it still start after a reboot.
-- **No telnet.** The socket carries raw serial bytes. Nothing listens on `127.127.0.0/16`: labs
-  are no longer given an IPv4 loopback network (the `lab.loopback_network` column is renamed
-  `retired_loopback_network` and new labs store their `lab_id` in it; it is UNIQUE, so it cannot
-  be dropped).
+  The folder must be writable by the group: QEMU (`libvirt-qemu`, in `kvm`) binds the VNC socket,
+  and a domain whose folder it cannot write fails to start.
+- **Who reaches them.** Both sockets come up `libvirt-qemu:kvm` `0775`. `sherpa` is in `kvm`; an
+  account outside `sherpa` and `kvm` is refused by the folder. Members of `kvm` can already read
+  every lab disk. The folder is on disk, not under `/run`, so domains defined with a path in it
+  still start after a reboot. libvirt removes the serial socket when the domain stops; QEMU leaves
+  the VNC socket and replaces it at the next start.
+- **No TCP.** The serial socket carries raw serial bytes, with no telnet; the VNC socket carries
+  RFB. Nothing listens on `127.127.0.0/16` or on 5900 to 6999: labs are no longer given an IPv4
+  loopback network (the `lab.loopback_network` column is renamed `retired_loopback_network` and
+  new labs store their `lab_id` in it; it is UNIQUE, so it cannot be dropped), and nodes are no
+  longer given a VNC port (`node.vnc_port` is cleared and renamed `retired_vnc_port`, for the
+  same reason; see [`DATABASE.md`](DATABASE.md#versions)).
 
 ### Domains defined before
 
-Domains defined before this have `<serial type='tcp'>` with `<protocol type='telnet'/>` on
-`127.127.x.N:2323`. `libvirt::move_serial_to_socket` rewrites a domain's stored definition
-(read with `VIR_DOMAIN_XML_INACTIVE | VIR_DOMAIN_XML_SECURE`) with quick-xml, as `interface.rs`
-edits interfaces: every event is written back as read, and only each `serial` and `console` on
-TCP changes, to `type='unix'`, its `source` to `mode` and `path`, and its `protocol` removed. A
-domain already on a socket, or with no serial device, is left alone. It runs:
+Domains defined before 0.7.0 have `<serial type='tcp'>` with `<protocol type='telnet'/>` on
+`127.127.x.N:2323`, and domains defined before 0.7.1 have `<graphics type='vnc' port='59xx'
+autoport='no'/>`, which libvirt fills in with a listen on `127.0.0.1`.
+`libvirt::move_consoles_to_sockets` rewrites a domain's stored definition (read with
+`VIR_DOMAIN_XML_INACTIVE | VIR_DOMAIN_XML_SECURE`) with quick-xml, as `interface.rs` edits
+interfaces, and defines it once:
+
+- `console::serial_on_socket`: every event is written back as read, and only each `serial` and
+  `console` on TCP changes, to `type='unix'`, its `source` to `mode` and `path`, and its
+  `protocol` removed.
+- `vnc::graphics_on_socket`: every event is written back as read, and only each VNC `graphics`
+  element not on a socket changes: its `port`, `autoport`, `websocket`, `listen` and `socket`
+  attributes go, its `listen` children go, and `<listen type='socket' socket='…'/>` takes their
+  place; its other attributes and children stay. One with a `socket` attribute or a
+  `<listen type='socket'>` child is already on a socket.
+
+A domain with both consoles on sockets, or with neither device, is left alone. It runs:
 
 - in `resume`, before a shut-off domain is booted;
 - at startup (`console::move_stopped_consoles`), for every shut-off domain of every lab. A domain
-  still running is counted in one warning: its console is on TCP until it stops.
+  still running with either console on TCP is counted in one warning: that console is on TCP
+  until it stops.
 
-A running domain keeps the TCP listener it was started with; redefining it changes only its
-next start. `libvirt::serial_console` reads the live XML, so the console route refuses it with
-`Node '<node>' was started before consoles moved behind Sherpa. Stop and resume the lab ('sherpa
-down', then 'sherpa resume'), or redeploy the node, to use its console.`
+A running domain keeps the TCP listeners it was started with; redefining it changes only its
+next start. `libvirt::serial_console` and `libvirt::vnc_console` read the live XML, so the
+routes refuse such a console with `Node '<node>' was started before consoles moved behind
+Sherpa. Stop and resume the lab ('sherpa down', then 'sherpa resume'), or redeploy the node, to
+use its console.`, or for VNC `Node '<node>' was started before its VNC console moved behind
+Sherpa. ... to use its VNC console.` A node started on 0.7.0 has its serial console on a
+socket and its VNC on a port, so only its VNC is refused.
 
-### The console route
+### The console routes
 
-`GET /api/v1/labs/{id}/nodes/{node_name}/console[?force=true]`, `node_console_handler`, upgraded
-to a WebSocket. Everything that can refuse is checked before the upgrade, so a refusal is an
-ordinary `ApiError`, logged as `event = "console.refused"`:
+`GET /api/v1/labs/{id}/nodes/{node_name}/console[?force=true]` (`node_console_handler`, the
+serial console) and `GET /api/v1/labs/{id}/nodes/{node_name}/vnc[?force=true]`
+(`node_vnc_handler`), upgraded to a WebSocket. Both run `serve_console` with their
+`ConsoleKind`. Everything that can refuse is checked before the upgrade, so a refusal is an
+ordinary `ApiError`, logged as `event = "console.refused"` (with `check`, below):
 
 1. `BearerUser`: the `Authorization: Bearer` token only, never the session cookie, as a browser
    sends its cookie with a WebSocket upgrade from any site (401). The session behind it must be
-   usable, as for `AuthenticatedUser`.
-2. `console::console_target`: `require_lab_owner`, so admins are refused too (403, `only the
-   owner of lab '<id>' can open its consoles`); the node in the lab (404); not a container (400).
-3. `console::console_socket`: the live domain's serial device must be a socket (409 when the
-   node is not running, still on TCP, or has none).
-4. `ConsoleSessions::claim`: one session per console (409, `The console of <node> is in use by
-   <user> from <address> since <time> UTC. ...`). With `force` the claimant's own session is
-   taken over: it is cancelled and told. Another user's session is never taken over.
+   usable, as for `AuthenticatedUser`. With no cookie taken, no `Origin` check is needed: a web
+   page cannot set the header on a WebSocket. A browser viewer would need one (the follow-up to
+   #674).
+2. `check_console`, which runs 2 and 3: `console::console_target`: `require_lab_owner`, so admins are refused too (403, `only the
+   owner of lab '<id>' can open its consoles`); the node in the lab (404); not a container, and
+   for VNC not a unikernel (400).
+3. `console::console_socket`: the live domain's serial device, or VNC graphics, must be a socket
+   (409 when the node is not running, still on TCP, or has none).
+4. `ConsoleSessions::claim`: one session per console, held by lab, node and kind, so a node's
+   serial and VNC consoles are held apart (409, `The console of <node> is in use by <user> from
+   <address> since <time> UTC. Close that session, or take it over with 'sherpa console <node>
+   --force'.`, and for VNC `The VNC console of <node> ... 'sherpa vnc <node> --force'.`). With `force` the claimant's own session is taken over: it
+   is cancelled and told. Another user's session is never taken over. One VNC session per
+   console means one viewer at a time drives the node's screen.
 5. Connect to the socket.
 
-The relay (`pump`) copies binary frames to the socket and socket reads (up to 4096 bytes) to
-binary frames, ignoring text frames, until the client closes, the socket closes (the node
-stopped: close `1000`), the session is taken over (`4001`, naming who), the login session behind
-the token is no longer usable (checked every `CONSOLE_SESSION_CHECK_SECS`, 30 s: `4002`), or the
-relay fails (`1011`). Each session logs `console.opened` (with whom it took over from) and
-`console.closed` (duration and reason), never the bytes. The client address comes from
-`ConnectInfo`: every listener is served with `into_make_service_with_connect_info`.
+`?check=true` asks whether the console can be opened now, for `sherpa vnc` to ask before it
+opens its local port. The route takes the upgrade as `Result<WebSocketUpgrade, _>`, so a check
+needs none, and `serve_console` runs only steps 1 to 3, the same `check_console`, so a check
+cannot pass a console that opening would refuse, nor the other way round, except for a session
+that claims or lets go between the two. A refusal is the same `ApiError`, logged with
+`check = true`. A console that can be opened is answered `200` with `shared::data::ConsoleCheck`,
+`{"held_by": <holder or null>}` (`check_answer`, from `ConsoleSessions::holder`): a held console
+is not refused by a check, as `force` may take it over or the holder may let go before a viewer
+connects. Nothing is claimed and no socket is connected. Without `check`, a request that is not a
+WebSocket upgrade gets axum's rejection (400) as before.
+
+The relay (`pump`) copies binary frames to the socket and socket reads (up to 4096 bytes for a
+serial console, 64 KiB for VNC, whose screen updates come in large writes) to binary frames,
+ignoring text frames, until the client closes, the socket closes (close `1000`: for a serial
+console the node stopped; for VNC the reason says only that the console closed the connection,
+as QEMU also closes a client that breaks the protocol), the session is taken over (`4001`,
+naming who), the login session behind the token is no longer usable (checked every
+`CONSOLE_SESSION_CHECK_SECS`, 30 s: `4002`), or the relay fails (`1011`). Each session logs
+`console.opened` (with whom it took over from) and `console.closed` (duration and reason), with
+`console = "serial"` or `"vnc"`, never the bytes. The client address comes from `ConnectInfo`:
+every listener is served with `into_make_service_with_connect_info`.
 
 The guest is not told when a client leaves, so a session left logged in on the node stays; only
-the owner can attach to it.
+the owner can attach to it. QEMU's VNC server asks for no password (RFB security type None): the
+socket's folder and the owner-only route are what keep it to the owner.
 
 ### Tests
 
-- `libvirt::console`: the rewrite (TCP to socket with every other byte the same, already on a
-  socket, no serial device, a source with children, an escaped path, XML not well formed) and
-  reading the serial device.
-- `services::console`: the socket path and its length limit, the folder's mode and group, its
-  removal, the owner-only rule as the owner, an admin and another user against an in-memory
-  database, a missing lab or node, a container, and each refusal of a domain's serial device.
-- `daemon::console_sessions`: one session per console, `force` taking over the owner's own
-  session and not another user's, and how a holder is named. `api::handlers::console`: the close
-  frames.
+- `libvirt::console` and `libvirt::vnc`: each rewrite (TCP to socket with every other byte the
+  same, already on a socket, no device, children and end tags, an escaped path, XML not well
+  formed), both in one definition, and reading the serial device and the VNC graphics.
+- `services::console`: the socket paths and their length limit, the folder's mode and group, its
+  removal, the owner-only rule for both consoles as the owner, an admin and another user against
+  an in-memory database, a missing lab or node, a container, a unikernel's VNC, and each refusal
+  of a domain's console.
+- `daemon::console_sessions`: one session per console, a node's serial and VNC consoles held
+  apart, `force` taking over the owner's own session and not another user's, and how a holder is
+  named. `api::handlers::console`: the close frames, the in-use message of each kind, and a
+  check's answer naming the holder without claiming.
+- `crates/server/tests/integration/lab_authorization.rs`,
+  `a_console_check_refuses_as_opening_the_console_does` (`#[ignore]`, libvirt): `?check=true` on
+  both routes, against the server's router, refused with no token (401), to another user and to
+  an admin (403), for a container (400), a node not running (409) and one that does not exist
+  (404); without `check`, a request that is no upgrade gets 400. A running node's `200` and a
+  node still on TCP need a running domain; they are covered by the unit tests of `check_answer`
+  and `socket_of`, and end to end by the console lab test.
 - `crates/libvirt/tests/console_socket.rs` (`#[ignore]`, root, run by the VM release suite): a
-  TCP-console domain moved to its socket and started, nothing listening on `127.127.0.0/16`,
-  `sherpa` opening the socket and an account in no groups refused.
-- `tests/labs/console/`: end to end through the CLI.
+  domain with a TCP console and a VNC port moved to its sockets and started, nothing listening on
+  `127.127.0.0/16` or 5900 to 6999, `sherpa` opening both sockets and an account in no groups
+  refused.
+- `tests/labs/console/`: end to end through the CLI, `sherpa console` and `sherpa vnc`.
 
 ## TLS/listener architecture
 

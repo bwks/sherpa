@@ -24,6 +24,7 @@ use super::ssh::ssh;
 use super::ssh_config::{ssh_config_clean, ssh_config_inspect};
 use super::up::up;
 use super::validate::validate_manifest;
+use super::vnc::vnc;
 
 use crate::lab_folder_migration::{MIGRATION_FAILED, migrate_current_lab_folder};
 
@@ -168,6 +169,16 @@ enum Commands {
         name: String,
         /// Take the console over from a session of yours that holds it, such as one left open
         /// on another machine
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Relay a VM's VNC console to a VNC viewer on this machine, through the Sherpa server.
+    /// Prints the local address to point the viewer at, and runs until Ctrl+C
+    Vnc {
+        name: String,
+        /// Take the VNC console over from a session of yours that holds it, such as one left
+        /// open on another machine
         #[arg(long)]
         force: bool,
     },
@@ -377,6 +388,10 @@ async fn run_remote(command: &Commands, server_url: &str, config: &ClientConfig)
             let lab = resolve_lab_identity(Path::new(""))?;
             console(name, &lab, *force, server_url, config).await
         }
+        Commands::Vnc { name, force } => {
+            let lab = resolve_lab_identity(Path::new(""))?;
+            vnc(name, &lab, *force, server_url, config).await
+        }
         Commands::Ssh { name } => {
             let lab = resolve_lab_identity(Path::new(""))?;
             ssh(name, &lab.id, server_url, config).await
@@ -511,6 +526,7 @@ mod tests {
             &["download", "abcd1234"],
             &["ssh", "dev"],
             &["console", "dev"],
+            &["vnc", "dev"],
             &["ssh-config", "inspect"],
             &["ssh-config", "clean"],
         ] {
@@ -531,6 +547,23 @@ mod tests {
             match cli.commands {
                 Commands::Console { name, force } => {
                     assert_eq!(name, "alp01");
+                    assert_eq!(force, expected, "{args:?}");
+                }
+                other => panic!("unexpected command: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn vnc_takes_force_to_take_the_console_over() {
+        for (args, expected) in [
+            (&["sherpa", "vnc", "ubu01"][..], false),
+            (&["sherpa", "vnc", "ubu01", "--force"], true),
+        ] {
+            let cli = Cli::try_parse_from(args).unwrap();
+            match cli.commands {
+                Commands::Vnc { name, force } => {
+                    assert_eq!(name, "ubu01");
                     assert_eq!(force, expected, "{args:?}");
                 }
                 other => panic!("unexpected command: {other:?}"),

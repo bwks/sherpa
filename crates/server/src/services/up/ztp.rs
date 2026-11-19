@@ -357,7 +357,7 @@ impl Configuring<'_, '_> {
             DomainParts {
                 disks: ztp_result.disks,
                 interfaces,
-                serial_socket: console::serial_socket_path(self.build.lab_id, node_data.index)?,
+                consoles: console::console_sockets(self.build.lab_id, node_data.index)?,
                 management_network: node_data.management_network.clone(),
                 isolated_network: node_data
                     .isolated_network
@@ -417,7 +417,7 @@ impl Configuring<'_, '_> {
             DomainParts {
                 disks: setup_result.disks,
                 interfaces,
-                serial_socket: console::serial_socket_path(self.build.lab_id, node_data.index)?,
+                consoles: console::console_sockets(self.build.lab_id, node_data.index)?,
                 management_network: node_data.management_network.clone(),
                 isolated_network: node_data
                     .isolated_network
@@ -656,7 +656,6 @@ mod tests {
                     record: data::DbNode {
                         cpu_count: Some(1),
                         memory: Some(1024),
-                        vnc_port: Some(5901),
                         ..record.clone()
                     },
                 };

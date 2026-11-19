@@ -21,7 +21,7 @@
 - Machine type (pc, q35, virt) set correctly `[unit]` **P1**
 - QEMU command-line arguments appended when present `[unit]` **P1**
 - Windows-specific settings applied when is_windows=true `[unit]` **P1**
-- Telnet serial console port configured `[unit]` **P1**
+- Serial console and VNC on UNIX sockets, no TCP port `[unit]` **P1**
 - Lab ID and network names embedded `[unit]` **P1**
 
 ---

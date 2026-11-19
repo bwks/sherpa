@@ -39,8 +39,8 @@ pub struct DomainTemplate {
     pub video_model: String,
     pub video_vram: Option<u32>,
     pub cpu_features: Vec<CpuFeature>,
-    /// The VNC console port on the server, reserved for the node in the database.
-    pub vnc_port: u16,
+    /// The UNIX socket QEMU binds for the VNC console, which only sherpad connects to.
+    pub vnc_socket: String,
     pub tuning: DomainTuning,
     /// The action of the node's hardware watchdog. None, the domain has no watchdog.
     pub watchdog: Option<WatchdogAction>,

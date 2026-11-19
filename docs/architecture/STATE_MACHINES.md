@@ -55,7 +55,7 @@ which to make them explicit, are in
 | 28 | [Node images](#28-node-images) | server, db | `node_image` row, `default` flag, files |
 | 29 | [ZTP setting](#29-ztp-setting) | shared, db, server, template, topology | one `Ztp` enum on the image, with an optional manifest override |
 | 30 | [The `ztp.config` field](#30-the-ztpconfig-field) | topology, client, server | one `Option<String>` with four meanings |
-| 31 | [Node resource reservation](#31-node-resource-reservation) | server, db | `vnc_port` Option, `cpu_pin` rows, admission ledger |
+| 31 | [Node resource reservation](#31-node-resource-reservation) | server, db | `cpu_pin` rows, admission ledger |
 | 32 | [Database schema version](#32-database-schema-version) | db | `PRAGMA user_version` |
 
 Machines 3 and 32 were already explicit and checked; 1, 2, 4, 14 and 25 have been made so since. They
@@ -535,7 +535,7 @@ The stage is the program counter; the lab phase (machine 2) says who owns the re
 |---|---|---|
 | 1 Setup | `set_up`, ending with `reserve_lab` (`up/networks.rs`) | the lab record, `Creating`, holding its subnets. A lab ID in use fails here with a `Conflict`, first right after the owner is loaded and before libvirt is connected, and again at the reservation for a concurrent `up`: "Lab already exists" (with the phase when it is not `ready`), or "rename the lab" for another owner's lab with the same ID. |
 | 2 Validation | `validate`: `plan_lab`, `ensure_no_earlier_attempt` | image leases in memory. The earlier-attempt check looks at libvirt volumes and domains, and skips labs where every node is a container. |
-| 3 DatabaseRecords | `create_node_records` (`up/records.rs`) | node rows (`Building`), VNC ports, per-node networks |
+| 3 DatabaseRecords | `create_node_records` (`up/records.rs`) | node rows (`Building`), per-node networks |
 | 4 | `set_up_lab_network` | lab dir and SSH key, node SSH accounts, libvirt NAT network, Docker bridge network, Tailscale gateway |
 | 5 to 7 | `link_nodes`, `create_isolated_container_networks`, `create_shared_bridges` | link rows, Docker macvlan networks, host bridges, bridge rows |
 | 8 | `configure_nodes` (`up/ztp.rs`) | ZTP files, lab CA, node certificates, management addresses |
@@ -1706,9 +1706,10 @@ stateDiagram-v2
 
 ### 31. Node resource reservation
 
-**Where.** `reserve_node_resources` (`crates/server/src/services/node_resources.rs`) reserves
-`vnc_port`, `cpu_count` and `memory` on the node row, and `update_node_resources` writes all
-three together. Before that, the node is admitted by `services/admission.rs`, which holds its
+**Where.** `store_node_resources` (`crates/server/src/services/node_resources.rs`) records
+`cpu_count` and `memory` on the node row, and `update_node_resources` writes both together. A
+node has no VNC port: its VNC console is a UNIX socket (see
+[`SERVER.md`](SERVER.md#node-consoles)). Before that, the node is admitted by `services/admission.rs`, which holds its
 memory in an in-memory ledger and claims its CPU pins in the `cpu_pin` table
 (`crates/db/src/cpu_pin/`).
 
@@ -1727,8 +1728,6 @@ memory in an in-memory ledger and claims its CPU pins in the `cpu_pin` table
   transaction): none → held. The table's trigger refuses a CPU another node holds against the
   rules, and then nothing is claimed (none → none), with the same `CpuPinsHeld`.
   `admit_stopped_nodes` claims nothing: a stopped node holds its pins.
-- **Reserve.** A VM that already has a port keeps it. Otherwise the code picks a free port,
-  retrying when the unique index loses a race.
 - **Release from the ledger.** Dropping the `Admission` when the operation returns, whether it
   succeeded or failed. Running domains are then counted from libvirt, and running containers'
   memory limits from Docker.
@@ -1737,7 +1736,7 @@ memory in an in-memory ledger and claims its CPU pins in the `cpu_pin` table
   before then (`db::retain_cpu_pins`).
 - **Release.** Deleting the lab record, or the node row: held → none.
 
-A stopped lab keeps its ports and pins. Admission and the claim are one serialised step, so two
+A stopped lab keeps its pins. Admission and the claim are one serialised step, so two
 concurrent `up`s cannot both pass, and the trigger enforces the rules for every other write.
 The node a redeploy replaces does not count against itself (matched by lab and node name), and
 holds both sets until the redeploy keeps one, so a redeploy that fails before teardown keeps its

@@ -133,7 +133,7 @@ fn folder_lab_info(dir: &Path) -> Option<LabInfo> {
 }
 
 /// Stop unless the user logged in owns the lab of the folder `dir`: only a lab's owner can
-/// connect to its nodes, admins included, so `sherpa ssh`, `sherpa console` and provisioners
+/// connect to its nodes, admins included, so `sherpa ssh` and provisioners
 /// call this before they try anything. A folder with no `lab-info.toml` is for the logged-in
 /// user's own lab of its manifest's name.
 ///

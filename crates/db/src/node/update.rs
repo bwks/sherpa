@@ -171,12 +171,11 @@ pub async fn update_node_host_key(
     .await
 }
 
-/// Record what a node was given: its vCPUs, memory and VNC port. Its pinned host CPUs are in
+/// Record what a node was given: its vCPUs and memory. Its pinned host CPUs are in
 /// the `cpu_pin` table.
 ///
 /// # Errors
 /// - If the node doesn't exist
-/// - If another node already has the VNC port
 /// - If the database update fails
 #[instrument(skip(db), level = "debug")]
 pub async fn update_node_resources(
@@ -191,7 +190,6 @@ pub async fn update_node_resources(
             key_of(&node_id, NODE_TABLE)?.into(),
             resources.cpu_count.into(),
             resources.memory.into(),
-            resources.vnc_port.into(),
         ]),
         "resources",
     )

@@ -233,7 +233,7 @@ const OPERATIONS: &[Operation] = &[
     },
     Operation {
         name: "lab.inspect",
-        description: "Get detailed information about a lab. Serial console addresses and VNC ports are shown to the owner only",
+        description: "Get detailed information about a lab",
         category: Category::Lab,
         auth: AuthRequirement::Authenticated,
         request_schema: Some("InspectRequest"),

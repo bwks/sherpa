@@ -51,7 +51,7 @@ fn base_domain_template() -> DomainTemplate {
         video_model: "cirrus".to_owned(),
         video_vram: Some(16384),
         cpu_features: vec![],
-        vnc_port: 5905,
+        vnc_socket: "/opt/sherpa/run/console/a10736e8/1.vnc".to_string(),
         tuning: DomainTuning::default(),
         watchdog: None,
     }
@@ -89,14 +89,19 @@ fn test_domain_serial_console_is_a_unix_socket() {
 }
 
 #[test]
-fn test_domain_vnc_console_has_a_fixed_port() {
+fn test_domain_vnc_console_is_a_unix_socket() {
     let xml = base_domain_template().render().expect("renders domain XML");
-    // The node's port is reserved in the database, so libvirt must not pick another.
+    // QEMU binds the socket; only sherpad connects to it. No port is opened.
     assert!(
-        xml.contains("<graphics type='vnc' port='5905' autoport='no'/>"),
+        xml.contains(
+            "<graphics type='vnc'>\n      \
+             <listen type='socket' socket='/opt/sherpa/run/console/a10736e8/1.vnc'/>\n    \
+             </graphics>"
+        ),
         "{xml}"
     );
-    assert!(!xml.contains("autoport='yes'"), "{xml}");
+    assert!(!xml.contains("port='59"), "{xml}");
+    assert!(!xml.contains("autoport"), "{xml}");
 }
 
 #[test]

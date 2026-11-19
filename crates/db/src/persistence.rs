@@ -348,7 +348,6 @@ pub(crate) fn node_from_row(row: &Row) -> Result<DbNode> {
         state: cells.enumeration("state")?,
         cpu_count: cells.optional_integer("cpu_count")?,
         memory: cells.optional_integer("memory")?,
-        vnc_port: cells.optional_integer("vnc_port")?,
         ssh_host_key: cells.optional_text("ssh_host_key")?,
         ready_check: ReadyCheck {
             port: cells.optional_integer("ready_port")?,
@@ -360,7 +359,7 @@ pub(crate) fn node_from_row(row: &Row) -> Result<DbNode> {
 }
 
 /// A node's column values in the `node` table's column order, under `key`.
-pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<[Value; 17]> {
+pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<[Value; 16]> {
     Ok([
         key.into(),
         node.name.as_str().into(),
@@ -373,7 +372,6 @@ pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<[Value; 17]> {
         enum_text(&node.state, "state")?.into(),
         node.cpu_count.into(),
         node.memory.into(),
-        node.vnc_port.into(),
         node.ssh_host_key.as_deref().into(),
         node.ready_check.port.into(),
         node.ready_check.skip.into(),

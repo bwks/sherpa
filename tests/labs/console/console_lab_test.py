@@ -3,14 +3,19 @@
 # requires-python = ">=3.15"
 # dependencies = []
 # ///
-"""End-to-end test of `sherpa console` through the sherpa CLI (Python 3.15+, stdlib only).
+"""End-to-end test of `sherpa console` and `sherpa vnc` through the sherpa CLI (Python 3.15+,
+stdlib only).
 
 Brings up an Alpine VM and an Alpine container. Runs `sherpa console` on the VM in a
 pseudo-terminal, as a user does: the console is relayed by the Sherpa server over its API, with no
 system `telnet` or `ssh` on PATH. Checks the login prompt and typed input, leaving with Ctrl+] and
 with `~.`, that a second console on the same node names who holds it, that `--force` takes it over,
-that another Sherpa user and an admin are refused, and that the container is refused. Always
-destroys the lab. See README.md.
+that another Sherpa user and an admin are refused, and that the container is refused. Then runs
+`sherpa vnc` on the VM and connects to its local address as a VNC viewer does: the server's RFB
+banner comes back, a second `sherpa vnc` started then says who holds the console, a second viewer
+is refused while the first is connected, the console is free again once it leaves, and Ctrl+C
+stops the command; the other two accounts and the container are refused by `sherpa vnc` before it
+prints a local address. Always destroys the lab. See README.md.
 """
 
 import argparse
@@ -22,6 +27,7 @@ import select
 import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -68,9 +74,23 @@ CTRL_RIGHT_BRACKET = b"\x1d"
 LOGIN_PROMPT = re.compile(rb"login: ")
 CONNECTED = f"Connected to the console of {VM} in lab "
 CLOSED_AFTER_ESCAPE = f"\nConnection to the console of {VM} closed."
-IN_USE = f"The console of {VM} is in use by "
 TAKEN_OVER = f"Connection to the console of {VM} closed: Taken over by "
+IN_USE = f"The console of {VM} is in use by "
 CONTAINER_REFUSED = f"{CONTAINER} is a container, and containers have no serial console."
+# `sherpa vnc`: the line with the local address, the banner of QEMU's VNC server, and the messages.
+VNC_LISTENING = re.compile(rf"VNC console of {VM} in lab .+: connect a VNC viewer to (127\.0\.0\.1:\d+)\. ")
+# Any `sherpa vnc` listening line: a refused one must not print it.
+VNC_ADDRESS = "connect a VNC viewer to"
+RFB_BANNER = b"RFB 003.008\n"
+VNC_IN_USE = f"The VNC console of {VM} is in use by "
+VNC_CONTAINER_REFUSED = f"{CONTAINER} is a container, and containers have no VNC console."
+VNC_STOPPED = f"Stopped relaying the VNC console of {VM}."
+# The exit code of a `sherpa vnc` the server refused.
+VNC_REFUSED_EXIT = 1
+# How long `sherpa vnc` may take to print its address, to answer a viewer, or to end.
+VNC_TIMEOUT = 60
+# How long a finished command's remaining output is read for.
+DRAIN_SECONDS = 5
 # The text typed at the login prompt, checked for in the guest's echo. It is never submitted.
 TYPED = "sherpa-console-check"
 
@@ -138,6 +158,15 @@ def path_without(*tools):
     kept = [entry for entry in os.environ.get("PATH", "").split(os.pathsep)
             if entry and not any((Path(entry) / tool).exists() for tool in tools)]
     return os.pathsep.join(kept)
+
+
+def drain(read, limit=DRAIN_SECONDS):
+    """Keep what a finished command printed: call `read` (which returns False at the end of the
+    output) until the end, for at most `limit` seconds, so output held open by something else
+    cannot hang the runner."""
+    deadline = time.monotonic() + limit
+    while time.monotonic() < deadline and read(0.1):
+        pass
 
 
 def refused_to(lab_id):
@@ -215,12 +244,11 @@ class Console:
         deadline = time.monotonic() + timeout
         while self.process.poll() is None and time.monotonic() < deadline:
             self.read(0.5)
-        while self.read(0.1):
-            pass
         code = self.process.poll()
         if code is None:
             self.process.kill()
             self.process.wait()
+        drain(self.read)
         os.close(self.master)
         self.log.write(f"=== {self.label}\n--- exit {code}\n--- terminal\n"
                        f"{self.text()}\n")
@@ -230,6 +258,86 @@ class Console:
 
     def text(self):
         return self.transcript.decode(errors="replace").replace("\r\n", "\n")
+
+
+class Vnc:
+    """`sherpa vnc <node>`, run as a user runs it, with its local address read from its output."""
+
+    def __init__(self, log, label, sherpa, node, cwd, env):
+        self.log = log
+        self.label = label
+        self.output = bytearray()
+        self.process = subprocess.Popen([sherpa, "vnc", node], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        print(f"[{cwd.name}] {label}", flush=True)
+        found = self.expect(VNC_LISTENING, VNC_TIMEOUT)
+        self.address = found.group(1).decode()
+
+    def read(self, timeout):
+        """Read what the command printed within `timeout` seconds; False once it has closed."""
+        ready, _, _ = select.select([self.process.stdout], [], [], timeout)
+        if not ready:
+            return True
+        try:
+            data = os.read(self.process.stdout.fileno(), 4096)
+        except OSError:
+            return False
+        self.output += data
+        return bool(data)
+
+    def expect(self, pattern, timeout):
+        """Wait until the output matches `pattern`, a str pattern; return the match."""
+        pattern = re.compile(pattern.pattern.encode()) if isinstance(pattern.pattern, str) else pattern
+        deadline = time.monotonic() + timeout
+        while True:
+            found = pattern.search(self.output)
+            if found:
+                return found
+            remaining = deadline - time.monotonic()
+            require(remaining > 0, f"{self.label}: {pattern.pattern!r} not seen within {timeout}s; "
+                    f"see {self.log.name}")
+            require(self.read(min(remaining, 1)) or self.process.poll() is None,
+                    f"{self.label} ended before {pattern.pattern!r}; see {self.log.name}")
+
+    def viewer(self):
+        """Connect to the local address as a VNC viewer; return the socket and the first bytes the
+        server sent within the timeout, or what it sent before closing."""
+        host, port = self.address.rsplit(":", 1)
+        viewer = socket.create_connection((host, int(port)), VNC_TIMEOUT)
+        viewer.settimeout(VNC_TIMEOUT)
+        received = bytearray()
+        while len(received) < len(RFB_BANNER):
+            try:
+                data = viewer.recv(len(RFB_BANNER) - len(received))
+            except TimeoutError:
+                break
+            if not data:
+                break
+            received += data
+        return viewer, bytes(received)
+
+    def interrupt(self):
+        """Ctrl+C, as a user stops it."""
+        self.process.send_signal(signal.SIGINT)
+
+    def finish(self, timeout=VNC_TIMEOUT):
+        """Wait for the command to end and return its exit code, keeping what it printed."""
+        deadline = time.monotonic() + timeout
+        while self.process.poll() is None and time.monotonic() < deadline:
+            self.read(0.5)
+        code = self.process.poll()
+        if code is None:
+            self.process.kill()
+            self.process.wait()
+        drain(self.read)
+        self.process.stdout.close()
+        self.log.write(f"=== {self.label}\n--- exit {code}\n--- output\n{self.text()}\n")
+        self.log.flush()
+        require(code is not None, f"{self.label} did not end within {timeout}s; see {self.log.name}")
+        return code
+
+    def text(self):
+        return self.output.decode(errors="replace")
 
 
 class LabRun:
@@ -256,6 +364,9 @@ class LabRun:
 
     def console(self, label, node=VM, options=()):
         return Console(self.log, label, self.sherpa_path, node, self.directory, self.console_env, options)
+
+    def vnc(self, label):
+        return Vnc(self.log, label, self.sherpa_path, VM, self.directory, self.console_env)
 
     def run(self):
         self.directory.mkdir(parents=True)
@@ -302,6 +413,11 @@ class LabRun:
         second = self.open_at_login("console, left with ~.")
         second.send(b"\r~.")
         self.check_closed(second)
+
+        self.check_vnc_container_refused()
+        for account in self.others:
+            self.check_vnc_refused_to(account)
+        self.check_vnc()
 
     def check_container_refused(self):
         outcome = self.sherpa(f"console {CONTAINER}", ["console", CONTAINER], check=False)
@@ -373,6 +489,67 @@ class LabRun:
                 f"{console.label} did not print one close line; see {self.log.name}")
         require(CLOSED_AFTER_ESCAPE in console.text(),
                 f"{console.label}: the close line did not start on a new line; see {self.log.name}")
+
+    def check_vnc(self):
+        """The owner's viewer gets the server's RFB banner; a second viewer is refused while the
+        first is connected, naming who holds the console; the console is free again once the first
+        leaves; Ctrl+C stops the command with code 0."""
+        vnc = self.vnc("sherpa vnc as the owner")
+        try:
+            first, banner = vnc.viewer()
+            require(banner == RFB_BANNER, f"the first viewer got {banner!r}, not the RFB banner; see {self.log.name}")
+            self.check_vnc_held()
+            second, refused = vnc.viewer()
+            second.close()
+            require(refused == b"", f"a second viewer got {refused!r} while the first was connected")
+            vnc.expect(re.compile(re.escape(f"{VNC_IN_USE}{self.owner} ")), VNC_TIMEOUT)
+            require(vnc.process.poll() is None, f"sherpa vnc ended after a refused viewer; see {self.log.name}")
+            first.close()
+            vnc.expect(re.compile(re.escape("disconnected from the VNC console of ")), VNC_TIMEOUT)
+            # The server lets the console go once it has the first viewer's close, a moment later.
+            deadline = time.monotonic() + VNC_TIMEOUT
+            while True:
+                again, banner = vnc.viewer()
+                again.close()
+                if banner == RFB_BANNER or time.monotonic() > deadline:
+                    break
+                time.sleep(1)
+            require(banner == RFB_BANNER, f"a viewer after the first left got {banner!r}; see {self.log.name}")
+        finally:
+            vnc.interrupt()
+            code = vnc.finish()
+        require(code == 0, f"sherpa vnc exited {code} on Ctrl+C; see {self.log.name}")
+        require(VNC_STOPPED in vnc.text(), f"sherpa vnc did not say it stopped; see {self.log.name}")
+
+    def check_vnc_held(self):
+        """A second `sherpa vnc` while a viewer holds the console is not refused: it prints its
+        address, says the console is in use by the owner, and runs until Ctrl+C."""
+        held = self.vnc("sherpa vnc while the console is held")
+        try:
+            held.expect(re.compile(re.escape(f"{VNC_IN_USE}{self.owner} ")), VNC_TIMEOUT)
+            require(held.process.poll() is None, f"sherpa vnc ended on a held console; see {self.log.name}")
+        finally:
+            held.interrupt()
+            code = held.finish()
+        require(code == 0, f"sherpa vnc on a held console exited {code} on Ctrl+C; see {self.log.name}")
+
+    def check_vnc_refused(self, label, node, cwd, env, message):
+        """`sherpa vnc` asks the server before it opens a local port: refused, it ends with
+        `message` and the refusal's exit code, and prints no address, so no viewer is needed."""
+        outcome = run_logged(self.log, label, [self.sherpa_path, "vnc", node], cwd, VNC_TIMEOUT, env)
+        require(outcome.code == VNC_REFUSED_EXIT,
+                f"{label} exited {outcome.code}, not {VNC_REFUSED_EXIT}; see {self.log.name}")
+        require(message in outcome.output, f"{label} did not say {message!r}; see {self.log.name}")
+        require(VNC_ADDRESS not in outcome.output, f"{label} printed a local address; see {self.log.name}")
+
+    def check_vnc_container_refused(self):
+        self.check_vnc_refused(f"vnc {CONTAINER}", CONTAINER, self.directory, self.console_env,
+                               VNC_CONTAINER_REFUSED)
+
+    def check_vnc_refused_to(self, account):
+        """Another Sherpa account is refused the VNC console by the server, as for the console."""
+        self.check_vnc_refused(f"vnc as the {account.role} {account.username}", VM,
+                               self.run_root / account.role, account.env, refused_to(self.lab_id))
 
     def destroy(self):
         """Destroy the lab and check it is gone. Returns a failure, or None."""
@@ -463,6 +640,20 @@ class SelfTest(unittest.TestCase):
     def test_another_account_is_refused_in_the_servers_words(self):
         self.assertEqual(refused_to("abcd1234"),
                          "Access denied: only the owner of lab 'abcd1234' can open its consoles")
+
+    def test_drain_stops_at_the_end_of_the_output_or_its_limit(self):
+        calls = []
+        drain(lambda timeout: calls.append(timeout) or len(calls) < 3)
+        self.assertEqual(len(calls), 3)
+        started = time.monotonic()
+        drain(lambda timeout: True, limit=0.3)
+        self.assertLess(time.monotonic() - started, 2)
+
+    def test_the_vnc_address_is_read_from_the_listening_line(self):
+        line = (f"VNC console of {VM} in lab console-abc123: connect a VNC viewer to 127.0.0.1:40123. "
+                "Ctrl+C to stop.\n")
+        self.assertEqual(VNC_LISTENING.search(line).group(1), "127.0.0.1:40123")
+        self.assertIn(VNC_ADDRESS, line)
 
     def test_the_manifest_has_the_vm_and_the_container(self):
         manifest = tomllib.loads(render_manifest("console-abc123"))

@@ -25,6 +25,7 @@ mod ssh_config;
 mod tailscale_key;
 mod up;
 mod validate;
+mod vnc;
 
 pub use cli::Cli;
 pub use exit_status::exit_status;

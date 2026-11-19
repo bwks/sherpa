@@ -1,11 +1,10 @@
-//! What each node is given: vCPUs, memory and, for VMs, a VNC console port. They are decided
+//! What each node is given: vCPUs and memory. They are decided
 //! when the node is created or redeployed and stored on the node, so nothing reads them back
 //! from the hypervisor. The host CPUs a node pins are in the `cpu_pin` table, claimed at
 //! admission; this module checks a request's pins against it.
 use std::collections::HashMap;
-use std::net::{Ipv4Addr, TcpListener};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use tracing::instrument;
 
 use shared::data::{
@@ -20,11 +19,6 @@ use crate::auth::context::AuthContext;
 use crate::services::error::ServiceError;
 use crate::validate::check_host_resources;
 
-/// Server ports reserved for VM VNC consoles, one per VM for its life.
-const VNC_PORT_FIRST: u16 = 5900;
-const VNC_PORT_LAST: u16 = 6999;
-/// Attempts to reserve a VNC port when concurrent labs take the same one.
-const VNC_PORT_ALLOCATION_ATTEMPTS: u32 = 10;
 /// The memory, in MiB, an IOL container needs beyond IOL's own (its `-m`) for the launcher and
 /// the bridge: its Docker memory limit is IOL's memory plus this.
 const CISCO_IOL_CONTAINER_OVERHEAD_MIB: u16 = 128;
@@ -60,13 +54,12 @@ struct PinOverlap {
 /// values are not limits. a `juniper_evolved` container sizes its EVO VM from the manifest or image values,
 /// so its container's memory limit is that and its overhead, with no CPU quota, which would
 /// throttle the EVO VM. IOL takes the manifest or image memory as its own, so its container's
-/// limit is that and the launcher's overhead. The VNC port is reserved separately.
+/// limit is that and the launcher's overhead.
 pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> NodeResources {
     match image.kind() {
         NodeKind::VirtualMachine | NodeKind::Unikernel => NodeResources {
             cpu_count: Some(node.cpu.count.unwrap_or(image.cpu.count)),
             memory: Some(node.memory.unwrap_or(image.memory)),
-            vnc_port: None,
         },
         NodeKind::Container if image.model == NodeModel::JuniperEvolved => NodeResources {
             // `check_ptx_platform` leaves room for the overhead.
@@ -89,13 +82,11 @@ pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> N
                         .unwrap_or(image.memory)
                         .saturating_add(CISCO_IOL_CONTAINER_OVERHEAD_MIB),
                 ),
-                ..NodeResources::default()
             }
         }
         NodeKind::Container => NodeResources {
             cpu_count: node.cpu.count,
             memory: node.memory,
-            ..NodeResources::default()
         },
     }
 }
@@ -105,7 +96,6 @@ pub fn resources_of(node: &DbNode) -> NodeResources {
     NodeResources {
         cpu_count: node.cpu_count,
         memory: node.memory,
-        vnc_port: node.vnc_port,
     }
 }
 
@@ -418,79 +408,22 @@ pub fn domain_name(node_name: &str, lab_id: &str) -> String {
     format!("{node_name}-{lab_id}")
 }
 
-/// VNC ports in the reserved range that no node holds, lowest first.
-pub fn free_vnc_ports(taken: &[u16]) -> Vec<u16> {
-    let mut free = Vec::new();
-    for port in VNC_PORT_FIRST..=VNC_PORT_LAST {
-        if taken.binary_search(&port).is_err() {
-            free.push(port);
-        }
-    }
-    free
-}
-
-/// Store a node's resources. A VM keeps the VNC port it has, or reserves the lowest port no
-/// node holds and nothing on the server listens on (QEMU listens on 127.0.0.1). The port's
-/// unique index settles a race with another lab, and the reservation is retried.
+/// Store the resources `planned` for node `node`.
+///
+/// # Errors
+///
+/// Fails when the node has no record ID or the database cannot be written.
 #[instrument(skip(db, planned), fields(node = %node.name), level = "debug")]
-pub async fn reserve_node_resources(
+pub async fn store_node_resources(
     db: &db::Database,
     node: &DbNode,
-    kind: &NodeKind,
     planned: NodeResources,
 ) -> Result<DbNode> {
     let id: RecordId = node
         .id
         .clone()
         .with_context(|| format!("Node '{}' has no record id", node.name))?;
-    if *kind != NodeKind::VirtualMachine || node.vnc_port.is_some() {
-        let vnc_port = if *kind == NodeKind::VirtualMachine {
-            node.vnc_port
-        } else {
-            None
-        };
-        let resources = NodeResources {
-            vnc_port,
-            ..planned
-        };
-        return db::update_node_resources(db, id, &resources).await;
-    }
-
-    for attempt in 1..=VNC_PORT_ALLOCATION_ATTEMPTS {
-        let taken = db::list_vnc_ports(db).await?;
-        let mut port = None;
-        for candidate in free_vnc_ports(&taken) {
-            if host_port_free(candidate) {
-                port = Some(candidate);
-                break;
-            }
-        }
-        let Some(port) = port else {
-            bail!("No free VNC port between {VNC_PORT_FIRST} and {VNC_PORT_LAST}");
-        };
-        let resources = NodeResources {
-            vnc_port: Some(port),
-            ..planned.clone()
-        };
-        match db::update_node_resources(db, id.clone(), &resources).await {
-            Ok(updated) => return Ok(updated),
-            Err(error) => {
-                if !db::list_vnc_ports(db).await?.contains(&port) {
-                    return Err(error);
-                }
-                tracing::warn!(node = %node.name, port, attempt, "Another node took the VNC port; reserving again");
-            }
-        }
-    }
-    bail!(
-        "Could not reserve a VNC port for node '{}' after {VNC_PORT_ALLOCATION_ATTEMPTS} attempts",
-        node.name
-    )
-}
-
-/// Whether nothing on the server listens on a port.
-fn host_port_free(port: u16) -> bool {
-    TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok()
+    db::update_node_resources(db, id, &planned).await
 }
 
 #[cfg(test)]
@@ -520,7 +453,6 @@ mod tests {
             NodeResources {
                 cpu_count: Some(16),
                 memory: Some(32768),
-                ..NodeResources::default()
             }
         );
         let defaults = planned_resources(&node(None, None), &image);
@@ -542,7 +474,6 @@ mod tests {
             NodeResources {
                 cpu_count: Some(4),
                 memory: Some(4096),
-                ..NodeResources::default()
             }
         );
         // The image's values are not limits: an unset container is not limited.
@@ -911,17 +842,6 @@ mod tests {
                 (4, CpuPinRole::Thread, CpuPinRole::Vcpu),
                 (9, CpuPinRole::Vcpu, CpuPinRole::Thread),
             ]
-        );
-    }
-
-    #[test]
-    fn free_ports_skip_taken_ones_and_stay_in_the_range() {
-        let free = free_vnc_ports(&[5900, 5902]);
-        assert_eq!(&free[..3], &[5901, 5903, 5904]);
-        assert_eq!(free.last(), Some(&VNC_PORT_LAST));
-        assert_eq!(
-            free.len(),
-            usize::from(VNC_PORT_LAST - VNC_PORT_FIRST + 1) - 2
         );
     }
 }

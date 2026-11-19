@@ -54,6 +54,31 @@ Sherpa exposes the same operations via three transports:
 - Not in the spec's `transports`: it is not a request and response. See
   [`SERVER.md`](SERVER.md#node-consoles) and [`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md)
 
+### Node VNC WebSocket
+
+- Endpoint: `wss://<server>:3030/api/v1/labs/{id}/nodes/{node_name}/vnc[?force=true]`
+- Auth, owner rule, `force` and close codes as for the console WebSocket above. One session per
+  VNC console, held apart from the node's serial console
+- Refusals as for the console, and 400 for a unikernel, which has no VNC console; 409 for a VM
+  still on its old VNC port
+- Once open: the RFB protocol of the node's VNC server, as QEMU speaks it, in binary frames both
+  ways; text frames are ignored. A `1000` close says the VNC console closed the connection
+- Not in the spec's `transports`. `sherpa vnc` relays it to a local VNC viewer; see
+  [`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md#sherpa-vnc)
+
+### Node console check
+
+- Endpoint: `GET https://<server>:3030/api/v1/labs/{id}/nodes/{node_name}/console?check=true`,
+  and `.../vnc?check=true`
+- Auth as for the console WebSockets: the bearer token only. No upgrade is needed, and none is
+  made: the route runs the checks of opening the console (login, owner, node, kind, the node
+  running with its console on a socket) and takes no session
+- Refusals are the same API errors as opening the console gets. A console that can be opened is
+  `200` with `{"held_by": "<user> from <address> since <time> UTC"}`, or `{"held_by": null}` when
+  no session holds it; a held console is not a refusal here
+- `sherpa vnc` asks before it opens its local port; see
+  [`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md#sherpa-vnc)
+
 ### CLI
 
 - Binary: `sherpa`

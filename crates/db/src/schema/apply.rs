@@ -1805,6 +1805,92 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn the_vnc_port_is_retired_and_cleared_and_nodes_still_read_and_write() {
+        // A version 35 database, from before VNC moved behind sherpad, with two VMs that were
+        // given VNC ports.
+        let before = migrations_before(migrations::RETIRE_NODE_VNC_PORT);
+        assert_eq!(before + 1, 35);
+        let db = database_at(before).await;
+        let user = crate::create_user(&db, "alice".to_owned(), "TestPass123!", false, vec![])
+            .await
+            .unwrap();
+        let networks = LabNetworks {
+            management_network: "172.31.1.0/24".to_owned(),
+            gateway_ipv4: "172.31.1.1".to_owned(),
+            router_ipv4: "172.31.1.2".to_owned(),
+            management_network_v6: None,
+            loopback_network_v6: None,
+            gateway_ipv6: None,
+            router_ipv6: None,
+        };
+        let lab = create_lab(
+            &db,
+            "Old",
+            "lab-0001",
+            &user,
+            &networks,
+            &LabDetails::default(),
+        )
+        .await
+        .unwrap();
+        let image = upsert_node_image(
+            &db,
+            ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
+            DefaultRequest::Keep,
+        )
+        .await
+        .unwrap();
+        for (index, port) in [(1u16, 5900u16), (2, 5901)] {
+            let node = crate::create_node(
+                &db,
+                &format!("node{index}"),
+                index,
+                image.id.clone().unwrap(),
+                lab.id.clone().unwrap(),
+            )
+            .await
+            .unwrap();
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute(
+                    "UPDATE node SET vnc_port = ?2 WHERE id = ?1",
+                    [
+                        Value::from(key_of(node.id.as_ref().unwrap(), "node").unwrap()),
+                        Value::from(i64::from(port)),
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        let conn = db.reader().await.unwrap();
+        let cleared = query_count(
+            &conn,
+            Query::new("SELECT count(*) FROM node WHERE retired_vnc_port IS NULL").bind([]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(cleared, 2);
+        drop(conn);
+        let nodes = list_nodes_by_lab(&db, lab.id.clone().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(nodes.len(), 2);
+        // A node's resources are written without the column.
+        let resources = shared::data::NodeResources {
+            cpu_count: Some(2),
+            memory: Some(1024),
+        };
+        let updated = crate::update_node_resources(&db, nodes[0].id.clone().unwrap(), &resources)
+            .await
+            .unwrap();
+        assert_eq!(updated.memory, Some(1024));
+    }
+
     /// The position of `migration` in `migrations::ALL`: the number of migrations before it.
     fn migrations_before(migration: &str) -> usize {
         migrations::ALL
