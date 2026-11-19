@@ -155,10 +155,8 @@ class FaultTests(unittest.TestCase):
                         "lab_id": "12345678", "guest_uuid": str(uuid.uuid4()),
                         "owned_disks": ["owned.qcow2"], "retained": True, "command_stopped": True}}
 
-    def test_expected_failure_is_accepted(self):
-        validate_failure(self.report(), 1, "fault-timeout")
-
     def test_success_or_missing_evidence_cannot_pass_a_fault_check(self):
+        validate_failure(self.report(), 1, "fault-timeout")
         for key, value in (("status", "passed"), ("failure_kind", "error"), ("guest_uuid", ""),
                            ("owned_disks", []), ("command_stopped", False)):
             report = self.report()

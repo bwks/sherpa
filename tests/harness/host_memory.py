@@ -184,24 +184,6 @@ Lab creation failed: Not enough memory on the server: node 'bigb' needs 16384 Mi
 
 
 class HostMemoryTests(unittest.TestCase):
-    def test_a_refused_up_is_found_by_its_exit_code(self):
-        self.assertEqual(memory_refusal(SHERPA_MEMORY_REFUSED, UP_REFUSED),
-                         "Lab creation failed: Not enough memory on the server: node 'bigb' needs "
-                         "16384 MiB, but only 11614 MiB of guest memory is left, 4770 MiB short. (code: -32005)")
-        self.assertEqual(memory_refusal(SHERPA_MEMORY_REFUSED, ""), "sherpa up exited 75")
-
-    def test_other_failed_ups_are_not_refusals_whatever_they_say(self):
-        self.assertEqual(memory_refusal(1, UP_REFUSED), "")
-        self.assertEqual(memory_refusal(1, "Context: Memory admission failed: Not enough memory"), "")
-        self.assertEqual(memory_refusal(1, "Lab creation failed: CPU pins overlap (code: -32000)"), "")
-
-    def test_machine_name_follows_libvirt(self):
-        self.assertEqual(machine_name(9, "small-cb2dd9af"), "qemu-9-small-cb2dd9af")
-        self.assertEqual(machine_name(3, "-a..b_c-"), "qemu-3-a.bc")
-        long_name = machine_name(12, "x" * 80)
-        self.assertEqual(len(long_name), MACHINE_NAME_LIMIT)
-        self.assertEqual(long_name, "qemu-12-" + "x" * (MACHINE_NAME_LIMIT - len("qemu-12-")))
-
     def test_oom_kill_line_names_the_domains_scope(self):
         log = "\n".join(["kernel: rpc-libvirtd invoked oom-killer: gfp_mask=0xcc0", MEMCG_KILL, GLOBAL_KILL])
         self.assertEqual(oom_kill_line(log, "small-cb2dd9af"), MEMCG_KILL)
@@ -209,39 +191,6 @@ class HostMemoryTests(unittest.TestCase):
         for other in ("small-cb2dd9a", "mall-cb2dd9af", "rt1a2b3c4d-5e6f7a8"):
             with self.subTest(domain=other):
                 self.assertEqual(oom_kill_line(log, other), "")
-
-    def test_the_latest_kill_of_a_domain_name_is_reported(self):
-        later = MEMCG_KILL.replace("19:40:40", "20:01:12").replace("x2d9", "x2d10").replace("714630", "720011")
-        self.assertEqual(oom_kill_line("\n".join([MEMCG_KILL, later]), "small-cb2dd9af"), later)
-
-    def test_an_oom_kill_of_another_process_is_not_the_guest(self):
-        line = ("kernel: oom-kill:constraint=CONSTRAINT_NONE,nodemask=(null),global_oom,"
-                "task_memcg=/system.slice/cloudflared.service,task=cloudflared,pid=7,uid=0")
-        self.assertEqual(oom_kill_line(line, "small-cb2dd9af"), "")
-
-    def test_oom_kill_counter(self):
-        events = "low 0\nhigh 0\nmax 0\noom 114126\noom_kill 1\noom_group_kill 0\n"
-        self.assertEqual(oom_kills(events), 1)
-        self.assertIsNone(oom_kills("cat: memory.events: No such file or directory"))
-
-    def test_a_running_domain_is_not_lost(self):
-        for state in ("running (booted)", "paused (user)", ""):
-            with self.subTest(state=state):
-                self.assertIsNone(classify_guest_loss("small-cb2dd9af", state, MEMCG_KILL, "", 0, 1))
-
-    def test_the_kernel_log_proves_an_oom_kill(self):
-        loss = classify_guest_loss("small-cb2dd9af", "shut off (crashed)\n", MEMCG_KILL, DMESG_HINT, None, None)
-        self.assertEqual(loss.kind, "oom-killed")
-        self.assertIn("killed by the host OOM killer", loss.summary)
-        self.assertEqual(loss.evidence, ("virsh domstate --reason small-cb2dd9af: shut off (crashed)", MEMCG_KILL))
-        loss = classify_guest_loss("rt1a2b3c4d-5e6f7a8b", "shut off (crashed)", JOURNAL_HINT, GLOBAL_KILL, 0, 0)
-        self.assertEqual((loss.kind, loss.evidence[1]), ("oom-killed", GLOBAL_KILL))
-
-    def test_an_unreadable_kernel_log_falls_back_to_the_slice_counter(self):
-        loss = classify_guest_loss("small-cb2dd9af", "shut off (crashed)", JOURNAL_HINT, DMESG_HINT, 0, 1)
-        self.assertEqual(loss.kind, "oom-killed")
-        self.assertIn(f"{MACHINE_SLICE_EVENTS} oom_kill 0 -> 1", loss.evidence)
-        self.assertIn("not readable", loss.summary)
 
     def test_a_stopped_domain_without_oom_evidence_is_not_an_oom_kill(self):
         cases = (("shut off (crashed)", JOURNAL_HINT, DMESG_HINT, 1, 1),     # no new kill

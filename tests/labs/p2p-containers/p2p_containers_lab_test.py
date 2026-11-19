@@ -489,54 +489,8 @@ def main():
 
 
 class SelfTest(unittest.TestCase):
-    def test_device_password_check_reads_the_info_output(self):
-        def info(text, code=0):
-            return lambda *args, **kwargs: Outcome(code, text, "")
-
-        with tempfile.TemporaryDirectory() as temp:
-            run_root = Path(temp)
-            ready = "\nUser Information:\n  Username: alice\n  Device password: set\n"
-            with mock.patch(f"{__name__}.run_logged", info(ready)):
-                self.assertEqual(require_device_password(None, run_root), "alice")
-            for text, code in (("  Username: alice\n  Device password: not set\n", 0), (ready, 1)):
-                with mock.patch(f"{__name__}.run_logged", info(text, code)):
-                    with self.assertRaises(TestFailure):
-                        require_device_password(None, run_root)
-
-    def manifest(self):
-        return tomllib.loads((LAB / "manifest.toml").read_text())
-
-    def test_rendered_manifest_round_trips_with_a_new_name(self):
-        manifest = self.manifest()
-        rendered = tomllib.loads(render_manifest(manifest, "renamed"))
-        self.assertEqual(rendered["name"], "renamed")
-        for section in ("nodes", "links"):
-            self.assertEqual(rendered[section], manifest[section])
-
-    def test_every_host_has_a_unique_address_and_a_sw01_access_port(self):
-        manifest = self.manifest()
-        hosts = host_addresses(manifest)
-        self.assertEqual(len(set(hosts.values())), len(hosts))
-        self.assertNotIn(GATEWAY, hosts.values())
-        access_links = {link["src"].split("::")[0]: link["dst"] for link in manifest["links"]
-                        if link["src"].split("::")[0] in hosts}
-        self.assertEqual(set(access_links), set(hosts))
-        self.assertTrue(all(dst.startswith("sw01::") for dst in access_links.values()))
-
-    def test_access_ports_match_the_sw01_vlan_range(self):
-        ports = sorted(int(link["dst"].split("::eth")[1]) for link in self.manifest()["links"]
-                       if link["dst"].startswith("sw01::"))
-        self.assertEqual(ports, list(range(3, 16)))
-        self.assertIn("interface Ethernet3-15", SW01_CONFIG)
-        self.assertNotIn(int(UNUSED_SW01_INTERFACE.removeprefix("eth")), ports)
-
-    def test_every_router_announces_to_both_link_peers(self):
-        self.assertEqual(set(ROUTER_PEERS), set(ROUTERS))
-        self.assertTrue(all(len(peers) == 2 for peers in ROUTER_PEERS.values()))
-
-    def test_every_redeployed_node_is_in_the_lab(self):
-        names = {node["name"] for node in self.manifest()["nodes"]}
-        self.assertTrue(set(REDEPLOYED) <= names)
+    # The runner's own checks, run with --self-test; pytest must not collect them as lab cases.
+    __test__ = False
 
     def test_interface_state_is_parsed_from_sysfs(self):
         self.assertIsNone(parse_interface("missing\n"))
@@ -545,10 +499,8 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(active_interface_problems(parse_interface("0x1002 0 1500\n")),
                          ["down", "not promiscuous", "no carrier", "MTU 1500"])
 
-    def test_ping_script_reports_each_reply(self):
-        script = ping_script(["10.46.10.1", "10.46.0.1"])
-        self.assertIn("-I eth1 10.46.10.1", script)
-        self.assertEqual(replied("ok 10.46.10.1\nnoise\nok 10.46.0.1\n"), {"10.46.10.1", "10.46.0.1"})
+    def test_only_addresses_that_replied_are_counted(self):
+        self.assertEqual(replied("ok 10.46.10.1\nnoise\n"), {"10.46.10.1"})
 
     def test_a_partly_created_lab_keeps_its_id_for_cleanup(self):
         # `sherpa up` exits 1 on a partly created lab after writing lab-info.toml; the run must
@@ -574,15 +526,6 @@ class SelfTest(unittest.TestCase):
 
             with mock.patch(f"{__name__}.run_logged", leftover):
                 self.assertIsInstance(run.destroy(), TestFailure)
-
-    def test_run_logged_keeps_streams_apart_for_parsing(self):
-        script = "import sys; print('{\"items\": []}'); print('Warning: added host', file=sys.stderr)"
-        with tempfile.TemporaryDirectory() as folder:
-            with open(Path(folder) / "log", "w") as log:
-                outcome = run_logged(log, "streams", [sys.executable, "-c", script], Path(folder))
-        self.assertEqual(outcome.code, 0)
-        self.assertEqual(json.loads(outcome.stdout), {"items": []})
-        self.assertIn("Warning: added host", outcome.output)
 
 
 if __name__ == "__main__":

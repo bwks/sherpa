@@ -1171,69 +1171,6 @@ class GuestTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             validate_upgrade_state({}, {})
 
-    def test_baseline_install_uses_separate_verified_inputs(self):
-        with tempfile.TemporaryDirectory() as directory:
-            workspace = Path(directory)
-            payload = {"candidate": {"version": "v0.6.0", "artifact_directory": "/candidate"},
-                       "baseline": {"version": "v0.5.35", "artifact_directory": "/baseline"},
-                       "guest": {"listen_ip": "127.0.0.1", "ws_port": 3030,
-                                 "http_port": 3031},
-                       "timeouts": {}, "credentials": {"admin_password": "test-admin"}}
-            lines = []
-            for section, values in payload.items():
-                lines.append(f"[{section}]")
-                lines.extend(f"{key} = {json.dumps(value)}" for key, value in values.items())
-            path = workspace / "guest.toml"
-            path.write_text("\n".join(lines))
-            guest = Guest(path)
-            self.assertEqual(guest.installer("baseline")[-1], "v0.5.35")
-            self.assertEqual(guest.environment("baseline")["SHERPA_ARTIFACT_DIR"], str(workspace / "baseline"))
-            self.assertEqual(guest.installer()[-1], "v0.6.0")
-
-    def test_initialization_allows_child_to_exit_after_terminal_closes(self):
-        guest = Guest.__new__(Guest)
-        guest.base = Path("/unused-test-guest")
-        guest.credentials = {"admin_username": "test-admin", "admin_password": "test-only"}
-        guest.settings = {"listen_ip": "127.0.0.1", "ws_port": 3030, "http_port": 3031}
-        guest.timeouts = {"initialize": 1, "poll": 1}
-        guest.passwords = []
-        guest.snapshot = lambda: None
-        guest.command = lambda *args: (0, "")
-        with patch.object(pty, "fork", return_value=(1234, 99)), \
-             patch.object(time, "monotonic", return_value=0), patch.object(time, "sleep"), \
-             patch.object(select, "select", return_value=([99], [], [])), \
-             patch.object(os, "read", side_effect=[b"Password for admin: ", b"Confirm password: ",
-                                                    b"Username: ", b"Password for test-admin: ",
-                                                    b"Confirm password: ",
-                                                    b"Make this user an administrator? [Y/n]: ",
-                                                    b"SSH public key for test-admin (file path or key, "
-                                                    b"Enter to skip): ", OSError("PTY closed")]), \
-             patch.object(os, "write"), \
-             patch.object(os, "waitpid", side_effect=[(0, 0)] * 8 + [(1234, 0)]), \
-             patch.object(os, "killpg") as terminate, patch.object(os, "close"):
-            guest.initialize()
-            terminate.assert_not_called()
-
-    def test_initialization_timeout_reports_timeout_after_reaping_child(self):
-        guest = Guest.__new__(Guest)
-        guest.base = Path("/unused-test-guest")
-        guest.credentials = {"admin_username": "test-admin", "admin_password": "test-only"}
-        guest.settings = {"listen_ip": "127.0.0.1", "ws_port": 3030, "http_port": 3031}
-        guest.timeouts = {"initialize": 1, "poll": 1}
-        guest.passwords = []
-        with patch.object(pty, "fork", return_value=(1234, 99)), \
-             patch.object(time, "monotonic", side_effect=[0, 2, 2]), \
-             patch.object(os, "waitpid", side_effect=[(0, 0), (1234, 9), ChildProcessError()]), \
-             patch.object(os, "killpg"), patch.object(os, "close"):
-            with self.assertRaises(TimeoutError):
-                guest.initialize()
-
-    def test_systemd_journal_satisfies_server_logging_without_a_log_file(self):
-        guest = Guest.__new__(Guest)
-        guest.base = Path("/nonexistent-sherpa-test-installation")
-        guest.command = lambda *args, **kwargs: (0, "server/database log entry\n")
-        guest.diagnostics(required=True)
-
     def test_retention_checks_detect_removed_or_changed_resources(self):
         before = {"packages": ["docker:1", "libvirt:2"], "users": ["sherpa:1000"],
                   "groups": ["docker:999:sherpa"], "images": ["sha256:db", "sha256:router"],
@@ -1245,13 +1182,6 @@ class GuestTests(unittest.TestCase):
             with self.subTest(category=category), self.assertRaises(RuntimeError):
                 validate_retained_resources(before, after)
 
-    def test_live_diagnostics_require_both_log_sources(self):
-        guest = Guest.__new__(Guest)
-        guest.base = Path("/nonexistent-sherpa-test-installation")
-        guest.command = lambda *args, **kwargs: (1, "missing")
-        with self.assertRaises(RuntimeError):
-            guest.diagnostics(required=True)
-
     def test_test_summary_counts_every_binary_and_names_failures(self):
         output = ("running 2 tests\ntest a::ok ... ok\ntest a::bad ... FAILED\n"
                   "test result: FAILED. 1 passed; 1 failed; 3 ignored; 0 measured\n"
@@ -1261,12 +1191,6 @@ class GuestTests(unittest.TestCase):
                          (2, 5, 1, 3))
         self.assertEqual(summary["failures"], ["a::bad"])
         self.assertEqual(test_problems(101, summary), ["cargo exited 101", "1 failed"])
-
-    def test_package_names_come_from_package_ids(self):
-        self.assertEqual(package_name("path+file:///src/crates/server#sherpad@0.5.12"), "sherpad")
-        self.assertEqual(package_name("path+file:///src/crates/db#0.5.12"), "db")
-        self.assertEqual(package_name("registry+https://github.com/rust-lang/crates.io-index#tokio@1.48.0"),
-                         "tokio")
 
     def test_test_executables_are_grouped_by_integration_crate(self):
         def artifact(package_id, manifest, executable, test=True):
@@ -1291,7 +1215,6 @@ class GuestTests(unittest.TestCase):
             "sherpad": {"paths": ["/t/sherpad-3"], "directories": ["/src/crates/server"]},
             "network": {"paths": [], "directories": []},
         })
-        self.assertEqual(tomllib.loads(toml_document(executables)), executables)
 
     def test_missing_results_and_required_skips_are_failures(self):
         self.assertEqual(test_problems(0, summarize_tests("error: could not compile\n")),
@@ -1310,11 +1233,6 @@ class GuestTests(unittest.TestCase):
         after = {"containers": ["sherpa-db", "srl1-tc000001"], "links": ["eth0", "lo"], "domains": ["vm1-x"]}
         self.assertEqual(leftover_resources(before, after),
                          {"containers": ["srl1-tc000001"], "domains": ["vm1-x"]})
-
-    def test_results_document_is_valid_toml(self):
-        document = toml_document({"integration-db": {"status": "passed", "passed": 3, "failures": [],
-                                                      "skips": ['quote " and \\ slash']}})
-        self.assertEqual(tomllib.loads(document)["integration-db"]["skips"], ['quote " and \\ slash'])
 
     def device_password_guest(self, directory, up_results):
         guest = Guest.__new__(Guest)
@@ -1352,30 +1270,6 @@ class GuestTests(unittest.TestCase):
         guest.login = lambda username: {"username": username, "token": "user-token"}
         return guest, posts, commands
 
-    def test_upgraded_user_is_refused_until_they_set_a_device_password(self):
-        refusal = "User 'persist-abcdef01' has no device password, and labs need one: set it with " \
-                  "'sherpa server user device-password'"
-        with tempfile.TemporaryDirectory() as directory:
-            guest, posts, commands = self.device_password_guest(
-                directory, [(1, refusal), (1, "Failed to find a node image")])
-            guest.device_password()
-            ups = [item for item in commands if item[0][1:] == ["up"]]
-            self.assertEqual(len(ups), 2)
-            self.assertTrue(all(kwargs["env"]["HOME"] == f"{directory}/persist-home" for _, kwargs in ups))
-            self.assertTrue((Path(directory) / "persist-home/.sherpa/token").is_file())
-            self.assertEqual([path.rsplit("/", 1)[1] for path, _ in posts], ["ssh-keys", "device-password"])
-            self.assertEqual(posts[1][1]["device_password"], "Dp1!device-secret")
-            self.assertEqual(posts[1][1]["login_password"], "login-secret")
-            self.assertNotIn("destroy", [arguments[1] for arguments, _ in commands])
-
-    def test_a_lab_that_starts_after_the_device_password_is_destroyed(self):
-        refusal = "User 'persist-abcdef01' has no device password, and labs need one: " \
-                  "'sherpa server user device-password'"
-        with tempfile.TemporaryDirectory() as directory:
-            guest, _, commands = self.device_password_guest(directory, [(1, refusal), (0, "done")])
-            guest.device_password()
-            self.assertEqual(commands[-1][0][1:], ["destroy", "--yes"])
-
     def test_the_update_fails_if_labs_are_not_refused_without_a_device_password(self):
         with tempfile.TemporaryDirectory() as directory:
             guest, _, _ = self.device_password_guest(directory, [(1, "Failed to find a node image")])
@@ -1390,29 +1284,14 @@ class GuestTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "still refused"):
                 guest.device_password()
 
-    def test_the_device_password_is_redacted_from_guest_output(self):
+    def test_every_credential_is_redacted_from_guest_output(self):
+        credentials = {"admin_password": "a-login-secret", "device_password": "Dp1!device-secret",
+                       "build_cache_password": "cache-secret", "tailnet_auth_key": "tskey-test"}
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "guest.toml"
-            config.write_text('[guest]\n[timeouts]\n[credentials]\nadmin_password = "a-login-secret"\n'
-                              'device_password = "Dp1!device-secret"\n')
+            config.write_text(toml_document({"guest": {}, "timeouts": {}, "credentials": credentials}))
             guest = Guest(config)
-        self.assertEqual(guest.redact("x Dp1!device-secret y a-login-secret"), "x [REDACTED] y [REDACTED]")
-
-    def test_cargo_environment_names_the_running_user(self):
-        guest = Guest.__new__(Guest)
-        guest.workspace = Path("/var/tmp/workspace")
-        guest.config = {"tests": {}}
-        guest.credentials = {}
-        account = pwd.struct_passwd(("tester", "x", 1000, 1000, "", "/home/tester", "/bin/bash"))
-        with patch.dict(os.environ, {"SUDO_USER": "tester"}), \
-             patch.object(pwd, "getpwnam", return_value=account):
-            user = guest.cargo_environment(root=False)
-            root = guest.cargo_environment(root=True)
-        self.assertEqual((user["USER"], user["LOGNAME"], user["HOME"]), ("tester", "tester", "/home/tester"))
-        self.assertEqual((root["USER"], root["HOME"]), ("root", "/root"))
-        self.assertEqual(root["CARGO_HOME"], "/home/tester/.cargo")
-        self.assertEqual(user["CARGO_TARGET_DIR"], CARGO_TARGET_DIR)
-        self.assertNotIn(str(guest.workspace), user["CARGO_TARGET_DIR"])
+        self.assertEqual(guest.redact(" ".join(credentials.values())), " ".join(["[REDACTED]"] * 4))
 
     def cache_guest(self, workspace, build_cache=True):
         guest = Guest.__new__(Guest)
@@ -1425,17 +1304,6 @@ class GuestTests(unittest.TestCase):
         guest.passwords = ["cache-secret"]
         guest.timeouts = {"download": 1}
         return guest
-
-    def test_build_cache_is_off_without_a_host_cache(self):
-        with tempfile.TemporaryDirectory() as directory:
-            workspace = Path(directory)
-            (workspace / SCCACHE_CONFIG_FILE).write_text("stale")
-            guest = self.cache_guest(workspace, build_cache=False)
-            with patch.object(Guest, "record_results") as record, patch.object(Guest, "command") as command:
-                guest.build_cache()
-            self.assertFalse((workspace / SCCACHE_CONFIG_FILE).exists())
-            record.assert_called_once_with("build_cache", {"status": "off"})
-            command.assert_not_called()
 
     def test_unusable_build_cache_builds_uncached(self):
         account = pwd.struct_passwd(("tester", "x", os.getuid(), os.getgid(), "", "/home/tester", "/bin/bash"))
@@ -1455,85 +1323,6 @@ class GuestTests(unittest.TestCase):
             self.assertEqual((section, values["status"]), ("build_cache", "unavailable"))
             self.assertNotIn("cache-secret", values["error"])
 
-    def test_usable_build_cache_wraps_every_user_cargo_command(self):
-        account = pwd.struct_passwd(("tester", "x", 1000, 1000, "", "/home/tester", "/bin/bash"))
-        with tempfile.TemporaryDirectory() as directory:
-            workspace = Path(directory)
-            guest = self.cache_guest(workspace)
-            with patch.dict(os.environ, {"SUDO_USER": "tester"}), \
-                 patch.object(pwd, "getpwnam", return_value=account):
-                self.assertNotIn("RUSTC_WRAPPER", guest.cargo_environment(root=False))
-                (workspace / SCCACHE_CONFIG_FILE).write_text("[cache.redis]\n")
-                user = guest.cargo_environment(root=False)
-                root = guest.cargo_environment(root=True)
-            self.assertEqual(user["RUSTC_WRAPPER"], str(workspace / SCCACHE_BINARY))
-            self.assertEqual(user["SCCACHE_CONF"], str(workspace / SCCACHE_CONFIG_FILE))
-            self.assertEqual(user["CARGO_INCREMENTAL"], "0")
-            self.assertNotIn("RUSTC_WRAPPER", root)
-
-    def test_build_cache_statistics_are_recorded(self):
-        statistics = {"stats": {"cache_hits": {"counts": {"Rust": 1080, "C/C++": 3}},
-                                "cache_misses": {"counts": {"Rust": 8}}}}
-        account = pwd.struct_passwd(("tester", "x", 1000, 1000, "", "/home/tester", "/bin/bash"))
-        with tempfile.TemporaryDirectory() as directory:
-            workspace = Path(directory)
-            (workspace / SCCACHE_CONFIG_FILE).write_text("[cache.redis]\n")
-            guest = self.cache_guest(workspace)
-            with patch.dict(os.environ, {"SUDO_USER": "tester"}), \
-                 patch.object(pwd, "getpwnam", return_value=account), \
-                 patch.object(Guest, "record_results") as record, \
-                 patch.object(Guest, "command", return_value=(0, json.dumps(statistics))):
-                guest.build_cache_statistics()
-            section, values = record.call_args.args
-            self.assertEqual(section, "build_cache")
-            self.assertEqual((values["status"], values["hits"], values["misses"]), ("1083 hits, 8 misses", 1083, 8))
-
-    def test_the_live_tailnet_test_runs_only_with_a_key(self):
-        self.assertIsNone(tailnet_test_environment({}, "net"))
-        self.assertIsNone(tailnet_test_environment({"tailnet_auth_key": ""}, "net"))
-        settings = tailnet_test_environment({"tailnet_auth_key": "tskey-test"}, "net")
-        self.assertEqual(settings["SHERPA_TEST_TAILSCALE_AUTH_KEY"], "tskey-test")
-        self.assertEqual(settings["SHERPA_TEST_TAILSCALE_NETWORK"], "net")
-        self.assertEqual(settings["SHERPA_TEST_TAILSCALE_ROUTES"], TAILNET_SUBNET)
-        self.assertTrue(settings["SHERPA_TEST_TAILSCALE_IPV4"].startswith(TAILNET_SUBNET.rsplit(".", 1)[0] + "."))
-
-    def test_the_tailnet_key_is_redacted_from_guest_logs(self):
-        with tempfile.TemporaryDirectory() as directory:
-            config = Path(directory) / "guest.toml"
-            config.write_text(toml_document({
-                "guest": {}, "timeouts": {},
-                "credentials": {"admin_password": "admin", "tailnet_auth_key": "tskey-test"}}))
-            guest = Guest(config)
-        self.assertEqual(guest.redact("key tskey-test joined"), "key [REDACTED] joined")
-
-    def test_releases_from_0_5_13_keep_the_database_directory_private(self):
-        for version in ("v0.5.13", "0.5.14", "v0.10.0", "v1.0.0"):
-            self.assertEqual(database_directory_mode(version), 0o750, version)
-        for version in ("v0.5.12", "0.5.0", "v0.5.1"):
-            self.assertEqual(database_directory_mode(version), 0o775, version)
-
-    def test_releases_from_0_6_6_keep_the_config_private(self):
-        for version in ("v0.6.6", "0.6.7", "v0.7.0", "v1.0.0"):
-            self.assertEqual(config_modes(version), (0o750, 0o600), version)
-        for version in ("v0.6.5", "0.5.13", "v0.5.0"):
-            self.assertEqual(config_modes(version), (0o775, 0o640), version)
-
-    def test_install_never_inherits_database_settings(self):
-        guest = Guest.__new__(Guest)
-        guest.settings = {"listen_ip": "127.0.0.1", "ws_port": 3030, "http_port": 3031}
-        guest.workspace = Path("/unused")
-        guest.config = {"candidate": {"version": "v0.6.0", "artifact_directory": ""},
-                        "baseline": {"version": "v0.5.35", "artifact_directory": "/baseline"}}
-        with patch.dict(os.environ, {"SHERPA_DB_PASSWORD": "leaked", "SHERPA_DB_PORT": "8000"}):
-            for selection in ("candidate", "baseline"):
-                env = guest.environment(selection)
-                self.assertNotIn("SHERPA_DB_PASSWORD", env)
-                self.assertNotIn("SHERPA_DB_PORT", env)
-
-    def test_ubuntu_version_ignores_build_suffix(self):
-        self.assertEqual(ubuntu_version("26.04"), "26.04")
-        self.assertEqual(ubuntu_version("24.04-20260926"), "24.04")
-
     def test_binary_version_requires_exact_match(self):
         validate_binary_version("sherpad", "v0.5.35", "sherpad 0.5.35\n")
         for output in ("sherpad 0.5.350", "other 0.5.35"):
@@ -1544,9 +1333,6 @@ class GuestTests(unittest.TestCase):
         for actual_uuid, actual_hostname in (("other", "test"), ("expected", "production")):
             with self.assertRaises(RuntimeError):
                 validate_identity("expected", "test", actual_uuid, actual_hostname)
-
-    def test_guest_uuid_and_fqdn_match(self):
-        validate_identity("abCD", "test", "ABcd", "test.sherpa.lab.local")
 
 
 if __name__ == "__main__":

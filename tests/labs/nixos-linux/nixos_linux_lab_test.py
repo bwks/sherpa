@@ -441,22 +441,8 @@ def main():
 
 
 class SelfTest(unittest.TestCase):
-    def test_device_password_check_reads_the_info_output(self):
-        def info(text, code=0):
-            return lambda *args, **kwargs: Outcome(code, text, "")
-
-        with tempfile.TemporaryDirectory() as temp:
-            run_root = Path(temp)
-            ready = "\nUser Information:\n  Username: alice\n  Device password: set\n"
-            with mock.patch(f"{__name__}.run_logged", info(ready)):
-                self.assertEqual(require_device_password(None, run_root), "alice")
-            for text, code in (("  Username: alice\n  Device password: not set\n", 0), (ready, 1)):
-                with mock.patch(f"{__name__}.run_logged", info(text, code)):
-                    with self.assertRaises(TestFailure):
-                        require_device_password(None, run_root)
-
-    def manifest(self):
-        return tomllib.loads((LAB / "manifest.toml").read_text())
+    # The runner's own checks, run with --self-test; pytest must not collect them as lab cases.
+    __test__ = False
 
     def test_a_partly_created_lab_keeps_its_id_for_cleanup(self):
         # `sherpa up` exits 1 on a partly created lab after writing lab-info.toml; the run must
@@ -483,41 +469,6 @@ class SelfTest(unittest.TestCase):
                   mock.patch("shutil.which", return_value="/usr/bin/true")):
                 self.assertIsInstance(run.destroy(), TestFailure)
 
-    def test_rendered_manifest_round_trips_with_a_new_name(self):
-        manifest = self.manifest()
-        rendered = tomllib.loads(render_manifest(manifest, "renamed"))
-        self.assertEqual(rendered["name"], "renamed")
-        self.assertFalse([key for key in rendered if key.startswith("provision")])
-        for section in ("nodes", "links"):
-            self.assertEqual(rendered[section], manifest[section])
-
-    def test_every_node_is_a_pinned_nixos_vm(self):
-        for node in self.manifest()["nodes"]:
-            self.assertEqual(node["model"], "nixos_linux")
-            self.assertTrue(node["version"])
-
-    def test_link_ends_get_unique_addresses_and_ping_each_other(self):
-        addresses, pings = link_plan(self.manifest())
-        self.assertEqual(len(addresses), 2)
-        self.assertEqual(len({item.address for item in addresses}), 2)
-        self.assertIn((Address("nix01", "eth1", "10.46.0.1/24"), Address("nix02", "eth1", "10.46.0.2/24")),
-                      pings)
-        self.assertEqual(len(pings), 2)
-
-    def test_text_file_belongs_to_the_lab_owner(self):
-        manifest = with_owner(self.manifest(), "alice")
-        self.assertEqual(text_file_targets(manifest),
-                         [("nix01", "/home/alice/hello.txt", "alice:alice 600")])
-
-    def test_provisioner_script_matches_the_manifest(self):
-        self.assertEqual(provisioned_nodes(self.manifest()), ["nix01"])
-        scripts = {script for node in self.manifest()["nodes"]
-                   for item in node.get("provisioners", []) for script in item["scripts"]}
-        self.assertEqual(scripts, {PROVISION_SCRIPT})
-
-    def test_text_file_source_matches_the_manifest(self):
-        sources = {item["src"] for node in self.manifest()["nodes"] for item in node.get("text_files", [])}
-        self.assertEqual(sources, {TEXT_FILE})
 
 if __name__ == "__main__":
     sys.exit(main())

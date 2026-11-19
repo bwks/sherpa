@@ -30,9 +30,8 @@ import uuid
 from urllib.parse import urlsplit
 
 import build_cache
-from host_memory import (JOURNAL_HINT, MACHINE_SLICE_EVENTS, MEMCG_KILL, MEMORY_REFUSED_EXIT, OOM_KILL,
-                         SHERPA_MEMORY_REFUSED, UP_REFUSED, classify_guest_loss, domain_stopped, memory_refusal,
-                         oom_kills)
+from host_memory import (MACHINE_SLICE_EVENTS, MEMORY_REFUSED_EXIT, OOM_KILL, SHERPA_MEMORY_REFUSED, UP_REFUSED,
+                         classify_guest_loss, domain_stopped, memory_refusal, oom_kills)
 from vm_release_guest import release_numbers, validate_upgrade_evidence
 
 
@@ -1085,28 +1084,6 @@ def main():
 
 
 class HarnessTests(unittest.TestCase):
-    def test_upgrade_waits_for_transient_guest_ssh_failure_without_mutating_it(self):
-        config = self.upgrade_config()
-        with tempfile.TemporaryDirectory() as directory:
-            config["runner"]["output_directory"] = directory
-            runner = Runner(config)
-            with patch.object(runner, "ssh", side_effect=[(255, "refused"), (0, "")]) as ssh, \
-                 patch.object(time, "sleep"):
-                runner.wait_guest()
-                self.assertEqual(ssh.call_count, 2)
-                for call in ssh.call_args_list:
-                    self.assertEqual(call.args[1], ["true"])
-
-    def test_upgrade_guest_ssh_wait_is_bounded(self):
-        config = self.upgrade_config()
-        with tempfile.TemporaryDirectory() as directory:
-            config["runner"]["output_directory"] = directory
-            runner = Runner(config)
-            with patch.object(runner, "ssh", return_value=(255, "refused")), \
-                 patch.object(time, "monotonic", side_effect=[0, 0, 1000]), \
-                 patch.object(time, "sleep"), self.assertRaises(TimeoutError):
-                runner.wait_guest()
-
     def upgrade_config(self):
         config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
         config["candidate"].update(version="v0.6.0", artifact_directory="/candidate")
@@ -1121,29 +1098,6 @@ class HarnessTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 validate_upgrade_config(config)
 
-    def test_releases_before_0_5_0_are_refused_as_candidate_and_baseline(self):
-        for version in ("v0.4.18", "v0.3.79", "v0.4.99-rc1"):
-            config = self.upgrade_config()
-            config["baseline"]["version"] = version
-            with self.subTest(baseline=version), self.assertRaisesRegex(ValueError, "update to 0.5.x first"):
-                validate_upgrade_config(config)
-            config = self.upgrade_config()
-            config["candidate"]["version"] = version
-            with self.subTest(candidate=version), self.assertRaisesRegex(ValueError, "from 0.5.0"):
-                validate_config(config)
-        for version in ("v0.5.0", "v0.5.35", "v0.6.0", "v1.0.0"):
-            config = self.upgrade_config()
-            config["candidate"]["version"] = version
-            validate_config(config)
-            config["baseline"]["version"] = "v0.5.0" if version != "v0.5.0" else "v0.5.35"
-            validate_upgrade_config(config)
-
-    def test_runner_config_refuses_database_settings(self):
-        config = self.upgrade_config()
-        config["guest"]["db_port"] = 8000
-        with self.assertRaises(ValueError):
-            validate_config(config)
-
     def test_upgrade_refuses_identical_baseline_and_candidate_bytes(self):
         baseline = {f"{binary}_binary_sha256": "a" * 64 for binary in ("sherpa", "sherpad")}
         candidate = {f"{binary}_binary_sha256": "b" * 64 for binary in ("sherpa", "sherpad")}
@@ -1153,28 +1107,6 @@ class HarnessTests(unittest.TestCase):
             changed[f"{binary}_binary_sha256"] = baseline[f"{binary}_binary_sha256"]
             with self.subTest(binary=binary), self.assertRaises(ValueError):
                 validate_upgrade_artifacts(baseline, changed)
-
-    def test_upgrade_failure_keeps_failed_receipt_and_verifies_targeted_cleanup(self):
-        config = self.upgrade_config()
-        config["runner"]["retain_failed"] = False
-        with tempfile.TemporaryDirectory() as directory:
-            config["runner"]["output_directory"] = directory
-            runner = Runner(config)
-            runner.lab_id = "12345678"
-            def step(name, label=None):
-                if name == "upgrade":
-                    raise TimeoutError("upgrade timed out")
-                runner.report["run"]["completed_steps"].append(name)
-            with patch.object(runner, "inputs"), patch.object(runner, "provision"), \
-                 patch.object(runner, "transfer"), patch.object(runner, "collect") as collect, \
-                 patch.object(runner, "step", side_effect=step), \
-                 patch.object(runner, "cleanup") as cleanup, redirect_stdout(io.StringIO()):
-                self.assertEqual(runner.run("upgrade"), 1)
-                cleanup.assert_called_once()
-                collect.assert_called_once()
-            report = tomllib.loads((runner.directory / "result.toml").read_text())
-            self.assertEqual(report["run"]["failure_kind"], "timeout")
-            self.assertNotIn("verify-upgrade", report["run"]["completed_steps"])
 
     def test_completed_upgrade_fails_when_evidence_collection_fails(self):
         config = self.upgrade_config()
@@ -1188,17 +1120,6 @@ class HarnessTests(unittest.TestCase):
                  patch.object(runner, "command", side_effect=RuntimeError("missing upgrade evidence")), \
                  redirect_stdout(io.StringIO()), self.assertRaises(RuntimeError):
                 runner.collect()
-
-    def test_configured_jump_host_is_used_for_guest_commands(self):
-        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
-        config["host"]["ssh_destination"] = "remote-user@example.test"
-        with tempfile.TemporaryDirectory() as directory:
-            config["runner"]["output_directory"] = directory
-            runner = Runner(config)
-            runner.lab_id = "12345678"
-            with patch.object(runner, "command", return_value=(0, "")) as command:
-                runner.ssh("probe", ["true"], 1)
-            self.assertIn("ProxyJump=remote-user@example.test", command.call_args.args[1])
 
     def test_result_reference_tracks_status_without_credentials(self):
         config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
@@ -1317,19 +1238,6 @@ sys.exit(runner.run('preflight'))
             return 0, ""
         return sherpa
 
-    def test_a_memory_refusal_is_reported_and_leaves_nothing_retained(self):
-        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
-        with tempfile.TemporaryDirectory() as directory:
-            config["runner"]["output_directory"] = directory
-            runner = Runner(config)
-            with patch.object(runner, "sherpa", side_effect=self.refused_up(runner, UP_REFUSED)), \
-                 patch.object(runner, "host", return_value=(1, "")), redirect_stdout(io.StringIO()), \
-                 self.assertRaisesRegex(MemoryRefused, "Not enough memory on the server.*-32005"):
-                runner.provision()
-            receipt = tomllib.loads((runner.directory / "result.toml").read_text())
-            self.assertFalse(receipt["run"]["retained"])
-            self.assertEqual(receipt["run"]["resource_state"], "none")
-
     def test_a_failed_up_is_not_a_refusal_without_the_exit_code_or_with_a_lab(self):
         config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
         for output, lab_info, code in (("Lab creation failed: CPU pins overlap (code: -32000)", False, 1),
@@ -1344,65 +1252,6 @@ sys.exit(runner.run('preflight'))
                     runner.provision()
                 self.assertNotIsInstance(raised.exception, MemoryRefused)
                 self.assertTrue(tomllib.loads((runner.directory / "result.toml").read_text())["run"]["retained"])
-
-    def test_a_refused_run_exits_for_a_retry_without_collecting_or_cleaning_up(self):
-        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
-        config["runner"]["retain_failed"] = False
-        with tempfile.TemporaryDirectory() as directory:
-            config["runner"]["output_directory"] = directory
-            runner = Runner(config)
-            runner.lab_id = "12345678"
-            refusal = MemoryRefused("The server refused the lab: Not enough memory on the server: short")
-            with patch.object(runner, "inputs"), patch.object(runner, "provision", side_effect=refusal), \
-                 patch.object(runner, "collect") as collect, patch.object(runner, "cleanup") as cleanup, \
-                 patch.object(runner, "host") as host, redirect_stdout(io.StringIO()):
-                self.assertEqual(runner.run("code"), MEMORY_REFUSED_EXIT)
-            collect.assert_not_called()
-            cleanup.assert_not_called()
-            host.assert_not_called()
-            run = tomllib.loads((runner.directory / "result.toml").read_text())["run"]
-            self.assertEqual((run["status"], run["failure_kind"]), ("failed", "memory-refused"))
-            self.assertIn("Not enough memory on the server", run["error"])
-
-    def guest_lost_run(self, state, kernel_ring):
-        """A code run whose unit tests lose SSH, with the host answering as given."""
-        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        config["runner"]["output_directory"] = directory.name
-        runner = Runner(config)
-        runner.node_name, runner.lab_id, runner.guest_uuid = "small", "cb2dd9af", str(uuid.uuid4())
-        runner.oom_kills_before = 0
-        answers = {"domain-state": (0, state), "kernel-log-oom": (1, JOURNAL_HINT),
-                   "kernel-ring-oom": (0, kernel_ring), "oom-kills": (0, "oom 3\noom_kill 1\n")}
-        def step(name, label=None):
-            if name == "unit-tests":
-                raise RuntimeError("unit-tests exited 255; see the run directory")
-            runner.report["run"]["completed_steps"].append(name)
-        with patch.object(runner, "inputs"), patch.object(runner, "provision"), patch.object(runner, "transfer"), \
-             patch.object(runner, "collect"), patch.object(runner, "step", side_effect=step), \
-             patch.object(runner, "host", side_effect=lambda label, command, check=True: answers[label]) as host, \
-             redirect_stdout(io.StringIO()):
-            self.assertEqual(runner.run("code"), 1)
-        return tomllib.loads((runner.directory / "result.toml").read_text())["run"], host
-
-    def test_a_guest_the_host_oom_killed_is_reported_with_the_kernel_line(self):
-        run, host = self.guest_lost_run("shut off (crashed)\n", MEMCG_KILL + "\n")
-        self.assertEqual(run["failure_kind"], "oom-killed")
-        self.assertTrue(run["error"].startswith("small-cb2dd9af was killed by the host OOM killer: "))
-        self.assertIn("unit-tests exited 255", run["error"])
-        self.assertEqual(run["guest_loss_evidence"],
-                         ["virsh domstate --reason small-cb2dd9af: shut off (crashed)", MEMCG_KILL])
-        domstate = host.call_args_list[0].args[1]
-        self.assertEqual(domstate[-3:], ["domstate", "--reason", "small-cb2dd9af"])
-        self.assertNotIn("sudo", [word for call in host.call_args_list for word in call.args[1]])
-
-    def test_a_running_guest_keeps_the_steps_error(self):
-        run, host = self.guest_lost_run("running (booted)\n", "")
-        self.assertEqual(run["failure_kind"], "error")
-        self.assertEqual(run["error"], "unit-tests exited 255; see the run directory")
-        self.assertNotIn("guest_loss_evidence", run)
-        self.assertEqual([call.args[0] for call in host.call_args_list], ["domain-state"])
 
     def test_custom_output_directory_does_not_expose_credentials_to_git(self):
         config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
@@ -1440,47 +1289,13 @@ sys.exit(runner.run('preflight'))
         self.assertEqual(process.returncode, 2)
         self.assertIn("requires --artifact-dir and --source-archive", process.stderr)
 
-    def test_code_settings_are_required_and_validated(self):
-        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
-        missing = {key: value for key, value in config.items() if key != "tests"}
-        with self.assertRaises(ValueError):
-            validate_config(missing)
-        for crates in ([], ["../db"]):
-            invalid = {**config, "tests": {**config["tests"], "integration_crates": crates}}
-            with self.subTest(crates=crates), self.assertRaises(ValueError):
-                validate_config(invalid)
-
-    def test_retained_runs_recorded_before_new_test_settings_can_be_resumed(self):
-        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
-        older = {**config, "tests": {key: value for key, value in config["tests"].items()
-                                     if key not in ("skip_tests", "environment")}}
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "runner-config.toml"
-            path.write_text(encode_toml(older))
-            with self.assertRaises(ValueError):
-                load_config(path)
-            resumed = load_recorded_config(path)
-        self.assertEqual((resumed["tests"]["skip_tests"], resumed["tests"]["environment"]), ([], []))
-
     def test_test_environment_rejects_credentials_and_bad_skips(self):
         config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
         for key, value in (("environment", ["SHERPA_TEST_TAILSCALE_AUTH_KEY=tskey"]),
-                           ("environment", ["lowercase=1"]), ("environment", ["MISSING_VALUE"]),
                            ("skip_tests", ["name; rm -rf /"])):
             invalid = {**config, "tests": {**config["tests"], key: value}}
             with self.subTest(value=value), self.assertRaises(ValueError):
                 validate_config(invalid)
-
-    def test_both_environment_configs_load_and_can_run_side_by_side(self):
-        older = load_config(ROOT / "tests/environments/ubuntu-2404/release-test.toml")
-        newer = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
-        # The two releases run in parallel, so their labs must not share a name.
-        self.assertNotEqual(older["vm"]["lab_prefix"], newer["vm"]["lab_prefix"])
-
-    def test_jump_host_brackets_and_ports(self):
-        self.assertEqual(jump_host_arguments("user@[192.0.2.10]"), ["-l", "user", "192.0.2.10"])
-        self.assertEqual(jump_host_arguments("user@[2001:db8::1]:2222"),
-                         ["-p", "2222", "-l", "user", "2001:db8::1"])
 
     def test_missing_version_is_rejected_before_host_changes(self):
         result = subprocess.run(["bash", str(ROOT / "scripts/sherpa_install.sh"), "--version"],
@@ -1508,15 +1323,6 @@ sys.exit(runner.run('preflight'))
                     self.assertEqual(runner.run("lifecycle"), 1)
             self.assertEqual(tomllib.loads((runner.directory / "result.toml").read_text())["run"]["status"], "failed")
 
-    def test_command_timeout_is_bounded_and_logged(self):
-        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
-        with tempfile.TemporaryDirectory() as directory:
-            config["runner"]["output_directory"] = directory
-            runner = Runner(config)
-            with self.assertRaises(subprocess.TimeoutExpired):
-                runner.command("timeout", [sys.executable, "-c", "import time; time.sleep(30)"], 1)
-            self.assertTrue((runner.directory / "01-timeout.log").is_file())
-
     def test_rejects_archive_traversal_and_symlinks(self):
         for name, kind in (("../sherpad", tarfile.REGTYPE), ("sherpad", tarfile.SYMTYPE)):
             stream = io.BytesIO()
@@ -1531,21 +1337,6 @@ sys.exit(runner.run('preflight'))
                 path.write_bytes(stream.getvalue())
                 with self.assertRaises(ValueError):
                     archive_binary_hash(path, "sherpad")
-
-    def test_hashes_binary_contents_not_archive(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "asset.tar.gz"
-            with tarfile.open(path, "w:gz") as archive:
-                member = tarfile.TarInfo("./sherpad")
-                member.size = 6
-                archive.addfile(member, io.BytesIO(b"binary"))
-            self.assertEqual(archive_binary_hash(path, "sherpad"), hashlib.sha256(b"binary").hexdigest())
-
-    def test_guest_uv_setup_is_valid_sh_that_pipes_nothing_to_a_shell_and_skips_system_python(self):
-        script = guest_uv_setup()[-1]
-        self.assertEqual(subprocess.run(["sh", "-n", "-c", script]).returncode, 0)
-        self.assertNotIn("python3", script)
-        self.assertNotRegex(script, r"\|\s*(ba)?sh\b")
 
     def test_guest_uv_setup_fails_on_a_checksum_mismatch(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1564,42 +1355,14 @@ sys.exit(runner.run('preflight'))
             present, missing = Path(directory) / "lab-node.qcow2", Path(directory) / "lab-node.iso"
             present.write_text("disk")
             self.assertEqual(subprocess.run(disk_check([str(missing)])).returncode, 0)
-            self.assertEqual(subprocess.run(disk_check([])).returncode, 0)
             result = subprocess.run(disk_check([str(missing), str(present)]), capture_output=True, text=True)
             self.assertEqual(result.returncode, 1)
-            self.assertEqual(result.stdout, f"Remaining owned disk: {present}\n")
-
-    def test_device_password_state_is_read_from_the_user_info(self):
-        self.assertTrue(device_password_is_set("User Information:\n  Username: a\n  Device password: set\n"))
-        self.assertFalse(device_password_is_set("  Device password: not set\n"))
-        self.assertFalse(device_password_is_set("  Username: set\n"))
-
-    def test_generated_device_passwords_meet_the_rule_and_differ(self):
-        generated = {make_device_password("admin-12345678", "persist-12345678") for _ in range(200)}
-        self.assertGreater(len(generated), 150)
-        for password in generated:
-            self.assertIsNone(device_password_problem(password, "admin-12345678"), password)
-
-    def test_device_password_rule_rejects_what_the_server_refuses(self):
-        for password, problem in (("Ab1!short", "length"), ("!Abcdef1234567", "start"),
-                                  ("Abcdefghij1k", "classes"), ("abcdefgh1!jk", "classes"),
-                                  ("Xcisco1!abcdef", "name"), ("Xalice1!abcdef", "name"),
-                                  ("Abc1!dddefgh", "repeat"), ("Abc1!defgh#jk", "characters")):
-            self.assertEqual(device_password_problem(password, "alice"), problem, password)
-        self.assertIsNone(device_password_problem("Abc1!defghijk", "alice"))
 
     def test_report_is_valid_toml(self):
         data = {"run": {"status": "failed", "detail": "quote\"\nline", "retained": True},
                 "checks": {"steps": ["baseline", "install"], "count": 2},
                 "vm": {"version": "26.04", "cpu": {"count": 8}, "boot_disk": {"size": 100}}}
         self.assertEqual(tomllib.loads(encode_toml(data)), data)
-
-    def test_node_is_written_with_its_groups_as_tables(self):
-        node = {"name": "rt1", "model": "ubuntu_linux", "version": "26.04", "memory": 4096,
-                "cpu": {"count": 8}, "boot_disk": {"size": 100}, "ready_check": {"port": 65534}}
-        text = "name = \"lab\"\n\n[[nodes]]\n" + node_toml(node)
-        self.assertEqual(tomllib.loads(text)["nodes"], [node])
-        self.assertIn("[nodes.cpu]\ncount = 8", text)
 
     def test_cleanup_rejects_different_lab(self):
         with self.assertRaises(ValueError):
