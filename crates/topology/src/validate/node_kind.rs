@@ -27,7 +27,7 @@ pub fn check_node_model_kind(node: &Node) -> Result<()> {
         && !node.model.kinds().contains(&kind)
     {
         bail!(
-            "Manifest - node: '{}' sets `kind = \"{kind}\"`, but '{}' comes only as: {}",
+            r#"Manifest - node: '{}' sets `kind = "{kind}"`, but '{}' comes only as: {}"#,
             node.name,
             node.model,
             model_kinds_list(node.model)
@@ -121,7 +121,7 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
         // A kind of the same model that takes the setting, which the node could set instead.
         match kinds.iter().find(|other| model.kinds().contains(other)) {
             Some(other) => bail!(
-                "Manifest - node: '{}' sets `{key}`, which does not apply to {kind} nodes; '{model}' is a {kind} unless the node sets `kind = \"{other}\"`",
+                r#"Manifest - node: '{}' sets `{key}`, which does not apply to {kind} nodes; '{model}' is a {kind} unless the node sets `kind = "{other}"`"#,
                 node.name,
             ),
             None => bail!(

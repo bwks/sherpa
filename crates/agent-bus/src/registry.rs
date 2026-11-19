@@ -239,7 +239,7 @@ mod tests {
         registry.save(&path).unwrap();
         assert_eq!(Registry::load(&path).unwrap(), registry);
         let text = fs::read_to_string(&path).unwrap();
-        assert!(text.starts_with(HEADER) && text.contains("role = \"guest\""));
+        assert!(text.starts_with(HEADER) && text.contains(r#"role = "guest""#));
         // An emptied registry is saved and read back as empty.
         registry.unenroll("dev");
         registry.unenroll("agent-2");

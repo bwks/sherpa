@@ -2703,14 +2703,14 @@ mod tests {
     #[test]
     fn a_node_state_this_build_does_not_know_decodes_as_unknown() {
         // M1.8: one row written by another version must not fail a whole listing.
-        for text in ["\"created\"", "\"hibernating\""] {
+        for text in [r#""created""#, r#""hibernating""#] {
             let state: NodeState = serde_json::from_str(text).unwrap();
             assert_eq!(state, NodeState::Unknown, "{text}");
         }
         for state in NodeState::iter() {
             let text = serde_json::to_string(&state).unwrap();
             assert_eq!(serde_json::from_str::<NodeState>(&text).unwrap(), state);
-            assert_eq!(text, format!("\"{state}\""));
+            assert_eq!(text, format!(r#""{state}""#));
         }
     }
 

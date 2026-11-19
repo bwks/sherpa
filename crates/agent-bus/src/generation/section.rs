@@ -745,7 +745,7 @@ mod tests {
             let models: Vec<String> = row
                 .models
                 .iter()
-                .map(|model| format!("\"{model}\""))
+                .map(|model| format!(r#""{model}""#))
                 .collect();
             write!(
                 data,

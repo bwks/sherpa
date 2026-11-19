@@ -2225,7 +2225,7 @@ mod tests {
         }
         let columns = row
             .iter()
-            .map(|(name, _)| format!("\"{name}\""))
+            .map(|(name, _)| format!(r#""{name}""#))
             .collect::<Vec<_>>()
             .join(", ");
         let placeholders = (1..=row.len())

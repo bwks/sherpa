@@ -71,10 +71,10 @@ fn test_bootstrap_users_are_admin_and_the_owner() {
         .collect();
     assert_eq!(
         entries,
-        ["<entry name=\"admin\">", "<entry name=\"alice\">"]
+        [r#"<entry name="admin">"#, r#"<entry name="alice">"#]
     );
     // Only the owner has keys.
-    let owner_entry = &users[users.find("<entry name=\"alice\">").expect("owner")..];
+    let owner_entry = &users[users.find(r#"<entry name="alice">"#).expect("owner")..];
     assert!(!users[..users.len() - owner_entry.len()].contains("<public-key>"));
     assert!(owner_entry.contains("<public-key>OWNERKEY1</public-key>"));
     assert!(owner_entry.contains("<public-key>OWNERKEY2</public-key>"));

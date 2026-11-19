@@ -2334,7 +2334,7 @@ mod tests {
             .publish_with_reply(
                 "$JS.API.CONSUMER.MSG.NEXT.AGENTS.host",
                 reply,
-                "{\"batch\":1,\"expires\":4000000000}".into(),
+                r#"{"batch":1,"expires":4000000000}"#.into(),
             )
             .await?;
         holder.flush().await?;
@@ -2724,7 +2724,7 @@ mod tests {
                     refused += 1;
                 }
                 if n % 30 == 0 && skipped < BACKLOG_SKIPPED {
-                    raw.publish("agents.host.dev", "{\"not\": \"a message\"}".into())
+                    raw.publish("agents.host.dev", r#"{"not": "a message"}"#.into())
                         .await?
                         .await?;
                     skipped += 1;

@@ -359,20 +359,20 @@ mod tests {
 
     /// [`TCP`] with its console on the socket: only the chardevs differ, and the attributes of the
     /// elements rewritten are written with double quotes.
-    const UNIX: &str = "<domain type='kvm'>
+    const UNIX: &str = r#"<domain type='kvm'>
   <name>alp01-abcd1234</name>
   <devices>
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
     <!-- a comment, kept -->
-    <serial type=\"unix\">
-      <source mode=\"bind\" path=\"/opt/sherpa/run/console/abcd1234/1.serial\"/>
+    <serial type="unix">
+      <source mode="bind" path="/opt/sherpa/run/console/abcd1234/1.serial"/>
       <target type='isa-serial' port='0'>
         <model name='isa-serial'/>
       </target>
       <alias name='serial0'/>
     </serial>
-    <console type=\"unix\">
-      <source mode=\"bind\" path=\"/opt/sherpa/run/console/abcd1234/1.serial\"/>
+    <console type="unix">
+      <source mode="bind" path="/opt/sherpa/run/console/abcd1234/1.serial"/>
       <target type='serial' port='0'/>
       <alias name='serial0'/>
     </console>
@@ -382,7 +382,7 @@ mod tests {
     <memballoon model='virtio'><alias name='a&amp;b&#39;c'/></memballoon>
   </devices>
 </domain>
-";
+"#;
 
     const PATH: &str = "/opt/sherpa/run/console/abcd1234/1.serial";
 
@@ -423,7 +423,7 @@ mod tests {
         let xml =
             "<domain><devices><serial type='tcp'><source mode='bind'/></serial></devices></domain>";
         let rewritten = serial_on_socket(xml, "/run/a&b").unwrap().unwrap();
-        assert!(rewritten.contains("path=\"/run/a&amp;b\""), "{rewritten}");
+        assert!(rewritten.contains(r#"path="/run/a&amp;b""#), "{rewritten}");
         assert_eq!(
             serial_console_in(&rewritten).unwrap(),
             SerialConsole::Socket("/run/a&b".to_owned())
@@ -455,8 +455,8 @@ mod tests {
         let expected = UNIX.replace(
             "<graphics type='vnc' port='5901' autoport='no' listen='127.0.0.1'>
       <listen type='address' address='127.0.0.1'/>",
-            "<graphics type=\"vnc\">
-      <listen type=\"socket\" socket=\"/opt/sherpa/run/console/abcd1234/1.vnc\"/>",
+            r#"<graphics type="vnc">
+      <listen type="socket" socket="/opt/sherpa/run/console/abcd1234/1.vnc"/>"#,
         );
         assert_eq!(both, expected);
         assert_eq!(consoles_on_sockets(&both, &sockets).unwrap(), None);

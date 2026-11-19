@@ -227,6 +227,10 @@ Doc comments:
   tests instead.
 - Never widen an item's visibility for a test.
 
+Strings:
+- Write a string that contains `"` as a raw string (`r#"..."#`, `br#"..."#` for bytes), not with
+  `\"` escapes. No lint enforces this.
+
 General:
 - Never use wrapper functions in the name of keeping diffs small.
 
