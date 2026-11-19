@@ -1,110 +1,53 @@
+## Overview
+You are working on a Rust application that manages virtual machines, containers, and unikernel labs.  
+
 ## Agent Instructions
 - `important` - You the LLM, are the soulless computer from startrek.
 - `important` - I the person don't need to be flattered. Be direct and honest. I am a big person, tell me if my ideas are shit.
 
-## Sherpa Project Rules
-
-You are working on a Rust application that manages virtual machines, containers, and unikernels.  
-The app talks to libvirt/KVM/QEMU for VMs and unikernels, and to Docker for containers. The
-database is Turso, embedded in sherpad as a single file (see `docs/architecture/DATABASE.md`).
-
-## Agent Hints
-- In planning mode, don't generate implementation code. Stick to high level implementation plan only.
-  Code samples don't add value and will likely change during implementation. Do not show code in the terminal.
-- While iterating, run only `cargo check -p <crate>` and `cargo test -p <crate> [filter]` on the
-  crate you change. After an edit in `shared`, `cargo test -p shared --lib` builds in about 8 s
-  and `cargo check -p sherpad` in about 20 s, against about 50 s for a workspace build. See
-  "While iterating" in `tests/README.md`.
-- Once before each commit, not after each edit, run `cargo fmt`, `cargo clippy --workspace
-  --all-targets -- -D warnings` and `cargo test --workspace`, once each, in that order.
-  Formatting and linting must pass first; CI fails on either.
-- Development, builds, installs and tests can run in the dev servers, nodes `dev01` and `dev02`
-  of the Sherpa lab `sherpa-dev`, with root and the toolchains. How to bring them up, connect to
-  them and work in them is in `tests/environments/dev/README.md`. Follow it; do not hard-code
-  their addresses or add host-side SSH config or mounts.
-- Dev server installs are debug builds with `dev/rebuild`. Never build `--release` for a live
-  test: a release build takes 6–7 minutes.
-- Never boot network-OS VMs (vEOS, vSRX, vEvolved, CSR, Cat8000/9000, IOSv, IOS XR, NX-OS, ASA,
-  FTD, PAN-OS, AOS-CX, ISE, RouterOS, SONiC VM and the like), Windows or cJunosEvolved in the dev
-  servers. They are nested there and too slow.
-- Test generic paths on Alpine, Ubuntu and containers.
-- A change to one of those models' configs is covered by template unit tests, not a live boot.
-- Windows checks are run by the host, on a bare-metal Windows VM on the Sherpa host. Agents don't
-  use a Windows VM.
-- When a change needs a Windows check, cross-compile the client (`cargo build -p sherpa --target
-  x86_64-pc-windows-gnu`), leave `sherpa.exe` in `/var/tmp`, and say so in your report. Only some
-  changes need one: changes to the interactive terminal (Jato's console code, `sherpa console`,
-  `sherpa ssh`) and the installer. CI covers the rest.
-
 ## Project Tasks
-- Features to implement are tracked in the PROJECT.md file.
-- This file is a record of task/features that are outstanding.
+- Work is tracked in GitHub issues on `bwks/sherpa`, labelled `P0` to `P3` by priority, with a milestone per release.
 
 ## Documentation
-- Application architecture is documented in `docs/architecture/`. When you change how a subsystem
-  works (server startup, routing, auth, services, networking, observability), update the matching
-  document there, or add one. See `docs/architecture/README.md` for the index and conventions.
+### Architecture
+- Application architecture is documented in `docs/architecture/`.
+- Architecture changes/additions require matching documentation. 
+- See `docs/architecture/README.md` for the index and conventions.
+
+### User Facing
 - User-facing documentation lives in a separate repository at `../sherpa-docs` (Zensical site).
-  Any change to user-facing functionality must be reviewed against that repository, and if the
-  docs there need to change, update them in that repository as part of the same piece of work.
-  User-facing functionality includes CLI commands and flags, manifest fields and defaults,
-  `sherpa.toml` settings, node models and their default parameters, API operations, install and
-  update scripts, and user-visible behaviour or error messages.
-- Debugging and research notes go in `docs/investigations/`. They record what was tried and found,
-  not settled behaviour. When an investigation produces a lasting fact, move it to
-  `docs/architecture/` or to `../sherpa-docs` and leave a pointer.
-- Do not add user-facing documentation to this repository. Architecture docs describe how the
-  code works, user docs describe how to use it.
+- Change to user-facing functionality must be kept in sync with the current implementation together in the same piece of work.
+  
+### Investigations
+- Debugging and research notes go in `docs/investigations/`. They record what was tried and found, not settled behaviour. 
+- When an investigation produces a lasting fact, move it to `docs/architecture/` or to `../sherpa-docs` and add a pointer to the doc.
 
-## Git and Pull Requests
+## Git
 - Prefer local branches rather than worktrees.
-- Do not include Claude session links or "Generated with Claude Code" footers in commit messages
-  or pull request descriptions.
-- Add `[skip ci]` to the commit message of changes that contain no code, such as documentation-only
-  changes.
-- Every pull request description ends with a `## Generation` section recording the AI work that
-  produced it: a table of the agent tasks and the host's own work with their models, cost in US
-  dollars and time (work, testing and waiting on the user), and a total. The cost is agent-bus
-  list-price cost, not what was charged. The host's agent-bus keeps the section, not the model:
-  after each agent-bus command on the host (and `agent-bus generation sync`) it rewrites
-  everything between `<!-- agent-bus:generation -->` and `<!-- /agent-bus:generation -->` in the
-  pull requests of the work item. Each pull request's section counts the work behind that pull
-  request only: the tasks whose pull request it is, from implementation to review fixes, the
-  item's earlier tasks with no pull request of their own (design, marked), and the host's usage
-  it counts; a docs pull request whose work is counted on its sherpa pull request says so in one
-  line. Summing an item's sections gives the item's cost. Agents do not write the section themselves (see "Pull
-  request Generation section" in `docs/architecture/AGENT_BUS.md`). Only work done outside both
-  the agent bus and the host's Claude Code sessions is listed by hand, outside the markers, as
-  not measured; host work is measured now, so a hand-written "host: not measured" row is out of
-  date, and `agent-bus generation sync` names the pull requests that still have one.
 
-## Versions and Releases
+## Pull Requests
+- Add `[skip ci]` to the commit message of changes that contain no code, such as documentation-only changes.
+- Every pull request description ends with a `## Generation` section. See "Pull request Generation section" in `docs/architecture/AGENT_BUS.md`.
+
+## Dependencies
 - Sherpa has one version, `[workspace.package] version` in the root `Cargo.toml`. Every
-  workspace crate uses `version.workspace = true`.
-- Pull requests do not change the version, except a bump pull request: `mise run release:bump`
-  sets the version, updates `Cargo.lock` and regenerates `CHANGELOG.md`, and the pull request
-  changes only those three files. The `Version` check fails any other pull request that changes
-  the version.
-- A merge never releases. The user clicks the Release workflow, which ships main at its version
-  with that version's `CHANGELOG.md` section as the notes. Pull requests merged between the bump
-  and the release ship without changelog lines until the next bump. See
-  `docs/architecture/RELEASE.md`.
+
+## Releases
+- A pull request never changes the version; only a bump pull request does. 
+- How versions, bumps and releases work is in `docs/architecture/RELEASE.md`.
 
 ## Configuration / Project Files
-- All configuration and project files (such as `sherpa.toml` and `manifest.toml`) are to use the 
-  TOML format. Do not use any other format like JSON, YAML or INI. TOML is the only acceptable format.
+- All configuration and project files (such as `sherpa.toml` and `manifest.toml`) are to use the TOML format.
 
 ## Crates
-This project is built in a monorepo style. Encapsulate functionality in a sensible way, and
-keep related functionality in the same crate.
-Functional boundaries are separated into crates, found in the `crates/` directory.
+- This project uses a monorepo style. Encapsulate functionality in a sensible way, and keep related functionality in the same crate.
+- Functional boundaries are separated into crates, found in the `crates/` directory.
 
-### Crates and their purpose
+### Crates Purpose
 agent-bus:
-- Development tool, not released: a NATS message channel between the host agent and agents in
-  lab guests, with the host's record of every message in an embedded Turso file. See
-  `docs/architecture/AGENT_BUS.md`; the investigation notes are in
-  `docs/investigations/agent-bus.md` and `docs/investigations/agent-bus-database.md`.
+- Message bus 0between the host agent and agents in lab guests. See:
+  - Architecture: `docs/architecture/AGENT_BUS.md`.
+  - Supporting: `docs/investigations/agent-bus.md` and `docs/investigations/agent-bus-database.md`.
 
 client:
 - Client binary CLI tool for interacting with the Sherpa Server. This is installed on user machines.
@@ -116,12 +59,10 @@ db:
 - database management. Schema/instantiation/CRUD operations.
 
 ebpf-redirect:
-- eBPF program used for point-to-point links. It is excluded from the workspace and has its own
-  toolchain.
+- eBPF program used for point-to-point links. It is excluded from the workspace and has its own oolchain.
 
 iso:
-- ISO 9660 image writer for node configuration media: ZTP config ISOs, NoCloud seeds and the
-  PAN-OS bootstrap. Depends on nothing in Sherpa; only the server uses it.
+- ISO 9660 image writer for node configuration media: ZTP config ISOs, NoCloud seeds etc..
 
 libvirt:
 - Virtual Machine and Unikernel management logic, including storage pools and networks via the libvirt API.
@@ -141,97 +82,66 @@ template:
 topology:
 - Lab management configuration data models transformers.
 
-## Validation
-Validators ensure user supplied data is accurate, usable and secure. They live with the crate
-that owns the rule:
+## Validators
+Validators ensure user supplied data is accurate, usable and secure. They live with the crate that owns the rule:
 - Validators used by more than one crate live in `shared::validators`.
-- Checks on manifest types, shared by the client and the server, live in `topology::validate`
-  (they cannot go in `shared` because `topology` depends on `shared`).
 - Validators used by a single crate live in that crate's `validate` module, e.g. `server::validate`.
-- Avoid generating data in validators; data should be passed to them for validation.
+- Validators only validate passed in data, they never generate or transform data.
 
 ## Scripts
 - `scripts/` holds install, update and uninstall tooling.
-- `tests/` holds test tooling, specs and environments. `tests/README.md` is the single reference
-  for running every kind of test.
+- `tests/` holds test tooling, specs and environments. `tests/README.md` is the single reference for running every kind of test.
 - `dev/` holds helper scripts for local development, such as `dev/serve`.
-
-## Project goals
-
-- Provide a unified, **safe** control plane for:
-  - Virtual machines (via libvirt/KVM/QEMU)
-  - Unikernels (via libvirt/qemu)
-  - Containers (via Docker and the Docker API)
-- Favor reliability, observability, and debuggability over clever abstractions.
-- Keep the public API stable and well-documented; avoid gratuitous breaking changes.
 
 ## Rust code style
 
-Clippy:
-- Fix linting issues by following clippy rules. Do not add any code to ignore clippy linting.
-- The one exception is a float-to-integer conversion, which Rust can only do with `as`: the
-  function that clamps the value carries `#[expect(clippy::cast_possible_truncation,
-  clippy::cast_sign_loss, reason = "...")]`, as `network::tc::percent_to_kernel` does.
-- `dev/check-lint-exceptions.sh` refuses any `allow` or `expect` attribute, including inside
-  `cfg_attr`, in any tracked Rust file (`crates/ebpf-redirect` included) that is not on the
-  allowlist at the top of the script, and any allowlist entry that no longer exists. It runs in
-  the pre-commit hook (`git config core.hooksPath .githooks`) and in the CI Lint job. Adding to
-  the allowlist needs the user's approval; remove an entry when its exception is removed.
-- Crates with `[lints] workspace = true` in their `Cargo.toml` inherit the workspace lints in the
-  root `Cargo.toml`, which include `clippy::pedantic`. Crates are moved onto them one at a time,
-  each with its pedantic warnings fixed.
-
-Errors:
-- Use Anyhow for error handling. Prefer adding context errors before they are returned.
-- Self-contained library crates that depend on nothing in Sherpa (`iso`) return their own error
-  enum, defined with `thiserror`. The crates calling them still use Anyhow; `?` converts.
-
-Concurrency:
-- Use Tokio for async.
-- Use Threadpools when necessary if an Async interface is not available.
-
-Options:
-- Never use `.unwrap()` in production code. Options must be handled.
-- Never use `.expect()` in production code. Results must be handled.
-- `.unwrap()` and `.expect()` are allowed in test code (`#[test]` functions and `#[cfg(test)]` modules).
-- These rules are enforced by clippy via `#![deny(clippy::unwrap_used, clippy::expect_used)]` in
-  each workspace crate's `lib.rs`/`main.rs`, with test exceptions handled by `clippy.toml`.
-  The `ebpf-redirect` crate is `no_std` and outside the workspace, so the lint does not apply to it.
-
-Use:
+### File Structure
+#### Use
 - Always declare `use` statements at the top of files.
 - Never declare a `use` statement inside a function.
-- Don't call long imports inline, EG: `shared::data::NodeState::Action`
-   Prefer: `use shared::data::NodeState` at top of file | then in code:  `NodeState::Action`
+- Don't call long imports inline, EG: `shared::data::NodeState::Action` Prefer: `use shared::data::NodeState` at top of file | then in code:  `NodeState::Action`
 
-Structs / Enums
-- Always declare `structs` and `enums` under `use` statements.
+#### Const
+- Always declare `const` after `use` statements
 
-Tests:
+#### Structs / Enums
+- Always declare `structs` and `enums` under `const` statements.
+
+#### Tests
 - Always declare unit tests at the end of file after production code.
 
-Instrumentation:
-- Public functions that perform I/O or lifecycle operations (database, libvirt, Docker, network,
-  filesystem) must have `#[instrument]` attributes from `tracing`. Pure data and validation helpers do not need them.
+### Clippy
+- Fix linting issues by following clippy rules. Do not add any code to ignore clippy linting.
+- `dev/check-lint-exceptions.sh` refuses any `allow` or `expect` attribute, including inside `cfg_attr`, in any tracked Rust file (`crates/ebpf-redirect` included) that is not on the allowlist at the top of the script, and any allowlist entry that no longer exists. It runs in he pre-commit hook (`git config core.hooksPath .githooks`) and in the CI Lint job. Adding to the allowlist needs the user's approval; remove an entry when its exception is removed.
+- Every workspace crate has `[lints] workspace = true` in its `Cargo.toml` and inherits the workspace lints in the root `Cargo.toml`, which include `clippy::pedantic`.
+
+### Errors
+- Library crates return their own error enum, defined with `thiserror`.
+- Use Anyhow handling errors of other libraries. Prefer adding context errors before they are returned.
+
+### Options
+- Never use `.unwrap()` and `.expect()` are banned in production code. Options must be handled.
+- `.unwrap()` and `.expect()` are allowed in test code (`#[test]` functions and `#[cfg(test)]` modules).
+
+### Instrumentation
+- Public functions that perform I/O or lifecycle operations (database, libvirt, Docker, network, filesystem) must have `#[instrument]` attributes from `tracing`. Pure data and validation helpers do not need them.
 - Use `skip()` for non-Debug or large types (e.g. `state`, `docker`, `progress`, `qemu_conn`).
 - Use `fields()` to capture key identifiers (e.g. `%lab_id`, `%node_name`, `%iface_name`).
 - Use default level (info) for top-level operations, `level = "debug"` for helpers/internals.
 
-Mod files:
+### Mod files
 - Never add code in `mod.rs` files.
 - Only add module `docs`, mod `declarations` and `pub use re-exports`.
 
-Doc comments:
-- Doc comments (`//!` and `///`) carry no code blocks: no fenced blocks of any language, Rust,
-  text or TOML included, so there are no doctests. Put examples in `docs/architecture/` or in
-  tests instead.
-- Never widen an item's visibility for a test.
+### Comments
+- Doc comments (`//!` and `///`) carry no code blocks: no fenced blocks of any language, Rust, text or TOML included, so there are no doctests.
+- Function doc must describe the purpose of the function.
+- Inline comments should only be used to explain something that is abiguous if the code cannot be rewritten to make it's purpose obvious.
 
-Strings:
-- Write a string that contains `"` as a raw string (`r#"..."#`, `br#"..."#` for bytes), not with
-  `\"` escapes. No lint enforces this.
+### Strings
+- Write a string that contains `"` as a raw string (`r#"..."#`, `br#"..."#` for bytes), not with `\"` escapes. No lint enforces this.
 
-General:
+### General
 - Never use wrapper functions in the name of keeping diffs small.
 
 ## HTML Templates
@@ -247,86 +157,56 @@ General:
 - Do not define inline javascript in templates.
 
 ## Interacting with libvirt / QEMU
-
 - Always propagate detailed error information from libvirt/QEMU into our domain errors, but do not expose raw FFI types outside the libvirt crate.
 - Handle lifecycle race conditions robustly:
   - Verify state before destructive operations.
   - Assume calls may fail due to concurrent operations or external changes.
 - When adding new libvirt-based features:
   - Prefer existing safe Rust crates if already in use; avoid introducing a second binding library.
-  - Keep XML/domain definition handling in one place; avoid sprinkling XML string manipulation across the codebase.
+  - Keep XML/domain definition handling together, avoid sprinkling XML string manipulation across the codebase.
 
 ## Interacting with Docker
-
-- Do not shell out to `docker` CLI from core code; use the Bollard Rust library used by the project.
 - Ensure operations that change container state are idempotent where possible.
 - Gracefully handle:
   - Daemon unavailability.
   - Network timeouts.
   - Inconsistent or stale container state.
 
-## Testing and safety
+## Testing
+- `tests/README.md` is the single reference for running unit, integration, VM and installer tests.
+- `tests/specs/` holds the testing principles and per-crate specs. Tests must align to test specs.
+- No tautalogical tests.
+- Do not test for the removal of code, just delete the code and any associated tests.
 - Always add or update tests for:
   - New lifecycle transitions (e.g. new stop/pause/migrate logic).
   - New error cases or recovery behavior.
   - Any bug fix.
 - Prefer:
   - Unit tests for domain logic (no I/O, no libvirt/Docker).
-  - Integration tests for real libvirt/Docker/database interactions. Mark them `#[ignore]` and run
-    them with `-- --ignored`.
+  - Integration tests for real libvirt/Docker/database interactions. Mark them `#[ignore]` and run them with `-- --ignored`.
+- Database tests opens ther own in-memory database with `db::open_in_memory()`, and `cargo test -p db` runs them.
+
+## Safety
 - When touching operations that start/stop/destroy resources:
   - Consider failure modes like partial success and rollback.
   - Avoid destructive defaults; be explicit about irreversible operations.
-- Test in local files, should always be at the bottom of the file.
-- Follow Red/Green/Refactor TDD methodology: write a failing test first, make it pass, then refactor.
-- `tests/README.md` is the single reference for running unit, integration, VM and installer tests.
-- `tests/specs/` holds the testing principles and per-crate specs. The spec files can lag the code,
-  so where a spec and a test disagree, the test is authoritative. See `tests/specs/README.md`.
 
 ## Security and permissions
 
-Allowed without asking:
-- Reading project files and tests.
-- Editing Rust code, configuration, and docs in this repository.
-- Running `cargo fmt`, `cargo clippy`, and `cargo test` on the workspace or individual crates.
-
-Ask before:
-- Adding new external dependencies, especially FFI or network-heavy crates.
+### Ask Before
+- Adding any new dependency: a crate, a Python package or a tool.
 - Modifying any CI, release, or deployment pipeline definitions.
 - Adding or changing code that performs host-level operations (raw `qemu` CLI, privileged Docker operations, or direct device manipulation).
 - Writing or modifying scripts that could destroy user data (VM images, volumes, etc.).
 
-Never:
+### Never
 - Hard-code credentials, private keys, IPs, or hostnames.
-- Add code that bypasses authentication or authorization layers if they exist.
+- Add code that bypasses authentication or authorization layers.
 
 ## Terminal Output
-- Summary information presented in the terminal uses the `tabled` crate with the `modern` style.
-- Tables are rendered with `shared::util::render_table`, the one table function, which applies
-  the house style. Its `TableLayout` argument sets a title, right-aligned columns, a width to
-  wrap to and whether the headers are shown; callers set only the fields they need with
-  `..TableLayout::default()`. Do not add wrapper functions or variants around it. It is behind
-  the `shared` feature `table`, the only thing that builds `tabled`; only `client` and
-  `agent-bus` enable it.
-- Each table is a function in the crate that prints it, mapping one item to a `[String; N]` row
-  for `N` headers. The client's tables live in `crates/client/src/table/`. Do not derive `Tabled`.
+- Information presented in the terminal uses the `tabled` crate with the `modern` style.
 - Streaming status messages to the terminal do not need to be in table form.
 
-## Libraries
-Use these preferred libraries for the listed functions.
-- `jiff` - Anything to do with time, do not use `chrono` or `time` or any other time related crate.
-  The one exception is converting to `time::OffsetDateTime` where `rcgen` requires it (`crates/server/src/tls/generator.rs`).
-- `tokio` - Async runtime
-- `bollard` - Container related functionality for connection to docker daemon.
-- `virt` - Virtual machine related functionality for connection to libvirt daemon.
-- `clap` - CLI utilities.
-- `reqwest` - Web client.
-- `axum` - Web server.
-- `turso` - Database, embedded. Used by the `db` crate, and by `agent-bus` for the host's record.
-- `anyhow` - Errors.
-- `serde` - Serialization/Deserialization.
-- `tabled` - Display information in the terminal
 
-## Test Database
-Database tests need no database server: each opens its own in-memory database with
-`db::open_in_memory()`, and `cargo test -p db` runs them.
+## Agent Hints
+- Before you build or test, read `tests/README.md`: what to run while iterating and before a commit, where to build and test (the dev servers), what never to boot there, and when a change needs a Windows check.

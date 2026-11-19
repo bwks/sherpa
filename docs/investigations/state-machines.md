@@ -622,7 +622,7 @@ in manifest validation and before `up` or redeploy creates or tears down anythin
 description is [`docs/architecture/ZTP.md`](../architecture/ZTP.md). Item 4 was already fixed
 when this was written: `upsert_node_image` keeps an existing row's settings
 (`crates/db/src/node_image/create.rs`, test `importing_a_version_again_keeps_its_edited_settings`).
-Items 5 and 6 are open and tracked in `PROJECT.md`. The text below is what was found before the
+Items 5 and 6 are open: issues #727 and #728. The text below is what was found before the
 fix.
 
 1. **`ztp_enable = false` with `ztp_method = Tftp` or `Http`.**
