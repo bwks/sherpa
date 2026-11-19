@@ -165,7 +165,7 @@ mod tests {
             .lines()
             .map(|line| serde_json::from_str::<Value>(line).unwrap()["task"].to_string())
             .collect();
-        assert_eq!(tasks, ["\"new\""]);
+        assert_eq!(tasks, [r#""new""#]);
         let mode = fs::metadata(log.lines.path()).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, PRIVATE_FILE_MODE);
         fs::remove_dir_all(&dir).unwrap();

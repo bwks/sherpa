@@ -168,18 +168,17 @@ mod tests {
 
         let info = load_lab_info(&db, &lab).await.unwrap();
 
-        let expected = "\
-id = \"lab-0001\"
-name = \"core\"
-user = \"alice\"
-ipv4_network = \"172.31.1.0/24\"
-ipv4_gateway = \"172.31.1.1\"
-ipv4_router = \"172.31.1.2\"
+        let expected = r#"id = "lab-0001"
+name = "core"
+user = "alice"
+ipv4_network = "172.31.1.0/24"
+ipv4_gateway = "172.31.1.1"
+ipv4_router = "172.31.1.2"
 
 [[ssh_usernames]]
-node_name = \"vm1\"
-username = \"alice\"
-";
+node_name = "vm1"
+username = "alice"
+"#;
         assert_eq!(info.to_string(), expected);
         // An older client reads it as it read the server's file.
         let parsed: LabInfo = info.to_string().parse().unwrap();

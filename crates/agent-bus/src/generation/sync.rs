@@ -919,13 +919,48 @@ esac
         // The section a guest wrote before the record: an older task, and t1 with older
         // figures.
         let guest = format!(
-            "Body\n\n{START}\n## Generation\n\n| old table |\n\n<!-- agent-bus:generation-data\n\
-             [[task]]\ntask = \"0ld7a5k\"\nagent = \"dev02\"\nmodels = [\"claude-sonnet-5-5\"]\n\n\
-             [task.usage]\nruns = 2\ncost_usd = 3.25\ninput = 1\noutput = 2\ncache_creation = 0\n\
-             cache_read = 0\nnum_turns = 0\nduration_ms = 0\nduration_api_ms = 0\n\n\
-             [[task]]\ntask = \"t1\"\nagent = \"dev01\"\nmodels = [\"claude-opus-5-5\"]\n\n\
-             [task.usage]\nruns = 0\ncost_usd = 0.1\ninput = 0\noutput = 0\ncache_creation = 0\n\
-             cache_read = 0\nnum_turns = 0\nduration_ms = 0\nduration_api_ms = 0\n-->\n{END}\n"
+            r#"Body
+
+{START}
+## Generation
+
+| old table |
+
+<!-- agent-bus:generation-data
+[[task]]
+task = "0ld7a5k"
+agent = "dev02"
+models = ["claude-sonnet-5-5"]
+
+[task.usage]
+runs = 2
+cost_usd = 3.25
+input = 1
+output = 2
+cache_creation = 0
+cache_read = 0
+num_turns = 0
+duration_ms = 0
+duration_api_ms = 0
+
+[[task]]
+task = "t1"
+agent = "dev01"
+models = ["claude-opus-5-5"]
+
+[task.usage]
+runs = 0
+cost_usd = 0.1
+input = 0
+output = 0
+cache_creation = 0
+cache_read = 0
+num_turns = 0
+duration_ms = 0
+duration_api_ms = 0
+-->
+{END}
+"#
         );
         bench.view(7, &guest, "OPEN");
         bench.sync(Scope::Due, true, NOW).await;
@@ -1141,13 +1176,46 @@ esac
         bench.outcome("t2", 1, 0.25, NOW, &[7]).await;
         // An older guest, counting by branch, wrote both into the section of pull request 7.
         let guest = format!(
-            "Body\n\n{START}\n## Generation\n\n<!-- agent-bus:generation-data\n\
-             [[task]]\ntask = \"t1\"\nagent = \"dev01\"\nmodels = []\n\n[task.usage]\nruns = 1\n\
-             cost_usd = 0.1\ninput = 0\noutput = 0\ncache_creation = 0\ncache_read = 0\n\
-             num_turns = 0\nduration_ms = 0\nduration_api_ms = 0\n\n\
-             [[task]]\ntask = \"t2\"\nagent = \"dev01\"\nmodels = []\n\n[task.usage]\nruns = 1\n\
-             cost_usd = 0.25\ninput = 0\noutput = 0\ncache_creation = 0\ncache_read = 0\n\
-             num_turns = 0\nduration_ms = 0\nduration_api_ms = 0\n-->\n{END}\n"
+            r#"Body
+
+{START}
+## Generation
+
+<!-- agent-bus:generation-data
+[[task]]
+task = "t1"
+agent = "dev01"
+models = []
+
+[task.usage]
+runs = 1
+cost_usd = 0.1
+input = 0
+output = 0
+cache_creation = 0
+cache_read = 0
+num_turns = 0
+duration_ms = 0
+duration_api_ms = 0
+
+[[task]]
+task = "t2"
+agent = "dev01"
+models = []
+
+[task.usage]
+runs = 1
+cost_usd = 0.25
+input = 0
+output = 0
+cache_creation = 0
+cache_read = 0
+num_turns = 0
+duration_ms = 0
+duration_api_ms = 0
+-->
+{END}
+"#
         );
         bench.view(7, &guest, "OPEN");
         bench.sync(Scope::Due, true, NOW).await;

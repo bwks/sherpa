@@ -435,7 +435,7 @@ mod tests {
     async fn empty_or_garbage_input_exits_one_and_imports_nothing() {
         let dir = scratch("garbage");
         let paths = Paths::in_dir(&dir.join("state"));
-        for input in ["", "garbage", "{\"session_id\":\"s1\"}"] {
+        for input in ["", "garbage", r#"{"session_id":"s1"}"#] {
             let exit = hook(input, &paths, &request(), no_bus(), None, 1_000).await;
             assert_eq!(exit, Exit::Failed, "{input}");
             assert_ne!(exit.code(), 2);

@@ -4955,7 +4955,10 @@ pub(crate) mod tests {
     fn login_shell_var(home: &Path, script: &str, var: &str) -> String {
         let output = Command::new("sh")
             .arg("-c")
-            .arg(format!("{script}\nprintf %s \"${var}\""))
+            .arg(format!(
+                r#"{script}
+printf %s "${var}""#
+            ))
             .env("HOME", home)
             .output()
             .unwrap();
@@ -4972,7 +4975,12 @@ pub(crate) mod tests {
         let chown = bin.join("chown");
         std::fs::write(
             &chown,
-            format!("#!/bin/sh\necho \"$*\" >> '{}'\n", log.display()),
+            format!(
+                r#"#!/bin/sh
+echo "$*" >> '{}'
+"#,
+                log.display()
+            ),
         )
         .unwrap();
         std::fs::set_permissions(&chown, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -6329,11 +6337,11 @@ pub(crate) mod tests {
         .unwrap();
         assert!(config.contains("user alice {"), "{config}");
         assert_eq!(
-            config.matches("encrypted-password \"$6$").count(),
+            config.matches(r#"encrypted-password "$6$"#).count(),
             2,
             "the owner and root: {config}"
         );
-        assert!(config.contains("ssh-ed25519 \""), "{config}");
+        assert!(config.contains(r#"ssh-ed25519 ""#), "{config}");
     }
 
     #[test]
@@ -6576,13 +6584,13 @@ pub(crate) mod tests {
     fn sonic_container_with_a_custom_config_mounts_it_and_still_adds_the_owner() {
         let lab = ZtpLab::new();
         let mut node = named_container("sonic01", data::NodeModel::SonicLinux);
-        node.ztp.config = Some("{\"DEVICE_METADATA\": {}}".to_owned());
+        node.ztp.config = Some(r#"{"DEVICE_METADATA": {}}"#.to_owned());
         lab.container(&mut node, None).unwrap();
 
         let dir = format!("{}/sonic01", lab.root());
         assert_eq!(
             fs::read_to_string(format!("{dir}/config_db.json")).unwrap(),
-            "{\"DEVICE_METADATA\": {}}"
+            r#"{"DEVICE_METADATA": {}}"#
         );
         let init = fs::read_to_string(format!("{dir}/sherpa-init.sh")).unwrap();
         assert!(init.contains("useradd -m -s /bin/bash -G frrvty alice"));

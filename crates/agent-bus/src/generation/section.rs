@@ -745,13 +745,27 @@ mod tests {
             let models: Vec<String> = row
                 .models
                 .iter()
-                .map(|model| format!("\"{model}\""))
+                .map(|model| format!(r#""{model}""#))
                 .collect();
             write!(
                 data,
-                "[[task]]\ntask = \"{}\"\nagent = \"{}\"\nmodels = [{}]\n\n[task.usage]\nruns = {}\n\
-                 cost_usd = {}\ninput = {}\noutput = {}\ncache_creation = {}\ncache_read = {}\n\
-                 num_turns = 0\nduration_ms = 0\nduration_api_ms = 0\n\n",
+                r#"[[task]]
+task = "{}"
+agent = "{}"
+models = [{}]
+
+[task.usage]
+runs = {}
+cost_usd = {}
+input = {}
+output = {}
+cache_creation = {}
+cache_read = {}
+num_turns = 0
+duration_ms = 0
+duration_api_ms = 0
+
+"#,
                 row.task,
                 row.agent,
                 models.join(", "),

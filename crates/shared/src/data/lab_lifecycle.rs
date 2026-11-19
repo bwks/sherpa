@@ -277,7 +277,7 @@ mod tests {
 
     #[test]
     fn a_phase_this_build_does_not_know_decodes_as_unknown() {
-        let phase: LabPhase = serde_json::from_str("\"archived\"").unwrap();
+        let phase: LabPhase = serde_json::from_str(r#""archived""#).unwrap();
         assert_eq!(phase, Unknown);
         assert!(phase.ensure_ready().is_err());
         assert_eq!(phase.on_event(LabEvent::DestroyStarted), Ok(To(Destroying)));
@@ -287,7 +287,7 @@ mod tests {
     fn phases_are_stored_in_snake_case() {
         assert_eq!(
             serde_json::to_string(&DestroyFailed).unwrap(),
-            "\"destroy_failed\""
+            r#""destroy_failed""#
         );
         for phase in LabPhase::iter().filter(|phase| *phase != Unknown) {
             let text = serde_json::to_string(&phase).unwrap();

@@ -155,11 +155,7 @@ mod tests {
 
     /// The `node_image` columns from migration 26 until migration 34 gave each kind only its
     /// own, in order, but the last, `ztp`.
-    const IMAGE_COLUMNS_BEFORE_ZTP: &str = "id, model, version, repo, os_variant, kind, bios, \
-         cpu_count, cpu_architecture, cpu_model, machine_type, vmx_enabled, memory, hdd_bus, \
-         cdrom, cdrom_bus, data_interface_count, interface_prefix, interface_type, interface_mtu, \
-         first_interface_index, management_interface, reserved_interface_count, \"default\", \
-         boot_mode";
+    const IMAGE_COLUMNS_BEFORE_ZTP: &str = r#"id, model, version, repo, os_variant, kind, bios, cpu_count, cpu_architecture, cpu_model, machine_type, vmx_enabled, memory, hdd_bus, cdrom, cdrom_bus, data_interface_count, interface_prefix, interface_type, interface_mtu, first_interface_index, management_interface, reserved_interface_count, "default", boot_mode"#;
 
     /// The values an older release stored in the columns a kind does not use: the defaults new
     /// container images carried, and a 1500 MTU.
@@ -942,8 +938,7 @@ mod tests {
             writer
                 .conn
                 .execute(
-                    "INSERT INTO node (id, name, \"index\", image, lab, state) \
-                     VALUES (?1, ?1, ?2, ?3, 'l1', ?4)",
+                    r#"INSERT INTO node (id, name, "index", image, lab, state) VALUES (?1, ?1, ?2, ?3, 'l1', ?4)"#,
                     (format!("n{index}"), index, image_key.as_str(), *state),
                 )
                 .await
@@ -1293,8 +1288,7 @@ mod tests {
                 writer
                     .conn
                     .execute(
-                        "INSERT INTO node (id, name, \"index\", image, lab, state) \
-                         VALUES (?1, ?1, ?2, ?3, 'l1', 'running')",
+                        r#"INSERT INTO node (id, name, "index", image, lab, state) VALUES (?1, ?1, ?2, ?3, 'l1', 'running')"#,
                         (model.to_string(), index, image.as_str()),
                     )
                     .await
@@ -1368,8 +1362,7 @@ mod tests {
             writer
                 .conn
                 .execute(
-                    "INSERT INTO node (id, name, \"index\", image, lab, state, memory) \
-                     VALUES ('n1', 'dev01', 1, ?1, 'l1', 'running', 2048)",
+                    r#"INSERT INTO node (id, name, "index", image, lab, state, memory) VALUES ('n1', 'dev01', 1, ?1, 'l1', 'running', 2048)"#,
                     [image.as_str()],
                 )
                 .await
@@ -1416,9 +1409,7 @@ mod tests {
             writer
                 .conn
                 .execute(
-                    "INSERT INTO node (id, name, \"index\", image, lab, state, \
-                         definition_imported) \
-                     VALUES ('n1', 'dev01', 1, ?1, 'l1', 'running', 1)",
+                    r#"INSERT INTO node (id, name, "index", image, lab, state, definition_imported) VALUES ('n1', 'dev01', 1, ?1, 'l1', 'running', 1)"#,
                     [image.as_str()],
                 )
                 .await
@@ -1590,8 +1581,7 @@ mod tests {
                 writer
                     .conn
                     .execute(
-                        "INSERT INTO node (id, name, \"index\", image, lab, state, cpu_pinning, \
-                         qemu_thread_cpus) VALUES (?1, ?1, ?2, ?3, ?4, 'running', ?5, ?6)",
+                        r#"INSERT INTO node (id, name, "index", image, lab, state, cpu_pinning, qemu_thread_cpus) VALUES (?1, ?1, ?2, ?3, ?4, 'running', ?5, ?6)"#,
                         (id, index, image.as_str(), lab, vcpus, threads),
                     )
                     .await
@@ -1887,8 +1877,7 @@ mod tests {
             writer
                 .conn
                 .execute(
-                    "INSERT INTO node (id, name, \"index\", image, lab, state, ssh_username) \
-                     VALUES (?1, ?1, ?2, ?3, 'l1', 'running', ?4)",
+                    r#"INSERT INTO node (id, name, "index", image, lab, state, ssh_username) VALUES (?1, ?1, ?2, ?3, 'l1', 'running', ?4)"#,
                     (format!("n{index}"), index, image_key.as_str(), *login),
                 )
                 .await
@@ -2116,8 +2105,7 @@ mod tests {
                 writer
                     .conn
                     .execute(
-                        "INSERT INTO node (id, name, \"index\", image, lab, state) \
-                         VALUES (?1, ?1, ?2, ?3, 'l1', 'running')",
+                        r#"INSERT INTO node (id, name, "index", image, lab, state) VALUES (?1, ?1, ?2, ?3, 'l1', 'running')"#,
                         (name, index, key_of_old(&keys, old)),
                     )
                     .await
@@ -2225,7 +2213,7 @@ mod tests {
         }
         let columns = row
             .iter()
-            .map(|(name, _)| format!("\"{name}\""))
+            .map(|(name, _)| format!(r#""{name}""#))
             .collect::<Vec<_>>()
             .join(", ");
         let placeholders = (1..=row.len())
