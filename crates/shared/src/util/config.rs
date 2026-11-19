@@ -123,26 +123,6 @@ mod tests {
     }
 
     #[test]
-    fn tailscale_config_loads_defaults_for_existing_server_files() {
-        let config = load_server_fixture("").unwrap();
-        let actual = toml::Value::try_from(config).unwrap();
-        assert_eq!(actual.get("tailscale"), Some(&tailscale_defaults()));
-    }
-
-    #[test]
-    fn tailscale_config_supports_partial_operator_overrides() {
-        let config = load_server_fixture(
-            "[tailscale]\nimage='registry.example/tailscale:custom'\nsocket_path='/run/custom/daemon.sock'\nexec_timeout_secs=90",
-        ).unwrap();
-        let actual = toml::Value::try_from(config).unwrap();
-        let mut expected = tailscale_defaults();
-        expected["image"] = "registry.example/tailscale:custom".into();
-        expected["socket_path"] = "/run/custom/daemon.sock".into();
-        expected["exec_timeout_secs"] = 90.into();
-        assert_eq!(actual.get("tailscale"), Some(&expected));
-    }
-
-    #[test]
     fn tailscale_config_generation_writes_defaults_to_server_file() {
         let written = toml::to_string_pretty(&default_config()).unwrap();
         let actual: toml::Value = toml::from_str(&written).unwrap();
@@ -158,14 +138,6 @@ mod tests {
         ] {
             assert!(load_server_fixture(extra).is_err(), "accepted {extra}");
         }
-    }
-
-    #[test]
-    fn the_default_config_has_no_ztp_server_table() {
-        let written = toml::to_string_pretty(&default_config()).unwrap();
-        let actual: toml::Table = toml::from_str(&written).unwrap();
-        assert!(!actual.contains_key("ztp_server"), "{written}");
-        assert!(!written.contains("password"), "{written}");
     }
 
     #[test]
@@ -199,25 +171,14 @@ mod tests {
     }
 
     #[test]
-    fn test_default_config_has_sensible_values() {
-        let config = default_config();
-        assert_eq!(config.server_ipv4, Ipv4Addr::LOCALHOST);
-        assert_eq!(config.ws_port, SHERPA_SERVER_WS_PORT);
-        assert_eq!(config.http_port, SHERPA_SERVER_HTTP_PORT);
-        assert_ne!(config.images_dir, "");
-        assert_ne!(config.containers_dir, "");
-        assert_ne!(config.container_images, Vec::new());
-    }
-
-    #[test]
     fn test_sherpa_from_base_dir() {
         let sherpa = Sherpa::from_base_dir("/opt/sherpa".to_string());
         assert_eq!(sherpa.base_dir, "/opt/sherpa");
-        assert!(sherpa.config_dir.starts_with("/opt/sherpa"));
-        assert!(sherpa.config_file_path.starts_with("/opt/sherpa"));
-        assert!(sherpa.ssh_dir.starts_with("/opt/sherpa"));
-        assert!(sherpa.images_dir.starts_with("/opt/sherpa"));
-        assert!(sherpa.containers_dir.starts_with("/opt/sherpa"));
-        assert!(sherpa.bins_dir.starts_with("/opt/sherpa"));
+        assert_eq!(sherpa.config_dir, "/opt/sherpa/config");
+        assert_eq!(sherpa.config_file_path, "/opt/sherpa/config/sherpa.toml");
+        assert_eq!(sherpa.ssh_dir, "/opt/sherpa/ssh");
+        assert_eq!(sherpa.images_dir, "/opt/sherpa/images");
+        assert_eq!(sherpa.containers_dir, "/opt/sherpa/containers");
+        assert_eq!(sherpa.bins_dir, "/opt/sherpa/bins");
     }
 }

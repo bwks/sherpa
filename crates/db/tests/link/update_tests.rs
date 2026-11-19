@@ -49,27 +49,26 @@ async fn impairments_are_set_and_the_rest_of_the_link_is_kept() -> Result<()> {
     .await?;
     let a_to_b = LinkImpairment {
         delay_us: 5000,
+        jitter_us: 2000,
         loss_percent: 2.5,
+        reorder_percent: 0.0,
+        corrupt_percent: 0.5,
+    };
+    let b_to_a = LinkImpairment {
+        delay_us: 7000,
         ..LinkImpairment::default()
     };
 
-    let updated = update_link_impairments(
-        &db,
-        &link.id.clone().unwrap(),
-        &a_to_b,
-        &LinkImpairment::default(),
-    )
-    .await?;
+    let updated = update_link_impairments(&db, &link.id.clone().unwrap(), &a_to_b, &b_to_a).await?;
     assert_eq!(updated.impairment_a_to_b, a_to_b);
-    assert_eq!(updated.impairment_b_to_a, LinkImpairment::default());
+    assert_eq!(updated.impairment_b_to_a, b_to_a);
     assert_eq!(
         (updated.tap_a.as_str(), updated.int_b.as_str()),
         ("ta", "eth1")
     );
-    assert_eq!(
-        list_links_by_lab(&db, lab_rid).await?[0].impairment_a_to_b,
-        a_to_b
-    );
+    let stored = &list_links_by_lab(&db, lab_rid).await?[0];
+    assert_eq!(stored.impairment_a_to_b, a_to_b);
+    assert_eq!(stored.impairment_b_to_a, b_to_a);
     Ok(())
 }
 

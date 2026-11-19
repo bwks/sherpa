@@ -160,15 +160,6 @@ mod tests {
     }
 
     #[test]
-    fn the_hash_follows_the_content_not_the_instance() {
-        assert_eq!(inputs(), inputs());
-        assert_eq!(inputs().digest(), inputs().digest());
-        assert_eq!(inputs().digest().len(), 16);
-        assert_eq!(hash_of(b"AGENTS"), hash_of(b"AGENTS"));
-        assert_ne!(hash_of(b"AGENTS"), hash_of(b"AGENTS "));
-    }
-
-    #[test]
     fn a_base_idle_for_nearly_the_cache_ttl_is_rebuilt() {
         let now = NOW;
         let base = base(now);

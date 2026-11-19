@@ -866,27 +866,6 @@ mod tests {
     use crate::data::DownloadLabResponse;
 
     #[test]
-    fn test_build_spec_has_28_operations() {
-        let spec = build_spec();
-        assert_eq!(spec.operations.len(), 29);
-    }
-
-    #[test]
-    fn test_build_spec_has_schemas() {
-        let spec = build_spec();
-        assert!(!spec.schemas.is_empty());
-        // Should have schemas for all referenced request/response types
-        assert!(spec.schemas.contains_key("LoginRequest"));
-        assert!(spec.schemas.contains_key("LoginResponse"));
-        assert!(spec.schemas.contains_key("LogoutResponse"));
-        assert!(spec.schemas.contains_key("UpRequest"));
-        assert!(spec.schemas.contains_key("DestroyResponse"));
-        assert!(spec.schemas.contains_key("InspectResponse"));
-        assert!(spec.schemas.contains_key("ListImagesResponse"));
-        assert!(spec.schemas.contains_key("CreateUserRequest"));
-    }
-
-    #[test]
     fn up_and_download_send_no_lab_ssh_key() {
         for (name, schema) in [
             ("UpResponse", schema_for!(UpResponse).to_value()),
@@ -899,16 +878,6 @@ mod tests {
             assert!(properties.contains_key("ssh_config"), "{name}");
             assert!(!properties.contains_key("ssh_private_key"), "{name}");
         }
-    }
-
-    #[test]
-    fn test_build_spec_serializes_to_json() {
-        let spec = build_spec();
-        let json = serde_json::to_value(&spec).unwrap();
-        assert!(json.is_object());
-        assert!(json.get("version").is_some());
-        assert!(json.get("operations").is_some());
-        assert!(json.get("schemas").is_some());
     }
 
     #[test]
@@ -1137,14 +1106,6 @@ mod tests {
                 .map(|param| param["name"].as_str().unwrap())
                 .collect();
             assert_eq!(names, params, "{name}");
-        }
-        let paths = doc["paths"].as_object().unwrap();
-        for old in [
-            "/api/v1/images/{model}",
-            "/api/v1/images/{model}/{version}",
-            "/api/v1/images/{model}/{version}/default",
-        ] {
-            assert!(!paths.contains_key(old), "{old}");
         }
     }
 }

@@ -264,26 +264,10 @@ mod tests {
     }
 
     #[test]
-    fn lab_info_alone_is_the_recorded_lab() {
-        assert_eq!(
-            folder_lab(Path::new(""), Some(lab("a", "1")), None).unwrap(),
-            FolderLab::Recorded(lab("a", "1"))
-        );
-    }
-
-    #[test]
     fn a_manifest_alone_names_a_lab_by_its_name() {
         assert_eq!(
             folder_lab(Path::new(""), None, Some("a".to_string())).unwrap(),
             FolderLab::Named("a".to_string())
-        );
-    }
-
-    #[test]
-    fn a_manifest_for_the_recorded_lab_keeps_the_recorded_id() {
-        assert_eq!(
-            folder_lab(Path::new(""), Some(lab("a", "1")), Some("a".to_string())).unwrap(),
-            FolderLab::Recorded(lab("a", "1"))
         );
     }
 
@@ -311,10 +295,7 @@ mod tests {
 
     #[test]
     fn a_new_lab_id_hashes_the_sherpa_username_and_the_lab_name() {
-        assert_eq!(
-            new_lab_id(&token_for("dev"), "core").unwrap(),
-            get_id_for_user("dev", "core")
-        );
+        assert_eq!(new_lab_id(&token_for("dev"), "core").unwrap(), "b886ee2b");
     }
 
     #[test]

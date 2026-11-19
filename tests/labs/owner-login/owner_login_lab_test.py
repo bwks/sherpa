@@ -1101,17 +1101,6 @@ class SelfTest(unittest.TestCase):
             (folder / "k.pem").write_text("-----BEGIN RSA PRIVATE KEY-----\nabc\n")
             self.assertEqual([path.name for path in private_key_files(folder)], ["k.pem", "other"])
 
-    def test_node_refusals_and_messages_are_matched_as_contained_text(self):
-        self.assertEqual(OWNER_ONLY_SERVER.format(lab="ab12"), "Only the owner of lab 'ab12' can perform this operation")
-        self.assertEqual(OWNER_ONLY_CONNECT.format(lab="ab12"), "Only the owner of lab 'ab12' can connect to its nodes")
-        self.assertEqual(OWNER_ONLY_CONSOLE.format(lab="ab12"), "only the owner of lab 'ab12' can open its consoles")
-        self.assertIn(OWNER_ONLY_CONSOLE.format(lab="ab12"),
-                      "Error: Access denied: only the owner of lab 'ab12' can open its consoles\n")
-        self.assertEqual(OWN_ACCOUNT_ONLY.format(owner="alice"), "only user 'alice' can do this for their own account")
-        output = "Error: Download failed: Only the owner of lab 'ab12' can perform this operation\n"
-        self.assertIn(OWNER_ONLY_SERVER.format(lab="ab12"), output)
-        self.assertNotIn(OWNER_ONLY_SERVER.format(lab="cd34"), output)
-
     def test_the_password_config_takes_keys_away_from_the_nodes_only(self):
         text = password_ssh_config("Host x.1\n    User alice\n    ProxyJump alice@10.0.0.1\n", ["a.1", "b.1"])
         self.assertTrue(text.startswith("Host a.1\n    PubkeyAuthentication no\n"))

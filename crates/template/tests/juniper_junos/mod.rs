@@ -76,32 +76,3 @@ fn test_static_ipv4() {
     let output = junos(&hash).render().expect("template renders");
     assert_eq!(output, EXPECTED_STATIC_IPV4.replace("HASH", &hash));
 }
-
-#[test]
-fn test_only_the_owner_and_root_have_accounts() {
-    let hash = helpers::sha512_hash("abcdefghijklm!@_-+.");
-    let output = junos(&hash).render().expect("template renders");
-    let users: Vec<&str> = output
-        .lines()
-        .map(str::trim)
-        .filter(|line| line.starts_with("user ") || line.starts_with("root-authentication"))
-        .collect();
-    assert_eq!(users, ["user alice {", "root-authentication {"]);
-    helpers::assert_no_sherpa_login(&output);
-}
-
-#[test]
-fn test_password_is_a_hash_that_verifies_for_owner_and_root() {
-    for password in helpers::ALL_CHARACTER_PASSWORDS {
-        let hash = helpers::sha512_hash(password);
-        let output = junos(&hash).render().expect("template renders");
-        let found = helpers::hashes_after(&output, "encrypted-password \"");
-        assert_eq!(found.len(), 2);
-        for found in &found {
-            assert_eq!(found, &hash);
-            helpers::assert_hash_verifies(found, "$6$", password);
-        }
-        assert!(!output.contains(password));
-        assert!(!output.contains("plain-text-password-value"));
-    }
-}

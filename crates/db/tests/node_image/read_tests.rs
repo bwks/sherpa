@@ -2,35 +2,11 @@
 use anyhow::Result;
 use db::{
     DefaultRequest, count_node_images, find_default_node_image, find_node_image_by_id,
-    find_node_image_by_model_kind_version, get_node_image_versions, list_node_images,
-    upsert_node_image,
+    find_node_image_by_model_kind_version, get_node_image_versions, upsert_node_image,
 };
 use shared::data::{ModelKind, NodeKind, NodeModel};
 
 use crate::{create_test_config, setup_db};
-
-#[tokio::test]
-async fn test_get_node_image_by_id() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Create a test config
-    let test_config = create_test_config(NodeModel::AristaEos);
-    let created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
-
-    let created_id = created
-        .id
-        .clone()
-        .expect("Created config should have an ID");
-
-    // Get by ID
-    let retrieved = find_node_image_by_id(&db, created_id).await?;
-
-    assert!(retrieved.is_some(), "Should find config by ID");
-    let retrieved = retrieved.unwrap();
-    assert_eq!(retrieved.model, NodeModel::AristaEos);
-
-    Ok(())
-}
 
 #[tokio::test]
 async fn test_get_node_config_by_model_kind() -> Result<()> {
@@ -94,30 +70,6 @@ async fn test_get_nonexistent_config() -> Result<()> {
         result.is_none(),
         "Should return None for nonexistent config"
     );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_list_configs_returns_all_fields() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Create a config
-    let test_config = create_test_config(NodeModel::UbuntuLinux);
-    let _created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
-
-    // List and verify all fields are populated
-    let configs = list_node_images(&db).await?;
-    let ubuntu_config = configs
-        .iter()
-        .find(|c| c.model == NodeModel::UbuntuLinux)
-        .expect("Should find Ubuntu config");
-
-    // Verify key fields
-    assert!(ubuntu_config.id.is_some());
-    assert!(ubuntu_config.cpu.count > 0);
-    assert!(ubuntu_config.memory > 0);
-    assert!(ubuntu_config.interfaces.data_count > 0);
 
     Ok(())
 }

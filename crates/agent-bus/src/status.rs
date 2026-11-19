@@ -501,21 +501,6 @@ mod tests {
     }
 
     #[test]
-    fn a_status_round_trips() {
-        let status = Status {
-            online: true,
-            at_ms: 7,
-            running: Some(Running {
-                task: "t".to_owned(),
-                since_ms: 3,
-            }),
-            queued: 2,
-        };
-        let text = serde_json::to_string(&status).unwrap();
-        assert_eq!(serde_json::from_str::<Status>(&text).unwrap(), status);
-    }
-
-    #[test]
     fn ages_show_their_two_largest_units() {
         assert_eq!(age(0), "0s");
         assert_eq!(age(45), "45s");

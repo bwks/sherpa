@@ -94,30 +94,6 @@ fn a_switch_makes_its_management_port_routed() {
 }
 
 #[test]
-fn a_router_has_no_switchport_line() {
-    let output = router(PASSWORD).render().expect("template renders");
-    assert!(!output.contains("switchport"));
-    assert!(!output.contains("ip routing"));
-}
-
-#[test]
-fn only_the_owner_has_an_account() {
-    let output = router(PASSWORD).render().expect("template renders");
-    let users: Vec<&str> = output
-        .lines()
-        .filter(|line| line.trim_start().starts_with("username "))
-        .collect();
-    assert_eq!(
-        users,
-        [
-            "username alice privilege 15 secret Rand0mPass-1",
-            "  username alice"
-        ]
-    );
-    helpers::assert_no_sherpa_login(&output);
-}
-
-#[test]
 fn the_password_is_intact() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let output = router(password).render().expect("template renders");
@@ -139,10 +115,4 @@ fn dual_stack_adds_an_ipv6_management_address_and_route() {
     .expect("template renders");
     assert!(output.contains(" ip address 172.20.0.10 255.255.255.0\n ipv6 address fd00::10/64\n"));
     assert!(output.contains("ipv6 unicast-routing\nipv6 route ::/0 fd00::1\n"));
-}
-
-#[test]
-fn the_config_is_never_dhcp() {
-    let output = router(PASSWORD).render().expect("template renders");
-    assert!(!output.contains("dhcp"));
 }

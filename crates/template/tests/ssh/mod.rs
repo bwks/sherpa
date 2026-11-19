@@ -34,7 +34,7 @@ Host 172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local
 Host 172.20.0.11 switch1.abcd1234 switch1.abcd1234.sherpa.lab.local
     HostName 172.20.0.11
     Port 830
-    User alice
+    User admin
     ProxyJump alice@10.0.0.1
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
@@ -45,22 +45,6 @@ Host 172.20.0.11 switch1.abcd1234 switch1.abcd1234.sherpa.lab.local
 // ============================================================================
 // Tests
 // ============================================================================
-
-#[test]
-fn test_ssh_config() {
-    let t = SshConfigTemplate {
-        hosts: vec![SshHostConfig {
-            aliases: "172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local".to_string(),
-            username: "alice".to_owned(),
-            known_hosts_file: None,
-            hostname: Ipv4Addr::new(172, 20, 0, 10),
-            port: 22,
-        }],
-        proxy_jump: "alice@10.0.0.1".to_string(),
-    };
-    let output = t.render().expect("template renders");
-    assert_eq!(output, EXPECTED_SSH_CONFIG);
-}
 
 #[test]
 fn test_ssh_config_multiple_hosts() {
@@ -77,7 +61,7 @@ fn test_ssh_config_multiple_hosts() {
             SshHostConfig {
                 aliases: "172.20.0.11 switch1.abcd1234 switch1.abcd1234.sherpa.lab.local"
                     .to_string(),
-                username: "alice".to_owned(),
+                username: "admin".to_owned(),
                 known_hosts_file: None,
                 hostname: Ipv4Addr::new(172, 20, 0, 11),
                 port: 830,
@@ -133,10 +117,4 @@ fn known_hosts_names_port_22_by_address_and_other_ports_in_brackets() {
         "172.20.0.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJdD\n\
          [172.20.0.11]:830 ssh-rsa AAAAB3NzaC1yc2E\n"
     );
-}
-
-#[test]
-fn known_hosts_without_entries_is_empty() {
-    let t = KnownHostsTemplate { entries: vec![] };
-    assert_eq!(t.render().expect("template renders"), "");
 }

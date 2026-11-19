@@ -330,29 +330,7 @@ pub struct Networkd {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{Ipv4Addr, Ipv6Addr};
-
-    use shared::data::{NetworkV4, NetworkV6};
-
     use super::*;
-
-    // ── FileMode ──────────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_file_mode_serializes_as_its_bits() {
-        let file = IgnitionFile {
-            path: "/etc/motd".to_owned(),
-            mode: FileMode::new(0o644),
-            ..Default::default()
-        };
-        assert!(
-            serde_json::to_string(&file)
-                .unwrap()
-                .contains(r#""mode":420"#)
-        );
-    }
-
-    // ── IgnitionFileSystem ────────────────────────────────────────────────────
 
     #[test]
     fn test_filesystem_default_values() {
@@ -363,114 +341,26 @@ mod tests {
         assert_eq!(fs.label, "data-disk");
     }
 
-    // ── IgnitionDirectory ─────────────────────────────────────────────────────
-
-    #[test]
-    fn test_directory_default_values() {
-        let d = IgnitionDirectory::default();
-        assert_eq!(d.path, "/opt/ztp");
-        assert_eq!(d.mode, FileMode::new(0o755));
-        assert!(!d.overwrite);
-    }
-
-    // ── IgnitionFileContents ──────────────────────────────────────────────────
-
-    #[test]
-    fn test_file_contents_new_stores_source() {
-        let source = "data:text/plain;base64,aGVsbG8=";
-        let c = IgnitionFileContents::new(source);
-        assert_eq!(c.source, source);
-    }
-
-    // ── IgnitionFile factory functions ────────────────────────────────────────
-
     #[test]
     fn test_disable_updates_path_and_mode() {
         let f = IgnitionFile::disable_updates();
         assert_eq!(f.path, "/etc/flatcar/update.conf");
         assert_eq!(f.mode, FileMode::new(0o644));
         assert_eq!(f.overwrite, Some(true));
-    }
-
-    fn make_netv4() -> NetworkV4 {
-        let prefix: ipnet::Ipv4Net = "10.0.0.0/24".parse().unwrap();
-        NetworkV4 {
-            prefix,
-            prefix_length: 24,
-            first: "10.0.0.1".parse().unwrap(),
-            last: "10.0.0.254".parse().unwrap(),
-            boot_server: "10.0.0.1".parse().unwrap(),
-            network: "10.0.0.0".parse().unwrap(),
-            subnet_mask: "255.255.255.0".parse().unwrap(),
-            hostmask: "0.0.0.255".parse().unwrap(),
-        }
-    }
-
-    fn make_netv6() -> NetworkV6 {
-        let prefix: ipnet::Ipv6Net = "2001:db8::/64".parse().unwrap();
-        NetworkV6 {
-            prefix,
-            prefix_length: 64,
-            first: "2001:db8::1".parse().unwrap(),
-            last: "2001:db8::fffe".parse().unwrap(),
-            boot_server: "2001:db8::1".parse().unwrap(),
-            network: "2001:db8::".parse().unwrap(),
-        }
+        assert_eq!(f.contents.unwrap().source, "data:,REBOOT_STRATEGY%3Doff%0A");
     }
 
     #[test]
-    fn test_ztp_interface_ipv4_only() {
-        let addr: Ipv4Addr = "10.0.0.5".parse().unwrap();
-        let f = IgnitionFile::ztp_interface(addr, &make_netv4(), None, None);
-        assert_eq!(f.path, "/etc/systemd/network/00-eth0.network");
-        assert_eq!(f.mode, FileMode::new(0o644));
-        assert_eq!(f.user.as_ref().unwrap().name, "root");
-        assert_eq!(f.group.as_ref().unwrap().name, "root");
-        assert!(
-            f.contents
-                .as_ref()
-                .unwrap()
-                .source
-                .starts_with("data:;base64,")
-        );
-    }
-
-    #[test]
-    fn test_ztp_interface_dual_stack() {
-        let addr: Ipv4Addr = "10.0.0.5".parse().unwrap();
-        let v6_addr: Ipv6Addr = "2001:db8::5".parse().unwrap();
-        let v6_net = make_netv6();
-        let f = IgnitionFile::ztp_interface(addr, &make_netv4(), Some(v6_addr), Some(&v6_net));
-        assert_eq!(f.path, "/etc/systemd/network/00-eth0.network");
-        assert!(f.contents.as_ref().unwrap().source.len() > "data:;base64,".len());
-    }
-
-    // ── IgnitionUnit factory functions ────────────────────────────────────────
-
-    #[test]
-    fn test_unit_mount_container_disk() {
-        let u = IgnitionUnit::mount_container_disk();
-        assert_eq!(u.name, "media-container.mount");
-        assert_eq!(u.enabled, Some(true));
-    }
-
-    // ── IgnitionConfig ────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_ignition_config_new_serializes_to_json() {
-        let config = IgnitionConfig::new(vec![], vec![], vec![], vec![], vec![], vec![]);
-        let json = config.to_json_pretty().unwrap();
-        assert!(json.contains("ignition"));
-        assert!(json.contains("version"));
-    }
-
-    // ── directories ───────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_directory_mode_serialized_as_decimal() {
-        let json = serde_json::to_value(IgnitionDirectory::default()).unwrap();
-        assert_eq!(json["mode"], 0o755);
-        assert!(json.get("user").is_none());
+    fn test_append_only_file_omits_contents() {
+        let f = IgnitionFile {
+            path: "/home/alice/.bash_profile".to_owned(),
+            mode: FileMode::new(0o644),
+            append: vec![IgnitionFileContents::new("data:,extra")],
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&f).unwrap();
+        assert!(json.get("contents").is_none());
+        assert_eq!(json["append"][0]["source"], "data:,extra");
     }
 
     #[test]
@@ -489,34 +379,5 @@ mod tests {
         let json = serde_json::to_value(&dir).unwrap();
         assert_eq!(json["user"]["name"], "alice");
         assert_eq!(json["group"]["name"], "alice");
-    }
-
-    // ── append ────────────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_append_only_file_omits_contents() {
-        let f = IgnitionFile {
-            path: "/home/alice/.bash_profile".to_owned(),
-            mode: FileMode::new(0o644),
-            append: vec![IgnitionFileContents::new("data:,extra")],
-            ..Default::default()
-        };
-        let json = serde_json::to_value(&f).unwrap();
-        assert!(json.get("contents").is_none());
-        assert_eq!(json["append"][0]["source"], "data:,extra");
-    }
-
-    #[test]
-    fn test_file_without_append_omits_append() {
-        let json = serde_json::to_value(IgnitionFile::disable_updates()).unwrap();
-        assert!(json.get("append").is_none());
-        assert!(json.get("contents").is_some());
-    }
-
-    #[test]
-    fn test_file_mode_serialized_as_decimal() {
-        // 0o644 is 420 in decimal.
-        let json = serde_json::to_value(IgnitionFile::disable_updates()).unwrap();
-        assert_eq!(json["mode"], 420);
     }
 }

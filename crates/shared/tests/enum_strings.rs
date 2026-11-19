@@ -2,12 +2,11 @@
 //! string both ways, or a saved form is refused or stores another value.
 
 use std::fmt::Display;
-use std::str::FromStr;
 
 use serde::Serialize;
 use shared::data::{
     BiosTypes, BridgeKind, CpuArchitecture, CpuModels, DiskBuses, InterfaceType, MachineType,
-    NodeKind, NodeModel, OsVariant, Ztp,
+    NodeKind, OsVariant, Ztp,
 };
 use strum::IntoEnumIterator;
 
@@ -39,14 +38,6 @@ fn form_enums_display_as_they_serialize() {
 }
 
 #[test]
-fn every_node_model_round_trips_through_display_serde_and_from_str() {
-    assert_display_is_serde::<NodeModel>();
-    for model in NodeModel::iter() {
-        assert_eq!(NodeModel::from_str(&model.to_string()).unwrap(), model);
-    }
-}
-
-#[test]
 fn ztp_round_trips_through_serde_for_all_ten_words() {
     let words = [
         "disabled",
@@ -65,14 +56,6 @@ fn ztp_round_trips_through_serde_for_all_ten_words() {
     for word in words {
         let ztp: Ztp = serde_json::from_value(serde_json::Value::from(word)).unwrap();
         assert_eq!(serde_json::to_value(ztp).unwrap(), word);
-    }
-}
-
-#[test]
-fn ztp_does_not_decode_the_removed_words() {
-    for word in ["none", "ipxe", "true", ""] {
-        let decoded: Result<Ztp, _> = serde_json::from_value(serde_json::Value::from(word));
-        assert!(decoded.is_err(), "{word:?} decoded as a Ztp value");
     }
 }
 

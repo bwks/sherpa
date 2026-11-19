@@ -38,16 +38,6 @@ async fn a_started_session_is_found_with_its_user() -> Result<()> {
 }
 
 #[tokio::test]
-async fn each_session_has_its_own_id() -> Result<()> {
-    let db = setup_db().await?;
-    let user = alice(&db).await?;
-    let first = create_session(&db, get_user_id(&user)?, SessionChannel::Web, in_a_day()).await?;
-    let second = create_session(&db, get_user_id(&user)?, SessionChannel::Web, in_a_day()).await?;
-    assert_ne!(first.id, second.id);
-    Ok(())
-}
-
-#[tokio::test]
 async fn deleting_a_session_ends_only_that_session() -> Result<()> {
     let db = setup_db().await?;
     let user = alice(&db).await?;

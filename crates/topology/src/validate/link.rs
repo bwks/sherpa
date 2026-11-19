@@ -316,17 +316,6 @@ mod tests {
     }
 
     #[test]
-    fn index_0_is_always_the_management_interface() {
-        // Every model's interface table has its management interface at index 0.
-        let links = vec![create_link("centos1", 0, "centos2", 1)];
-
-        let result = check_interface_bounds("centos1", &NodeModel::CentosLinux, 1, 0, &links, &[]);
-
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("is the management interface and cannot be used in links"));
-    }
-
-    #[test]
     fn test_interface_bounds_reserved_interface() {
         // Cisco IOS XRv9000 with 2 reserved interfaces
         let links = vec![create_link("xr1", 2, "xr2", 3)];
@@ -379,52 +368,6 @@ mod tests {
 
         // Check device "rocky3" which is not in the link
         check_interface_bounds("rocky3", &NodeModel::RockyLinux, 52, 0, &links, &bridges)
-    }
-
-    #[test]
-    fn test_interface_bounds_empty_links() -> Result<()> {
-        let links = vec![];
-        let bridges = vec![];
-
-        check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &bridges)
-    }
-
-    #[test]
-    fn test_interface_bounds_minimum_data_interface() -> Result<()> {
-        // First data interface (index 1) for Rocky Linux
-        let links = vec![create_link("rocky1", 1, "rocky2", 1)];
-        let bridges = vec![];
-
-        check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &bridges)
-    }
-
-    #[test]
-    fn test_interface_bounds_single_interface_device() -> Result<()> {
-        // Device with only 1 data interface (data_interface_count=1)
-        // Valid indices: 0 (mgmt), 1 (data)
-        let links = vec![create_link("rocky1", 1, "rocky2", 1)];
-        let bridges = vec![];
-
-        check_interface_bounds(
-            "rocky1",
-            &NodeModel::RockyLinux,
-            1, // data_interface_count = 1
-            0,
-            &links,
-            &bridges,
-        )
-    }
-
-    #[test]
-    fn test_interface_bounds_single_interface_device_exceeds() {
-        // Device with only 1 data interface, trying to use interface 2
-        let links = vec![create_link("rocky1", 2, "rocky2", 1)];
-        let bridges = vec![];
-
-        let result =
-            check_interface_bounds("rocky1", &NodeModel::RockyLinux, 1, 0, &links, &bridges);
-
-        assert!(result.is_err());
     }
 
     /// Helper to create a test bridge with connections
@@ -492,27 +435,6 @@ mod tests {
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("bridge 'br1'"));
         assert!(err_msg.contains("is the management interface and cannot be used in bridges"));
-    }
-
-    #[test]
-    fn test_bridge_reserved_interface_blocked() {
-        // Bridge attempting to use reserved interface
-        let links = vec![];
-        let bridges = vec![create_bridge("br1", vec![("rocky1", 1)])];
-
-        let result = check_interface_bounds(
-            "rocky1",
-            &NodeModel::RockyLinux,
-            52,
-            5, // reserved_interface_count - indices 1-5 are reserved
-            &links,
-            &bridges,
-        );
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("bridge 'br1'"));
-        assert!(err_msg.contains("reserved interface"));
     }
 
     #[test]

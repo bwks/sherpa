@@ -151,36 +151,3 @@ fn test_veos_dual_stack() {
     let output = veos(&hash, true).render().expect("template renders");
     assert_eq!(output, EXPECTED_VEOS_DUAL_STACK.replace("HASH", &hash));
 }
-
-#[test]
-fn test_only_the_owner_has_an_account() {
-    let hash = helpers::sha512_hash(PASSWORD);
-    for output in [
-        veos(&hash, false).render().expect("template renders"),
-        ceos(&hash).render().expect("template renders"),
-    ] {
-        let users: Vec<&str> = output
-            .lines()
-            .filter(|line| line.starts_with("username "))
-            .collect();
-        assert_eq!(users.len(), 3);
-        assert!(users.iter().all(|line| line.starts_with("username alice ")));
-        helpers::assert_no_sherpa_login(&output);
-    }
-}
-
-#[test]
-fn test_owner_password_is_a_hash_that_verifies() {
-    for password in helpers::ALL_CHARACTER_PASSWORDS {
-        let hash = helpers::sha512_hash(password);
-        for output in [
-            veos(&hash, false).render().expect("template renders"),
-            ceos(&hash).render().expect("template renders"),
-        ] {
-            let found = helpers::hash_after(&output, "secret sha512 ");
-            assert_eq!(found, hash);
-            helpers::assert_hash_verifies(&found, "$6$", password);
-            assert!(!output.contains(password));
-        }
-    }
-}

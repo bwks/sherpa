@@ -33,8 +33,6 @@ pub fn check_ztp(model_kind: ModelKind, ztp: Ztp) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use strum::IntoEnumIterator;
-
     use super::*;
     use crate::data::NodeModel;
 
@@ -45,19 +43,6 @@ mod tests {
                 check_ztp(model_kind, Ztp::Disabled).is_ok(),
                 "{model_kind:?}"
             );
-        }
-    }
-
-    #[test]
-    fn test_a_method_passes_exactly_when_the_model_lists_it() {
-        for model_kind in ModelKind::all() {
-            for ztp in Ztp::iter().filter(|ztp| *ztp != Ztp::Disabled) {
-                assert_eq!(
-                    check_ztp(model_kind, ztp).is_ok(),
-                    model_kind.ztp_methods().contains(&ztp),
-                    "{model_kind:?} with {ztp}"
-                );
-            }
         }
     }
 

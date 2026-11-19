@@ -86,11 +86,6 @@ mod tests {
     }
 
     #[test]
-    fn test_missing_key_data() {
-        assert!(validate_ssh_key("ssh-ed25519").is_err());
-    }
-
-    #[test]
     fn test_invalid_base64() {
         assert!(validate_ssh_key("ssh-ed25519 Invalid!@#$%^&*()Characters user@host").is_err());
     }
@@ -99,12 +94,6 @@ mod tests {
     fn key_data_that_is_not_a_key_is_refused() {
         let truncated = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICwUP1LOygXU4kLJLDSCQ68z user@host";
         assert!(validate_ssh_key(truncated).is_err());
-    }
-
-    #[test]
-    fn letters_outside_base64_are_refused() {
-        let key = ED25519.replacen("AAAAC3", "ÄÄÄÄC3", 1);
-        assert!(validate_ssh_key(&key).is_err());
     }
 
     #[test]

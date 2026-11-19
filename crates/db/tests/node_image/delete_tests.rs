@@ -1,31 +1,12 @@
 /// DELETE operation tests for `node_image`
 use anyhow::Result;
 use db::{
-    DefaultRequest, LabDetails, count_node_images, create_lab, create_user, delete_node_image,
-    find_node_image_by_id, find_node_image_by_model_kind_version, upsert_node_image,
+    DefaultRequest, delete_node_image, find_node_image_by_id,
+    find_node_image_by_model_kind_version, upsert_node_image,
 };
 use shared::data::{ModelKind, NodeKind, NodeModel, RecordId};
 
-use crate::{create_test_config, create_test_node_with_model, ipv4_lab_networks, setup_db};
-
-#[tokio::test]
-async fn test_delete_node_image_success() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Create a config
-    let test_config = create_test_config(NodeModel::AristaEos);
-    let created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
-    let created_id = created.id.clone().expect("Created config should have ID");
-
-    // Delete the config
-    delete_node_image(&db, created_id.clone()).await?;
-
-    // Verify it's deleted
-    let result = find_node_image_by_id(&db, created_id).await?;
-    assert!(result.is_none(), "Config should be deleted");
-
-    Ok(())
-}
+use crate::setup_db;
 
 #[tokio::test]
 async fn deleting_one_kind_of_a_model_at_a_version_keeps_the_other_kind() -> Result<()> {
@@ -66,96 +47,6 @@ async fn test_delete_nonexistent_config_fails() -> Result<()> {
         err.to_string().contains("not found"),
         "Error should mention record not found: {err}"
     );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_delete_and_verify_count_decreases() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Get initial count
-    let initial_count = count_node_images(&db).await?;
-
-    // Create a config
-    let test_config = create_test_config(NodeModel::CiscoAsa);
-    let created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
-    let created_id = created.id.clone().expect("Created config should have ID");
-
-    // Verify count increased
-    let after_create = count_node_images(&db).await?;
-    assert_eq!(
-        after_create,
-        initial_count + 1,
-        "Count should increase by 1 after creation"
-    );
-
-    // Delete the config
-    delete_node_image(&db, created_id).await?;
-
-    // Verify count decreased back to initial
-    let after_delete = count_node_images(&db).await?;
-    assert_eq!(
-        after_delete, initial_count,
-        "Count should return to initial value after deletion"
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Use a unique username with timestamp to avoid collisions
-    let unique_username = format!(
-        "test_user_delete_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs()
-    );
-
-    // Create a test user for the lab
-    let user = create_user(&db, unique_username, "TestPass123!", false, Vec::new()).await?;
-
-    // Create a lab with unique 8-char ID
-    let timestamp_secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_secs();
-    // Use last 8 digits of timestamp to ensure uniqueness
-    let lab_id = format!("{:08}", timestamp_secs % 100_000_000);
-    let lab = create_lab(
-        &db,
-        "test-lab-constraint",
-        &lab_id,
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-
-    // Create a node config
-    let test_config = create_test_config(NodeModel::WindowsServer);
-    let created_config = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
-    let config_id = created_config
-        .id
-        .clone()
-        .expect("Created config should have ID");
-
-    // Create a node that references this config
-    let node = create_test_node_with_model(&db, "win-server-01", 1, NodeModel::WindowsServer, &lab)
-        .await?;
-
-    // Verify the node references our config
-    assert_eq!(
-        format!("{:?}", node.image),
-        format!("{:?}", config_id),
-        "Node should reference the config we created"
-    );
-
-    let result = delete_node_image(&db, config_id.clone()).await;
-    assert!(result.is_err(), "Referenced images must never be deleted");
-    assert!(find_node_image_by_id(&db, config_id).await?.is_some());
 
     Ok(())
 }

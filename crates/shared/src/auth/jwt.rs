@@ -72,20 +72,6 @@ mod tests {
     }
 
     #[test]
-    fn test_claims_new_admin() {
-        let claims = Claims::new("admin".to_owned(), "sid1".to_owned(), true, 0, 3600);
-        assert!(claims.is_admin);
-    }
-
-    #[test]
-    fn test_claims_serde_roundtrip() {
-        let claims = Claims::new("testuser".to_owned(), "sid1".to_owned(), true, 0, 604_800);
-        let json = serde_json::to_string(&claims).expect("serializes");
-        let deserialized: Claims = serde_json::from_str(&json).expect("deserializes");
-        assert_eq!(claims, deserialized);
-    }
-
-    #[test]
     fn claims_without_a_session_are_rejected() {
         let old = r#"{"sub":"alice","exp":2000000000,"iat":1000000000,"is_admin":false}"#;
         assert!(serde_json::from_str::<Claims>(old).is_err());

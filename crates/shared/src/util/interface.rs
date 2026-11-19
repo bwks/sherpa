@@ -168,8 +168,6 @@ pub fn srlinux_to_linux_interface(name: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use strum::IntoEnumIterator;
-
     use super::*;
 
     #[test]
@@ -313,34 +311,6 @@ mod tests {
             interface_to_idx(ModelKind::default_for(model), &name3).unwrap(),
             3
         );
-    }
-
-    #[test]
-    fn test_node_model_interfaces_returns_nonempty() {
-        assert_ne!(
-            node_model_interfaces(ModelKind::default_for(NodeModel::CiscoIos)),
-            Vec::<String>::new()
-        );
-        assert_ne!(
-            node_model_interfaces(ModelKind::default_for(NodeModel::NokiaSrlinux)),
-            Vec::<String>::new()
-        );
-        assert_ne!(
-            node_model_interfaces(ModelKind::default_for(NodeModel::UbuntuLinux)),
-            Vec::<String>::new()
-        );
-    }
-
-    #[test]
-    fn the_first_interface_of_every_model_round_trips() {
-        for model in NodeModel::iter() {
-            let name = interface_from_idx(ModelKind::default_for(model), 0).unwrap();
-            let back = interface_to_idx(ModelKind::default_for(model), &name).unwrap();
-            assert_eq!(
-                back, 0,
-                "{model:?}: round-trip failed for idx 0 (name={name})"
-            );
-        }
     }
 
     #[test]

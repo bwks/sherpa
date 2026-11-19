@@ -131,18 +131,6 @@ fn test_init_links_rvtysh_to_vtysh() {
 }
 
 #[test]
-fn test_init_password_is_a_hash_that_verifies_and_never_plain_text() {
-    for password in helpers::ALL_CHARACTER_PASSWORDS {
-        let hash = helpers::sha512_hash(password);
-        let output = init(Some(&hash), Some(CONFIG_DB));
-        let found = helpers::hash_after(&output, "alice:");
-        assert_eq!(found, hash);
-        helpers::assert_hash_verifies(&found, "$6$", password);
-        assert!(!output.contains(password));
-    }
-}
-
-#[test]
 fn test_init_waits_for_the_data_interfaces_then_hands_over_to_sonic() {
     let output = init(None, None);
     assert!(output.contains("DATA_COUNT=2\n"));

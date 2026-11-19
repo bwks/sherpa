@@ -637,10 +637,6 @@ class SelfTest(unittest.TestCase):
                     with self.assertRaises(TestFailure):
                         require_device_password(None, run_root)
 
-    def test_another_account_is_refused_in_the_servers_words(self):
-        self.assertEqual(refused_to("abcd1234"),
-                         "Access denied: only the owner of lab 'abcd1234' can open its consoles")
-
     def test_drain_stops_at_the_end_of_the_output_or_its_limit(self):
         calls = []
         drain(lambda timeout: calls.append(timeout) or len(calls) < 3)

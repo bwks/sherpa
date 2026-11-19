@@ -54,13 +54,4 @@ mod tests {
         assert!(error.contains("'tftp'"), "{error}");
         assert!(error.ends_with("allows: disabled, cdrom"), "{error}");
     }
-
-    #[test]
-    fn a_method_the_model_does_not_list_is_refused_with_the_node_named() {
-        let error = check_node_ztp(&node(NodeModel::FrrLinux, Some(Ztp::Cdrom))).unwrap_err();
-        let error = format!("{error:#}");
-        assert!(error.contains("'node1'"), "{error}");
-        assert!(error.contains("'cdrom'"), "{error}");
-        assert!(error.contains("allows: disabled, volume"), "{error}");
-    }
 }

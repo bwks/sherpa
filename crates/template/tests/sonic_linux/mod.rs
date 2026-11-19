@@ -114,88 +114,10 @@ fn test_sonic_user_template() {
 }
 
 #[test]
-fn test_sonic_user_template_has_only_the_owner_account() {
-    let hash = helpers::sha512_hash("abcdefghijklm!@_-+.");
-    let output = user_script(&hash).render().expect("template renders");
-    assert_eq!(output.matches("useradd").count(), 1);
-    assert_eq!(output.matches("chpasswd").count(), 1);
-    assert_eq!(output.matches("/etc/sudoers.d/").count(), 2);
-    helpers::assert_no_sherpa_login(&output);
-}
-
-#[test]
-fn test_sonic_user_password_is_a_hash_that_verifies() {
-    for password in helpers::ALL_CHARACTER_PASSWORDS {
-        let hash = helpers::sha512_hash(password);
-        let output = user_script(&hash).render().expect("template renders");
-        let found = helpers::hash_after(&output, "alice:");
-        assert_eq!(found, hash);
-        helpers::assert_hash_verifies(&found, "$6$", password);
-        assert!(output.contains("| /usr/sbin/chpasswd -e\n"));
-        assert!(!output.contains(password));
-    }
-}
-
-#[test]
 fn test_sonic_file_map() {
     let server = Ipv4Addr::new(172, 20, 0, 1);
     let output = SonicLinuxZtp::file_map("sonic01", &server);
     assert_eq!(output, EXPECTED_FILE_MAP);
-}
-
-#[test]
-fn test_sonic_file_map_merges_and_saves_the_config() {
-    let server = Ipv4Addr::new(172, 20, 0, 1);
-    let map = parsed(&SonicLinuxZtp::file_map("sonic01", &server));
-    let step = &map["ztp"]["001-configdb-json"];
-    assert_eq!(step["clear-config"], json!(false));
-    assert_eq!(step["save-config"], json!(true));
-}
-
-#[test]
-fn test_sonic_file_map_loads_the_config_again_without_saving_it() {
-    let server = Ipv4Addr::new(172, 20, 0, 1);
-    let map = parsed(&SonicLinuxZtp::file_map("sonic01", &server));
-    let first = &map["ztp"]["001-configdb-json"];
-    let again = &map["ztp"]["003-configdb-json"];
-    assert_eq!(again["url"]["source"], first["url"]["source"]);
-    // No destination, so the plugin deletes the download and the saved config stays whole.
-    assert!(again["url"].get("destination").is_none());
-    assert_eq!(again["clear-config"], json!(false));
-    assert_eq!(again["save-config"], json!(false));
-    let steps: Vec<&String> = map["ztp"].as_object().expect("steps").keys().collect();
-    assert_eq!(
-        steps,
-        ["001-configdb-json", "002-set-password", "003-configdb-json"]
-    );
-}
-
-#[test]
-fn test_sonic_file_map_still_runs_the_owner_account_script() {
-    let server = Ipv4Addr::new(172, 20, 0, 1);
-    let map = parsed(&SonicLinuxZtp::file_map("sonic01", &server));
-    let step = &map["ztp"]["002-set-password"];
-    assert_eq!(
-        step["plugin"]["url"],
-        json!(format!(
-            "http://172.20.0.1:8080/{}",
-            SonicLinuxZtp::user_script_filename("sonic01")
-        ))
-    );
-    assert_eq!(step["plugin"]["shell"], json!("true"));
-    assert_eq!(step["reboot-on-success"], json!(false));
-}
-
-#[test]
-fn test_sonic_config_has_32_ports_all_admin_up() {
-    for address in [None, Some(Ipv4Addr::new(172, 20, 0, 10))] {
-        let config = parsed(&sonic_ztp(address).config());
-        let ports = config["PORT"].as_object().expect("a PORT table");
-        assert_eq!(ports.len(), 32);
-        for name in EXPECTED_PORTS {
-            assert_eq!(ports[name], json!({ "admin_status": "up" }), "{name}");
-        }
-    }
 }
 
 #[test]

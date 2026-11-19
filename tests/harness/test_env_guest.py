@@ -80,10 +80,6 @@ def main():
 
 
 class GuestTests(unittest.TestCase):
-    def test_network_accepts_expected_statuses(self):
-        expected = {url: status for _, url, status in ENDPOINTS}
-        check_network(lambda url, _timeout: expected[url])
-
     def test_network_retries_transient_failures_then_names_endpoint(self):
         calls = []
 

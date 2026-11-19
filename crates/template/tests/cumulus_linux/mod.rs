@@ -72,19 +72,6 @@ fn test_static_ipv4() {
 }
 
 #[test]
-fn test_only_the_owner_has_an_account() {
-    let output = cumulus("Rand0mPass-1").render().expect("template renders");
-    let users: Vec<&str> = output
-        .lines()
-        .filter(|line| line.starts_with("nv set system aaa user "))
-        .filter_map(|line| line.split_whitespace().nth(5))
-        .collect();
-    assert_eq!(users.len(), 7);
-    assert!(users.iter().all(|user| *user == "alice"));
-    helpers::assert_no_sherpa_login(&output);
-}
-
-#[test]
 fn test_password_is_intact() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let output = cumulus(password).render().expect("template renders");

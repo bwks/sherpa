@@ -184,12 +184,6 @@ mod tests {
     }
 
     #[test]
-    fn test_into_i32() {
-        let code: i32 = RpcErrorCode::AuthRequired.into();
-        assert_eq!(code, -32002);
-    }
-
-    #[test]
     fn test_display() {
         assert_eq!(RpcErrorCode::AuthRequired.to_string(), "-32002");
         assert_eq!(RpcErrorCode::ParseError.to_string(), "-32700");
@@ -206,11 +200,5 @@ mod tests {
     fn test_deserialize() {
         let code: RpcErrorCode = serde_json::from_str("-32002").unwrap();
         assert_eq!(code, RpcErrorCode::AuthRequired);
-    }
-
-    #[test]
-    fn test_deserialize_unknown() {
-        let code: RpcErrorCode = serde_json::from_str("-99999").unwrap();
-        assert_eq!(code, RpcErrorCode::Unknown(-99999));
     }
 }

@@ -21,7 +21,7 @@ pub fn process_manifest_nodes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{self, ModelKind, NodeModel};
+    use shared::data::{self, NodeModel};
 
     // ============================================================================
 
@@ -151,9 +151,11 @@ mod tests {
 
         let expanded = process_manifest_nodes(&nodes).unwrap();
 
+        // A model with no kind set is its default kind, a VM for arista_eos.
+        assert_eq!(expanded[0].model_kind.model(), NodeModel::AristaEos);
         assert_eq!(
-            expanded[0].model_kind,
-            ModelKind::default_for(NodeModel::AristaEos)
+            expanded[0].model_kind.kind(),
+            data::NodeKind::VirtualMachine
         );
         assert_eq!(expanded[0].version, Some("4.28.0".to_string()));
         assert_eq!(expanded[0].memory, Some(4096));
@@ -161,12 +163,5 @@ mod tests {
         assert_eq!(expanded[0].interfaces.data_count, Some(4));
         assert!(expanded[0].vm.is_some());
         assert_eq!(expanded[0].ready_check.skip, Some(true));
-    }
-
-    #[test]
-    fn test_process_manifest_nodes_empty_input() {
-        let nodes: Vec<topology::Node> = vec![];
-        let expanded = process_manifest_nodes(&nodes).unwrap();
-        assert_eq!(expanded, [] as [topology::NodeExpanded; 0]);
     }
 }

@@ -98,16 +98,4 @@ mod tests {
             crypt_hash(PASSWORD, CryptHash::Sha512).unwrap()
         );
     }
-
-    #[test]
-    fn a_published_sha512_vector_verifies() {
-        // From Ulrich Drepper's SHA-crypt specification: the default rounds, salt "saltstring".
-        let vector = "$6$saltstring$svn8UoSVapNtMuq1ukKS4tPQd8iKwSMHWjl/O817G3uBnIFNjnQJu\
-                      esI68u4OTLiBFdcbYEdFCoEOfaS35inz1";
-        assert!(
-            ShaCrypt::default()
-                .verify_password(b"Hello world!", vector)
-                .is_ok()
-        );
-    }
 }

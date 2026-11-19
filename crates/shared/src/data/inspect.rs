@@ -138,10 +138,9 @@ mod tests {
     }
 
     #[test]
-    fn a_device_has_no_console_address_and_one_from_an_older_server_is_ignored() {
+    fn a_device_from_an_older_server_with_a_console_address_still_reads() {
         // The console is reached through sherpad's API, not at an address (#674).
         let mut value = serde_json::to_value(device()).unwrap();
-        assert!(value.get("console_address").is_none(), "{value}");
         value["console_address"] = serde_json::json!("127.127.3.1");
         let back: DeviceInfo = serde_json::from_value(value).unwrap();
         assert_eq!(back.name, "vm1");

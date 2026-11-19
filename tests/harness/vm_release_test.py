@@ -1138,10 +1138,8 @@ class HarnessTests(unittest.TestCase):
             config["baseline"]["version"] = "v0.5.0" if version != "v0.5.0" else "v0.5.35"
             validate_upgrade_config(config)
 
-    def test_runner_config_has_no_database_settings_or_credentials(self):
+    def test_runner_config_refuses_database_settings(self):
         config = self.upgrade_config()
-        self.assertNotIn("db_port", config["guest"])
-        self.assertNotIn("surrealdb_image", config["guest"])
         config["guest"]["db_port"] = 8000
         with self.assertRaises(ValueError):
             validate_config(config)

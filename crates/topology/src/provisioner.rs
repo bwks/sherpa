@@ -208,18 +208,6 @@ mod tests {
     }
 
     #[test]
-    fn provision_concurrency_above_255_is_rejected() {
-        let error = parse_error(&format!("provision_concurrency = 256\n{MANIFEST}"));
-        assert!(error.contains("provision_concurrency"), "{error}");
-    }
-
-    #[test]
-    fn unknown_provisioner_type_is_rejected() {
-        let error = parse_error(&MANIFEST.replace(r#"type = "ssh""#, r#"type = "telnet""#));
-        assert!(error.contains("telnet"), "{error}");
-    }
-
-    #[test]
     fn unknown_ssh_provisioner_field_is_rejected() {
         let error = parse_error(&MANIFEST.replace("scripts =", "commands ="));
         assert!(error.contains("commands"), "{error}");

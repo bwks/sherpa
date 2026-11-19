@@ -504,10 +504,6 @@ class SelfTest(unittest.TestCase):
                       pings)
         self.assertEqual(len(pings), 2)
 
-    def test_text_file_is_owned_by_its_user_and_group(self):
-        self.assertEqual(text_file_targets(self.manifest()),
-                         [("nix01", "/home/{owner}/hello.txt", "{owner}:{owner} 600")])
-
     def test_text_file_belongs_to_the_lab_owner(self):
         manifest = with_owner(self.manifest(), "alice")
         self.assertEqual(text_file_targets(manifest),

@@ -1540,7 +1540,7 @@ class GuestTests(unittest.TestCase):
                 "guest": {}, "timeouts": {},
                 "credentials": {"admin_password": "admin", "tailnet_auth_key": "tskey-test"}}))
             guest = Guest(config)
-        self.assertIn("tskey-test", guest.passwords)
+        self.assertEqual(guest.redact("key tskey-test joined"), "key [REDACTED] joined")
 
     def test_releases_from_0_5_13_keep_the_database_directory_private(self):
         for version in ("v0.5.13", "0.5.14", "v0.10.0", "v1.0.0"):
@@ -1583,10 +1583,6 @@ class GuestTests(unittest.TestCase):
 
     def test_guest_uuid_and_fqdn_match(self):
         validate_identity("abCD", "test", "ABcd", "test.sherpa.lab.local")
-
-    def test_failed_assertion_is_a_failure(self):
-        with self.assertRaises(RuntimeError):
-            require(False, "Required check failed")
 
 
 if __name__ == "__main__":

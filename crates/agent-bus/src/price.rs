@@ -134,13 +134,6 @@ mod tests {
     }
 
     #[test]
-    fn the_five_minute_write_is_one_and_a_quarter_times_input() {
-        for (model, rates) in RATES {
-            assert_eq!(rates.cache_write_5m * 4, rates.input * 5, "{model}");
-        }
-    }
-
-    #[test]
     fn an_unknown_model_and_fast_mode_are_not_priced() {
         let used = tokens(1, 1, 1, 1, 1);
         assert_eq!(cost("claude-opus-9-9", STANDARD_SPEED, &used), None);

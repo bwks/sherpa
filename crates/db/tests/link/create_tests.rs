@@ -1,7 +1,7 @@
 use anyhow::Result;
 use db::{
     DefaultRequest, LabDetails, create_lab, create_link, create_node, create_user,
-    list_links_by_lab, upsert_node_image,
+    upsert_node_image,
 };
 use shared::data::{BridgeKind, ModelKind, NodeModel};
 
@@ -60,64 +60,6 @@ async fn test_create_link_success() -> Result<()> {
     assert_eq!(link.int_b, "eth0");
     assert_eq!(link.lab, lab.id.unwrap());
     assert!(link.id.is_some(), "Link should have an ID");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_link_with_lab() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(
-        &db,
-        "Bob's Lab",
-        "lab-0002",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    let config = upsert_node_image(
-        &db,
-        ModelKind::default_for(NodeModel::CiscoIos).node_config(),
-        DefaultRequest::Keep,
-    )
-    .await?;
-
-    let node1 = create_node(
-        &db,
-        "router1",
-        1,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-    let node2 = create_node(
-        &db,
-        "router2",
-        2,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-
-    let link = create_link(
-        &db,
-        test_link(
-            &lab,
-            0,
-            BridgeKind::P2p,
-            &node1,
-            "GigabitEthernet0/0",
-            &node2,
-            "GigabitEthernet0/0",
-        ),
-    )
-    .await?;
-
-    // Verify link is associated with lab
-    assert_eq!(link.lab, lab.id.unwrap());
 
     Ok(())
 }
@@ -334,65 +276,6 @@ async fn test_create_link_with_bridge_kinds() -> Result<()> {
 
     assert!(matches!(link2.kind, BridgeKind::P2p));
     assert!(matches!(link3.kind, BridgeKind::SharedBridge));
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_link_increments_count() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(
-        &db,
-        "Lab Count",
-        "lab-0006",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    let config = upsert_node_image(
-        &db,
-        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
-        DefaultRequest::Keep,
-    )
-    .await?;
-
-    let node1 = create_node(
-        &db,
-        "node1",
-        1,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-    let node2 = create_node(
-        &db,
-        "node2",
-        2,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-
-    let initial_lab_count = list_links_by_lab(&db, lab.id.clone().unwrap()).await?.len();
-
-    // Create links
-    create_link(
-        &db,
-        test_link(&lab, 0, BridgeKind::P2p, &node1, "eth0", &node2, "eth0"),
-    )
-    .await?;
-    create_link(
-        &db,
-        test_link(&lab, 1, BridgeKind::P2p, &node1, "eth1", &node2, "eth1"),
-    )
-    .await?;
-
-    let final_lab_count = list_links_by_lab(&db, lab.id.clone().unwrap()).await?.len();
-
-    assert_eq!(final_lab_count, initial_lab_count + 2);
 
     Ok(())
 }

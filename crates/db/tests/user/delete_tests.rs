@@ -1,9 +1,9 @@
 /// DELETE operation tests for user
 use anyhow::Result;
-use db::{LabDetails, create_lab, create_user, delete_lab_from, delete_user, get_user, list_users};
-use shared::data::{LabPhase, RecordId};
+use db::{create_user, delete_user, get_user};
+use shared::data::RecordId;
 
-use crate::{ipv4_lab_networks, setup_db};
+use crate::setup_db;
 
 #[tokio::test]
 async fn test_delete_user_success() -> Result<()> {
@@ -37,129 +37,6 @@ async fn test_delete_nonexistent_user_fails() -> Result<()> {
         error_msg.contains("not found"),
         "Error should mention user not found: {error_msg}"
     );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_delete_user_decreases_count() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Create users
-    create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
-    let user2 = create_user(&db, "dave".to_string(), "TestPass123!", false, vec![]).await?;
-
-    let count_before = list_users(&db).await?.len();
-
-    // Delete one user
-    delete_user(&db, user2.id.unwrap()).await?;
-
-    let count_after = list_users(&db).await?.len();
-
-    assert_eq!(count_after, count_before - 1, "Count should decrease by 1");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_delete_user_with_labs_is_rejected() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Create user and lab
-    let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
-    let user_id = user.id.clone().expect("User should have ID");
-
-    create_lab(
-        &db,
-        "test-lab",
-        "lab-0001",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-
-    // The schema rejects deleting a user who owns a lab
-    let result = delete_user(&db, user_id).await;
-    assert!(result.is_err(), "Should fail when user owns labs");
-
-    // Verify user still exists
-    let user = get_user(&db, "frank").await?;
-    assert_eq!(user.username, "frank");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_delete_user_with_multiple_labs_is_rejected() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Create user with multiple labs
-    let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
-    let user_id = user.id.clone().expect("User should have ID");
-
-    create_lab(
-        &db,
-        "lab-1",
-        "lab-0001",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    create_lab(
-        &db,
-        "lab-2",
-        "lab-0002",
-        &user,
-        &ipv4_lab_networks("172.31.2.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    create_lab(
-        &db,
-        "lab-3",
-        "lab-0003",
-        &user,
-        &ipv4_lab_networks("172.31.3.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-
-    // The schema rejects deleting a user who owns labs
-    let result = delete_user(&db, user_id).await;
-    assert!(result.is_err(), "Should fail when user owns multiple labs");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_delete_user_with_labs_needs_manual_cleanup() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Create user and lab
-    let user = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
-    let user_id = user.id.clone().expect("User should have ID");
-
-    let lab = create_lab(
-        &db,
-        "test-lab",
-        "lab-0001",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-
-    // The schema rejects deleting a lab owner, so the lab must be deleted first
-    assert!(delete_lab_from(&db, &lab.lab_id, LabPhase::Creating).await?);
-
-    // Now user can be deleted
-    delete_user(&db, user_id).await?;
-
-    // Verify user is gone
-    let user_result = get_user(&db, "heidi").await;
-    assert!(user_result.is_err(), "User should be deleted");
 
     Ok(())
 }

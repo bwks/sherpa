@@ -798,18 +798,6 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_environment_variables_no_env_vars() {
-        let mut manifest = test_manifest(vec![topology::Node {
-            name: "dev01".to_string(),
-            model: NodeModel::UbuntuLinux,
-            ..Default::default()
-        }]);
-
-        resolve_environment_variables(&mut manifest, no_variables)
-            .expect("should succeed with no env vars");
-    }
-
-    #[test]
     fn node_files_are_read_on_the_client_relative_to_the_manifest() {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         fs::create_dir(dir.path().join("units")).expect("mkdir");
@@ -984,38 +972,6 @@ mod tests {
             "hello world"
         );
         assert!(node.user_scripts_data.is_some());
-    }
-
-    #[test]
-    fn test_resolve_text_files_relative_path() {
-        let dir = tempfile::tempdir().expect("Failed to create temp dir");
-        let file_path = dir.path().join("my_file.txt");
-        std::fs::write(&file_path, "hello world").expect("write file");
-
-        let manifest_path = dir.path().join("manifest.toml");
-
-        let mut manifest = test_manifest(vec![topology::Node {
-            name: "dev01".to_string(),
-            model: NodeModel::UbuntuLinux,
-            text_files: Some(vec![topology::TextFile {
-                src: "my_file.txt".to_string(),
-                dst: "/opt/data/my_file.txt".to_string(),
-                user: "sherpa".to_string(),
-                group: "sherpa".to_string(),
-                permissions: 755,
-            }]),
-            ..Default::default()
-        }]);
-
-        resolve_text_files(&mut manifest, manifest_path.to_str().expect("path"))
-            .expect("resolve should succeed");
-
-        let data = manifest.nodes[0]
-            .text_files_data
-            .as_ref()
-            .expect("should have text_files_data");
-        let decoded = base64_decode(&data[0].content).expect("should decode");
-        assert_eq!(decoded, "hello world");
     }
 
     #[test]

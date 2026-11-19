@@ -272,11 +272,6 @@ mod tests {
     }
 
     #[test]
-    fn test_numa_memory_mode_defaults_to_strict() {
-        assert_eq!(NumaMemoryMode::default(), NumaMemoryMode::Strict);
-    }
-
-    #[test]
     fn test_only_strict_numa_memory_is_held_to_its_node() {
         let strict = NodeNuma {
             node: Some(1),

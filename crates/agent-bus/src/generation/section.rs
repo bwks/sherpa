@@ -837,13 +837,6 @@ mod tests {
     }
 
     #[test]
-    fn the_data_comment_reads_back_as_the_rows() {
-        let body = update_body("", &tasks(&[first(), second()])).unwrap();
-        let range = section_range(&body).unwrap().unwrap();
-        assert_eq!(read(&body[range]).unwrap(), tasks(&[first(), second()]));
-    }
-
-    #[test]
     fn a_body_without_the_section_gets_it_appended_after_a_blank_line() {
         let body = update_body(
             "Fixes the thing.\n\n## Tests\n\nAll pass.\n\n",

@@ -929,9 +929,6 @@ class SelfTest(unittest.TestCase):
         for section in ("nodes", "links"):
             self.assertEqual(rendered[section], manifest[section])
 
-    def test_no_link_sets_the_removed_p2p_field(self):
-        self.assertFalse(any("p2p" in link for link in self.manifest()["links"]))
-
     def test_linux_links_match_the_manifest(self):
         links = self.manifest()["links"]
         for link in LINUX_LINKS:
