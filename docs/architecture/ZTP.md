@@ -387,7 +387,7 @@ and check each migrated row against this table and `check_ztp`.
   DHCP options (`template`), the generators, owner account and plan-time check (`server`), the
   manifest field (`topology`, `client`).
 - Integration: `lab_lifecycle::frr_gets_its_config_mounts_and_command_only_with_ztp_on` and
-  `up_refuses_an_unsupported_ztp_setting_before_creating_anything`, against real Docker.
+  `lab_preflight_004_an_unsupported_ztp_setting_is_refused`, against real Docker.
 - Lab: `tests/labs/container-ztp`.
 - Blank disks: `tests/bats/install_tests.bats` makes every disk in a temporary folder and checks
   its size, file system and label with `blkid` and `file`, that existing files and folders are

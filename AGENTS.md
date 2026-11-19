@@ -174,16 +174,12 @@ Validators ensure user supplied data is accurate, usable and secure. They live w
 
 ## Testing
 - `tests/README.md` is the single reference for running unit, integration, VM and installer tests.
-- `tests/specs/` holds the testing principles and per-crate specs. Tests must align to test specs.
-- No tautalogical tests.
-- Do not test for the removal of code, just delete the code and any associated tests.
-- Always add or update tests for:
+- Every test proves one case of a behaviour in a spec in `tests/specs/`, and its name is the case's ID (`<behaviour>_<NNN>_<description>`). The rules, levels and spec format are in `tests/specs/README.md`; read it before writing or changing a test.
+- Always add or update a spec case and its test for:
   - New lifecycle transitions (e.g. new stop/pause/migrate logic).
   - New error cases or recovery behavior.
   - Any bug fix.
-- Prefer:
-  - Unit tests for domain logic (no I/O, no libvirt/Docker).
-  - Integration tests for real libvirt/Docker/database interactions. Mark them `#[ignore]` and run them with `-- --ignored`.
+- Integration tests are marked `#[ignore]` and run with `-- --ignored`.
 - Database tests opens ther own in-memory database with `db::open_in_memory()`, and `cargo test -p db` runs them.
 
 ## Safety

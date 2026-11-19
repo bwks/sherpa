@@ -159,7 +159,7 @@ async fn wait_for_n1(server: &TestServer, lab_id: &str, state: NodeState) -> Res
 
 #[tokio::test]
 #[ignore = "requires KVM, libvirt with the alpine_linux image, Docker and root"]
-async fn of_two_concurrent_ups_pinning_the_same_cpus_one_builds_and_the_other_creates_nothing()
+async fn lab_preflight_005_cpus_pinned_by_another_lab_are_refused_naming_the_lab_holding_them()
 -> Result<()> {
     let (server, mut ws, token) = server().await?;
     let mut second = TestWsClient::connect(&server).await?;
@@ -192,8 +192,8 @@ async fn of_two_concurrent_ups_pinning_the_same_cpus_one_builds_and_the_other_cr
 
 #[tokio::test]
 #[ignore = "requires KVM, libvirt with the alpine_linux image, Docker and root"]
-async fn a_redeploy_with_new_pins_holds_its_old_ones_from_a_racing_up_until_it_ends() -> Result<()>
-{
+async fn lab_redeploy_004_a_redeploy_to_new_pins_holds_its_old_ones_from_a_racing_up_until_it_ends()
+-> Result<()> {
     let (server, mut ws, token) = server().await?;
     let mut second_client = TestWsClient::connect(&server).await?;
     let (held_id, racing_id) = (lab_id("pr"), lab_id("ps"));
@@ -242,7 +242,7 @@ async fn a_redeploy_with_new_pins_holds_its_old_ones_from_a_racing_up_until_it_e
 
 #[tokio::test]
 #[ignore = "requires KVM, libvirt with the alpine_linux image, Docker and root"]
-async fn a_refused_redeploy_keeps_its_pins_and_its_node() -> Result<()> {
+async fn lab_redeploy_003_a_refused_redeploy_keeps_the_nodes_cpu_pins() -> Result<()> {
     let (server, mut ws, token) = server().await?;
     let (moving_id, holder_id) = (lab_id("pf"), lab_id("pg"));
     let checks: Result<()> = async {
@@ -295,7 +295,7 @@ async fn a_refused_redeploy_keeps_its_pins_and_its_node() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires KVM, libvirt with the alpine_linux image, Docker and root"]
-async fn destroying_a_lab_lets_its_pins_be_pinned_again() -> Result<()> {
+async fn lab_destroy_003_a_destroyed_labs_cpu_pins_can_be_pinned_again() -> Result<()> {
     let (server, mut ws, token) = server().await?;
     let (first_id, second_id) = (lab_id("pa"), lab_id("pb"));
     let checks: Result<()> = async {

@@ -70,13 +70,13 @@
 - Authorization uses database ownership; caller-supplied usernames are ignored `[integration]` **P0**
 - An admin who owns the lab may redeploy; other admin operations retain their access rules `[unit]` `[integration]` **P0**
 
-The `redeploy_only_allows_current_owner_on_all_transports` test in
+The `access_control_002_only_the_labs_owner_can_redeploy_over_rpc_and_http` test in
 `crates/server/tests/integration/lab_lifecycle.rs` uses an in-memory database and local API
 sockets.
 It creates database metadata only and does not start or destroy lab resources.
 
 ```sh
-cargo test -p sherpad --test integration lab_lifecycle::redeploy_only_allows_current_owner_on_all_transports -- --nocapture
+cargo test -p sherpad --test integration lab_lifecycle::access_control_002_only_the_labs_owner_can_redeploy_over_rpc_and_http -- --nocapture
 ```
 
 ## Database-backed identity

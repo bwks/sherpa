@@ -8,7 +8,7 @@ instead of repeating these instructions.
 | Path | Contents |
 |---|---|
 | `crates/*/tests/`, `#[cfg(test)]` modules | Rust unit and integration tests (Cargo requires these locations) |
-| `tests/specs/` | Testing principles and what each crate must test ([README](specs/README.md)) |
+| `tests/specs/` | Test specs: the behaviours each area must show and the rules for tests ([README](specs/README.md)) |
 | `tests/environments/` | Disposable Ubuntu VMs for the VM suites, the long-lived dev lab with its two dev servers, and the manifest of the Windows box on the Sherpa host that the client's Windows code is tested on ([README](environments/README.md)) |
 | `tests/harness/` | VM test tooling: `test_env.py`, the release-test runner, guest helpers and the build cache |
 | `tests/labs/` | Labs under test, driven by the `sherpa` CLI against an installed server ([README](labs/README.md)) |
@@ -135,7 +135,7 @@ tests. Run the crates you need:
 | container | `cargo test -p container -- --ignored --test-threads=1` | Docker, `alpine:latest`; the IOL test also needs a `localrepo/cisco_iol` image built with docker-cisco-iol, and passes without running when there is none |
 | network | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p network -- --ignored --test-threads=1` | root (rtnetlink) |
 | libvirt | `cargo test -p libvirt -- --ignored --test-threads=1` | libvirtd, `sherpa-pool` |
-| sherpad | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p sherpad -- --ignored --test-threads=1` | root, Docker, libvirt, test images; `SHERPA_GUEST_TEST_KEY` and `SHERPA_GUEST_TEST_ROTATED_KEY`, two different unencrypted private keys with `.pub` files beside them, and optionally `SHERPA_GUEST_TEST_MODEL` (default `ubuntu_linux`) and `SHERPA_GUEST_TEST_IMAGES_DIR`, for the personal VM account test ([spec](specs/integration/current-user.md)) |
+| sherpad | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p sherpad -- --ignored --test-threads=1` | root, Docker, libvirt, test images |
 
 sherpad's integration tests are one test binary, `integration`
 (`crates/server/tests/integration/`), with a module per area: `auth`, `image_management`,

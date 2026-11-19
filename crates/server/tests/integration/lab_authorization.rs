@@ -8,7 +8,7 @@ use shared::konst::{DEVICE_PASSWORD_DOCS_URL, SSH_KEYS_DOCS_URL};
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use std::time::Duration;
 
-use crate::helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer};
+use crate::helpers::test_server::{TEST_ADMIN_PASSWORD, TEST_DEVICE_PASSWORD, TestServer};
 use crate::helpers::ws_client::TestWsClient;
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(60);
@@ -781,6 +781,75 @@ async fn redeploying_a_node_requires_a_device_password() -> Result<()> {
         "a redeploy refused for its device password streamed progress: {statuses:?}"
     );
     Ok(())
+}
+
+// ── Lab ownership ──
+
+/// The user `username` with `OWNER_KEY` and a device password, as a lab owner needs, logged in.
+/// Returns the user and their token.
+async fn keyed_owner(
+    server: &TestServer,
+    ws: &mut TestWsClient,
+    username: &str,
+    is_admin: bool,
+) -> Result<(DbUser, String)> {
+    let user = db::create_user(
+        &server.db,
+        username.to_owned(),
+        TEST_ADMIN_PASSWORD,
+        is_admin,
+        vec![OWNER_KEY.to_owned()],
+    )
+    .await?;
+    db::set_device_password(&server.db, &db::get_user_id(&user)?, TEST_DEVICE_PASSWORD).await?;
+    let token = ws.login(username, TEST_ADMIN_PASSWORD).await?;
+    Ok((user, token))
+}
+
+#[tokio::test]
+#[ignore = "requires Docker, libvirt and host network administration rights (CAP_NET_ADMIN)"]
+async fn access_control_003_a_lab_is_owned_by_the_user_who_brought_it_up_not_one_the_client_names()
+-> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let (alice, alice_token) = keyed_owner(&server, &mut ws, "alice", false).await?;
+    keyed_owner(&server, &mut ws, "bob", false).await?;
+    let lab_id = format!("{:08x}", rand::random::<u32>());
+    let manifest = json!({ "name": "owner-lab", "nodes": [] });
+
+    let (_, response) = ws
+        .rpc_call_streaming(
+            "up",
+            json!({
+                "token": alice_token, "lab_id": lab_id, "manifest": manifest, "username": "bob",
+            }),
+            RPC_TIMEOUT,
+        )
+        .await?;
+    let checks: Result<()> = async {
+        ensure!(response.get("error").is_none(), "up failed: {response}");
+        ensure!(
+            response["result"]["lab_info"]["user"] == "alice",
+            "up named a lab owner other than the caller: {response}"
+        );
+        let lab = db::get_lab(&server.db, &lab_id).await?;
+        ensure!(
+            Some(&lab.user) == alice.id.as_ref(),
+            "the lab record's owner is not the caller: {:?}",
+            lab.user
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = check_rpc(
+        &mut ws,
+        "destroy",
+        json!({ "token": alice_token, "lab_id": lab_id }),
+        true,
+        "RPC destroy, owner",
+    )
+    .await;
+    checks.and(cleanup)
 }
 
 // ── Lab RPCs without host resources ──

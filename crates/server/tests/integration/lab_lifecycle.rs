@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail, ensure};
 use bollard::Docker;
 use bollard::query_parameters::{InspectContainerOptions, ListNetworksOptions};
 use db::DefaultRequest;
-use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Session};
+use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Secret, Session};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
 use shared::data::{
@@ -14,18 +14,14 @@ use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use std::collections::BTreeMap;
 use std::fs;
-use std::net::{SocketAddr, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::helpers::test_server::{
-    TEST_ADMIN_PASSWORD, TEST_DEVICE_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer, test_config,
+    TEST_ADMIN_PASSWORD, TEST_DEVICE_PASSWORD, TEST_LAB_ADMIN, TEST_SSH_PUBLIC_KEY, TestServer,
 };
 use crate::helpers::ws_client::TestWsClient;
-
-/// Checks a personal account's user, home, shell and passwordless sudo.
-const ACCOUNT_CHECK: &str = r#"test "$(id -un)" = "${USER}" && test "$HOME" = "/home/${USER}" && test "$SHELL" = /bin/bash && test -d "$HOME" && sudo -n true"#;
 
 /// Helper to create a minimal container-only manifest
 fn container_manifest(lab_name: &str) -> serde_json::Value {
@@ -40,14 +36,17 @@ fn container_manifest(lab_name: &str) -> serde_json::Value {
     })
 }
 
-/// Helper to create a minimal VM manifest
+/// How long a one-VM lab may take to come up, or to be destroyed.
+const VM_TIMEOUT: Duration = Duration::from_mins(5);
+
+/// A lab with one `alpine_linux` VM, `vm1`.
 fn vm_manifest(lab_name: &str) -> serde_json::Value {
     json!({
         "name": lab_name,
         "nodes": [
             {
                 "name": "vm1",
-                "model": "ubuntu_linux",
+                "model": "alpine_linux",
             }
         ]
     })
@@ -152,28 +151,12 @@ fn with_cleanup(checks: Result<()>, cleanup: Result<()>) -> Result<()> {
     }
 }
 
-/// Wait until a guest accepts TCP connections on its SSH port.
-async fn wait_for_ssh(address: &str, timeout: Duration) -> Result<()> {
-    let target: SocketAddr = format!("{address}:22").parse()?;
-    let start = Instant::now();
-    while start.elapsed() < timeout {
-        if TcpStream::connect_timeout(&target, Duration::from_secs(5)).is_ok() {
-            return Ok(());
-        }
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
-    bail!("{address} did not accept SSH within {}s", timeout.as_secs())
-}
-
-/// Log in with one key and check the personal account's shell, home and passwordless sudo.
-/// A connection or login that fails counts as `false`, as the guest may still be provisioning.
-async fn ssh_login(destination: &str, key: &str) -> Result<bool> {
-    let Some((user, host)) = destination.split_once('@') else {
-        bail!("SSH destination '{destination}' is not user@host");
-    };
+/// Log in to `address` as `user` with `password` and run `true`. A connection or login that
+/// fails counts as `false`, as the guest may still be provisioning.
+async fn password_login(address: &str, user: &str, password: &str) -> Result<bool> {
     let hop = Hop::new(
-        Node::new(host, SSH_PORT),
-        Auth::new(user).key_file(key, None),
+        Node::new(address, SSH_PORT),
+        Auth::new(user).password(Secret::new(password.to_owned())),
         HostKeyPolicy::Insecure,
     );
     let mut options = ConnectOptions::default();
@@ -181,25 +164,30 @@ async fn ssh_login(destination: &str, key: &str) -> Result<bool> {
     let session = match Session::connect(&hop, &options).await {
         Ok(session) => session,
         Err(error) => {
-            eprintln!("SSH login to {destination} failed: {error}");
+            eprintln!("SSH login to {user}@{address} failed: {error}");
             return Ok(false);
         }
     };
     let output = session
-        .run(ACCOUNT_CHECK, b"", Duration::from_secs(30))
+        .run("true", b"", Duration::from_secs(30))
         .await
-        .context("Failed to run SSH acceptance check")?;
+        .context("Failed to run a command over SSH")?;
     if let Err(error) = session.close().await {
-        eprintln!("SSH session to {destination} did not close cleanly: {error}");
+        eprintln!("SSH session to {user}@{address} did not close cleanly: {error}");
     }
     Ok(output.exit == Exit::Code(0))
 }
 
 /// Retry a login that should succeed until the guest has finished provisioning it.
-async fn wait_for_login(destination: &str, key: &str, timeout: Duration) -> Result<bool> {
+async fn wait_for_password_login(
+    address: &str,
+    user: &str,
+    password: &str,
+    timeout: Duration,
+) -> Result<bool> {
     let start = Instant::now();
     loop {
-        if ssh_login(destination, key).await? {
+        if password_login(address, user, password).await? {
             return Ok(true);
         }
         if start.elapsed() >= timeout {
@@ -207,6 +195,37 @@ async fn wait_for_login(destination: &str, key: &str, timeout: Duration) -> Resu
         }
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
+}
+
+/// The management address of node `name` of lab `lab_id`, as recorded.
+async fn node_address(server: &TestServer, lab_id: &str, name: &str) -> Result<String> {
+    let lab = db::get_lab(&server.db, lab_id).await?;
+    let node = db::get_node_by_name_and_lab(&server.db, name, db::get_lab_id(&lab)?).await?;
+    node.mgmt_ipv4
+        .with_context(|| format!("node {name} has no management address"))
+}
+
+/// What lab `lab_id` left in libvirt: its domains, networks and storage volumes, by name.
+fn libvirt_leftovers(lab_id: &str) -> Result<Vec<String>> {
+    let conn = libvirt::Qemu::default().connect()?;
+    let mut leftovers: Vec<String> = libvirt::list_domain_memory(&conn)?
+        .into_iter()
+        .map(|domain| domain.name)
+        .filter(|name| name.contains(lab_id))
+        .collect();
+    for network in conn
+        .list_all_networks(0)
+        .context("Failed to list libvirt networks")?
+    {
+        let name = network
+            .get_name()
+            .context("Failed to read a libvirt network's name")?;
+        if name.contains(lab_id) {
+            leftovers.push(name);
+        }
+    }
+    leftovers.extend(libvirt::list_lab_volumes(&conn, lab_id)?);
+    Ok(leftovers)
 }
 
 /// Each node's recorded state, by name.
@@ -271,7 +290,8 @@ async fn lab_up(
 
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
-async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<()> {
+async fn lab_up_004_a_node_that_fails_to_start_fails_the_node_not_the_lab_and_up_exits_non_zero()
+-> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_lab_admin(&server).await?;
@@ -293,8 +313,8 @@ async fn a_container_that_exits_at_once_fails_its_node_not_the_lab() -> Result<(
     let manifest = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "dead1", "model": "generic", "kind": "container", "commands": ["/bin/false"], "data_interface_count": 0 },
-            { "name": "live1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "dead1", "model": "generic", "kind": "container", "container": { "commands": ["/bin/false"] }, "interfaces": { "data_count": 0 } },
+            { "name": "live1", "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] }, "interfaces": { "data_count": 0 } },
         ]
     });
 
@@ -365,7 +385,7 @@ async fn register_alpine(server: &TestServer) -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
-async fn a_container_that_exits_a_moment_after_it_starts_fails_with_its_exit_code_and_log()
+async fn lab_up_005_a_container_that_exits_shortly_after_starting_fails_with_its_exit_code_and_log()
 -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -379,8 +399,8 @@ async fn a_container_that_exits_a_moment_after_it_starts_fails_with_its_exit_cod
     let manifest = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "late1", "model": "generic", "kind": "container", "commands": ["sh", "-c", "echo password option is not specified; sleep 1; exit 3"], "data_interface_count": 0 },
-            { "name": "live1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "late1", "model": "generic", "kind": "container", "container": { "commands": ["sh", "-c", "echo password option is not specified; sleep 1; exit 3"] }, "interfaces": { "data_count": 0 } },
+            { "name": "live1", "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] }, "interfaces": { "data_count": 0 } },
         ]
     });
 
@@ -436,7 +456,7 @@ async fn inspect_reports_a_container_that_exited_after_up_as_docker_has_it() -> 
     let manifest = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "live1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "live1", "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] }, "interfaces": { "data_count": 0 } },
         ]
     });
     let docker = Docker::connect_with_local_defaults()?;
@@ -479,7 +499,7 @@ async fn inspect_reports_a_container_that_exited_after_up_as_docker_has_it() -> 
 
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
-async fn admin_clean_removes_a_running_lab() -> Result<()> {
+async fn lab_clean_001_clean_removes_a_running_lab() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_lab_admin(&server).await?;
@@ -502,7 +522,7 @@ async fn admin_clean_removes_a_running_lab() -> Result<()> {
     let manifest = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "box1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "box1", "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] }, "interfaces": { "data_count": 0 } },
         ]
     });
 
@@ -588,7 +608,7 @@ async fn an_official_docker_hub_image_pulled_by_its_full_name_brings_a_container
     let manifest = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "box1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "box1", "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] }, "interfaces": { "data_count": 0 } },
         ]
     });
 
@@ -655,7 +675,7 @@ async fn an_official_docker_hub_image_pulled_by_its_full_name_brings_a_container
 
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
-async fn a_redeploy_that_fails_after_teardown_fails_its_node() -> Result<()> {
+async fn lab_redeploy_005_a_redeploy_that_fails_after_teardown_fails_its_node() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_lab_admin(&server).await?;
@@ -677,14 +697,14 @@ async fn a_redeploy_that_fails_after_teardown_fails_its_node() -> Result<()> {
     let manifest = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "box1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "box1", "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] }, "interfaces": { "data_count": 0 } },
         ]
     });
     // Docker creates the container, then cannot start it: the node is already torn down.
     let broken = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "box1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0, "user": "nosuchuser" },
+            { "name": "box1", "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"], "user": "nosuchuser" }, "interfaces": { "data_count": 0 } },
         ]
     });
 
@@ -803,8 +823,8 @@ async fn frr_gets_its_config_mounts_and_command_only_with_ztp_on() -> Result<()>
             {
                 "name": "off",
                 "model": "frr_linux",
-                "ztp": "disabled",
-                "volumes": [{ "src": own_config, "dst": "/etc/own.conf" }],
+                "ztp": { "method": "disabled" },
+                "container": { "volumes": [{ "src": own_config, "dst": "/etc/own.conf" }] },
             },
         ]
     });
@@ -831,7 +851,7 @@ async fn frr_gets_its_config_mounts_and_command_only_with_ztp_on() -> Result<()>
 
         // A method the model does not take is refused before the node is torn down.
         let mut unsupported = manifest.clone();
-        unsupported["nodes"][0]["ztp"] = json!("cdrom");
+        unsupported["nodes"][0]["ztp"] = json!({ "method": "cdrom" });
         let (_statuses, response) = ws
             .rpc_call_streaming(
                 "redeploy",
@@ -853,7 +873,7 @@ async fn frr_gets_its_config_mounts_and_command_only_with_ztp_on() -> Result<()>
 
 #[tokio::test]
 #[ignore = "requires Docker with quay.io/frrouting/frr:10.5.2 and host network administration rights (CAP_NET_ADMIN)"]
-async fn up_refuses_an_unsupported_ztp_setting_before_creating_anything() -> Result<()> {
+async fn lab_preflight_004_an_unsupported_ztp_setting_is_refused() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_lab_admin(&server).await?;
@@ -866,12 +886,12 @@ async fn up_refuses_an_unsupported_ztp_setting_before_creating_anything() -> Res
     let lab_name = format!("ty{:06}", std::process::id() % 1_000_000);
     let unsupported = json!({
         "name": lab_name,
-        "nodes": [{ "name": "frr1", "model": "frr_linux", "ztp": "cdrom" }]
+        "nodes": [{ "name": "frr1", "model": "frr_linux", "ztp": { "method": "cdrom" } }]
     });
     // A config the node's setting would not use is refused the same way.
     let unused_config = json!({
         "name": lab_name,
-        "nodes": [{ "name": "frr1", "model": "frr_linux", "ztp": "disabled", "ztp_config": "IQ==" }]
+        "nodes": [{ "name": "frr1", "model": "frr_linux", "ztp": { "method": "disabled", "config": "IQ==" } }]
     });
 
     let checks: Result<()> = async {
@@ -942,8 +962,8 @@ async fn the_scanner_records_what_docker_reports_but_not_over_up() -> Result<()>
     let manifest = json!({
         "name": lab_name,
         "nodes": [
-            { "name": "live1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
-            { "name": "live2", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "live1", "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] }, "interfaces": { "data_count": 0 } },
+            { "name": "live2", "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] }, "interfaces": { "data_count": 0 } },
         ]
     });
     let docker = Docker::connect_with_local_defaults()?;
@@ -1032,7 +1052,7 @@ async fn the_scanner_records_what_docker_reports_but_not_over_up() -> Result<()>
 
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
-async fn test_container_lab_up_and_inspect() -> Result<()> {
+async fn lab_up_001_a_container_lab_comes_up_with_every_node_running() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_lab_admin(&server).await?;
@@ -1087,7 +1107,8 @@ async fn test_container_lab_up_and_inspect() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
-async fn test_container_lab_down_and_resume() -> Result<()> {
+async fn lab_down_resume_001_a_container_lab_goes_down_and_resumes_with_its_nodes_running()
+-> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_lab_admin(&server).await?;
@@ -1149,7 +1170,8 @@ async fn test_container_lab_down_and_resume() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
-async fn test_container_lab_destroy() -> Result<()> {
+async fn lab_destroy_001_a_container_lab_is_destroyed_with_nothing_left_in_docker_the_database_or_the_lab_folder()
+-> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_lab_admin(&server).await?;
@@ -1209,7 +1231,7 @@ async fn sleeping_container_lab(server: &TestServer, lab_name: &str) -> Result<s
     Ok(json!({
         "name": lab_name,
         "nodes": [
-            { "name": "box1", "model": "generic", "kind": "container", "commands": ["sleep", "600"], "data_interface_count": 0 },
+            { "name": "box1", "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] }, "interfaces": { "data_count": 0 } },
         ]
     }))
 }
@@ -1218,7 +1240,8 @@ async fn sleeping_container_lab(server: &TestServer, lab_name: &str) -> Result<s
 /// lab. Now it is refused at the reservation and touches nothing.
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
-async fn two_ups_of_one_lab_leave_the_first_alone() -> Result<()> {
+async fn lab_concurrency_001_a_second_up_of_a_lab_that_is_coming_up_is_refused_and_leaves_the_first_alone()
+-> Result<()> {
     let server = TestServer::start().await?;
     let mut first = TestWsClient::connect(&server).await?;
     let mut second = TestWsClient::connect(&server).await?;
@@ -1267,7 +1290,7 @@ async fn two_ups_of_one_lab_leave_the_first_alone() -> Result<()> {
 /// M7.2: the second of two destroys used to fail on the record the first had removed.
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
-async fn two_destroys_of_one_lab_both_succeed() -> Result<()> {
+async fn lab_concurrency_002_two_destroys_of_one_lab_both_succeed() -> Result<()> {
     let server = TestServer::start().await?;
     let mut first = TestWsClient::connect(&server).await?;
     let mut second = TestWsClient::connect(&server).await?;
@@ -1310,7 +1333,7 @@ async fn two_destroys_of_one_lab_both_succeed() -> Result<()> {
 /// M7.1: a lab folder with no record could not be removed through the API.
 #[tokio::test]
 #[ignore = "requires root, to write the server's labs folder"]
-async fn admin_clean_removes_a_lab_folder_with_no_record() -> Result<()> {
+async fn lab_clean_002_clean_removes_a_lab_folder_with_no_record() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let admin_token = ws.login_admin().await?;
@@ -1338,7 +1361,8 @@ async fn admin_clean_removes_a_lab_folder_with_no_record() -> Result<()> {
 /// Concurrent `up` requests must get distinct subnets.
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
-async fn test_concurrent_lab_up_allocates_distinct_subnets() -> Result<()> {
+async fn lab_concurrency_003_labs_brought_up_at_once_get_distinct_management_subnets() -> Result<()>
+{
     let server = TestServer::start().await?;
     let mut first = TestWsClient::connect(&server).await?;
     let mut second = TestWsClient::connect(&server).await?;
@@ -1392,36 +1416,78 @@ async fn test_concurrent_lab_up_allocates_distinct_subnets() -> Result<()> {
 
 // ── VM Lab Lifecycle ──
 
-#[tokio::test]
-#[ignore = "requires KVM, libvirt and the ubuntu_linux image"]
-async fn test_vm_lab_up_and_destroy() -> Result<()> {
-    // A missing requirement is a failure, not a pass: this test must actually run.
+/// Fail unless the host can run VMs: a missing requirement is a failure, not a pass.
+fn require_kvm() -> Result<()> {
     ensure!(
         std::path::Path::new("/dev/kvm").exists(),
-        "/dev/kvm is required for the VM lab test"
+        "/dev/kvm is required for the VM lab tests"
     );
+    Ok(())
+}
 
+#[tokio::test]
+#[ignore = "requires KVM, libvirt with the alpine_linux image, Docker and root"]
+async fn lab_up_002_a_vm_lab_comes_up_and_its_node_accepts_an_ssh_login() -> Result<()> {
+    require_kvm()?;
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_lab_admin(&server).await?;
     bootstrap_images(&mut ws, &token).await?;
 
     // lab_id must be exactly 8 characters
-    let lab_name = format!("vm{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("vu{:06}", std::process::id() % 1_000_000);
     let manifest = vm_manifest(&lab_name);
 
     let checks: Result<()> = async {
-        let statuses = lab_up(
-            &mut ws,
-            &token,
-            &lab_name,
-            &manifest,
-            Duration::from_secs(300),
-        )
-        .await?;
+        lab_up(&mut ws, &token, &lab_name, &manifest, VM_TIMEOUT).await?;
+        let address = node_address(&server, &lab_name, "vm1").await?;
+        // Readiness waits for the SSH port; cloud-init may still be writing the account.
         ensure!(
-            !statuses.is_empty(),
-            "should have status messages during up"
+            wait_for_password_login(&address, TEST_LAB_ADMIN, TEST_DEVICE_PASSWORD, VM_TIMEOUT)
+                .await?,
+            "the VM did not take the owner's SSH login"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires KVM, libvirt with the alpine_linux image, Docker and root"]
+async fn lab_destroy_002_a_vm_lab_is_destroyed_with_nothing_left_in_libvirt() -> Result<()> {
+    require_kvm()?;
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_lab_admin(&server).await?;
+    bootstrap_images(&mut ws, &token).await?;
+
+    // lab_id must be exactly 8 characters
+    let lab_name = format!("vd{:06}", std::process::id() % 1_000_000);
+    let manifest = vm_manifest(&lab_name);
+
+    let checks: Result<()> = async {
+        lab_up(&mut ws, &token, &lab_name, &manifest, VM_TIMEOUT).await?;
+        ensure!(
+            !libvirt_leftovers(&lab_name)?.is_empty(),
+            "up created nothing in libvirt to destroy"
+        );
+        let (_s, response) = ws
+            .rpc_call_streaming(
+                "destroy",
+                json!({ "token": token, "lab_id": lab_name }),
+                VM_TIMEOUT,
+            )
+            .await?;
+        ensure!(
+            response.get("error").is_none(),
+            "destroy should succeed: {response}"
+        );
+        let leftovers = libvirt_leftovers(&lab_name)?;
+        ensure!(
+            leftovers.is_empty(),
+            "destroy left these in libvirt: {leftovers:?}"
         );
         Ok(())
     }
@@ -1433,7 +1499,8 @@ async fn test_vm_lab_up_and_destroy() -> Result<()> {
 // ── Error Cases ──
 
 #[tokio::test]
-async fn test_lab_up_missing_image() -> Result<()> {
+async fn lab_preflight_001_a_manifest_naming_an_image_that_is_not_imported_is_refused_naming_the_image()
+-> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_lab_admin(&server).await?;
@@ -1476,7 +1543,7 @@ async fn test_lab_up_missing_image() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_lab_up_invalid_manifest() -> Result<()> {
+async fn lab_preflight_002_an_invalid_manifest_is_refused() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_lab_admin(&server).await?;
@@ -1505,7 +1572,7 @@ async fn test_lab_up_invalid_manifest() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_lab_up_requires_auth() -> Result<()> {
+async fn access_control_001_an_unauthenticated_up_is_refused() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
 
@@ -1530,7 +1597,7 @@ async fn test_lab_up_requires_auth() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
+async fn lab_preflight_003_a_lab_id_already_in_use_is_refused() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_lab_admin(&server).await?;
@@ -1588,112 +1655,6 @@ async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
     );
 
     Ok(())
-}
-
-/// Run only on a disposable Sherpa host; see tests/specs/integration/current-user.md.
-#[tokio::test]
-#[ignore = "requires Linux VM image, host infrastructure and two explicit SSH key pairs"]
-async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
-    let private_key = std::env::var("SHERPA_GUEST_TEST_KEY")
-        .context("Set SHERPA_GUEST_TEST_KEY to the original private key path")?;
-    let rotated_key = std::env::var("SHERPA_GUEST_TEST_ROTATED_KEY")
-        .context("Set SHERPA_GUEST_TEST_ROTATED_KEY to a different private key path")?;
-    let public_key = fs::read_to_string(format!("{private_key}.pub"))?;
-    let rotated_public_key = fs::read_to_string(format!("{rotated_key}.pub"))?;
-    ensure!(
-        public_key.split_whitespace().nth(1) != rotated_public_key.split_whitespace().nth(1),
-        "Use distinct SSH key pairs"
-    );
-    let model =
-        std::env::var("SHERPA_GUEST_TEST_MODEL").unwrap_or_else(|_| "ubuntu_linux".to_owned());
-    let mut config = test_config()?;
-    if let Ok(images_dir) = std::env::var("SHERPA_GUEST_TEST_IMAGES_DIR") {
-        config.images_dir = images_dir;
-    }
-    let server = TestServer::start_with_config(config).await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-    let admin_token = ws.login_admin().await?;
-    bootstrap_images(&mut ws, &admin_token).await?;
-    let username = format!("guest{}", std::process::id());
-    let mut owner = db::create_user(
-        &server.db,
-        username.clone(),
-        TEST_ADMIN_PASSWORD,
-        false,
-        vec![public_key.trim().to_owned()],
-    )
-    .await?;
-    let owner_token = ws.login(&username, TEST_ADMIN_PASSWORD).await?;
-    let lab_id = format!("{:08x}", rand::random::<u32>());
-    ensure!(
-        db::get_lab(&server.db, &lab_id).await.is_err(),
-        "Acceptance lab ID is already in use"
-    );
-    let manifest = json!({ "name": lab_id, "nodes": [{ "name": "vm", "model": model }] });
-    db::set_device_password(&server.db, &db::get_user_id(&owner)?, TEST_DEVICE_PASSWORD).await?;
-    let timeout = Duration::from_mins(15);
-
-    // Return failures as errors so cleanup still runs when any check fails.
-    let checks: Result<()> = async {
-        let mut no_keys = owner.clone();
-        no_keys.ssh_keys.clear();
-        // `update_user` refuses a stale read, so each restore carries the version just written.
-        owner.updated_at = db::update_user(&server.db, no_keys).await?.updated_at;
-        let (_, rejected) = ws.rpc_call_streaming("up", json!({ "token": owner_token, "lab_id": lab_id, "manifest": manifest }), timeout).await?;
-        ensure!(rejected.get("error").is_some(), "Startup accepted an owner without keys");
-        ensure!(db::get_lab(&server.db, &lab_id).await.is_err(), "Rejected startup created a lab record");
-        owner = db::update_user(&server.db, owner.clone()).await?;
-        let (_, response) = ws.rpc_call_streaming("up", json!({ "token": owner_token, "lab_id": lab_id, "manifest": manifest, "username": "admin" }), timeout).await?;
-        ensure!(response.get("error").is_none(), "Startup failed: {response}");
-        ensure!(response["result"]["lab_info"]["user"] == username, "Client-spoofed username selected lab owner");
-        ensure!(response["result"]["lab_info"]["ssh_usernames"][0] == json!({"node_name": "vm", "username": username}), "Personal SSH metadata missing");
-        let lab = db::get_lab(&server.db, &lab_id).await?;
-        ensure!(Some(lab.user.clone()) == owner.id, "Database owner differs from authenticated creator");
-        let node = db::get_node_by_name_and_lab(&server.db, "vm", db::get_lab_id(&lab)?).await?;
-        let ip = node.mgmt_ipv4.context("VM management address missing")?;
-        let destination = format!("{username}@{ip}");
-
-        // Readiness only waits for the SSH port; cloud-init may still be writing accounts.
-        ensure!(wait_for_login(&destination, &private_key, timeout).await?, "Personal login/home/Bash/passwordless sudo failed");
-        let (_, admin_rejected) = ws.rpc_call_streaming("redeploy", json!({ "token": admin_token, "lab_id": lab_id, "node_name": "vm", "manifest": manifest, "username": username }), timeout).await?;
-        ensure!(admin_rejected["error"]["code"] == json!(RpcErrorCode::AccessDenied), "Non-owner admin was allowed to redeploy");
-        ensure!(ssh_login(&destination, &private_key).await?, "Denied admin redeploy affected the running guest");
-        let mut no_keys = owner.clone();
-        no_keys.ssh_keys.clear();
-        owner.updated_at = db::update_user(&server.db, no_keys).await?.updated_at;
-        let (_, rejected) = ws.rpc_call_streaming("redeploy", json!({ "token": owner_token, "lab_id": lab_id, "node_name": "vm", "manifest": manifest }), timeout).await?;
-        ensure!(rejected.get("error").is_some(), "Missing keys were accepted during redeploy");
-        ensure!(ssh_login(&destination, &private_key).await?, "Rejected redeploy tore down existing guest");
-
-        owner.ssh_keys = vec![rotated_public_key.trim().to_owned()];
-        db::update_user(&server.db, owner.clone()).await?;
-        let (_, stopped) = ws.rpc_call_streaming("down", json!({ "token": owner_token, "lab_id": lab_id }), timeout).await?;
-        ensure!(stopped.get("error").is_none(), "down failed: {stopped}");
-        let (statuses, resumed) = ws.rpc_call_streaming("resume", json!({ "token": owner_token, "lab_id": lab_id }), timeout).await?;
-        ensure!(resumed.get("error").is_none(), "resume failed: {resumed}");
-        // Resume waits for the cold-booted VM, as `up` does, and streams its progress.
-        ensure!(resumed["result"]["results"][0]["message"] == "Started and ready", "Resume did not wait for readiness: {resumed}");
-        ensure!(!statuses.is_empty(), "Resume streamed no readiness progress");
-        // Distinguish an unbooted guest from a key change before checking logins.
-        wait_for_ssh(&ip, timeout).await.context("Resumed VM did not accept SSH")?;
-        ensure!(ssh_login(&destination, &private_key).await?, "Resume replaced existing guest keys");
-        ensure!(!ssh_login(&destination, &rotated_key).await?, "Profile key was synchronized during resume");
-
-        let (_, redeployed) = ws.rpc_call_streaming("redeploy", json!({ "token": owner_token, "lab_id": lab_id, "node_name": "vm", "manifest": manifest }), timeout).await?;
-        ensure!(redeployed.get("error").is_none(), "Owner redeploy failed: {redeployed}");
-        ensure!(wait_for_login(&destination, &rotated_key, timeout).await?, "Redeploy did not provision owner's current keys");
-        ensure!(!ssh_login(&destination, &private_key).await?, "Redeploy retained removed owner key");
-        let refused = ws.rpc_call("download", json!({ "token": admin_token, "lab_id": lab_id })).await?;
-        ensure!(refused["error"]["code"] == json!(RpcErrorCode::AccessDenied), "An admin downloaded another user's lab files: {refused}");
-        let downloaded = ws.rpc_call("download", json!({ "token": owner_token, "lab_id": lab_id })).await?;
-        ensure!(downloaded.get("error").is_none(), "Owner configuration refresh failed: {downloaded}");
-        ensure!(downloaded["result"]["lab_info"]["ssh_usernames"][0] == json!({"node_name": "vm", "username": username}), "Refreshed configuration selected administrator");
-        let config = downloaded["result"]["ssh_config"].as_str().context("SSH config missing")?;
-        ensure!(config.contains(&format!("User {username}")) && !config.contains("IdentityFile") && !config.contains("IdentitiesOnly"), "Personal SSH config restricts local keys");
-        Ok(())
-    }.await;
-    let cleanup = cleanup_lab(&mut ws, &server, &owner_token, &lab_id, &checks).await;
-    with_cleanup(checks, cleanup)
 }
 
 /// A user with the test SSH key, which redeploy requires of the lab owner.
@@ -1808,7 +1769,7 @@ async fn check_redeploy_http(
 
 /// Database and local API sockets only; no VM, container or lab files are created.
 #[tokio::test]
-async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
+async fn access_control_002_only_the_labs_owner_can_redeploy_over_rpc_and_http() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     // A personal admin: the built-in `admin` account cannot redeploy at all.
