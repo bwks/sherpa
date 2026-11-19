@@ -230,10 +230,10 @@ host's VM images into each node, on the host:
 ```
 
 For each model and version in [`images.toml`](images.toml), the script asks the guest's server
-whether it has the image and skips it if so. Otherwise it copies
-`/opt/sherpa/images/<model>/<version>/virtioa.qcow2` from the host with rsync over the lab's
-`.sherpa/ssh/config` into `/var/tmp/sherpa-seed/` in the guest, imports it with the guest's
-`sherpa server image import`, and deletes the staged copy. An interrupted copy resumes on the
+whether it has the image and skips it if so. Otherwise it copies the entry's `source` under
+`/opt/sherpa/images` from the host with rsync over the lab's `.sherpa/ssh/config` into
+`/var/tmp/sherpa-seed/` in the guest, imports it with the guest's `sherpa server image import`,
+and deletes the staged copy. An interrupted copy resumes on the
 next run, and running it again only imports what is missing. An image the host does not have or
 that fails to import is reported, the rest go on, and the script exits with status 1. The
 guest's CLI is already logged in, so no password is needed. The first version imported for a
@@ -254,14 +254,15 @@ Some images need a file that an import does not bring: vEOS boots from the Aboot
 `/opt/sherpa/images/arista_eos/aboot_iso/aboot.iso` in the guest, and without it `sherpa up`
 fails for a VM `arista_eos` node. Each `[[images]]` entry in `images.toml` has a `model`, a
 `version` and a `source`, the disk's path under `/opt/sherpa/images` on the host. The source is
-its own key because a host before 0.7.0 keeps vEOS under `arista_veos/`, which the guest
-imports as `arista_eos`. `images.toml` lists the extra files under `[[extra_files]]`, each a
-`path` under `/opt/sherpa/images` in the guest and a `source` under `/opt/sherpa/images` on the
-host (still `arista_veos/aboot_iso/aboot.iso` on a host before 0.7.0). After the images, the
-script compares each file's SHA-256 on the host and in the guest and skips it when they match.
-Otherwise it copies the file through the same staging folder, checks the copy's SHA-256, and
-installs it at its `path` in the guest, owned by the
-guest's `sherpa` account and mode `644`, creating its folders as `sherpa`. Files are reported and
+its own key because the host runs a released Sherpa whose folder names can differ from the
+guest's model names. The sources follow the host's current folder names, which since its 0.7
+update match the models; when an update renames the host's folders, update the sources.
+`images.toml` lists the extra files under `[[extra_files]]`, each a `path` under
+`/opt/sherpa/images` in the guest and a `source` under `/opt/sherpa/images` on the host. After
+the images, the script compares each file's SHA-256 on the host and in the guest and skips it
+when they match. Otherwise it copies the file through the same staging folder, checks the
+copy's SHA-256, and installs it at its `path` in the guest, owned by the guest's `sherpa`
+account and mode `644`, creating its folders as `sherpa`. Files are reported and
 counted like the images: missing on the host, a failed copy or a checksum mismatch is a failure.
 
 Container images are not seeded: the host's `/opt/sherpa/images` holds no container image to
