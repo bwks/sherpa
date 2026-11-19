@@ -121,7 +121,9 @@ pub enum Command {
     },
     /// Put a task in the work item an issue, pull request or branch names. When the ref names
     /// no item it names the task's (or a new one); when it names another item than the task's,
-    /// the task's item is merged into it
+    /// the task's item is merged into it. With --pr it also sets the task's pull request: the
+    /// one whose Generation section counts it, over any the task named itself, the last link
+    /// winning
     Link {
         /// The bus to catch the record up from, for example `nats://192.0.2.1:4222`. Without
         /// it: `AGENT_BUS_URL`, then where `bus start` recorded the bus

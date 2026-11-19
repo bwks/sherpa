@@ -1207,7 +1207,7 @@ so cost can be read per item, not only per task.
 | `brief` | a `task`'s `work`, from `send --issue N --pr N [--repo R]` (both repeatable; the repository from `--repo`, else `AGENT_BUS_REPO`; never hard-coded) | the issues and pull requests |
 | `guest` | an outcome's `ended` | its branch, when not the default one, and each open pull request of the branch; then each open pull request of the branch each other checkout has checked out (`../sherpa-docs`, and every checkout the run worked in) |
 | `parsed` | an outcome without `ended` (an older guest, or a message recorded before `ended`): the Generation line at the top of its text | see below |
-| `manual` | `link` | the ref given |
+| `manual` | `link` | the ref given; in `task_ref` too when it is a pull request (`--pr`), not an issue or a branch |
 
 **The rules** (`store::work::apply`, run in the transaction that records the message):
 
@@ -1218,6 +1218,8 @@ so cost can be read per item, not only per task.
 - A ref that names no item yet then names the task's item. A ref that already names another
   item stays there: the task is not moved, the fact stays in `task_ref`, and `work show` lists
   it as a conflict, on both items. Only `link` merges items.
+- A `manual` ref takes over the task's `task_ref` row of the same ref, whatever its source; a
+  message never takes a row back from `manual`.
 - **The default branch is never a ref.** The guest leaves `branch` out on its repository's
   default (from `gh repo view --json nameWithOwner,defaultBranchRef`), and lists no pull
   requests then; otherwise every task that ended on `main` would be one item.
@@ -1273,7 +1275,7 @@ with neither, the branch is left out. Nor does it say which branch is the defaul
 | Command | What it does |
 |---|---|
 | `send --issue N --pr N [--repo R]` | tags the task; `--answer` refuses the tags |
-| `link <task> --issue N \| --pr N \| --branch B [--repo R]` | puts the task in the ref's item. The ref names no item: it names the task's item, or a new one when the task has none. The task has no item: it joins the ref's. Both have different items: the task's item is merged into the ref's (`merged_into` set, its refs and tasks moved), and the line says what moved |
+| `link <task> --issue N \| --pr N \| --branch B [--repo R]` | puts the task in the ref's item. The ref names no item: it names the task's item, or a new one when the task has none. The task has no item: it joins the ref's. Both have different items: the task's item is merged into the ref's (`merged_into` set, its refs and tasks moved), and the line says what moved. `--pr` also sets the task's pull request, in each of those cases and when the task is already in the item: a `task_ref` row of source `manual`, so it is the task's home (see [Which pull request counts what](#which-pull-request-counts-what)). Linking it again keeps it the home and adds no row |
 | `work show [--issue \| --pr \| --branch] [--repo R] [--json]` | one item: its refs with their source, its tasks with a total cost and the pull request that counts each (`#665`, `#665 †` when brought forward, `-` for none; `placement` in `--json`), its conflicts, the items merged into it, and the host's usage and time in it by pull request, with a `not in a pull request` row. Without a ref: every item, with its refs, task count, cost and last activity, then the host's active item in each session |
 | `work backfill [--repo R]` | parses the Generation line of every recorded outcome without `ended`, as catching up does for new ones; idempotent (every insert is `ON CONFLICT DO NOTHING`, and a task already in an item keeps it) |
 | `usage --issue \| --branch [--repo R]` | `usage`, limited to the item's tasks and the host's usage in it, headed by the item and its refs: the item's whole cost |
@@ -1316,7 +1318,7 @@ one that names another item is a conflict and is not used.
 |---|---|
 | One pull request | it is the task's **home**: its full cost is counted there |
 | A sherpa pull request and its docs one | home is the one in the host's repository (`AGENT_BUS_REPO`); the other shows a pointer row. A task whose pull requests are all in another repository has its home there |
-| Two in the same repository | by source, `manual` over `guest` over `parsed` over `brief`, then the one named last (highest `seq`), then the lowest; the other shows a pointer. `link` names one `manual` |
+| Two in the same repository | by source, `manual` over `guest` over `parsed` over `brief`, then the one named last (highest `seq`), then the lowest; the other shows a pointer. `link <task> --pr N` names one `manual`, at a `seq` one past the record's last message and the task's other refs, so the last link wins; it takes over a row a message named, so a link wins over the task's own `brief`, `parsed` or `guest` ref of the same pull request |
 | A review task that ended on `main` | only its `send --pr N` tag names it (`brief`): that is its home |
 | None (a design task, an investigation) | **brought forward** to the home of the item's next task, in the record's order, that has one, and marked there. Until there is one it is in no section, and `work show` shows `-` |
 
@@ -1593,8 +1595,8 @@ other cell empty, not in the total, and a line under the table saying so), then 
 the rows counted here. A section with no rows counted here but pointers (a docs pull request
 whose task is counted on its sherpa pull request) is the heading and one line, `Counted in
 bwks/sherpa#666.`, not a table of zeros. A pull request with no rows and no pointers, such as one
-added to the item by `link <task> --pr N --repo R` that no task reported (#57's
-`sherpa-docs#141` and `sherpa-k8s-lab#1`), gets the same line naming the item's pull requests
+added to the item by `link <task> --pr N --repo R` before `link` set the task's pull request
+(#717), which no task named (#57's `sherpa-docs#141` and `sherpa-k8s-lab#1`), gets the same line naming the item's pull requests
 that count its tasks or the host's work (`Counted in bwks/sherpa#664.`, several comma-separated);
 when none of them counts any work yet (only hand-linked pull requests, or tasks with no pull
 request to be brought forward to), the line is `No work of this item is counted in a pull

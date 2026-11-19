@@ -8,18 +8,20 @@
 //!   item; it keeps that item whatever its later messages say;
 //! - a ref that names no item yet names the task's item; one that names another item is left
 //!   there, a conflict that `work show` lists;
-//! - only `link` merges two items.
+//! - only `link` merges two items;
+//! - `link --pr` names the pull request `manual` in `task_ref` too, so it is the task's own.
 
 use anyhow::{Context, Result, bail};
 use tracing::instrument;
 use turso::{Connection, Row, Value};
 
+use crate::message::RefKind;
 use crate::store::cells::{Cells, integer};
 use crate::store::facts::{Facts, Ref, Source, parse_generation_line};
 use crate::store::sql::{
     FIND_REF_WORK, FIND_TASK, FIND_TASK_WORK, INSERT_TASK_REF, INSERT_TASK_WORK, INSERT_WORK_ITEM,
     INSERT_WORK_REF, ITEM_REFS, ITEM_TASKS, MERGE_WORK_ITEM, MOVE_HOST_FOCUS, MOVE_HOST_USAGE,
-    MOVE_TASK_WORK, MOVE_WORK_REFS, UNREPORTED_OUTCOMES,
+    MOVE_TASK_WORK, MOVE_WORK_REFS, NEXT_LINK_SEQ, UNREPORTED_OUTCOMES,
 };
 
 /// What applying one message's facts changed.
@@ -80,24 +82,9 @@ pub async fn apply(
     seq: u64,
     at_ms: u64,
 ) -> Result<Applied> {
-    let source = facts.source.as_str();
     let mut applied = Applied::default();
     for named in &facts.refs {
-        let inserted = conn
-            .execute(
-                INSERT_TASK_REF,
-                vec![
-                    Value::Text(task.to_owned()),
-                    Value::Text(named.repo.clone()),
-                    Value::Text(named.kind.as_str().to_owned()),
-                    Value::Text(named.name.clone()),
-                    Value::Text(source.to_owned()),
-                    integer(seq),
-                ],
-            )
-            .await
-            .context("Unable to record a ref of the task")?;
-        applied.new_refs += inserted;
+        applied.new_refs += record_ref(conn, task, named, facts.source, seq).await?;
     }
     let item = if let Some(item) = task_item(conn, task).await? {
         item
@@ -140,7 +127,10 @@ pub async fn item_for(conn: &Connection, target: &Ref, at_ms: u64) -> Result<i64
 }
 
 /// Put `task` in the item `target` names, as a person asked: a new item when neither the task
-/// nor the ref has one, and the task's item merged into the ref's when they differ.
+/// nor the ref has one, and the task's item merged into the ref's when they differ. A pull
+/// request is also the task's own, `manual` in `task_ref`, named after every message so far
+/// and every earlier link: the task's home, unless another of its own is in the host's
+/// repository and this one is not.
 ///
 /// # Errors
 ///
@@ -202,6 +192,21 @@ pub async fn link(conn: &mut Connection, task: &str, target: &Ref, at_ms: u64) -
             }
         }
     };
+    if target.kind == RefKind::PullRequest {
+        let mut rows = tx
+            .query(NEXT_LINK_SEQ, vec![Value::Text(task.to_owned())])
+            .await
+            .context("Unable to read the last sequence of the record")?;
+        let seq = first_integer(
+            rows.next()
+                .await
+                .context("Unable to read the last sequence of the record")?,
+        )?
+        .context("No sequence for the link")?;
+        drop(rows);
+        let seq = u64::try_from(seq).context("A negative sequence")?;
+        record_ref(&tx, task, target, Source::Manual, seq).await?;
+    }
     tx.commit().await.context("Unable to commit the link")?;
     Ok(linked)
 }
@@ -276,6 +281,30 @@ pub async fn ref_item(conn: &Connection, named: &Ref) -> Result<Option<i64>> {
             .await
             .context("Unable to read the item of a ref")?,
     )
+}
+
+/// Keep that `task` named `named`, from `source` in the message at `seq`: 1 when it had not
+/// named it before, or when `source` is `manual` and takes the row over.
+async fn record_ref(
+    conn: &Connection,
+    task: &str,
+    named: &Ref,
+    source: Source,
+    seq: u64,
+) -> Result<u64> {
+    conn.execute(
+        INSERT_TASK_REF,
+        vec![
+            Value::Text(task.to_owned()),
+            Value::Text(named.repo.clone()),
+            Value::Text(named.kind.as_str().to_owned()),
+            Value::Text(named.name.clone()),
+            Value::Text(source.as_str().to_owned()),
+            integer(seq),
+        ],
+    )
+    .await
+    .context("Unable to record a ref of the task")
 }
 
 /// The item `task` is in, if any.
@@ -397,8 +426,10 @@ async fn item_refs(conn: &Connection, item: i64) -> Result<Vec<Ref>> {
 mod tests {
     use super::*;
 
+    use crate::generation::placement::{Placement, PullRequestId};
     use crate::message::{Ended, Kind, Message, PullRequestRef, RefKind, Work, WorkRef};
     use crate::store::database::Store;
+    use crate::store::generation::placements;
     use crate::store::items::{self, Item};
     use crate::store::task::Recorded;
     use crate::store::write::record;
@@ -442,6 +473,19 @@ mod tests {
 
         async fn task_item(&self, task: &str) -> Option<i64> {
             task_item(&self.conn, task).await.unwrap()
+        }
+
+        /// Where `task` is counted.
+        async fn placement(&self, task: &str) -> Placement {
+            let placements = placements(&self.conn, Some(REPO)).await.unwrap();
+            placements.task(task).unwrap().1.clone()
+        }
+
+        /// `link <task> --pr <number>`, in the host's repository.
+        async fn link_pr(&mut self, task: &str, number: u64) -> Linked {
+            link(&mut self.conn, task, &pull_request(REPO, number), 99_000)
+                .await
+                .unwrap()
         }
 
         async fn count(&self, table: &str) -> i64 {
@@ -724,6 +768,137 @@ mod tests {
             .await
             .unwrap_err();
         assert!(error.to_string().contains("no task 'nope'"), "{error}");
+    }
+
+    fn home(number: u64) -> Placement {
+        Placement {
+            pull_request: Some(PullRequestId {
+                repo: REPO.to_owned(),
+                number,
+            }),
+            brought_forward: false,
+            elsewhere: Vec::new(),
+        }
+    }
+
+    fn home_and(number: u64, elsewhere: &[u64]) -> Placement {
+        Placement {
+            elsewhere: elsewhere
+                .iter()
+                .map(|other| PullRequestId {
+                    repo: REPO.to_owned(),
+                    number: *other,
+                })
+                .collect(),
+            ..home(number)
+        }
+    }
+
+    #[tokio::test]
+    async fn link_pr_makes_the_pull_request_the_task_s_home() {
+        let mut bench = Bench::new().await;
+        // t1 of issue 1 named no pull request: it is brought forward to t2's.
+        bench.record(&task("t1", &[(RefKind::Issue, 1)])).await;
+        bench.record(&task("t2", &[(RefKind::Issue, 1)])).await;
+        bench
+            .record(&outcome(
+                "t2",
+                "done",
+                Some(ended_on(Some("feat/one"), &[(REPO, 9)])),
+            ))
+            .await;
+        assert!(bench.placement("t1").await.brought_forward);
+
+        // Named: #8 names no item, so it names t1's, and is t1's.
+        let one = bench.item(&issue(1)).await.id;
+        assert_eq!(bench.link_pr("t1", 8).await, Linked::Named { item: one });
+        assert_eq!(bench.placement("t1").await, home(8));
+        assert_eq!(bench.placement("t2").await, home(9));
+
+        // Created and assigned: a task without an item.
+        bench.record(&task("t3", &[])).await;
+        bench.record(&task("t4", &[])).await;
+        assert!(matches!(
+            bench.link_pr("t3", 20).await,
+            Linked::Created { .. }
+        ));
+        assert!(matches!(
+            bench.link_pr("t4", 20).await,
+            Linked::Assigned { .. }
+        ));
+        assert_eq!(bench.placement("t3").await, home(20));
+        assert_eq!(bench.placement("t4").await, home(20));
+
+        // Merged: t5's item goes into #9's, and #9 is t5's.
+        bench.record(&task("t5", &[(RefKind::Issue, 5)])).await;
+        assert!(matches!(
+            bench.link_pr("t5", 9).await,
+            Linked::Merged { .. }
+        ));
+        assert_eq!(bench.placement("t5").await, home(9));
+
+        // --issue and --branch name no pull request of the task.
+        bench.record(&task("t6", &[])).await;
+        link(&mut bench.conn, "t6", &issue(6), 1).await.unwrap();
+        link(&mut bench.conn, "t6", &branch("feat/one"), 1)
+            .await
+            .unwrap();
+        assert_eq!(bench.placement("t6").await, Placement::default());
+    }
+
+    #[tokio::test]
+    async fn link_pr_sets_the_home_of_a_task_already_in_the_pull_request_s_item() {
+        let mut bench = Bench::new().await;
+        bench.record(&task("t1", &[(RefKind::Issue, 1)])).await;
+        for (id, number) in [("t2", 9), ("t3", 10)] {
+            bench.record(&task(id, &[(RefKind::Issue, 1)])).await;
+            bench
+                .record(&outcome(
+                    id,
+                    "done",
+                    Some(ended_on(None, &[(REPO, number)])),
+                ))
+                .await;
+        }
+        let one = bench.item(&issue(1)).await.id;
+        // t1 is brought forward to #9, the next task's.
+        assert_eq!(
+            bench.placement("t1").await.pull_request,
+            home(9).pull_request
+        );
+        assert_eq!(bench.link_pr("t1", 10).await, Linked::Already { item: one });
+        assert_eq!(bench.placement("t1").await, home(10));
+        // Linking again changes nothing.
+        let refs = bench.count("task_ref").await;
+        assert_eq!(bench.link_pr("t1", 10).await, Linked::Already { item: one });
+        assert_eq!(bench.placement("t1").await, home(10));
+        assert_eq!(bench.count("task_ref").await, refs);
+    }
+
+    #[tokio::test]
+    async fn the_last_link_pr_wins_over_earlier_links_and_every_other_source() {
+        let mut bench = Bench::new().await;
+        // Tagged --pr 9 at send (`brief`), and reported #10 (`guest`): #10 is its home.
+        bench
+            .record(&task("t1", &[(RefKind::PullRequest, 9)]))
+            .await;
+        bench
+            .record(&outcome("t1", "done", Some(ended_on(None, &[(REPO, 10)]))))
+            .await;
+        assert_eq!(bench.placement("t1").await, home_and(10, &[9]));
+        // A link names `manual`, over `guest` and `brief`.
+        bench.link_pr("t1", 9).await;
+        assert_eq!(bench.placement("t1").await, home_and(9, &[10]));
+        // The last link wins, with no message between the links.
+        bench.link_pr("t1", 11).await;
+        assert_eq!(bench.placement("t1").await, home_and(11, &[9, 10]));
+        bench.link_pr("t1", 9).await;
+        assert_eq!(bench.placement("t1").await, home_and(9, &[10, 11]));
+        // A later message does not take it back.
+        bench
+            .record(&outcome("t1", "done", Some(ended_on(None, &[(REPO, 10)]))))
+            .await;
+        assert_eq!(bench.placement("t1").await, home_and(9, &[10, 11]));
     }
 
     /// The three Generation lines an older guest wrote, one task each.

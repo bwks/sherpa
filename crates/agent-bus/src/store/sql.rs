@@ -24,6 +24,7 @@ pub const FIND_TASK_WORK: &str = include_str!("../../sql/queries/find_task_work.
 pub const INSERT_WORK_ITEM: &str = include_str!("../../sql/queries/insert_work_item.sql");
 pub const INSERT_WORK_REF: &str = include_str!("../../sql/queries/insert_work_ref.sql");
 pub const INSERT_TASK_REF: &str = include_str!("../../sql/queries/insert_task_ref.sql");
+pub const NEXT_LINK_SEQ: &str = include_str!("../../sql/queries/next_link_seq.sql");
 pub const INSERT_TASK_WORK: &str = include_str!("../../sql/queries/insert_task_work.sql");
 pub const MERGE_WORK_ITEM: &str = include_str!("../../sql/queries/merge_work_item.sql");
 pub const MOVE_WORK_REFS: &str = include_str!("../../sql/queries/move_work_refs.sql");
@@ -86,6 +87,7 @@ pub const QUERIES: &[(&str, &str)] = &[
     ("insert_work_item.sql", INSERT_WORK_ITEM),
     ("insert_work_ref.sql", INSERT_WORK_REF),
     ("insert_task_ref.sql", INSERT_TASK_REF),
+    ("next_link_seq.sql", NEXT_LINK_SEQ),
     ("insert_task_work.sql", INSERT_TASK_WORK),
     ("merge_work_item.sql", MERGE_WORK_ITEM),
     ("move_work_refs.sql", MOVE_WORK_REFS),
