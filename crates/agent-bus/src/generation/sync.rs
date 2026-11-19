@@ -701,11 +701,28 @@ esac
         }
 
         /// `agent-bus link <task> --pr <number> --repo <repo>`: the pull request names the
-        /// task's item, and no task names it.
+        /// task's item, and the task names it.
         async fn link(&self, task: &str, repo: &str, number: u64) {
             let mut opened = Record::open_recorded(&self.paths, LOCK_WAIT).await.unwrap();
             let target = Ref::new(repo, RefKind::PullRequest, number.to_string());
             link(opened.conn_mut(), task, &target, NOW).await.unwrap();
+            self.view(number, "Body", "OPEN");
+        }
+
+        /// The pull request names `task`'s item and no task names it, as `link` left it
+        /// before #717.
+        async fn name_item(&self, task: &str, repo: &str, number: u64) {
+            let opened = Record::open_recorded(&self.paths, LOCK_WAIT).await.unwrap();
+            opened
+                .conn()
+                .execute(
+                    "INSERT INTO work_ref (repo, kind, ref, work, source, at_ms) \
+                     SELECT ?1, 'pull_request', ?2, work, 'manual', ?3 \
+                     FROM task_work WHERE task = ?4",
+                    (repo, number.to_string(), 1, task),
+                )
+                .await
+                .unwrap();
             self.view(number, "Body", "OPEN");
         }
 
@@ -1498,16 +1515,16 @@ esac
     const LAB: &str = "o/k8s-lab";
 
     #[tokio::test]
-    async fn a_pull_request_linked_by_hand_names_the_pull_requests_that_count_its_item() {
+    async fn a_pull_request_no_task_named_names_the_pull_requests_that_count_its_item() {
         // t1 counted on #7 and t2 of the same branch on #9; a docs and a third repository's
-        // pull request added to the item by `link`, which no task reported.
+        // pull request that name the item, which no task named (`link` before #717).
         let mut bench = Bench::new("linked").await;
         bench.message(&task("t2"), NOW + 9 * MINUTE).await;
         bench.outcome("t2", 1, 0.25, NOW + 10 * MINUTE, &[9]).await;
         bench.view(9, "Body", "OPEN");
         bench.host("m1", NOW + 5 * MINUTE, "standard").await;
-        bench.link("t1", DOCS, 141).await;
-        bench.link("t1", LAB, 1).await;
+        bench.name_item("t1", DOCS, 141).await;
+        bench.name_item("t1", LAB, 1).await;
         bench.sync(Scope::All, true, NOW + 30 * MINUTE).await;
         for number in [141, 1] {
             let body = fs::read_to_string(bench.dir.join(format!("body-{number}.md"))).unwrap();
@@ -1525,15 +1542,15 @@ esac
     }
 
     #[tokio::test]
-    async fn an_item_with_only_pull_requests_linked_by_hand_says_none_counts_its_work_yet() {
+    async fn an_item_with_only_pull_requests_no_task_named_says_none_counts_its_work_yet() {
         // A task of issue 648 that ended on the default branch, with no pull request to count
-        // it on, and a pull request added to its item by `link`.
+        // it on, and a pull request that names its item, which no task named.
         let mut bench = Bench::new("linked-only").await;
         bench.message(&tagged("d1"), NOW).await;
         bench
             .message(&done("d1", 1.5, None, &[]), NOW + 5 * MINUTE)
             .await;
-        bench.link("d1", LAB, 2).await;
+        bench.name_item("d1", LAB, 2).await;
         bench.sync(Scope::All, true, NOW + 30 * MINUTE).await;
         let body = fs::read_to_string(bench.dir.join("body-2.md")).unwrap();
         let section = section_of(&body).unwrap().unwrap();
@@ -1545,5 +1562,29 @@ esac
         );
         assert!(!section.contains("**Total**"), "{body}");
         assert_eq!(edited_rows(&bench, 2), (vec![], vec![]));
+    }
+
+    #[tokio::test]
+    async fn a_pull_request_linked_by_hand_counts_the_task() {
+        // d1 ended on the default branch, with no pull request; `link d1 --pr 2` makes #2 its
+        // own, and t1, counted on #7, points from the docs pull request it is linked to.
+        let mut bench = Bench::new("linked-counts").await;
+        bench.message(&tagged("d1"), NOW).await;
+        bench
+            .message(&done("d1", 1.5, None, &[]), NOW + 5 * MINUTE)
+            .await;
+        bench.link("d1", LAB, 2).await;
+        bench.link("t1", DOCS, 141).await;
+        bench.sync(Scope::All, true, NOW + 30 * MINUTE).await;
+        let body = fs::read_to_string(bench.dir.join("body-2.md")).unwrap();
+        let section = section_of(&body).unwrap().unwrap();
+        assert!(section.contains("**Total**"), "{body}");
+        assert_eq!(edited_rows(&bench, 2).0.len(), 1, "{body}");
+        let body = fs::read_to_string(bench.dir.join("body-141.md")).unwrap();
+        let section = section_of(&body).unwrap().unwrap();
+        assert!(
+            section.contains("## Generation\n\nCounted in o/r#7.\n\n"),
+            "{body}"
+        );
     }
 }
