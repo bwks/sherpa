@@ -2,8 +2,9 @@
 # imports with the guest's `sherpa server image import`. Each entry is a model and a version, as
 # in `sherpa server image list` in the guest, and `source`, the disk's path under
 # /opt/sherpa/images on the host. The source is its own key, not derived from the model, because
-# the host runs a released Sherpa whose model and folder names can differ from the guest's: a
-# host before 0.7.0 keeps vEOS under arista_veos/, which the guest imports as arista_eos.
+# the host runs a released Sherpa whose folder names can differ from the guest's model names.
+# Sources follow the host's current folder names (0.7.x, the same as the models today); when the
+# host's update renames its folders, update the sources to match.
 # The first version imported for a model becomes its default, so list the default first.
 # Container images are not here: the host keeps them in Docker, not in /opt/sherpa/images
 # (see README.md).
@@ -25,7 +26,7 @@ source = "alpine_linux/3.23.0/virtioa.qcow2"
 [[images]]
 model = "arista_eos"
 version = "4.35.3F"
-source = "arista_veos/4.35.3F/virtioa.qcow2"
+source = "arista_eos/4.35.3F/virtioa.qcow2"
 
 [[images]]
 model = "aruba_aoscx"
@@ -40,42 +41,42 @@ source = "centos_linux/10-20261021.0/virtioa.qcow2"
 [[images]]
 model = "cisco_asa"
 version = "9-23-1"
-source = "cisco_asav/9-23-1/virtioa.qcow2"
+source = "cisco_asa/9-23-1/virtioa.qcow2"
 
 [[images]]
 model = "cisco_cat8000"
 version = "17.16.01a"
-source = "cisco_cat8000v/17.16.01a/virtioa.qcow2"
+source = "cisco_cat8000/17.16.01a/virtioa.qcow2"
 
 [[images]]
 model = "cisco_cat9000"
 version = "17.15.03"
-source = "cisco_cat9000v/17.15.03/virtioa.qcow2"
+source = "cisco_cat9000/17.15.03/virtioa.qcow2"
 
 [[images]]
 model = "cisco_csr1000"
 version = "17.03.08a"
-source = "cisco_csr1000v/17.03.08a/virtioa.qcow2"
+source = "cisco_csr1000/17.03.08a/virtioa.qcow2"
 
 [[images]]
 model = "cisco_ftd"
 version = "7.7.0-89"
-source = "cisco_ftdv/7.7.0-89/virtioa.qcow2"
+source = "cisco_ftd/7.7.0-89/virtioa.qcow2"
 
 [[images]]
 model = "cisco_ios"
 version = "159-3.m10"
-source = "cisco_iosv/159-3.m10/virtioa.qcow2"
+source = "cisco_ios/159-3.m10/virtioa.qcow2"
 
 [[images]]
 model = "cisco_iosl2"
 version = "20200929"
-source = "cisco_iosvl2/20200929/virtioa.qcow2"
+source = "cisco_iosl2/20200929/virtioa.qcow2"
 
 [[images]]
 model = "cisco_iosxr9000"
 version = "25.1.1"
-source = "cisco_iosxrv9000/25.1.1/virtioa.qcow2"
+source = "cisco_iosxr9000/25.1.1/virtioa.qcow2"
 
 [[images]]
 model = "cisco_ise"
@@ -85,7 +86,7 @@ source = "cisco_ise/3.5.0/virtioa.qcow2"
 [[images]]
 model = "cisco_nexus9300"
 version = "10.5.3.F"
-source = "cisco_nexus9300v/10.5.3.F/virtioa.qcow2"
+source = "cisco_nexus9300/10.5.3.F/virtioa.qcow2"
 
 [[images]]
 model = "cumulus_linux"
@@ -130,22 +131,22 @@ source = "jenkins_server/2.541.3/virtioa.qcow2"
 [[images]]
 model = "juniper_evolved"
 version = "25.2R1.8"
-source = "juniper_vevolved/25.2R1.8/virtioa.qcow2"
+source = "juniper_evolved/25.2R1.8/virtioa.qcow2"
 
 [[images]]
 model = "juniper_router"
 version = "25.2R1.9"
-source = "juniper_vrouter/25.2R1.9/virtioa.qcow2"
+source = "juniper_router/25.2R1.9/virtioa.qcow2"
 
 [[images]]
 model = "juniper_srxv3"
 version = "23.2R2.21"
-source = "juniper_vsrxv3/23.2R2.21/virtioa.qcow2"
+source = "juniper_srxv3/23.2R2.21/virtioa.qcow2"
 
 [[images]]
 model = "juniper_switch"
 version = "25.2R1.9"
-source = "juniper_vswitch/25.2R1.9/virtioa.qcow2"
+source = "juniper_switch/25.2R1.9/virtioa.qcow2"
 
 [[images]]
 model = "kali_linux"
@@ -240,4 +241,4 @@ source = "windows_server/2022-20261026/virtioa.qcow2"
 # vEOS boots from the Aboot ISO; without it `sherpa up` fails for an arista_eos virtual machine.
 [[extra_files]]
 path = "arista_eos/aboot_iso/aboot.iso"
-source = "arista_veos/aboot_iso/aboot.iso"
+source = "arista_eos/aboot_iso/aboot.iso"

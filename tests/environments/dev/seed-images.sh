@@ -18,8 +18,8 @@
 # account.
 #
 # The host path is each entry's own, not derived from the model or the guest path, so a host on a
-# release with other model names (before 0.7.0, `arista_veos` for `arista_eos`) seeds a newer
-# guest unchanged.
+# release whose folder names differ from the guest's model names still seeds it. The sources in
+# images.toml follow the host's current folder names.
 #
 # Everything goes over the lab's own .sherpa/ssh/config, alias `<node>` or `<node>.<lab id>`,
 # through one shared SSH connection. An image or file that is missing on the host or fails to
