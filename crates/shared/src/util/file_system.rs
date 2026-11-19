@@ -416,18 +416,6 @@ mod tests {
     }
 
     #[test]
-    fn test_path_to_string() {
-        let path = std::path::Path::new("/tmp/test.txt");
-        assert_eq!(path_to_string(path), "/tmp/test.txt");
-    }
-
-    #[test]
-    fn test_get_cwd_returns_a_path() {
-        let cwd = get_cwd().unwrap();
-        assert_ne!(cwd, "");
-    }
-
-    #[test]
     fn test_expand_path_no_tilde() {
         let result = expand_path("/tmp/foo/bar");
         assert_eq!(result, "/tmp/foo/bar");

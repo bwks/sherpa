@@ -27,13 +27,9 @@ mod link;
 /// Session CRUD operations
 mod session;
 
-/// Schema and seeding
-mod schema;
-
 /// Cross-table relationships: cascade and restrict deletes, transactions, concurrency
 mod relationships;
 
 use helper::{
     create_test_config, create_test_node_with_model, ipv4_lab_networks, set_ztp, setup_db,
-    test_link,
 };

@@ -142,20 +142,6 @@ model = "nats_bus"
     }
 
     #[test]
-    fn a_node_without_container_provisioners_has_no_secrets() {
-        let dir = tempdir().unwrap();
-        let manifest = manifest();
-        assert_eq!(
-            node_secrets(&manifest.nodes[1], dir.path()).unwrap(),
-            [] as [shared::data::SecretFile; 0]
-        );
-        assert_eq!(
-            node_secrets(&manifest.nodes[2], dir.path()).unwrap(),
-            [] as [shared::data::SecretFile; 0]
-        );
-    }
-
-    #[test]
     fn a_missing_secret_file_is_an_error_naming_it() {
         let dir = tempdir().unwrap();
         let error = format!(

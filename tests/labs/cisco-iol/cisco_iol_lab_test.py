@@ -507,8 +507,7 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(configured_addresses(config), {"172.31.1.21", "10.47.0.1"})
 
     def test_the_host_link_is_set_to_iol_mtu(self):
-        self.assertIn(f"mtu {IOL_MTU}", host_script())
-        self.assertEqual(IOL_MTU, 1500)
+        self.assertIn("mtu 1500 ", host_script())
 
     def test_ssh_banners_are_read_per_target(self):
         output = "10.47.1.1 SSH-2.0-Cisco-1.25\n10.47.0.2\n"

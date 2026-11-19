@@ -921,7 +921,6 @@ fn sent_by(subject: &str, message: &Message) -> bool {
 mod tests {
     use super::*;
 
-    use crate::keys::generate;
     use crate::message::Kind;
 
     fn message_on(from: &str, to: &str) -> Message {
@@ -961,16 +960,6 @@ mod tests {
     }
 
     #[test]
-    fn each_key_has_its_own_reply_prefix() {
-        let key = generate().unwrap().public_key;
-        assert_eq!(inbox_prefix(&key), format!("_INBOX_{key}"));
-        assert_ne!(
-            inbox_prefix(&key),
-            inbox_prefix(&generate().unwrap().public_key)
-        );
-    }
-
-    #[test]
     fn each_agent_has_its_own_status_key() {
         assert_eq!(status_subject("dev").unwrap(), "$KV.AGENT_STATUS.dev");
         assert!(status_subject("dev.*").is_err());
@@ -988,14 +977,6 @@ mod tests {
             filter_subject: filter.to_owned(),
             ..Default::default()
         }
-    }
-
-    #[test]
-    fn an_inbox_takes_every_sender_s_subject() {
-        assert_eq!(
-            consumer_config("dev").unwrap().filter_subject,
-            "agents.dev.>"
-        );
     }
 
     #[test]

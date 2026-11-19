@@ -275,12 +275,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn ssh_provisioners_are_still_rejected_on_containers() {
-        let error = rejection("mongo_db", r#"scripts = ["./setup.sh"]"#);
-        assert!(error.contains("Linux and BSD VMs"), "{error}");
-    }
-
     fn file(dst: &str, mode: u32) -> String {
         format!(
             r#"

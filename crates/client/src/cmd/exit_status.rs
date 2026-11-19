@@ -61,12 +61,6 @@ mod tests {
     }
 
     #[test]
-    fn cpu_pin_text_alone_does_not_make_a_refusal() {
-        let error = anyhow::anyhow!("CPU pinning validation failed: Host CPU 2 is held");
-        assert_eq!(exit_status(&error), FAILED);
-    }
-
-    #[test]
     fn other_server_errors_exit_1() {
         for code in [
             RpcErrorCode::ServerError,
@@ -78,9 +72,13 @@ mod tests {
     }
 
     #[test]
-    fn memory_text_alone_does_not_make_a_refusal() {
-        let error = anyhow::anyhow!("Memory admission failed: Not enough memory on the server");
-        assert_eq!(exit_status(&error), FAILED);
+    fn refusal_text_alone_does_not_make_a_refusal() {
+        for text in [
+            "Memory admission failed: Not enough memory on the server",
+            "CPU pinning validation failed: Host CPU 2 is held",
+        ] {
+            assert_eq!(exit_status(&anyhow::anyhow!(text)), FAILED, "{text}");
+        }
     }
 
     #[test]

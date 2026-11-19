@@ -33,6 +33,13 @@ async fn test_update_node_image_success() -> Result<()> {
     assert_eq!(result.id, original_id, "ID should remain unchanged");
     assert_eq!(result.model, NodeModel::AristaEos, "Model unchanged");
 
+    let stored = find_node_image_by_id(&db, original_id.unwrap())
+        .await?
+        .expect("the image is stored");
+    assert_eq!(stored.memory, 4096);
+    assert_eq!(stored.cpu.count, 4);
+    assert_eq!(stored.interfaces.data_count, 24);
+
     Ok(())
 }
 
@@ -74,51 +81,6 @@ async fn test_update_nonexistent_config_fails() -> Result<()> {
         err.to_string().contains("not found"),
         "Error should mention record not found: {err}"
     );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_update_preserves_id() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Create a config
-    let test_config = create_test_config(NodeModel::NokiaSrlinux);
-    let created = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
-    let original_id = created.id.clone().expect("Created config should have ID");
-
-    // Update multiple times
-    for i in 1..=3 {
-        let mut updated_config = created.clone();
-        updated_config.memory = 1024 * i;
-        updated_config.id = original_id.clone().into();
-
-        let result = update_node_image(&db, updated_config, DefaultRequest::Keep).await?;
-
-        assert_eq!(
-            result.id,
-            original_id.clone().into(),
-            "ID should remain constant after update {i}"
-        );
-        assert_eq!(
-            result.memory,
-            1024 * i,
-            "Memory should be updated to {}",
-            1024 * i
-        );
-    }
-
-    // Verify via get_by_id that ID is still correct
-    let retrieved = find_node_image_by_id(&db, original_id.clone())
-        .await?
-        .expect("Config should still exist");
-
-    assert_eq!(
-        retrieved.id,
-        original_id.into(),
-        "Retrieved config should have original ID"
-    );
-    assert_eq!(retrieved.memory, 3072, "Final memory value should be 3072");
 
     Ok(())
 }

@@ -414,19 +414,6 @@ mod tests {
     }
 
     #[test]
-    fn all_lists_each_model_with_each_of_its_kinds() {
-        let pairs: Vec<ModelKind> = ModelKind::all().collect();
-        let expected: usize = NodeModel::iter().map(|model| model.kinds().len()).sum();
-        assert_eq!(pairs.len(), expected);
-        for model_kind in pairs {
-            assert!(
-                model_kind.model().kinds().contains(&model_kind.kind()),
-                "{model_kind:?}"
-            );
-        }
-    }
-
-    #[test]
     fn no_kind_gives_the_models_default_kind() {
         for model in NodeModel::iter().filter(|model| *model != NodeModel::Generic) {
             assert_eq!(

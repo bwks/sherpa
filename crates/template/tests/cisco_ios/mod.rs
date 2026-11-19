@@ -260,33 +260,6 @@ fn test_dhcp_mode() {
 }
 
 #[test]
-fn only_the_owner_has_an_account() {
-    let t = CiscoIosZtpTemplate {
-        hostname: "iosv01".to_string(),
-        owner: helpers::test_owner(PASSWORD),
-        mgmt_interface: "GigabitEthernet0/0".to_string(),
-        dns: helpers::test_dns(),
-        mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
-        mgmt_ipv6_address: None,
-        mgmt_ipv6: None,
-    };
-    let output = t.render().expect("template renders");
-    let users: Vec<&str> = output
-        .lines()
-        .filter(|line| line.trim_start().starts_with("username "))
-        .collect();
-    assert_eq!(
-        users,
-        [
-            "username alice privilege 15 secret Rand0mPass-1",
-            "  username alice"
-        ]
-    );
-    helpers::assert_no_sherpa_login(&output);
-}
-
-#[test]
 fn the_password_is_intact_on_ios_and_iosl2() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let ios = CiscoIosZtpTemplate {

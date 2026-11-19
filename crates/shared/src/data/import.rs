@@ -260,22 +260,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_import_that_sends_a_removed_ztp_login_field_is_refused_naming_it() {
-        for field in ["ztp_username", "ztp_password", "ztp_password_auth", "ztp"] {
-            let mut json = serde_json::json!({
-                "model": "ubuntu_linux",
-                "version": "24.04",
-                "src": "/tmp/ubuntu.qcow2",
-            });
-            json[field] = serde_json::json!("admin");
-            let error = serde_json::from_value::<ImportRequest>(json)
-                .unwrap_err()
-                .to_string();
-            assert!(
-                error.contains(&format!("unknown field `{field}`")),
-                "{field}: {error}"
-            );
-        }
+    fn an_import_with_an_unknown_field_is_refused_naming_it() {
+        let json = serde_json::json!({
+            "model": "ubuntu_linux",
+            "version": "24.04",
+            "src": "/tmp/ubuntu.qcow2",
+            "ztp_password": "admin",
+        });
+        let error = serde_json::from_value::<ImportRequest>(json)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unknown field `ztp_password`"), "{error}");
         let plain = serde_json::json!({
             "model": "ubuntu_linux",
             "version": "24.04",

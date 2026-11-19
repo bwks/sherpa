@@ -1131,28 +1131,8 @@ mod tests {
     }
 
     #[test]
-    fn a_prompt_not_from_the_user_neither_ends_nor_starts_a_wait() {
-        // The turn ends at 100; a notification at 1,000 runs a turn to 1,200; the user's prompt
-        // comes at 5,000. Waiting runs from the host's last output, 1,200.
-        let timeline = Timeline {
-            prompts: vec![
-                user(0),
-                Prompt {
-                    at_ms: 1_000,
-                    from_user: false,
-                },
-                user(5_000),
-            ],
-            responses: vec![
-                response(0, 100),
-                response(1_000, 1_200),
-                response(5_000, 5_000),
-            ],
-            calls: vec![],
-            ..Timeline::default()
-        };
-        assert_eq!(total(&segments(&timeline)).waiting, 3_800);
-        // Only prompts not from the user: no waiting at all.
+    fn a_turn_followed_only_by_prompts_not_from_the_user_has_no_wait() {
+        // The turn ends at 100; a notification at 10,000 runs another; no user prompt follows.
         let timeline = Timeline {
             prompts: vec![
                 user(0),

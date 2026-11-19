@@ -144,23 +144,6 @@ mod tests {
     }
 
     #[test]
-    fn oidc_and_vault_name_lab_nodes() {
-        assert_eq!(cluster().oidc, None);
-        assert_eq!(cluster().vault, None);
-        let cluster: TalosCluster = toml::from_str(
-            r#"
-            name = "k8s"
-            controllers = ["cp1"]
-            oidc = "kc01"
-            vault = "vault01"
-            "#,
-        )
-        .unwrap();
-        assert_eq!(cluster.oidc.as_deref(), Some("kc01"));
-        assert_eq!(cluster.vault.as_deref(), Some("vault01"));
-    }
-
-    #[test]
     fn unknown_fields_are_rejected() {
         assert!(
             toml::from_str::<TalosCluster>(

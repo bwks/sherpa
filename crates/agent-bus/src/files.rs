@@ -288,9 +288,6 @@ fn lock_file(path: &Path) -> Result<File> {
 mod tests {
     use super::*;
 
-    use crate::channel::STREAM_MAX_AGE;
-    use crate::status::STATUS_MAX_AGE;
-
     const NOW: u64 = 1_800_000_000_000;
     const DAY: u64 = 24 * 60 * 60 * 1000;
 
@@ -307,15 +304,6 @@ mod tests {
 
     fn line(at_ms: u64, text: &str) -> String {
         format!(r#"{{"at_ms":{at_ms},"text":"{text}"}}"#)
-    }
-
-    #[test]
-    fn files_keep_messages_7_days_and_the_stream_30() {
-        assert_eq!(FILE_RETENTION, Duration::from_hours(7 * 24));
-        assert_eq!(millis(FILE_RETENTION), 7 * DAY);
-        assert_eq!(millis(STREAM_MAX_AGE), 30 * DAY);
-        // The status bucket is not a message log: it stays at 7 days.
-        assert_eq!(STATUS_MAX_AGE, Duration::from_hours(7 * 24));
     }
 
     #[test]

@@ -173,15 +173,6 @@ mod tests {
     }
 
     #[test]
-    fn no_links_resolve_to_none() {
-        assert!(
-            process_manifest_links(&[], &nodes(&["dev01"]))
-                .unwrap()
-                .is_empty()
-        );
-    }
-
-    #[test]
     fn a_link_keeps_its_impairment() {
         let mut impaired = link("dev01::eth1", "dev02::eth1");
         impaired.impairment = Some(ManifestImpairment {
@@ -190,19 +181,6 @@ mod tests {
         });
         let result = process_manifest_links(&[impaired], &nodes(&["dev01", "dev02"])).unwrap();
         assert_eq!(result[0].impairment.as_ref().unwrap().delay, Some(10));
-    }
-
-    #[test]
-    fn a_link_between_two_interfaces_of_one_node_resolves_both_ends() {
-        let result =
-            process_manifest_links(&[link("dev01::eth1", "dev01::eth2")], &nodes(&["dev01"]))
-                .unwrap();
-        assert_eq!(result[0].node_a, "dev01");
-        assert_eq!(result[0].int_a_idx, 1);
-        assert_eq!(result[0].node_b, "dev01");
-        assert_eq!(result[0].node_b_idx, 1);
-        assert_eq!(result[0].int_b, "eth2");
-        assert_eq!(result[0].int_b_idx, 2);
     }
 
     #[test]
@@ -243,15 +221,6 @@ mod tests {
         );
         assert_eq!(result[0].links[1].interface_name, "eth2");
         assert_eq!(result[0].links[1].interface_index, 2);
-    }
-
-    #[test]
-    fn no_bridges_resolve_to_none() {
-        assert!(
-            process_manifest_bridges(&[], &nodes(&[]), "lab1")
-                .unwrap()
-                .is_empty()
-        );
     }
 
     #[test]

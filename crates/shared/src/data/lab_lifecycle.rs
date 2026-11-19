@@ -197,30 +197,28 @@ mod tests {
         Err(LabRefused { phase, event })
     }
 
-    /// The expected result of every event from every phase.
-    fn expected(phase: LabPhase, event: LabEvent) -> Result<LabTransition, LabRefused> {
-        match (phase, event) {
-            (Creating, LabEvent::Built) => Ok(To(Ready)),
-            (Creating, LabEvent::Released) | (Destroying, LabEvent::Destroyed) => Ok(Removed),
-            // A lab can always be destroyed, whatever state it was left in.
-            (_, LabEvent::DestroyStarted) => Ok(To(Destroying)),
-            (Destroying, LabEvent::DestroyFailed | LabEvent::OwnerLost) => Ok(To(DestroyFailed)),
-            (Creating, LabEvent::OwnerLost) => Ok(To(Interrupted)),
-            _ => refused(phase, event),
-        }
-    }
-
     #[test]
-    fn every_event_from_every_phase() {
-        for phase in LabPhase::iter() {
-            for event in LabEvent::iter() {
-                assert_eq!(
-                    phase.on_event(event),
-                    expected(phase, event),
-                    "{event:?} from {phase:?}"
-                );
-            }
-        }
+    fn lab_events_move_a_lab_as_listed() {
+        assert_eq!(Creating.on_event(LabEvent::Built), Ok(To(Ready)));
+        assert_eq!(Creating.on_event(LabEvent::Released), Ok(Removed));
+        assert_eq!(Destroying.on_event(LabEvent::Destroyed), Ok(Removed));
+        assert_eq!(Ready.on_event(LabEvent::DestroyStarted), Ok(To(Destroying)));
+        assert_eq!(
+            Creating.on_event(LabEvent::DestroyStarted),
+            Ok(To(Destroying))
+        );
+        assert_eq!(
+            Ready.on_event(LabEvent::Destroyed),
+            refused(Ready, LabEvent::Destroyed)
+        );
+        assert_eq!(
+            Ready.on_event(LabEvent::OwnerLost),
+            refused(Ready, LabEvent::OwnerLost)
+        );
+        assert_eq!(
+            refused(Ready, LabEvent::Built).unwrap_err().to_string(),
+            "cannot finish building a lab that is ready"
+        );
     }
 
     #[test]

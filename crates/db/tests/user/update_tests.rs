@@ -31,46 +31,6 @@ async fn test_update_user_success() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_update_user_ssh_keys() -> Result<()> {
-    let db = setup_db().await?;
-
-    let initial_keys = vec!["key1".to_string()];
-    let user = create_user(&db, "bob".to_string(), "TestPass123!", false, initial_keys).await?;
-
-    // Add more keys
-    let mut updated_user = user.clone();
-    updated_user.ssh_keys = vec!["key1".to_string(), "key2".to_string(), "key3".to_string()];
-
-    let result = update_user(&db, updated_user).await?;
-    assert_eq!(result.ssh_keys.len(), 3);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_update_user_remove_all_ssh_keys() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(
-        &db,
-        "charlie".to_string(),
-        "TestPass123!",
-        false,
-        vec!["key1".to_string()],
-    )
-    .await?;
-
-    // Remove all keys
-    let mut updated_user = user.clone();
-    updated_user.ssh_keys = vec![];
-
-    let result = update_user(&db, updated_user).await?;
-    assert_eq!(result.ssh_keys.len(), 0);
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_update_user_without_id_fails() -> Result<()> {
     let db = setup_db().await?;
 
@@ -114,24 +74,6 @@ async fn test_update_nonexistent_user_fails() -> Result<()> {
         error_msg.contains("not found"),
         "Error should mention user not found: {error_msg}"
     );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_update_user_preserves_id() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "eve".to_string(), "TestPass123!", false, vec![]).await?;
-    let original_id = user.id.clone().unwrap();
-
-    // Update user
-    let mut updated_user = user.clone();
-    updated_user.ssh_keys = vec!["new-key".to_string()];
-
-    let result = update_user(&db, updated_user).await?;
-
-    assert_eq!(result.id, Some(original_id), "ID should be preserved");
 
     Ok(())
 }

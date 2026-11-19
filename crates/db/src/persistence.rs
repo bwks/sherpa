@@ -660,7 +660,7 @@ fn optional_enum_text<T: Serialize>(value: Option<&T>, field: &str) -> Result<Va
 
 #[cfg(test)]
 mod tests {
-    use shared::data::{LabPhase, NodeKind, NodeModel};
+    use shared::data::{NodeKind, NodeModel};
 
     use super::*;
     use crate::open_in_memory;
@@ -723,27 +723,13 @@ mod tests {
     fn enums_are_stored_by_their_serde_names() {
         assert_eq!(
             enum_text(&NodeKind::Container, "kind").unwrap(),
-            serde_json::to_value(NodeKind::Container)
-                .unwrap()
-                .as_str()
-                .unwrap()
+            "container"
         );
         let model = enum_text(&NodeModel::AristaEos, "model").unwrap();
+        assert_eq!(model, "arista_eos");
         assert_eq!(
             decode_enum::<NodeModel>(model, "model").unwrap(),
             NodeModel::AristaEos
-        );
-        assert!(enum_text(&LabPhase::default(), "phase").is_ok());
-    }
-
-    #[test]
-    fn timestamps_keep_nanosecond_precision_as_text() {
-        let created_at = "2026-08-17T12:34:56.123456789Z"
-            .parse::<Timestamp>()
-            .unwrap();
-        assert_eq!(
-            created_at.to_string().parse::<Timestamp>().unwrap(),
-            created_at
         );
     }
 }

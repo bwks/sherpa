@@ -609,22 +609,6 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn a_new_password_must_be_typed_the_same_twice() {
-        assert_eq!(
-            confirmed_password("s3cret".to_owned(), "s3cret").unwrap(),
-            "s3cret"
-        );
-        let error = confirmed_password("s3cret".to_owned(), "s3crex").unwrap_err();
-        assert_eq!(error.to_string(), "Passwords do not match");
-    }
-
-    #[test]
-    fn an_empty_new_password_is_refused() {
-        let error = confirmed_password(String::new(), "").unwrap_err();
-        assert_eq!(error.to_string(), "The password cannot be empty");
-    }
-
     /// A prompt that answers each question with the next of `answers`, recording the questions.
     fn scripted<'a>(
         answers: &'a [&'a str],

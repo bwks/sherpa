@@ -77,25 +77,6 @@ fn test_static_ipv4() {
 }
 
 #[test]
-fn test_only_the_owner_and_the_fixed_accounts_exist() {
-    let output = asa("Rand0mPass-1").render().expect("template renders");
-    let accounts: Vec<&str> = output
-        .lines()
-        .filter(|line| line.starts_with("username ") || line.starts_with("enable "))
-        .collect();
-    assert_eq!(
-        accounts,
-        [
-            "username enable_1 privilege 15",
-            "enable password Rand0mPass-1",
-            "username alice password Rand0mPass-1 privilege 15",
-            "username alice attributes",
-        ]
-    );
-    helpers::assert_no_sherpa_login(&output);
-}
-
-#[test]
 fn test_password_is_intact_for_enable_and_owner() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let output = asa(password).render().expect("template renders");

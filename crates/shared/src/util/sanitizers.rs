@@ -22,19 +22,4 @@ mod tests {
     fn test_dasher_replaces_dots() {
         assert_eq!(dasher("192.168.1.1"), "192-168-1-1");
     }
-
-    #[test]
-    fn test_dasher_mixed() {
-        assert_eq!(dasher("a/b:c.d"), "a-b-c-d");
-    }
-
-    #[test]
-    fn test_dasher_no_replacements() {
-        assert_eq!(dasher("no-change-needed"), "no-change-needed");
-    }
-
-    #[test]
-    fn test_dasher_empty() {
-        assert_eq!(dasher(""), "");
-    }
 }

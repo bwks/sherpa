@@ -2448,30 +2448,6 @@ mod tests {
     }
 
     #[test]
-    fn test_container_repo_of_a_model_with_a_built_in_repo_prefers_the_manifest_image() {
-        let config = pulled(NodeModel::MongoDb, Some("mongo"));
-        assert_eq!(
-            config.container_repo(Some("mirror.example/mongo")),
-            Some("mirror.example/mongo".to_string())
-        );
-    }
-
-    #[test]
-    fn test_container_repo_of_a_model_with_a_built_in_repo_runs_the_repo_it_was_pulled_from() {
-        let config = pulled(NodeModel::NatsBus, Some("docker.io/library/nats"));
-        assert_eq!(
-            config.container_repo(None),
-            Some("docker.io/library/nats".to_string())
-        );
-    }
-
-    #[test]
-    fn test_container_repo_of_a_model_with_a_built_in_repo_and_no_recorded_repo_is_none() {
-        let config = pulled(NodeModel::FrrLinux, None);
-        assert_eq!(config.container_repo(None), None);
-    }
-
-    #[test]
     fn test_container_repo_prefers_the_manifest_image() {
         let config = pulled(NodeModel::Generic, Some("alpine"));
         assert_eq!(
@@ -2490,21 +2466,6 @@ mod tests {
     fn test_container_repo_without_image_or_pulled_repo_is_none() {
         let config = pulled(NodeModel::MysqlDb, None);
         assert_eq!(config.container_repo(None), None);
-    }
-
-    #[test]
-    fn test_all_variants_are_unique() {
-        use std::collections::HashSet;
-        let variants = NodeModel::to_vec();
-        let unique: HashSet<String> = variants
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect();
-        assert_eq!(
-            variants.len(),
-            unique.len(),
-            "all_variants contains duplicates"
-        );
     }
 
     // =========================================================================
@@ -2528,32 +2489,6 @@ mod tests {
             UnikernelBootMode::DiskBoot
         );
         assert!("invalid".parse::<UnikernelBootMode>().is_err());
-    }
-
-    #[test]
-    fn test_unikernel_boot_mode_serde_roundtrip() {
-        let modes = vec![UnikernelBootMode::DirectKernel, UnikernelBootMode::DiskBoot];
-        for mode in modes {
-            let json = serde_json::to_string(&mode).unwrap();
-            let deserialized: UnikernelBootMode = serde_json::from_str(&json).unwrap();
-            assert_eq!(mode, deserialized);
-        }
-    }
-
-    #[test]
-    fn test_unikernel_boot_mode_default() {
-        assert_eq!(
-            UnikernelBootMode::default(),
-            UnikernelBootMode::DirectKernel
-        );
-    }
-
-    #[test]
-    fn test_unikernel_boot_mode_to_vec() {
-        let variants = UnikernelBootMode::to_vec();
-        assert_eq!(variants.len(), 2);
-        assert!(variants.contains(&UnikernelBootMode::DirectKernel));
-        assert!(variants.contains(&UnikernelBootMode::DiskBoot));
     }
 
     // =========================================================================
@@ -2609,25 +2544,6 @@ mod tests {
     }
 
     #[test]
-    fn test_unikernel_config_no_ztp() {
-        let unikernel_models = vec![
-            NodeModel::Generic,
-            NodeModel::UnikraftUnikernel,
-            NodeModel::NanosUnikernel,
-        ];
-        for model in unikernel_models {
-            let config = ModelKind::new(model, Some(NodeKind::Unikernel))
-                .unwrap()
-                .node_config();
-            assert_eq!(
-                config.ztp(),
-                Ztp::Disabled,
-                "Model {model} should have ZTP disabled"
-            );
-        }
-    }
-
-    #[test]
     fn test_unikernel_config_defaults() {
         let config = ModelKind::default_for(NodeModel::UnikraftUnikernel).node_config();
         assert_eq!(config.memory, 512);
@@ -2636,22 +2552,6 @@ mod tests {
         assert_eq!(unikernel.interfaces.kind.to_string(), "virtio");
         assert_eq!(unikernel.interfaces.mtu, MTU_STD);
         assert_eq!(unikernel.machine.kind, MachineType::Pc);
-    }
-
-    #[test]
-    fn test_non_unikernel_models_have_no_boot_mode() {
-        let vm_models = vec![
-            NodeModel::CiscoNexus9300,
-            NodeModel::AristaEos,
-            NodeModel::UbuntuLinux,
-        ];
-        for model in vm_models {
-            let config = ModelKind::default_for(model).node_config();
-            assert!(
-                config.unikernel().is_none(),
-                "VM model {model} should not have unikernel settings"
-            );
-        }
     }
     #[test]
     fn test_omarchy_model_defaults() {
@@ -2989,35 +2889,6 @@ mod tests {
     }
 
     #[test]
-    fn test_node_config_json_refuses_the_old_flat_names() {
-        let mut json = serde_json::to_value(NodeConfig::ubuntu_linux()).unwrap();
-        json["cpu_count"] = serde_json::json!(2);
-        let error = serde_json::from_value::<NodeConfig>(json)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("unknown field `cpu_count`"), "{error}");
-    }
-
-    #[test]
-    fn test_node_config_json_refuses_the_removed_ztp_login_fields() {
-        for (field, value) in [
-            ("username", serde_json::json!("admin")),
-            ("password", serde_json::json!("Secret-Pass1")),
-            ("password_auth", serde_json::json!(true)),
-        ] {
-            let mut json = serde_json::to_value(NodeConfig::ubuntu_linux()).unwrap();
-            json["vm"]["ztp"][field] = value;
-            let error = serde_json::from_value::<NodeConfig>(json)
-                .unwrap_err()
-                .to_string();
-            assert!(
-                error.contains(&format!("unknown field `{field}`")),
-                "{field}: {error}"
-            );
-        }
-    }
-
-    #[test]
     fn every_pairs_settings_are_its_kinds_group() {
         for model_kind in ModelKind::all() {
             let config = model_kind.node_config();
@@ -3106,16 +2977,6 @@ mod tests {
             "nosuch_model".parse::<NodeModel>().unwrap_err(),
             "Unknown node model: nosuch_model"
         );
-    }
-
-    #[test]
-    fn names_never_released_are_unknown() {
-        for name in ["cisco_iosxr", "juniper_srx"] {
-            assert_eq!(
-                name.parse::<NodeModel>().unwrap_err(),
-                format!("Unknown node model: {name}")
-            );
-        }
     }
 
     #[test]

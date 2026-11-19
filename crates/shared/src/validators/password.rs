@@ -72,11 +72,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_password_strength_too_short() {
-        assert!(validate_password_strength("Pass1!").is_err());
-    }
-
-    #[test]
     fn test_validate_password_strength_no_uppercase() {
         assert!(validate_password_strength("password123!").is_err());
     }

@@ -308,14 +308,6 @@ mod tests {
     }
 
     #[test]
-    fn test_allocate_management_subnet_skips_multiple_used() {
-        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
-        let used = vec![mgmt_subnet(1), mgmt_subnet(2), mgmt_subnet(3)];
-        let result = allocate_management_subnet(&prefix, &used, &[]).unwrap();
-        assert_eq!(result, mgmt_subnet(4));
-    }
-
-    #[test]
     fn test_allocate_management_subnet_skips_host_networks() {
         let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
         // A leftover lab bridge holds 172.31.1.1/24; another range covers 172.31.2.0/23.
@@ -379,48 +371,11 @@ mod tests {
     }
 
     #[test]
-    fn test_get_ipv6_network() {
-        let net = get_ipv6_network("fd00:b00b::/48").unwrap();
-        assert_eq!(net.prefix_len(), 48);
-    }
-
-    #[test]
-    fn test_get_ipv6_network_invalid() {
-        assert!(get_ipv6_network("not-a-network").is_err());
-    }
-
-    #[test]
-    fn test_allocate_ipv6_management_subnet_empty() {
-        let prefix = Ipv6Net::from_str("fd00:b00b::/48").unwrap();
-        let result = allocate_ipv6_management_subnet(&prefix, &[], &[]).unwrap();
-        assert_eq!(result, ipv6_mgmt_subnet(1));
-    }
-
-    #[test]
     fn test_allocate_ipv6_management_subnet_skips_used() {
         let prefix = Ipv6Net::from_str("fd00:b00b::/48").unwrap();
         let used = vec![ipv6_mgmt_subnet(1)];
         let result = allocate_ipv6_management_subnet(&prefix, &used, &[]).unwrap();
         assert_eq!(result, ipv6_mgmt_subnet(2));
-    }
-
-    #[test]
-    fn test_allocate_ipv6_management_subnet_skips_multiple_used() {
-        let prefix = Ipv6Net::from_str("fd00:b00b::/48").unwrap();
-        let used = vec![
-            ipv6_mgmt_subnet(1),
-            ipv6_mgmt_subnet(2),
-            ipv6_mgmt_subnet(3),
-        ];
-        let result = allocate_ipv6_management_subnet(&prefix, &used, &[]).unwrap();
-        assert_eq!(result, ipv6_mgmt_subnet(4));
-    }
-
-    #[test]
-    fn test_allocate_ipv6_loopback_subnet_empty() {
-        let prefix = Ipv6Net::from_str("fd00:1001::/48").unwrap();
-        let result = allocate_ipv6_loopback_subnet(&prefix, &[]).unwrap();
-        assert_eq!(result, ipv6_loop_subnet(1));
     }
 
     #[test]

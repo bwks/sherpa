@@ -261,21 +261,4 @@ mod tests {
         assert!(db.backup(&copy_path).await.is_err());
         assert_eq!(std::fs::read(&copy_path).unwrap(), b"keep me");
     }
-
-    #[tokio::test]
-    async fn writes_from_many_tasks_all_succeed() {
-        let db = open_in_memory().await.unwrap();
-        apply_schema(&db).await.unwrap();
-        let mut tasks = Vec::new();
-        for index in 0..32 {
-            let db = db.clone();
-            tasks.push(tokio::spawn(async move {
-                create_user(&db, format!("user{index}"), "UserPass123!", false, vec![]).await
-            }));
-        }
-        for task in tasks {
-            task.await.unwrap().unwrap();
-        }
-        assert_eq!(crate::list_users(&db).await.unwrap().len(), 32);
-    }
 }

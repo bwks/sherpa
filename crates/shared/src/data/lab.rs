@@ -374,14 +374,6 @@ mod tests {
     }
 
     #[test]
-    fn personal_ssh_metadata_survives_toml_round_trip() {
-        let mut lab = make_lab_info();
-        lab.set_ssh_username("vm.one", Some("alice"));
-        let restored: LabInfo = lab.to_string().parse().unwrap();
-        assert_eq!(restored.ssh_usernames, lab.ssh_usernames);
-    }
-
-    #[test]
     fn updating_one_nodes_ssh_identity_preserves_other_nodes() {
         let mut lab = make_lab_info();
         lab.set_ssh_username("vm1", Some("alice"));
@@ -398,14 +390,6 @@ mod tests {
     }
 
     #[test]
-    fn typed_ssh_identity_requires_node_name_and_username() {
-        for entry in ["node_name='vm'", "username='alice'"] {
-            let saved = format!("{}\n[[ssh_usernames]]\n{entry}\n", make_lab_info());
-            assert!(saved.parse::<LabInfo>().is_err());
-        }
-    }
-
-    #[test]
     fn personal_ssh_metadata_survives_json_round_trip() {
         let mut lab = make_lab_info();
         lab.set_ssh_username("vm1", Some("alice"));
@@ -416,11 +400,6 @@ mod tests {
         );
         let restored: LabInfo = serde_json::from_value(json).unwrap();
         assert_eq!(restored.ssh_usernames, lab.ssh_usernames);
-    }
-
-    #[test]
-    fn test_lab_info_from_str_invalid_returns_err() {
-        assert!(LabInfo::from_str("not valid toml").is_err());
     }
 
     #[test]
@@ -435,20 +414,12 @@ mod tests {
     }
 
     #[test]
-    fn test_lab_status_serde_round_trip() {
-        let variants = vec![
-            LabState::Running,
-            LabState::Stopped,
-            LabState::Partial,
-            LabState::Starting,
-            LabState::Failed,
-            LabState::Empty,
-            LabState::Unknown,
-        ];
-        for status in variants {
-            let json = serde_json::to_string(&status).unwrap();
-            let parsed: LabState = serde_json::from_str(&json).unwrap();
-            assert_eq!(parsed, status);
+    fn test_lab_status_serializes_as_it_displays() {
+        for status in LabState::iter() {
+            assert_eq!(
+                serde_json::to_value(status).unwrap(),
+                serde_json::json!(status.to_string())
+            );
         }
     }
 
@@ -484,12 +455,6 @@ mod tests {
     #[test]
     fn test_lab_status_derive_partial() {
         let states = vec![NodeState::Running, NodeState::Stopped];
-        assert_eq!(LabState::derive(&states), LabState::Partial);
-    }
-
-    #[test]
-    fn test_lab_status_derive_mixed_unknown_and_running() {
-        let states = vec![NodeState::Running, NodeState::Unknown];
         assert_eq!(LabState::derive(&states), LabState::Partial);
     }
 

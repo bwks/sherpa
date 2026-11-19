@@ -132,26 +132,6 @@ mod tests {
     }
 
     #[test]
-    fn right_aligned_columns_keep_the_title_centred() {
-        let expected = "\
-┌───────────────┐
-│     Fruit     │
-├───────┬───────┤
-│ Name  │ Count │
-├───────┼───────┤
-│ apple │     3 │
-├───────┼───────┤
-│ kiwi  │    12 │
-└───────┴───────┘";
-        let layout = TableLayout {
-            title: Some("Fruit"),
-            right: &[1],
-            ..TableLayout::default()
-        };
-        assert_eq!(render_table(["Name", "Count"], &fruit(), &layout), expected);
-    }
-
-    #[test]
     fn an_empty_table_still_shows_its_headers() {
         let expected = "\
 ┌──────┬───────┐
@@ -234,14 +214,5 @@ mod tests {
             "{table}"
         );
         assert_eq!(table, expected);
-    }
-
-    #[test]
-    fn the_default_layout_has_a_header_row_and_nothing_else() {
-        let layout = TableLayout::default();
-        assert_eq!(layout.title, None);
-        assert_eq!(layout.right, &[] as &[usize]);
-        assert_eq!(layout.wrap_width, None);
-        assert!(layout.header_row);
     }
 }

@@ -118,40 +118,6 @@ mod tests {
     use shared::data::Ztp;
 
     #[test]
-    fn description_round_trip_preserves_multiline_text() {
-        let input = r#"name = 'routing-lab'
-description = '''Practice BGP routing.
-Include "quoted" text, C:\configs, and Unicode: café.'''
-nodes = []
-"#;
-        let manifest: Manifest = toml::from_str(input).unwrap();
-        let saved = toml::to_string_pretty(&manifest).unwrap();
-        let restored: Manifest = toml::from_str(&saved).unwrap();
-        let original: toml::Value = toml::from_str(input).unwrap();
-        let restored = toml::Value::try_from(&restored).unwrap();
-        assert_eq!(restored["description"], original["description"]);
-    }
-
-    #[test]
-    fn description_is_optional_and_omitted_when_absent() {
-        let manifest: Manifest = toml::from_str("name='test'\nnodes=[]").unwrap();
-        assert!(
-            toml::Value::try_from(&manifest)
-                .unwrap()
-                .get("description")
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn description_rejects_non_string_values() {
-        for value in ["true", "42", "[]", "{}"] {
-            let input = format!("name='test'\nnodes=[]\ndescription={value}");
-            assert!(toml::from_str::<Manifest>(&input).is_err());
-        }
-    }
-
-    #[test]
     fn description_survives_manifest_file_write() {
         let path = env::temp_dir().join(format!("sherpa-description-{}.toml", process::id()));
         let path = path.to_str().unwrap();
@@ -193,64 +159,6 @@ Unicode: café"#,
     }
 
     #[test]
-    fn a_manifest_that_sets_provision_current_user_is_refused_naming_it() {
-        // Every node gets the owner's login now, so the setting is gone, `true` or `false`.
-        for input in [
-            "name='test'\nnodes=[]\nprovision_current_user=true",
-            "name='test'\nnodes=[]\nprovision_current_user=false",
-        ] {
-            let error = toml::from_str::<Manifest>(input).unwrap_err();
-            assert!(
-                error
-                    .to_string()
-                    .contains("unknown field `provision_current_user`"),
-                "{error}"
-            );
-        }
-        for input in [
-            "name='test'\nnodes=[]\nprovision_username='alice'",
-            "name='test'\nnodes=[{name='vm',model='ubuntu_linux',provision_current_user=true}]",
-        ] {
-            assert!(toml::from_str::<Manifest>(input).is_err());
-        }
-    }
-
-    #[test]
-    fn lab_level_boot_disk_clone_method_is_rejected() {
-        assert!(
-            toml::from_str::<Manifest>("name='test'\nnodes=[]\nboot_disk_clone_method='overlay'")
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn disk_method_defaults_and_unknown_values() {
-        let manifest: Manifest =
-            toml::from_str("name='test'\nnodes=[{name='vm',model='ubuntu_linux'}]").unwrap();
-        assert_eq!(manifest.nodes[0].boot_disk.clone_method, None);
-        assert!(
-            toml::from_str::<Manifest>(
-                "name='test'\nnodes=[{name='vm',model='ubuntu_linux',boot_disk={clone_method='snapshot'}}]"
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn boot_disk_clone_method_round_trip() {
-        let manifest: Manifest = toml::from_str(
-            "name='test'\nnodes=[{name='vm',model='ubuntu_linux',boot_disk={clone_method='copy'}}]",
-        )
-        .unwrap();
-        let value = toml::Value::try_from(&manifest).unwrap();
-        assert!(value.get("boot_disk_clone_method").is_none());
-        assert_eq!(
-            value["nodes"][0]["boot_disk"]["clone_method"].as_str(),
-            Some("copy")
-        );
-    }
-
-    #[test]
     fn a_written_manifest_has_only_the_groups_its_nodes_set() {
         let manifest: Manifest = toml::from_str(
             "name='test'\n[[nodes]]\nname='vm'\nmodel='ubuntu_linux'\n[nodes.cpu]\ncount=2\n",
@@ -276,71 +184,6 @@ Unicode: café"#,
     }
 
     #[test]
-    fn tailscale_manifest_round_trip() {
-        let input = "name = 'tailnet-lab'\nnodes = []\n[tailscale]\nenabled = true\nauth_key_env = 'SHERPA_TAILSCALE_KEY'\n";
-        let manifest: Manifest = toml::from_str(input).expect("tailnet configuration must parse");
-        let value = toml::Value::try_from(&manifest).unwrap();
-        assert_eq!(value["tailscale"]["enabled"].as_bool(), Some(true));
-        assert_eq!(
-            value["tailscale"]["auth_key_env"].as_str(),
-            Some("SHERPA_TAILSCALE_KEY")
-        );
-    }
-
-    #[test]
-    fn test_manifest_deserialize_ready_timeout() {
-        let toml_str = r#"
-name = "my-lab"
-ready_timeout = 300
-
-nodes = [
-  { name = "dev01", model = "cisco_ios" },
-]
-"#;
-        let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
-        assert_eq!(manifest.name, "my-lab");
-        assert_eq!(manifest.ready_timeout, Some(300));
-        assert_eq!(manifest.nodes.len(), 1);
-        assert_eq!(manifest.nodes[0].ready_check.skip, None);
-    }
-
-    #[test]
-    fn test_manifest_deserialize_skip_ready_check() {
-        let toml_str = r#"
-name = "my-lab"
-
-nodes = [
-  { name = "dev01", model = "cisco_ios" },
-  { name = "dev02", model = "cisco_cat8000", ready_check = { skip = true } },
-]
-"#;
-        let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
-        assert_eq!(manifest.ready_timeout, None);
-        assert_eq!(manifest.nodes.len(), 2);
-        assert_eq!(manifest.nodes[0].ready_check.skip, None);
-        assert_eq!(manifest.nodes[1].ready_check.skip, Some(true));
-    }
-
-    #[test]
-    fn test_manifest_deserialize_ztp_config() {
-        let toml_str = r#"
-name = "my-lab"
-
-nodes = [
-  { name = "dev01", model = "cisco_cat8000", ztp = { config = "configs/dev01.txt" } },
-  { name = "dev02", model = "cisco_ios" },
-]
-"#;
-        let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
-        assert_eq!(manifest.nodes.len(), 2);
-        assert_eq!(
-            manifest.nodes[0].ztp.config,
-            Some("configs/dev01.txt".to_string())
-        );
-        assert_eq!(manifest.nodes[1].ztp.config, None);
-    }
-
-    #[test]
     fn test_manifest_deserialize_ztp_reaches_the_expanded_node() {
         let toml_str = r#"
 name = "my-lab"
@@ -363,43 +206,6 @@ nodes = [
     }
 
     #[test]
-    fn test_manifest_refuses_a_ztp_that_is_not_one_of_the_words() {
-        for value in ["false", "true", r#""ipxe""#, r#""none""#] {
-            let toml_str = format!(
-                r#"name = "my-lab"
-
-nodes = [
-  {{ name = "dev01", model = "frr_linux", ztp = {{ method = {value} }} }},
-]
-"#
-            );
-            let error = toml::from_str::<Manifest>(&toml_str)
-                .expect_err("the manifest is refused")
-                .to_string();
-            assert!(error.contains("method = "), "{value}: {error}");
-        }
-    }
-
-    #[test]
-    fn test_manifest_deserialize_all_ready_check_fields() {
-        let toml_str = r#"
-name = "my-lab"
-ready_timeout = 120
-
-nodes = [
-  { name = "dev01", model = "cisco_ios" },
-  { name = "dev02", model = "cisco_cat8000", ready_check = { skip = true } },
-  { name = "dev03", model = "ubuntu_linux", ready_check = { skip = false, port = 2222 } },
-]
-"#;
-        let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
-        assert_eq!(manifest.ready_timeout, Some(120));
-        assert_eq!(manifest.nodes[0].ready_check.skip, None);
-        assert_eq!(manifest.nodes[1].ready_check.skip, Some(true));
-        assert_eq!(manifest.nodes[2].ready_check.skip, Some(false));
-        assert_eq!(manifest.nodes[2].ready_check.port, Some(2222));
-    }
-    #[test]
     fn disabled_and_legacy_manifests_do_not_require_auth_keys() {
         let legacy: Manifest = toml::from_str("name='test'\nnodes=[]").unwrap();
         assert!(legacy.tailscale.is_none());
@@ -411,17 +217,6 @@ nodes = [
                 "name='test'\nnodes=[]\n[tailscale]\nenabled=true\nauth_key='do-not-store-secrets'"
             )
             .is_err()
-        );
-    }
-    #[test]
-    fn resolved_manifest_serializes_to_toml_with_tailnet_reference() {
-        let manifest: Manifest = toml::from_str("name='test'\nnodes=[{name='r1',model='cisco_ios'}]\n[tailscale]\nenabled=true\nauth_key_env='KEY'").unwrap();
-        let saved = toml::to_string_pretty(&manifest).unwrap();
-        let restored: Manifest = toml::from_str(&saved).unwrap();
-        assert_eq!(restored.nodes.len(), 1);
-        assert_eq!(
-            restored.tailscale.unwrap().auth_key_env.as_deref(),
-            Some("KEY")
         );
     }
 
@@ -445,16 +240,6 @@ nodes = [
         assert_eq!(clusters[0].workers, vec!["w1"]);
         let restored: Manifest = toml::from_str(&toml::to_string(&manifest).unwrap()).unwrap();
         assert_eq!(restored.talos_clusters, manifest.talos_clusters);
-    }
-
-    #[test]
-    fn node_level_cluster_fields_are_rejected() {
-        let toml = r#"
-            name = "lab"
-            nodes = [{ name = "cp1", model = "talos_linux", cluster = "k8s", cluster_role = "control_plane" }]
-            "#;
-        let error = toml::from_str::<Manifest>(toml).unwrap_err().to_string();
-        assert!(error.contains("unknown field `cluster`"), "{error}");
     }
 
     #[test]

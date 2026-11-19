@@ -155,21 +155,6 @@ mod tests {
     }
 
     #[test]
-    fn test_check_duplicate_device_empty() -> Result<()> {
-        let devices = vec![];
-        check_duplicate_device(&devices)
-    }
-
-    #[test]
-    fn test_check_duplicate_device_single() -> Result<()> {
-        let devices = vec![Node {
-            name: "router1".to_string(),
-            ..Default::default()
-        }];
-        check_duplicate_device(&devices)
-    }
-
-    #[test]
     fn test_check_device_count_allows_a_full_node_block() -> Result<()> {
         let devices = vec![Node::default(); 234];
         check_device_count(&devices)

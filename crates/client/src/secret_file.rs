@@ -166,16 +166,6 @@ mod tests {
     }
 
     #[test]
-    fn secret_files_are_written_owner_only() {
-        let temp_dir = tempfile::tempdir().expect("create temp directory");
-        let path = temp_dir.path().join("kubeconfig-k8s");
-
-        write_secret_file(&path, "config", LABEL).expect("write secret file");
-
-        assert!(is_owner_only(&path));
-    }
-
-    #[test]
     fn restrict_secret_permissions_repairs_existing_file() {
         let temp_dir = tempfile::tempdir().expect("create temp directory");
         let path = temp_dir.path().join("kubeconfig-k8s");

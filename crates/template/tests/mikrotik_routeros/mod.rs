@@ -52,11 +52,17 @@ fn test_static_ipv4() {
     );
 }
 
+/// The image's scheduler imports the config every minute until an import gets to the end.
+/// `RouterOS` deletes a key file once it imports it, so a retry, such as after the first run
+/// found no `ether1` yet, must skip a key it imported before rather than stop on it.
 #[test]
 fn test_only_the_first_user_and_the_owner_have_accounts() {
-    let output = routeros("Rand0mPass-1", &["alice-1.pub", "alice-2.pub"])
-        .render()
-        .expect("template renders");
+    let mut template = routeros("Rand0mPass-1", &[]);
+    template.owner_key_files = vec![
+        MikrotikRouterosZtpTemplate::owner_key_path("alice", 1),
+        MikrotikRouterosZtpTemplate::owner_key_path("alice", 2),
+    ];
+    let output = template.render().expect("template renders");
     let users: Vec<&str> = output
         .lines()
         .filter(|line| line.contains("/user "))
@@ -66,8 +72,8 @@ fn test_only_the_first_user_and_the_owner_have_accounts() {
         [
             "/user set 0 password=Rand0mPass-1",
             ":do { /user add name=alice password=Rand0mPass-1 group=full } on-error={}",
-            ":if ([/file find name=alice-1.pub] != \"\") do={ /user ssh-keys import public-key-file=alice-1.pub user=alice }",
-            ":if ([/file find name=alice-2.pub] != \"\") do={ /user ssh-keys import public-key-file=alice-2.pub user=alice }",
+            ":if ([/file find name=sata1/alice-1.pub] != \"\") do={ /user ssh-keys import public-key-file=sata1/alice-1.pub user=alice }",
+            ":if ([/file find name=sata1/alice-2.pub] != \"\") do={ /user ssh-keys import public-key-file=sata1/alice-2.pub user=alice }",
         ]
     );
     helpers::assert_no_sherpa_login(&output);
@@ -83,24 +89,4 @@ fn test_password_is_intact_for_user_zero_and_owner() {
         )));
         assert_eq!(output.matches(password).count(), 2);
     }
-}
-
-/// The image's scheduler imports the config every minute until an import gets to the end.
-/// `RouterOS` deletes a key file once it imports it, so a retry, such as after the first run
-/// found no `ether1` yet, must skip a key it imported before rather than stop on it.
-#[test]
-fn test_a_retried_import_skips_key_files_already_imported() {
-    let output = routeros("Rand0mPass-1", &["sata1/alice-1.pub"])
-        .render()
-        .expect("template renders");
-    let imports: Vec<&str> = output
-        .lines()
-        .filter(|line| line.contains("ssh-keys import"))
-        .collect();
-    assert_eq!(
-        imports,
-        [
-            ":if ([/file find name=sata1/alice-1.pub] != \"\") do={ /user ssh-keys import public-key-file=sata1/alice-1.pub user=alice }"
-        ]
-    );
 }

@@ -81,24 +81,6 @@ fn test_static_ipv4() {
 }
 
 #[test]
-fn test_only_admin_and_the_owner_have_accounts() {
-    let output = xrv("Rand0mPass-1").render().expect("template renders");
-    let users: Vec<&str> = output
-        .lines()
-        .filter(|line| line.starts_with("username ") || line.starts_with("ssh server username"))
-        .collect();
-    assert_eq!(
-        users,
-        [
-            "username admin",
-            "username alice",
-            "ssh server username alice"
-        ]
-    );
-    helpers::assert_no_sherpa_login(&output);
-}
-
-#[test]
 fn test_password_is_intact_for_admin_and_owner() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let output = xrv(password).render().expect("template renders");

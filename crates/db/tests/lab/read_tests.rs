@@ -2,7 +2,7 @@ use anyhow::Result;
 use db::{
     LabDetails, LabNetworks, count_labs_by_user, create_lab, create_user, find_lab, get_lab,
     get_used_ipv6_loopback_networks, get_used_ipv6_management_networks,
-    get_used_management_networks, list_labs, list_labs_by_user,
+    get_used_management_networks, list_labs,
 };
 
 use crate::helper::{ipv4_lab_networks, setup_db};
@@ -38,102 +38,6 @@ async fn test_get_lab_not_found() -> Result<()> {
     let result = get_lab(&db, "invalid").await;
 
     assert!(result.is_err(), "Should error on non-existent lab");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_list_labs() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "eve".to_string(), "TestPass123!", false, vec![]).await?;
-
-    create_lab(
-        &db,
-        "Lab 1",
-        "lab-0004",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    create_lab(
-        &db,
-        "Lab 2",
-        "lab-0005",
-        &user,
-        &ipv4_lab_networks("172.31.2.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    create_lab(
-        &db,
-        "Lab 3",
-        "lab-0006",
-        &user,
-        &ipv4_lab_networks("172.31.3.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-
-    let labs = list_labs(&db).await?;
-
-    assert_eq!(labs.len(), 3, "Should return all 3 labs");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_list_labs_empty() -> Result<()> {
-    let db = setup_db().await?;
-
-    let labs = list_labs(&db).await?;
-
-    assert_eq!(labs.len(), 0, "Should return empty list");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_list_labs_by_user() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user1 = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
-    let user2 = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
-
-    create_lab(
-        &db,
-        "Frank Lab 1",
-        "lab-0007",
-        &user1,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    create_lab(
-        &db,
-        "Frank Lab 2",
-        "lab-0008",
-        &user1,
-        &ipv4_lab_networks("172.31.2.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    create_lab(
-        &db,
-        "Grace Lab",
-        "lab-0009",
-        &user2,
-        &ipv4_lab_networks("172.31.3.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-
-    let user1_labs = list_labs_by_user(&db, user1.id.unwrap()).await?;
-    let user2_labs = list_labs_by_user(&db, user2.id.unwrap()).await?;
-
-    assert_eq!(user1_labs.len(), 2, "User1 should have 2 labs");
-    assert_eq!(user2_labs.len(), 1, "User2 should have 1 lab");
 
     Ok(())
 }

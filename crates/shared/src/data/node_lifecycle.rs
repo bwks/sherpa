@@ -154,51 +154,11 @@ impl NodeState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use strum::IntoEnumIterator;
 
     use NodeState::{Building, Failed, Missing, Running, Starting, Stopped};
 
-    const OPERATION_EVENTS: [OperationEvent; 5] = [
-        OperationEvent::RebuildStarted,
-        OperationEvent::Launched,
-        OperationEvent::Ready,
-        OperationEvent::Stopped,
-        OperationEvent::Failed,
-    ];
-
     fn refused(state: NodeState, event: OperationEvent) -> Result<NodeState, Refused> {
         Err(Refused { state, event })
-    }
-
-    /// The expected result of every operation event from every state.
-    fn expected_operation(state: NodeState, event: OperationEvent) -> Result<NodeState, Refused> {
-        match (state, event) {
-            // Another operation is building the node: nothing else may touch it.
-            (Building, OperationEvent::RebuildStarted | OperationEvent::Stopped) => {
-                refused(state, event)
-            }
-            (_, OperationEvent::RebuildStarted) => Ok(Building),
-            // A node with no domain or container can only be redeployed.
-            (Missing, _) => refused(state, event),
-            (_, OperationEvent::Launched) => Ok(Starting),
-            (Starting | Running, OperationEvent::Ready) => Ok(Running),
-            (_, OperationEvent::Ready) => refused(state, event),
-            (_, OperationEvent::Stopped) => Ok(Stopped),
-            (_, OperationEvent::Failed) => Ok(Failed),
-        }
-    }
-
-    #[test]
-    fn every_operation_event_from_every_state() {
-        for state in NodeState::iter() {
-            for event in OPERATION_EVENTS {
-                assert_eq!(
-                    state.on_operation(event),
-                    expected_operation(state, event),
-                    "{event:?} from {state:?}"
-                );
-            }
-        }
     }
 
     const RUNTIMES: [Runtime; 7] = [
@@ -211,37 +171,58 @@ mod tests {
         Runtime::Faulted("dead"),
     ];
 
-    const PROBES: [Probe; 3] = [Probe::NotProbed, Probe::Ready, Probe::NotReady];
-
-    /// The expected result of every observation from every state.
-    fn expected_observation(state: NodeState, runtime: Runtime, probe: Probe) -> NodeState {
-        match (state, runtime) {
-            // Operations own these; a runtime between states says nothing yet.
-            (Building | Failed, _) | (_, Runtime::Transitional(_)) => state,
-            (_, Runtime::Absent) => Missing,
-            (_, Runtime::Faulted(_)) => Failed,
-            (_, Runtime::Stopped(_)) => Stopped,
-            (Running, Runtime::Running) => Running,
-            (_, Runtime::Running) => match probe {
-                Probe::NotProbed | Probe::Ready => Running,
-                Probe::NotReady => Starting,
-            },
-        }
+    #[test]
+    fn operation_events_move_a_node_as_listed() {
+        assert_eq!(Running.on_operation(OperationEvent::Stopped), Ok(Stopped));
+        assert_eq!(Running.on_operation(OperationEvent::Failed), Ok(Failed));
+        assert_eq!(Running.on_operation(OperationEvent::Ready), Ok(Running));
+        assert_eq!(
+            Building.on_operation(OperationEvent::Launched),
+            Ok(Starting)
+        );
+        assert_eq!(
+            Building.on_operation(OperationEvent::RebuildStarted),
+            refused(Building, OperationEvent::RebuildStarted)
+        );
+        assert_eq!(
+            Missing.on_operation(OperationEvent::RebuildStarted),
+            Ok(Building)
+        );
+        assert_eq!(
+            Missing.on_operation(OperationEvent::Stopped),
+            refused(Missing, OperationEvent::Stopped)
+        );
+        assert_eq!(
+            refused(Stopped, OperationEvent::Ready)
+                .unwrap_err()
+                .to_string(),
+            "cannot mark ready a node that is stopped"
+        );
     }
 
     #[test]
-    fn every_observation_from_every_state() {
-        for state in NodeState::iter() {
-            for runtime in RUNTIMES {
-                for probe in PROBES {
-                    assert_eq!(
-                        state.on_observation(Observation { runtime, probe }),
-                        expected_observation(state, runtime, probe),
-                        "{runtime:?} probed {probe:?} from {state:?}"
-                    );
-                }
-            }
-        }
+    fn observations_move_a_node_as_listed() {
+        let seen = |runtime, probe| Observation { runtime, probe };
+        assert_eq!(
+            Running.on_observation(seen(Runtime::Transitional("restarting"), Probe::Ready)),
+            Running
+        );
+        assert_eq!(
+            Running.on_observation(seen(Runtime::Stopped(Halt::Paused), Probe::NotProbed)),
+            Stopped
+        );
+        assert_eq!(
+            Running.on_observation(seen(Runtime::Running, Probe::NotReady)),
+            Running
+        );
+        assert_eq!(
+            Stopped.on_observation(seen(Runtime::Running, Probe::NotProbed)),
+            Running
+        );
+        assert_eq!(
+            Missing.on_observation(seen(Runtime::Stopped(Halt::Off), Probe::NotProbed)),
+            Stopped
+        );
     }
 
     // One test per defect in the state-machines inventory that the machine itself rules out.

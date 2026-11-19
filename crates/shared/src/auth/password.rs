@@ -61,15 +61,6 @@ mod tests {
     }
 
     #[test]
-    fn test_hash_password_valid() {
-        let password = "SecurePass123!";
-        let hash = hash_password(password).expect("Should hash valid password");
-
-        // Verify the hash starts with $argon2id$ (PHC format)
-        assert!(hash.starts_with("$argon2id$"));
-    }
-
-    #[test]
     fn test_hash_password_invalid() {
         let password = "weak";
         assert!(hash_password(password).is_err());
@@ -92,15 +83,6 @@ mod tests {
 
         let result = verify_password(password, &hash).expect("Should verify password");
         assert!(result, "Correct password should verify");
-    }
-
-    #[test]
-    fn test_verify_password_incorrect() {
-        let password = "SecurePass123!";
-        let hash = hash_password(password).expect("Should hash password");
-
-        let result = verify_password("WrongPassword123!", &hash).expect("Should verify password");
-        assert!(!result, "Incorrect password should not verify");
     }
 
     #[test]

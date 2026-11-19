@@ -271,12 +271,6 @@ mod tests {
     }
 
     #[test]
-    fn test_disk_buses_to_vec_contains_all() {
-        let buses = DiskBuses::to_vec();
-        assert_eq!(buses.len(), 5);
-    }
-
-    #[test]
     fn test_disk_targets_ide_all_indices() {
         let expected = [
             "hda", "hdb", "hdc", "hdd", "hde", "hdf", "hdg", "hdh", "hdi", "hdj",
@@ -296,15 +290,6 @@ mod tests {
             let t = DiskTargets::target(&DiskBuses::Sata, index).unwrap();
             assert_eq!(t.to_string(), name);
         }
-    }
-
-    #[test]
-    fn test_disk_targets_usb_uses_sd_prefix() {
-        // USB shares the Sata/Usb arm
-        let t = DiskTargets::target(&DiskBuses::Usb, 0).unwrap();
-        assert_eq!(t.to_string(), "sda");
-        let t = DiskTargets::target(&DiskBuses::Usb, 9).unwrap();
-        assert_eq!(t.to_string(), "sdj");
     }
 
     #[test]

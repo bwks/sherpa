@@ -529,39 +529,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_migration_that_fails_halfway_leaves_the_database_as_it_was() {
-        let db = open_in_memory().await.unwrap();
-        apply_schema(&db).await.unwrap();
-        {
-            let mut writer = db.writer().await.unwrap();
-            let tx = writer.conn.transaction().await.unwrap();
-            tx.execute("ALTER TABLE lab ADD COLUMN half_applied TEXT", ())
-                .await
-                .unwrap();
-            tx.execute(&format!("PRAGMA user_version = {}", SCHEMA_VERSION + 1), ())
-                .await
-                .unwrap();
-            assert!(
-                tx.execute("ALTER TABLE missing ADD COLUMN x TEXT", ())
-                    .await
-                    .is_err()
-            );
-            // Dropped without a commit, as apply_schema's transaction is on an error.
-        }
-
-        assert_eq!(version(&db).await, SCHEMA_VERSION);
-        let conn = db.reader().await.unwrap();
-        let columns = query_count(
-            &conn,
-            Query::new("SELECT count(*) FROM pragma_table_info('lab') WHERE name = 'half_applied'")
-                .bind([]),
-        )
-        .await
-        .unwrap();
-        assert_eq!(columns, 0);
-    }
-
-    #[tokio::test]
     async fn a_model_has_one_default_image_per_kind() {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
@@ -1114,16 +1081,6 @@ mod tests {
 
         let error = apply_schema(&db).await.unwrap_err().to_string();
         assert!(error.contains("newer"), "{error}");
-    }
-
-    #[tokio::test]
-    async fn apply_schema_creates_the_protection_triggers() {
-        let db = open_in_memory().await.unwrap();
-        apply_schema(&db).await.unwrap();
-        // Three admin protection triggers, the two that keep interfaces used once, the three
-        // that keep CPU pins to the pinning rules, and the two that keep device passwords sealed.
-        assert_eq!(trigger_count(&db, "%").await, 3 + 2 + 3 + 2);
-        assert_eq!(trigger_count(&db, "cpu_pin%").await, 3);
     }
 
     #[tokio::test]

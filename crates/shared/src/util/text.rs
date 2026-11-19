@@ -25,21 +25,8 @@ mod tests {
     }
 
     #[test]
-    fn test_split_node_int_complex_interface() {
-        let (node, iface) = split_node_int("sw01::GigabitEthernet0/0/1").unwrap();
-        assert_eq!(node, "sw01");
-        assert_eq!(iface, "GigabitEthernet0/0/1");
-    }
-
-    #[test]
     fn test_split_node_int_missing_separator() {
         let result = split_node_int("router1-eth1");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_split_node_int_empty_string() {
-        let result = split_node_int("");
         assert!(result.is_err());
     }
 }

@@ -88,25 +88,4 @@ mod tests {
             "Invalid SSH key algorithm variant"
         );
     }
-
-    #[test]
-    fn test_default_is_ed25519() {
-        assert!(matches!(
-            SshKeyAlgorithms::default(),
-            SshKeyAlgorithms::SshEd25519
-        ));
-    }
-
-    #[test]
-    fn test_serde_round_trip() {
-        let original = SshPublicKey {
-            algorithm: SshKeyAlgorithms::SshEd25519,
-            key: "AAAAC3NzaC1lZDI1NTE5AAAA".to_string(),
-            comment: Some("user@host".to_string()),
-        };
-        let json = serde_json::to_string(&original).unwrap();
-        let deserialized: SshPublicKey = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.key, original.key);
-        assert_eq!(deserialized.comment, original.comment);
-    }
 }

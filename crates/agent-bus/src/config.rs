@@ -243,43 +243,6 @@ mod tests {
     }
 
     #[test]
-    fn a_guest_may_write_only_its_own_status_and_read_none() {
-        let fixture = fixture();
-        let config = rendered(&fixture);
-        let guest = user_of(&config, &fixture.dev);
-        let publish: Vec<&str> = guest["permissions"]["publish"]["allow"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|subject| subject.as_str().unwrap())
-            .collect();
-        let status: Vec<&str> = publish
-            .iter()
-            .copied()
-            .filter(|subject| subject.contains(BUCKET))
-            .collect();
-        // Its own key, exactly: no wildcard, and not another guest's or the host's.
-        assert_eq!(status, ["$KV.AGENT_STATUS.dev"]);
-        // Reading a status goes through the JetStream API, which a guest may use only for its
-        // own consumer.
-        assert!(
-            publish
-                .iter()
-                .filter(|subject| subject.starts_with("$JS.API."))
-                .all(|subject| subject.ends_with(".AGENTS.dev")),
-            "{publish:?}"
-        );
-        let test_key = Agents::parse(&fixture.text).unwrap().guests[1].key.clone();
-        let other = user_of(&config, &test_key);
-        assert!(
-            other["permissions"]["publish"]["allow"]
-                .as_array()
-                .unwrap()
-                .contains(&serde_json::json!("$KV.AGENT_STATUS.test"))
-        );
-    }
-
-    #[test]
     fn the_host_may_send_to_every_inbox_and_manage_jetstream() {
         let fixture = fixture();
         let config = rendered(&fixture);

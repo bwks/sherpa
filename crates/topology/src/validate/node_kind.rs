@@ -227,30 +227,18 @@ mod tests {
     }
 
     #[test]
-    fn cpu_count_and_memory_on_a_container_are_accepted() {
+    fn a_container_takes_its_settings() {
         let mut container = generic_container();
         container.cpu.count = Some(2);
         container.memory = Some(512);
-        check_node_kind_settings(&container).unwrap();
-    }
-
-    #[test]
-    fn a_container_takes_its_settings() {
-        let mut container = generic_container();
         container.interfaces.data_count = Some(2);
+        container.ready_check.port = Some(80);
         container.ready_check.skip = Some(true);
         container.container = Some(NodeContainer {
             privileged: Some(true),
             ..NodeContainer::default()
         });
         container.startup_scripts = Some(vec![StartupScript::default()]);
-        check_node_kind_settings(&container).unwrap();
-    }
-
-    #[test]
-    fn a_ready_port_on_a_container_is_accepted() {
-        let mut container = generic_container();
-        container.ready_check.port = Some(80);
         check_node_kind_settings(&container).unwrap();
     }
 
@@ -335,30 +323,6 @@ mod tests {
         );
         let error = NodeExpanded::new(1, &node).unwrap_err();
         assert!(format!("{error:#}").contains("'fw1'"), "{error:#}");
-    }
-
-    #[test]
-    fn a_kind_that_is_not_one_of_the_words_is_refused_when_read() {
-        let manifest: Result<Manifest, _> = toml::from_str(
-            "name = \"lab\"\n\n[[nodes]]\nname = \"n1\"\nmodel = \"ubuntu_linux\"\nkind = \"vm\"",
-        );
-        let error = manifest.unwrap_err().to_string();
-        assert!(error.contains("unknown variant `vm`"), "{error}");
-    }
-
-    #[test]
-    fn a_kind_with_another_kinds_settings_group_is_refused() {
-        let node = manifest_node(
-            "name = \"n1\"\nmodel = \"ubuntu_linux\"\nkind = \"virtual_machine\"\n\
-             [nodes.container]\nprivileged = true",
-        );
-        check_node_model_kind(&node).unwrap();
-        let expanded = NodeExpanded::new(1, &node).unwrap();
-        assert_eq!(
-            error(&expanded),
-            "Manifest - node: 'n1' sets `container`, which does not apply to virtual_machine \
-             nodes; 'ubuntu_linux' is a virtual_machine"
-        );
     }
 
     #[test]

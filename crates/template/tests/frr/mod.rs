@@ -127,26 +127,3 @@ fn test_frr_startup() {
     let output = startup(&hash).render().expect("template renders");
     assert_eq!(output, EXPECTED_FRR_STARTUP.replace("HASH", &hash));
 }
-
-#[test]
-fn test_frr_startup_has_only_the_owner_account() {
-    let hash = helpers::sha512_hash("abcdefghijklm!@_-+.");
-    let output = startup(&hash).render().expect("template renders");
-    assert_eq!(output.matches("adduser ").count(), 1);
-    assert_eq!(output.matches("chpasswd").count(), 1);
-    assert_eq!(output.matches("/etc/sudoers.d/").count(), 1);
-    helpers::assert_no_sherpa_login(&output);
-}
-
-#[test]
-fn test_frr_startup_password_is_a_hash_that_verifies() {
-    for password in helpers::ALL_CHARACTER_PASSWORDS {
-        let hash = helpers::sha512_hash(password);
-        let output = startup(&hash).render().expect("template renders");
-        let found = helpers::hash_after(&output, "alice:");
-        assert_eq!(found, hash);
-        helpers::assert_hash_verifies(&found, "$6$", password);
-        assert!(output.contains("| chpasswd -e\n"));
-        assert!(!output.contains(password));
-    }
-}

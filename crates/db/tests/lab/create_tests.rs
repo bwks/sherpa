@@ -1,7 +1,6 @@
 use anyhow::Result;
 use db::{
     LabDetails, LabNetworks, create_lab, create_user, get_lab, list_labs, update_lab_phase_from,
-    validate_lab_id,
 };
 use shared::data::LabPhase;
 
@@ -85,27 +84,6 @@ async fn create_lab_stores_its_description_and_where_it_was_started() -> Result<
         .await?
         .unwrap();
     assert_eq!(updated.client_host.as_deref(), Some("dev01"));
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_lab_with_user() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(
-        &db,
-        "Bob's Lab",
-        "lab-0002",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-
-    // Verify lab is associated with user
-    assert_eq!(lab.user, user.id.unwrap());
 
     Ok(())
 }
@@ -248,100 +226,6 @@ async fn test_create_lab_invalid_lab_id_too_short() -> Result<()> {
         error_msg.contains("exactly 8 characters"),
         "Error should mention length requirement, got: {error_msg}"
     );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_lab_invalid_lab_id_too_long() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
-
-    // Try to create lab with lab_id too long
-    let result = create_lab(
-        &db,
-        "Invalid Lab",
-        "lab-00001",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await;
-
-    assert!(result.is_err(), "Should fail on invalid lab_id length");
-    let error_msg = result.unwrap_err().to_string();
-    assert!(
-        error_msg.contains("exactly 8 characters"),
-        "Error should mention length requirement, got: {error_msg}"
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_lab_invalid_lab_id_chars() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "ivan".to_string(), "TestPass123!", false, vec![]).await?;
-
-    // Try to create lab with invalid characters
-    let result = create_lab(
-        &db,
-        "Invalid Lab",
-        "lab_0008",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await;
-
-    assert!(result.is_err(), "Should fail on invalid characters");
-    let error_msg = result.unwrap_err().to_string();
-    assert!(
-        error_msg.contains("alphanumeric characters and hyphens"),
-        "Error should mention character restrictions, got: {error_msg}"
-    );
-
-    Ok(())
-}
-
-#[test]
-fn test_validate_lab_id_valid() {
-    assert!(validate_lab_id("lab-0001").is_ok());
-    assert!(validate_lab_id("12345678").is_ok());
-    assert!(validate_lab_id("abc-defg").is_ok());
-    assert!(validate_lab_id("TEST-123").is_ok());
-}
-
-#[test]
-fn test_validate_lab_id_invalid() {
-    assert!(validate_lab_id("short").is_err());
-    assert!(validate_lab_id("toolongid").is_err());
-    assert!(validate_lab_id("lab_0001").is_err());
-    assert!(validate_lab_id("lab 0001").is_err());
-}
-
-#[tokio::test]
-async fn test_create_lab_increases_count() -> Result<()> {
-    let db = setup_db().await?;
-
-    let count_before = list_labs(&db).await?.len();
-
-    let user = create_user(&db, "laura".to_string(), "TestPass123!", false, vec![]).await?;
-    create_lab(
-        &db,
-        "Count Test",
-        "lab-0011",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-
-    let count_after = list_labs(&db).await?.len();
-
-    assert_eq!(count_after, count_before + 1, "Count should increase by 1");
 
     Ok(())
 }

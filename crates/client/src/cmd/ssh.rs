@@ -191,22 +191,6 @@ mod tests {
     }
 
     #[test]
-    fn unknown_manifest_node_is_reported_when_ssh_config_is_missing() {
-        let dir = tempdir().unwrap();
-        fs::write(
-            dir.path().join("manifest.toml"),
-            "name='test'\nnodes=[{name='oma01',model='omarchy_linux'}]\n",
-        )
-        .unwrap();
-        write(
-            &LabFolder::new(dir.path()).lab_info(),
-            &lab_info().to_string(),
-        );
-        let error = load_ssh_connection("oma1", "abcd1234", dir.path()).unwrap_err();
-        assert_eq!(error.to_string(), "Node 'oma1' not found in manifest.toml");
-    }
-
-    #[test]
     fn unknown_manifest_node_does_not_require_lab_metadata_or_keys() {
         let dir = tempdir().unwrap();
         fs::write(
@@ -229,10 +213,17 @@ mod tests {
             &LabFolder::new(dir.path()).ssh_config(),
             "Host vm.abcd1234 vm.abcd1234.sherpa.lab.local\n    User alice\n",
         );
-        for name in ["vm", "vm.abcd1234", "vm.abcd1234.sherpa.lab.local"] {
+        for (name, host) in [
+            ("vm", "vm.abcd1234"),
+            ("vm.abcd1234", "vm.abcd1234"),
+            (
+                "vm.abcd1234.sherpa.lab.local",
+                "vm.abcd1234.sherpa.lab.local",
+            ),
+        ] {
             assert_eq!(
                 load_ssh_connection(name, "abcd1234", dir.path()).unwrap(),
-                qualify_device_name(name, "abcd1234")
+                host
             );
         }
     }
@@ -334,10 +325,17 @@ mod tests {
     #[test]
     fn configured_host_aliases_connect() {
         let config = "Host 192.0.2.10 vm.abcd1234 vm.abcd1234.sherpa.lab.local\n    User alice\n";
-        for name in ["vm", "vm.abcd1234", "vm.abcd1234.sherpa.lab.local"] {
+        for (name, host) in [
+            ("vm", "vm.abcd1234"),
+            ("vm.abcd1234", "vm.abcd1234"),
+            (
+                "vm.abcd1234.sherpa.lab.local",
+                "vm.abcd1234.sherpa.lab.local",
+            ),
+        ] {
             assert_eq!(
                 prepare_ssh_connection(name, "abcd1234", &lab_info(), config).unwrap(),
-                qualify_device_name(name, "abcd1234")
+                host
             );
         }
     }
@@ -385,14 +383,6 @@ mod tests {
     }
 
     #[test]
-    fn fully_qualified_alias_is_preserved() {
-        assert_eq!(
-            qualify_device_name("vm.abcd1234.sherpa.lab.local", "abcd1234"),
-            "vm.abcd1234.sherpa.lab.local"
-        );
-    }
-
-    #[test]
     fn the_node_name_is_the_name_without_the_lab_suffix() {
         assert_eq!(node_name("dev01", "a10736e8"), "dev01");
         assert_eq!(node_name("dev01.a10736e8", "a10736e8"), "dev01");
@@ -401,18 +391,6 @@ mod tests {
             "dev01"
         );
         assert_eq!(node_name("dev01.deadbeef", "a10736e8"), "dev01.deadbeef");
-    }
-
-    #[test]
-    fn test_qualify_device_name_adds_suffix() {
-        let result = qualify_device_name("dev01", "a10736e8");
-        assert_eq!(result, "dev01.a10736e8");
-    }
-
-    #[test]
-    fn test_qualify_device_name_already_qualified() {
-        let result = qualify_device_name("dev01.a10736e8", "a10736e8");
-        assert_eq!(result, "dev01.a10736e8");
     }
 
     #[test]

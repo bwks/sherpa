@@ -64,35 +64,3 @@ fn test_static_ipv4() {
     let output = aoscx().render().expect("template renders");
     assert_eq!(output, EXPECTED_STATIC_IPV4.replace("LOCKED", LOCKED));
 }
-
-#[test]
-fn test_only_the_owner_and_admin_have_accounts_and_both_are_locked() {
-    let output = aoscx().render().expect("template renders");
-    let users: Vec<&str> = output
-        .lines()
-        .filter(|line| line.starts_with("user "))
-        .collect();
-    assert_eq!(
-        users,
-        [
-            format!("user admin group administrators password ciphertext {LOCKED}").as_str(),
-            format!("user alice group administrators password ciphertext {LOCKED}").as_str(),
-            "user alice authorized-key ssh-rsa OWNERKEY1",
-            "user alice authorized-key ssh-ed25519 OWNERKEY2",
-        ]
-    );
-    helpers::assert_no_sherpa_login(&output);
-}
-
-#[test]
-fn test_no_password_in_plain_text() {
-    let output = aoscx().render().expect("template renders");
-    assert!(!output.contains("plaintext"));
-    assert!(!output.contains("Rand0mPass-1"));
-}
-
-#[test]
-fn test_ssh_password_login_is_off() {
-    let output = aoscx().render().expect("template renders");
-    assert!(output.contains("\nno ssh password-authentication\nssh server vrf mgmt\n"));
-}

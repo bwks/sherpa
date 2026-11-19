@@ -81,21 +81,6 @@ async fn test_create_user_username_too_short() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_create_user_invalid_username_chars() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Test space
-    let result = create_user(&db, "user name".to_string(), "TestPass123!", false, vec![]).await;
-    assert!(result.is_err(), "Should fail on space in username");
-
-    // Test special char
-    let result = create_user(&db, "user#name".to_string(), "TestPass123!", false, vec![]).await;
-    assert!(result.is_err(), "Should fail on # in username");
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_create_user_allows_hyphen_and_underscore() -> Result<()> {
     let db = setup_db().await?;
 

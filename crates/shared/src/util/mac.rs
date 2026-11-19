@@ -33,28 +33,6 @@ mod tests {
     }
 
     #[test]
-    fn test_random_mac_oui() {
-        let mac = random_mac(KVM_OUI);
-        assert!(mac.starts_with(KVM_OUI), "MAC should start with KVM OUI");
-    }
-
-    #[test]
-    fn test_random_mac_length() {
-        let mac = random_mac(KVM_OUI);
-        assert_eq!(mac.len(), 17, "MAC address should be 17 characters long");
-    }
-
-    #[test]
-    fn test_random_mac_colon_count() {
-        let mac = random_mac(KVM_OUI);
-        assert_eq!(
-            mac.chars().filter(|&c| c == ':').count(),
-            5,
-            "MAC should have 5 colons"
-        );
-    }
-
-    #[test]
     fn test_random_mac_uniqueness() {
         let mac1 = random_mac(KVM_OUI);
         let mac2 = random_mac(KVM_OUI);

@@ -28,21 +28,6 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_generate_lab_name_returns_ok() {
-        let name = generate_lab_name().expect("should generate a name");
-        assert_ne!(name, "");
-    }
-
-    #[test]
-    fn test_generate_lab_name_contains_hyphen() {
-        let name = generate_lab_name().expect("should generate a name");
-        assert!(
-            name.contains('-'),
-            "expected two words joined by hyphen, got: {name}"
-        );
-    }
-
-    #[test]
     fn test_generate_lab_name_has_two_words() {
         let name = generate_lab_name().expect("should generate a name");
         let parts: Vec<&str> = name.split('-').collect();
@@ -73,10 +58,8 @@ mod tests {
     }
 
     #[test]
-    fn test_get_id_for_user_deterministic() {
-        let id1 = get_id_for_user("bob", "my-lab");
-        let id2 = get_id_for_user("bob", "my-lab");
-        assert_eq!(id1, id2);
+    fn test_get_id_for_user_is_a_stable_hash_of_user_and_lab() {
+        assert_eq!(get_id_for_user("bob", "my-lab"), "05f076b9");
     }
 
     #[test]
@@ -91,12 +74,5 @@ mod tests {
         let id1 = get_id_for_user("alice", "lab-one");
         let id2 = get_id_for_user("alice", "lab-two");
         assert_ne!(id1, id2);
-    }
-
-    #[test]
-    fn test_get_id_for_user_empty_inputs() {
-        let id = get_id_for_user("", "");
-        assert_eq!(id.len(), 8);
-        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
     }
 }

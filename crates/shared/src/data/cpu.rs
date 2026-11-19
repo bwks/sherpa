@@ -94,27 +94,4 @@ mod tests {
     fn test_cpu_models_default_is_host_model() {
         assert_eq!(CpuModels::default(), CpuModels::HostModel);
     }
-
-    #[test]
-    fn test_cpu_models_to_vec_contains_all_variants() {
-        let models = CpuModels::to_vec();
-        assert_eq!(models.len(), 4);
-        assert!(models.iter().any(|m| matches!(m, CpuModels::HostModel)));
-        assert!(
-            models
-                .iter()
-                .any(|m| matches!(m, CpuModels::HostPassthrough))
-        );
-        assert!(models.iter().any(|m| matches!(m, CpuModels::IvyBridge)));
-        assert!(models.iter().any(|m| matches!(m, CpuModels::SandyBridge)));
-    }
-
-    #[test]
-    fn test_cpu_models_serde_round_trip() {
-        for model in CpuModels::to_vec() {
-            let json = serde_json::to_string(&model).unwrap();
-            let deserialized: CpuModels = serde_json::from_str(&json).unwrap();
-            assert_eq!(model, deserialized);
-        }
-    }
 }

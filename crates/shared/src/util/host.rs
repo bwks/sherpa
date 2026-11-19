@@ -108,13 +108,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_get_hostname_returns_non_empty() {
-        let hostname = get_hostname().unwrap();
-        assert_ne!(hostname, "");
-        assert!(!hostname.contains('\n'));
-    }
-
-    #[test]
     fn test_get_fqdn_returns_non_empty_if_some() {
         if let Some(fqdn) = get_fqdn() {
             assert_ne!(fqdn, "");

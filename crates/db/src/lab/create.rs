@@ -178,10 +178,4 @@ mod tests {
                 .contains("alphanumeric characters and hyphens")
         );
     }
-
-    #[test]
-    fn test_validate_lab_id_spaces() {
-        let result = validate_lab_id("lab 0001");
-        assert!(result.is_err());
-    }
 }

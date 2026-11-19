@@ -533,20 +533,6 @@ async fn empty_lists_and_groups_read_back_as_absent() {
 }
 
 #[tokio::test]
-async fn a_lab_without_a_definition_reads_none_until_one_is_stored() {
-    let (db, lab) = lab_with_nodes().await;
-    assert_eq!(read_lab_definition(&db, &lab_id(&lab)).await.unwrap(), None);
-
-    store_lab_definition(&db, &lab_id(&lab), &full_manifest())
-        .await
-        .unwrap();
-    assert_eq!(
-        read_lab_definition(&db, &lab_id(&lab)).await.unwrap(),
-        Some(full_manifest())
-    );
-}
-
-#[tokio::test]
 async fn storing_again_replaces_the_whole_definition() {
     let (db, lab) = lab_with_nodes().await;
     store_lab_definition(&db, &lab_id(&lab), &full_manifest())

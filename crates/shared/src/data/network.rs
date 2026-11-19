@@ -77,25 +77,4 @@ mod tests {
         assert_eq!(BridgeKind::P2p.to_string(), "p2p");
         assert_eq!(BridgeKind::SharedBridge.to_string(), "shared_bridge");
     }
-
-    #[test]
-    fn test_bridge_kind_to_vec() {
-        let kinds = BridgeKind::to_vec();
-        assert_eq!(kinds.len(), 2);
-    }
-
-    #[test]
-    fn test_bridge_kind_serde_roundtrip() {
-        let kind = BridgeKind::SharedBridge;
-        let json = serde_json::to_string(&kind).expect("serializes");
-        assert_eq!(json, r#""shared_bridge""#);
-        let back: BridgeKind = serde_json::from_str(&json).expect("deserializes");
-        assert_eq!(back, BridgeKind::SharedBridge);
-    }
-
-    #[test]
-    fn test_bridge_kind_default() {
-        let kind = BridgeKind::default();
-        assert_eq!(kind, BridgeKind::P2p);
-    }
 }

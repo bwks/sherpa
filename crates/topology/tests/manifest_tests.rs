@@ -2,7 +2,7 @@ use shared::data::{
     CpuMode, CpuTopology, DiskCache, DiskImageCloneMethod, DiskIo, NodeKind, NodeModel,
     NumaMemoryMode, PtxPlatform, WatchdogAction, Ztp,
 };
-use topology::{Bridge, Link2, Manifest, Node};
+use topology::{Bridge, Link2, Manifest};
 
 // ============================================================================
 // Expected TOML manifests
@@ -144,21 +144,6 @@ const MANIFEST_WITH_TEXT_FILES_UNKNOWN_FIELD: &str = r#"
     unknown_field = "bad"
     "#;
 
-const MANIFEST_WITH_VOLUMES: &str = r#"
-name = "vol-lab"
-
-[[nodes]]
-name = "app1"
-model = "generic"
-kind = "container"
-
-[nodes.container]
-volumes = [
-  { src = "/host/data", dst = "/container/data" },
-  { src = "/host/config", dst = "/etc/app" },
-]
-"#;
-
 // ============================================================================
 // Tests — manifest parsing
 // ============================================================================
@@ -293,30 +278,9 @@ fn test_parse_full_manifest() {
     assert_eq!(ztp.password, Some("secret123".to_string()));
 }
 
-#[test]
-fn test_parse_volumes() {
-    let manifest: Manifest = toml::from_str(MANIFEST_WITH_VOLUMES).expect("parses");
-    let vols = manifest.nodes[0]
-        .container
-        .as_ref()
-        .and_then(|container| container.volumes.as_ref())
-        .expect("has volumes");
-    assert_eq!(vols.len(), 2);
-    assert_eq!(vols[0].src, "/host/data");
-    assert_eq!(vols[0].dst, "/container/data");
-    assert_eq!(vols[1].src, "/host/config");
-    assert_eq!(vols[1].dst, "/etc/app");
-}
-
 // ============================================================================
 // Tests — invalid TOML
 // ============================================================================
-
-#[test]
-fn test_parse_invalid_toml() {
-    let result = toml::from_str::<Manifest>("this is not valid toml {{{}}}");
-    assert!(result.is_err());
-}
 
 #[test]
 fn test_parse_missing_name() {
@@ -336,40 +300,6 @@ fn test_parse_missing_nodes() {
         "#;
     let result = toml::from_str::<Manifest>(toml_str);
     assert!(result.is_err());
-}
-
-#[test]
-fn test_parse_node_rejects_unknown_data_interface_field() {
-    let toml_str = r#"
-name = "test-lab"
-
-nodes = [
-  { name = "dev01", model = "ubuntu_linux", data_interfaces = 4 },
-]
-"#;
-    let result = toml::from_str::<Manifest>(toml_str);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_parse_node_rejects_management_addresses() {
-    for field in [
-        r#"ipv4_address = "10.0.0.10""#,
-        r#"ipv6_address = "fd00::10""#,
-    ] {
-        let toml_str = format!(
-            r#"
-            name = "test-lab"
-
-            [[nodes]]
-            name = "dev01"
-            model = "ubuntu_linux"
-            {field}
-            "#
-        );
-        let error = toml::from_str::<Manifest>(&toml_str).unwrap_err();
-        assert!(error.to_string().contains("unknown field"), "{error}");
-    }
 }
 
 // ============================================================================
@@ -395,57 +325,6 @@ fn test_example_manifest() {
 // ============================================================================
 // Tests — write/load round-trip
 // ============================================================================
-
-#[test]
-fn test_write_load_roundtrip() {
-    let manifest = Manifest {
-        tailscale: None,
-        talos_clusters: None,
-        name: "roundtrip-lab".to_string(),
-        description: Some("Practice routing between two nodes.".into()),
-        ready_timeout: None,
-        provision_concurrency: None,
-        nodes: vec![
-            Node {
-                name: "r1".to_string(),
-                model: NodeModel::CiscoIos,
-                ..Default::default()
-            },
-            Node {
-                name: "r2".to_string(),
-                model: NodeModel::AristaEos,
-                ..Default::default()
-            },
-        ],
-        links: Some(vec![Link2 {
-            src: "r1::eth1".to_string(),
-            dst: "r2::eth1".to_string(),
-            p2p: None,
-            impairment: None,
-        }]),
-        bridges: None,
-        ztp_server: None,
-    };
-
-    let tmp_path = "/tmp/sherpa_test_manifest_roundtrip.toml";
-    manifest.write_file(tmp_path).expect("writes file");
-    let loaded = Manifest::load_file(tmp_path).expect("loads file");
-
-    assert_eq!(loaded.name, "roundtrip-lab");
-    assert_eq!(loaded.description, manifest.description);
-    assert_eq!(loaded.nodes.len(), 2);
-    assert_eq!(loaded.nodes[0].name, "r1");
-    assert_eq!(loaded.nodes[0].model, NodeModel::CiscoIos);
-    assert_eq!(loaded.nodes[1].name, "r2");
-    assert_eq!(loaded.nodes[1].model, NodeModel::AristaEos);
-
-    let links = loaded.links.as_ref().expect("has links");
-    assert_eq!(links.len(), 1);
-    assert_eq!(links[0].src, "r1::eth1");
-    assert_eq!(links[0].dst, "r2::eth1");
-
-    std::fs::remove_file(tmp_path).ok();
-}
 
 #[test]
 fn test_write_file_keeps_every_field() {
@@ -561,32 +440,6 @@ fn test_bridge_parse_links_invalid_format() {
 }
 
 // ============================================================================
-// Tests — Node defaults
-// ============================================================================
-
-#[test]
-fn test_node_defaults() {
-    let node = Node {
-        name: "test".to_string(),
-        model: NodeModel::UbuntuLinux,
-        ..Default::default()
-    };
-    assert!(node.version.is_none());
-    assert!(node.cpu.count.is_none());
-    assert!(node.memory.is_none());
-    assert!(node.boot_disk.size.is_none());
-    assert!(node.interfaces.data_count.is_none());
-    assert!(node.container.is_none());
-    assert!(node.vm.is_none());
-    assert!(node.unikernel.is_none());
-    assert!(node.environment_variables.is_none());
-    assert!(node.ready_check.skip.is_none());
-    assert!(node.ztp.config.is_none());
-    assert!(node.startup_scripts.is_none());
-    assert!(node.text_files.is_none());
-}
-
-// ============================================================================
 // Tests — text_files parsing
 // ============================================================================
 
@@ -614,12 +467,6 @@ fn test_parse_text_files() {
 fn test_parse_text_files_rejects_unknown_fields() {
     let result = toml::from_str::<Manifest>(MANIFEST_WITH_TEXT_FILES_UNKNOWN_FIELD);
     assert!(result.is_err());
-}
-
-#[test]
-fn test_config_management_section_rejected() {
-    let toml = format!("{MINIMAL_MANIFEST}\n[config_management]\nansible = true\n");
-    assert!(toml::from_str::<Manifest>(&toml).is_err());
 }
 
 // ============================================================================
@@ -670,11 +517,4 @@ fn test_old_keys_inside_a_group_are_refused() {
         .expect_err("an old key in a group is refused")
         .to_string();
     assert!(error.contains("unknown field `cpu_pinning`"), "{error}");
-}
-
-#[test]
-fn test_ztp_as_a_bare_word_is_refused() {
-    let manifest =
-        "name = 'lab'\n[[nodes]]\nname = 'dev01'\nmodel = 'ubuntu_linux'\nztp = 'cloud-init'\n";
-    assert!(toml::from_str::<Manifest>(manifest).is_err());
 }

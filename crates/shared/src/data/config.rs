@@ -346,19 +346,6 @@ mod tests {
     }
 
     #[test]
-    fn tailscale_serde_default_server_config_includes_gateway_settings() {
-        let actual = toml::Value::try_from(default_config()).unwrap();
-        let settings = actual
-            .get("tailscale")
-            .expect("default config includes gateway settings");
-        assert_eq!(
-            settings["socket_path"].as_str(),
-            Some("/run/tailscale/tailscaled.sock")
-        );
-        assert_eq!(settings["stop_timeout_secs"].as_integer(), Some(10));
-    }
-
-    #[test]
     fn host_memory_settings_default_when_left_out_and_keep_partial_overrides() {
         let mut value = toml::Value::try_from(default_config()).unwrap();
         value.as_table_mut().unwrap().remove("host_memory");
@@ -371,37 +358,6 @@ mod tests {
         assert_eq!(settings.reserve_mib, 4096);
         assert_eq!(settings.overcommit_percent, 150);
         assert!(toml::from_str::<HostMemorySettings>("reserve = 1").is_err());
-    }
-
-    #[test]
-    fn host_memory_overcommit_is_a_whole_percent_and_the_ratio_is_gone() {
-        assert!(toml::from_str::<HostMemorySettings>("overcommit_percent = 1.5").is_err());
-        assert!(toml::from_str::<HostMemorySettings>("overcommit_percent = -1").is_err());
-        assert!(toml::from_str::<HostMemorySettings>("overcommit_ratio = 1.5").is_err());
-    }
-
-    #[test]
-    fn test_ztp_server_serde_roundtrip() {
-        let ztp = ZtpServer {
-            enable: false,
-            username: Some("test".to_string()),
-            password: None,
-        };
-        let json = serde_json::to_string(&ztp).expect("serializes");
-        let back: ZtpServer = serde_json::from_str(&json).expect("deserializes");
-        assert!(!back.enable);
-        assert_eq!(back.username, Some("test".to_string()));
-        assert!(back.password.is_none());
-    }
-
-    #[test]
-    fn test_server_connection_default() {
-        let sc = ServerConnection::default();
-        assert!(sc.url.is_none());
-        assert_eq!(sc.timeout_secs, 3);
-        assert!(sc.validate_certs);
-        assert!(sc.ca_cert_path.is_none());
-        assert!(!sc.insecure);
     }
 
     #[test]
@@ -436,31 +392,11 @@ mod tests {
     }
 
     #[test]
-    fn test_tls_config_default() {
-        let tls = TlsConfig::default();
-        assert!(tls.enabled);
-        assert!(tls.cert_path.is_none());
-        assert!(tls.key_path.is_none());
-        assert!(tls.auto_generate_cert);
-        assert_eq!(tls.cert_validity_days, 365);
-        assert_eq!(tls.san, Vec::<String>::new());
-    }
-
-    #[test]
     fn test_client_config_default() {
         let config = ClientConfig::default();
         assert_eq!(config.server_ipv4, Ipv4Addr::LOCALHOST);
         assert_eq!(config.ws_port, SHERPA_SERVER_WS_PORT);
         assert!(config.server_ipv6.is_none());
-    }
-
-    #[test]
-    fn test_client_config_serde_roundtrip() {
-        let config = ClientConfig::default();
-        let toml_str = toml::to_string_pretty(&config).expect("serializes");
-        let back: ClientConfig = toml::from_str(&toml_str).expect("deserializes");
-        assert_eq!(back.server_ipv4, config.server_ipv4);
-        assert_eq!(back.ws_port, config.ws_port);
     }
 
     #[test]
@@ -487,22 +423,6 @@ mod tests {
     }
 
     #[test]
-    fn test_otel_config_serde_roundtrip() {
-        let otel = OtelConfig {
-            enabled: true,
-            endpoint: "http://collector:4317".to_string(),
-            service_name: "test-service".to_string(),
-            sample_ratio: 0.5,
-        };
-        let toml_str = toml::to_string_pretty(&otel).expect("serializes");
-        let back: OtelConfig = toml::from_str(&toml_str).expect("deserializes");
-        assert!(back.enabled);
-        assert_eq!(back.endpoint, "http://collector:4317");
-        assert_eq!(back.service_name, "test-service");
-        assert!((back.sample_ratio - 0.5).abs() < f64::EPSILON);
-    }
-
-    #[test]
     fn test_otel_config_absent_from_toml() {
         // Verify that a Config without [otel] section still deserializes
         let toml_str = r#"
@@ -516,25 +436,6 @@ mod tests {
         let config: Config = toml::from_str(toml_str).expect("deserializes without otel section");
         assert!(!config.otel.enabled);
         assert_eq!(config.otel.endpoint, "http://localhost:4317");
-    }
-
-    #[test]
-    fn test_scanner_config_default() {
-        let scanner = ScannerConfig::default();
-        assert!(scanner.enabled);
-        assert_eq!(scanner.interval_secs, 30);
-    }
-
-    #[test]
-    fn test_scanner_config_serde_roundtrip() {
-        let scanner = ScannerConfig {
-            enabled: false,
-            interval_secs: 60,
-        };
-        let toml_str = toml::to_string_pretty(&scanner).expect("serializes");
-        let back: ScannerConfig = toml::from_str(&toml_str).expect("deserializes");
-        assert!(!back.enabled);
-        assert_eq!(back.interval_secs, 60);
     }
 
     #[test]

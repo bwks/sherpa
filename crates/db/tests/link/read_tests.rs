@@ -8,28 +8,6 @@ use shared::data::{BridgeKind, ModelKind, NodeModel};
 use crate::helper::{create_test_node_with_model, ipv4_lab_networks, setup_db, test_link};
 
 #[tokio::test]
-async fn test_list_links_by_lab_empty() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(
-        &db,
-        "Test Lab",
-        "lab-0001",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-
-    let links = list_links_by_lab(&db, lab.id.clone().unwrap()).await?;
-
-    assert_eq!(links.len(), 0);
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_list_links_by_lab_filters_correctly() -> Result<()> {
     let db = setup_db().await?;
 

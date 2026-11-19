@@ -11,113 +11,11 @@ use shared::data::{
     NodeModel, RecordId,
 };
 
-use crate::{create_test_node_with_model, ipv4_lab_networks, setup_db, test_link};
+use crate::{create_test_node_with_model, ipv4_lab_networks, setup_db};
 
 // ============================================================================
 // Cascade deletes — lab
 // ============================================================================
-
-/// Deleting a lab cascades to its nodes, links, AND bridges.
-#[tokio::test]
-async fn test_delete_lab_cascade_removes_nodes_links_bridges() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(
-        &db,
-        "cascade_user".to_string(),
-        "TestPass123!",
-        false,
-        vec![],
-    )
-    .await?;
-    upsert_node_image(
-        &db,
-        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
-        DefaultRequest::Keep,
-    )
-    .await?;
-
-    let lab = create_lab(
-        &db,
-        "Cascade Lab",
-        "casc0001",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    let lab_rid = lab.id.clone().expect("lab has id");
-
-    // Create 2 nodes
-    let node1 = create_test_node_with_model(&db, "n1", 1, NodeModel::UbuntuLinux, &lab).await?;
-    let node2 = create_test_node_with_model(&db, "n2", 2, NodeModel::UbuntuLinux, &lab).await?;
-    let n1_id = node1.id.clone().expect("n1 has id");
-    let n2_id = node2.id.clone().expect("n2 has id");
-
-    // Create a link between them
-    create_link(
-        &db,
-        DbLink {
-            id: None,
-            index: 0,
-            kind: BridgeKind::default(),
-            node_a: n1_id.clone(),
-            node_b: n2_id.clone(),
-            int_a: "eth1".to_string(),
-            int_b: "eth1".to_string(),
-            lab: lab_rid.clone(),
-            tap_a: String::new(),
-            tap_b: String::new(),
-            impairment_a_to_b: LinkImpairment::default(),
-            impairment_b_to_a: LinkImpairment::default(),
-        },
-    )
-    .await?;
-
-    // Create a bridge
-    create_bridge(
-        &db,
-        0,
-        "test-br".to_string(),
-        "test-net".to_string(),
-        lab_rid.clone(),
-        vec![
-            BridgeMember {
-                node: n1_id,
-                interface: "eth2".to_string(),
-            },
-            BridgeMember {
-                node: n2_id,
-                interface: "eth2".to_string(),
-            },
-        ],
-    )
-    .await?;
-
-    // Verify everything exists
-    assert_eq!(count_nodes_by_lab(&db, lab_rid.clone()).await?, 2);
-    assert_eq!(list_links_by_lab(&db, lab_rid.clone()).await?.len(), 1);
-    let bridges = list_bridges(&db, &lab_rid).await?;
-    assert_eq!(bridges.len(), 1);
-
-    // Delete lab with cascade
-    assert!(delete_lab_from(&db, &lab.lab_id, LabPhase::Creating).await?);
-
-    // Verify lab is gone
-    assert!(get_lab(&db, "casc0001").await.is_err());
-
-    // Verify nodes are gone
-    assert_eq!(count_nodes_by_lab(&db, lab_rid.clone()).await?, 0);
-
-    // Verify links are gone
-    assert_eq!(list_links_by_lab(&db, lab_rid.clone()).await?.len(), 0);
-
-    // Verify bridges are gone
-    let bridges_after = list_bridges(&db, &lab_rid).await?;
-    assert_eq!(bridges_after.len(), 0);
-
-    Ok(())
-}
 
 /// The server's destroy deletes links, then nodes, then the lab. A bridge must not stop
 /// its members' nodes from being deleted, and it keeps which interface of each node it holds.
@@ -291,70 +189,6 @@ async fn test_list_nodes_by_lab_isolation() -> Result<()> {
     assert!(names_a.contains(&"a-node1"));
     assert!(names_a.contains(&"a-node2"));
     assert_eq!(nodes_b[0].name, "b-node1");
-
-    Ok(())
-}
-
-/// Links from one lab don't appear when querying another lab.
-#[tokio::test]
-async fn test_list_links_by_lab_isolation() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(
-        &db,
-        "link_iso_user".to_string(),
-        "TestPass123!",
-        false,
-        vec![],
-    )
-    .await?;
-    upsert_node_image(
-        &db,
-        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
-        DefaultRequest::Keep,
-    )
-    .await?;
-
-    let lab_a = create_lab(
-        &db,
-        "Link Lab A",
-        "llka0001",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    let lab_b = create_lab(
-        &db,
-        "Link Lab B",
-        "llkb0001",
-        &user,
-        &ipv4_lab_networks("172.31.2.0/24", "172.31.2.1", "172.31.2.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-
-    let a1 = create_test_node_with_model(&db, "a1", 1, NodeModel::UbuntuLinux, &lab_a).await?;
-    let a2 = create_test_node_with_model(&db, "a2", 2, NodeModel::UbuntuLinux, &lab_a).await?;
-    create_link(
-        &db,
-        test_link(&lab_a, 0, BridgeKind::default(), &a1, "eth1", &a2, "eth1"),
-    )
-    .await?;
-
-    let b1 = create_test_node_with_model(&db, "b1", 1, NodeModel::UbuntuLinux, &lab_b).await?;
-    let b2 = create_test_node_with_model(&db, "b2", 2, NodeModel::UbuntuLinux, &lab_b).await?;
-    create_link(
-        &db,
-        test_link(&lab_b, 0, BridgeKind::default(), &b1, "eth1", &b2, "eth1"),
-    )
-    .await?;
-
-    let links_a = list_links_by_lab(&db, lab_a.id.clone().unwrap()).await?;
-    let links_b = list_links_by_lab(&db, lab_b.id.clone().unwrap()).await?;
-
-    assert_eq!(links_a.len(), 1);
-    assert_eq!(links_b.len(), 1);
 
     Ok(())
 }

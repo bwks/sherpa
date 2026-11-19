@@ -82,7 +82,7 @@ mod tests {
     fn test_effective_data_interface_count_uses_default_without_override() {
         let node_image = NodeConfig::ubuntu_linux();
         let count = effective_data_interface_count("dev01", None, &node_image).unwrap();
-        assert_eq!(count, node_image.interfaces.data_count);
+        assert_eq!(count, 1);
     }
 
     #[test]

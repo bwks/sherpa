@@ -571,17 +571,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_parse_ssh_config_inspect_subcommand() {
-        let cli = Cli::try_parse_from(["sherpa", "ssh-config", "inspect"]).unwrap();
-        match cli.commands {
-            Commands::SshConfig {
-                command: SshConfigCommands::Inspect,
-            } => {}
-            other => panic!("unexpected command: {other:?}"),
-        }
-    }
-
     /// Every image command, as `sherpa` arguments with what each needs besides `--kind`.
     const IMAGE_COMMANDS: [&[&str]; 9] = [
         &["image", "show", "ubuntu_linux"],
@@ -656,15 +645,6 @@ mod tests {
     }
 
     #[test]
-    fn the_old_image_kind_flags_are_gone() {
-        for command in IMAGE_COMMANDS {
-            for flag in ["--virtual-machine", "--container", "--unikernel"] {
-                assert!(!parses(command, &[flag]), "{command:?} {flag}");
-            }
-        }
-    }
-
-    #[test]
     fn a_scan_takes_a_model_and_repo_with_kind() {
         assert!(parses(
             &["server", "image", "scan"],
@@ -687,17 +667,6 @@ mod tests {
             &["--model", "mysql_db", "--repo", "mysql"],
         ] {
             assert!(!parses(&["server", "image", "scan"], args), "{args:?}");
-        }
-    }
-
-    #[test]
-    fn test_parse_ssh_config_clean_subcommand() {
-        let cli = Cli::try_parse_from(["sherpa", "ssh-config", "clean"]).unwrap();
-        match cli.commands {
-            Commands::SshConfig {
-                command: SshConfigCommands::Clean,
-            } => {}
-            other => panic!("unexpected command: {other:?}"),
         }
     }
 

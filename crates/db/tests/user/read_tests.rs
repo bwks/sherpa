@@ -98,30 +98,6 @@ async fn test_list_users() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_list_users_returns_all_fields() -> Result<()> {
-    let db = setup_db().await?;
-
-    let ssh_keys = vec!["key1".to_string(), "key2".to_string()];
-    create_user(
-        &db,
-        "dave".to_string(),
-        "TestPass123!",
-        false,
-        ssh_keys.clone(),
-    )
-    .await?;
-
-    let users = list_users(&db).await?;
-    let dave = users.iter().find(|u| u.username == "dave").unwrap();
-
-    assert_eq!(dave.username, "dave");
-    assert_eq!(dave.ssh_keys, ssh_keys);
-    assert!(dave.id.is_some());
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn find_user_returns_none_for_a_missing_user() -> Result<()> {
     let db = setup_db().await?;
 

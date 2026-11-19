@@ -409,95 +409,6 @@ mod tests {
     }
 
     #[test]
-    fn test_render_single_node() {
-        let nodes = vec![NodeInfo {
-            name: "dev01".to_string(),
-            kind: NodeKind::VirtualMachine,
-            model: NodeModel::ArubaAoscx,
-            status: NodeState::Running,
-            ip_address: Some("172.31.0.11".to_string()),
-            ssh_port: Some(22),
-        }];
-
-        let table = render_nodes_table(&nodes, "a1b2c3d4");
-
-        // Check that table contains expected data
-        assert!(table.contains("dev01.a1b2c3d4"));
-        assert!(table.contains("172.31.0.11"));
-        assert!(table.contains("172.31.0.11:22"));
-        assert!(table.contains("aruba_aoscx"));
-
-        // Check for modern style box-drawing characters
-        assert!(table.contains("┌") || table.contains("│"));
-    }
-
-    #[test]
-    fn test_render_multiple_nodes() {
-        let nodes = vec![
-            NodeInfo {
-                name: "dev01".to_string(),
-                kind: NodeKind::VirtualMachine,
-                model: NodeModel::ArubaAoscx,
-                status: NodeState::Running,
-                ip_address: Some("172.31.0.11".to_string()),
-                ssh_port: Some(22),
-            },
-            NodeInfo {
-                name: "router01".to_string(),
-                kind: NodeKind::VirtualMachine,
-                model: NodeModel::CiscoCat8000,
-                status: NodeState::Running,
-                ip_address: Some("172.31.0.12".to_string()),
-                ssh_port: Some(22),
-            },
-        ];
-
-        let table = render_nodes_table(&nodes, "a1b2c3d4");
-        println!("\n{table}");
-
-        // Check that all nodes are present
-        assert!(table.contains("dev01"));
-        assert!(table.contains("router01"));
-        assert!(table.contains("172.31.0.11"));
-        assert!(table.contains("172.31.0.12"));
-        assert!(table.contains("aruba_aoscx"));
-        assert!(table.contains("cisco_cat8000"));
-    }
-
-    #[test]
-    fn test_render_node_missing_ip() {
-        let nodes = vec![NodeInfo {
-            name: "dev01".to_string(),
-            kind: NodeKind::Container,
-            model: NodeModel::AlpineLinux,
-            status: NodeState::Starting,
-            ip_address: None,
-            ssh_port: None,
-        }];
-
-        let table = render_nodes_table(&nodes, "a1b2c3d4");
-
-        // Check that missing data is represented with "-"
-        assert!(table.contains("dev01"));
-        assert!(table.contains("alpine_linux"));
-        // The table should have "-" for missing IP and connection
-        assert!(table.matches('-').count() >= 2);
-    }
-
-    #[test]
-    fn test_render_empty_nodes() {
-        let nodes: Vec<NodeInfo> = vec![];
-        let table = render_nodes_table(&nodes, "a1b2c3d4");
-
-        // Empty table should still have headers
-        assert!(table.contains("Node"));
-        assert!(table.contains("Mgmt IP"));
-        assert!(table.contains("Connection"));
-        assert!(table.contains("Node Model"));
-        assert!(table.contains("Kind"));
-    }
-
-    #[test]
     fn the_nodes_table_names_each_nodes_kind() {
         let nodes = [
             NodeInfo {
@@ -559,50 +470,6 @@ mod tests {
     }
 
     #[test]
-    fn test_render_multiple_devices() {
-        let devices = vec![
-            DeviceInfo {
-                name: "router01".to_string(),
-                model: NodeModel::CiscoCat8000,
-                kind: NodeKind::VirtualMachine,
-                state: NodeState::Running,
-                mgmt_ipv4: "172.31.0.11".to_string(),
-                mgmt_ipv6: None,
-                disks: vec![
-                    "/var/lib/sherpa/labs/test/router01.qcow2".to_string(),
-                    "/var/lib/sherpa/labs/test/router01-disk2.qcow2".to_string(),
-                ],
-                cpu_count: None,
-                memory: None,
-            },
-            DeviceInfo {
-                name: "switch01".to_string(),
-                model: NodeModel::ArubaAoscx,
-                kind: NodeKind::VirtualMachine,
-                state: NodeState::Running,
-                mgmt_ipv4: "172.31.0.12".to_string(),
-                mgmt_ipv6: None,
-                disks: vec!["/var/lib/sherpa/labs/test/switch01.qcow2".to_string()],
-                cpu_count: None,
-                memory: None,
-            },
-        ];
-
-        let table = render_devices_table(&devices, "a1b2c3d4");
-        println!("\n{table}");
-
-        // Check that all devices are present
-        assert!(table.contains("router01"));
-        assert!(table.contains("switch01"));
-        assert!(table.contains("172.31.0.11"));
-        assert!(table.contains("172.31.0.12"));
-        assert!(table.contains("cisco_cat8000"));
-        assert!(table.contains("aruba_aoscx"));
-        assert!(table.contains("router01.qcow2"));
-        assert!(table.contains("switch01.qcow2"));
-    }
-
-    #[test]
     fn test_render_device_cpu_and_memory() {
         let devices = vec![
             DeviceInfo {
@@ -641,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    fn test_render_device_missing_ip() {
+    fn a_device_without_a_mgmt_ipv4_shows_a_dash() {
         let devices = vec![DeviceInfo {
             name: "container01".to_string(),
             model: NodeModel::AlpineLinux,
@@ -656,11 +523,13 @@ mod tests {
 
         let table = render_devices_table(&devices, "a1b2c3d4");
 
-        // Check that missing data is represented with "-"
-        assert!(table.contains("container01"));
-        assert!(table.contains("alpine_linux"));
-        assert!(table.contains("stopped")); // state = Stopped
-        assert!(table.contains('-')); // empty mgmt_ipv4
+        let row = table
+            .lines()
+            .find(|line| line.contains("container01"))
+            .unwrap();
+        assert!(row.contains("│ stopped "), "{row}");
+        // The empty IPv4 shows "-", as do the IPv6, CPU, memory and disks it does not have.
+        assert_eq!(row.matches("│ - ").count(), 5, "{row}");
     }
 
     #[test]

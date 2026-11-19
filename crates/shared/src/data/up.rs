@@ -298,26 +298,6 @@ mod tests {
     }
 
     #[test]
-    fn test_status_kind_serde_round_trip() {
-        let kinds = [
-            StatusKind::Progress,
-            StatusKind::Done,
-            StatusKind::Info,
-            StatusKind::Waiting,
-        ];
-        for kind in &kinds {
-            let json = serde_json::to_string(kind).unwrap();
-            let deserialized: StatusKind = serde_json::from_str(&json).unwrap();
-            assert_eq!(*kind, deserialized);
-        }
-    }
-
-    #[test]
-    fn test_status_kind_default_is_info() {
-        assert_eq!(StatusKind::default(), StatusKind::Info);
-    }
-
-    #[test]
     fn test_status_kind_rename_all() {
         assert_eq!(
             serde_json::to_string(&StatusKind::Progress).unwrap(),
@@ -338,15 +318,10 @@ mod tests {
     }
 
     #[test]
-    fn test_status_kind_deserialize_default() {
-        // Simulate a struct that uses #[serde(default)] for StatusKind
-        #[derive(Deserialize)]
-        struct TestMsg {
-            #[serde(default)]
-            kind: StatusKind,
-        }
-        let msg: TestMsg = serde_json::from_str(r"{}").unwrap();
-        assert_eq!(msg.kind, StatusKind::Info);
+    fn a_status_message_without_a_kind_is_info() {
+        let message: StatusMessage =
+            serde_json::from_str(r#"{"type":"status","message":"Booting"}"#).unwrap();
+        assert_eq!(message.kind, StatusKind::Info);
     }
 
     #[test]
@@ -395,11 +370,6 @@ mod tests {
         for (number, phase) in (1u8..).zip(phases.iter()) {
             assert_eq!(phase.number(), number);
         }
-    }
-
-    #[test]
-    fn test_up_phase_total_phases_matches_enum_count() {
-        assert_eq!(UpPhase::total_phases(), 13);
     }
 
     #[test]

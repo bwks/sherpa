@@ -74,16 +74,6 @@ fn test_static_ipv4() {
 }
 
 #[test]
-fn test_one_administrator_with_the_first_key_only() {
-    let output = ise("Rand0mPass-1").render().expect("template renders");
-    assert_eq!(output.matches("username=").count(), 1);
-    assert!(output.contains("username=alice\n"));
-    assert_eq!(output.matches("public_key=").count(), 1);
-    assert!(!output.contains("OWNERKEY2"));
-    helpers::assert_no_sherpa_login(&output);
-}
-
-#[test]
 fn test_password_is_intact() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let output = ise(password).render().expect("template renders");

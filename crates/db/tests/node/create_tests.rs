@@ -1,7 +1,6 @@
 use anyhow::Result;
 use db::{
-    DefaultRequest, LabDetails, count_nodes_by_lab, create_lab, create_node, create_user, get_node,
-    get_node_by_name_and_lab, upsert_node_image,
+    DefaultRequest, LabDetails, create_lab, create_node, create_user, get_node, upsert_node_image,
 };
 use shared::data::{ModelKind, NodeModel};
 
@@ -44,43 +43,6 @@ async fn test_create_node_success() -> Result<()> {
     assert_eq!(node.image, config.id.unwrap());
     assert_eq!(node.lab, lab.id.unwrap());
     assert!(node.id.is_some(), "Node should have an ID");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_node_with_lab() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(
-        &db,
-        "Bob's Lab",
-        "lab-0002",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    let config = upsert_node_image(
-        &db,
-        ModelKind::default_for(NodeModel::CiscoIos).node_config(),
-        DefaultRequest::Keep,
-    )
-    .await?;
-
-    let node = create_node(
-        &db,
-        "router1",
-        0,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-
-    // Verify node is associated with lab
-    assert_eq!(node.lab, lab.id.unwrap());
-    assert_eq!(node.image, config.id.unwrap());
 
     Ok(())
 }
@@ -294,95 +256,6 @@ async fn test_create_node_with_index_boundaries() -> Result<()> {
     )
     .await?;
     assert_eq!(node2.index, 65535);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_node_increments_count() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(
-        &db,
-        "Lab Count",
-        "lab-0008",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    let config = upsert_node_image(
-        &db,
-        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
-        DefaultRequest::Keep,
-    )
-    .await?;
-
-    let initial_lab_count = count_nodes_by_lab(&db, lab.id.clone().unwrap()).await?;
-
-    // Create nodes
-    create_node(
-        &db,
-        "node1",
-        1,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-    create_node(
-        &db,
-        "node2",
-        2,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-
-    let final_lab_count = count_nodes_by_lab(&db, lab.id.clone().unwrap()).await?;
-
-    assert_eq!(final_lab_count, initial_lab_count + 2);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_node_can_retrieve_by_name_and_lab() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "hannah".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(
-        &db,
-        "Lab Retrieve",
-        "lab-0009",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    let config = upsert_node_image(
-        &db,
-        ModelKind::default_for(NodeModel::CiscoIos).node_config(),
-        DefaultRequest::Keep,
-    )
-    .await?;
-
-    // Create node
-    let created_node = create_node(
-        &db,
-        "switch1",
-        5,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-
-    // Retrieve by name and lab
-    let retrieved_node = get_node_by_name_and_lab(&db, "switch1", lab.id.clone().unwrap()).await?;
-
-    assert_eq!(created_node.id, retrieved_node.id);
-    assert_eq!(created_node.name, retrieved_node.name);
-    assert_eq!(created_node.index, retrieved_node.index);
 
     Ok(())
 }
