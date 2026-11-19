@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.1] - 2026-11-19
+
+### Upgrade notes
+
+Read "Updating to 0.7.1" on the documentation site's update page before updating, and update the CLI and the server together: `sherpa vnc` needs both on 0.7.1.
+
+- **Back up first.** The update runs database migration 36. Back up with `sherpa server backup`.
+- **VNC goes through `sherpad`:**
+  - a VM's VNC console is a UNIX socket on the server, and nothing listens on ports 5900 to 6999;
+  - instead of an `ssh -L` tunnel, run `sherpa vnc <node>` and point your viewer at the address it prints;
+  - only the lab's owner can open it, admins included, one session at a time, with `--force` to take over a session of your own.
+- **The VNC port is gone** from `sherpa inspect`, the inspect API (`vnc_port`) and the web UI's node page and nodes table.
+- **Nodes running at the upgrade need a stop and resume, or a redeploy,** before `sherpa vnc` works on them. `sherpad` moves stopped nodes to the socket at startup, and logs how many running nodes are still on a port.
+- **Node containers take their node name as hostname.** Every container node's Linux hostname is now its node name, not the container ID, after its next `up` or `redeploy`.
+- **New: `sonic_linux` as a container** (`kind = "container"`, `docker-sonic-vs`). Build the image with `sudo` as the SONiC page describes; without it the owner has no root.
+
+### Bug Fixes
+
+- A node container's hostname is its node name by @bwks ([a14c675](https://github.com/bwks/sherpa/commit/a14c6754125753358986c5eeeb4ed1a9a45e360a))
+
+### Features
+
+- Sherpa vnc asks the server before it listens, with ?check=true on the console routes by @bwks ([706eed3](https://github.com/bwks/sherpa/commit/706eed34189a83d7c6f47fb79086b6511a2bd7e4))
+- VNC is a UNIX socket only sherpad reaches, and sherpa vnc relays it to a local viewer by @bwks ([e112674](https://github.com/bwks/sherpa/commit/e112674ecadabb7540a664c6d0173fcb75985930))
+- Each sonic_linux container makes its own SSH host keys by @bwks ([fe41bac](https://github.com/bwks/sherpa/commit/fe41bacbad7bd2fbecaa61ef9fb398d76005025f))
+- Sonic_linux gains a container kind (docker-sonic-vs) by @bwks ([48d5032](https://github.com/bwks/sherpa/commit/48d503211993b911bf15d00b1f19b52728843ba4))
+
+### Miscellaneous
+
+- Guest rule: every wait has a deadline by @bwks ([b23f0e2](https://github.com/bwks/sherpa/commit/b23f0e241bc98c37fa87f5d73aa3093c1f9ced92))
+
+### Testing
+
+- Fix the flaky admin_passwords_are_in_no_log_line by @bwks ([20f9b11](https://github.com/bwks/sherpa/commit/20f9b1158fee8c5825d6ffa66028ad1b8e6a2eed))
+
 ## [0.7.0] - 2026-11-18
 
 ### Upgrade notes
