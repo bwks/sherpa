@@ -1905,7 +1905,7 @@ run = '<load secrets> ~/.local/bin/agent-bus-start-agent "$usage_lab_dir" "$usag
 ```
 
 Run it as `mise run agent-bus:agent <lab dir> <node> [agent]`, for example
-`mise run agent-bus:agent ~/labs/sherpa-agent-2 agent-2 dev02`.
+`mise run agent-bus:agent ~/labs/sherpa-dev dev02`.
 
 In order:
 
@@ -1942,7 +1942,8 @@ process had is refused from then on. To retire a guest, stop its agent and run
 `agent-bus unenroll <name>` with the host's seed, which also deletes its inbox.
 
 **Renaming a guest agent.** The agent's name is separate from the node's, so a VM keeps its node
-and lab and its agent takes a new name, with no rebuild. For node `dev` to run agent `dev01`:
+and lab and its agent takes a new name, with no rebuild. For example, for a node `dev` that ran
+agent `dev` to run agent `dev01`:
 
 1. Let the old agent go idle with nothing queued (`agent-bus agents`). Answer or drop its open
    questions first: an answer to an old task sent to the new name finds no session, as each
@@ -1965,15 +1966,14 @@ cannot be enrolled. To move one to enrollment, remove it from the agents file, r
 again, then start it with `agent-bus:agent`. Guests may no longer share a key: an agents file
 that lists one key twice is refused.
 
-There are two guests, one per VM, each its own lab: agent `dev01` on node `dev` and agent `dev02`
-on node `agent-2` (`tests/environments/agent`, lab `sherpa-agent-2`). They are identical dev servers, each with a
-Sherpa server, so a task can go to either; both are brought up from lab directories outside the
-repository (`tests/environments/dev/README.md`). The bus stays on the host, started with `--lab`
-on dev's lab, so it listens only on dev's gateway. agent-2's guest agent is started the same way,
-`mise run agent-bus:agent <lab dir> agent-2 dev02`: `start-agent.sh` always passes the URL from
-`bus.toml` as `AGENT_BUS_URL`, which `start-guest.sh` uses in place of the guest's own default
-gateway. A guest on its own bridge reaches dev's gateway with no firewall change; the check and
-its result are in `tests/environments/dev/README.md`.
+There are two guests, the two nodes of one lab, `sherpa-dev` (`tests/environments/dev`): agent
+`dev01` on node `dev01` and agent `dev02` on node `dev02`, each named as its node. They are
+identical dev servers, each with a Sherpa server, so a task can go to either; the lab is brought
+up from a lab directory outside the repository (`tests/environments/dev/README.md`). The bus
+stays on the host, started with `--lab` on that lab, so it listens on the lab's management
+gateway, which is both guests' default gateway. Each agent is started with
+`mise run agent-bus:agent <lab dir> <node>`; `start-agent.sh` passes the URL from `bus.toml` as
+`AGENT_BUS_URL`, which here is that same gateway.
 
 **The host's usage.** Set `AGENT_BUS_HOST_PROJECT` in the host's mise configuration, beside
 `AGENT_BUS_REPO`, to Claude Code's directory of the host's sherpa checkout, for example

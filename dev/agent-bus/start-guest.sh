@@ -16,7 +16,7 @@
 # certificate is not secret: it is kept as bus-ca.pem in the guest's agent-bus state directory
 # and given to the agent as AGENT_BUS_CA, the only CA it trusts.
 # The bus runs on the host at the guest's default gateway, the lab's management bridge. A guest
-# in another lab, such as tests/environments/agent, sets AGENT_BUS_URL to where the bus listens.
+# in another lab than the bus's sets AGENT_BUS_URL to where the bus listens.
 #
 #   start-guest.sh [name]      # name defaults to dev
 #

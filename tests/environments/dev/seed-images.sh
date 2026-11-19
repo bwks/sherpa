@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Seed a dev server with the host's VM images. Run it on the host, after `sherpa up` and the
-# provisioning of the lab have finished.
+# provisioning of the lab have finished, once for each node:
 #
 #   tests/environments/dev/seed-images.sh <lab dir> <node>
+#   tests/environments/dev/seed-images.sh ~/labs/sherpa-dev dev01
 #
 # For each model and version in images.toml next to this script it asks the guest's Sherpa server
 # whether the image is there, and skips it if so. Otherwise it copies the entry's `source`, a disk

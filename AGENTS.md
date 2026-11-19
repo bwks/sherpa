@@ -18,10 +18,10 @@ database is Turso, embedded in sherpad as a single file (see `docs/architecture/
 - Once before each commit, not after each edit, run `cargo fmt`, `cargo clippy --workspace
   --all-targets -- -D warnings` and `cargo test --workspace`, once each, in that order.
   Formatting and linting must pass first; CI fails on either.
-- Development, builds, installs and tests can run in the dev server, a Sherpa lab with root and
-  the toolchains. How to bring it up, connect to it and work in it is in
-  `tests/environments/dev/README.md`. Follow it; do not hard-code its address or add host-side
-  SSH config or mounts.
+- Development, builds, installs and tests can run in the dev servers, nodes `dev01` and `dev02`
+  of the Sherpa lab `sherpa-dev`, with root and the toolchains. How to bring them up, connect to
+  them and work in them is in `tests/environments/dev/README.md`. Follow it; do not hard-code
+  their addresses or add host-side SSH config or mounts.
 - Dev server installs are debug builds with `dev/rebuild`. Never build `--release` for a live
   test: a release build takes 6–7 minutes.
 - Never boot network-OS VMs (vEOS, vSRX, vEvolved, CSR, Cat8000/9000, IOSv, IOS XR, NX-OS, ASA,
