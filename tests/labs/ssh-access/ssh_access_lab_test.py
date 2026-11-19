@@ -1,10 +1,10 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.15"
-# dependencies = []
+# dependencies = ["pytest==9.2.0"]
 # ///
 """End-to-end test of how `sherpa ssh` and SSH provisioners reach a lab's nodes (Python 3.15+,
-stdlib only).
+pytest).
 
 Brings up one Alpine VM with an SSH provisioner and checks the `ssh_access` cases of
 tests/specs/client-lab-files.md: the lab's SSH config reaches the node directly; `sherpa ssh` and
@@ -14,8 +14,9 @@ connection the node sees (its `$SSH_CONNECTION`) is read with `ss`, so the runne
 machine with a route to the lab's management network, such as the Sherpa server. Always destroys
 the lab. See README.md.
 
-The cases are `test_ssh_access_<NNN>_*` functions taking the lab, in case order, so pytest can
-collect them once a module fixture brings the lab up; until then `main` runs them in order.
+A pytest module: the `lab` fixture brings the lab up once for the module and destroys it at the
+end, and the cases are the `test_ssh_access_<NNN>_*` functions taking it, in case order. Run as a
+script, it runs pytest on itself; `--self-test` runs the runner's own unit tests instead.
 """
 
 import argparse
@@ -38,6 +39,8 @@ from typing import NamedTuple
 import unittest
 import urllib.parse
 import uuid
+
+import pytest
 
 
 LAB = Path(__file__).resolve().parent
@@ -68,6 +71,8 @@ PID = re.compile(r"pid=(\d+),")
 
 class TestFailure(Exception):
     """A check failed; the message says which and why."""
+
+    __test__ = False
 
 
 class Outcome(NamedTuple):
@@ -241,10 +246,9 @@ def check_jump(observed, node_address, server_address):
 class Lab:
     """The lab every case uses, brought up once by `up` and always destroyed by `destroy`."""
 
-    def __init__(self, run_root, keep_failed):
+    def __init__(self, run_root):
         self.name = f"sshaccess-{run_root.name[-6:]}"
         self.directory = run_root / "lab"
-        self.keep_failed = keep_failed
         self.started = False
         self.lab_id = None
         self.node_address = None
@@ -375,6 +379,57 @@ def spawn_piped(arguments, cwd):
     return process.pid, finished
 
 
+# -- the fixture ---------------------------------------------------------------------------------
+
+
+DEVICE_PASSWORD_SET = re.compile(r"^\s*Device password:\s*set\s*$", re.MULTILINE)
+
+
+def preflight(run_root):
+    for tool in ("sherpa", "ss"):
+        require(shutil.which(tool), f"{tool} is not on PATH")
+    with (run_root / "preflight.log").open("w") as log:
+        whoami = run_logged(log, "sherpa whoami", ["sherpa", "whoami"], run_root)
+        require(whoami.code == 0, "the sherpa CLI is not logged in (run `sherpa login`)")
+        info = run_logged(log, "sherpa server user info", ["sherpa", "server", "user", "info"], run_root)
+        require(info.code == 0 and DEVICE_PASSWORD_SET.search(info.stdout),
+                "the user has no device password, which `sherpa up` needs: "
+                "run `sherpa server user device-password`")
+        for node in NODES:
+            image = run_logged(log, f"{node['model']} image present", ["sherpa", "image", "show", node["model"]],
+                               run_root)
+            require(image.code == 0, f"the server has no {node['model']} image")
+
+
+@pytest.fixture(scope="module")
+def lab(request):
+    """The lab every case uses: brought up once after the preflight checks and destroyed at the
+    end, even when a case fails, unless `--keep-failed` is given and something failed."""
+    signal.signal(signal.SIGTERM, stop_on_sigterm)
+    keep_failed = request.config.getoption("keep_failed")
+    run_root = RUNS / f"ssh-access-{uuid.uuid4().hex[:12]}"
+    run_root.mkdir(parents=True)
+    print(f"Logs: {run_root}", flush=True)
+    preflight(run_root)
+    lab = Lab(run_root)
+    keep = False
+    try:
+        try:
+            lab.up()
+        except Exception:
+            keep = keep_failed
+            raise
+        yield lab
+        keep = keep_failed and request.session.testsfailed > 0
+    finally:
+        if keep:
+            print(f"keeping failed lab {lab.name} ({lab.lab_id}) in {lab.directory}", flush=True)
+        else:
+            cleanup = lab.destroy()
+            if cleanup:
+                raise cleanup
+
+
 # -- cases ---------------------------------------------------------------------------------------
 
 
@@ -415,93 +470,20 @@ def test_ssh_access_005_a_provisioner_with_ssh_jump_goes_through_the_server(lab)
     check_jump(observed, lab.node_address, lab.server_address)
 
 
-CASES = (
-    test_ssh_access_001_the_lab_ssh_config_reaches_every_node_directly,
-    test_ssh_access_002_sherpa_ssh_reaches_a_node_directly,
-    test_ssh_access_003_sherpa_ssh_with_ssh_jump_goes_through_the_server,
-    test_ssh_access_004_a_provisioner_reaches_its_node_directly,
-    test_ssh_access_005_a_provisioner_with_ssh_jump_goes_through_the_server,
-)
-
-
 # -- running -------------------------------------------------------------------------------------
-
-
-DEVICE_PASSWORD_SET = re.compile(r"^\s*Device password:\s*set\s*$", re.MULTILINE)
-
-
-def preflight(run_root):
-    for tool in ("sherpa", "ss"):
-        require(shutil.which(tool), f"{tool} is not on PATH")
-    with (run_root / "preflight.log").open("w") as log:
-        whoami = run_logged(log, "sherpa whoami", ["sherpa", "whoami"], run_root)
-        require(whoami.code == 0, "the sherpa CLI is not logged in (run `sherpa login`)")
-        info = run_logged(log, "sherpa server user info", ["sherpa", "server", "user", "info"], run_root)
-        require(info.code == 0 and DEVICE_PASSWORD_SET.search(info.stdout),
-                "the user has no device password, which `sherpa up` needs: "
-                "run `sherpa server user device-password`")
-        for node in NODES:
-            image = run_logged(log, f"{node['model']} image present", ["sherpa", "image", "show", node["model"]],
-                               run_root)
-            require(image.code == 0, f"the server has no {node['model']} image")
-
-
-def run_cases(lab):
-    """Run every case in order; return the failures as `(case, error)`."""
-    failures = []
-    for case in CASES:
-        try:
-            case(lab)
-        except (TestFailure, OSError, KeyError, ValueError) as error:
-            print(f"FAIL {case.__name__}: {error}", flush=True)
-            failures.append((case.__name__, error))
-        else:
-            print(f"ok   {case.__name__}", flush=True)
-    return failures
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--keep-failed", action="store_true", help="Leave a failed lab running for debugging")
+                                     formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     epilog="Other arguments, such as --keep-failed or -k, are passed to pytest.")
     parser.add_argument("--self-test", action="store_true", help="Run the runner's own unit tests")
-    args = parser.parse_args()
+    args, pytest_args = parser.parse_known_args()
     if args.self_test:
         sys.argv = sys.argv[:1]
         unittest.main()
         return 0
-    signal.signal(signal.SIGTERM, stop_on_sigterm)
-    run_root = RUNS / f"ssh-access-{uuid.uuid4().hex[:12]}"
-    run_root.mkdir(parents=True)
-    print(f"Logs: {run_root}", flush=True)
-    try:
-        preflight(run_root)
-    except TestFailure as error:
-        print(f"FAIL {error}. Logs: {run_root}", file=sys.stderr)
-        return 1
-    lab = Lab(run_root, args.keep_failed)
-    failures = []
-    try:
-        lab.up()
-        failures = run_cases(lab)
-    except (TestFailure, OSError, KeyError, ValueError) as error:
-        failures.append(("sherpa up", error))
-    except BaseException:
-        lab.destroy()
-        raise
-    if failures and args.keep_failed:
-        print(f"keeping failed lab {lab.name} ({lab.lab_id}) in {lab.directory}")
-    else:
-        cleanup = lab.destroy()
-        if cleanup:
-            failures.append(("sherpa destroy", cleanup))
-    if failures:
-        for name, error in failures:
-            print(f"FAIL {name}: {error}", file=sys.stderr)
-        print(f"Logs: {run_root}", file=sys.stderr)
-        return 1
-    print(f"PASS. Logs: {run_root}")
-    return 0
+    return pytest.main(["-v", "-p", "no:cacheprovider", __file__, *pytest_args])
 
 
 class SelfTest(unittest.TestCase):
@@ -540,7 +522,7 @@ class SelfTest(unittest.TestCase):
     def test_a_config_with_a_jump_fails_the_config_case(self):
         config = "Host 172.30.1.21 alp01.x\n    HostName 172.30.1.21\n    ProxyJump a@b\n"
         with tempfile.TemporaryDirectory() as temp:
-            lab = Lab(Path(temp) / "ssh-access-000000abcdef", keep_failed=False)
+            lab = Lab(Path(temp) / "ssh-access-000000abcdef")
             lab.lab_id = "x"
             (lab.directory / ".sherpa" / "ssh").mkdir(parents=True)
             (lab.directory / ".sherpa" / "ssh" / "config").write_text(config)

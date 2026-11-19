@@ -28,11 +28,19 @@ The other cases of the behaviour are Rust tests in the client crate.
 
 ## Running it
 
+The runner is a pytest module; `uv run` installs the pytest version pinned in its script header
+and runs pytest on it, passing on any other arguments:
+
 ```sh
 uv run tests/labs/ssh-access/ssh_access_lab_test.py
 uv run tests/labs/ssh-access/ssh_access_lab_test.py --keep-failed
+uv run tests/labs/ssh-access/ssh_access_lab_test.py -k ssh_access_003
 uv run tests/labs/ssh-access/ssh_access_lab_test.py --self-test   # runner unit tests, seconds
 ```
+
+pytest runs it directly too, for example `uvx --python 3.15 pytest==9.2.0
+tests/labs/ssh-access/ssh_access_lab_test.py`. `--keep-failed` is defined in `conftest.py` next to
+the runner.
 
 It needs:
 
@@ -44,10 +52,10 @@ It needs:
   the user's SSH key, and the server's host key in `~/.ssh/known_hosts` (or a terminal to accept it
   on): the jump is `<user>@<server>`, as `ssh -J` takes it.
 
-Each run logs every command and its output under `.tmp/lab-tests/ssh-access-<id>/`. Every case
-runs even when one fails, and the lab is always destroyed, unless `--keep-failed` is given. A run
-takes about 2 minutes.
+The module-scoped `lab` fixture checks those, brings the lab up once and destroys it at the end,
+even when a case fails, unless `--keep-failed` is given and something failed. The cases are the
+functions named `test_ssh_access_<NNN>_*` that take it, in case order; every case runs even when
+one fails. The runner's own unit tests, under `--self-test`, are not collected by pytest.
 
-The cases are functions named `test_ssh_access_<NNN>_*` that take the lab, so pytest can collect
-them once a module fixture brings the lab up; until then the runner brings the lab up once and
-runs them in order.
+Each run logs every command and its output under `.tmp/lab-tests/ssh-access-<id>/`. A run takes
+about 2 minutes.

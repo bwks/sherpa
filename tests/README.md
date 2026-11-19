@@ -319,6 +319,11 @@ uv run tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: single
 
 See [labs/README.md](labs/README.md) for the rules and each lab's README for what it checks.
 
+The SSH access lab test is a pytest module (see `tests/specs/README.md`): its script header pins
+pytest, so `uv run` runs pytest on it and passes on pytest arguments such as `-k` and
+`--keep-failed`; `uvx --python 3.15 pytest==9.2.0 tests/labs/ssh-access/ssh_access_lab_test.py`
+runs it directly.
+
 ## Harness self-tests
 
 ```sh
