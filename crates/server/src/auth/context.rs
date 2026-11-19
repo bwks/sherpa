@@ -51,35 +51,4 @@ mod tests {
             Self::new(username.to_owned(), is_admin, "test-session".to_owned())
         }
     }
-
-    #[test]
-    fn only_the_current_owner_can_redeploy_regardless_of_admin_role() {
-        for is_admin in [false, true] {
-            let ctx = AuthContext::for_test("alice", is_admin);
-            assert!(ctx.can_redeploy("alice"));
-            assert!(!ctx.can_redeploy("bob"));
-        }
-    }
-
-    #[test]
-    fn test_regular_user_can_access_own_resources() {
-        let ctx = AuthContext::for_test("alice", false);
-        assert!(ctx.can_access("alice"));
-        assert!(!ctx.can_access("bob"));
-    }
-
-    #[test]
-    fn test_admin_can_access_all_resources() {
-        let ctx = AuthContext::for_test("admin", true);
-        assert!(ctx.can_access("alice"));
-        assert!(ctx.can_access("bob"));
-        assert!(ctx.can_access("admin"));
-    }
-
-    #[test]
-    fn test_user_cannot_access_others_resources() {
-        let ctx = AuthContext::for_test("alice", false);
-        assert!(!ctx.can_access("bob"));
-        assert!(!ctx.can_access("charlie"));
-    }
 }

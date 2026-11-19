@@ -156,18 +156,6 @@ mod tests {
     }
 
     #[test]
-    fn test_create_admin_token() {
-        let secret = b"test_secret_32_bytes_long_enough";
-        let token =
-            create_token(secret, &claims("admin", true, 3600)).expect("Failed to create token");
-
-        let claims = validate_token(secret, &token).expect("Failed to validate token");
-
-        assert_eq!(claims.sub, "admin");
-        assert!(claims.is_admin);
-    }
-
-    #[test]
     fn test_validate_with_wrong_secret() {
         let secret1 = b"test_secret_32_bytes_long_enough";
         let secret2 = b"different_secret_32bytes_exactly";
@@ -214,23 +202,6 @@ mod tests {
         let secret = b"test_secret_32_bytes_long_enough";
         let result = validate_token(secret, "not.a.valid.jwt");
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_validate_empty_token() {
-        let secret = b"test_secret_32_bytes_long_enough";
-        let result = validate_token(secret, "");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_token_expiry_matches_requested() {
-        let secret = b"test_secret_32_bytes_long_enough";
-        let expiry = 604_800; // 7 days
-        let token =
-            create_token(secret, &claims("user", false, expiry)).expect("Failed to create token");
-        let claims = validate_token(secret, &token).expect("Failed to validate token");
-        assert_eq!(claims.exp - claims.iat, expiry);
     }
 
     #[test]

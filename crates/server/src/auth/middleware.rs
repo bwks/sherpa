@@ -39,24 +39,3 @@ pub async fn authenticate_request(params: &Value, state: &AppState) -> Result<Au
         )),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    // Note: authenticate_request() tests require full AppState infrastructure (DB, Docker, libvirt, etc.)
-    // For simpler unit tests, see jwt.rs and context.rs
-    // Integration tests should cover the full authentication flow
-
-    #[test]
-    fn test_token_extraction_logic() {
-        // Test the logic of extracting token from params
-        let params = json!({"token": "some.jwt.token", "lab_id": "lab1"});
-        let token = params.get("token").and_then(|v| v.as_str());
-        assert_eq!(token, Some("some.jwt.token"));
-
-        let params_no_token = json!({"lab_id": "lab1"});
-        let token = params_no_token.get("token").and_then(|v| v.as_str());
-        assert_eq!(token, None);
-    }
-}

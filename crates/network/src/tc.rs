@@ -296,7 +296,7 @@ mod tests {
         .unwrap();
         assert_eq!(options.len(), NETEM_QOPT_LEN);
         assert_eq!(&options[0..4], &312_500u32.to_ne_bytes());
-        assert_eq!(&options[8..12], &percent_to_kernel(10.0).to_ne_bytes());
+        assert_eq!(&options[8..12], &429_496_729u32.to_ne_bytes());
     }
 
     #[test]
@@ -311,7 +311,7 @@ mod tests {
         assert_eq!(options.len(), NETEM_QOPT_LEN + 12);
         assert_eq!(
             nla(&options, NETEM_QOPT_LEN),
-            (12, TCA_NETEM_REORDER, percent_to_kernel(25.0), 0)
+            (12, TCA_NETEM_REORDER, 1_073_741_823, 0)
         );
     }
 
@@ -325,7 +325,7 @@ mod tests {
         assert_eq!(options.len(), NETEM_QOPT_LEN + 12);
         assert_eq!(
             nla(&options, NETEM_QOPT_LEN),
-            (12, TCA_NETEM_CORRUPT, percent_to_kernel(5.0), 0)
+            (12, TCA_NETEM_CORRUPT, 214_748_364, 0)
         );
     }
 

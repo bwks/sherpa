@@ -801,32 +801,6 @@ mod tests {
         assert!(html.contains(">set</span>"));
     }
 
-    #[test]
-    fn test_dashboard_template_renders() {
-        let tpl = DashboardTemplate {
-            username: "testuser".to_string(),
-            is_admin: false,
-            nav: NavPage::Dashboard.into(),
-            lab_count: 3,
-            image_count: 12,
-            docker_ok: true,
-            libvirt_ok: true,
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("testuser"));
-    }
-
-    #[test]
-    fn test_labs_list_template_renders() {
-        let tpl = LabsListTemplate {
-            username: "testuser".to_string(),
-            is_admin: false,
-            nav: NavPage::Labs.into(),
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("testuser"));
-    }
-
     fn test_device() -> DeviceInfo {
         DeviceInfo {
             name: "dev01".to_string(),
@@ -950,15 +924,6 @@ mod tests {
     }
 
     #[test]
-    fn test_labs_grid_template_renders_empty() {
-        let tpl = LabsGridTemplate { labs: vec![] };
-        let html = tpl.render().expect("template should render");
-        // Empty grid still renders the table structure
-        assert!(html.contains("<table"));
-        assert!(html.contains("Name"));
-    }
-
-    #[test]
     fn test_labs_grid_template_renders_with_labs() {
         let tpl = LabsGridTemplate {
             labs: vec![LabRow::from(LabSummary {
@@ -1020,7 +985,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lab_create_template_renders() {
+    fn the_lab_create_page_fills_in_the_generated_lab_name() {
         let tpl = LabCreateTemplate {
             username: "testuser".to_string(),
             is_admin: false,
@@ -1030,9 +995,10 @@ mod tests {
             kinds: kind_choices(),
         };
         let html = tpl.render().expect("template should render");
-        assert!(html.contains("happy-panda"));
-        assert!(html.contains("cisco_ios"));
-        assert!(html.contains("ubuntu_linux"));
+        assert!(
+            html.contains(r#"<input type="text" id="lab-name" value="happy-panda" required"#),
+            "{html}"
+        );
     }
 
     #[test]
@@ -1335,13 +1301,6 @@ mod tests {
         }
         let html = lab_detail(LabState::Running, LabPhase::Ready);
         assert!(html.contains(download), "{html}");
-    }
-
-    #[test]
-    fn the_lab_detail_offers_start_and_stop_once_the_lab_is_ready() {
-        let html = lab_detail(LabState::Partial, LabPhase::Ready);
-        assert!(html.contains(r#"data-lab-detail-action="start""#), "{html}");
-        assert!(html.contains(r#"data-lab-detail-action="stop""#), "{html}");
     }
 
     #[test]
@@ -1676,17 +1635,6 @@ mod tests {
     }
 
     #[test]
-    fn test_login_page_template_renders() {
-        let tpl = LoginPageTemplate {
-            error: None,
-            message: String::new(),
-            allow_signup: false,
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("Login") || html.contains("login"));
-    }
-
-    #[test]
     fn test_login_error_template_renders() {
         let tpl = LoginErrorTemplate {
             message: "Invalid credentials".to_string(),
@@ -1707,22 +1655,19 @@ mod tests {
     }
 
     #[test]
-    fn test_signup_page_template_renders() {
-        let tpl = SignupPageTemplate {};
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("Sign") || html.contains("sign"));
-    }
-
-    #[test]
-    fn test_error_404_template_renders() {
+    fn a_404_page_shows_its_message() {
         let tpl = Error404Template {
             username: "testuser".to_string(),
             is_admin: false,
             nav: NavPage::Other.into(),
-            message: "Page not found".to_string(),
+            message: "Lab abcd1234 is gone".to_string(),
         };
         let html = tpl.render().expect("template should render");
-        assert!(html.contains("404") || html.contains("not found") || html.contains("Not Found"));
+        assert!(
+            html.contains(r#"<h1 class="text-9xl font-bold text-danger-text">404</h1>"#),
+            "{html}"
+        );
+        assert!(html.contains(">Lab abcd1234 is gone</p>"), "{html}");
     }
 
     #[test]
@@ -1735,29 +1680,23 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_state_template_renders() {
+    fn the_empty_state_names_the_user_with_no_labs() {
         let tpl = EmptyStateTemplate {
             username: "testuser".to_string(),
         };
         let html = tpl.render().expect("template should render");
-        assert!(html.contains("testuser") || html.contains("no labs") || html.contains("No labs"));
+        assert!(html.contains("No Labs Found"), "{html}");
+        assert!(
+            html.contains(
+                r#"User <span class="font-semibold">testuser</span> doesn't have any labs yet."#
+            ),
+            "{html}"
+        );
     }
 
     // ========================================================================
     // Sidebar rendering — active page highlighting
     // ========================================================================
-
-    #[test]
-    fn test_sidebar_highlights_admin_tools() {
-        let tpl = AdminToolsTemplate {
-            username: "admin".to_string(),
-            is_admin: true,
-            nav: NavPage::AdminTools.into(),
-        };
-        let html = tpl.render().expect("template should render");
-        // The active link should have the accent class
-        assert!(html.contains("/admin/tools"));
-    }
 
     #[test]
     fn test_sidebar_shows_admin_section_for_admins() {

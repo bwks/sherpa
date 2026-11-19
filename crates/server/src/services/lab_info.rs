@@ -192,6 +192,6 @@ username = \"alice\"
         let (db, mut lab) = lab_with(&[]).await;
         lab.user = RecordId::new("user", "gone");
         let info = load_lab_info(&db, &lab).await.unwrap();
-        assert_eq!(info.user, UNKNOWN_OWNER);
+        assert_eq!(info.user, "unknown");
     }
 }

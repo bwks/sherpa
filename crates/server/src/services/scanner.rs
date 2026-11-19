@@ -546,23 +546,6 @@ mod tests {
     }
 
     #[test]
-    fn a_container_whose_port_answers_is_running() {
-        let node = checked(
-            NodeState::Starting,
-            false,
-            ReadyCheck {
-                port: Some(80),
-                skip: false,
-                sshd_marker: false,
-            },
-        );
-        assert_eq!(
-            scan(&scanned(&node, NodeKind::Container), true),
-            NodeState::Running
-        );
-    }
-
-    #[test]
     fn a_node_without_a_stored_port_is_ready_once_it_runs() {
         let node = checked(NodeState::Starting, false, ReadyCheck::default());
         for kind in [

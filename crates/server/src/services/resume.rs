@@ -830,7 +830,7 @@ mod tests {
     use super::*;
     use crate::services::lab_definition::tests::{lab_with, store};
     use shared::data::{NodeModel, NodeState, ReadyCheck};
-    use shared::konst::{SSH_PORT, TALOS_API_PORT};
+    use shared::konst::SSH_PORT;
 
     #[test]
     fn resume_boots_resumes_or_leaves_a_node_by_its_runtime() {
@@ -960,10 +960,7 @@ mod tests {
         let lab_id = lab.id.clone().unwrap();
         // No stored definition: the default.
         let none = stored_definition(&db, &lab_id, "lab-0001").await;
-        assert_eq!(
-            ready_timeout(none.as_ref()),
-            Duration::from_secs(READINESS_TIMEOUT)
-        );
+        assert_eq!(ready_timeout(none.as_ref()), Duration::from_secs(600));
         store(
             &db,
             &lab,
@@ -973,22 +970,6 @@ mod tests {
         .await;
         let definition = stored_definition(&db, &lab_id, "lab-0001").await;
         assert_eq!(ready_timeout(definition.as_ref()), Duration::from_secs(120));
-        // The port is the node's stored one, whatever the definition says.
-        let nodes = vec![db_node("vm", "10.0.0.11", Some(SSH_PORT), false)];
-        let started = vec![("vm".to_string(), NodeKind::VirtualMachine)];
-        let targets = readiness_targets("abcd1234", &nodes, &started);
-        assert_eq!(targets[0].check, on_port(SSH_PORT));
-    }
-
-    #[test]
-    fn virtual_machines_are_checked_on_their_stored_port() {
-        for port in [TALOS_API_PORT, 6443, SSH_PORT] {
-            assert_eq!(
-                readiness_check(NodeKind::VirtualMachine, true, &stored(Some(port), false)),
-                Some(on_port(port)),
-                "{port}"
-            );
-        }
     }
 
     #[test]

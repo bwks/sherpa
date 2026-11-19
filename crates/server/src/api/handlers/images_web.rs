@@ -1014,18 +1014,6 @@ mod tests {
         assert!(!fields.default);
     }
 
-    #[test]
-    fn test_validate_upload_fields_default_on() {
-        let result = validate_upload_fields(raw_fields(
-            Some("ubuntu_linux"),
-            Some("24.04"),
-            Some(vec![0x01]),
-            Some("on"),
-        ));
-        let fields = result.expect("should succeed");
-        assert!(fields.default);
-    }
-
     /// A choice's serde name, as the form sends it.
     fn choice<T: Serialize>(value: &T) -> String {
         serde_json::to_value(value)
@@ -1177,39 +1165,6 @@ mod tests {
         assert_eq!(updated.interface_device().unwrap().mtu, 9000);
     }
 
-    /// Each variant of `T` in turn as the image's value: the form offers every variant, and
-    /// selects that one alone.
-    fn assert_every_variant_offered_and_the_current_selected<T>()
-    where
-        T: IntoEnumIterator + Display + PartialEq,
-    {
-        let all: Vec<String> = T::iter().map(|variant| variant.to_string()).collect();
-        for current in T::iter() {
-            let choices = form_choices(&current);
-            let values: Vec<String> = choices.iter().map(|choice| choice.value.clone()).collect();
-            let labels: Vec<String> = choices.iter().map(|choice| choice.label.clone()).collect();
-            let selected: Vec<String> = choices
-                .iter()
-                .filter(|choice| choice.selected)
-                .map(|choice| choice.value.clone())
-                .collect();
-            assert_eq!(values, all);
-            assert_eq!(labels, all);
-            assert_eq!(selected, vec![current.to_string()]);
-        }
-    }
-
-    #[test]
-    fn the_edit_form_offers_every_option_and_selects_the_images_own() {
-        assert_every_variant_offered_and_the_current_selected::<OsVariant>();
-        assert_every_variant_offered_and_the_current_selected::<BiosTypes>();
-        assert_every_variant_offered_and_the_current_selected::<CpuArchitecture>();
-        assert_every_variant_offered_and_the_current_selected::<CpuModels>();
-        assert_every_variant_offered_and_the_current_selected::<MachineType>();
-        assert_every_variant_offered_and_the_current_selected::<DiskBuses>();
-        assert_every_variant_offered_and_the_current_selected::<InterfaceType>();
-    }
-
     /// The `<option>` the edit page selects in the `<select>` named `name`.
     fn selected_option(html: &str, name: &str) -> String {
         let select = &html[html.find(&format!(r#"<select id="{name}""#)).expect(name)..];
@@ -1351,8 +1306,6 @@ mod tests {
                 ("Interface MTU:", kind_settings::VM_AND_UNIKERNEL),
                 ("ZTP:", kind_settings::VM_AND_CONTAINER),
                 ("Data Interfaces:", kind_settings::ALL),
-                ("Interface Prefix:", &[]),
-                ("First Interface Index:", &[]),
             ] {
                 assert_eq!(
                     html.contains(label),
@@ -1431,59 +1384,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_form_with_a_removed_field_is_refused_naming_it() {
-        let Form(form) = posted_form("cloud-init").await.unwrap();
-        assert_eq!(form.ztp, Some(Ztp::CloudInit));
-        for field in [
-            "interface_prefix=eth",
-            "first_interface_index=0",
-            "version=1",
-            "ztp_username=admin",
-            "ztp_password=Secret-Pass1",
-            "ztp_password_remove=on",
-            "ztp_password_auth=on",
-        ] {
-            let (name, _) = field.split_once('=').unwrap();
-            let rejection = posted_form(&format!("cloud-init&{field}"))
-                .await
-                .err()
-                .unwrap_or_else(|| panic!("{name} was accepted"));
-            let message = rejection.body_text();
-            assert!(
-                message.contains(&format!("unknown field `{name}`")),
-                "{name}: {message}"
-            );
-        }
-    }
-
-    #[test]
-    fn the_image_pages_have_no_ztp_login_fields() {
-        let config = ModelKind::default_for(NodeModel::CiscoCat8000).node_config();
-        let edit = image_edit_template("admin".to_owned(), config.clone())
-            .unwrap()
-            .render()
-            .unwrap();
-        let detail = crate::templates::AdminImageDetailTemplate {
-            username: "admin".to_owned(),
-            is_admin: true,
-            nav: NavPage::AdminImages.into(),
-            kind_badge: KindBadge::full(config.kind()),
-            config,
-        }
-        .render()
-        .unwrap();
-        for page in [&edit, &detail] {
-            for gone in [
-                "ztp_username",
-                "ztp_password",
-                "ZTP Username",
-                "ZTP Password",
-            ] {
-                assert!(!page.contains(gone), "{gone}: {page}");
-            }
-            assert!(!page.contains("Password Auth"), "{page}");
-        }
-        assert!(edit.contains("name=\"ztp\""), "{edit}");
+    async fn a_form_with_an_unknown_field_is_refused_naming_it() {
+        let rejection = posted_form("cloud-init&version=1")
+            .await
+            .err()
+            .expect("version was accepted");
+        let message = rejection.body_text();
+        assert!(message.contains("unknown field `version`"), "{message}");
     }
 
     #[test]

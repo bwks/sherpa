@@ -41,6 +41,8 @@ fn has_ztp_server_table(contents: &str) -> Result<bool> {
 mod tests {
     use super::*;
 
+    use crate::log_capture::capture_log;
+
     #[test]
     fn finds_the_ztp_server_table() {
         let contents = "server_ipv4 = \"0.0.0.0\"\n\n[ztp_server]\nenable = false\n\
@@ -70,7 +72,13 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("sherpa.toml");
         fs::write(&path, "[ztp_server]\nenable = false\n").unwrap();
-        assert!(warn_on_removed_settings(&path).is_ok());
+        let (result, output) = capture_log(|| warn_on_removed_settings(&path));
+        assert!(result.is_ok());
+        assert!(output.contains("WARN"), "{output}");
+        assert!(
+            output.contains("[ztp_server] table, which sherpad no longer reads"),
+            "{output}"
+        );
     }
 
     #[test]

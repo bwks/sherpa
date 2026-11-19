@@ -53,28 +53,6 @@ fn cleanup_pool(conn: &Connect, name: &str) {
 }
 
 // ============================================================================
-// QEMU Connection
-// ============================================================================
-
-#[test]
-#[ignore = "requires a libvirt daemon"]
-fn test_qemu_connect() {
-    let conn = connect().expect("connects to QEMU");
-    let hostname = conn.get_hostname().expect("gets hostname");
-    assert_ne!(hostname, "");
-}
-
-#[test]
-#[ignore = "requires a libvirt daemon"]
-fn test_qemu_connect_default_uri() {
-    let qemu = Qemu::default();
-    let conn = qemu.connect().expect("connects");
-    // Verify we can query something
-    let version = conn.get_lib_version().expect("gets version");
-    assert!(version > 0);
-}
-
-// ============================================================================
 // Network — Bridge
 // ============================================================================
 

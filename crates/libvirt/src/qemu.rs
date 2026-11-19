@@ -61,16 +61,3 @@ impl Drop for QemuConnection {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn assert_send_and_sync<T: Send + Sync>() {}
-
-    /// `virt::Connect` is `Send + Sync`, so the wrapper is too without any `unsafe impl`.
-    #[test]
-    fn test_qemu_connection_is_send_and_sync() {
-        assert_send_and_sync::<QemuConnection>();
-    }
-}

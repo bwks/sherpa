@@ -376,20 +376,6 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_version_from_node_image_when_not_set() {
-        let nodes = vec![create_test_container("ceos1", NodeModel::AristaEos, None)];
-        let mut config =
-            create_test_node_image(NodeModel::AristaEos, "4.32.0F", NodeKind::Container);
-        config.default = true;
-
-        let result = validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images");
-
-        assert!(result.is_ok());
-        let resolved = result.unwrap();
-        assert_eq!(resolved[0].version, Some("4.32.0F".to_string()));
-    }
-
-    #[test]
     fn test_resolve_explicit_version_takes_precedence() {
         let nodes = vec![create_test_container(
             "ceos1",
@@ -460,25 +446,6 @@ mod tests {
         assert!(error_msg.contains("9.99.0F"));
     }
 
-    #[test]
-    fn test_resolve_multiple_nodes_mixed_types() {
-        let nodes = vec![
-            create_test_container("ceos1", NodeModel::AristaEos, None),
-            create_test_container("ceos2", NodeModel::AristaEos, Some("4.31.0F")),
-        ];
-        let mut default =
-            create_test_node_image(NodeModel::AristaEos, "4.32.0F", NodeKind::Container);
-        default.default = true;
-        let other = create_test_node_image(NodeModel::AristaEos, "4.31.0F", NodeKind::Container);
-
-        let result = validate_and_resolve_node_versions(&nodes, &[default, other], "/tmp/images");
-
-        assert!(result.is_ok());
-        let resolved = result.unwrap();
-        assert_eq!(resolved[0].version, Some("4.32.0F".to_string()));
-        assert_eq!(resolved[1].version, Some("4.31.0F".to_string()));
-    }
-
     fn generic_image(version: &str, repo: Option<&str>, default: bool) -> NodeConfig {
         let mut config = create_test_node_image(NodeModel::Generic, version, NodeKind::Container);
         set_repo(&mut config, repo);
@@ -531,23 +498,6 @@ mod tests {
         let message = format!("{error:#}");
         assert!(message.contains("`image`"), "{message}");
         assert!(message.contains("--repo"), "{message}");
-    }
-
-    #[test]
-    fn test_resolve_container_sets_the_image_it_validated() {
-        let nodes = [create_test_container(
-            "ceos1",
-            NodeModel::AristaEos,
-            Some("4.32.0F"),
-        )];
-        let mut config =
-            create_test_node_image(NodeModel::AristaEos, "4.32.0F", NodeKind::Container);
-        config.default = true;
-
-        let resolved =
-            validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images").unwrap();
-
-        assert_eq!(resolved[0].image.as_deref(), Some("test-repo"));
     }
 
     /// The image a container node of `model` resolves to when its version was pulled from

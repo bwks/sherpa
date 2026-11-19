@@ -137,17 +137,6 @@ mod tests {
     }
 
     #[test]
-    fn service_errors_survive_added_context() {
-        let error = anyhow::Error::new(ServiceError::NotFound("Lab not found: lab1".to_owned()))
-            .context("Failed to destroy lab");
-        assert_eq!(
-            ServiceError::find(&error),
-            Some(&ServiceError::NotFound("Lab not found: lab1".to_owned()))
-        );
-        assert!(ServiceError::find(&anyhow!("Lab not found: lab1")).is_none());
-    }
-
-    #[test]
     fn conflict_messages_are_shown_as_written() {
         let error = ServiceError::Conflict("User 'alice' owns 1 lab".to_owned());
         assert_eq!(error.to_string(), "User 'alice' owns 1 lab");

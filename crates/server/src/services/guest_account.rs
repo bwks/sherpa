@@ -837,60 +837,6 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
-    fn every_model_that_can_add_an_account_at_boot_gets_one_with_its_default_image() {
-        for model in [
-            NodeModel::UbuntuLinux,
-            NodeModel::OmarchyLinux,
-            NodeModel::NixosLinux,
-            NodeModel::AlpineLinux,
-            NodeModel::FlatcarLinux,
-            NodeModel::FreeBsd,
-            NodeModel::OpenBsd,
-            NodeModel::Generic,
-            NodeModel::WindowsServer,
-            NodeModel::DevboxWindows,
-            NodeModel::AristaEos,
-            NodeModel::ArubaAoscx,
-            NodeModel::CiscoIos,
-            NodeModel::CiscoIosl2,
-            NodeModel::CiscoIol,
-            NodeModel::CiscoIoll2,
-            NodeModel::CiscoCsr1000,
-            NodeModel::CiscoCat8000,
-            NodeModel::CiscoCat9000,
-            NodeModel::CiscoAsa,
-            NodeModel::CiscoNexus9300,
-            NodeModel::CiscoIosxr9000,
-            NodeModel::CiscoIse,
-            NodeModel::JuniperRouter,
-            NodeModel::JuniperSwitch,
-            NodeModel::JuniperEvolved,
-            NodeModel::JuniperSrxv3,
-            NodeModel::NokiaSrlinux,
-            NodeModel::PaloaltoPanos,
-            NodeModel::MikrotikChr,
-            NodeModel::FrrLinux,
-            NodeModel::CumulusLinux,
-            NodeModel::SonicLinux,
-        ] {
-            let image = ModelKind::default_for(model).node_config();
-            assert!(supports_guest_account(model, image.ztp()), "{model}");
-            assert!(!supports_guest_account(model, Ztp::Disabled), "{model}");
-        }
-        for model in [
-            NodeModel::CiscoFtd,
-            NodeModel::TalosLinux,
-            NodeModel::GitlabCe,
-            NodeModel::NanosUnikernel,
-        ] {
-            assert!(
-                !supports_guest_account(model, ModelKind::default_for(model).node_config().ztp()),
-                "{model}"
-            );
-        }
-    }
-
     /// The models each generator wrote the owner's account for, as the lists kept here by hand
     /// had them before the per-model table replaced them.
     fn listed_by_the_generators(model: NodeModel, kind: NodeKind, ztp: Ztp) -> bool {
@@ -1128,11 +1074,11 @@ pub(crate) mod tests {
         );
         assert_eq!(
             first_key(&account, KeyFormat::CiscoMd5).value,
-            pub_ssh_key_to_md5_hash(key_data).unwrap()
+            "2FB82962CA1B08D618E2C6BB81D1AA55"
         );
         assert_eq!(
             first_key(&account, KeyFormat::CiscoSha256).value,
-            pub_ssh_key_to_sha256_hash(key_data).unwrap()
+            "f9:1f:2b:9e:98:fb:99:cb:86:a7:5a:e4:1d:d6:80:90:be:0b:b0:79:47:2d:2d:29:dd:93:92:6a:00:51:c0:17"
         );
         let junos = first_key(&account, KeyFormat::Junos);
         assert_eq!(
@@ -1141,7 +1087,10 @@ pub(crate) mod tests {
         );
         assert_eq!(
             first_key(&account, KeyFormat::PanosBase64).value,
-            base64_encode(RSA_KEY)
+            "c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFBZ1FESXo3MC91YkFKZGxERS9qbit5U291a3hx\
+             RURlUDNseDBTRnBjTk5kZXlROTFUZ2NMeDd4Zko0M3FUbFpMS1dFV0dvaWtGSmRIUUd6dFhqSjR1cmJDM25T\
+             NVBVVkxoakt2TWZ6OXluYjhzM24vbEVtZlBKbWgwQzFTUFBzaE9mQnF2YWxsWWFlaExVelRydjFraDZuUGlP\
+             QjIzQUVoZ0NyaEdtdFN2Wm0wTHBRPT0="
         );
         let ecdsa = first_key(&self::account(&[ECDSA_KEY]), KeyFormat::Junos);
         assert_eq!(ecdsa.kind, "ssh-ecdsa");

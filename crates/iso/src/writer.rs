@@ -1146,7 +1146,7 @@ mod tests {
         assert_eq!(&pvd[40..72], format!("{CIDATA:<32}").as_bytes());
         assert_eq!(le32(&pvd[80..]) as usize * ISO_SECTOR_SIZE, image.len());
         assert_eq!(le32(&pvd[80..]), be32(&pvd[84..]));
-        assert_eq!(le16(&pvd[128..]) as usize, ISO_SECTOR_SIZE);
+        assert_eq!(le16(&pvd[128..]), 2048);
         assert_eq!(pvd[881], 1);
 
         let svd = sector(&image, 17);
@@ -1157,7 +1157,7 @@ mod tests {
         assert_eq!(&svd[40 + label.len()..42 + label.len()], &[0, b' ']);
 
         assert_eq!(&sector(&image, 18)[..7], b"\xffCD001\x01");
-        let tail = &image[image.len() - ISO_PADDING_SECTORS as usize * ISO_SECTOR_SIZE..];
+        let tail = &image[image.len() - 150 * ISO_SECTOR_SIZE..];
         assert!(tail.iter().all(|b| *b == 0));
         Ok(())
     }
@@ -1201,16 +1201,16 @@ mod tests {
         let ce = su_entry(&entries[0], "CE").expect("CE on the root");
         let er = &sector(&image, le32(&ce))[..le32(&ce[16..]) as usize];
         assert_eq!(&er[..2], b"ER");
-        assert_eq!(&er[8..8 + ISO_RRIP_ID.len()], ISO_RRIP_ID);
+        assert_eq!(&er[8..18], b"RRIP_1991A");
 
         for record in &entries[2..] {
             let px = su_entry(record, "PX").expect("PX entry");
             let (mode, nlink) = (le32(&px), le32(&px[8..]));
             if record.is_dir {
-                assert_eq!(mode, ISO_DIR_MODE);
+                assert_eq!(mode, 0o040_555);
                 assert_eq!(nlink, 2);
             } else {
-                assert_eq!(mode, ISO_FILE_MODE);
+                assert_eq!(mode, 0o100_444);
                 assert_eq!(nlink, 1);
             }
         }
@@ -1423,7 +1423,7 @@ mod tests {
         fs::write(src.path().join("a".repeat(32)), "")?;
         let err = build_error(src.path(), CIDATA);
         assert!(
-            matches!(err, IsoError::NameTooLong { limit, .. } if limit == ISO_MAX_NAME_BYTES),
+            matches!(err, IsoError::NameTooLong { limit: 31, .. }),
             "{err}"
         );
         Ok(())
@@ -1447,10 +1447,7 @@ mod tests {
         });
         fs::create_dir_all(&deepest)?;
         let err = build_error(src.path(), CIDATA);
-        assert!(
-            matches!(err, IsoError::TooDeep { limit, .. } if limit == ISO_MAX_DEPTH),
-            "{err}"
-        );
+        assert!(matches!(err, IsoError::TooDeep { limit: 8, .. }), "{err}");
         fs::remove_dir(&deepest)?;
         build(src.path(), CIDATA)?;
         Ok(())

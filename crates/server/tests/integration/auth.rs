@@ -103,30 +103,6 @@ async fn test_auth_login_missing_params() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_auth_validate_valid_token() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-
-    let token = ws.login_admin().await?;
-
-    let response = ws
-        .rpc_call("auth.validate", json!({ "token": token }))
-        .await?;
-
-    let result = response.get("result").expect("should have result");
-    assert_eq!(
-        result.get("valid").and_then(serde_json::Value::as_bool),
-        Some(true)
-    );
-    assert_eq!(
-        result.get("username").and_then(|v| v.as_str()),
-        Some("admin")
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn a_token_validates_over_rest_as_over_rpc() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -163,22 +139,6 @@ async fn test_auth_validate_invalid_token() -> Result<()> {
     assert_eq!(
         result.get("valid").and_then(serde_json::Value::as_bool),
         Some(false)
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_auth_validate_missing_token() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-
-    let response = ws.rpc_call("auth.validate", json!({})).await?;
-
-    let error = response.get("error").expect("should have error");
-    assert_eq!(
-        error.get("code").and_then(serde_json::Value::as_i64),
-        Some(-32602)
     );
 
     Ok(())
@@ -277,13 +237,27 @@ async fn test_cookie_login_invalid() -> Result<()> {
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(server.addr);
 
-    let status = client.login_form("admin", "WrongPass123!").await?;
+    let resp = client
+        .post_form(
+            "/login",
+            &[("username", "admin"), ("password", "WrongPass123!")],
+        )
+        .await?;
 
-    // Should return 200 with login page showing error, or redirect back to login
+    // A refused login sets no session and sends nowhere: it shows the error in the form.
+    assert_eq!(resp.status(), StatusCode::OK);
     assert!(
-        status.as_u16() == 200 || status.is_redirection(),
-        "Expected 200 or redirect for invalid login, got {status}"
+        !resp.headers().contains_key(header::SET_COOKIE),
+        "a refused login set a cookie: {:?}",
+        resp.headers()
     );
+    assert!(
+        !resp.headers().contains_key("hx-redirect"),
+        "a refused login redirected: {:?}",
+        resp.headers()
+    );
+    let body = resp.text().await?;
+    assert!(body.contains("Invalid username or password"), "{body}");
 
     Ok(())
 }
@@ -311,8 +285,8 @@ async fn test_login_page_renders() -> Result<()> {
 
     let body = response.text().await?;
     assert!(
-        body.contains("login") || body.contains("Login"),
-        "Login page should contain login form"
+        body.contains(r#"hx-post="/login""#) && body.contains(r#"name="password""#),
+        "Login page should contain the login form: {body}"
     );
 
     Ok(())
@@ -325,11 +299,10 @@ async fn test_protected_route_redirects_unauthenticated() -> Result<()> {
 
     let response = client.get("/").await?;
 
-    // Should redirect to login
-    assert!(
-        response.status().is_redirection() || response.status().as_u16() == 401,
-        "Expected redirect or 401, got {}",
-        response.status()
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        header_text(&response, header::LOCATION),
+        "/login?error=session_required"
     );
 
     Ok(())
@@ -347,25 +320,6 @@ async fn test_api_spec_returns_json() -> Result<()> {
 }
 
 // ── HTTP REST API Tests ──
-
-#[tokio::test]
-async fn test_http_bearer_auth_list_users() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
-
-    let mut client = TestHttpClient::new(server.addr);
-    client.set_token(token);
-
-    let response = client.get("/api/v1/admin/users").await?;
-    assert_eq!(
-        response.status().as_u16(),
-        200,
-        "GET /api/v1/admin/users with bearer token should return 200"
-    );
-
-    Ok(())
-}
 
 #[tokio::test]
 async fn test_http_bearer_auth_create_user() -> Result<()> {

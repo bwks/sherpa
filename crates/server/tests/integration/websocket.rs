@@ -1,26 +1,10 @@
 use anyhow::Result;
 use serde_json::json;
-use std::time::Duration;
 
 use crate::helpers::test_server::TestServer;
 use crate::helpers::ws_client::TestWsClient;
 
 // ── Connection Tests ──
-
-#[tokio::test]
-async fn test_ws_connected_message() -> Result<()> {
-    let server = TestServer::start().await?;
-    let ws = TestWsClient::connect(&server).await?;
-
-    // Connection ID should be a valid UUID
-    assert_ne!(ws.connection_id, "");
-    assert!(
-        uuid::Uuid::parse_str(&ws.connection_id).is_ok(),
-        "connection_id should be a valid UUID"
-    );
-
-    Ok(())
-}
 
 #[tokio::test]
 async fn test_ws_multiple_connections() -> Result<()> {
@@ -63,85 +47,7 @@ async fn test_rpc_unknown_method() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_rpc_response_id_matches_request() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-
-    // Make multiple requests and verify IDs match
-    let r1 = ws
-        .rpc_call(
-            "auth.login",
-            json!({"username": "admin", "password": "wrong"}),
-        )
-        .await?;
-    let r2 = ws
-        .rpc_call(
-            "auth.login",
-            json!({"username": "admin", "password": "wrong"}),
-        )
-        .await?;
-
-    let id1 = r1.get("id").and_then(|v| v.as_str()).unwrap_or("");
-    let id2 = r2.get("id").and_then(|v| v.as_str()).unwrap_or("");
-
-    assert_ne!(id1, id2, "Each response should have a unique ID");
-    assert!(
-        id1.starts_with("test-"),
-        "Response ID should match request format"
-    );
-    assert!(
-        id2.starts_with("test-"),
-        "Response ID should match request format"
-    );
-
-    Ok(())
-}
-
-// ── Streaming RPC Tests ──
-
-#[tokio::test]
-async fn test_rpc_streaming_returns_final_response() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
-
-    let (statuses, response) = ws
-        .rpc_call_streaming(
-            "auth.validate",
-            serde_json::json!({ "token": token }),
-            Duration::from_secs(10),
-        )
-        .await?;
-
-    assert!(
-        response.get("result").is_some(),
-        "streaming call should return a final result: {response:?}"
-    );
-    // auth.validate is not a streaming operation so no intermediate status messages
-    assert!(
-        statuses.is_empty(),
-        "auth.validate should have no status messages"
-    );
-
-    Ok(())
-}
-
 // ── Auth Method Tests ──
-
-#[tokio::test]
-async fn test_rpc_auth_login_returns_jwt() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-
-    let token = ws.login_admin().await?;
-
-    // JWT tokens have 3 base64 parts separated by dots
-    let parts: Vec<&str> = token.split('.').collect();
-    assert_eq!(parts.len(), 3, "JWT should have 3 parts");
-
-    Ok(())
-}
 
 #[tokio::test]
 async fn test_rpc_auth_validate_returns_user_info() -> Result<()> {

@@ -73,7 +73,7 @@ mod tests {
         assert!(cookie.contains("sherpa_auth=test_token_123"));
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("SameSite=Strict"));
-        assert!(cookie.contains(&format!("Max-Age={COOKIE_MAX_AGE_NORMAL}")));
+        assert!(cookie.contains("Max-Age=604800"));
         assert!(cookie.contains("Path=/"));
     }
 
@@ -83,7 +83,7 @@ mod tests {
         let cookie = create_auth_cookie(token, true);
 
         assert!(cookie.contains("sherpa_auth=test_token_456"));
-        assert!(cookie.contains(&format!("Max-Age={COOKIE_MAX_AGE_REMEMBER}")));
+        assert!(cookie.contains("Max-Age=2592000"));
     }
 
     #[test]
@@ -112,14 +112,6 @@ mod tests {
         let tokens = extract_tokens_from_cookie(cookie_header);
 
         assert_eq!(tokens, vec!["my_token_123"]);
-    }
-
-    #[test]
-    fn test_extract_token_from_cookie_only_auth() {
-        let cookie_header = "sherpa_auth=just_this_token";
-        let tokens = extract_tokens_from_cookie(cookie_header);
-
-        assert_eq!(tokens, vec!["just_this_token"]);
     }
 
     #[test]

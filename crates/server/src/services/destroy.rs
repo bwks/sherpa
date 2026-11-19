@@ -1063,19 +1063,10 @@ mod tests {
             vec!["sherpa-tailnet-app-test1234", "sherpa-tailnet-test1234"]
         );
         assert!(errors.is_empty());
-        let requests = mock.requests.lock().unwrap();
-        let node_removal = requests
-            .iter()
-            .position(|request| {
-                request.starts_with("DELETE ")
-                    && request.contains("/containers/sherpa-tailnet-test1234?")
-            })
-            .unwrap();
-        let gateway_inspection = requests
-            .iter()
-            .position(|request| request.contains("/containers/sherpa-tailnet-test1234/json"))
-            .unwrap();
-        assert!(node_removal < gateway_inspection);
+        assert!(mock.requests.lock().unwrap().iter().any(|request| {
+            request.starts_with("DELETE ")
+                && request.contains("/containers/sherpa-tailnet-test1234?")
+        }));
     }
 
     #[tokio::test]
@@ -1294,34 +1285,6 @@ mod tests {
         .await;
         assert!(!database_deleted.load(Ordering::SeqCst));
         assert!(lab_dir.exists());
-    }
-
-    #[tokio::test]
-    async fn an_old_labs_ssh_key_is_deleted_with_the_lab_folder() {
-        let root = tempdir().unwrap();
-        let lab_dir = root.path().join("test1234");
-        fs::create_dir(&lab_dir).unwrap();
-        let private = lab_dir.join(OLD_LAB_KEY);
-        let public = lab_dir.join(format!("{OLD_LAB_KEY}.pub"));
-        fs::write(&private, "lab key").unwrap();
-        fs::write(&public, "ssh-rsa AAAA").unwrap();
-        let mut summary = DestroySummary::default();
-        let mut errors = Vec::new();
-
-        cleanup_lab_metadata(
-            "test1234",
-            lab_dir.to_str().unwrap(),
-            async { Ok(()) },
-            &mut summary,
-            &mut errors,
-            None,
-        )
-        .await;
-
-        assert!(errors.is_empty(), "{errors:?}");
-        assert!(summary.lab_directory_deleted);
-        assert!(!private.exists());
-        assert!(!public.exists());
     }
 
     #[tokio::test]

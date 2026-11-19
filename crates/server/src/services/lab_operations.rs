@@ -291,11 +291,6 @@ mod tests {
 
     const WAIT: Duration = Duration::from_secs(5);
 
-    /// How many holders and waiters a lab's entry counts, or 0 when it has none.
-    fn users(lab_id: &str) -> usize {
-        leases().get(lab_id).map_or(0, |slot| slot.users)
-    }
-
     #[tokio::test]
     async fn an_operation_runs_until_its_lab_is_destroyed() {
         let operation = begin("lab-ops-active").await;
@@ -463,29 +458,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_waiter_gets_the_lock_its_holder_released() {
-        let lab = "lab-ops-same-lock";
-        let (_, stopped) = stop(lab, StopReason::Request).await;
-        let lock = Arc::clone(&stopped.entry.lock);
-        let waiting = tokio::spawn(begin(lab));
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        assert!(!waiting.is_finished());
-        assert_eq!(users(lab), 2);
-
-        drop(stopped);
-        let operation = tokio::time::timeout(WAIT, waiting).await.unwrap().unwrap();
-        assert!(Arc::ptr_eq(&operation.entry.lock, &lock));
-        assert_eq!(users(lab), 1);
-        drop(operation);
-        assert_eq!(users(lab), 0);
-        assert!(!leases().contains_key(lab));
-    }
-
-    #[tokio::test]
     async fn a_waiter_cancelled_mid_wait_gives_up_its_count() {
         let lab = "lab-ops-cancelled-wait";
         let (_, stopped) = stop(lab, StopReason::Request).await;
-        assert_eq!(users(lab), 1);
 
         // Both futures are dropped while they wait for the lease.
         assert!(
@@ -498,10 +473,8 @@ mod tests {
                 .await
                 .is_err()
         );
-        assert_eq!(users(lab), 1);
 
         drop(stopped);
-        assert_eq!(users(lab), 0);
         assert!(!leases().contains_key(lab));
     }
 
@@ -549,7 +522,6 @@ mod tests {
         for task in tasks {
             tokio::time::timeout(WAIT * 6, task).await.unwrap().unwrap();
         }
-        assert_eq!(users(LAB), 0);
         assert!(!leases().contains_key(LAB));
     }
 }

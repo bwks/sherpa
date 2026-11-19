@@ -169,12 +169,8 @@ mod tests {
     ];
 
     #[test]
-    fn the_table_covers_every_lab_state() {
-        assert_eq!(LAB_STATES.len(), LabState::iter().count());
-    }
-
-    #[test]
     fn a_ready_lab_shows_its_state() {
+        assert_eq!(LAB_STATES.len(), LabState::iter().count());
         for (state, label, tone) in LAB_STATES {
             assert_eq!(BadgeTone::for_lab_state(state), tone, "{state:?}");
             for size in SIZES {
