@@ -67,7 +67,7 @@ fn windows_leaves_the_owner_as_the_only_enabled_account() {
             "$ErrorActionPreference = 'Stop'",
             "$owner = Get-LocalUser -Name 'alice'",
             "if (-not $owner.Enabled) {",
-            "    throw \"The lab owner's account 'alice' is disabled, so no other account was disabled\"",
+            r#"    throw "The lab owner's account 'alice' is disabled, so no other account was disabled""#,
             "}",
             "Get-LocalUser |",
             "    Where-Object { $_.Enabled -and $_.SID -ne $owner.SID } |",

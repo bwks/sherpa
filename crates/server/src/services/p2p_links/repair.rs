@@ -927,16 +927,16 @@ mod tests {
 
     /// The first-boot script of the carrier test VM: it installs, and starts, a per-boot script
     /// that prints the carrier of the guest's `eth0` to its serial port every second.
-    const CARRIER_GUEST_SCRIPT: &str = "#!/bin/sh
+    const CARRIER_GUEST_SCRIPT: &str = r#"#!/bin/sh
 mkdir -p /var/lib/cloud/scripts/per-boot
 cat > /var/lib/cloud/scripts/per-boot/carrier.sh <<'END'
 #!/bin/sh
 ip link set eth0 up
-( while true; do echo \"SHERPA-CARRIER $(cat /sys/class/net/eth0/carrier)\"; sleep 1; done ) >/dev/ttyS0 2>&1 </dev/null &
+( while true; do echo "SHERPA-CARRIER $(cat /sys/class/net/eth0/carrier)"; sleep 1; done ) >/dev/ttyS0 2>&1 </dev/null &
 END
 chmod +x /var/lib/cloud/scripts/per-boot/carrier.sh
 /var/lib/cloud/scripts/per-boot/carrier.sh
-";
+"#;
 
     /// A VM booted from the `alpine_linux` image with one `ethernet` interface on tap `tap`, its
     /// `NoCloud` seed on a CD, and its serial port written to `serial`.

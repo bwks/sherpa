@@ -137,7 +137,7 @@ mod tests {
         for bad in [
             "Granite Owl42",
             "Granite'Owl42",
-            "Granite\"Owl42",
+            r#"Granite"Owl42"#,
             "Granite\\Owl42",
             "Granite$Owl42",
             "Granite#Owl42",

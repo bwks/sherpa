@@ -1004,8 +1004,15 @@ echo '{"type":"result","is_error":false,"result":"done","session_id":"sess-1"}'
         fs::write(
             dir.join("agents.toml"),
             format!(
-                "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n\
-                 [[agent]]\nname = \"dev\"\nkey = \"{}\"\nrole = \"guest\"\n",
+                r#"[[agent]]
+name = "host"
+key = "{}"
+role = "host"
+[[agent]]
+name = "dev"
+key = "{}"
+role = "guest"
+"#,
                 host.public_key, guest.public_key
             ),
         )
@@ -1299,8 +1306,15 @@ esac
         fs::write(
             dir.join("agents.toml"),
             format!(
-                "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n\
-                 [[agent]]\nname = \"dev\"\nkey = \"{}\"\nrole = \"guest\"\n",
+                r#"[[agent]]
+name = "host"
+key = "{}"
+role = "host"
+[[agent]]
+name = "dev"
+key = "{}"
+role = "guest"
+"#,
                 host.public_key, guest.public_key
             ),
         )

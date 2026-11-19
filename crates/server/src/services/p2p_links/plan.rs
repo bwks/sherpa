@@ -146,8 +146,13 @@ mod tests {
         store(
             &db,
             &lab,
-            "name = \"l\"\n[[nodes]]\nname = \"ctr1\"\nmodel = \"frr_linux\"\n\
-             [nodes.interfaces]\ndata_count = 2\n",
+            r#"name = "l"
+[[nodes]]
+name = "ctr1"
+model = "frr_linux"
+[nodes.interfaces]
+data_count = 2
+"#,
         )
         .await;
         stored_definition(&db, lab.id.as_ref().unwrap(), "lab1").await

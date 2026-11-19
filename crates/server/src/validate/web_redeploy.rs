@@ -60,7 +60,11 @@ mod tests {
     /// The node `dev01` of a manifest, from its TOML table without the `[[nodes]]` header.
     fn node(table: &str) -> topology::Node {
         let manifest: topology::Manifest = toml::from_str(&format!(
-            "name = \"lab\"\n[[nodes]]\nname = \"dev01\"\nmodel = \"ubuntu_linux\"\n{table}"
+            r#"name = "lab"
+[[nodes]]
+name = "dev01"
+model = "ubuntu_linux"
+{table}"#
         ))
         .unwrap();
         manifest.nodes[0].clone()
@@ -76,43 +80,69 @@ mod tests {
     fn a_node_that_needs_no_contents_redeploys_from_the_web() {
         check_web_redeployable(&node("")).unwrap();
         check_web_redeployable(&node(
-            "memory = 2048\nenvironment_variables = [\"MODE=lab\"]\nztp = { method = \"cdrom\" }\n\
-             ssh = { authorized_keys = [\"ssh-ed25519 AAAA test\"] }\n",
+            r#"memory = 2048
+environment_variables = ["MODE=lab"]
+ztp = { method = "cdrom" }
+ssh = { authorized_keys = ["ssh-ed25519 AAAA test"] }
+"#,
         ))
         .unwrap();
     }
 
     #[test]
     fn each_kind_of_missing_content_is_named() {
-        let text_file = "src = \"files/motd\"\ndst = \"/etc/motd\"\nuser = \"root\"\n\
-                         group = \"root\"\npermissions = 644\n";
+        let text_file = r#"src = "files/motd"
+dst = "/etc/motd"
+user = "root"
+group = "root"
+permissions = 644
+"#;
         let cases = [
-            ("ztp = { config = \"configs/dev01.yaml\" }\n", "ztp.config"),
+            (
+                r#"ztp = { config = "configs/dev01.yaml" }
+"#,
+                "ztp.config",
+            ),
             (&format!("[[nodes.text_files]]\n{text_file}"), "text_files"),
             (
-                "[[nodes.binary_files]]\nsource = \"files/blob.bin\"\n",
+                r#"[[nodes.binary_files]]
+source = "files/blob.bin"
+"#,
                 "binary_files",
             ),
             (
-                "[[nodes.systemd_units]]\nname = \"app.service\"\nsource = \"units/app.service\"\n\
-                 enabled = true\n",
+                r#"[[nodes.systemd_units]]
+name = "app.service"
+source = "units/app.service"
+enabled = true
+"#,
                 "systemd_units",
             ),
             (
-                "startup_scripts = [\"scripts/start.sh\"]\n",
+                r#"startup_scripts = ["scripts/start.sh"]
+"#,
                 "startup_scripts",
             ),
-            ("user_scripts = [\"scripts/user.sh\"]\n", "user_scripts"),
             (
-                "ssh = { authorized_key_files = [{ source = \"keys/id.pub\" }] }\n",
+                r#"user_scripts = ["scripts/user.sh"]
+"#,
+                "user_scripts",
+            ),
+            (
+                r#"ssh = { authorized_key_files = [{ source = "keys/id.pub" }] }
+"#,
                 "ssh.authorized_key_files",
             ),
             (
-                "environment_variables = [\"MODE=lab\", \"TOKEN=$LAB_TOKEN\"]\n",
+                r#"environment_variables = ["MODE=lab", "TOKEN=$LAB_TOKEN"]
+"#,
                 "environment_variables with a $VAR",
             ),
             (
-                "[[nodes.provisioners]]\ntype = \"ssh\"\nscripts = [\"setup.sh\"]\n",
+                r#"[[nodes.provisioners]]
+type = "ssh"
+scripts = ["setup.sh"]
+"#,
                 "provisioners",
             ),
         ];
@@ -132,7 +162,9 @@ mod tests {
     fn every_missing_part_is_named_at_once() {
         assert_eq!(
             refusal(
-                "startup_scripts = [\"scripts/start.sh\"]\nztp = { config = \"configs/dev01.yaml\" }\n"
+                r#"startup_scripts = ["scripts/start.sh"]
+ztp = { config = "configs/dev01.yaml" }
+"#
             ),
             "Node 'dev01' cannot be redeployed from the web UI: it needs ztp.config, \
              startup_scripts, which the server does not keep. Run `sherpa redeploy -n dev01` \

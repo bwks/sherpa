@@ -27,7 +27,7 @@ pub fn check_node_model_kind(node: &Node) -> Result<()> {
         && !node.model.kinds().contains(&kind)
     {
         bail!(
-            "Manifest - node: '{}' sets `kind = \"{kind}\"`, but '{}' comes only as: {}",
+            r#"Manifest - node: '{}' sets `kind = "{kind}"`, but '{}' comes only as: {}"#,
             node.name,
             node.model,
             model_kinds_list(node.model)
@@ -121,7 +121,7 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
         // A kind of the same model that takes the setting, which the node could set instead.
         match kinds.iter().find(|other| model.kinds().contains(other)) {
             Some(other) => bail!(
-                "Manifest - node: '{}' sets `{key}`, which does not apply to {kind} nodes; '{model}' is a {kind} unless the node sets `kind = \"{other}\"`",
+                r#"Manifest - node: '{}' sets `{key}`, which does not apply to {kind} nodes; '{model}' is a {kind} unless the node sets `kind = "{other}"`"#,
                 node.name,
             ),
             None => bail!(
@@ -141,8 +141,13 @@ mod tests {
 
     /// The one node of a manifest written in TOML, as read.
     fn manifest_node(node: &str) -> Node {
-        let manifest: Manifest = toml::from_str(&format!("name = \"lab\"\n\n[[nodes]]\n{node}"))
-            .expect("the manifest reads");
+        let manifest: Manifest = toml::from_str(&format!(
+            r#"name = "lab"
+
+[[nodes]]
+{node}"#
+        ))
+        .expect("the manifest reads");
         manifest.nodes[0].clone()
     }
 
@@ -171,11 +176,14 @@ mod tests {
 
     #[test]
     fn a_kind_the_model_does_not_take_is_refused_naming_the_kinds_it_takes() {
-        let node = manifest_node("name = \"fw1\"\nmodel = \"cisco_asa\"\nkind = \"container\"");
+        let node = manifest_node(
+            r#"name = "fw1"
+model = "cisco_asa"
+kind = "container""#,
+        );
         assert_eq!(
             check_node_model_kind(&node).unwrap_err().to_string(),
-            "Manifest - node: 'fw1' sets `kind = \"container\"`, but 'cisco_asa' comes only as: \
-             virtual_machine"
+            r#"Manifest - node: 'fw1' sets `kind = "container"`, but 'cisco_asa' comes only as: virtual_machine"#
         );
         let error = NodeExpanded::new(1, &node).unwrap_err();
         assert!(format!("{error:#}").contains("'fw1'"), "{error:#}");
@@ -184,19 +192,24 @@ mod tests {
     #[test]
     fn another_kinds_group_on_a_merged_model_says_which_kind_takes_it() {
         let node = manifest_node(
-            "name = \"r1\"\nmodel = \"arista_eos\"\n[nodes.container]\nprivileged = true",
+            r#"name = "r1"
+model = "arista_eos"
+[nodes.container]
+privileged = true"#,
         );
         let expanded = NodeExpanded::new(1, &node).unwrap();
         assert_eq!(
             error(&expanded),
-            "Manifest - node: 'r1' sets `container`, which does not apply to virtual_machine \
-             nodes; 'arista_eos' is a virtual_machine unless the node sets `kind = \"container\"`"
+            r#"Manifest - node: 'r1' sets `container`, which does not apply to virtual_machine nodes; 'arista_eos' is a virtual_machine unless the node sets `kind = "container"`"#
         );
     }
 
     #[test]
     fn generic_without_a_kind_is_refused() {
-        let node = manifest_node("name = \"g1\"\nmodel = \"generic\"");
+        let node = manifest_node(
+            r#"name = "g1"
+model = "generic""#,
+        );
         assert_eq!(
             check_node_model_kind(&node).unwrap_err().to_string(),
             "Manifest - node: 'g1' sets no `kind`, which 'generic' needs; set it to one of: \
@@ -205,7 +218,9 @@ mod tests {
         assert!(NodeExpanded::new(1, &node).is_err());
         for kind in NodeKind::to_vec() {
             let node = manifest_node(&format!(
-                "name = \"g1\"\nmodel = \"generic\"\nkind = \"{kind}\""
+                r#"name = "g1"
+model = "generic"
+kind = "{kind}""#
             ));
             check_node_model_kind(&node).unwrap();
             assert_eq!(NodeExpanded::new(1, &node).unwrap().model_kind.kind(), kind);
@@ -214,13 +229,17 @@ mod tests {
 
     #[test]
     fn a_removed_model_name_is_refused_when_read_naming_its_model_and_kind() {
-        let manifest: Result<Manifest, _> =
-            toml::from_str("name = \"lab\"\n\n[[nodes]]\nname = \"r1\"\nmodel = \"arista_ceos\"");
+        let manifest: Result<Manifest, _> = toml::from_str(
+            r#"name = "lab"
+
+[[nodes]]
+name = "r1"
+model = "arista_ceos""#,
+        );
         let error = manifest.unwrap_err().to_string();
         assert!(
             error.contains(
-                "Unknown node model 'arista_ceos': it was renamed in 0.7.0. \
-                 Use model = \"arista_eos\" with kind = \"container\"."
+                r#"Unknown node model 'arista_ceos': it was renamed in 0.7.0. Use model = "arista_eos" with kind = "container"."#
             ),
             "{error}"
         );

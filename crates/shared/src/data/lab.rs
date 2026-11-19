@@ -408,7 +408,7 @@ mod tests {
     #[test]
     fn a_lab_status_this_build_does_not_know_decodes_as_unknown() {
         // A status added by a newer server must not fail an older client's listing.
-        let status: LabState = serde_json::from_str("\"degraded\"").unwrap();
+        let status: LabState = serde_json::from_str(r#""degraded""#).unwrap();
         assert_eq!(status, LabState::Unknown);
     }
 

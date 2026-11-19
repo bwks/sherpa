@@ -72,8 +72,8 @@ fn test_only_the_first_user_and_the_owner_have_accounts() {
         [
             "/user set 0 password=Rand0mPass-1",
             ":do { /user add name=alice password=Rand0mPass-1 group=full } on-error={}",
-            ":if ([/file find name=sata1/alice-1.pub] != \"\") do={ /user ssh-keys import public-key-file=sata1/alice-1.pub user=alice }",
-            ":if ([/file find name=sata1/alice-2.pub] != \"\") do={ /user ssh-keys import public-key-file=sata1/alice-2.pub user=alice }",
+            r#":if ([/file find name=sata1/alice-1.pub] != "") do={ /user ssh-keys import public-key-file=sata1/alice-1.pub user=alice }"#,
+            r#":if ([/file find name=sata1/alice-2.pub] != "") do={ /user ssh-keys import public-key-file=sata1/alice-2.pub user=alice }"#,
         ]
     );
 }

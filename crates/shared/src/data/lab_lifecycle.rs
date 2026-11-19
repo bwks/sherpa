@@ -277,7 +277,7 @@ mod tests {
 
     #[test]
     fn a_phase_this_build_does_not_know_decodes_as_unknown() {
-        let phase: LabPhase = serde_json::from_str("\"archived\"").unwrap();
+        let phase: LabPhase = serde_json::from_str(r#""archived""#).unwrap();
         assert_eq!(phase, Unknown);
         assert!(phase.ensure_ready().is_err());
         assert_eq!(phase.on_event(LabEvent::DestroyStarted), Ok(To(Destroying)));

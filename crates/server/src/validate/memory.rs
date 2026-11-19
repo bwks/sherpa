@@ -142,16 +142,7 @@ fn check_numa_node_fits(
                 .join(", ")
         };
         let message = format!(
-            "Not enough memory on NUMA node {numa_node} for nodes held there with \
-             `numa_node = {numa_node}`: {} {needed} MiB, but only {left} MiB is left, {} MiB \
-             short. NUMA node {numa_node} has {cell_mib} MiB; less {hugepages_mib} MiB in \
-             hugepages and its {reserve_share} MiB share of the host reserve, at an overcommit \
-             of {percent}%, guests may have {limit} MiB. VMs held strictly on NUMA node \
-             {numa_node} hold {held} MiB: {holder_list}. Memory held on one NUMA node cannot \
-             use another node's. Choose another `numa_node`, set \
-             `numa_memory_mode = \"preferred\"` to let the node's memory spill to other NUMA \
-             nodes, stop or destroy those nodes, or an admin can lower \
-             `host_memory.reserve_mib` or raise `host_memory.overcommit_percent` in sherpa.toml.",
+            r#"Not enough memory on NUMA node {numa_node} for nodes held there with `numa_node = {numa_node}`: {} {needed} MiB, but only {left} MiB is left, {} MiB short. NUMA node {numa_node} has {cell_mib} MiB; less {hugepages_mib} MiB in hugepages and its {reserve_share} MiB share of the host reserve, at an overcommit of {percent}%, guests may have {limit} MiB. VMs held strictly on NUMA node {numa_node} hold {held} MiB: {holder_list}. Memory held on one NUMA node cannot use another node's. Choose another `numa_node`, set `numa_memory_mode = "preferred"` to let the node's memory spill to other NUMA nodes, stop or destroy those nodes, or an admin can lower `host_memory.reserve_mib` or raise `host_memory.overcommit_percent` in sherpa.toml."#,
             needing(&wanted),
             needed - left,
         );

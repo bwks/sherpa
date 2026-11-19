@@ -217,7 +217,11 @@ ipv4_router = "192.0.2.2"
 
         write_lab_info(
             &dir,
-            &LAB_INFO.replace("ipv4_gateway = \"192.0.2.1\"\n", ""),
+            &LAB_INFO.replace(
+                r#"ipv4_gateway = "192.0.2.1"
+"#,
+                "",
+            ),
         );
         let error = format!("{:#}", lab_gateway(&dir).unwrap_err());
         assert!(error.contains(&path.display().to_string()), "{error}");
@@ -257,7 +261,12 @@ ipv4_router = "192.0.2.2"
         assert_eq!(read(&path).unwrap(), Some(without_lab));
         assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
         // A record from before enrollment, with no agents file, still reads.
-        fs::write(&path, "url = \"nats://192.0.2.9:4222\"\n").unwrap();
+        fs::write(
+            &path,
+            r#"url = "nats://192.0.2.9:4222"
+"#,
+        )
+        .unwrap();
         assert_eq!(read(&path).unwrap().unwrap().agents, None);
         remove(&path).unwrap();
         remove(&path).unwrap();

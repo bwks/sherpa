@@ -527,8 +527,7 @@ mod tests {
             let error = Cli::try_parse_from(argv).unwrap_err().to_string();
             assert!(
                 error.contains(
-                    "Unknown node model 'arista_ceos': it was renamed in 0.7.0. \
-                     Use model = \"arista_eos\" with kind = \"container\"."
+                    r#"Unknown node model 'arista_ceos': it was renamed in 0.7.0. Use model = "arista_eos" with kind = "container"."#
                 ),
                 "{argv:?}: {error}"
             );
