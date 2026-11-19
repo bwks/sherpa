@@ -707,7 +707,7 @@ building its domain, and starting it. Arguments that travel together are grouped
 |---|---|
 | `lab.rs` | `up_lab`: the request checks, setup (phase 1) and planning (phase 2); `LabUp`, whose methods run phases 3 to 13 in groups (records, lab network, links, nodes, readiness) and build the response; rolling back a failed `up` |
 | `context.rs` | `LabBuild` |
-| `plan.rs` | phase 2: validation against the server, and the `LabPlan` |
+| `plan.rs` | phase 2: validation against the server, and the `LabPlan`; `check_node_images`, the manifest and image checks setup (phase 1) runs before it connects to libvirt |
 | `records.rs` | phase 3: the lab and node records, interfaces, per-node networks |
 | `networks.rs` | subnet reservation and management networks (4), container data networks (6), shared bridges (7) |
 | `links.rs` | phase 5, and attaching P2p eBPF redirects |
@@ -723,11 +723,11 @@ flowchart TB
     uplab["up_lab(&AuthContext, UpRequest, &AppState, ProgressSender)"] --> pre["Deserialize manifest JSON into topology::Manifest<br/>validate node secrets and Tailscale enrollment<br/>db::validate_lab_id<br/>lab_operations::begin"]
     pre --> setup
     subgraph phase1["1. Setup"]
-        setup["Load current user from DB<br/>Guard: lab_id must not already exist<br/>Load node image records from DB"]
+        setup["Load current user from DB<br/>Guard: lab_id must not already exist<br/>Load node image records from DB<br/>check_node_images: node names and kinds, duplicate device, device count, Talos clusters, environment variables;<br/>validate::validate_and_resolve_node_versions (server): versions, VM and unikernel disks, container image repos<br/>(before libvirt or Docker is touched: a missing image gets the same error whether or not the hypervisor is reachable)<br/>Connect to libvirt"]
     end
     setup --> validation
     subgraph phase2["2. ManifestValidation"]
-        validation["topology::validate checks: duplicate device, device count, Talos clusters<br/>validate environment variables<br/>validate::validate_and_resolve_node_versions (server): versions, container image repos<br/>process_manifest_nodes, then lease node images<br/>validate disk method and guest account per node<br/>check_container_image: Docker has each container image<br/>topology::process_manifest_links, process_manifest_bridges (unknown nodes fail)<br/>validate management/reserved/data interface bounds<br/>admission::admit_lab_nodes: CPU pins and memory against the server<br/>validate duplicate links"]
+        validation["process_manifest_nodes on the checked nodes, then lease node images<br/>validate disk method and guest account per node<br/>check_container_image: Docker has each container image<br/>topology::process_manifest_links, process_manifest_bridges (unknown nodes fail)<br/>validate management/reserved/data interface bounds<br/>admission::admit_lab_nodes: CPU pins and memory against the server<br/>validate duplicate links"]
     end
     validation --> startguard["Guard: no disks or VMs left from an earlier attempt with this lab_id<br/>(after validation, before any resource is created)"]
     startguard --> hostnets

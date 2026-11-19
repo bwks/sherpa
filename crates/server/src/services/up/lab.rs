@@ -18,7 +18,7 @@ use super::networks::{
     create_management_networks, create_shared_bridges, lab_id_taken, management_network,
     reserve_lab, set_isolated_bridges_down,
 };
-use super::plan::{LabPlan, plan_lab};
+use super::plan::{CheckedNodes, LabPlan, check_node_images, plan_lab};
 use super::readiness::{NodesReady, ReadinessInputs, wait_for_nodes};
 use super::records::{NodeRecords, create_node_records, store_ssh_usernames};
 use super::runtime::{create_unikernels, create_vms};
@@ -50,12 +50,12 @@ use shared::util;
 use topology::validate::{check_client_read_files, check_lab_description};
 
 /// What setup (phase 1) gives the later phases: the libvirt connection, the owner's record,
-/// every node image, and the lab's reservation.
+/// every node image, the manifest's nodes with their images checked, and the lab's reservation.
 struct Setup {
     qemu_conn: Arc<QemuConnection>,
     /// The owner's login on the lab's nodes, with their device password.
     owner_account: GuestAccount,
-    node_images: Vec<data::NodeConfig>,
+    checked: CheckedNodes,
     reserved: ReservedLab,
 }
 
@@ -167,14 +167,14 @@ pub async fn up_lab(
     let Setup {
         qemu_conn,
         owner_account: owner,
-        node_images,
+        checked,
         reserved,
     } = set_up(
         state,
         &lab_id,
         &lab_dir,
         &ctx.username,
-        &manifest.name,
+        &manifest,
         &details,
         &progress,
     )
@@ -197,7 +197,7 @@ pub async fn up_lab(
         config: &state.config,
         progress: &progress,
     };
-    let mut plan = validate(&build, ctx, &operation, &manifest, owner, node_images).await?;
+    let mut plan = validate(&build, ctx, &operation, &manifest, owner, checked).await?;
     // Held until `up` returns: the containers start during readiness polling.
     let _container_image_guards = mem::take(&mut plan.container_image_guards);
 
@@ -238,9 +238,9 @@ async fn validate(
     operation: &LabOperation,
     manifest: &topology::Manifest,
     owner_account: GuestAccount,
-    node_images: Vec<data::NodeConfig>,
+    checked: CheckedNodes,
 ) -> Result<LabPlan> {
-    let planned = plan_lab(build, requester, manifest, owner_account, node_images)
+    let planned = plan_lab(build, requester, manifest, owner_account, checked)
         .await
         .and_then(|plan| {
             ensure_no_earlier_attempt(build.qemu_conn, build.lab_id, &plan.selected_images)?;
@@ -294,22 +294,26 @@ fn check_up_request(
 }
 
 /// Setup (phase 1): load the owner, refuse a lab ID already in use, resolve the owner's login on
-/// lab nodes, which needs an SSH key, a device password and a name nodes can take, connect to
-/// libvirt, load every node image, then reserve the lab.
+/// lab nodes, which needs an SSH key, a device password and a name nodes can take, load every
+/// node image and check the manifest's nodes against them, connect to libvirt, then reserve the
+/// lab.
 ///
 /// The lab ID is checked before libvirt or the host is touched, so a second `up` of a lab fails
 /// fast with the same answer on any host. The reservation checks it again: two `up`s of one lab
-/// can both pass the first check, and only one record is inserted.
+/// can both pass the first check, and only one record is inserted. The nodes' images are also
+/// checked before libvirt or Docker is touched, so a missing image gets the same answer whether
+/// or not the hypervisor is reachable.
 #[instrument(skip_all, fields(%lab_id))]
 async fn set_up(
     state: &AppState,
     lab_id: &str,
     lab_dir: &str,
     current_user: &str,
-    lab_name: &str,
+    manifest: &topology::Manifest,
     details: &db::LabDetails,
     progress: &ProgressSender,
 ) -> Result<Setup> {
+    let lab_name = manifest.name.as_str();
     let _ = progress.send_phase(data::UpPhase::Setup, "Initializing connections".to_string());
 
     tracing::info!(lab_id = %lab_id, lab_name = %lab_name, "Connecting to lab infrastructure services");
@@ -332,6 +336,15 @@ async fn set_up(
     let device_password = guest_account::require_device_password(&state.db, &db_user).await?;
     let owner_account = guest_account::from_user(&db_user, device_password)?;
 
+    let _ = progress.send_status("Loading configuration".to_string(), StatusKind::Info);
+
+    // Bulk fetch all node configs from database
+    let node_images = db::list_node_images(&state.db)
+        .await
+        .context("Failed to list node configs from database")?;
+    // Before libvirt or Docker is touched.
+    let checked = check_node_images(manifest, node_images, &state.config.images_dir)?;
+
     let qemu_conn = Arc::new(
         state
             .qemu
@@ -341,13 +354,6 @@ async fn set_up(
     tracing::info!(lab_id = %lab_id, "Connected to libvirt/QEMU");
 
     tracing::debug!(lab_id = %lab_id, lab_dir = %lab_dir, user = %current_user, "Lab environment prepared");
-
-    let _ = progress.send_status("Loading configuration".to_string(), StatusKind::Info);
-
-    // Bulk fetch all node configs from database
-    let node_images = db::list_node_images(&state.db)
-        .await
-        .context("Failed to list node configs from database")?;
 
     // Last, so nothing after it in this phase can fail: the record is the reservation, and a
     // second `up` of this lab fails here.
@@ -364,7 +370,7 @@ async fn set_up(
     Ok(Setup {
         qemu_conn,
         owner_account,
-        node_images,
+        checked,
         reserved,
     })
 }

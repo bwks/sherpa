@@ -46,6 +46,13 @@ pub(super) struct LabPlan {
     pub(super) _admission: Admission,
 }
 
+/// Every node image the server has, and the manifest's nodes checked against them, with their
+/// versions and container images resolved.
+pub(super) struct CheckedNodes {
+    pub(super) node_images: Vec<data::NodeConfig>,
+    pub(super) nodes: Vec<topology::Node>,
+}
+
 /// The images the lab's nodes use, sorted and deduplicated, with their leases: disk images'
 /// apart from container images', since the two are released at different times.
 struct ImageLeases {
@@ -61,8 +68,12 @@ pub(super) async fn plan_lab(
     requester: &AuthContext,
     manifest: &topology::Manifest,
     owner_account: GuestAccount,
-    node_images: Vec<data::NodeConfig>,
+    checked: CheckedNodes,
 ) -> Result<LabPlan> {
+    let CheckedNodes {
+        node_images,
+        nodes: validated_nodes,
+    } = checked;
     let LabBuild {
         lab_id,
         db,
@@ -75,13 +86,6 @@ pub(super) async fn plan_lab(
     tracing::info!(lab_id = %lab_id, lab_name = %manifest.name, "Validating lab manifest");
 
     tracing::debug!(lab_id = %lab_id, node_images = node_images.len(), "Fetched node configs from database");
-
-    check_manifest_nodes(manifest)?;
-
-    // Version & Image Validators (CRITICAL ERROR - fail fast on validation failure)
-    let validated_nodes =
-        validate_and_resolve_node_versions(&manifest.nodes, &node_images, &config.images_dir)
-            .context("Manifest validation failed: version/image validation")?;
 
     let nodes_expanded = process_manifest_nodes(&validated_nodes)?;
     for node in &nodes_expanded {
@@ -192,6 +196,24 @@ async fn admit_nodes(
 
 /// The manifest's node checks that need nothing from the server: names, duplicates, count,
 /// Talos clusters and environment variables (CRITICAL ERROR - fail fast on validation failure).
+/// Check the manifest's nodes, and that the server has every node's image: a model and kind
+/// with an image, the version, and a VM's or unikernel's disk or a container's repo. Returns the
+/// images with the nodes, their versions and container images resolved.
+///
+/// Needs only the database's node images and the images directory, so `up` runs it before it
+/// connects to libvirt or Docker: a missing image gets the same answer whether or not the
+/// hypervisor is reachable.
+pub(super) fn check_node_images(
+    manifest: &topology::Manifest,
+    node_images: Vec<data::NodeConfig>,
+    images_dir: &str,
+) -> Result<CheckedNodes> {
+    check_manifest_nodes(manifest)?;
+    let nodes = validate_and_resolve_node_versions(&manifest.nodes, &node_images, images_dir)
+        .context("Manifest validation failed: version/image validation")?;
+    Ok(CheckedNodes { node_images, nodes })
+}
+
 fn check_manifest_nodes(manifest: &topology::Manifest) -> Result<()> {
     check_node_names(&manifest.nodes).context("Manifest validation failed: node names")?;
     for node in &manifest.nodes {
