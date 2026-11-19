@@ -257,7 +257,7 @@ mod tests {
 
     /// A running domain's interface as libvirt writes it: indented, with an escaped value, a
     /// comment and a nested element.
-    const LIVE: &str = "<domain type='kvm' id='7'>
+    const LIVE: &str = r#"<domain type='kvm' id='7'>
   <name>r1-lab</name>
   <devices>
     <interface type='ethernet'>
@@ -265,7 +265,7 @@ mod tests {
       <target dev='tpa0' managed='yes'/>
       <model type='virtio'/>
       <driver name='vhost' queues='4'>
-        <host csum=\"off\" tso4='off'/>
+        <host csum="off" tso4='off'/>
       </driver>
       <!-- kept as it is -->
       <alias name='ua-a&amp;b&#39;c'/>
@@ -275,7 +275,7 @@ mod tests {
     </interface>
   </devices>
 </domain>
-";
+"#;
 
     #[test]
     fn an_interface_has_its_link_up_unless_its_link_says_down() {
@@ -290,10 +290,7 @@ mod tests {
         let down = interface_with_link(DOMAIN, "tpa0", false).unwrap().unwrap();
         assert_eq!(
             down,
-            "<interface type='ethernet'><mac address='52:54:00:00:00:02'/>\
-             <target dev='tpa0' managed='yes'/><model type='virtio'/>\
-             <alias name='net1'/><address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>\
-             <link state=\"down\"/></interface>"
+            r#"<interface type='ethernet'><mac address='52:54:00:00:00:02'/><target dev='tpa0' managed='yes'/><model type='virtio'/><alias name='net1'/><address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/><link state="down"/></interface>"#
         );
         assert_eq!(link_up_in(&down, "tpa0").unwrap(), Some(false));
     }
@@ -303,9 +300,7 @@ mod tests {
         let up = interface_with_link(DOMAIN, "tpa1", true).unwrap().unwrap();
         assert_eq!(
             up,
-            "<interface type='ethernet'><mac address='52:54:00:00:00:03'/>\
-             <target dev='tpa1' managed='yes'/><model type='virtio'/><link state=\"up\"/>\
-             </interface>"
+            r#"<interface type='ethernet'><mac address='52:54:00:00:00:03'/><target dev='tpa1' managed='yes'/><model type='virtio'/><link state="up"/></interface>"#
         );
         assert_eq!(link_up_in(&up, "tpa1").unwrap(), Some(true));
     }
@@ -315,18 +310,18 @@ mod tests {
         let up = interface_with_link(LIVE, "tpa0", true).unwrap().unwrap();
         assert_eq!(
             up,
-            "<interface type='ethernet'>
+            r#"<interface type='ethernet'>
       <mac address='52:54:00:00:00:02'/>
       <target dev='tpa0' managed='yes'/>
       <model type='virtio'/>
       <driver name='vhost' queues='4'>
-        <host csum=\"off\" tso4='off'/>
+        <host csum="off" tso4='off'/>
       </driver>
       <!-- kept as it is -->
       <alias name='ua-a&amp;b&#39;c'/>
-      <link state=\"up\"/>
+      <link state="up"/>
       <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
-    </interface>"
+    </interface>"#
         );
     }
 
@@ -344,8 +339,7 @@ mod tests {
         assert_eq!(link_up_in(nested, "tpa0").unwrap(), Some(true));
         assert_eq!(
             interface_with_link(nested, "tpa0", false).unwrap().unwrap(),
-            "<interface type='ethernet'><target dev='tpa0'/><driver><link state='down'/></driver>\
-             <link state=\"down\"/></interface>"
+            r#"<interface type='ethernet'><target dev='tpa0'/><driver><link state='down'/></driver><link state="down"/></interface>"#
         );
     }
 
@@ -355,7 +349,7 @@ mod tests {
             </interface ></devices></domain>";
         assert_eq!(
             interface_with_link(xml, "tpa0", false).unwrap().unwrap(),
-            "<interface type='ethernet'><target dev='tpa0'/><link state=\"down\"/></interface>"
+            r#"<interface type='ethernet'><target dev='tpa0'/><link state="down"/></interface>"#
         );
     }
 

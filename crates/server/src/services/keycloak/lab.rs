@@ -351,8 +351,16 @@ mod tests {
         // A 0.6 file: the shared realm user with the password every node had, and the owner.
         let published = "old-shared-password";
         let old = format!(
-            "address = \"{ADDRESS}\"\n\n[[users]]\nusername = \"sherpa\"\npassword = \"{published}\"\n\n\
-             [[users]]\nusername = \"alice\"\npassword = \"owner-pw\"\n"
+            r#"address = "{ADDRESS}"
+
+[[users]]
+username = "sherpa"
+password = "{published}"
+
+[[users]]
+username = "alice"
+password = "owner-pw"
+"#
         );
         fs::write(credentials_path(dir.path(), "kc01"), old).unwrap();
 

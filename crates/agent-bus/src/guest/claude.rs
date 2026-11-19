@@ -101,12 +101,7 @@ requests, diffs, checks and CI logs with gh (issue view/list, pr view/diff/check
 run view --log, gh api without a write method). Do not commit, push, merge, open pull requests, \
 comment or otherwise write to GitHub.";
 /// Added to the rules for a task with GitHub access.
-const RULES_GITHUB: &str = " This task may write to GitHub. Do only what the task asks: commit, \
-push, open pull requests or post only when the task tells you to. Commit \
-messages end with the Co-Authored-By line from your own attribution instructions, never one \
-copied from the task text, and have no session links and no \"Generated with\" footers. Never merge pull requests or delete anything; the user does that. Do not write a \
-## Generation section in a pull request description: the host's agent-bus adds it and keeps it \
-up to date after its own commands.";
+const RULES_GITHUB: &str = r#" This task may write to GitHub. Do only what the task asks: commit, push, open pull requests or post only when the task tells you to. Commit messages end with the Co-Authored-By line from your own attribution instructions, never one copied from the task text, and have no session links and no "Generated with" footers. Never merge pull requests or delete anything; the user does that. Do not write a ## Generation section in a pull request description: the host's agent-bus adds it and keeps it up to date after its own commands."#;
 
 /// Claude Code's process group. Dropping it while armed kills everything in the group, and a
 /// run that ends normally stops what is left of it (`finish`), so no path out of a run can leave

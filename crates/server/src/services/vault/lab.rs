@@ -382,12 +382,19 @@ mod tests {
             let docker = Docker::connect_with_local_defaults().unwrap();
             let files = TempDir::new().unwrap();
             let config = format!(
-                "storage \"raft\" {{\n  path = \"/vault/data\"\n  node_id = \"{name}\"\n}}\n\
-                 listener \"tcp\" {{\n  address = \"0.0.0.0:8200\"\n  \
-                 tls_cert_file = \"{TEST_VAULT_DIR}/node.crt\"\n  \
-                 tls_key_file = \"{TEST_VAULT_DIR}/node.key\"\n}}\n\
-                 disable_mlock = true\napi_addr = \"https://127.0.0.1:8200\"\n\
-                 cluster_addr = \"https://127.0.0.1:8201\"\n"
+                r#"storage "raft" {{
+  path = "/vault/data"
+  node_id = "{name}"
+}}
+listener "tcp" {{
+  address = "0.0.0.0:8200"
+  tls_cert_file = "{TEST_VAULT_DIR}/node.crt"
+  tls_key_file = "{TEST_VAULT_DIR}/node.key"
+}}
+disable_mlock = true
+api_addr = "https://127.0.0.1:8200"
+cluster_addr = "https://127.0.0.1:8201"
+"#
             );
             fs::write(files.path().join("config.hcl"), config).unwrap();
             let command = format!(

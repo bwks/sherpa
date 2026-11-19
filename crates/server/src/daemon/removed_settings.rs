@@ -45,14 +45,23 @@ mod tests {
 
     #[test]
     fn finds_the_ztp_server_table() {
-        let contents = "server_ipv4 = \"0.0.0.0\"\n\n[ztp_server]\nenable = false\n\
-                        username = \"sherpa\"\npassword = \"kept\"\n";
+        let contents = r#"server_ipv4 = "0.0.0.0"
+
+[ztp_server]
+enable = false
+username = "sherpa"
+password = "kept"
+"#;
         assert!(has_ztp_server_table(contents).unwrap());
     }
 
     #[test]
     fn a_config_without_it_is_not_reported() {
-        let contents = "server_ipv4 = \"0.0.0.0\"\n\n[tls]\nenabled = true\n";
+        let contents = r#"server_ipv4 = "0.0.0.0"
+
+[tls]
+enabled = true
+"#;
         assert!(!has_ztp_server_table(contents).unwrap());
     }
 

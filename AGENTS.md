@@ -229,7 +229,7 @@ Doc comments:
 
 Strings:
 - Write a string that contains `"` as a raw string (`r#"..."#`, `br#"..."#` for bytes), not with
-  `\"` escapes. No lint enforces this; follow it in new and changed code.
+  `\"` escapes. No lint enforces this.
 
 General:
 - Never use wrapper functions in the name of keeping diffs small.

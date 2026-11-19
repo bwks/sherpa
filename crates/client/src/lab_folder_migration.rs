@@ -383,9 +383,16 @@ ipv4_network = "172.31.3.0/24"
 ipv4_gateway = "172.31.3.1"
 ipv4_router = "172.31.3.2"
 "#;
-    const VAULT: &str = "address = \"https://v\"\nroot_token = \"t\"\nunseal_key = \"k\"\n";
-    const KEYCLOAK: &str = "address = \"https://k\"\nrealm = \"r\"\nissuer = \"i\"\n\
-                            account_console = \"a\"\nusers = []\n";
+    const VAULT: &str = r#"address = "https://v"
+root_token = "t"
+unseal_key = "k"
+"#;
+    const KEYCLOAK: &str = r#"address = "https://k"
+realm = "r"
+issuer = "i"
+account_console = "a"
+users = []
+"#;
 
     /// A lab folder as an older client left it, registered in `ssh_dir`, with files of the
     /// user's beside it.
@@ -409,9 +416,17 @@ ipv4_router = "172.31.3.2"
             ("kubeconfig-k8s", "kube"),
             ("talosconfig-k8s", "talos"),
             // The user's own files.
-            ("manifest.toml", "name = \"sherpa-dev\"\n"),
+            (
+                "manifest.toml",
+                r#"name = "sherpa-dev"
+"#,
+            ),
             ("notes.txt", "mine"),
-            ("vault-notes.toml", "title = \"mine\"\n"),
+            (
+                "vault-notes.toml",
+                r#"title = "mine"
+"#,
+            ),
             ("kubeconfig-prod", "mine"),
         ];
         for (name, content) in files {

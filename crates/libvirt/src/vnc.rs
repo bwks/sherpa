@@ -278,15 +278,15 @@ mod tests {
 ";
 
     /// [`TCP`] with its VNC console on the socket: only the graphics element differs.
-    const UNIX: &str = "<domain type='kvm'>
+    const UNIX: &str = r#"<domain type='kvm'>
   <name>alp01-abcd1234</name>
   <devices>
     <!-- a comment, kept -->
     <serial type='unix'>
       <source mode='bind' path='/opt/sherpa/run/console/abcd1234/1.serial'/>
     </serial>
-    <graphics type=\"vnc\" keymap=\"en-us\">
-      <listen type=\"socket\" socket=\"/opt/sherpa/run/console/abcd1234/1.vnc\"/>
+    <graphics type="vnc" keymap="en-us">
+      <listen type="socket" socket="/opt/sherpa/run/console/abcd1234/1.vnc"/>
     </graphics>
     <video>
       <model type='cirrus' vram='16384' heads='1' primary='yes'/>
@@ -294,7 +294,7 @@ mod tests {
     <memballoon model='virtio'><alias name='a&amp;b&#39;c'/></memballoon>
   </devices>
 </domain>
-";
+"#;
 
     #[test]
     fn a_tcp_vnc_console_moves_to_the_socket_and_nothing_else_changes() {
@@ -335,8 +335,9 @@ mod tests {
         assert_eq!(
             graphics_on_socket(xml, "/s").unwrap().as_deref(),
             Some(
-                "<domain><devices>\n    <graphics type=\"vnc\"><listen type=\"socket\" \
-                 socket=\"/s\"/></graphics>\n    <video/></devices></domain>"
+                r#"<domain><devices>
+    <graphics type="vnc"><listen type="socket" socket="/s"/></graphics>
+    <video/></devices></domain>"#
             )
         );
     }
@@ -349,8 +350,7 @@ mod tests {
         assert_eq!(
             graphics_on_socket(xml, "/s").unwrap().as_deref(),
             Some(
-                "<domain><devices><graphics type=\"vnc\"><listen type=\"socket\" \
-                 socket=\"/s\"/><image compression='off'/></graphics></devices></domain>"
+                r#"<domain><devices><graphics type="vnc"><listen type="socket" socket="/s"/><image compression='off'/></graphics></devices></domain>"#
             )
         );
     }
@@ -359,7 +359,10 @@ mod tests {
     fn a_path_is_escaped_as_an_attribute_value() {
         let xml = "<domain><devices><graphics type='vnc' port='1'/></devices></domain>";
         let rewritten = graphics_on_socket(xml, "/run/a&b").unwrap().unwrap();
-        assert!(rewritten.contains("socket=\"/run/a&amp;b\""), "{rewritten}");
+        assert!(
+            rewritten.contains(r#"socket="/run/a&amp;b""#),
+            "{rewritten}"
+        );
         assert_eq!(
             vnc_console_in(&rewritten).unwrap(),
             VncConsole::Socket("/run/a&b".to_owned())

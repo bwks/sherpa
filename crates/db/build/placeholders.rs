@@ -163,8 +163,8 @@ mod tests {
 
     #[test]
     fn placeholders_in_literals_identifiers_and_comments_are_not_parameters() {
-        let sql = "-- find by ?9 or :name\n\
-                   SELECT '?2 '' :x', \"col?3\", [a?4], `b@c` /* ?5 $y */ FROM t WHERE id = ?1";
+        let sql = r#"-- find by ?9 or :name
+SELECT '?2 '' :x', "col?3", [a?4], `b@c` /* ?5 $y */ FROM t WHERE id = ?1"#;
         assert_eq!(parameter_count(sql).unwrap(), 1);
     }
 

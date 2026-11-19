@@ -1082,9 +1082,9 @@ mod tests {
             kinds: kind_choices(),
         };
         let html = tpl.render().expect("template should render");
-        let build = html.find("id=\"panel-build\"").expect("build panel");
-        let upload = html.find("id=\"panel-upload\"").expect("upload panel");
-        let name = html.find("id=\"lab-name\"").expect("lab name input");
+        let build = html.find(r#"id="panel-build""#).expect("build panel");
+        let upload = html.find(r#"id="panel-upload""#).expect("upload panel");
+        let name = html.find(r#"id="lab-name""#).expect("lab name input");
         assert!(
             build < name && name < upload,
             "lab name must be in the build panel"
@@ -1181,7 +1181,7 @@ mod tests {
             html.contains(r#"<span class="badge-neutral">Ready</span>"#),
             "{html}"
         );
-        assert!(html.contains("data-lab-action=\"start\""));
+        assert!(html.contains(r#"data-lab-action="start""#));
     }
 
     #[test]
@@ -1616,7 +1616,7 @@ mod tests {
             let highlighted: Vec<&str> = html
                 .match_indices(active)
                 .map(|(at, _)| {
-                    let link = &html[html[..at].rfind("<a href=\"").expect("link") + 9..];
+                    let link = &html[html[..at].rfind(r#"<a href=""#).expect("link") + 9..];
                     &link[..link.find('"').expect("href end")]
                 })
                 .collect();
@@ -1789,7 +1789,7 @@ mod tests {
             .filter_map(|tag| tag.split_once("%}").map(|(tag, _)| tag.trim()))
             .filter(|tag| {
                 tag.contains("to_string()")
-                    || ["== \"", "!= \""].iter().any(|op| {
+                    || [r#"== ""#, r#"!= ""#].iter().any(|op| {
                         tag.match_indices(op)
                             .any(|(at, _)| !tag[at + op.len()..].starts_with('"'))
                     })

@@ -708,7 +708,7 @@ mod tests {
             "{output}"
         );
         assert!(
-            output.contains("rejected_reasons=[\"expired\"]"),
+            output.contains(r#"rejected_reasons=["expired"]"#),
             "{output}"
         );
         assert!(output.contains("selected_candidate_index=1"), "{output}");
