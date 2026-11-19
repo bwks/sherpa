@@ -61,14 +61,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_claims_new() {
+    fn a_tokens_claims_carry_the_issue_and_expiry_times_given() {
         let claims = Claims::new("testuser".to_owned(), "sid1".to_owned(), false, 100, 3700);
 
-        assert_eq!(claims.sub, "testuser");
-        assert_eq!(claims.sid, "sid1");
-        assert!(!claims.is_admin);
-        assert_eq!(claims.iat, 100);
-        assert_eq!(claims.exp, 3700);
+        assert_eq!(
+            serde_json::to_value(&claims).unwrap(),
+            serde_json::json!({
+                "sub": "testuser",
+                "sid": "sid1",
+                "exp": 3700,
+                "iat": 100,
+                "is_admin": false,
+            })
+        );
     }
 
     #[test]

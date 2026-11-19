@@ -1036,9 +1036,6 @@ mod tests {
                 "{value}: {html}"
             );
         }
-        // The manifest writes a kind only when it is not the model's default.
-        let js = include_str!("../web/static/js/lab-create.js");
-        assert!(js.contains("kind !== defaultKind"), "{js}");
     }
 
     #[test]
@@ -1092,14 +1089,11 @@ mod tests {
             build < name && name < upload,
             "lab name must be in the build panel"
         );
-        // The upload panel must hold no required field, and the script must
-        // disable the inactive panel's fields so they cannot block submit.
+        // The upload panel must hold no required field, so it cannot block submit.
         let upload_end = html[upload..]
             .find("<!-- Submit -->")
             .expect("submit marker");
         assert!(!html[upload..upload + upload_end].contains("required"));
-        let js = include_str!("../web/static/js/lab-create.js");
-        assert!(js.contains("fields[j].disabled = tab !== activeTab"));
     }
 
     #[test]

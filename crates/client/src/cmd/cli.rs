@@ -449,10 +449,11 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_insecure_override_leaves_config_secure_by_default() {
-        let mut config = ClientConfig::default();
+    fn without_a_config_or_insecure_the_servers_certificate_is_validated() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sherpa.toml");
 
-        apply_insecure_override(&mut config, false);
+        let config = load_client_config_for_command(path.to_str().unwrap(), false).unwrap();
 
         assert!(!config.server_connection.insecure);
     }

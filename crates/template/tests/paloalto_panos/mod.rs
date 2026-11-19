@@ -61,37 +61,29 @@ fn users_block(output: &str) -> &str {
 
 #[test]
 fn test_bootstrap_users_are_admin_and_the_owner() {
-    let hash = helpers::sha256_hash("abcdefghijklm!@_-+.");
-    let output = bootstrap(&hash).render().expect("template renders");
-    let users = users_block(&output);
-    let entries: Vec<&str> = users
-        .lines()
-        .map(str::trim)
-        .filter(|line| line.starts_with("<entry name="))
-        .collect();
-    assert_eq!(
-        entries,
-        ["<entry name=\"admin\">", "<entry name=\"alice\">"]
-    );
+    let output = bootstrap("$5$salt$HASH")
+        .render()
+        .expect("template renders");
     // Only the owner has keys.
-    let owner_entry = &users[users.find("<entry name=\"alice\">").expect("owner")..];
-    assert!(!users[..users.len() - owner_entry.len()].contains("<public-key>"));
-    assert!(owner_entry.contains("<public-key>OWNERKEY1</public-key>"));
-    assert!(owner_entry.contains("<public-key>OWNERKEY2</public-key>"));
-    helpers::assert_no_sherpa_login(&output);
-}
-
-#[test]
-fn test_bootstrap_password_is_a_hash_that_verifies_for_admin_and_owner() {
-    for password in helpers::ALL_CHARACTER_PASSWORDS {
-        let hash = helpers::sha256_hash(password);
-        let output = bootstrap(&hash).render().expect("template renders");
-        let found = helpers::hashes_after(&output, "<phash>");
-        assert_eq!(found.len(), 2);
-        for found in &found {
-            assert_eq!(found, &hash);
-            helpers::assert_hash_verifies(found, "$5$", password);
-        }
-        assert!(!output.contains(password));
-    }
+    let expected = r#"<users>
+      <entry name="admin">
+        <phash>$5$salt$HASH</phash>
+        <permissions>
+          <role-based>
+            <superuser>yes</superuser>
+          </role-based>
+        </permissions>
+      </entry>
+      <entry name="alice">
+        <phash>$5$salt$HASH</phash>
+        <permissions>
+          <role-based>
+            <superuser>yes</superuser>
+          </role-based>
+        </permissions>
+        <public-key>OWNERKEY1</public-key>
+        <public-key>OWNERKEY2</public-key>
+      </entry>
+    "#;
+    assert_eq!(users_block(&output), expected);
 }

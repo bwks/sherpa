@@ -575,10 +575,14 @@ class SelfTest(unittest.TestCase):
             with mock.patch(f"{__name__}.run_logged", leftover):
                 self.assertIsInstance(run.destroy(), TestFailure)
 
-    def test_outcome_keeps_streams_apart_for_parsing(self):
-        outcome = Outcome(0, "x", "Warning\n")
-        self.assertEqual(outcome.stdout, "x")
-        self.assertIn("Warning", outcome.output)
+    def test_run_logged_keeps_streams_apart_for_parsing(self):
+        script = "import sys; print('{\"items\": []}'); print('Warning: added host', file=sys.stderr)"
+        with tempfile.TemporaryDirectory() as folder:
+            with open(Path(folder) / "log", "w") as log:
+                outcome = run_logged(log, "streams", [sys.executable, "-c", script], Path(folder))
+        self.assertEqual(outcome.code, 0)
+        self.assertEqual(json.loads(outcome.stdout), {"items": []})
+        self.assertIn("Warning: added host", outcome.output)
 
 
 if __name__ == "__main__":

@@ -45,43 +45,33 @@ async fn test_auth_login_valid_credentials() -> Result<()> {
     Ok(())
 }
 
+/// A wrong password and an unknown user get the same refusal, so a caller cannot tell which
+/// usernames exist.
 #[tokio::test]
-async fn test_auth_login_invalid_password() -> Result<()> {
+async fn a_wrong_password_and_an_unknown_user_get_the_same_refusal() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
 
-    let response = ws
-        .rpc_call(
-            "auth.login",
-            json!({
-                "username": "admin",
-                "password": "WrongPassword123!",
-            }),
-        )
-        .await?;
+    for (username, password) in [("admin", "WrongPassword123!"), ("nobody", "SomePass123!")] {
+        let response = ws
+            .rpc_call(
+                "auth.login",
+                json!({ "username": username, "password": password }),
+            )
+            .await?;
 
-    assert!(response.get("error").is_some(), "should have error");
-    assert!(response.get("result").is_none(), "should not have result");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_auth_login_nonexistent_user() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-
-    let response = ws
-        .rpc_call(
-            "auth.login",
-            json!({
-                "username": "nobody",
-                "password": "SomePass123!",
-            }),
-        )
-        .await?;
-
-    assert!(response.get("error").is_some());
+        assert_eq!(response.get("result"), None, "{username}: {response}");
+        assert_eq!(
+            response["error"]["code"],
+            json!(-32001),
+            "{username}: {response}"
+        );
+        assert_eq!(
+            response["error"]["message"],
+            json!("Invalid username or password"),
+            "{username}: {response}"
+        );
+    }
 
     Ok(())
 }

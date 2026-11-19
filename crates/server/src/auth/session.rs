@@ -295,19 +295,6 @@ mod tests {
     const PASSWORD: &str = "Original-Pass-123!";
     const DAY: i64 = 24 * 60 * 60;
 
-    const STATES: [SessionState; 3] = [
-        SessionState::Active,
-        SessionState::Expired,
-        SessionState::Ended,
-    ];
-    const EVENTS: [SessionEvent; 5] = [
-        SessionEvent::Use,
-        SessionEvent::End(EndReason::Logout),
-        SessionEvent::End(EndReason::PasswordChanged),
-        SessionEvent::End(EndReason::UserDeleted),
-        SessionEvent::Sweep,
-    ];
-
     async fn database() -> Database {
         let db = db::open_in_memory().await.expect("open database");
         db::apply_schema(&db).await.expect("apply schema");
@@ -339,22 +326,52 @@ mod tests {
 
     #[test]
     fn the_transition_table() {
-        use SessionRejection as R;
-        use SessionState::{Active, Ended, Expired};
-        let expected = |from, event| match (from, event) {
-            (Active, SessionEvent::Use | SessionEvent::Sweep) => Ok(Active),
-            (Expired, SessionEvent::Use) => Err(R::Expired),
-            (Ended, SessionEvent::Use) => Err(R::Ended),
-            _ => Ok(Ended),
-        };
-        for from in STATES {
-            for event in EVENTS {
-                assert_eq!(
-                    transition(from, event),
-                    expected(from, event),
-                    "{from:?} on {event:?}"
-                );
-            }
+        let logout = SessionEvent::End(EndReason::Logout);
+        let password = SessionEvent::End(EndReason::PasswordChanged);
+        let deleted = SessionEvent::End(EndReason::UserDeleted);
+        let table = [
+            (
+                SessionState::Active,
+                SessionEvent::Use,
+                Ok(SessionState::Active),
+            ),
+            (SessionState::Active, logout, Ok(SessionState::Ended)),
+            (SessionState::Active, password, Ok(SessionState::Ended)),
+            (SessionState::Active, deleted, Ok(SessionState::Ended)),
+            (
+                SessionState::Active,
+                SessionEvent::Sweep,
+                Ok(SessionState::Active),
+            ),
+            (
+                SessionState::Expired,
+                SessionEvent::Use,
+                Err(SessionRejection::Expired),
+            ),
+            (SessionState::Expired, logout, Ok(SessionState::Ended)),
+            (SessionState::Expired, password, Ok(SessionState::Ended)),
+            (SessionState::Expired, deleted, Ok(SessionState::Ended)),
+            (
+                SessionState::Expired,
+                SessionEvent::Sweep,
+                Ok(SessionState::Ended),
+            ),
+            (
+                SessionState::Ended,
+                SessionEvent::Use,
+                Err(SessionRejection::Ended),
+            ),
+            (SessionState::Ended, logout, Ok(SessionState::Ended)),
+            (SessionState::Ended, password, Ok(SessionState::Ended)),
+            (SessionState::Ended, deleted, Ok(SessionState::Ended)),
+            (
+                SessionState::Ended,
+                SessionEvent::Sweep,
+                Ok(SessionState::Ended),
+            ),
+        ];
+        for (from, event, expected) in table {
+            assert_eq!(transition(from, event), expected, "{from:?} on {event:?}");
         }
     }
 

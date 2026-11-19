@@ -294,30 +294,39 @@ mod tests {
             state,
             index: None,
         };
-        let table = render_links_table(&[
-            link("vm2", Some(LinkState::Attached)),
-            link(
-                "ctr1",
-                Some(LinkState::PeerDown {
-                    peer: "ctr1".to_string(),
-                }),
-            ),
-            link(
-                "uk1",
-                Some(LinkState::Failed {
-                    reason: "its end tpb2 does not exist".to_string(),
-                }),
-            ),
-            link("vm3", None),
-        ]);
-        assert!(table.contains("State"), "{table}");
-        assert!(table.contains("attached"), "{table}");
-        assert!(table.contains("peer down: ctr1"), "{table}");
-        assert!(
-            table.contains("failed: its end tpb2 does not exist"),
-            "{table}"
+        let expected = "\
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│                                          Links                                           │
+├────────┬─────────────┬────────┬─────────────┬──────┬─────────────────────────────────────┤
+│ Node A │ Interface A │ Node B │ Interface B │ Type │ State                               │
+├────────┼─────────────┼────────┼─────────────┼──────┼─────────────────────────────────────┤
+│ vm1    │ eth1        │ vm2    │ eth1        │ p2p  │ attached                            │
+├────────┼─────────────┼────────┼─────────────┼──────┼─────────────────────────────────────┤
+│ vm1    │ eth1        │ ctr1   │ eth1        │ p2p  │ peer down: ctr1                     │
+├────────┼─────────────┼────────┼─────────────┼──────┼─────────────────────────────────────┤
+│ vm1    │ eth1        │ uk1    │ eth1        │ p2p  │ failed: its end tpb2 does not exist │
+├────────┼─────────────┼────────┼─────────────┼──────┼─────────────────────────────────────┤
+│ vm1    │ eth1        │ vm3    │ eth1        │ p2p  │ not checked                         │
+└────────┴─────────────┴────────┴─────────────┴──────┴─────────────────────────────────────┘";
+        assert_eq!(
+            render_links_table(&[
+                link("vm2", Some(LinkState::Attached)),
+                link(
+                    "ctr1",
+                    Some(LinkState::PeerDown {
+                        peer: "ctr1".to_string(),
+                    }),
+                ),
+                link(
+                    "uk1",
+                    Some(LinkState::Failed {
+                        reason: "its end tpb2 does not exist".to_string(),
+                    }),
+                ),
+                link("vm3", None),
+            ]),
+            expected
         );
-        assert!(table.contains("not checked"), "{table}");
     }
 
     #[test]
@@ -334,12 +343,17 @@ mod tests {
                 detail: "exit status 3 on dev02.abcd1234".to_string(),
             },
         ];
-        let table = render_provision_table(&results, "abcd1234");
-        assert!(table.contains("Provisioning"), "{table}");
-        assert!(table.contains("dev01.abcd1234"), "{table}");
-        assert!(table.contains("provisioned"), "{table}");
-        assert!(table.contains("failed"), "{table}");
-        assert!(table.contains("exit status 3"), "{table}");
+        let expected = "\
+┌────────────────────────────────────────────────────────────────┐
+│                          Provisioning                          │
+├────────────────┬─────────────┬─────────────────────────────────┤
+│ Node           │ Status      │ Detail                          │
+├────────────────┼─────────────┼─────────────────────────────────┤
+│ dev01.abcd1234 │ provisioned │                                 │
+├────────────────┼─────────────┼─────────────────────────────────┤
+│ dev02.abcd1234 │ failed      │ exit status 3 on dev02.abcd1234 │
+└────────────────┴─────────────┴─────────────────────────────────┘";
+        assert_eq!(render_provision_table(&results, "abcd1234"), expected);
     }
 
     #[test]
@@ -398,14 +412,21 @@ mod tests {
         )
         .unwrap();
 
-        let table = render_tailnet_table(&status);
-        assert!(table.lines().all(|line| line.chars().count() <= 80));
-        assert!(table.contains("Connected"));
-        assert!(table.contains("Approved"));
-        assert!(table.contains("172.31.3.0/24"));
-        assert!(table.contains("100.64.0.1"));
-        assert!(table.contains("Warnings"));
-        assert_eq!(table.lines().count(), 13);
+        let expected = "\
+┌─────────────────────┬───────────────┐
+│ Tailscale           │ Details       │
+├─────────────────────┼───────────────┤
+│ Gateway             │ Connected     │
+├─────────────────────┼───────────────┤
+│ Route approval      │ Approved      │
+├─────────────────────┼───────────────┤
+│ Management routes   │ 172.31.3.0/24 │
+├─────────────────────┼───────────────┤
+│ Tailscale addresses │ 100.64.0.1    │
+├─────────────────────┼───────────────┤
+│ Warnings            │               │
+└─────────────────────┴───────────────┘";
+        assert_eq!(render_tailnet_table(&status), expected);
     }
 
     #[test]
@@ -442,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn test_render_single_device() {
+    fn a_device_row_shows_each_of_its_values() {
         let devices = vec![DeviceInfo {
             name: "router01".to_string(),
             model: NodeModel::CiscoCat8000,
@@ -455,18 +476,15 @@ mod tests {
             memory: None,
         }];
 
-        let table = render_devices_table(&devices, "a1b2c3d4");
-
-        // Check that table contains expected data
-        assert!(table.contains("router01.a1b2c3d4"));
-        assert!(table.contains("172.31.0.11"));
-        assert!(table.contains("cisco_cat8000"));
-        assert!(table.contains("virtual_machine"));
-        assert!(table.contains("running"));
-        assert!(table.contains("router01.qcow2"));
-
-        // Check for modern style box-drawing characters
-        assert!(table.contains("┌") || table.contains("│"));
+        let expected = "\
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                      Active Nodes                                                                      │
+├───────────────────┬───────────────┬─────────────────┬─────────┬─────────────┬───────────┬─────┬─────────────┬──────────────────────────────────────────┤
+│ Device            │ Model         │ Kind            │ State   │ Mgmt IPv4   │ Mgmt IPv6 │ CPU │ Memory (MB) │ Disks                                    │
+├───────────────────┼───────────────┼─────────────────┼─────────┼─────────────┼───────────┼─────┼─────────────┼──────────────────────────────────────────┤
+│ router01.a1b2c3d4 │ cisco_cat8000 │ virtual_machine │ running │ 172.31.0.11 │ -         │ -   │ -           │ /var/lib/sherpa/labs/test/router01.qcow2 │
+└───────────────────┴───────────────┴─────────────────┴─────────┴─────────────┴───────────┴─────┴─────────────┴──────────────────────────────────────────┘";
+        assert_eq!(render_devices_table(&devices, "a1b2c3d4"), expected);
     }
 
     #[test]
@@ -533,21 +551,19 @@ mod tests {
     }
 
     #[test]
-    fn test_render_empty_devices() {
+    fn a_lab_without_devices_shows_the_headers() {
         let devices: Vec<DeviceInfo> = vec![];
-        let table = render_devices_table(&devices, "a1b2c3d4");
-
-        // Empty table should still have headers
-        assert!(table.contains("Device"));
-        assert!(table.contains("Model"));
-        assert!(table.contains("Kind"));
-        assert!(table.contains("Active"));
-        assert!(table.contains("Mgmt IP"));
-        assert!(table.contains("Disks"));
+        let expected = "\
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│                                   Active Nodes                                    │
+├────────┬───────┬──────┬───────┬───────────┬───────────┬─────┬─────────────┬───────┤
+│ Device │ Model │ Kind │ State │ Mgmt IPv4 │ Mgmt IPv6 │ CPU │ Memory (MB) │ Disks │
+└────────┴───────┴──────┴───────┴───────────┴───────────┴─────┴─────────────┴───────┘";
+        assert_eq!(render_devices_table(&devices, "a1b2c3d4"), expected);
     }
 
     #[test]
-    fn test_render_lab_info_table() {
+    fn the_lab_info_table_shows_each_setting_by_its_name() {
         let lab_info = LabInfo {
             ssh_usernames: Vec::default(),
             id: "039ab286".to_string(),
@@ -564,30 +580,23 @@ mod tests {
             client_folder: None,
         };
 
-        let table = render_lab_info_table(&lab_info);
-
-        // Check that all values are present
-        assert!(table.contains("039ab286"));
-        assert!(table.contains("simple-ceos-test"));
-        assert!(table.contains("admin"));
-        assert!(table.contains("172.31.0.0/24"));
-        assert!(table.contains("172.31.0.1"));
-        assert!(table.contains("172.31.0.2"));
-
-        // Check that properties are present
-        assert!(table.contains("ID"));
-        assert!(table.contains("Name"));
-        assert!(table.contains("User"));
-        assert!(table.contains("Management Network"));
-        assert!(table.contains("IPv4 Gateway"));
-        assert!(table.contains("IPv4 Router"));
-
-        // Check for modern style box-drawing characters
-        assert!(table.contains("┌") || table.contains("│"));
-
-        // Print the table for visual verification
-        println!("\n{table}");
-        assert!(!table.contains("Client"), "{table}");
+        let expected = "\
+┌───────────────────────────────────────┐
+│               Lab Info                │
+├────────────────────┬──────────────────┤
+│ ID                 │ 039ab286         │
+├────────────────────┼──────────────────┤
+│ Name               │ simple-ceos-test │
+├────────────────────┼──────────────────┤
+│ User               │ admin            │
+├────────────────────┼──────────────────┤
+│ Management Network │ 172.31.0.0/24    │
+├────────────────────┼──────────────────┤
+│ IPv4 Gateway       │ 172.31.0.1       │
+├────────────────────┼──────────────────┤
+│ IPv4 Router        │ 172.31.0.2       │
+└────────────────────┴──────────────────┘";
+        assert_eq!(render_lab_info_table(&lab_info), expected);
     }
 
     #[test]
@@ -608,16 +617,28 @@ mod tests {
             client_folder: Some("/home/alice/labs/core".to_string()),
         };
 
-        let table = render_lab_info_table(&lab_info);
-
-        assert!(table.contains("Description"), "{table}");
-        assert!(
-            table.contains("Practice BGP between two routers."),
-            "{table}"
-        );
-        assert!(table.contains("Client Host"), "{table}");
-        assert!(table.contains("dev01"), "{table}");
-        assert!(table.contains("Client Folder"), "{table}");
-        assert!(table.contains("/home/alice/labs/core"), "{table}");
+        let expected = "\
+┌────────────────────────────────────────────────────────┐
+│                        Lab Info                        │
+├────────────────────┬───────────────────────────────────┤
+│ ID                 │ 039ab286                          │
+├────────────────────┼───────────────────────────────────┤
+│ Name               │ core                              │
+├────────────────────┼───────────────────────────────────┤
+│ Description        │ Practice BGP between two routers. │
+├────────────────────┼───────────────────────────────────┤
+│ User               │ alice                             │
+├────────────────────┼───────────────────────────────────┤
+│ Management Network │ 172.31.0.0/24                     │
+├────────────────────┼───────────────────────────────────┤
+│ IPv4 Gateway       │ 172.31.0.1                        │
+├────────────────────┼───────────────────────────────────┤
+│ IPv4 Router        │ 172.31.0.2                        │
+├────────────────────┼───────────────────────────────────┤
+│ Client Host        │ dev01                             │
+├────────────────────┼───────────────────────────────────┤
+│ Client Folder      │ /home/alice/labs/core             │
+└────────────────────┴───────────────────────────────────┘";
+        assert_eq!(render_lab_info_table(&lab_info), expected);
     }
 }

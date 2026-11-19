@@ -376,8 +376,15 @@ mod tests {
                 name: "alice".to_owned(),
             }),
         };
-        let json = serde_json::to_value(&dir).unwrap();
-        assert_eq!(json["user"]["name"], "alice");
-        assert_eq!(json["group"]["name"], "alice");
+        assert_eq!(
+            serde_json::to_value(&dir).unwrap(),
+            serde_json::json!({
+                "path": "/home/alice/.config",
+                "mode": 493,
+                "overwrite": false,
+                "user": { "name": "alice" },
+                "group": { "name": "alice" },
+            })
+        );
     }
 }

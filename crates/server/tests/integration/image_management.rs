@@ -23,30 +23,6 @@ const EOS_CONTAINER_VERSION: &str = "4.34.0F";
 
 // ── Image Scan ──
 
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn test_image_scan_discovers_images() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
-
-    let (_statuses, response) = ws
-        .rpc_call_streaming(
-            "image.scan",
-            json!({ "token": token }),
-            Duration::from_secs(60),
-        )
-        .await?;
-
-    assert!(
-        response.get("result").is_some(),
-        "image.scan should succeed: {response:?}"
-    );
-    // Status messages are emitted per discovered image; OK if none found on a clean env
-
-    Ok(())
-}
-
 /// The status the scan in `response` gave `model` at `version`, if it found it.
 fn scanned_status<'a>(response: &'a Value, model: &str, version: &str) -> Option<&'a str> {
     response["result"]["scanned"]

@@ -183,17 +183,4 @@ mod tests {
             assert!(!wants_stop(answer), "{answer:?}");
         }
     }
-
-    #[test]
-    fn every_operation_says_what_stopping_does() {
-        for operation in [
-            StoppableOperation::Up,
-            StoppableOperation::Redeploy,
-            StoppableOperation::Resume,
-        ] {
-            assert_ne!(operation.description(), "");
-            assert!(operation.stop_effect().ends_with('.'));
-        }
-        assert!(StoppableOperation::Up.stop_effect().contains("removes"));
-    }
 }

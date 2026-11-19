@@ -289,8 +289,10 @@ nodes = [
   { name = "dev01", model = "ubuntu_linux" },
 ]
 "#;
-    let result = toml::from_str::<Manifest>(toml_str);
-    assert!(result.is_err());
+    let error = toml::from_str::<Manifest>(toml_str)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("missing field `name`"), "{error}");
 }
 
 #[test]
@@ -298,8 +300,10 @@ fn test_parse_missing_nodes() {
     let toml_str = r#"
         name = "test-lab"
         "#;
-    let result = toml::from_str::<Manifest>(toml_str);
-    assert!(result.is_err());
+    let error = toml::from_str::<Manifest>(toml_str)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("missing field `nodes`"), "{error}");
 }
 
 // ============================================================================
@@ -465,8 +469,10 @@ fn test_parse_text_files() {
 
 #[test]
 fn test_parse_text_files_rejects_unknown_fields() {
-    let result = toml::from_str::<Manifest>(MANIFEST_WITH_TEXT_FILES_UNKNOWN_FIELD);
-    assert!(result.is_err());
+    let error = toml::from_str::<Manifest>(MANIFEST_WITH_TEXT_FILES_UNKNOWN_FIELD)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("unknown field `unknown_field`"), "{error}");
 }
 
 // ============================================================================

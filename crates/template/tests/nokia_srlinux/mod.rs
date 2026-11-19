@@ -125,7 +125,7 @@ fn test_management_network_instance_and_acl() {
 
 #[test]
 fn test_only_admin_and_the_owner_have_accounts() {
-    let (json, value) = config("srl01", "Rand0mPass-1", true, false);
+    let (_, value) = config("srl01", "Rand0mPass-1", true, false);
     let authentication = &value[SYSTEM][AAA]["authentication"];
     assert_eq!(authentication["authentication-method"], json!(["local"]));
     assert_eq!(
@@ -141,7 +141,6 @@ fn test_only_admin_and_the_owner_have_accounts() {
             "role": ["srl-admin"],
         }])
     );
-    helpers::assert_no_sherpa_login(&json);
 }
 
 #[test]

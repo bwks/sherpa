@@ -145,16 +145,16 @@ mod tests {
 
     #[test]
     fn unknown_fields_are_rejected() {
-        assert!(
-            toml::from_str::<TalosCluster>(
-                r#"
-                name = "k8s"
-                controllers = ["cp1"]
-                nodes = []
-                "#
-            )
-            .is_err()
-        );
+        let error = toml::from_str::<TalosCluster>(
+            r#"
+            name = "k8s"
+            controllers = ["cp1"]
+            nodes = []
+            "#,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("unknown field `nodes`"), "{error}");
     }
 
     #[test]
