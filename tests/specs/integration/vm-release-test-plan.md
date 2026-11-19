@@ -278,7 +278,7 @@ and all 45 local harness/guest/fault/verifier regression checks passed.
 - [Installer specification](../install/sherpa-install.md).
 - [Running tests](../../README.md): the single runbook for the installer suite, the VM
   code suite and supplementary BATS coverage.
-- [Lab lifecycle specification](lab-lifecycle-e2e.md).
+- [Lab lifecycle specification](../lab-lifecycle.md).
 - [Tailscale verification guide](tailscale.md).
 
 Reconcile the remaining service integration instructions as their coverage is

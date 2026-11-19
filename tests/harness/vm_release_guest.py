@@ -825,9 +825,6 @@ class Guest:
             # sccache cannot cache incremental compilations.
             environment.update(RUSTC_WRAPPER=str(self.workspace / SCCACHE_BINARY),
                                SCCACHE_CONF=str(sccache_config), CARGO_INCREMENTAL="0")
-        if root:
-            environment.update(SHERPA_GUEST_TEST_KEY=str(self.workspace / "guest-test-key"),
-                               SHERPA_GUEST_TEST_ROTATED_KEY=str(self.workspace / "guest-test-key-rotated"))
         return environment
 
     def as_user(self, command):
@@ -1007,10 +1004,6 @@ class Guest:
         tests = self.config["tests"]
         # The tests start their own server; the installed service must not compete for resources.
         self.command(["systemctl", "stop", "sherpad"])
-        for name in ("guest-test-key", "guest-test-key-rotated"):
-            if not (self.workspace / name).exists():
-                self.command(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", name,
-                              "-f", str(self.workspace / name)])
         environment = self.cargo_environment(root=True)
         environment.update(assignment.split("=", 1) for assignment in tests["environment"])
         network = f"sherpa-test-tailnet-{self.config['identity']['nonce'][:8]}"

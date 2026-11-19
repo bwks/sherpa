@@ -147,7 +147,7 @@ works now is in [`STATE_MACHINES.md` §2](../architecture/STATE_MACHINES.md#2-la
   gone. Tests: `a_second_up_of_a_lab_is_refused_before_it_creates_anything`,
   `an_up_whose_lab_is_already_built_cannot_release_it`,
   `a_lab_being_created_cannot_be_built_or_released_twice`, and the integration tests
-  `two_ups_of_one_lab_leave_the_first_alone` and `test_lab_up_rejects_duplicate_lab_id`.
+  `lab_concurrency_001_a_second_up_of_a_lab_that_is_coming_up_is_refused_and_leaves_the_first_alone` and `lab_preflight_003_a_lab_id_already_in_use_is_refused`.
 - M3.2: `down` takes the lease, and the scanner observes only a lab no operation holds (#498).
 - M3.3: each `LAB_LEASES` entry counts its holders and waiters, and the last one to drop
   removes it, under the shard lock that joining takes. See "Entry lifetime" in
@@ -223,7 +223,7 @@ below is kept as found, with what closed it:
   A readiness timeout and Tailscale warnings stay warnings. Tests:
   `an_up_with_a_node_that_will_not_recover_did_not_succeed`,
   `a_lab_service_that_did_not_come_up_fails_the_up`, and the integration test
-  `a_container_that_exits_at_once_fails_its_node_not_the_lab`.
+  `lab_up_004_a_node_that_fails_to_start_fails_the_node_not_the_lab_and_up_exits_non_zero`.
 - M6.2: the rollback runs `tear_down_lab`, which moves the lab through `Destroying` and leaves
   it `DestroyFailed` when anything is left. The UI and `sherpa inspect` show the phase and the
   owner destroys the lab again. Tests: `a_destroyed_lab_loses_its_record_and_a_failed_one_keeps_it`,
@@ -235,7 +235,7 @@ below is kept as found, with what closed it:
   `a_lab_left_mid_operation_by_a_restart_is_marked_not_left`,
   `a_lab_without_files_is_described_from_its_record`.
 - M6.4: closed by #498: readiness records each node and reports the state it recorded. The
-  integration test `a_container_that_exits_at_once_fails_its_node_not_the_lab` checks the row
+  integration test `lab_up_004_a_node_that_fails_to_start_fails_the_node_not_the_lab_and_up_exits_non_zero` checks the row
   and the response agree.
 - M6.5: closed by #518 (0.5.18). `up` checks the pins in `admission::admit_lab_nodes`
   (`up/plan.rs`), under the server-wide FIFO admission queue, against the stored nodes and the
@@ -289,9 +289,9 @@ below is kept as found, with what closed it:
   with no record and removes its folder. Tests: `the_lab_folder_goes_before_the_lab_record`,
   `a_lab_folder_that_cannot_be_removed_keeps_the_lab_record`,
   `a_lab_is_removed_only_from_the_phase_it_was_read_in`, and the integration test
-  `admin_clean_removes_a_lab_folder_with_no_record`.
+  `lab_clean_002_clean_removes_a_lab_folder_with_no_record`.
 - M7.2: `destroy_lab` reads the lab again under the lease and reports a lab another destroy
-  removed as destroyed. Integration test: `two_destroys_of_one_lab_both_succeed`.
+  removed as destroyed. Integration test: `lab_concurrency_002_two_destroys_of_one_lab_both_succeed`.
 - M7.3: a half-destroyed lab is `DestroyFailed`; the web UI shows that and offers only Destroy,
   and `down`, `resume` and redeploy refuse it. Tests: `operations_on_nodes_need_a_ready_lab`,
   `a_lab_that_is_not_ready_shows_its_phase_and_offers_no_start_or_stop`,
