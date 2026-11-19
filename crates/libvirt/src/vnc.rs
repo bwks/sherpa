@@ -335,8 +335,9 @@ mod tests {
         assert_eq!(
             graphics_on_socket(xml, "/s").unwrap().as_deref(),
             Some(
-                "<domain><devices>\n    <graphics type=\"vnc\"><listen type=\"socket\" \
-                 socket=\"/s\"/></graphics>\n    <video/></devices></domain>"
+                r#"<domain><devices>
+    <graphics type="vnc"><listen type="socket" socket="/s"/></graphics>
+    <video/></devices></domain>"#
             )
         );
     }
@@ -349,8 +350,7 @@ mod tests {
         assert_eq!(
             graphics_on_socket(xml, "/s").unwrap().as_deref(),
             Some(
-                "<domain><devices><graphics type=\"vnc\"><listen type=\"socket\" \
-                 socket=\"/s\"/><image compression='off'/></graphics></devices></domain>"
+                r#"<domain><devices><graphics type="vnc"><listen type="socket" socket="/s"/><image compression='off'/></graphics></devices></domain>"#
             )
         );
     }

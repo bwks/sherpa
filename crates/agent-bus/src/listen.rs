@@ -327,7 +327,10 @@ mod tests {
         journal.record(&message("now"), NOW).unwrap();
         // A broken line is skipped, not fatal.
         let mut text = fs::read_to_string(&path).unwrap();
-        text.push_str("{\"at_ms\":\n");
+        text.push_str(
+            r#"{"at_ms":
+"#,
+        );
         fs::write(&path, text).unwrap();
 
         let since = millis(parse_since("30m").unwrap());

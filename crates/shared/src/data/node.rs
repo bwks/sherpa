@@ -345,8 +345,7 @@ impl FromStr for NodeModel {
 
             _ => match REMOVED_MODELS.iter().find(|(name, _, _)| *name == s) {
                 Some((_, model, kind)) => Err(format!(
-                    "Unknown node model '{s}': it was renamed in 0.7.0. \
-                     Use model = \"{model}\" with kind = \"{kind}\"."
+                    r#"Unknown node model '{s}': it was renamed in 0.7.0. Use model = "{model}" with kind = "{kind}"."#
                 )),
                 None => Err(format!("Unknown node model: {s}")),
             },
@@ -2948,8 +2947,7 @@ mod tests {
         for (name, model, kind) in REMOVED_MODELS {
             assert!(model.kinds().contains(&kind), "{name}");
             let expected = format!(
-                "Unknown node model '{name}': it was renamed in 0.7.0. \
-                 Use model = \"{model}\" with kind = \"{kind}\"."
+                r#"Unknown node model '{name}': it was renamed in 0.7.0. Use model = "{model}" with kind = "{kind}"."#
             );
             assert_eq!(name.parse::<NodeModel>().unwrap_err(), expected);
             let error = serde_json::from_value::<NodeModel>(serde_json::json!(name))
@@ -2965,13 +2963,11 @@ mod tests {
         }
         assert_eq!(
             "arista_ceos".parse::<NodeModel>().unwrap_err(),
-            "Unknown node model 'arista_ceos': it was renamed in 0.7.0. \
-             Use model = \"arista_eos\" with kind = \"container\"."
+            r#"Unknown node model 'arista_ceos': it was renamed in 0.7.0. Use model = "arista_eos" with kind = "container"."#
         );
         assert_eq!(
             "cisco_iosv".parse::<NodeModel>().unwrap_err(),
-            "Unknown node model 'cisco_iosv': it was renamed in 0.7.0. \
-             Use model = \"cisco_ios\" with kind = \"virtual_machine\"."
+            r#"Unknown node model 'cisco_iosv': it was renamed in 0.7.0. Use model = "cisco_ios" with kind = "virtual_machine"."#
         );
         assert_eq!(
             "nosuch_model".parse::<NodeModel>().unwrap_err(),

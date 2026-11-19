@@ -964,8 +964,10 @@ mod tests {
         store(
             &db,
             &lab,
-            "name = \"core\"\nready_timeout = 120\n\
-             nodes = [{ name = \"vm\", model = \"ubuntu_linux\", ready_check = { port = 8443 } }]\n",
+            r#"name = "core"
+ready_timeout = 120
+nodes = [{ name = "vm", model = "ubuntu_linux", ready_check = { port = 8443 } }]
+"#,
         )
         .await;
         let definition = stored_definition(&db, &lab_id, "lab-0001").await;

@@ -323,7 +323,13 @@ mod tests {
             queue: vec![
                 Queued {
                     model: Some("haiku".to_owned()),
-                    ..queued("t3", Kind::Task, "line one\nline \"two\"\n")
+                    ..queued(
+                        "t3",
+                        Kind::Task,
+                        r#"line one
+line "two"
+"#,
+                    )
                 },
                 queued("t1", Kind::Answer, "go on"),
             ],
@@ -414,7 +420,12 @@ mod tests {
             queue,
             [("t3", Kind::Task, "dev"), ("t1", Kind::Answer, "dev")]
         );
-        assert_eq!(restart.queue[0].text, "line one\nline \"two\"\n");
+        assert_eq!(
+            restart.queue[0].text,
+            r#"line one
+line "two"
+"#
+        );
         assert_eq!(restart.queue[0].model.as_deref(), Some("haiku"));
         assert_eq!(restart.queue[1].model, None);
     }

@@ -290,10 +290,7 @@ mod tests {
         let down = interface_with_link(DOMAIN, "tpa0", false).unwrap().unwrap();
         assert_eq!(
             down,
-            "<interface type='ethernet'><mac address='52:54:00:00:00:02'/>\
-             <target dev='tpa0' managed='yes'/><model type='virtio'/>\
-             <alias name='net1'/><address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>\
-             <link state=\"down\"/></interface>"
+            r#"<interface type='ethernet'><mac address='52:54:00:00:00:02'/><target dev='tpa0' managed='yes'/><model type='virtio'/><alias name='net1'/><address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/><link state="down"/></interface>"#
         );
         assert_eq!(link_up_in(&down, "tpa0").unwrap(), Some(false));
     }
@@ -303,9 +300,7 @@ mod tests {
         let up = interface_with_link(DOMAIN, "tpa1", true).unwrap().unwrap();
         assert_eq!(
             up,
-            "<interface type='ethernet'><mac address='52:54:00:00:00:03'/>\
-             <target dev='tpa1' managed='yes'/><model type='virtio'/><link state=\"up\"/>\
-             </interface>"
+            r#"<interface type='ethernet'><mac address='52:54:00:00:00:03'/><target dev='tpa1' managed='yes'/><model type='virtio'/><link state="up"/></interface>"#
         );
         assert_eq!(link_up_in(&up, "tpa1").unwrap(), Some(true));
     }
@@ -344,8 +339,7 @@ mod tests {
         assert_eq!(link_up_in(nested, "tpa0").unwrap(), Some(true));
         assert_eq!(
             interface_with_link(nested, "tpa0", false).unwrap().unwrap(),
-            "<interface type='ethernet'><target dev='tpa0'/><driver><link state='down'/></driver>\
-             <link state=\"down\"/></interface>"
+            r#"<interface type='ethernet'><target dev='tpa0'/><driver><link state='down'/></driver><link state="down"/></interface>"#
         );
     }
 

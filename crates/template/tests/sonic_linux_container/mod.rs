@@ -100,8 +100,7 @@ fn test_init_logs_a_line_and_gives_no_root_path_when_the_image_has_no_sudo() {
     assert_eq!(
         without_sudo,
         [
-            "  echo \"sherpa-init: this image has no sudo, so alice has no root access: \
-          build the image with sudo\""
+            r#"  echo "sherpa-init: this image has no sudo, so alice has no root access: build the image with sudo""#
         ]
     );
     // No fallback: root gets no password and no `su`, and no fake `sudo` is written.

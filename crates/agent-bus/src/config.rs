@@ -193,9 +193,19 @@ mod tests {
             generate().unwrap(),
         );
         let text = format!(
-            "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n\
-             [[agent]]\nname = \"dev\"\nkey = \"{}\"\nrole = \"guest\"\n\
-             [[agent]]\nname = \"test\"\nkey = \"{}\"\nrole = \"guest\"\n",
+            r#"[[agent]]
+name = "host"
+key = "{}"
+role = "host"
+[[agent]]
+name = "dev"
+key = "{}"
+role = "guest"
+[[agent]]
+name = "test"
+key = "{}"
+role = "guest"
+"#,
             host.public_key, dev.public_key, third.public_key
         );
         Fixture {

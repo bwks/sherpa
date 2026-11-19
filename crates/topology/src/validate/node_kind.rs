@@ -144,8 +144,13 @@ mod tests {
 
     /// The one node of a manifest written in TOML, as read.
     fn manifest_node(node: &str) -> Node {
-        let manifest: Manifest = toml::from_str(&format!("name = \"lab\"\n\n[[nodes]]\n{node}"))
-            .expect("the manifest reads");
+        let manifest: Manifest = toml::from_str(&format!(
+            r#"name = "lab"
+
+[[nodes]]
+{node}"#
+        ))
+        .expect("the manifest reads");
         manifest.nodes[0].clone()
     }
 
@@ -287,7 +292,10 @@ mod tests {
             ("frr_linux", NodeKind::Container),
             ("nanos_unikernel", NodeKind::Unikernel),
         ] {
-            let node = manifest_node(&format!("name = \"n1\"\nmodel = \"{model}\""));
+            let node = manifest_node(&format!(
+                r#"name = "n1"
+model = "{model}""#
+            ));
             assert_eq!(node.kind, None);
             check_node_model_kind(&node).unwrap();
             let expanded = NodeExpanded::new(1, &node).unwrap();
@@ -304,7 +312,9 @@ mod tests {
             ("nanos_unikernel", NodeKind::Unikernel),
         ] {
             let node = manifest_node(&format!(
-                "name = \"n1\"\nmodel = \"{model}\"\nkind = \"{kind}\""
+                r#"name = "n1"
+model = "{model}"
+kind = "{kind}""#
             ));
             assert_eq!(node.kind, Some(kind));
             check_node_model_kind(&node).unwrap();
@@ -315,11 +325,14 @@ mod tests {
 
     #[test]
     fn a_kind_the_model_does_not_take_is_refused_naming_the_kinds_it_takes() {
-        let node = manifest_node("name = \"fw1\"\nmodel = \"cisco_asa\"\nkind = \"container\"");
+        let node = manifest_node(
+            r#"name = "fw1"
+model = "cisco_asa"
+kind = "container""#,
+        );
         assert_eq!(
             check_node_model_kind(&node).unwrap_err().to_string(),
-            "Manifest - node: 'fw1' sets `kind = \"container\"`, but 'cisco_asa' comes only as: \
-             virtual_machine"
+            r#"Manifest - node: 'fw1' sets `kind = "container"`, but 'cisco_asa' comes only as: virtual_machine"#
         );
         let error = NodeExpanded::new(1, &node).unwrap_err();
         assert!(format!("{error:#}").contains("'fw1'"), "{error:#}");
@@ -328,7 +341,10 @@ mod tests {
     #[test]
     fn a_merged_model_takes_each_of_its_kinds_and_defaults_to_the_virtual_machine() {
         for model in ["arista_eos", "juniper_evolved"] {
-            let node = manifest_node(&format!("name = \"r1\"\nmodel = \"{model}\""));
+            let node = manifest_node(&format!(
+                r#"name = "r1"
+model = "{model}""#
+            ));
             check_node_model_kind(&node).unwrap();
             let expanded = NodeExpanded::new(1, &node).unwrap();
             assert_eq!(
@@ -337,7 +353,9 @@ mod tests {
                 "{model}"
             );
             let node = manifest_node(&format!(
-                "name = \"r1\"\nmodel = \"{model}\"\nkind = \"container\""
+                r#"name = "r1"
+model = "{model}"
+kind = "container""#
             ));
             check_node_model_kind(&node).unwrap();
             let expanded = NodeExpanded::new(1, &node).unwrap();
@@ -347,14 +365,20 @@ mod tests {
 
     #[test]
     fn sonic_linux_takes_a_container_kind_and_stays_a_virtual_machine_by_default() {
-        let node = manifest_node("name = \"sw1\"\nmodel = \"sonic_linux\"");
+        let node = manifest_node(
+            r#"name = "sw1"
+model = "sonic_linux""#,
+        );
         check_node_model_kind(&node).unwrap();
         let expanded = NodeExpanded::new(1, &node).unwrap();
         assert_eq!(expanded.model_kind.kind(), NodeKind::VirtualMachine);
 
         let node = manifest_node(
-            "name = \"sw1\"\nmodel = \"sonic_linux\"\nkind = \"container\"\n\
-             [nodes.interfaces]\ndata_count = 2",
+            r#"name = "sw1"
+model = "sonic_linux"
+kind = "container"
+[nodes.interfaces]
+data_count = 2"#,
         );
         check_node_model_kind(&node).unwrap();
         let expanded = NodeExpanded::new(1, &node).unwrap();
@@ -362,40 +386,50 @@ mod tests {
         check_node_kind_settings(&expanded).unwrap();
 
         let node = manifest_node(
-            "name = \"sw1\"\nmodel = \"sonic_linux\"\nkind = \"container\"\n\
-             [nodes.vm]\nwatchdog = \"reset\"",
+            r#"name = "sw1"
+model = "sonic_linux"
+kind = "container"
+[nodes.vm]
+watchdog = "reset""#,
         );
         let expanded = NodeExpanded::new(1, &node).unwrap();
         assert_eq!(
             error(&expanded),
-            "Manifest - node: 'sw1' sets `vm`, which does not apply to container nodes; \
-             'sonic_linux' is a container unless the node sets `kind = \"virtual_machine\"`"
+            r#"Manifest - node: 'sw1' sets `vm`, which does not apply to container nodes; 'sonic_linux' is a container unless the node sets `kind = "virtual_machine"`"#
         );
 
-        let node = manifest_node("name = \"sw1\"\nmodel = \"sonic_linux\"\nkind = \"unikernel\"");
+        let node = manifest_node(
+            r#"name = "sw1"
+model = "sonic_linux"
+kind = "unikernel""#,
+        );
         assert_eq!(
             check_node_model_kind(&node).unwrap_err().to_string(),
-            "Manifest - node: 'sw1' sets `kind = \"unikernel\"`, but 'sonic_linux' comes only \
-             as: virtual_machine, container"
+            r#"Manifest - node: 'sw1' sets `kind = "unikernel"`, but 'sonic_linux' comes only as: virtual_machine, container"#
         );
     }
 
     #[test]
     fn another_kinds_group_on_a_merged_model_says_which_kind_takes_it() {
         let node = manifest_node(
-            "name = \"r1\"\nmodel = \"arista_eos\"\n[nodes.container]\nprivileged = true",
+            r#"name = "r1"
+model = "arista_eos"
+[nodes.container]
+privileged = true"#,
         );
         let expanded = NodeExpanded::new(1, &node).unwrap();
         assert_eq!(
             error(&expanded),
-            "Manifest - node: 'r1' sets `container`, which does not apply to virtual_machine \
-             nodes; 'arista_eos' is a virtual_machine unless the node sets `kind = \"container\"`"
+            r#"Manifest - node: 'r1' sets `container`, which does not apply to virtual_machine nodes; 'arista_eos' is a virtual_machine unless the node sets `kind = "container"`"#
         );
     }
 
     #[test]
     fn generic_without_a_kind_is_refused() {
-        let node = manifest_node("name = \"g1\"\nmodel = \"generic\"");
+        let node = manifest_node(
+            r#"name = "g1"
+model = "generic""#,
+        );
         assert_eq!(
             check_node_model_kind(&node).unwrap_err().to_string(),
             "Manifest - node: 'g1' sets no `kind`, which 'generic' needs; set it to one of: \
@@ -404,7 +438,9 @@ mod tests {
         assert!(NodeExpanded::new(1, &node).is_err());
         for kind in NodeKind::to_vec() {
             let node = manifest_node(&format!(
-                "name = \"g1\"\nmodel = \"generic\"\nkind = \"{kind}\""
+                r#"name = "g1"
+model = "generic"
+kind = "{kind}""#
             ));
             check_node_model_kind(&node).unwrap();
             assert_eq!(NodeExpanded::new(1, &node).unwrap().model_kind.kind(), kind);
@@ -413,13 +449,17 @@ mod tests {
 
     #[test]
     fn a_removed_model_name_is_refused_when_read_naming_its_model_and_kind() {
-        let manifest: Result<Manifest, _> =
-            toml::from_str("name = \"lab\"\n\n[[nodes]]\nname = \"r1\"\nmodel = \"arista_ceos\"");
+        let manifest: Result<Manifest, _> = toml::from_str(
+            r#"name = "lab"
+
+[[nodes]]
+name = "r1"
+model = "arista_ceos""#,
+        );
         let error = manifest.unwrap_err().to_string();
         assert!(
             error.contains(
-                "Unknown node model 'arista_ceos': it was renamed in 0.7.0. \
-                 Use model = \"arista_eos\" with kind = \"container\"."
+                r#"Unknown node model 'arista_ceos': it was renamed in 0.7.0. Use model = "arista_eos" with kind = "container"."#
             ),
             "{error}"
         );

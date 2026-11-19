@@ -1580,6 +1580,15 @@ mod tests {
         Ok(())
     }
 
+    /// The lab info of a lab whose gateway is the loopback address.
+    const LOOPBACK_LAB_INFO: &str = r#"id = "abc123"
+name = "it"
+user = "sherpa"
+ipv4_network = "127.0.0.0/24"
+ipv4_gateway = "127.0.0.1"
+ipv4_router = "127.0.0.2"
+"#;
+
     /// Needs Docker. Starts a throwaway bus on 127.0.0.1 and shows what a guest may and may not
     /// do, then that restarting the bus replaces the container and keeps the messages.
     /// Run with `cargo test -p agent-bus -- --ignored`.
@@ -1593,9 +1602,19 @@ mod tests {
             generate().unwrap(),
         );
         let text = format!(
-            "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n\
-             [[agent]]\nname = \"dev\"\nkey = \"{}\"\nrole = \"guest\"\n\
-             [[agent]]\nname = \"other\"\nkey = \"{}\"\nrole = \"guest\"\n",
+            r#"[[agent]]
+name = "host"
+key = "{}"
+role = "host"
+[[agent]]
+name = "dev"
+key = "{}"
+role = "guest"
+[[agent]]
+name = "other"
+key = "{}"
+role = "guest"
+"#,
             host.public_key, dev.public_key, other.public_key
         );
         let id = std::process::id();
@@ -1612,13 +1631,7 @@ mod tests {
         let lab_dir = dir.join("lab");
         let lab_info = LabFolder::new(&lab_dir).lab_info();
         std::fs::create_dir_all(lab_info.parent().unwrap()).unwrap();
-        std::fs::write(
-            &lab_info,
-            "id = \"abc123\"\nname = \"it\"\nuser = \"sherpa\"\n\
-             ipv4_network = \"127.0.0.0/24\"\nipv4_gateway = \"127.0.0.1\"\n\
-             ipv4_router = \"127.0.0.2\"\n",
-        )
-        .unwrap();
+        std::fs::write(&lab_info, LOOPBACK_LAB_INFO).unwrap();
         let (gateway, lab) = state::lab_gateway(&lab_dir).unwrap();
         let bus = Bus {
             container: format!("sherpa-agent-bus-test-{id}"),
@@ -1958,7 +1971,11 @@ mod tests {
         std::fs::write(
             &agents_path,
             format!(
-                "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n",
+                r#"[[agent]]
+name = "host"
+key = "{}"
+role = "host"
+"#,
                 host.public_key
             ),
         )
@@ -2079,7 +2096,11 @@ mod tests {
         std::fs::write(
             &agents_path,
             format!(
-                "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n",
+                r#"[[agent]]
+name = "host"
+key = "{}"
+role = "host"
+"#,
                 host.public_key
             ),
         )
@@ -2157,8 +2178,15 @@ mod tests {
         std::fs::write(
             &agents_path,
             format!(
-                "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n\
-                 [[agent]]\nname = \"dev\"\nkey = \"{}\"\nrole = \"guest\"\n",
+                r#"[[agent]]
+name = "host"
+key = "{}"
+role = "host"
+[[agent]]
+name = "dev"
+key = "{}"
+role = "guest"
+"#,
                 host.public_key, dev.public_key
             ),
         )
@@ -2279,7 +2307,11 @@ mod tests {
         write(
             &agents_path,
             format!(
-                "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n",
+                r#"[[agent]]
+name = "host"
+key = "{}"
+role = "host"
+"#,
                 host.public_key
             ),
         )
@@ -2404,7 +2436,11 @@ mod tests {
         write(
             &agents_path,
             format!(
-                "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n",
+                r#"[[agent]]
+name = "host"
+key = "{}"
+role = "host"
+"#,
                 host.public_key
             ),
         )
@@ -2801,8 +2837,15 @@ mod tests {
             std::fs::write(
                 &agents_path,
                 format!(
-                    "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n\
-                     [[agent]]\nname = \"dev\"\nkey = \"{}\"\nrole = \"guest\"\n",
+                    r#"[[agent]]
+name = "host"
+key = "{}"
+role = "host"
+[[agent]]
+name = "dev"
+key = "{}"
+role = "guest"
+"#,
                     host.public_key, dev.public_key
                 ),
             )
@@ -2890,8 +2933,15 @@ mod tests {
             std::fs::write(
                 &agents_path,
                 format!(
-                    "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n\
-                     [[agent]]\nname = \"dev\"\nkey = \"{}\"\nrole = \"guest\"\n",
+                    r#"[[agent]]
+name = "host"
+key = "{}"
+role = "host"
+[[agent]]
+name = "dev"
+key = "{}"
+role = "guest"
+"#,
                     host.public_key, dev.public_key
                 ),
             )

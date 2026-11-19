@@ -159,7 +159,13 @@ mod tests {
     use crate::keys::generate;
 
     fn entry(name: &str, key: &str, role: &str) -> String {
-        format!("[[agent]]\nname = \"{name}\"\nkey = \"{key}\"\nrole = \"{role}\"\n")
+        format!(
+            r#"[[agent]]
+name = "{name}"
+key = "{key}"
+role = "{role}"
+"#
+        )
     }
 
     fn key() -> String {
@@ -257,7 +263,11 @@ mod tests {
         let in_key = [entry("host", &key(), "host"), entry("dev", &seed, "guest")].concat();
         let error = format!("{:#}", Agents::parse(&in_key).unwrap_err());
         assert!(!error.contains(&seed));
-        let extra = format!("{}seed = \"{seed}\"\n", entry("host", &key(), "host"));
+        let extra = format!(
+            r#"{}seed = "{seed}"
+"#,
+            entry("host", &key(), "host")
+        );
         let error = format!("{:#}", Agents::parse(&extra).unwrap_err());
         assert!(!error.contains(&seed));
     }

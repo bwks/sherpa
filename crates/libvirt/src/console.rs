@@ -412,8 +412,7 @@ mod tests {
         assert_eq!(
             serial_on_socket(xml, "/s").unwrap().as_deref(),
             Some(
-                "<domain><devices><serial type=\"unix\"><source mode=\"bind\" path=\"/s\"/>\
-                 <target port='0'/></serial></devices></domain>"
+                r#"<domain><devices><serial type="unix"><source mode="bind" path="/s"/><target port='0'/></serial></devices></domain>"#
             )
         );
     }

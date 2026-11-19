@@ -186,13 +186,20 @@ mod tests {
 
     fn fixed(guests: &[(&str, &str)]) -> Agents {
         let mut text = format!(
-            "[[agent]]\nname = \"host\"\nkey = \"{}\"\nrole = \"host\"\n",
+            r#"[[agent]]
+name = "host"
+key = "{}"
+role = "host"
+"#,
             key()
         );
         for (name, key) in guests {
             writeln!(
                 text,
-                "[[agent]]\nname = \"{name}\"\nkey = \"{key}\"\nrole = \"guest\""
+                r#"[[agent]]
+name = "{name}"
+key = "{key}"
+role = "guest""#
             )
             .unwrap();
         }
@@ -273,18 +280,35 @@ mod tests {
     #[test]
     fn a_host_a_shared_key_or_a_seed_in_the_registry_is_refused() {
         let host = format!(
-            "[[agent]]\nname = \"boss\"\nkey = \"{}\"\nrole = \"host\"\n",
+            r#"[[agent]]
+name = "boss"
+key = "{}"
+role = "host"
+"#,
             key()
         );
         assert!(Registry::parse(&host).is_err());
         let shared = key();
         let twice = format!(
-            "[[agent]]\nname = \"a\"\nkey = \"{shared}\"\nrole = \"guest\"\n\
-             [[agent]]\nname = \"b\"\nkey = \"{shared}\"\nrole = \"guest\"\n"
+            r#"[[agent]]
+name = "a"
+key = "{shared}"
+role = "guest"
+[[agent]]
+name = "b"
+key = "{shared}"
+role = "guest"
+"#
         );
         assert!(Registry::parse(&twice).is_err());
         let seed = generate().unwrap().seed;
-        let leaked = format!("[[agent]]\nname = \"a\"\nkey = \"{seed}\"\nrole = \"guest\"\n");
+        let leaked = format!(
+            r#"[[agent]]
+name = "a"
+key = "{seed}"
+role = "guest"
+"#
+        );
         let error = format!("{:#}", Registry::parse(&leaked).unwrap_err());
         assert!(!error.contains(&seed));
     }

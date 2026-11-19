@@ -1256,11 +1256,11 @@ crash*)
     exit 1
     ;;
 token*)
-    echo "{\"type\":\"result\",\"is_error\":false,\"result\":\"GH_TOKEN=${GH_TOKEN:-none}\",\"session_id\":\"sess-1\"}"
+    echo '{"type":"result","is_error":false,"result":"GH_TOKEN='"${GH_TOKEN:-none}"'","session_id":"sess-1"}'
     ;;
 oauth*)
-    echo "{\"type\":\"assistant\",\"session_id\":\"sess-1\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"saw ${CLAUDE_CODE_OAUTH_TOKEN:-none}\"}]}}"
-    echo "{\"type\":\"result\",\"is_error\":false,\"result\":\"CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-none} AGENT_BUS_SEED=${AGENT_BUS_SEED:-none}\",\"session_id\":\"sess-1\"}"
+    echo '{"type":"assistant","session_id":"sess-1","message":{"content":[{"type":"text","text":"saw '"${CLAUDE_CODE_OAUTH_TOKEN:-none}"'"}]}}'
+    echo '{"type":"result","is_error":false,"result":"CLAUDE_CODE_OAUTH_TOKEN='"${CLAUDE_CODE_OAUTH_TOKEN:-none}"' AGENT_BUS_SEED='"${AGENT_BUS_SEED:-none}"'","session_id":"sess-1"}'
     ;;
 timed*)
     echo '{"type":"assistant","session_id":"sess-1","message":{"content":[{"type":"tool_use","id":"c1","name":"Bash","input":{"command":"cargo test"}}]}}'

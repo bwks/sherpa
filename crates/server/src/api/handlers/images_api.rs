@@ -322,8 +322,7 @@ mod tests {
     fn an_image_path_with_an_old_model_name_is_refused_naming_its_replacement() {
         assert_eq!(
             refusal(path_model_kind("arista_ceos", "container")),
-            "Unknown node model 'arista_ceos': it was renamed in 0.7.0. \
-             Use model = \"arista_eos\" with kind = \"container\"."
+            r#"Unknown node model 'arista_ceos': it was renamed in 0.7.0. Use model = "arista_eos" with kind = "container"."#
         );
         assert_eq!(
             refusal(path_model_kind("nosuch_model", "container")),
