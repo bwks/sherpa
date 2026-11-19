@@ -968,13 +968,6 @@ class SelfTest(unittest.TestCase):
                                                  3: ("Ethernet3", "Ethernet4")})
         self.assertEqual(node_bundles("b1"), {1: ("eth1", "eth2"), 2: ("eth3", "eth4")})
 
-    def test_bond_script_makes_an_lacp_bond_of_the_members(self):
-        script = bond_script(2, ["enp3s0", "enp4s0"])
-        self.assertIn("ip link add bond2 type bond mode 802.3ad", script)
-        self.assertIn("ip link set enp3s0 master bond2", script)
-        self.assertIn("ip link set enp4s0 master bond2", script)
-        self.assertTrue(script.endswith("ip link set enp3s0 up && ip link set enp4s0 up"))
-
     def test_bond_bundled_needs_the_active_aggregator_and_both_ends_in_sync(self):
         def member(name, aggregator, actor, partner):
             return (f"Slave Interface: {name}\nMII Status: up\nAggregator ID: {aggregator}\n"

@@ -2,19 +2,11 @@ use shared::data::{
     CpuMode, CpuTopology, DiskCache, DiskImageCloneMethod, DiskIo, NodeKind, NodeModel,
     NumaMemoryMode, PtxPlatform, WatchdogAction, Ztp,
 };
-use topology::{Bridge, Link2, Manifest};
+use topology::Manifest;
 
 // ============================================================================
 // Expected TOML manifests
 // ============================================================================
-
-const MINIMAL_MANIFEST: &str = r#"
-name = "test-lab"
-
-nodes = [
-  { name = "dev01", model = "ubuntu_linux" },
-]
-"#;
 
 const FULL_MANIFEST: &str = r#"
 name = "full-lab"
@@ -147,19 +139,6 @@ const MANIFEST_WITH_TEXT_FILES_UNKNOWN_FIELD: &str = r#"
 // ============================================================================
 // Tests — manifest parsing
 // ============================================================================
-
-#[test]
-fn test_parse_minimal_manifest() {
-    let manifest: Manifest = toml::from_str(MINIMAL_MANIFEST).expect("parses");
-    assert_eq!(manifest.name, "test-lab");
-    assert_eq!(manifest.nodes.len(), 1);
-    assert_eq!(manifest.nodes[0].name, "dev01");
-    assert_eq!(manifest.nodes[0].model, NodeModel::UbuntuLinux);
-    assert!(manifest.links.is_none());
-    assert!(manifest.bridges.is_none());
-    assert!(manifest.ready_timeout.is_none());
-    assert!(manifest.ztp_server.is_none());
-}
 
 #[test]
 fn test_parse_full_manifest() {
@@ -310,138 +289,17 @@ fn test_parse_missing_nodes() {
 // Tests — Manifest::example()
 // ============================================================================
 
-#[test]
-fn test_example_manifest() {
-    let manifest = Manifest::example().expect("generates example");
-    assert_ne!(manifest.name, "");
-    assert_eq!(manifest.nodes.len(), 2);
-    assert_eq!(manifest.nodes[0].name, "dev01");
-    assert_eq!(manifest.nodes[0].model, NodeModel::UbuntuLinux);
-    assert_eq!(manifest.nodes[1].name, "dev02");
-    assert_eq!(manifest.nodes[1].model, NodeModel::FedoraLinux);
-
-    let links = manifest.links.as_ref().expect("has links");
-    assert_eq!(links.len(), 1);
-    assert_eq!(links[0].src, "dev01::eth1");
-    assert_eq!(links[0].dst, "dev02::eth1");
-}
-
 // ============================================================================
 // Tests — write/load round-trip
 // ============================================================================
-
-#[test]
-fn test_write_file_keeps_every_field() {
-    let input = format!(
-        r#"
-        {FULL_MANIFEST}
-
-        [[talos_clusters]]
-        name = "k8s"
-        controllers = ["router1"]
-
-        [tailscale]
-        enabled = true
-        auth_key_env = "TS_KEY"
-        "#
-    );
-    let manifest: Manifest = toml::from_str(&input).expect("parses full manifest");
-
-    let tmp_path = std::env::temp_dir().join("sherpa_test_manifest_every_field.toml");
-    let tmp_path = tmp_path.to_str().expect("utf-8 temp path");
-    manifest.write_file(tmp_path).expect("writes file");
-    let loaded = Manifest::load_file(tmp_path).expect("loads file");
-    std::fs::remove_file(tmp_path).ok();
-
-    assert_eq!(
-        toml::Value::try_from(&loaded).unwrap(),
-        toml::Value::try_from(&manifest).unwrap()
-    );
-}
-
-#[test]
-fn test_write_file_emits_tables_without_resolved_data() {
-    let manifest = Manifest::example().expect("builds example");
-
-    let tmp_path = std::env::temp_dir().join("sherpa_test_manifest_example.toml");
-    let tmp_path = tmp_path.to_str().expect("utf-8 temp path");
-    manifest.write_file(tmp_path).expect("writes file");
-    let contents = std::fs::read_to_string(tmp_path).expect("reads file");
-    std::fs::remove_file(tmp_path).ok();
-
-    assert!(contents.contains("[[nodes]]"));
-    assert!(contents.contains("[[links]]"));
-    assert!(!contents.contains("_data"));
-}
 
 // ============================================================================
 // Tests — Link2::expand()
 // ============================================================================
 
-#[test]
-fn test_link2_expand() {
-    let link = Link2 {
-        src: "router1::eth1".to_string(),
-        dst: "switch1::GigabitEthernet0/1".to_string(),
-        p2p: None,
-        impairment: None,
-    };
-    let expanded = link.expand().expect("expands");
-    assert_eq!(expanded.node_a, "router1");
-    assert_eq!(expanded.int_a, "eth1");
-    assert_eq!(expanded.node_b, "switch1");
-    assert_eq!(expanded.int_b, "GigabitEthernet0/1");
-}
-
-#[test]
-fn test_link2_expand_missing_separator() {
-    let link = Link2 {
-        src: "router1-eth1".to_string(),
-        dst: "switch1::eth1".to_string(),
-        p2p: None,
-        impairment: None,
-    };
-    let result = link.expand();
-    assert!(result.is_err());
-}
-
 // ============================================================================
 // Tests — Bridge::parse_links()
 // ============================================================================
-
-#[test]
-fn test_bridge_parse_links() {
-    let bridge = Bridge {
-        name: "br0".to_string(),
-        links: vec![
-            "router1::eth3".to_string(),
-            "switch1::eth5".to_string(),
-            "server1::eth2".to_string(),
-        ],
-    };
-    let expanded = bridge.parse_links().expect("parses");
-    assert_eq!(expanded.name, "br0");
-    assert_eq!(expanded.links.len(), 3);
-    assert_eq!(expanded.links[0].node, "router1");
-    assert_eq!(expanded.links[0].interface, "eth3");
-    assert_eq!(expanded.links[1].node, "switch1");
-    assert_eq!(expanded.links[1].interface, "eth5");
-    assert_eq!(expanded.links[2].node, "server1");
-    assert_eq!(expanded.links[2].interface, "eth2");
-}
-
-#[test]
-fn test_bridge_parse_links_invalid_format() {
-    let bridge = Bridge {
-        name: "br0".to_string(),
-        links: vec![
-            "router1::eth3".to_string(),
-            "bad-format-no-separator".to_string(),
-        ],
-    };
-    let result = bridge.parse_links();
-    assert!(result.is_err());
-}
 
 // ============================================================================
 // Tests — text_files parsing

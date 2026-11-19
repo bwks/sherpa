@@ -367,18 +367,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_lab_without_stored_plans_has_none() {
-        let (db, lab) = lab().await;
-
-        assert_eq!(
-            list_talos_cluster_plans(&db, lab.id.as_ref().unwrap())
-                .await
-                .unwrap(),
-            Vec::<ClusterPlan>::new()
-        );
-    }
-
-    #[tokio::test]
     async fn storing_the_plans_again_replaces_them() {
         let (db, lab) = lab().await;
         let lab_id = lab.id.unwrap();

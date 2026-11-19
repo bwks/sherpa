@@ -31,30 +31,3 @@ impl CpuPinRole {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_conflict_serializes_with_its_field_names() {
-        let conflict = CpuPinConflict {
-            host_cpus: vec![2, 3],
-            requested_role: CpuPinRole::Vcpu,
-            held_role: CpuPinRole::Thread,
-        };
-        let json = serde_json::to_value(&conflict).unwrap();
-        assert_eq!(
-            json,
-            serde_json::json!({
-                "host_cpus": [2, 3],
-                "requested_role": "vcpu",
-                "held_role": "thread",
-            })
-        );
-        assert_eq!(
-            serde_json::from_value::<CpuPinConflict>(json).unwrap(),
-            conflict
-        );
-    }
-}

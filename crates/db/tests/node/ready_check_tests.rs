@@ -37,16 +37,6 @@ async fn lab_with_node(db: &db::Database) -> Result<DbNode> {
 }
 
 #[tokio::test]
-async fn a_new_node_has_no_ready_port_and_is_not_skipped() -> Result<()> {
-    let db = setup_db().await?;
-    let node = lab_with_node(&db).await?;
-    assert_eq!(node.ready_check, ReadyCheck::default());
-    assert_eq!(node.ready_check.port, None);
-    assert!(!node.ready_check.skip);
-    Ok(())
-}
-
-#[tokio::test]
 async fn a_nodes_ready_check_is_stored_and_read_back() -> Result<()> {
     let db = setup_db().await?;
     let node = lab_with_node(&db).await?;

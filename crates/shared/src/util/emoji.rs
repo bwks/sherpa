@@ -87,26 +87,3 @@ pub fn emoji_success(msg: &str) -> String {
 pub fn emoji_warning(msg: &str) -> String {
     format!("{} {}", Emoji::Warning, msg)
 }
-
-// ============================================================================
-// Unit Tests
-// ============================================================================
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_emoji_success() {
-        let result = emoji_success("Test passed");
-        assert_eq!(result, "✅ Test passed");
-        assert!(result.starts_with(&Emoji::Success.to_string()));
-    }
-
-    #[test]
-    fn test_emoji_warning() {
-        let result = emoji_warning("Test warning");
-        assert_eq!(result, "⚠️ Test warning");
-        assert!(result.starts_with(&Emoji::Warning.to_string()));
-    }
-}

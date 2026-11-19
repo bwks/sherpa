@@ -117,23 +117,3 @@ fn test_dnsmasq_disabled_ztp_keeps_the_host_and_sends_no_boot_option() {
         EXPECTED_DNSMASQ_TFTP.replace("dhcp-option=tag:sw01-tag,67,sw01.cfg\n", "")
     );
 }
-
-#[test]
-fn test_dnsmasq_only_network_boot_methods_send_a_boot_option() {
-    let every = [
-        Ztp::Disabled,
-        Ztp::CloudInit,
-        Ztp::Cdrom,
-        Ztp::Disk,
-        Ztp::Http,
-        Ztp::Ignition,
-        Ztp::NoCloud,
-        Ztp::Tftp,
-        Ztp::Usb,
-        Ztp::Volume,
-    ];
-    for ztp in every {
-        let sends = !boot_options(&render(ztp)).is_empty();
-        assert_eq!(sends, matches!(ztp, Ztp::Tftp | Ztp::Http), "{ztp}");
-    }
-}

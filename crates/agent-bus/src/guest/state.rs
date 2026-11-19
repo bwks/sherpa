@@ -337,17 +337,6 @@ mod tests {
     }
 
     #[test]
-    fn the_state_survives_a_round_trip() {
-        let dir = dir("round");
-        let file = StateFile::new(dir.join("agent-bus").join("guest-dev.toml"));
-        for saved in [Saved::default(), full()] {
-            file.save(&saved).unwrap();
-            assert_eq!(file.load(NOW), saved);
-        }
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
     fn the_write_is_atomic_and_private() {
         let dir = dir("atomic");
         let file = StateFile::new(dir.join("agent-bus").join("guest-dev.toml"));

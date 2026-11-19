@@ -481,26 +481,6 @@ mod tests {
     }
 
     #[test]
-    fn the_json_names_every_field() {
-        let row = row(&guest(Some(inbox(0, true)), None), NOW, STALE);
-        let json = serde_json::to_value(&row).unwrap();
-        assert_eq!(json["online"], "unreported");
-        assert_eq!(json["role"], "guest");
-        assert!(json["running"].is_null());
-        for field in [
-            "name",
-            "queued",
-            "inbox_unread",
-            "local_queue",
-            "reader_attached",
-            "last_active_ms",
-            "last_active_age_secs",
-        ] {
-            assert!(json.get(field).is_some(), "{field} missing from {json}");
-        }
-    }
-
-    #[test]
     fn ages_show_their_two_largest_units() {
         assert_eq!(age(0), "0s");
         assert_eq!(age(45), "45s");

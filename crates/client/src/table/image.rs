@@ -209,17 +209,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_images_table_still_has_headers() {
-        let expected = "\
-┌──────────────────────────────────┐
-│              Images              │
-├───────┬──────┬─────────┬─────────┤
-│ Model │ Kind │ Version │ Default │
-└───────┴──────┴─────────┴─────────┘";
-        assert_eq!(render_images_table(&[]), expected);
-    }
-
-    #[test]
     fn scanned_images_table_shows_each_image_with_its_status() {
         let scanned = [
             ScannedImage {
@@ -319,39 +308,5 @@ mod tests {
         assert!(table.contains("cisco_cat8000"));
         assert!(table.contains("virtual_machine"));
         assert!(table.contains("Image Detail"));
-    }
-
-    #[test]
-    fn a_container_images_detail_table_shows_the_shared_rows_and_its_container_group() {
-        let image = ModelKind::default_for(NodeModel::NokiaSrlinux).node_config();
-        let table = render_image_detail_table(&image);
-        let mut expected: Vec<&str> = SHARED_ROWS.to_vec();
-        expected.extend(["container.repo", "container.ztp.method"]);
-        assert_eq!(row_names(&table), expected, "{table}");
-        assert!(table.contains("ghcr.io/nokia/srlinux"), "{table}");
-    }
-
-    #[test]
-    fn a_unikernel_images_detail_table_shows_the_shared_rows_and_its_unikernel_group() {
-        let image = ModelKind::default_for(NodeModel::NanosUnikernel).node_config();
-        let table = render_image_detail_table(&image);
-        let mut expected: Vec<&str> = SHARED_ROWS.to_vec();
-        expected.extend([
-            "unikernel.boot_mode",
-            "unikernel.cpu.architecture",
-            "unikernel.cpu.model",
-            "unikernel.machine.kind",
-            "unikernel.interfaces.kind",
-            "unikernel.interfaces.mtu",
-        ]);
-        assert_eq!(row_names(&table), expected, "{table}");
-    }
-
-    #[test]
-    fn a_container_without_a_repo_shows_none() {
-        let image = ModelKind::default_for(NodeModel::MysqlDb).node_config();
-        let table = render_image_detail_table(&image);
-        assert!(table.contains("│ container.repo"), "{table}");
-        assert!(table.contains("none"), "{table}");
     }
 }

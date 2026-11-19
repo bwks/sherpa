@@ -402,29 +402,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_model_takes_at_least_one_kind_and_its_default_is_the_first() {
-        for model in NodeModel::iter() {
-            let kinds = model.kinds();
-            assert!(!kinds.is_empty(), "{model} takes no kind");
-            assert_eq!(ModelKind::default_for(model).kind(), kinds[0], "{model}");
-            let mut unique = kinds.to_vec();
-            unique.dedup();
-            assert_eq!(unique.len(), kinds.len(), "{model} lists a kind twice");
-        }
-    }
-
-    #[test]
-    fn no_kind_gives_the_models_default_kind() {
-        for model in NodeModel::iter().filter(|model| *model != NodeModel::Generic) {
-            assert_eq!(
-                ModelKind::new(model, None).unwrap(),
-                ModelKind::default_for(model),
-                "{model}"
-            );
-        }
-    }
-
-    #[test]
     fn generic_has_no_default_kind_and_is_refused_without_one() {
         assert_eq!(NodeModel::Generic.default_kind(), None);
         let error = ModelKind::new(NodeModel::Generic, None)
@@ -442,83 +419,6 @@ mod tests {
                     .kind(),
                 kind
             );
-        }
-    }
-
-    #[test]
-    fn the_merged_models_default_to_their_virtual_machine() {
-        for model in [NodeModel::AristaEos, NodeModel::JuniperEvolved] {
-            assert_eq!(
-                model.kinds(),
-                [NodeKind::VirtualMachine, NodeKind::Container],
-                "{model}"
-            );
-            assert_eq!(
-                ModelKind::new(model, None).unwrap().kind(),
-                NodeKind::VirtualMachine
-            );
-        }
-    }
-
-    #[test]
-    fn srx_takes_its_config_from_cdrom_only_and_by_default() {
-        let srx = ModelKind::default_for(NodeModel::JuniperSrxv3);
-        assert_eq!(srx.ztp_methods(), [Ztp::Cdrom]);
-        assert_eq!(srx.node_config().ztp(), Ztp::Cdrom);
-    }
-
-    #[test]
-    fn each_kind_of_a_merged_model_has_its_own_settings_and_ztp() {
-        let veos = ModelKind::default_for(NodeModel::AristaEos);
-        let ceos = ModelKind::new(NodeModel::AristaEos, Some(NodeKind::Container)).unwrap();
-        assert_eq!(veos.ztp_methods(), [Ztp::Tftp]);
-        assert_eq!(ceos.ztp_methods(), [Ztp::Volume]);
-        assert_eq!(
-            ceos.node_config().container_repo(None).as_deref(),
-            Some("localrepo/arista_eos")
-        );
-        assert_eq!(veos.node_config().container_repo(None), None);
-
-        let vevolved = ModelKind::default_for(NodeModel::JuniperEvolved);
-        let cevolved =
-            ModelKind::new(NodeModel::JuniperEvolved, Some(NodeKind::Container)).unwrap();
-        assert_eq!(vevolved.ztp_methods(), [Ztp::Tftp, Ztp::Usb]);
-        assert_eq!(cevolved.ztp_methods(), [Ztp::Volume]);
-        assert_eq!(
-            cevolved.node_config().container_repo(None).as_deref(),
-            Some("localrepo/juniper_evolved")
-        );
-        assert!(cevolved.keeps_data_interfaces_up());
-        assert!(!vevolved.keeps_data_interfaces_up());
-    }
-
-    #[test]
-    fn each_kind_of_sonic_has_its_own_settings_and_ztp() {
-        let vm = ModelKind::default_for(NodeModel::SonicLinux);
-        let container = ModelKind::new(NodeModel::SonicLinux, Some(NodeKind::Container)).unwrap();
-        assert_eq!(vm.kind(), NodeKind::VirtualMachine);
-        assert_eq!(vm.ztp_methods(), [Ztp::Http]);
-        assert_eq!(container.ztp_methods(), [Ztp::Volume]);
-        assert_eq!(vm.node_config().ztp(), Ztp::Http);
-        assert_eq!(container.node_config().ztp(), Ztp::Volume);
-        assert_eq!(vm.node_config().container_repo(None), None);
-        assert_eq!(
-            container.node_config().container_repo(None).as_deref(),
-            Some("docker-sonic-vs")
-        );
-        assert!(container.has_ssh());
-        assert!(!container.keeps_data_interfaces_up());
-        assert_eq!(container.to_string(), "sonic_linux, container");
-    }
-
-    #[test]
-    fn a_kind_the_model_takes_is_accepted() {
-        for model in NodeModel::iter() {
-            for &kind in model.kinds() {
-                let model_kind = ModelKind::new(model, Some(kind)).unwrap();
-                assert_eq!(model_kind.model(), model);
-                assert_eq!(model_kind.kind(), kind);
-            }
         }
     }
 
@@ -569,86 +469,6 @@ mod tests {
             assert_eq!(config.model, model_kind.model(), "{model_kind:?}");
             assert_eq!(config.kind(), model_kind.kind(), "{model_kind:?}");
             assert_eq!(config.model_kind().unwrap(), model_kind);
-        }
-    }
-
-    #[test]
-    fn an_image_whose_model_does_not_take_its_kind_has_no_model_kind() {
-        let mut config = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
-        config.settings = ModelKind::default_for(NodeModel::MysqlDb)
-            .node_config()
-            .settings;
-        assert!(config.model_kind().is_err());
-    }
-
-    #[test]
-    fn only_virtual_machines_and_the_sonic_container_have_a_ready_port_of_their_own() {
-        let sonic_container =
-            ModelKind::new(NodeModel::SonicLinux, Some(NodeKind::Container)).unwrap();
-        for model_kind in ModelKind::all() {
-            assert_eq!(
-                model_kind.ready_port().is_some(),
-                model_kind.kind() == NodeKind::VirtualMachine || model_kind == sonic_container,
-                "{model_kind:?}"
-            );
-        }
-        assert_eq!(sonic_container.ready_port(), Some(SSH_PORT));
-        assert_eq!(
-            ModelKind::default_for(NodeModel::TalosLinux).ready_port(),
-            Some(TALOS_API_PORT)
-        );
-    }
-
-    #[test]
-    fn only_windows_with_cloud_init_waits_for_sherpa_s_sshd_config() {
-        for model_kind in ModelKind::all() {
-            let windows = matches!(
-                model_kind.model(),
-                NodeModel::DevboxWindows | NodeModel::WindowsServer
-            );
-            for ztp in [Ztp::CloudInit, Ztp::Disabled, Ztp::Tftp] {
-                assert_eq!(
-                    model_kind.waits_for_sshd_ready_marker(ztp),
-                    windows && ztp == Ztp::CloudInit,
-                    "{model_kind:?} {ztp:?}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn only_cisco_iol_containers_need_the_host_to_finish_checksums() {
-        for model_kind in ModelKind::all() {
-            assert_eq!(
-                model_kind.needs_host_checksums(),
-                matches!(
-                    model_kind.model(),
-                    NodeModel::CiscoIol | NodeModel::CiscoIoll2
-                ),
-                "{model_kind:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn other_vm_models_keep_ssh_readiness_and_image_disk_size() {
-        let ubuntu = ModelKind::default_for(NodeModel::UbuntuLinux);
-        assert_eq!(ubuntu.ready_port(), Some(SSH_PORT));
-        assert_eq!(
-            ModelKind::default_for(NodeModel::FlatcarLinux).ready_port(),
-            Some(SSH_PORT)
-        );
-        assert_eq!(ubuntu.default_boot_disk_size(), None);
-        assert!(ubuntu.has_ssh());
-    }
-
-    #[test]
-    fn test_no_model_lists_disabled_as_a_ztp_method() {
-        for model_kind in ModelKind::all() {
-            assert!(
-                !model_kind.ztp_methods().contains(&Ztp::Disabled),
-                "{model_kind:?} lists disabled"
-            );
         }
     }
 

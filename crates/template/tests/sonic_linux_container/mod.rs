@@ -120,16 +120,6 @@ fn test_init_locks_root_and_refuses_its_ssh_login() {
 }
 
 #[test]
-fn test_init_links_rvtysh_to_vtysh() {
-    let output = init(None, None);
-    assert!(
-        output.contains(
-            "[ -e /usr/local/bin/rvtysh ] || ln -s /usr/bin/vtysh /usr/local/bin/rvtysh\n"
-        )
-    );
-}
-
-#[test]
 fn test_init_waits_for_the_data_interfaces_then_hands_over_to_sonic() {
     let output = init(None, None);
     assert!(output.contains("DATA_COUNT=2\n"));

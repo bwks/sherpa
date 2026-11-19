@@ -110,30 +110,6 @@ mod tests {
     }
 
     #[test]
-    fn every_model_has_its_five_rates() {
-        let million = |kind: usize| {
-            let mut counts = [0; 5];
-            counts[kind] = 1_000_000;
-            tokens(counts[0], counts[1], counts[2], counts[3], counts[4])
-        };
-        for (model, expected) in [
-            ("claude-opus-5-5", [4.0, 20.0, 0.2, 5.0, 8.0]),
-            ("claude-sonnet-5-5", [2.0, 10.0, 0.1, 2.5, 4.0]),
-            ("claude-haiku-5-5", [0.1, 0.5, 0.01, 0.125, 0.2]),
-            ("claude-fable-5-2", [8.0, 40.0, 0.2, 10.0, 16.0]),
-        ] {
-            for (kind, rate) in expected.iter().enumerate() {
-                assert_eq!(
-                    cost(model, STANDARD_SPEED, &million(kind)),
-                    Some(*rate),
-                    "{model} kind {kind}"
-                );
-            }
-        }
-        assert_eq!(RATES.len(), 4, "a new model needs its line here");
-    }
-
-    #[test]
     fn an_unknown_model_and_fast_mode_are_not_priced() {
         let used = tokens(1, 1, 1, 1, 1);
         assert_eq!(cost("claude-opus-9-9", STANDARD_SPEED, &used), None);

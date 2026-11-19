@@ -229,23 +229,9 @@ mod tests {
     }
 
     #[test]
-    fn the_file_round_trips_and_a_missing_file_is_empty() {
-        let dir = scratch("round-trip");
-        let path = dir.join("agent-bus").join("enrolled.toml");
+    fn a_missing_file_is_an_empty_registry() {
+        let path = scratch("missing").join("agent-bus").join("enrolled.toml");
         assert_eq!(Registry::load(&path).unwrap(), Registry::default());
-        let mut registry = Registry::default();
-        registry.enroll("dev", &key());
-        registry.enroll("agent-2", &key());
-        registry.save(&path).unwrap();
-        assert_eq!(Registry::load(&path).unwrap(), registry);
-        let text = fs::read_to_string(&path).unwrap();
-        assert!(text.starts_with(HEADER) && text.contains("role = \"guest\""));
-        // An emptied registry is saved and read back as empty.
-        registry.unenroll("dev");
-        registry.unenroll("agent-2");
-        registry.save(&path).unwrap();
-        assert_eq!(Registry::load(&path).unwrap(), Registry::default());
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

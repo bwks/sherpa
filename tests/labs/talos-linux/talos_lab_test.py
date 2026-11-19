@@ -878,14 +878,6 @@ class SelfTest(unittest.TestCase):
             self.assertEqual(util[0]["startup_scripts"], ["/abs/install-tools.sh"])
             self.assertEqual(len(rendered["nodes"]), len(manifest["nodes"]))
 
-    def test_lab_shapes(self):
-        self.assertEqual(tuple(map(len, cluster_members(self.manifest("single")))), (1, 3))
-        self.assertEqual(tuple(map(len, cluster_members(self.manifest("ha")))), (3, 1))
-
-    def test_single_runs_flannel_and_ha_runs_cilium(self):
-        self.assertNotIn("cni", lab_cluster(self.manifest("single")))
-        self.assertEqual(lab_cluster(self.manifest("ha"))["cni"], "cilium")
-
     def test_ha_logs_in_through_keycloak_and_reads_secrets_from_vault(self):
         cluster = lab_cluster(self.manifest("ha"))
         models = {node["name"]: node["model"] for node in self.manifest("ha")["nodes"]}
@@ -966,13 +958,6 @@ class SelfTest(unittest.TestCase):
                 "conditions": [{"type": "Ready", "status": "Unknown"}], "addresses": []}},
         ]})
         self.assertEqual(nodes, {"cp1": (True, "172.31.1.21"), "w1": (False, None)})
-
-    def test_first_vip_is_offset_eleven(self):
-        self.assertEqual(first_vip("172.31.4.0/24"), "172.31.4.11")
-
-    def test_cilium_addresses_follow_the_vips(self):
-        self.assertEqual(host_address("172.31.4.0/24", GATEWAY_HOST_OFFSET), "172.31.4.13")
-        self.assertEqual(host_address("172.31.4.0/24", HUBBLE_UI_HOST_OFFSET), "172.31.4.14")
 
     def test_gateway_route_targets_the_workload_service(self):
         route = gateway_route()

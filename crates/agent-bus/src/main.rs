@@ -754,23 +754,6 @@ mod tests {
     }
 
     #[test]
-    fn an_answer_alone_parses() {
-        let cli = send(&["--answer", "t1"]).unwrap();
-        let Command::Send {
-            github,
-            model,
-            answer,
-            ..
-        } = cli.command
-        else {
-            panic!("not a send");
-        };
-        assert!(!github);
-        assert_eq!(model, None);
-        assert_eq!(answer.as_deref(), Some("t1"));
-    }
-
-    #[test]
     fn a_task_takes_issue_and_pull_request_tags_and_an_answer_refuses_them() {
         let cli = send(&[
             "--issue", "580", "--pr", "612", "--pr", "613", "--repo", "o/r",

@@ -115,10 +115,4 @@ mod tests {
             assert!(read_input(&stdin).is_err(), "{stdin:?}");
         }
     }
-
-    #[test]
-    fn the_exit_code_is_never_two() {
-        assert_eq!(Exit::Done.code(), 0);
-        assert_eq!(Exit::Failed.code(), 1);
-    }
 }

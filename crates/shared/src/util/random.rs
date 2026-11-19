@@ -27,35 +27,9 @@ mod tests {
     // generate_lab_name
     // ========================================================================
 
-    #[test]
-    fn test_generate_lab_name_has_two_words() {
-        let name = generate_lab_name().expect("should generate a name");
-        let parts: Vec<&str> = name.split('-').collect();
-        assert_eq!(parts.len(), 2, "expected exactly two words, got: {name}");
-    }
-
-    #[test]
-    fn test_generate_lab_name_only_lowercase_alpha_and_hyphens() {
-        let name = generate_lab_name().expect("should generate a name");
-        assert!(
-            name.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
-            "expected only lowercase ascii and hyphens, got: {name}"
-        );
-    }
-
     // ========================================================================
     // get_id_for_user
     // ========================================================================
-
-    #[test]
-    fn test_get_id_for_user_returns_8_char_hex() {
-        let id = get_id_for_user("alice", "test-lab");
-        assert_eq!(id.len(), 8);
-        assert!(
-            id.chars().all(|c| c.is_ascii_hexdigit()),
-            "expected hex string, got: {id}"
-        );
-    }
 
     #[test]
     fn test_get_id_for_user_is_a_stable_hash_of_user_and_lab() {

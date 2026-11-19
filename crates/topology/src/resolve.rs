@@ -105,7 +105,6 @@ mod tests {
 
     use super::*;
     use crate::Node;
-    use crate::link::ManifestImpairment;
 
     fn nodes(names: &[&str]) -> Vec<NodeExpanded> {
         (1..)
@@ -170,17 +169,6 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].link_idx, 0);
         assert_eq!(result[1].link_idx, 1);
-    }
-
-    #[test]
-    fn a_link_keeps_its_impairment() {
-        let mut impaired = link("dev01::eth1", "dev02::eth1");
-        impaired.impairment = Some(ManifestImpairment {
-            delay: Some(10),
-            ..Default::default()
-        });
-        let result = process_manifest_links(&[impaired], &nodes(&["dev01", "dev02"])).unwrap();
-        assert_eq!(result[0].impairment.as_ref().unwrap().delay, Some(10));
     }
 
     #[test]

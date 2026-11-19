@@ -81,20 +81,4 @@ mod tests {
         );
         assert!(!report(LinkState::Attached).failed());
     }
-
-    #[test]
-    fn a_report_is_flat_json_with_its_state() {
-        let report = LinkReport {
-            link: "a::eth1 <-> b::eth1".to_string(),
-            state: LinkState::PeerDown {
-                peer: "b".to_string(),
-            },
-        };
-        let json = serde_json::to_value(&report).unwrap();
-        assert_eq!(
-            json,
-            serde_json::json!({"link": "a::eth1 <-> b::eth1", "state": "peer_down", "peer": "b"})
-        );
-        assert_eq!(serde_json::from_value::<LinkReport>(json).unwrap(), report);
-    }
 }

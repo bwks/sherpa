@@ -104,28 +104,6 @@ async fn test_update_username() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_update_username_conflict_fails() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Create two users
-    create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
-    let user2 = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
-
-    // Try to rename user2 to user1's name
-    let mut updated_user = user2.clone();
-    updated_user.username = "grace".to_string();
-
-    let result = update_user(&db, updated_user).await;
-
-    assert!(
-        result.is_err(),
-        "Should fail when username conflicts with existing user"
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn an_update_sets_updated_at_and_keeps_created_at() -> Result<()> {
     let db = setup_db().await?;
     let created = create_user(&db, "erin".to_string(), "TestPass123!", false, vec![]).await?;

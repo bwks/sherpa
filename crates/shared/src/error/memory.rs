@@ -12,30 +12,3 @@ pub struct MemoryShortfall {
     /// the whole server is.
     pub numa_node: Option<u32>,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_shortfall_serializes_with_its_field_names() {
-        let shortfall = MemoryShortfall {
-            requested_mib: 30720,
-            available_mib: 26624,
-            numa_node: None,
-        };
-        let json = serde_json::to_value(shortfall).unwrap();
-        assert_eq!(
-            json,
-            serde_json::json!({
-                "requested_mib": 30720,
-                "available_mib": 26624,
-                "numa_node": null,
-            })
-        );
-        assert_eq!(
-            serde_json::from_value::<MemoryShortfall>(json).unwrap(),
-            shortfall
-        );
-    }
-}

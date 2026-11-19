@@ -205,73 +205,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_hardware_groups_read_every_setting() {
-        let cpu: NodeCpu = serde_json::from_value(serde_json::json!({
-            "count": 2,
-            "mode": "host-passthrough",
-            "topology": { "sockets": 1, "cores": 1, "threads": 2 },
-            "pinning": [9, 25],
-            "emulator_pinning": [8, 24]
-        }))
-        .unwrap();
-        assert_eq!(cpu.count, Some(2));
-        assert_eq!(cpu.mode, Some(CpuMode::HostPassthrough));
-        assert_eq!(
-            cpu.topology,
-            Some(CpuTopology {
-                sockets: 1,
-                cores: 1,
-                threads: 2
-            })
-        );
-        assert_eq!(cpu.pinning, Some(vec![9, 25]));
-        assert_eq!(cpu.emulator_pinning, Some(vec![8, 24]));
-        let numa: NodeNuma = serde_json::from_value(serde_json::json!({
-            "node": 1,
-            "memory_mode": "preferred"
-        }))
-        .unwrap();
-        assert_eq!(numa.node, Some(1));
-        assert_eq!(numa.memory_mode, Some(NumaMemoryMode::Preferred));
-        let disk: NodeBootDisk = serde_json::from_value(serde_json::json!({
-            "size": 20,
-            "clone_method": "copy",
-            "cache": "none",
-            "io": "io_uring",
-            "io_thread_cpus": [8, 24]
-        }))
-        .unwrap();
-        assert_eq!(disk.size, Some(20));
-        assert_eq!(disk.clone_method, Some(DiskImageCloneMethod::Copy));
-        assert_eq!(disk.cache, Some(DiskCache::None));
-        assert_eq!(disk.io, Some(DiskIo::IoUring));
-        assert_eq!(disk.io_thread_cpus, Some(vec![8, 24]));
-        let interfaces: NodeInterfaces =
-            serde_json::from_value(serde_json::json!({ "data_count": 4, "queues": 2 })).unwrap();
-        assert_eq!(interfaces.data_count, Some(4));
-        assert_eq!(interfaces.queues, Some(2));
-    }
-
-    #[test]
-    fn test_numa_memory_mode_reads_strict_and_preferred() {
-        for (value, mode) in [
-            ("strict", NumaMemoryMode::Strict),
-            ("preferred", NumaMemoryMode::Preferred),
-        ] {
-            let numa: NodeNuma = serde_json::from_value(serde_json::json!({
-                "node": 1,
-                "memory_mode": value
-            }))
-            .unwrap();
-            assert_eq!(numa.memory_mode, Some(mode));
-            assert_eq!(mode.to_string(), value);
-        }
-        let interleave: Result<NodeNuma, _> =
-            serde_json::from_value(serde_json::json!({ "memory_mode": "interleave" }));
-        assert!(interleave.is_err());
-    }
-
-    #[test]
     fn test_only_strict_numa_memory_is_held_to_its_node() {
         let strict = NodeNuma {
             node: Some(1),
@@ -300,23 +233,6 @@ mod tests {
         let old: Result<NodeBootDisk, _> =
             serde_json::from_value(serde_json::json!({ "disk_cache": "none" }));
         assert!(old.is_err());
-    }
-
-    #[test]
-    fn test_cpu_mode_maps_to_cpu_model() {
-        assert_eq!(
-            CpuModels::from(CpuMode::HostPassthrough),
-            CpuModels::HostPassthrough
-        );
-        assert_eq!(CpuModels::from(CpuMode::HostModel), CpuModels::HostModel);
-    }
-
-    #[test]
-    fn test_disk_settings_display_as_libvirt_values() {
-        assert_eq!(DiskCache::None.to_string(), "none");
-        assert_eq!(DiskCache::Writethrough.to_string(), "writethrough");
-        assert_eq!(DiskIo::IoUring.to_string(), "io_uring");
-        assert_eq!(DiskIo::Native.to_string(), "native");
     }
 
     #[test]

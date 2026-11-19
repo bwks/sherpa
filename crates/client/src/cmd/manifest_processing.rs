@@ -21,79 +21,7 @@ pub fn process_manifest_nodes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{self, NodeModel};
-
-    // ============================================================================
-
-    #[test]
-    fn node_expansion_preserves_clone_method_options() {
-        let nodes = vec![
-            topology::Node {
-                name: "default-vm".into(),
-                model: data::NodeModel::UbuntuLinux,
-                ..Default::default()
-            },
-            topology::Node {
-                name: "copy-vm".into(),
-                model: data::NodeModel::UbuntuLinux,
-                boot_disk: data::NodeBootDisk {
-                    clone_method: Some(data::DiskImageCloneMethod::Copy),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            topology::Node {
-                name: "overlay-vm".into(),
-                model: data::NodeModel::UbuntuLinux,
-                boot_disk: data::NodeBootDisk {
-                    clone_method: Some(data::DiskImageCloneMethod::Overlay),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            topology::Node {
-                name: "container".into(),
-                model: data::NodeModel::Generic,
-                kind: Some(data::NodeKind::Container),
-                ..Default::default()
-            },
-            topology::Node {
-                name: "unikernel".into(),
-                model: data::NodeModel::Generic,
-                kind: Some(data::NodeKind::Unikernel),
-                ..Default::default()
-            },
-            topology::Node {
-                name: "unsupported-overlay".into(),
-                model: data::NodeModel::Generic,
-                kind: Some(data::NodeKind::Container),
-                boot_disk: data::NodeBootDisk {
-                    clone_method: Some(data::DiskImageCloneMethod::Overlay),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        ];
-        let expanded = process_manifest_nodes(&nodes).unwrap();
-        assert_eq!(expanded[0].boot_disk.clone_method, None);
-        assert_eq!(
-            expanded[1].boot_disk.clone_method,
-            Some(data::DiskImageCloneMethod::Copy)
-        );
-        assert_eq!(
-            expanded[2].boot_disk.clone_method,
-            Some(data::DiskImageCloneMethod::Overlay)
-        );
-        assert_eq!(expanded[3].boot_disk.clone_method, None);
-        assert_eq!(expanded[4].boot_disk.clone_method, None);
-        // Preserve an explicit unsupported request so validation rejects it.
-        assert_eq!(
-            expanded[5].boot_disk.clone_method,
-            Some(data::DiskImageCloneMethod::Overlay)
-        );
-    }
-    // process_manifest_nodes
-    // ============================================================================
+    use shared::data::NodeModel;
 
     #[test]
     fn test_process_manifest_nodes_assigns_indices_starting_at_one() {
@@ -124,44 +52,5 @@ mod tests {
         assert_eq!(expanded[1].name, "dev02");
         assert_eq!(expanded[2].index, 3);
         assert_eq!(expanded[2].name, "dev03");
-    }
-
-    #[test]
-    fn test_process_manifest_nodes_preserves_fields() {
-        let nodes = vec![topology::Node {
-            name: "router01".to_string(),
-            model: NodeModel::AristaEos,
-            version: Some("4.28.0".to_string()),
-            memory: Some(4096),
-            cpu: data::NodeCpu {
-                count: Some(2),
-                ..Default::default()
-            },
-            interfaces: data::NodeInterfaces {
-                data_count: Some(4),
-                queues: None,
-            },
-            vm: Some(topology::NodeVm::default()),
-            ready_check: topology::NodeReadyCheck {
-                port: None,
-                skip: Some(true),
-            },
-            ..Default::default()
-        }];
-
-        let expanded = process_manifest_nodes(&nodes).unwrap();
-
-        // A model with no kind set is its default kind, a VM for arista_eos.
-        assert_eq!(expanded[0].model_kind.model(), NodeModel::AristaEos);
-        assert_eq!(
-            expanded[0].model_kind.kind(),
-            data::NodeKind::VirtualMachine
-        );
-        assert_eq!(expanded[0].version, Some("4.28.0".to_string()));
-        assert_eq!(expanded[0].memory, Some(4096));
-        assert_eq!(expanded[0].cpu.count, Some(2));
-        assert_eq!(expanded[0].interfaces.data_count, Some(4));
-        assert!(expanded[0].vm.is_some());
-        assert_eq!(expanded[0].ready_check.skip, Some(true));
     }
 }

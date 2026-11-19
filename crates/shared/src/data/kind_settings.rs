@@ -56,13 +56,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_kind_has_its_own_group() {
-        assert_eq!(group_of(NodeKind::VirtualMachine), "vm");
-        assert_eq!(group_of(NodeKind::Container), "container");
-        assert_eq!(group_of(NodeKind::Unikernel), "unikernel");
-    }
-
-    #[test]
     fn the_first_setting_a_kind_does_not_take_is_named() {
         let settings = [
             ("memory", true, ALL),

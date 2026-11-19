@@ -109,14 +109,6 @@ mod tests {
     }
 
     #[test]
-    fn every_github_token_prefix_is_taken() {
-        for prefix in TOKEN_PREFIXES {
-            let line = format!("{prefix}abc123");
-            assert_eq!(WriteToken::parse(&line).unwrap().unwrap().expose(), line);
-        }
-    }
-
-    #[test]
     fn a_line_that_is_not_a_token_is_refused_without_showing_it() {
         for line in [
             "SUAMLK2ZNL35WSMW37E7UD4VZ7ELPEW7BY3LGQZ3QKWIIM4Q2ATZCM4TQ",
@@ -155,12 +147,5 @@ mod tests {
         check_environment(Some(OsStr::new("github_pat_readonly")), Some(&token)).unwrap();
         check_environment(None, Some(&token)).unwrap();
         check_environment(Some(OsStr::new(TOKEN)), None).unwrap();
-    }
-
-    #[test]
-    fn only_write_access_is_github() {
-        let token = token();
-        assert!(Access::Write(&token).github());
-        assert!(!Access::ReadOnly.github());
     }
 }

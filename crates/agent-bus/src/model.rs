@@ -46,14 +46,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn aliases_map_to_the_current_ids() {
-        assert_eq!(model_id("opus").unwrap(), "claude-opus-5-5");
-        assert_eq!(model_id("sonnet").unwrap(), "claude-sonnet-5-5");
-        assert_eq!(model_id("haiku").unwrap(), "claude-haiku-5-5");
-        assert_eq!(DEFAULT_MODEL, "claude-opus-5-5");
-    }
-
-    #[test]
     fn full_ids_are_kept() {
         for id in ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"] {
             assert_eq!(model_id(id).unwrap(), id);

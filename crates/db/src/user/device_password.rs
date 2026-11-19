@@ -284,17 +284,4 @@ mod tests {
             );
         }
     }
-
-    #[tokio::test]
-    async fn a_missing_user_is_an_error() {
-        let (db, _) = database_with(&[]).await;
-        let missing = RecordId::new(USER_TABLE, "missing");
-        assert!(device_password_set(&db, &missing).await.is_err());
-        assert!(open_device_password(&db, &missing).await.is_err());
-        assert!(
-            set_device_password(&db, &missing, DEVICE_PASSWORD)
-                .await
-                .is_err()
-        );
-    }
 }

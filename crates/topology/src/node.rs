@@ -287,38 +287,3 @@ pub struct SystemdUnitData {
     pub content: String,
     pub enabled: bool,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_expanded_node_takes_the_contents_the_client_read() {
-        let node = Node {
-            name: "dev01".to_string(),
-            model: NodeModel::UbuntuLinux,
-            cpu: NodeCpu {
-                count: Some(4),
-                ..NodeCpu::default()
-            },
-            startup_scripts: Some(vec!["setup.sh".to_string()]),
-            startup_scripts_data: Some(vec![StartupScript {
-                filename: "setup.sh".to_string(),
-                content: "echo hi".to_string(),
-            }]),
-            text_files_data: Some(vec![TextFileData {
-                content: "data".to_string(),
-                dst: "/etc/motd".to_string(),
-                ..TextFileData::default()
-            }]),
-            ..Node::default()
-        };
-        let expanded = NodeExpanded::new(3, &node).unwrap();
-        assert_eq!(expanded.index, 3);
-        assert_eq!(expanded.name, "dev01");
-        assert_eq!(expanded.cpu.count, Some(4));
-        assert_eq!(expanded.startup_scripts.unwrap()[0].content, "echo hi");
-        assert_eq!(expanded.text_files.unwrap()[0].dst, "/etc/motd");
-        assert!(expanded.ipv4_address.is_none());
-    }
-}

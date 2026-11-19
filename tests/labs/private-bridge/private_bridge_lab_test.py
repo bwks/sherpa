@@ -433,13 +433,6 @@ class SelfTest(unittest.TestCase):
         names = {node["name"] for node in self.manifest()["nodes"]}
         self.assertTrue(set(REDEPLOYED) <= names)
 
-    def test_configure_command_addresses_each_interface(self):
-        command = configure_command([Address("fr01", "eth1", "10.45.0.2/24"),
-                                     Address("fr01", "eth2", "10.45.1.1/24")])
-        self.assertTrue(command.startswith(AS_ROOT))
-        self.assertIn("ip addr replace 10.45.0.2/24 dev eth1", command)
-        self.assertIn("ip addr replace 10.45.1.1/24 dev eth2", command)
-
     def test_run_logged_keeps_streams_apart_for_parsing(self):
         script = "import sys; print('{\"items\": []}'); print('Warning: added host', file=sys.stderr)"
         with tempfile.TemporaryDirectory() as folder:

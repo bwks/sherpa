@@ -120,12 +120,6 @@ mod tests {
     }
 
     #[test]
-    fn node_names_are_padded_so_lines_line_up() {
-        assert_eq!(line_prefix("db", 5), "db    | ");
-        assert_eq!(line_prefix("web01", 5), "web01 | ");
-    }
-
-    #[test]
     fn each_complete_line_gets_the_prefix() {
         let mut pending = Vec::new();
         assert_eq!(

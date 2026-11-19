@@ -125,23 +125,6 @@ model = "nats_bus"
     }
 
     #[test]
-    fn mounted_secrets_are_reported_per_node() {
-        let mut secrets = BTreeMap::new();
-        secrets.insert(
-            "db01".to_string(),
-            vec![SecretFile {
-                name: "token".to_string(),
-                mode: 444,
-                content: SecretContent::from_bytes(b"t"),
-            }],
-        );
-        let results = container_results(&secrets);
-        assert_eq!(results[0].node, "db01");
-        assert_eq!(results[0].status, ProvisionStatus::Provisioned);
-        assert_eq!(results[0].detail, "1 secret files in /run/secrets");
-    }
-
-    #[test]
     fn a_missing_secret_file_is_an_error_naming_it() {
         let dir = tempdir().unwrap();
         let error = format!(

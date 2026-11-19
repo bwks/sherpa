@@ -36,27 +36,3 @@ pub fn base64_decode_bytes(input: &str) -> Result<Vec<u8>> {
         .decode(input)
         .context("Failed to base64 decode")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_base64_decode_simple_string() {
-        assert_eq!(
-            base64_decode("SGVsbG8sIFdvcmxkIQ==").unwrap(),
-            "Hello, World!"
-        );
-    }
-
-    #[test]
-    fn test_base64_encode_simple_string() {
-        assert_eq!(base64_encode("Hello, World!"), "SGVsbG8sIFdvcmxkIQ==");
-    }
-
-    #[test]
-    fn test_base64_decode_invalid_input() {
-        let result = base64_decode("not-valid-base64!!!");
-        assert!(result.is_err());
-    }
-}

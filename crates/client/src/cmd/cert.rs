@@ -314,7 +314,8 @@ mod tests {
     #[test]
     fn other_urls_are_refused() {
         for input in ["https://h:3030", "h:3030/path", ""] {
-            assert!(normalize_server_url(input).is_err(), "{input}");
+            let error = normalize_server_url(input).unwrap_err().to_string();
+            assert!(error.starts_with(&format!("Server '{input}' ")), "{error}");
         }
     }
 }

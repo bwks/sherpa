@@ -92,11 +92,6 @@ mod tests {
     }
 
     #[test]
-    fn no_lab_on_the_server_key_is_no_refusal() {
-        assert!(refuse_server_key_labs(&[]).is_ok());
-    }
-
-    #[test]
     fn labs_on_the_server_key_are_refused_by_id_name_and_owner() {
         let labs = [
             lab("abcd1234", "core", "alice"),

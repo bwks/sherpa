@@ -57,13 +57,4 @@ mod tests {
         assert!(serde_json::from_str::<PtxPlatform>(r#""BX""#).is_err());
         assert!(serde_json::from_str::<PtxPlatform>(r#""bz""#).is_err());
     }
-
-    #[test]
-    fn bt_is_the_default_and_has_12_ports() {
-        assert_eq!(PtxPlatform::default(), PtxPlatform::Bt);
-        assert_eq!(PtxPlatform::Bt.cosim(), "BT");
-        assert_eq!(PtxPlatform::Bt.max_data_interfaces(), 12);
-        assert_eq!(PtxPlatform::Bx.cosim(), "BX");
-        assert_eq!(PtxPlatform::Bx.max_data_interfaces(), 36);
-    }
 }

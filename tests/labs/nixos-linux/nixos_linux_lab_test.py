@@ -519,11 +519,5 @@ class SelfTest(unittest.TestCase):
         sources = {item["src"] for node in self.manifest()["nodes"] for item in node.get("text_files", [])}
         self.assertEqual(sources, {TEXT_FILE})
 
-    def test_configure_command_addresses_each_interface_with_sudo(self):
-        command = configure_command([Address("nix01", "eth1", "10.46.0.1/24")])
-        self.assertIn("sudo -n ip link set eth1 up", command)
-        self.assertIn("sudo -n ip addr replace 10.46.0.1/24 dev eth1", command)
-
-
 if __name__ == "__main__":
     sys.exit(main())

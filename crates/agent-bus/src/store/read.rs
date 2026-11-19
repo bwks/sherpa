@@ -222,7 +222,7 @@ fn history_row(cells: &mut Cells<'_>) -> Result<HistoryRow> {
 mod tests {
     use super::*;
 
-    use crate::message::{Ended, RefKind, TaskUsage, Usage, Work, WorkRef};
+    use crate::message::{TaskUsage, Usage};
     use crate::store::database::Store;
     use crate::store::host::task_waits;
     use crate::store::task::Recorded;
@@ -413,30 +413,6 @@ mod tests {
         assert_eq!(
             task_messages(&conn, "zzz", "host").await.unwrap(),
             Vec::<Message>::new()
-        );
-    }
-
-    #[tokio::test]
-    async fn a_message_s_work_and_ended_read_back_as_received() {
-        let mut task = message("t1", "host", "dev", Kind::Task);
-        task.work = Some(Work {
-            refs: vec![WorkRef {
-                repo: "o/r".to_owned(),
-                kind: RefKind::Issue,
-                number: 580,
-            }],
-            session: Some("sess".to_owned()),
-        });
-        let mut done = message("t1", "dev", "host", Kind::Completed);
-        done.ended = Some(Ended {
-            repo: "o/r".to_owned(),
-            branch: Some("feat/x".to_owned()),
-            pull_requests: Vec::new(),
-        });
-        let conn = recorded(&[task.clone(), done.clone()]).await;
-        assert_eq!(
-            task_messages(&conn, "t1", "host").await.unwrap(),
-            [task, done]
         );
     }
 

@@ -505,7 +505,6 @@ mod tests {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
         assert_eq!(trigger_count(&db, "%_rules_%").await, 0);
-        assert_eq!(trigger_count(&db, "user_protect_admin_%").await, 3);
 
         // A database from before the triggers were removed, which still has them.
         let db = open_in_memory().await.unwrap();

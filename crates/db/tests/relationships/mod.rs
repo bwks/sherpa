@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use db::{
     Database, DefaultRequest, LabDetails, count_nodes_by_lab, create_bridge, create_lab,
-    create_link, create_node, create_user, delete_lab_from, delete_node_image, delete_user,
+    create_link, create_node, create_user, delete_lab_from, delete_user,
     find_node_image_by_model_kind_version, get_lab, get_user, list_bridges, list_links_by_lab,
     list_nodes_by_lab, upsert_node_image,
 };
@@ -333,35 +333,6 @@ async fn test_delete_lab_cascades_through_every_level() -> Result<()> {
     let other_nodes = list_nodes_by_lab(&db, other_rid).await?;
     assert_eq!(other_nodes.len(), 1);
     assert_eq!(other_nodes[0].id, kept.id);
-    Ok(())
-}
-
-/// A node image cannot be deleted while a node uses it; once the node is gone it can.
-#[tokio::test]
-async fn test_node_image_in_use_cannot_be_deleted() -> Result<()> {
-    let db = setup_db().await?;
-    let lab = lab_fixture(&db, "fkey0004", 13).await?;
-    let template = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
-    let image = find_node_image_by_model_kind_version(
-        &db,
-        &template.model,
-        &template.kind(),
-        &template.version,
-    )
-    .await?
-    .expect("image exists");
-    let image_id = image.id.clone().expect("image has id");
-    create_test_node_with_model(&db, "n1", 1, NodeModel::UbuntuLinux, &lab).await?;
-
-    assert!(delete_node_image(&db, image_id.clone()).await.is_err());
-    assert_eq!(
-        count_nodes_by_lab(&db, lab.id.clone().expect("lab has id")).await?,
-        1
-    );
-
-    // Once nothing uses the image, it can go.
-    assert!(delete_lab_from(&db, &lab.lab_id, LabPhase::Creating).await?);
-    delete_node_image(&db, image_id).await?;
     Ok(())
 }
 

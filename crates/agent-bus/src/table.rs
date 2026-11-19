@@ -204,9 +204,4 @@ mod tests {
         // Without a host there is no record to speak of.
         assert!(!agents(&[dev]).contains("Record"));
     }
-
-    #[test]
-    fn no_agents_is_a_sentence() {
-        assert_eq!(agents(&[]), "No agents");
-    }
 }

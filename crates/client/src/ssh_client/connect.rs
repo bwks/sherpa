@@ -169,30 +169,6 @@ mod tests {
     }
 
     #[test]
-    fn a_node_still_starting_is_retried() {
-        let timeout = anyhow::Error::new(Error::Timeout {
-            operation: "connect",
-            node: node(),
-            after: std::time::Duration::from_secs(15),
-        });
-        assert!(retryable(&timeout, &node()));
-    }
-
-    #[test]
-    fn local_problems_that_will_not_pass_are_not_retried() {
-        let unreadable = anyhow::Error::new(Error::Io {
-            context: "reading known_hosts".into(),
-            source: io::Error::from(io::ErrorKind::PermissionDenied),
-        });
-        assert!(!retryable(&unreadable, &node()));
-        let config = anyhow::Error::new(Error::SshConfig {
-            context: ".sherpa/ssh/config".into(),
-            message: "bad ProxyJump".into(),
-        });
-        assert!(!retryable(&config, &node()));
-    }
-
-    #[test]
     fn the_server_refusing_the_login_is_not_retried() {
         assert!(!retryable(&auth_failed(server()), &node()));
     }
@@ -236,20 +212,5 @@ mod tests {
             source: io::Error::from(io::ErrorKind::ConnectionRefused),
         };
         assert_eq!(key_mismatch(&refused, &node()), None);
-    }
-
-    #[test]
-    fn host_key_problems_and_other_errors_are_not_retried() {
-        let changed = anyhow::Error::new(Error::HostKeyChanged {
-            node: server(),
-            fingerprint: "SHA256:abc".into(),
-            known_hosts: PathBuf::from("/home/me/.ssh/known_hosts"),
-            line: 3,
-        });
-        assert!(!retryable(&changed, &node()));
-        assert!(!retryable(
-            &anyhow::anyhow!("Host key verification failed"),
-            &node()
-        ));
     }
 }

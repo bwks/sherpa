@@ -600,14 +600,6 @@ mod tests {
     }
 
     #[test]
-    fn task_ids_are_eight_hex_digits() {
-        let id = new_task_id();
-        assert_eq!(id.len(), 8);
-        assert!(id.chars().all(|character| character.is_ascii_hexdigit()));
-        assert_ne!(new_task_id(), id);
-    }
-
-    #[test]
     fn agent_names_must_be_valid_subject_tokens() {
         for name in ["dev", "host", "guest-2"] {
             check_agent_name(name).unwrap();

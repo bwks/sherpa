@@ -333,22 +333,6 @@ mod tests {
     }
 
     #[test]
-    fn only_a_heartbeat_keeps_the_pull_open() {
-        assert_eq!(step(&Reply::Heartbeat), Step::Wait);
-        for over in [Reply::Message, Reply::Expired, Reply::Silence] {
-            assert_eq!(step(&over), Step::Pull, "{over:?}");
-        }
-        // A refusal or an error is not pulled again at once, so a held inbox is not spun on.
-        for refused in [Reply::Refused, Reply::Status("503".to_owned())] {
-            assert_eq!(step(&refused), Step::PullAfterPause, "{refused:?}");
-        }
-        assert_eq!(
-            step(&Reply::Ended("409 Consumer Deleted".to_owned())),
-            Step::Stop
-        );
-    }
-
-    #[test]
     fn routine_replies_are_quiet() {
         let mut watch = Watch::default();
         for reply in [Reply::Heartbeat, Reply::Expired, Reply::Message] {

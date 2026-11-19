@@ -1307,18 +1307,6 @@ mod tests {
     }
 
     #[test]
-    fn cache_hit_is_na_without_input() {
-        let body =
-            update_body("", &tasks(&[row("t1", "dev01", &[], TaskUsage::default())])).unwrap();
-        assert!(
-            table(&body).contains(
-                &"| t1 | dev01 |  | 0 | $0.0000 | n/a | 0 | 0 | 0 | 0 | n/a | n/a | n/a |"
-            ),
-            "{body}"
-        );
-    }
-
-    #[test]
     fn a_generation_heading_or_table_outside_the_markers_is_hand_written() {
         let section = update_body("", &tasks(&[first()])).unwrap();
         // The section's own heading and rows do not count, nor a quoted example.

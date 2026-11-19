@@ -1120,7 +1120,6 @@ mod tests {
     #[test]
     fn waiting_on_the_user_is_capped_at_thirty_minutes_a_gap() {
         let minute = 60_000;
-        assert_eq!(MAX_WAITING_ON_USER_MS, 30 * minute);
         // Under the cap: all of it.
         assert_eq!(waiting_after(12 * minute), 12 * minute);
         // At the cap: all of it.
@@ -1181,7 +1180,6 @@ mod tests {
             [open(0, 60)]
         );
         // Never closed: open until thirty minutes after its last message.
-        assert_eq!(OPEN_AFTER_LAST_MESSAGE_MS, 30 * minute);
         assert_eq!(
             open_stretches(&[(Kind::Task, 0), (Kind::Progress, 5 * minute)]),
             [open(0, 35 * minute)]

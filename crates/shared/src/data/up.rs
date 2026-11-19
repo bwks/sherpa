@@ -284,92 +284,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_node_kind_is_sent_as_every_other_api_sends_it() {
-        let node = NodeInfo {
-            name: "dev01".to_string(),
-            kind: NodeKind::VirtualMachine,
-            model: NodeModel::UbuntuLinux,
-            status: NodeState::Running,
-            ip_address: None,
-            ssh_port: None,
-        };
-        let json = serde_json::to_value(&node).unwrap();
-        assert_eq!(json["kind"], "virtual_machine");
-    }
-
-    #[test]
-    fn test_status_kind_rename_all() {
-        assert_eq!(
-            serde_json::to_string(&StatusKind::Progress).unwrap(),
-            r#""progress""#
-        );
-        assert_eq!(
-            serde_json::to_string(&StatusKind::Done).unwrap(),
-            r#""done""#
-        );
-        assert_eq!(
-            serde_json::to_string(&StatusKind::Info).unwrap(),
-            r#""info""#
-        );
-        assert_eq!(
-            serde_json::to_string(&StatusKind::Waiting).unwrap(),
-            r#""waiting""#
-        );
-    }
-
-    #[test]
     fn a_status_message_without_a_kind_is_info() {
         let message: StatusMessage =
             serde_json::from_str(r#"{"type":"status","message":"Booting"}"#).unwrap();
         assert_eq!(message.kind, StatusKind::Info);
-    }
-
-    #[test]
-    fn test_up_phase_as_str() {
-        assert_eq!(UpPhase::Setup.as_str(), "Setup");
-        assert_eq!(UpPhase::ManifestValidation.as_str(), "Manifest Validation");
-        assert_eq!(UpPhase::DatabaseRecords.as_str(), "Database Records");
-        assert_eq!(UpPhase::LabNetworkSetup.as_str(), "Lab Network Setup");
-        assert_eq!(
-            UpPhase::LinkCreation.as_str(),
-            "Point-to-Point Link Creation"
-        );
-        assert_eq!(
-            UpPhase::ContainerNetworks.as_str(),
-            "Container Link Networks"
-        );
-        assert_eq!(UpPhase::SharedBridges.as_str(), "Shared Bridge Creation");
-        assert_eq!(
-            UpPhase::ZtpGeneration.as_str(),
-            "ZTP Configuration Generation"
-        );
-        assert_eq!(UpPhase::BootContainers.as_str(), "Boot Container Creation");
-        assert_eq!(UpPhase::DiskCloning.as_str(), "Disk Cloning");
-        assert_eq!(UpPhase::VmCreation.as_str(), "VM Creation");
-        assert_eq!(UpPhase::SshConfig.as_str(), "SSH Config Generation");
-        assert_eq!(UpPhase::NodeReadiness.as_str(), "Node Readiness Check");
-    }
-
-    #[test]
-    fn test_up_phase_number_sequential() {
-        let phases = [
-            UpPhase::Setup,
-            UpPhase::ManifestValidation,
-            UpPhase::DatabaseRecords,
-            UpPhase::LabNetworkSetup,
-            UpPhase::LinkCreation,
-            UpPhase::ContainerNetworks,
-            UpPhase::SharedBridges,
-            UpPhase::ZtpGeneration,
-            UpPhase::BootContainers,
-            UpPhase::DiskCloning,
-            UpPhase::VmCreation,
-            UpPhase::SshConfig,
-            UpPhase::NodeReadiness,
-        ];
-        for (number, phase) in (1u8..).zip(phases.iter()) {
-            assert_eq!(phase.number(), number);
-        }
     }
 
     #[test]

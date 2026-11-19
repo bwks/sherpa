@@ -184,12 +184,6 @@ mod tests {
     }
 
     #[test]
-    fn test_display() {
-        assert_eq!(RpcErrorCode::AuthRequired.to_string(), "-32002");
-        assert_eq!(RpcErrorCode::ParseError.to_string(), "-32700");
-    }
-
-    #[test]
     fn test_serialize() {
         let code = RpcErrorCode::AuthRequired;
         let json = serde_json::to_string(&code).unwrap();

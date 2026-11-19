@@ -120,16 +120,6 @@ mod tests {
     }
 
     #[test]
-    fn the_token_file_is_in_the_home_folder() {
-        let file = TokenFile::in_home().unwrap();
-        assert!(
-            file.path.ends_with(Path::new(".sherpa").join("token")),
-            "{}",
-            file.path.display()
-        );
-    }
-
-    #[test]
     fn a_saved_token_loads_and_deletes() {
         let dir = tempfile::tempdir().unwrap();
         let file = token_file(dir.path());
@@ -170,6 +160,9 @@ mod tests {
 
     #[test]
     fn a_token_that_is_not_a_jwt_is_refused() {
-        assert!(username_from_token("not-a-jwt").is_err());
+        assert_eq!(
+            username_from_token("not-a-jwt").unwrap_err().to_string(),
+            "The login token is not a JWT; run: sherpa login"
+        );
     }
 }

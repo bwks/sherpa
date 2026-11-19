@@ -701,18 +701,17 @@ mod tests {
 
     #[test]
     fn a_refused_image_reference_names_the_short_and_full_forms() {
-        let message = split_image_reference("nats").unwrap_err().to_string();
-        assert!(
-            message.contains("image:tag, such as nats:2.11"),
-            "{message}"
-        );
-        assert!(message.contains("registry/image:tag"), "{message}");
-    }
-
-    #[test]
-    fn an_image_reference_without_a_tag_is_refused() {
-        for reference in ["localhost:5000/img", "img", "img:", ":1", "img@sha256:abc"] {
-            assert!(split_image_reference(reference).is_err(), "{reference}");
+        for reference in ["nats", "localhost:5000/img", "img:", ":1", "img@sha256:abc"] {
+            let message = split_image_reference(reference).unwrap_err().to_string();
+            assert!(
+                message.starts_with(&format!("Image reference '{reference}' must be")),
+                "{message}"
+            );
+            assert!(
+                message.contains("image:tag, such as nats:2.11"),
+                "{message}"
+            );
+            assert!(message.contains("registry/image:tag"), "{message}");
         }
     }
 

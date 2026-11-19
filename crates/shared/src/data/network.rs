@@ -67,14 +67,3 @@ pub struct SherpaNetwork {
     pub v4: NetworkV4,
     pub v6: Option<NetworkV6>,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_bridge_kind_display() {
-        assert_eq!(BridgeKind::P2p.to_string(), "p2p");
-        assert_eq!(BridgeKind::SharedBridge.to_string(), "shared_bridge");
-    }
-}

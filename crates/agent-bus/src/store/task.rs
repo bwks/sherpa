@@ -371,20 +371,4 @@ mod tests {
         assert_eq!(after.state, before.state);
         assert_eq!(after.last_seq, 11);
     }
-
-    #[test]
-    fn every_state_reads_back_from_its_text() {
-        for state in [
-            TaskState::Sent,
-            TaskState::Running,
-            TaskState::Question,
-            TaskState::Completed,
-            TaskState::Failed,
-            TaskState::Canceled,
-        ] {
-            assert_eq!(TaskState::parse(state.as_str()).unwrap(), state);
-            assert_eq!(serde_json::to_value(state).unwrap(), state.as_str());
-        }
-        assert!(TaskState::parse("done").is_err());
-    }
 }

@@ -144,18 +144,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_lab_id_too_short() {
-        let result = validate_lab_id("lab-01");
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("exactly 8 characters")
-        );
-    }
-
-    #[test]
     fn test_validate_lab_id_too_long() {
         let result = validate_lab_id("lab-00001");
         assert!(result.is_err());

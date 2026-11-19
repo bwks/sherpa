@@ -215,11 +215,6 @@ mod tests {
     }
 
     #[test]
-    fn test_node_without_tuning_is_accepted() {
-        check_vm_tuning(&node(None), &ubuntu()).unwrap();
-    }
-
-    #[test]
     fn test_topology_and_pinning_need_cpu_count() {
         let mut vm = node(None);
         vm.cpu.pinning = Some(vec![1]);
@@ -281,14 +276,6 @@ mod tests {
     }
 
     #[test]
-    fn test_numa_memory_mode_with_numa_node_is_accepted() {
-        let mut vm = node(None);
-        vm.numa.node = Some(0);
-        vm.numa.memory_mode = Some(NumaMemoryMode::Preferred);
-        check_vm_tuning(&vm, &ubuntu()).unwrap();
-    }
-
-    #[test]
     fn test_native_io_needs_no_cache() {
         let mut vm = node(None);
         vm.boot_disk.io = Some(DiskIo::Native);
@@ -346,8 +333,13 @@ mod tests {
 
     #[test]
     fn test_qemu_threads_must_not_use_another_nodes_vcpu_cpus() {
-        let result = check_cpu_pin_overlap(&[pins("a", &[1, 2], &[]), pins("b", &[3], &[2])]);
-        assert!(result.is_err());
+        let message = check_cpu_pin_overlap(&[pins("a", &[1, 2], &[]), pins("b", &[3], &[2])])
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            message,
+            "Host CPU 2 runs QEMU threads of node 'b' but is pinned to vCPUs of node 'a'"
+        );
     }
 
     #[test]

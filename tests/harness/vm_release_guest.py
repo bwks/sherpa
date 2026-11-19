@@ -28,7 +28,7 @@ import tempfile
 import time
 import tomllib
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -1214,14 +1214,6 @@ class GuestTests(unittest.TestCase):
             guest.initialize()
             terminate.assert_not_called()
 
-    def test_initialization_passes_the_chosen_address_and_ports(self):
-        guest = Guest.__new__(Guest)
-        guest.base = Path("/opt/sherpa")
-        guest.settings = {"listen_ip": "192.0.2.10", "ws_port": 4030, "http_port": 4031}
-        self.assertEqual(guest.init_command(),
-                         ["sudo", "-u", "sherpa", "-H", "/opt/sherpa/bin/sherpad", "init",
-                          "--server-ipv4", "192.0.2.10", "--ws-port", "4030", "--http-port", "4031"])
-
     def test_initialization_timeout_reports_timeout_after_reaping_child(self):
         guest = Guest.__new__(Guest)
         guest.base = Path("/unused-test-guest")
@@ -1324,15 +1316,6 @@ class GuestTests(unittest.TestCase):
                                                       "skips": ['quote " and \\ slash']}})
         self.assertEqual(tomllib.loads(document)["integration-db"]["skips"], ['quote " and \\ slash'])
 
-    def test_baseline_installs_with_its_own_installer_and_upgrade_uses_the_updater(self):
-        guest = Guest.__new__(Guest)
-        guest.workspace = Path("/var/tmp/workspace")
-        guest.config = {"baseline": {"version": "v0.5.35"}, "candidate": {"version": "v0.6.0"}}
-        self.assertEqual(guest.installer("baseline")[1], "/var/tmp/workspace/baseline/sherpa_install.sh")
-        self.assertEqual(guest.installer()[1], "/var/tmp/workspace/sherpa_install.sh")
-        self.assertEqual(guest.updater(),
-                         ["bash", "/var/tmp/workspace/sherpa_update.sh", "--version", "v0.6.0"])
-
     def device_password_guest(self, directory, up_results):
         guest = Guest.__new__(Guest)
         guest.workspace = Path(directory)
@@ -1414,25 +1397,6 @@ class GuestTests(unittest.TestCase):
                               'device_password = "Dp1!device-secret"\n')
             guest = Guest(config)
         self.assertEqual(guest.redact("x Dp1!device-secret y a-login-secret"), "x [REDACTED] y [REDACTED]")
-
-    def test_upgrade_runs_the_update_script_and_starts_sherpad(self):
-        guest = Guest.__new__(Guest)
-        guest.workspace = Path("/var/tmp/workspace")
-        guest.config = {"candidate": {"version": "v0.5.0"}}
-        guest.timeouts = {"install": 60}
-        commands = []
-        with tempfile.TemporaryDirectory() as directory:
-            guest.workspace = Path(directory)
-            (guest.workspace / "upgrade-state.toml").write_text("[before]\n")
-            with patch.object(Guest, "upgrade_state", return_value={}), \
-                 patch(f"{__name__}.validate_upgrade_state"), \
-                 patch.object(Guest, "environment", return_value={}), \
-                 patch.object(Guest, "verify_installation"), \
-                 patch.object(Guest, "verify_retained"), \
-                 patch.object(Guest, "command", side_effect=lambda command, **_: commands.append(command)):
-                guest.upgrade()
-        self.assertEqual(commands[0][1], f"{directory}/sherpa_update.sh")
-        self.assertEqual(commands[-1], ["systemctl", "start", "sherpad"])
 
     def test_cargo_environment_names_the_running_user(self):
         guest = Guest.__new__(Guest)

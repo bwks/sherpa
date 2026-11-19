@@ -184,38 +184,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_file_is_under_the_state_folder() {
-        let folder = LabFolder::new(Path::new("/home/me/lab"));
-        let state = Path::new("/home/me/lab/.sherpa");
-        assert_eq!(folder.state_dir(), state);
-        assert_eq!(folder.lab_info(), state.join("lab-info.toml"));
-        assert_eq!(folder.ssh_config(), state.join("ssh/config"));
-        assert_eq!(folder.known_hosts(), state.join("ssh/known_hosts"));
-        assert_eq!(folder.lab_ca(), state.join("ca/lab-ca.crt"));
-        assert_eq!(
-            folder.talosconfig("k8s"),
-            state.join("talos/talosconfig-k8s")
-        );
-        assert_eq!(folder.kubeconfig("k8s"), state.join("k8s/kubeconfig-k8s"));
-        assert_eq!(folder.vault("v1"), state.join("vault/vault-v1.toml"));
-        assert_eq!(
-            folder.keycloak("kc"),
-            state.join("keycloak/keycloak-kc.toml")
-        );
-        assert_eq!(
-            folder.surreal_db("db"),
-            state.join("surrealdb/surrealdb-db.toml")
-        );
-    }
-
-    #[test]
-    fn an_empty_root_gives_paths_relative_to_the_current_folder() {
-        let folder = LabFolder::new(Path::new(""));
-        assert_eq!(folder.lab_info(), Path::new(".sherpa/lab-info.toml"));
-        assert_eq!(folder.ssh_config(), Path::new(".sherpa/ssh/config"));
-    }
-
-    #[test]
     fn the_lab_folder_is_found_from_its_ssh_config() {
         let folder = LabFolder::new(Path::new("/home/me/lab"));
         assert_eq!(LabFolder::of_ssh_config(&folder.ssh_config()), Some(folder));

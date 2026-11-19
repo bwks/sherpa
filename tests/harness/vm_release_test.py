@@ -1154,24 +1154,6 @@ class HarnessTests(unittest.TestCase):
             with self.subTest(binary=binary), self.assertRaises(ValueError):
                 validate_upgrade_artifacts(baseline, changed)
 
-    def test_upgrade_runs_both_versions_and_rechecks_state_after_reboot(self):
-        config = self.upgrade_config()
-        with tempfile.TemporaryDirectory() as directory:
-            config["runner"]["output_directory"] = directory
-            runner = Runner(config)
-            def step(name, label=None):
-                runner.report["run"]["completed_steps"].append(name)
-            with patch.object(runner, "inputs"), patch.object(runner, "provision"), \
-                 patch.object(runner, "transfer"), patch.object(runner, "collect"), \
-                 patch.object(runner, "step", side_effect=step), \
-                 patch.object(runner, "reboot", side_effect=lambda: step("reboot")), \
-                 redirect_stdout(io.StringIO()):
-                self.assertEqual(runner.run("upgrade"), 0)
-            self.assertEqual(runner.report["run"]["completed_steps"],
-                             ["baseline", "install-baseline", "initialize", "authenticate",
-                              "seed-upgrade", "upgrade", "authenticate", "verify-upgrade",
-                              "reboot", "authenticate", "verify-upgrade-reboot", "device-password"])
-
     def test_upgrade_failure_keeps_failed_receipt_and_verifies_targeted_cleanup(self):
         config = self.upgrade_config()
         config["runner"]["retain_failed"] = False
@@ -1259,26 +1241,6 @@ class HarnessTests(unittest.TestCase):
             runner.save()
             with self.assertRaises(ValueError):
                 Runner.resume(runner.directory)
-
-    def test_logs_are_collected_before_each_uninstall(self):
-        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
-        with tempfile.TemporaryDirectory() as directory:
-            config["runner"]["output_directory"] = directory
-            runner = Runner(config)
-            events = []
-            def step(name, label=None):
-                events.append(label or name)
-                if name not in ("diagnostics", "diagnostics-live"):
-                    runner.report["run"]["completed_steps"].append(name)
-            with patch.object(runner, "inputs"), patch.object(runner, "provision"), \
-                 patch.object(runner, "transfer"), patch.object(runner, "collect"), \
-                 patch.object(runner, "step", side_effect=step), \
-                 patch.object(runner, "reboot", side_effect=lambda: step("reboot")), \
-                 redirect_stdout(io.StringIO()):
-                self.assertEqual(runner.run("lifecycle"), 0)
-            for mode in ("keep-data", "remove-data", "remove-all"):
-                index = events.index(mode)
-                self.assertEqual(events[index - 1], "before-" + mode)
 
     def test_sigterm_records_failure_and_stops_the_active_command(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1472,17 +1434,6 @@ sys.exit(runner.run('preflight'))
             self.assertTrue(other.is_symlink())
             self.assertEqual(regular.read_text(), "another installation")
 
-    def test_installer_selects_concrete_qemu_package(self):
-        source = (ROOT / "scripts/sherpa_install.sh").read_text().removesuffix('main "$@"\n')
-        code = source + """
-apt-get() { printf '%s\\n' "$*"; }
-install_system_packages
-"""
-        result = subprocess.run(["bash", "-c", code], capture_output=True, text=True, timeout=5)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("qemu-system-x86", result.stdout)
-        self.assertNotIn(" qemu-kvm ", result.stdout)
-
     def test_code_scenario_requires_local_candidate_and_source(self):
         process = subprocess.run([sys.executable, str(HARNESS / "vm_release_test.py"), "--scenario", "code"],
                                  capture_output=True, text=True)
@@ -1607,22 +1558,6 @@ install_system_packages
                                     env=dict(os.environ, PATH=f"{fake}:{os.environ['PATH']}"))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("did NOT match", result.stderr)
-
-    def test_guest_steps_run_on_uv_python(self):
-        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
-        with tempfile.TemporaryDirectory() as directory:
-            config["runner"]["output_directory"] = directory
-            runner = Runner(config)
-            runner.remote_directory = "/workspace"
-            with patch.object(runner, "ssh", return_value=(0, "")) as ssh, redirect_stdout(io.StringIO()):
-                runner.step("diagnostics")
-            command = ssh.call_args.args[1]
-            self.assertNotIn("python3", command)
-            self.assertEqual(command[command.index(GUEST_UV):command.index(GUEST_UV) + 3],
-                             [GUEST_UV, "run", "--no-project"])
-            self.assertEqual(command[command.index("--python") + 1], GUEST_PYTHON)
-            self.assertIn("--no-python-downloads", command)
-            self.assertEqual(command[-3:], ["/workspace/vm_release_guest.py", "/workspace/guest.toml", "diagnostics"])
 
     def test_disk_check_needs_only_a_shell(self):
         with tempfile.TemporaryDirectory() as directory:

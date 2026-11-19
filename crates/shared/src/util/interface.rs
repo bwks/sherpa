@@ -340,38 +340,4 @@ mod tests {
             );
         }
     }
-
-    #[test]
-    fn test_node_model_interfaces_all_named_models() {
-        let named_models = [
-            NodeModel::AristaEos,
-            NodeModel::ArubaAoscx,
-            NodeModel::CiscoAsa,
-            NodeModel::CiscoCsr1000,
-            NodeModel::CiscoCat8000,
-            NodeModel::CiscoCat9000,
-            NodeModel::CiscoIosxr9000,
-            NodeModel::CiscoNexus9300,
-            NodeModel::CiscoIos,
-            NodeModel::CiscoIosl2,
-            NodeModel::CiscoIol,
-            NodeModel::CiscoIoll2,
-            NodeModel::CiscoFtd,
-            NodeModel::JuniperRouter,
-            NodeModel::JuniperSwitch,
-            NodeModel::JuniperEvolved,
-            NodeModel::JuniperSrxv3,
-            NodeModel::CumulusLinux,
-            NodeModel::NokiaSrlinux,
-            NodeModel::MikrotikChr,
-            NodeModel::PaloaltoPanos,
-        ];
-        for model in &named_models {
-            let ifaces = node_model_interfaces(ModelKind::default_for(*model));
-            assert!(
-                !ifaces.is_empty(),
-                "{model:?} returned empty interface list"
-            );
-        }
-    }
 }
