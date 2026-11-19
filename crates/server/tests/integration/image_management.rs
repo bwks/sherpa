@@ -6,6 +6,7 @@ use bollard::query_parameters::{
 use db::DefaultRequest;
 use reqwest::{Client, Method, StatusCode, header};
 use serde_json::{Value, json};
+use shared::error::RpcErrorCode;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use std::time::Duration;
 
@@ -265,28 +266,36 @@ async fn test_image_scan_refuses_a_repo_with_a_tag() -> Result<()> {
 
 // ── Image List ──
 
+/// Record an `ubuntu_linux` virtual machine image at `version`, the default when `default`.
+async fn seed_ubuntu_image(server: &TestServer, version: &str, default: bool) -> Result<()> {
+    let mut image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
+    version.clone_into(&mut image.version);
+    image.default = default;
+    db::upsert_node_image(&server.db, image, DefaultRequest::Keep).await?;
+    Ok(())
+}
+
 #[tokio::test]
-#[ignore = "requires a Docker daemon"]
 async fn test_image_list_returns_images() -> Result<()> {
     let server = TestServer::start().await?;
+    seed_ubuntu_image(&server, "24.04", true).await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_admin().await?;
 
-    // First scan to register images
-    let (_s, _r) = ws
-        .rpc_call_streaming(
-            "image.scan",
-            json!({ "token": token }),
-            Duration::from_secs(60),
-        )
-        .await?;
-
-    // List all images
     let response = ws.rpc_call("image.list", json!({ "token": token })).await?;
 
-    assert!(
-        response.get("result").is_some(),
-        "image.list should succeed: {response:?}"
+    assert_eq!(
+        response["result"],
+        json!({
+            "images": [{
+                "model": "ubuntu_linux",
+                "kind": "virtual_machine",
+                "version": "24.04",
+                "default": true,
+            }],
+            "total": 1,
+        }),
+        "{response}"
     );
 
     Ok(())
@@ -295,22 +304,12 @@ async fn test_image_list_returns_images() -> Result<()> {
 // ── Image Show ──
 
 #[tokio::test]
-#[ignore = "requires a Docker daemon"]
 async fn test_image_show_returns_config() -> Result<()> {
     let server = TestServer::start().await?;
+    seed_ubuntu_image(&server, "24.04", true).await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_admin().await?;
 
-    // Scan first
-    let (_s, _r) = ws
-        .rpc_call_streaming(
-            "image.scan",
-            json!({ "token": token }),
-            Duration::from_secs(60),
-        )
-        .await?;
-
-    // Show a specific model — use ubuntu_linux which should be on disk
     let response = ws
         .rpc_call(
             "image.show",
@@ -321,19 +320,14 @@ async fn test_image_show_returns_config() -> Result<()> {
         )
         .await?;
 
-    // If image was found, result should have config details
-    // image.show returns ShowImageResponse { image: NodeConfig }
-    if response.get("result").is_some() {
-        let result = response.get("result").unwrap();
-        assert!(
-            result.get("image").is_some(),
-            "image.show result should have 'image' field: {result:?}"
-        );
-        // The image's ZTP group has only its method: no login settings, and no password flag.
-        let ztp = result["image"]["vm"]["ztp"].as_object().unwrap();
-        assert_eq!(ztp.keys().collect::<Vec<_>>(), ["method"], "{result:?}");
-        assert!(result.get("ztp_password_set").is_none(), "{result:?}");
-    }
+    let result = &response["result"];
+    assert_eq!(result["image"]["version"], "24.04", "{response}");
+    // The image's ZTP group has only its method: no login settings, and no password flag.
+    let ztp = result["image"]["vm"]["ztp"]
+        .as_object()
+        .context("image.show should return the image's ZTP group")?;
+    assert_eq!(ztp.keys().collect::<Vec<_>>(), ["method"], "{response}");
+    assert!(result.get("ztp_password_set").is_none(), "{response}");
 
     Ok(())
 }
@@ -461,49 +455,36 @@ async fn a_container_image_a_running_container_runs_is_not_deleted() -> Result<(
 // ── Image Set Default ──
 
 #[tokio::test]
-#[ignore = "requires a Docker daemon"]
 async fn test_image_set_default() -> Result<()> {
     let server = TestServer::start().await?;
+    seed_ubuntu_image(&server, "22.04", true).await?;
+    seed_ubuntu_image(&server, "24.04", false).await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_admin().await?;
 
-    // Scan first
-    let (_s, _r) = ws
-        .rpc_call_streaming(
-            "image.scan",
-            json!({ "token": token }),
-            Duration::from_secs(60),
+    let response = ws
+        .rpc_call(
+            "image.set_default",
+            json!({
+                "token": token,
+                "model": "ubuntu_linux",
+                "version": "24.04",
+            }),
         )
         .await?;
 
-    // List images to get a model and version
-    let list_resp = ws.rpc_call("image.list", json!({ "token": token })).await?;
-
-    if let Some(result) = list_resp.get("result")
-        && let Some(images) = result.as_array()
-        && let Some(first) = images.first()
-    {
-        let model = first.get("model").and_then(|v| v.as_str()).unwrap_or("");
-        let version = first.get("version").and_then(|v| v.as_str()).unwrap_or("");
-
-        if !model.is_empty() && !version.is_empty() {
-            let response = ws
-                .rpc_call(
-                    "image.set_default",
-                    json!({
-                        "token": token,
-                        "model": model,
-                        "version": version,
-                    }),
-                )
-                .await?;
-
-            assert!(
-                response.get("result").is_some(),
-                "set_default should succeed: {response:?}"
-            );
-        }
-    }
+    assert!(
+        response.get("result").is_some(),
+        "set_default should succeed: {response:?}"
+    );
+    let default = db::find_default_node_image(
+        &server.db,
+        &NodeModel::UbuntuLinux,
+        &NodeKind::VirtualMachine,
+    )
+    .await?
+    .context("ubuntu_linux should have a default image")?;
+    assert_eq!(default.version, "24.04");
 
     Ok(())
 }
@@ -511,7 +492,6 @@ async fn test_image_set_default() -> Result<()> {
 // ── Image Import (VM) ──
 
 #[tokio::test]
-#[ignore = "requires a Docker daemon"]
 async fn test_image_import_nonexistent_file() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -524,16 +504,26 @@ async fn test_image_import_nonexistent_file() -> Result<()> {
                 "token": token,
                 "model": "ubuntu_linux",
                 "version": "99.99",
-                "path": "/nonexistent/path/virtioa.qcow2",
+                "src": "/nonexistent/path/virtioa.qcow2",
             }),
             Duration::from_secs(30),
         )
         .await?;
 
     assert!(
-        response.get("error").is_some(),
+        response["error"]
+            .to_string()
+            .contains("Source file does not exist: /nonexistent/path/virtioa.qcow2"),
         "importing nonexistent file should fail: {response:?}"
     );
+    let record = db::find_node_image_by_model_kind_version(
+        &server.db,
+        &NodeModel::UbuntuLinux,
+        &NodeKind::VirtualMachine,
+        "99.99",
+    )
+    .await?;
+    assert!(record.is_none(), "a failed import recorded the image");
 
     Ok(())
 }
@@ -602,9 +592,10 @@ async fn test_image_scan_admin_only() -> Result<()> {
         )
         .await?;
 
-    assert!(
-        response.get("error").is_some(),
-        "non-admin should be denied image.scan"
+    assert_eq!(
+        response["error"]["code"],
+        json!(RpcErrorCode::AccessDenied),
+        "non-admin should be denied image.scan: {response}"
     );
 
     Ok(())
@@ -744,35 +735,13 @@ async fn an_image_path_with_a_kind_the_model_does_not_take_is_refused() -> Resul
 }
 
 #[tokio::test]
-async fn the_old_image_paths_and_model_names_are_refused() -> Result<()> {
+async fn unknown_kinds_and_renamed_models_in_image_paths_are_refused() -> Result<()> {
     let server = TestServer::start().await?;
     seed_arista_eos_images(&server).await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_admin().await?;
 
-    // The paths without a kind are gone.
-    for (method, path) in [
-        (Method::GET, "/api/v1/images/arista_eos".to_owned()),
-        (
-            Method::DELETE,
-            format!("/api/v1/images/arista_eos/{EOS_VM_VERSION}"),
-        ),
-        (
-            Method::POST,
-            format!("/api/v1/images/arista_eos/{EOS_VM_VERSION}/default"),
-        ),
-        (Method::GET, "/admin/images/arista_eos".to_owned()),
-    ] {
-        let (status, body) = request(&server, method.clone(), &path, &token).await?;
-        ensure!(
-            matches!(
-                status,
-                StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED
-            ),
-            "{method} {path}: {status} {body}"
-        );
-    }
-    // An old page path reads its version or `edit` as the kind.
+    // A page path without a kind reads its version or `edit` as the kind.
     for path in [
         format!("/admin/images/arista_eos/{EOS_VM_VERSION}"),
         "/admin/images/arista_eos/edit".to_owned(),

@@ -1444,7 +1444,7 @@ async fn test_lab_up_missing_image() -> Result<()> {
         "nodes": [
             {
                 "name": "bad1",
-                "model": "juniper_vsrx",
+                "model": "ubuntu_linux",
             }
         ]
     });
@@ -1454,7 +1454,7 @@ async fn test_lab_up_missing_image() -> Result<()> {
             "up",
             json!({
                 "token": token,
-                "lab_id": "test-noimg",
+                "lab_id": "noimg001",
                 "manifest": manifest,
             }),
             Duration::from_secs(30),
@@ -1462,8 +1462,14 @@ async fn test_lab_up_missing_image() -> Result<()> {
         .await?;
 
     assert!(
-        response.get("error").is_some(),
+        response["error"].to_string().contains(
+            "Node config not found for model: ubuntu_linux kind: virtual_machine (node: bad1)"
+        ),
         "lab up with missing image should fail: {response:?}"
+    );
+    assert!(
+        db::find_lab(&server.db, "noimg001").await?.is_none(),
+        "a refused up created a lab record"
     );
 
     Ok(())
@@ -1481,7 +1487,7 @@ async fn test_lab_up_invalid_manifest() -> Result<()> {
             "up",
             json!({
                 "token": token,
-                "lab_id": "test-invalid",
+                "lab_id": "badmf001",
                 "manifest": {},
             }),
             Duration::from_secs(10),
@@ -1489,7 +1495,9 @@ async fn test_lab_up_invalid_manifest() -> Result<()> {
         .await?;
 
     assert!(
-        response.get("error").is_some(),
+        response["error"]["context"]
+            .as_str()
+            .is_some_and(|context| context.contains("missing field `name`")),
         "invalid manifest should fail: {response:?}"
     );
 
@@ -1505,16 +1513,17 @@ async fn test_lab_up_requires_auth() -> Result<()> {
         .rpc_call_streaming(
             "up",
             json!({
-                "lab_id": "test-noauth",
+                "lab_id": "noauth01",
                 "manifest": {"name": "test", "nodes": []},
             }),
             Duration::from_secs(10),
         )
         .await?;
 
-    assert!(
-        response.get("error").is_some(),
-        "up without auth should fail"
+    assert_eq!(
+        response["error"]["code"],
+        json!(RpcErrorCode::AuthRequired),
+        "up without auth should fail: {response}"
     );
 
     Ok(())

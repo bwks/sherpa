@@ -58,20 +58,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn omitted_clone_method_is_preserved_during_expansion() {
-        let expanded = process_manifest_nodes(&[topology::Node {
-            model: data::NodeModel::UbuntuLinux,
-            ..Default::default()
-        }])
-        .unwrap();
-        assert!(
-            serde_json::to_value(expanded[0].boot_disk.clone_method)
-                .unwrap()
-                .is_null()
-        );
-    }
-
-    #[test]
     fn talos_nodes_default_to_a_boot_disk_large_enough_for_talos() {
         let expanded = process_manifest_nodes(&[
             topology::Node {

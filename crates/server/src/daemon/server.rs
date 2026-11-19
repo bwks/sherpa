@@ -751,11 +751,6 @@ async fn serve_cert_endpoint(addr: SocketAddr, state: AppState) {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_shutdown_signals_install_inside_runtime() {
-        assert!(ShutdownSignals::install().is_ok());
-    }
-
     #[cfg(unix)]
     async fn wait_after_signal(signal_name: &str) {
         let signals = ShutdownSignals::install().unwrap();

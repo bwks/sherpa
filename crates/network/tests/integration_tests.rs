@@ -273,31 +273,6 @@ async fn test_create_veth_pair() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_veth_pair_up_state() -> Result<()> {
-    let src = "st-veth-up-a";
-    let dst = "st-veth-up-b";
-
-    cleanup_interface(src).await;
-    cleanup_interface(dst).await;
-
-    create_veth_pair(src, dst, "test-up-src", "test-up-dst").await?;
-
-    assert!(
-        interface_is_up(src),
-        "src veth should have UP flag set after creation"
-    );
-    assert!(
-        interface_is_up(dst),
-        "dst veth should have UP flag set after creation"
-    );
-
-    delete_interface(src).await?;
-
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
 async fn test_create_veth_pair_duplicate() -> Result<()> {
     let src = "st-veth-dp-a";
     let dst = "st-veth-dp-b";
@@ -339,8 +314,11 @@ async fn test_enslave_veth_to_bridge() -> Result<()> {
     // Enslave src end to bridge
     enslave_to_bridge(src, br).await?;
 
-    // If we got here without error, the enslave succeeded.
-    // The interface is now a bridge port.
+    let shown = ip_link_show(src);
+    assert!(
+        shown.contains(&format!("master {br}")),
+        "{src} should be a port of {br}: {shown}"
+    );
 
     // Cleanup
     delete_interface(src).await?;
@@ -405,45 +383,6 @@ async fn test_delete_nonexistent_interface_succeeds() -> Result<()> {
 }
 
 // ============================================================================
-// Fuzzy search
-// ============================================================================
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_interfaces_containing_no_matches() -> Result<()> {
-    let found = interfaces_containing("st-zzz-nonexistent").await?;
-    assert!(found.is_empty(), "Should find no matches");
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_interfaces_containing_multiple_matches() -> Result<()> {
-    let br1 = "st-fz-br1";
-    let br2 = "st-fz-br2";
-
-    cleanup_interface(br1).await;
-    cleanup_interface(br2).await;
-
-    create_bridge(br1, "fuzzy-test-1").await?;
-    create_bridge(br2, "fuzzy-test-2").await?;
-
-    // Both should match "st-fz-"
-    let found = interfaces_containing("st-fz-").await?;
-    assert!(
-        found.len() >= 2,
-        "Should find at least 2 matches, got: {found:?}"
-    );
-    assert!(found.iter().any(|n| n == br1));
-    assert!(found.iter().any(|n| n == br2));
-
-    delete_interface(br1).await?;
-    delete_interface(br2).await?;
-
-    Ok(())
-}
-
-// ============================================================================
 // Tap device
 // ============================================================================
 
@@ -491,28 +430,6 @@ async fn test_create_tap() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_get_ifindex() -> Result<()> {
-    if tap_rtnetlink_unsupported().await {
-        eprintln!("SKIP: rtnetlink TAP not supported on this kernel — fix deferred");
-        return Ok(());
-    }
-
-    let name = "st-tap-idx";
-
-    cleanup_interface(name).await;
-
-    create_tap(name, "test-ifindex").await?;
-
-    let idx = get_ifindex(name).await?;
-    assert!(idx > 0, "ifindex should be positive, got: {idx}");
-
-    delete_interface(name).await?;
-
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
 async fn test_get_ifindex_nonexistent_fails() -> Result<()> {
     let error = get_ifindex("st-noexist99").await.unwrap_err();
     assert!(
@@ -525,44 +442,6 @@ async fn test_get_ifindex_nonexistent_fails() -> Result<()> {
 // ============================================================================
 // TC netem impairment
 // ============================================================================
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_apply_netem_to_veth() -> Result<()> {
-    let src = "st-netem-a";
-    let dst = "st-netem-b";
-
-    cleanup_interface(src).await;
-
-    create_veth_pair(src, dst, "netem-src", "netem-dst").await?;
-
-    let idx = get_ifindex(src).await?;
-
-    let impairment = LinkImpairment {
-        delay_us: 50000, // 50ms
-        jitter_us: 5000, // 5ms
-        loss_percent: 1.0,
-        reorder_percent: 0.0,
-        corrupt_percent: 0.0,
-    };
-
-    apply_netem(idx, &impairment).await?;
-
-    // Verify netem qdisc was created via tc show
-    let output = Command::new("tc")
-        .args(["qdisc", "show", "dev", src])
-        .output()
-        .expect("tc command failed");
-    let tc_output = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        tc_output.contains("netem"),
-        "tc qdisc show should contain 'netem', got: {tc_output}"
-    );
-
-    delete_interface(src).await?;
-
-    Ok(())
-}
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]

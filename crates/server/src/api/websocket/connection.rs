@@ -43,14 +43,3 @@ pub type ConnectionRegistry = Arc<DashMap<Uuid, Arc<Connection>>>;
 pub fn create_registry() -> ConnectionRegistry {
     Arc::new(DashMap::new())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_create_registry() {
-        let registry = create_registry();
-        assert_eq!(registry.len(), 0);
-    }
-}

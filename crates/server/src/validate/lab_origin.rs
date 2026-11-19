@@ -60,11 +60,11 @@ mod tests {
 
     #[test]
     fn values_over_their_limit_are_refused() {
-        let host = "a".repeat(MAX_CLIENT_HOST_LENGTH + 1);
-        assert!(validate_lab_origin(Some(&host), None).is_err());
-        let folder = format!("/{}", "a".repeat(MAX_CLIENT_FOLDER_LENGTH));
+        assert!(validate_lab_origin(Some(&"a".repeat(253)), None).is_ok());
+        assert!(validate_lab_origin(Some(&"a".repeat(254)), None).is_err());
+        let folder = format!("/{}", "a".repeat(4096));
         assert!(validate_lab_origin(None, Some(&folder)).is_err());
-        let folder = format!("/{}", "a".repeat(MAX_CLIENT_FOLDER_LENGTH - 1));
+        let folder = format!("/{}", "a".repeat(4095));
         assert!(validate_lab_origin(None, Some(&folder)).is_ok());
     }
 

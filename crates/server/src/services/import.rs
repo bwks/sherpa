@@ -982,6 +982,7 @@ pub async fn download_image(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::extract::ws::Message;
     use libvirt::BackedVolume;
 
     #[test]
@@ -1121,34 +1122,23 @@ mod tests {
     }
 
     #[test]
-    fn test_progress_sender_delivers_status_messages() {
+    fn a_status_message_reaches_the_client_as_a_status_frame() {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let progress = ProgressSender::new(tx);
 
         progress
-            .send_status("Validating source...".to_string(), StatusKind::Info)
-            .expect("send should succeed");
-        progress
             .send_status("Copying image...".to_string(), StatusKind::Progress)
-            .expect("send should succeed");
-        progress
-            .send_status("Done".to_string(), StatusKind::Done)
-            .expect("send should succeed");
+            .unwrap();
 
-        // All 3 messages should be received
-        assert!(rx.try_recv().is_ok());
-        assert!(rx.try_recv().is_ok());
-        assert!(rx.try_recv().is_ok());
-        assert!(rx.try_recv().is_err()); // No more messages
-    }
-
-    #[tokio::test]
-    async fn test_import_rejects_nonexistent_source_file() {
-        // import_image should bail before touching Docker/DB when src doesn't exist.
-        // We can't call import_image directly without AppState, but the validation
-        // logic is the first thing checked — verify via file_exists.
-        let fake_path = "/tmp/sherpa_test_nonexistent_image_12345.qcow2";
-        assert!(!file_exists(fake_path));
+        let Message::Text(text) = rx.try_recv().unwrap() else {
+            panic!("the status was not sent as text");
+        };
+        let frame: serde_json::Value = serde_json::from_str(text.as_str()).unwrap();
+        assert_eq!(frame["type"], "status", "{frame}");
+        assert_eq!(frame["message"], "Copying image...", "{frame}");
+        assert_eq!(frame["kind"], "progress", "{frame}");
+        assert!(frame.get("phase").is_none(), "{frame}");
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]

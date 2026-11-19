@@ -190,7 +190,10 @@ mod tests {
         else {
             panic!("expected init");
         };
-        assert_eq!(management_prefix_ipv4, SHERPA_MANAGEMENT_NETWORK_IPV4);
+        assert_eq!(
+            management_prefix_ipv4,
+            "172.31.0.0/16".parse::<Ipv4Net>().unwrap()
+        );
     }
 
     #[test]

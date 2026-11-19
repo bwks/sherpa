@@ -359,33 +359,6 @@ mod tests {
     }
 
     #[test]
-    fn only_an_active_session_can_be_used() {
-        for from in STATES {
-            assert_eq!(
-                transition(from, SessionEvent::Use).is_ok(),
-                from == SessionState::Active,
-                "{from:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn every_end_reason_ends_every_state() {
-        for from in STATES {
-            for reason in [
-                EndReason::Logout,
-                EndReason::PasswordChanged,
-                EndReason::UserDeleted,
-            ] {
-                assert_eq!(
-                    transition(from, SessionEvent::End(reason)),
-                    Ok(SessionState::Ended)
-                );
-            }
-        }
-    }
-
-    #[test]
     fn state_follows_the_row_and_the_clock() {
         let now = Timestamp::from_second(1_000).expect("time");
         let later = Timestamp::from_second(1_001).expect("time");
@@ -481,8 +454,7 @@ mod tests {
 
         assert_eq!(
             state_now(&db, &web.ctx.session_id).await,
-            transition(SessionState::Active, SessionEvent::End(EndReason::Logout))
-                .expect("transition")
+            SessionState::Ended
         );
         let status = token_status(&db, SECRET, &web.token).await.expect("status");
         assert!(!status.valid, "a logged-out token is still valid");
@@ -519,11 +491,7 @@ mod tests {
 
         assert_eq!(
             state_now(&db, &other.ctx.session_id).await,
-            transition(
-                SessionState::Active,
-                SessionEvent::End(EndReason::PasswordChanged)
-            )
-            .expect("transition")
+            SessionState::Ended
         );
         assert!(
             !token_status(&db, SECRET, &other.token)
@@ -554,11 +522,7 @@ mod tests {
             .expect("delete");
         assert_eq!(
             state_now(&db, &issued.ctx.session_id).await,
-            transition(
-                SessionState::Active,
-                SessionEvent::End(EndReason::UserDeleted)
-            )
-            .expect("transition")
+            SessionState::Ended
         );
         user(&db, "alice").await;
 
@@ -577,7 +541,7 @@ mod tests {
     // ── The sweep ──
 
     #[tokio::test]
-    async fn the_sweep_ends_exactly_the_sessions_the_machine_calls_expired() {
+    async fn the_sweep_ends_the_expired_sessions_only() {
         let db = database().await;
         let alice = user(&db, "alice").await;
         let expired = start(&db, SECRET, &alice, SessionChannel::Web, -1)
@@ -598,12 +562,14 @@ mod tests {
 
         assert_eq!(sweep(&db, now).await.expect("sweep"), 1);
 
-        for (issued, state) in [(&expired, before[0]), (&live, before[1])] {
-            assert_eq!(
-                state_now(&db, &issued.ctx.session_id).await,
-                transition(state, SessionEvent::Sweep).expect("transition")
-            );
-        }
+        assert_eq!(
+            state_now(&db, &expired.ctx.session_id).await,
+            SessionState::Ended
+        );
+        assert_eq!(
+            state_now(&db, &live.ctx.session_id).await,
+            SessionState::Active
+        );
     }
 
     #[tokio::test]

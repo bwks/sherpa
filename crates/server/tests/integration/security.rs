@@ -347,6 +347,10 @@ async fn changing_your_own_password_over_rpc_needs_the_current_one() -> Result<(
         .await?;
     ensure!(response.get("error").is_none(), "{response}");
     ensure!(can_log_in(&mut ws, "alice", NEW_PASSWORD).await?);
+    ensure!(
+        !can_log_in(&mut ws, "alice", TEST_ADMIN_PASSWORD).await?,
+        "the old password still logs in"
+    );
     Ok(())
 }
 

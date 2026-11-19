@@ -131,27 +131,31 @@ mod tests {
 
     #[test]
     fn a_config_is_accepted_only_where_a_generator_reads_it() {
-        for model in NodeModel::to_vec() {
-            let settings = ModelKind::default_for(model)
-                .ztp_methods()
-                .iter()
-                .copied()
-                .chain([Ztp::Disabled]);
-            for ztp in settings {
-                let read = match ztp {
-                    Ztp::Tftp | Ztp::Cdrom | Ztp::Disk | Ztp::Usb | Ztp::NoCloud | Ztp::Volume => {
-                        true
-                    }
-                    Ztp::Disabled => model == NodeModel::HashicorpVault,
-                    Ztp::CloudInit | Ztp::Ignition | Ztp::Http => false,
-                };
-                let result = validate(model, Some(ztp), Some("config"));
-                assert_eq!(result.is_ok(), read, "{model} with {ztp}: {result:?}");
-                assert!(
-                    validate(model, Some(ztp), None).is_ok(),
-                    "{model} with {ztp}"
-                );
-            }
+        for (model, ztp) in [
+            (NodeModel::JuniperEvolved, Ztp::Tftp),
+            (NodeModel::JuniperEvolved, Ztp::Usb),
+            (NodeModel::JuniperSrxv3, Ztp::Cdrom),
+            (NodeModel::FrrLinux, Ztp::Volume),
+            (NodeModel::TalosLinux, Ztp::NoCloud),
+        ] {
+            assert_eq!(
+                validate(model, Some(ztp), Some("config")).unwrap(),
+                ztp,
+                "{model} with {ztp}"
+            );
+        }
+        for (model, ztp) in [
+            (NodeModel::UbuntuLinux, Ztp::CloudInit),
+            (NodeModel::FlatcarLinux, Ztp::Ignition),
+        ] {
+            let error = validate(model, Some(ztp), Some("config"))
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains(&format!("which ZTP method '{ztp}' does not use")),
+                "{model}: {error}"
+            );
+            assert!(validate(model, Some(ztp), None).is_ok(), "{model}");
         }
     }
 

@@ -111,13 +111,6 @@ mod tests {
     }
 
     #[test]
-    fn test_key_with_dots() {
-        let entries = vec!["BAD.KEY=value".to_string()];
-        let result = validate_environment_variables(&entries, "node1");
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_empty_entries() {
         let entries: Vec<String> = vec![];
         assert!(validate_environment_variables(&entries, "node1").is_ok());

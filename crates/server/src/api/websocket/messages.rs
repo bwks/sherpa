@@ -132,25 +132,6 @@ mod tests {
     }
 
     #[test]
-    fn test_status_message_done_kind() {
-        let msg = ServerMessage::Status {
-            message: "All nodes are ready!".to_string(),
-            timestamp: Timestamp::now(),
-            kind: StatusKind::Done,
-            phase: Some("Node Readiness Check".to_string()),
-            progress: Some(StatusProgress {
-                current_phase: "Node Readiness Check".to_string(),
-                phase_number: 13,
-                total_phases: 13,
-            }),
-        };
-
-        let json = serde_json::to_value(&msg).unwrap();
-        assert_eq!(json["kind"], "done");
-        assert_eq!(json["phase"], "Node Readiness Check");
-    }
-
-    #[test]
     fn test_rpc_response_error_serialization() {
         let msg = ServerMessage::RpcResponse {
             id: "test-002".to_string(),

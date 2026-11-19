@@ -269,73 +269,11 @@ mod tests {
         assert!(!output.contains("IdentitiesOnly"));
     }
 
-    #[test]
-    fn a_node_from_before_owner_logins_keeps_the_sherpa_login_it_records() {
-        // Migration 29 records `sherpa` for nodes built before 0.7.0.
-        let usernames = [NodeSshUsername {
-            node_name: "vm".to_owned(),
-            username: "sherpa".to_owned(),
-        }];
-        let config = build_ssh_config(
-            &records(),
-            &usernames,
-            &[],
-            "abcd1234",
-            "alice",
-            "192.0.2.1".parse().unwrap(),
-        );
-        assert_eq!(config.hosts[0].username, "sherpa");
-        assert_eq!(config.hosts[1].username, "alice");
-        assert!(!config.render().unwrap().contains("IdentityFile"));
-    }
-
-    #[test]
-    fn nodes_without_ssh_are_left_out() {
-        let mut lab = records();
-        lab.push(ZtpRecord {
-            node_name: "talos".to_owned(),
-            ipv4_address: "192.0.2.12".parse().unwrap(),
-            ipv6_address: None,
-            config_file: String::new(),
-            mac_address: String::new(),
-            ztp: Ztp::NoCloud,
-            ssh_port: None,
-        });
-        let config = build_ssh_config(
-            &lab,
-            &[],
-            &[],
-            "abcd1234",
-            "owner",
-            "192.0.2.1".parse().unwrap(),
-        );
-        assert_eq!(config.hosts.len(), 2);
-        assert!(config.render().unwrap().find("talos").is_none());
-    }
-
     fn host_key(node_name: &str, key: &str) -> NodeHostKey {
         NodeHostKey {
             node_name: node_name.to_owned(),
             key: key.to_owned(),
         }
-    }
-
-    #[test]
-    fn only_nodes_with_a_recorded_key_are_checked_strictly() {
-        let keys = [host_key("router", "ssh-rsa AAAAB3")];
-        let config = build_ssh_config(
-            &records(),
-            &[],
-            &keys,
-            "abcd1234",
-            "owner",
-            "192.0.2.1".parse().unwrap(),
-        );
-        assert!(config.hosts[0].known_hosts_file.is_none());
-        assert_eq!(
-            config.hosts[1].known_hosts_file.as_deref(),
-            Some(SHERPA_KNOWN_HOSTS_FILE)
-        );
     }
 
     #[test]

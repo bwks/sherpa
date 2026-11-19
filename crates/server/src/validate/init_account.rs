@@ -25,7 +25,7 @@ mod tests {
 
     #[test]
     fn accepts_the_service_account() {
-        assert!(validate_init_account(SHERPA_USERNAME).is_ok());
+        assert!(validate_init_account("sherpa").is_ok());
     }
 
     #[test]

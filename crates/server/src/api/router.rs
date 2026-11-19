@@ -294,10 +294,6 @@ mod tests {
             content.contains("combobox-list"),
             "model-filter.js should reference combobox-list element"
         );
-        assert!(
-            content.contains("ArrowDown"),
-            "model-filter.js should handle keyboard navigation"
-        );
     }
 
     #[test]

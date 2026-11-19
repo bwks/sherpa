@@ -4897,13 +4897,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_build_env_profile_script_with_spaces() {
-        let env_vars = vec!["GREETING=hello world".to_string()];
-        let script = build_env_profile_script(&env_vars);
-        assert_eq!(script, "#!/bin/sh\nexport GREETING='hello world'\n");
-    }
-
-    #[test]
     fn test_build_env_profile_script_empty() {
         let env_vars: Vec<String> = vec![];
         let script = build_env_profile_script(&env_vars);
@@ -5320,34 +5313,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_build_cloud_init_text_files_multiple() {
-        let text_files = Some(vec![
-            topology::TextFileData {
-                content: "Zmls".to_string(),
-                dst: "/etc/file1".to_string(),
-                user: "root".to_string(),
-                group: "root".to_string(),
-                permissions: 644,
-            },
-            topology::TextFileData {
-                content: "c2NyaXB0".to_string(),
-                dst: "/opt/file2".to_string(),
-                user: "sherpa".to_string(),
-                group: "sherpa".to_string(),
-                permissions: 755,
-            },
-        ]);
-
-        let result = build_cloud_init_text_files(text_files.as_deref());
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].dst, "/etc/file1");
-        assert_eq!(result[1].dst, "/opt/file2");
-        assert_eq!(result[1].permissions, "755");
-        assert_eq!(result[1].user, "sherpa");
-        assert_eq!(result[1].group, Some("sherpa".to_string()));
-    }
-
-    #[test]
     fn test_build_cloudbase_text_files_basic() {
         let text_files = Some(vec![topology::TextFileData {
             content: "aGVsbG8=".to_string(),
@@ -5415,34 +5380,6 @@ pub(crate) mod tests {
         }
     }
 
-    // =========================================================================
-    // Cmdline format function tests
-    // =========================================================================
-
-    /// Generate Unikraft kernel cmdline args with network configuration.
-    ///
-    /// Produces a cmdline string in the format Unikraft's lwIP/uknetdev stack expects:
-    /// `netdev.ipv4_addr=<ip> netdev.ipv4_gw_addr=<gw> netdev.ipv4_subnet_mask=<mask>`
-    ///
-    /// Note: Unikraft does not support IPv6 via kernel cmdline (source has `/* TODO: ip6 */`).
-    /// Not used in production (Unikraft pre-built images use DHCP), but kept as a reference
-    /// for the expected cmdline format and tested to ensure correctness.
-    fn unikraft_cmdline(ipv4: &str, subnet_mask: &str, gateway_v4: &str) -> String {
-        format!(
-            "netdev.ipv4_addr={ipv4} netdev.ipv4_gw_addr={gateway_v4} \
-             netdev.ipv4_subnet_mask={subnet_mask}"
-        )
-    }
-
-    #[test]
-    fn test_unikraft_cmdline_format() {
-        let result = unikraft_cmdline("10.0.0.10", "255.255.255.0", "10.0.0.1");
-        assert!(result.contains("netdev.ipv4_addr=10.0.0.10"));
-        assert!(result.contains("netdev.ipv4_gw_addr=10.0.0.1"));
-        assert!(result.contains("netdev.ipv4_subnet_mask=255.255.255.0"));
-        // Unikraft does not support IPv6 via cmdline
-        assert!(!result.contains("ipv6"));
-    }
     #[test]
     fn test_nixos_cloud_init_gets_no_sudo_rule() {
         // NixOS generates /etc/sudoers without /etc/sudoers.d, so wheel grants sudo instead.

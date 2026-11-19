@@ -202,18 +202,6 @@ mod tests {
     }
 
     #[test]
-    fn test_network_names_carry_node_interface_and_lab() {
-        assert_eq!(
-            bridge_member_network_name("fr01", 1, LAB_ID),
-            "fr01-brs1-fe4edfdc"
-        );
-        assert_eq!(
-            isolated_network_name("fr01", 3, LAB_ID),
-            "fr01-iso3-fe4edfdc"
-        );
-    }
-
-    #[test]
     fn test_bridge_member_gets_an_active_attachment() {
         let attachment = data_attachment(
             "fr01",

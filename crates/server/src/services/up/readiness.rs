@@ -1032,21 +1032,10 @@ mod tests {
     }
 
     #[test]
-    fn a_container_without_a_ready_port_is_ready_once_settled() {
-        let running = Some(ContainerStateStatusEnum::RUNNING);
-        assert_eq!(
-            check_started_container(running, CONTAINER_SETTLE, None),
-            ContainerCheck::Ready { host_key: None }
-        );
-    }
-
-    #[test]
     fn polling_wakes_when_the_first_settling_container_is_due() {
-        let interval = poll_interval([Duration::from_secs(1), Duration::from_secs(4)].into_iter());
-        assert_eq!(
-            interval,
-            CONTAINER_SETTLE.saturating_sub(Duration::from_secs(4))
-        );
+        // Settling takes 5 s: the container running for 3 s is due first, in 2 s.
+        let interval = poll_interval([Duration::from_secs(1), Duration::from_secs(3)].into_iter());
+        assert_eq!(interval, Duration::from_secs(2));
     }
 
     #[test]

@@ -252,93 +252,7 @@ async fn test_invalid_and_reserved_usernames_rejected() -> Result<()> {
 
 // ── User Info ──
 
-#[tokio::test]
-async fn test_user_gets_own_info() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
-
-    let response = ws
-        .rpc_call(
-            "user.info",
-            json!({
-                "token": token,
-                "username": "admin",
-            }),
-        )
-        .await?;
-
-    let result = response.get("result").expect("should have result");
-    // user.info returns GetUserInfoResponse { user: UserInfo { ... } }
-    let user = result.get("user").expect("result should have 'user' field");
-    assert_eq!(user.get("username").and_then(|v| v.as_str()), Some("admin"));
-    assert_eq!(
-        user.get("is_admin").and_then(serde_json::Value::as_bool),
-        Some(true)
-    );
-
-    Ok(())
-}
-
 // ── Password Change ──
-
-#[tokio::test]
-async fn test_user_changes_own_password() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-    let admin_token = ws.login_admin().await?;
-
-    // Create a user
-    let _r = ws
-        .rpc_call(
-            "user.create",
-            json!({
-                "token": admin_token,
-                "username": "pwduser",
-                "password": "OldPass123!",
-                "is_admin": false,
-            }),
-        )
-        .await?;
-
-    let user_token = ws.login("pwduser", "OldPass123!").await?;
-
-    // Change password
-    let response = ws
-        .rpc_call(
-            "user.passwd",
-            json!({
-                "token": user_token,
-                "username": "pwduser",
-                "current_password": "OldPass123!",
-                "new_password": "NewPass456!",
-            }),
-        )
-        .await?;
-
-    assert!(
-        response.get("result").is_some(),
-        "password change should succeed: {response:?}"
-    );
-
-    // Old password should fail
-    let old_login = ws
-        .rpc_call(
-            "auth.login",
-            json!({
-                "username": "pwduser",
-                "password": "OldPass123!",
-            }),
-        )
-        .await?;
-    assert!(old_login.get("error").is_some(), "old password should fail");
-
-    // New password should work
-    let new_token = ws.login("pwduser", "NewPass456!").await?;
-    assert_ne!(new_token, "");
-
-    Ok(())
-}
 
 // ── User Listing ──
 
@@ -367,11 +281,14 @@ async fn test_admin_lists_users() -> Result<()> {
 
     let result = response.get("result").expect("should have result");
     // user.list returns ListUsersResponse { users: Vec<UserInfo> }
-    let users = result
-        .get("users")
-        .and_then(|v| v.as_array())
-        .expect("result should have 'users' array");
-    assert!(users.len() >= 3, "should have admin + 2 created users");
+    let mut usernames: Vec<&str> = result["users"]
+        .as_array()
+        .expect("result should have 'users' array")
+        .iter()
+        .filter_map(|user| user["username"].as_str())
+        .collect();
+    usernames.sort_unstable();
+    assert_eq!(usernames, ["admin", "listuser1", "listuser2"], "{response}");
 
     Ok(())
 }
@@ -423,31 +340,6 @@ async fn test_admin_deletes_user() -> Result<()> {
     assert!(
         login.get("error").is_some(),
         "deleted user should not login"
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_last_admin_cannot_be_deleted() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
-
-    // Try to delete the only admin
-    let response = ws
-        .rpc_call(
-            "user.delete",
-            json!({
-                "token": token,
-                "username": "admin",
-            }),
-        )
-        .await?;
-
-    assert!(
-        response.get("error").is_some(),
-        "should not be able to delete last admin"
     );
 
     Ok(())

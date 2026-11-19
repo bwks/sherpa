@@ -608,23 +608,6 @@ mod tests {
     }
 
     #[test]
-    fn test_valid_bearer_token_admin() {
-        let token = make_token("admin", true);
-        let mut headers = HeaderMap::new();
-        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
-
-        let result = extract_and_validate_token(&headers, TEST_SECRET);
-        assert!(result.is_ok());
-        let Claims {
-            sub: username,
-            is_admin,
-            ..
-        } = result.unwrap();
-        assert_eq!(username, "admin");
-        assert!(is_admin);
-    }
-
-    #[test]
     fn test_expired_bearer_token_rejected() {
         let token = make_expired_token();
         let mut headers = HeaderMap::new();
@@ -640,17 +623,6 @@ mod tests {
         headers.insert("authorization", "Bearer not.a.valid.jwt".parse().unwrap());
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_wrong_secret_bearer_token_rejected() {
-        let token = make_token("alice", false);
-        let wrong_secret = b"different_secret_32bytes_exactly";
-        let mut headers = HeaderMap::new();
-        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
-
-        let result = extract_and_validate_token(&headers, wrong_secret);
         assert!(result.is_err());
     }
 

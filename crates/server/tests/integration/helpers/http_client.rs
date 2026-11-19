@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use reqwest::header;
-use reqwest::{Client, Response, StatusCode};
+use reqwest::{Client, Response};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -83,13 +83,5 @@ impl TestHttpClient {
             req = req.bearer_auth(token);
         }
         req.send().await.context("HTTP DELETE failed")
-    }
-
-    /// Login via the HTML form endpoint and store session cookie
-    pub async fn login_form(&self, username: &str, password: &str) -> Result<StatusCode> {
-        let resp = self
-            .post_form("/login", &[("username", username), ("password", password)])
-            .await?;
-        Ok(resp.status())
     }
 }

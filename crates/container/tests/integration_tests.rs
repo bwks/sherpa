@@ -134,19 +134,6 @@ async fn container_listed(docker: &Docker, name: &str) -> Result<bool> {
 }
 
 // ============================================================================
-// Connection
-// ============================================================================
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn test_docker_connection() -> Result<()> {
-    let docker = docker_connection()?;
-    // Verify connection works by pinging Docker
-    docker.ping().await?;
-    Ok(())
-}
-
-// ============================================================================
 // Container lifecycle
 // ============================================================================
 
@@ -348,19 +335,6 @@ async fn test_create_and_delete_bridge_network() -> Result<()> {
     .await;
     let _ = delete_network(&docker, &net.name).await;
     result
-}
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn test_list_networks_includes_default() -> Result<()> {
-    let docker = docker_connection()?;
-    let networks = list_networks(&docker).await?;
-
-    // Docker always has a "bridge" network
-    let has_bridge = networks.iter().any(|n| n.name.as_deref() == Some("bridge"));
-    assert!(has_bridge, "Default bridge network should always exist");
-
-    Ok(())
 }
 
 // ============================================================================

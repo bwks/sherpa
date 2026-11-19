@@ -489,10 +489,7 @@ mod tests {
             .unwrap()
             .node_config();
         let defaults = planned_resources(&node(None, None), &image);
-        assert_eq!(
-            defaults.memory,
-            Some(image.memory + JUNIPER_EVOLVED_CONTAINER_OVERHEAD_MIB)
-        );
+        assert_eq!(defaults.memory, Some(image.memory + 2048));
         assert_eq!(defaults.cpu_count, None);
         let sized = planned_resources(&node(Some(8), Some(16384)), &image);
         assert_eq!(sized.memory, Some(16384 + 2048));
@@ -504,11 +501,7 @@ mod tests {
         for model in [NodeModel::CiscoIol, NodeModel::CiscoIoll2] {
             let image = ModelKind::default_for(model).node_config();
             let defaults = planned_resources(&node(None, None), &image);
-            assert_eq!(
-                defaults.memory,
-                Some(image.memory + CISCO_IOL_CONTAINER_OVERHEAD_MIB),
-                "{model}"
-            );
+            assert_eq!(defaults.memory, Some(image.memory + 128), "{model}");
             assert_eq!(defaults.cpu_count, None, "{model}");
             let sized = planned_resources(&node(Some(2), Some(1024)), &image);
             assert_eq!(sized.memory, Some(1024 + 128), "{model}");

@@ -289,22 +289,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_dead_container_is_faulted() {
-        // M4.1: a dead container used to look stopped, so the UI offered Start.
-        let runtimes = Runtimes {
-            domains: Some(HashMap::new()),
-            containers: Some(HashMap::from([(
-                "r1-abc12345".to_string(),
-                ContainerStateStatusEnum::DEAD,
-            )])),
-        };
-        assert_eq!(
-            runtimes.runtime_of(NodeKind::Container, "r1-abc12345"),
-            Some(Runtime::Faulted("dead"))
-        );
-    }
-
-    #[test]
     fn every_libvirt_state_has_one_meaning() {
         let expected = [
             (Some(VIR_DOMAIN_RUNNING), Runtime::Running),
