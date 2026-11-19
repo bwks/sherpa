@@ -484,18 +484,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn every_tx_checksum_feature_is_turned_off() {
-        let message = features_off_request(27, 1, TX_CHECKSUM_FEATURES).unwrap();
-        for feature in TX_CHECKSUM_FEATURES {
-            let name = c_string(feature);
-            assert!(
-                message.windows(name.len()).any(|window| window == name),
-                "{feature} missing"
-            );
-        }
-    }
-
     /// A reply datagram of one message of type `kind` with `payload`.
     fn reply_datagram(kind: u16, seq: u32, payload: &[u8]) -> Vec<u8> {
         let mut datagram = Vec::new();

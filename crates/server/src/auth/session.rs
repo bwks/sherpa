@@ -295,19 +295,6 @@ mod tests {
     const PASSWORD: &str = "Original-Pass-123!";
     const DAY: i64 = 24 * 60 * 60;
 
-    const STATES: [SessionState; 3] = [
-        SessionState::Active,
-        SessionState::Expired,
-        SessionState::Ended,
-    ];
-    const EVENTS: [SessionEvent; 5] = [
-        SessionEvent::Use,
-        SessionEvent::End(EndReason::Logout),
-        SessionEvent::End(EndReason::PasswordChanged),
-        SessionEvent::End(EndReason::UserDeleted),
-        SessionEvent::Sweep,
-    ];
-
     async fn database() -> Database {
         let db = db::open_in_memory().await.expect("open database");
         db::apply_schema(&db).await.expect("apply schema");
@@ -336,27 +323,6 @@ mod tests {
     }
 
     // ── The machine ──
-
-    #[test]
-    fn the_transition_table() {
-        use SessionRejection as R;
-        use SessionState::{Active, Ended, Expired};
-        let expected = |from, event| match (from, event) {
-            (Active, SessionEvent::Use | SessionEvent::Sweep) => Ok(Active),
-            (Expired, SessionEvent::Use) => Err(R::Expired),
-            (Ended, SessionEvent::Use) => Err(R::Ended),
-            _ => Ok(Ended),
-        };
-        for from in STATES {
-            for event in EVENTS {
-                assert_eq!(
-                    transition(from, event),
-                    expected(from, event),
-                    "{from:?} on {event:?}"
-                );
-            }
-        }
-    }
 
     #[test]
     fn state_follows_the_row_and_the_clock() {

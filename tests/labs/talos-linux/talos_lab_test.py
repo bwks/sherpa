@@ -942,8 +942,8 @@ class SelfTest(unittest.TestCase):
 
     def test_vault_static_secret_reads_the_clusters_path(self):
         spec = vault_static_secret()["spec"]
-        self.assertEqual((spec["mount"], spec["path"]), ("secret", f"{CLUSTER}/{NAMESPACE}"))
-        self.assertEqual(spec["destination"], {"name": VAULT_SECRET, "create": True})
+        self.assertEqual((spec["mount"], spec["path"]), ("secret", "k8s/sherpa-e2e"))
+        self.assertEqual(spec["destination"], {"name": "vault-demo", "create": True})
 
     def test_secret_value(self):
         encoded = base64.b64encode(b"s3cret").decode()
@@ -990,10 +990,14 @@ class SelfTest(unittest.TestCase):
         spread = deployment["spec"]["template"]["spec"]["topologySpreadConstraints"][0]
         self.assertEqual((spread["maxSkew"], spread["whenUnsatisfiable"]), (1, "DoNotSchedule"))
 
-    def test_outcome_keeps_streams_apart_for_parsing(self):
-        outcome = Outcome(0, '{"items": []}', "Warning: Permanently added host\n")
+    def test_run_logged_keeps_streams_apart_for_parsing(self):
+        script = "import sys; print('{\"items\": []}'); print('Warning: added host', file=sys.stderr)"
+        with tempfile.TemporaryDirectory() as folder:
+            with open(Path(folder) / "log", "w") as log:
+                outcome = run_logged(log, "streams", [sys.executable, "-c", script], Path(folder))
+        self.assertEqual(outcome.code, 0)
         self.assertEqual(json.loads(outcome.stdout), {"items": []})
-        self.assertIn("Warning", outcome.output)
+        self.assertIn("Warning: added host", outcome.output)
 
     def test_owner_only(self):
         path = RUNS / f"owner-only-{uuid.uuid4().hex}"

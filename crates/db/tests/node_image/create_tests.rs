@@ -33,31 +33,6 @@ async fn test_create_and_list_node_images() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_upsert_node_image() -> Result<()> {
-    let db = setup_db().await?;
-
-    // First upsert - should create
-    let test_config = create_test_config(NodeModel::NokiaSrlinux);
-    let first_upsert = upsert_node_image(&db, test_config.clone(), DefaultRequest::Keep).await?;
-
-    assert_eq!(first_upsert.model, NodeModel::NokiaSrlinux);
-    let first_id = first_upsert.id.clone();
-
-    // Second upsert - should return existing
-    let second_upsert = upsert_node_image(&db, test_config, DefaultRequest::Keep).await?;
-
-    assert_eq!(second_upsert.model, NodeModel::NokiaSrlinux);
-    assert_eq!(
-        second_upsert.id, first_id,
-        "Upsert should return the same record"
-    );
-
-    // Cleanup
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_upsert_refuses_a_ztp_method_the_model_does_not_take() -> Result<()> {
     let db = setup_db().await?;
     let mut config = create_test_config(NodeModel::FrrLinux);

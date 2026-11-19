@@ -55,12 +55,16 @@ async fn importing_a_version_again_keeps_its_edited_settings() -> Result<()> {
     let mut edited = record(&db, "1", DefaultRequest::Keep).await?;
     edited.memory = 8192;
     edited.cpu.count = 6;
+    let id = edited.id.clone();
     update_node_image(&db, edited, DefaultRequest::Keep).await?;
 
     let again = record(&db, "1", DefaultRequest::Keep).await?;
 
+    assert_eq!(again.id, id, "the import returns the record it already had");
     assert_eq!(again.memory, 8192);
     assert_eq!(again.cpu.count, 6);
+    let kind = create_test_config(MODEL).kind();
+    assert_eq!(get_node_image_versions(&db, &MODEL, &kind).await?.len(), 1);
     Ok(())
 }
 

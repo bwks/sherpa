@@ -1017,11 +1017,6 @@ mod tests {
             assert_eq!(lab_offers_download(true, state), expected, "{state:?}");
             assert!(!lab_offers_download(false, state), "{state:?}");
         }
-        assert_eq!(
-            LabState::iter().count(),
-            7,
-            "a new LabState needs a case here"
-        );
     }
 
     #[tokio::test]

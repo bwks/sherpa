@@ -565,7 +565,6 @@ mod tests {
     use super::*;
     use shared::data::{NodeKind, NodeModel, NodeState};
     use shared::util::base64_decode;
-    use std::io::Write;
     use tempfile::NamedTempFile;
     use topology::{NodeSsh, NodeZtp};
 
@@ -627,44 +626,6 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_ztp_configs_base64_encodes_content() {
-        let mut config_file = NamedTempFile::new().expect("Failed to create temp file");
-        write!(config_file, "hostname dev01").expect("Failed to write");
-        let config_path = config_file.path().to_str().expect("path").to_string();
-
-        let mut manifest = test_manifest(vec![
-            topology::Node {
-                name: "dev01".to_string(),
-                model: NodeModel::CiscoCat8000,
-                ztp: NodeZtp {
-                    method: None,
-                    config: Some(config_path),
-                },
-                ..Default::default()
-            },
-            topology::Node {
-                name: "dev02".to_string(),
-                model: NodeModel::CiscoIos,
-                ..Default::default()
-            },
-        ]);
-
-        resolve_ztp_configs(&mut manifest, "/tmp/manifest.toml").expect("resolve should succeed");
-
-        // dev01: ztp.config is now base64 encoded contents
-        let encoded = manifest.nodes[0]
-            .ztp
-            .config
-            .as_ref()
-            .expect("should have value");
-        let decoded = base64_decode(encoded).expect("should decode");
-        assert_eq!(decoded, "hostname dev01");
-
-        // dev02: unchanged, no ztp.config
-        assert!(manifest.nodes[1].ztp.config.is_none());
-    }
-
-    #[test]
     fn test_resolve_ztp_configs_relative_path() {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let config_path = dir.path().join("my_config.txt");
@@ -672,15 +633,22 @@ mod tests {
 
         let manifest_path = dir.path().join("manifest.toml");
 
-        let mut manifest = test_manifest(vec![topology::Node {
-            name: "r01".to_string(),
-            model: NodeModel::AristaEos,
-            ztp: NodeZtp {
-                method: None,
-                config: Some("my_config.txt".to_string()),
+        let mut manifest = test_manifest(vec![
+            topology::Node {
+                name: "r01".to_string(),
+                model: NodeModel::AristaEos,
+                ztp: NodeZtp {
+                    method: None,
+                    config: Some("my_config.txt".to_string()),
+                },
+                ..Default::default()
             },
-            ..Default::default()
-        }]);
+            topology::Node {
+                name: "r02".to_string(),
+                model: NodeModel::CiscoIos,
+                ..Default::default()
+            },
+        ]);
 
         resolve_ztp_configs(&mut manifest, manifest_path.to_str().expect("path"))
             .expect("resolve should succeed");
@@ -692,6 +660,8 @@ mod tests {
             .expect("should have value");
         let decoded = base64_decode(encoded).expect("should decode");
         assert_eq!(decoded, "interface eth0");
+        // A node without a ztp.config is left without one.
+        assert!(manifest.nodes[1].ztp.config.is_none());
     }
 
     #[test]
@@ -709,26 +679,39 @@ mod tests {
             ..Default::default()
         }]);
 
-        let result = resolve_ztp_configs(&mut manifest, "/tmp/manifest.toml");
-        assert!(result.is_err());
-        let err_msg = format!("{}", result.expect_err("should be error"));
-        assert!(err_msg.contains("empty"));
+        let error = resolve_ztp_configs(&mut manifest, "/tmp/manifest.toml").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "ztp.config for node 'dev01' is empty: {}",
+                config_file.path().display()
+            )
+        );
     }
 
     #[test]
     fn test_resolve_ztp_configs_missing_file_error() {
+        let dir = tempfile::tempdir().unwrap();
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::CiscoCat8000,
             ztp: NodeZtp {
                 method: None,
-                config: Some("/nonexistent/path/config.txt".to_string()),
+                config: Some("missing.conf".to_string()),
             },
             ..Default::default()
         }]);
 
-        let result = resolve_ztp_configs(&mut manifest, "/tmp/manifest.toml");
-        assert!(result.is_err());
+        let manifest_path = dir.path().join("manifest.toml");
+        let error =
+            resolve_ztp_configs(&mut manifest, manifest_path.to_str().unwrap()).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "Failed to read ztp.config for node 'dev01': {}",
+                dir.path().join("missing.conf").display()
+            )
+        );
     }
 
     /// A client environment with only `SHERPA_TEST_TOKEN` set.
@@ -942,15 +925,21 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_manifest_files_resolves_text_files_and_scripts() {
+    fn every_client_file_the_server_needs_is_read_for_up_and_redeploy() {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         std::fs::write(dir.path().join("my_file.txt"), "hello world").expect("write file");
         std::fs::write(dir.path().join("setup.sh"), "#!/bin/sh\n").expect("write script");
+        std::fs::write(dir.path().join("dev01.conf"), "hostname dev01").expect("write config");
+        std::fs::write(dir.path().join("tool"), [7_u8]).expect("write binary");
         let manifest_path = dir.path().join("manifest.toml");
 
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::UbuntuLinux,
+            ztp: NodeZtp {
+                method: None,
+                config: Some("dev01.conf".to_string()),
+            },
             text_files: Some(vec![topology::TextFile {
                 src: "my_file.txt".to_string(),
                 dst: "/opt/data/my_file.txt".to_string(),
@@ -958,7 +947,11 @@ mod tests {
                 group: "sherpa".to_string(),
                 permissions: 644,
             }]),
+            binary_files: Some(vec![BinaryFile {
+                source: "tool".to_string(),
+            }]),
             user_scripts: Some(vec!["setup.sh".to_string()]),
+            environment_variables: Some(vec!["EDITOR=vim".to_string()]),
             ..Default::default()
         }]);
 
@@ -966,12 +959,29 @@ mod tests {
             .expect("resolve should succeed");
 
         let node = &manifest.nodes[0];
+        assert_eq!(
+            base64_decode(node.ztp.config.as_deref().expect("ztp.config")).expect("decode"),
+            "hostname dev01"
+        );
         let text_files = node.text_files_data.as_ref().expect("text_files_data");
         assert_eq!(
             base64_decode(&text_files[0].content).expect("decode"),
             "hello world"
         );
-        assert!(node.user_scripts_data.is_some());
+        let binaries = node.binary_files_data.as_ref().expect("binary_files_data");
+        assert_eq!(
+            shared::util::base64_decode_bytes(&binaries[0].content).expect("decode"),
+            [7_u8]
+        );
+        let scripts = node.user_scripts_data.as_ref().expect("user_scripts_data");
+        assert_eq!(
+            base64_decode(&scripts[0].content).expect("decode"),
+            "#!/bin/sh\n"
+        );
+        assert_eq!(
+            node.environment_variables.as_deref(),
+            Some(&["EDITOR=vim".to_string()][..])
+        );
     }
 
     #[test]
@@ -989,8 +999,11 @@ mod tests {
             ..Default::default()
         }]);
 
-        let result = resolve_text_files(&mut manifest, "/tmp/manifest.toml");
-        assert!(result.is_err());
+        let error = resolve_text_files(&mut manifest, "/tmp/manifest.toml").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Failed to read text_file for node 'dev01'"
+        );
     }
 
     #[test]

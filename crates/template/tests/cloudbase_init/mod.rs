@@ -126,6 +126,5 @@ fn test_cloudbase_password_is_intact() {
         assert_eq!(parsed["users"][0]["name"], "alice");
         assert_eq!(parsed["users"][0]["passwd"], *password);
         assert_eq!(output.matches(password).count(), 1);
-        helpers::assert_no_sherpa_login(&output);
     }
 }

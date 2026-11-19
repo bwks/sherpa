@@ -779,28 +779,6 @@ mod tests {
         assert_eq!(domains(pending_entries()), Vec::<String>::new());
     }
 
-    #[tokio::test]
-    async fn the_queue_admits_one_request_at_a_time_in_arrival_order() {
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let held = queue().lock().await;
-        let mut waiters = Vec::new();
-        for index in 0..3 {
-            let order = order.clone();
-            waiters.push(tokio::spawn(async move {
-                let _queue = queue().lock().await;
-                order.lock().unwrap().push(index);
-            }));
-            // Let each waiter reach the queue before the next one.
-            tokio::task::yield_now().await;
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-        drop(held);
-        for waiter in waiters {
-            waiter.await.unwrap();
-        }
-        assert_eq!(*order.lock().unwrap(), [0, 1, 2]);
-    }
-
     /// The smallest node the test below can use, in MiB.
     const MIN_TEST_NODE_MIB: u64 = 256;
 

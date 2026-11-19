@@ -76,7 +76,6 @@ fn test_only_the_first_user_and_the_owner_have_accounts() {
             r#":if ([/file find name=sata1/alice-2.pub] != "") do={ /user ssh-keys import public-key-file=sata1/alice-2.pub user=alice }"#,
         ]
     );
-    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]

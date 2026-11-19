@@ -691,37 +691,48 @@ mod tests {
     }
 
     #[test]
-    fn test_expired_cookie_before_valid_replacement_recovers() {
+    fn an_expired_cookie_before_a_valid_duplicate_is_recovered_and_logged() {
         let expired_token = make_expired_token();
         let valid_token = make_token("replacement_user", false);
         let cookie_header = format!("sherpa_auth={expired_token}; sherpa_auth={valid_token}");
+        let mut headers = HeaderMap::new();
+        headers.insert(header::COOKIE, cookie_header.parse().unwrap());
 
-        let session = validate_cookie_session(Some(&cookie_header), TEST_SECRET)
-            .expect("valid replacement cookie should be accepted");
+        let claims = extract_and_validate_token(&headers, TEST_SECRET).unwrap();
+        assert_eq!(claims.sub, "replacement_user");
 
-        assert_eq!(session.claims.sub, "replacement_user");
-        assert_eq!(session.candidate_count, 2);
-        assert_eq!(session.selected_index, 1);
-        assert_eq!(session.rejected_candidates.len(), 1);
-        assert_eq!(
-            session.rejected_candidates[0].reason,
-            SessionFailureReason::Expired
+        let session = validate_cookie_session(Some(&cookie_header), TEST_SECRET).unwrap();
+        let ((), output) = capture_log(|| trace_validated_session("/labs", &session));
+        assert!(
+            output.contains("auth.session_duplicate_recovered"),
+            "{output}"
         );
+        assert!(
+            output.contains(r#"rejected_reasons=["expired"]"#),
+            "{output}"
+        );
+        assert!(output.contains("selected_candidate_index=1"), "{output}");
     }
 
     #[test]
-    fn test_valid_cookie_before_expired_duplicate_succeeds() {
+    fn a_valid_cookie_before_an_expired_duplicate_is_used_without_a_recovery() {
         let valid_token = make_token("first_user", true);
         let expired_token = make_expired_token();
         let cookie_header = format!("sherpa_auth={valid_token}; sherpa_auth={expired_token}");
+        let mut headers = HeaderMap::new();
+        headers.insert(header::COOKIE, cookie_header.parse().unwrap());
 
-        let session = validate_cookie_session(Some(&cookie_header), TEST_SECRET)
-            .expect("first valid cookie should be accepted");
+        let claims = extract_and_validate_token(&headers, TEST_SECRET).unwrap();
+        assert_eq!(claims.sub, "first_user");
+        assert!(claims.is_admin);
 
-        assert_eq!(session.claims.sub, "first_user");
-        assert_eq!(session.candidate_count, 2);
-        assert_eq!(session.selected_index, 0);
-        assert!(session.rejected_candidates.is_empty());
+        let session = validate_cookie_session(Some(&cookie_header), TEST_SECRET).unwrap();
+        let ((), output) = capture_log(|| trace_validated_session("/labs", &session));
+        assert!(output.contains("auth.session_validated"), "{output}");
+        assert!(
+            !output.contains("auth.session_duplicate_recovered"),
+            "{output}"
+        );
     }
 
     #[test]

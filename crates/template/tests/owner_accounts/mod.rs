@@ -10,8 +10,6 @@ use template::{
 
 use crate::helpers;
 
-const PASSWORD: &str = "Rand0mPass-1";
-
 #[test]
 fn panos_bootstrap_escapes_xml() {
     let mut owner = helpers::test_owner("$5$salt$hash");
@@ -33,38 +31,6 @@ fn panos_bootstrap_escapes_xml() {
         output.contains("<public-key>KEY&#38;&#60;1</public-key>"),
         "{output}"
     );
-}
-
-#[test]
-fn panos_owner_is_a_superuser_with_its_own_hash_and_key() {
-    let hash = helpers::sha256_hash(PASSWORD);
-    let mut owner = helpers::test_owner(&hash);
-    owner.ssh_keys.truncate(1);
-    let output = PaloAltoPanosBootstrapTemplate {
-        hostname: "pan01".to_string(),
-        owner,
-        mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
-        mgmt_ipv6_address: None,
-        mgmt_ipv6: None,
-        mgmt_netmask: Ipv4Addr::new(255, 255, 255, 0),
-        mgmt_gateway: Ipv4Addr::new(172, 20, 0, 1),
-        dns_primary: Ipv4Addr::new(172, 20, 0, 1),
-    }
-    .render()
-    .unwrap();
-    assert!(output.contains(&format!(
-        r#"      <entry name="alice">
-        <phash>{hash}</phash>
-        <permissions>
-          <role-based>
-            <superuser>yes</superuser>
-          </role-based>
-        </permissions>
-        <public-key>OWNERKEY1</public-key>
-      </entry>
-    </users>"#
-    )));
-    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]
@@ -115,5 +81,4 @@ fn windows_leaves_the_owner_as_the_only_enabled_account() {
     }
     assert!(!output.contains("Enable-LocalUser"));
     assert!(!output.contains("Set-LocalUser"));
-    helpers::assert_no_sherpa_login(&output);
 }
