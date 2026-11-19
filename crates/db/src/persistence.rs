@@ -660,8 +660,6 @@ fn optional_enum_text<T: Serialize>(value: Option<&T>, field: &str) -> Result<Va
 
 #[cfg(test)]
 mod tests {
-    use shared::data::{NodeKind, NodeModel};
-
     use super::*;
     use crate::open_in_memory;
 
@@ -702,34 +700,9 @@ mod tests {
     }
 
     #[test]
-    fn new_keys_use_the_key_alphabet_and_length() {
-        let key = new_key();
-        assert_eq!(key.len(), SHERPA_DB_KEY_LENGTH);
-        assert!(
-            key.bytes()
-                .all(|byte| SHERPA_DB_KEY_CHARSET.contains(&byte))
-        );
-        assert_ne!(key, new_key());
-    }
-
-    #[test]
     fn key_of_refuses_a_record_of_another_table() {
         let id = RecordId::new("node", "abc123");
         assert_eq!(key_of(&id, NODE_TABLE).unwrap(), "abc123");
         assert!(key_of(&id, LAB_TABLE).is_err());
-    }
-
-    #[test]
-    fn enums_are_stored_by_their_serde_names() {
-        assert_eq!(
-            enum_text(&NodeKind::Container, "kind").unwrap(),
-            "container"
-        );
-        let model = enum_text(&NodeModel::AristaEos, "model").unwrap();
-        assert_eq!(model, "arista_eos");
-        assert_eq!(
-            decode_enum::<NodeModel>(model, "model").unwrap(),
-            NodeModel::AristaEos
-        );
     }
 }

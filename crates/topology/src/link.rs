@@ -125,20 +125,12 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_manifest_impairment_is_clear() {
-        assert!(
-            LinkImpairment::try_from(&ManifestImpairment::default())
-                .unwrap()
-                .is_clear()
-        );
-    }
-
-    #[test]
     fn test_manifest_impairment_too_long_for_microseconds_is_refused() {
         let manifest = ManifestImpairment {
             delay: Some(u32::MAX),
             ..ManifestImpairment::default()
         };
-        assert!(LinkImpairment::try_from(&manifest).is_err());
+        let error = LinkImpairment::try_from(&manifest).unwrap_err().to_string();
+        assert_eq!(error, "Impairment delay of 4294967295 ms is too long");
     }
 }

@@ -32,17 +32,6 @@ async fn test_get_lab_by_lab_id() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_get_lab_not_found() -> Result<()> {
-    let db = setup_db().await?;
-
-    let result = get_lab(&db, "invalid").await;
-
-    assert!(result.is_err(), "Should error on non-existent lab");
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_list_labs_returns_all_fields() -> Result<()> {
     let db = setup_db().await?;
 

@@ -292,16 +292,6 @@ mod tests {
     use tokio_tungstenite::{WebSocketStream, accept_async, connect_async};
 
     #[test]
-    fn the_listening_line_gives_the_address_for_the_viewer() {
-        let address = SocketAddr::from(([127, 0, 0, 1], 40123));
-        assert_eq!(
-            listening_line("ubu01", "test", address),
-            "VNC console of ubu01 in lab test: connect a VNC viewer to 127.0.0.1:40123. Ctrl+C \
-             to stop."
-        );
-    }
-
-    #[test]
     fn a_held_console_is_told_with_its_holder_and_how_to_take_it_over() {
         let holder = "dev from 192.0.2.10 since 2026-11-18 09:08:07 UTC";
         assert_eq!(

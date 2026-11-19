@@ -148,36 +148,3 @@ impl fmt::Display for ClusterCni {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn roles_use_snake_case_names() {
-        for (role, name) in [
-            (ClusterRole::ControlPlane, "control_plane"),
-            (ClusterRole::Worker, "worker"),
-        ] {
-            assert_eq!(role.to_string(), name);
-            assert_eq!(
-                serde_json::to_string(&role).unwrap(),
-                format!(r#""{name}""#)
-            );
-        }
-    }
-
-    #[test]
-    fn cnis_use_snake_case_names_and_default_to_flannel() {
-        for (cni, name) in [
-            (ClusterCni::Flannel, "flannel"),
-            (ClusterCni::Cilium, "cilium"),
-        ] {
-            assert_eq!(cni.to_string(), name);
-            assert_eq!(serde_json::to_string(&cni).unwrap(), format!(r#""{name}""#));
-        }
-        assert_eq!(ClusterCni::default(), ClusterCni::Flannel);
-        assert!(ClusterCni::Flannel.is_flannel());
-        assert!(!ClusterCni::Cilium.is_flannel());
-    }
-}

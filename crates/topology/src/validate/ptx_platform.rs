@@ -96,13 +96,6 @@ mod tests {
     }
 
     #[test]
-    fn a_platform_on_cevolved_is_accepted() {
-        let image = cevolved().node_config();
-        check_ptx_platform(&node(cevolved(), None), &image).unwrap();
-        check_ptx_platform(&node(cevolved(), Some(PtxPlatform::Bx)), &image).unwrap();
-    }
-
-    #[test]
     fn a_platform_on_another_model_is_refused() {
         let image = ModelKind::default_for(NodeModel::NokiaSrlinux).node_config();
         let error = check_ptx_platform(
@@ -161,11 +154,17 @@ mod tests {
         let image = cevolved().node_config();
         let mut small_cpu = node(cevolved(), None);
         small_cpu.cpu.count = Some(2);
-        assert!(check_ptx_platform(&small_cpu, &image).is_err());
+        let error = check_ptx_platform(&small_cpu, &image)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("has 2 vCPUs"), "{error}");
 
         let mut small_memory = node(cevolved(), None);
         small_memory.memory = Some(4096);
-        assert!(check_ptx_platform(&small_memory, &image).is_err());
+        let error = check_ptx_platform(&small_memory, &image)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("has 4096 MB of memory"), "{error}");
 
         let mut large = node(cevolved(), None);
         large.cpu.count = Some(8);

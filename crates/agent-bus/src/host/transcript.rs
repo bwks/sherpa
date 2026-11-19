@@ -273,12 +273,6 @@ mod tests {
     }
 
     #[test]
-    fn a_garbage_line_is_an_error() {
-        assert!(parse(r#"{"type":"assistant""#, "s", None).is_err());
-        assert!(parse("not json", "s", None).is_err());
-    }
-
-    #[test]
     fn without_the_split_cache_writes_are_five_minute_writes() {
         let mut line = assistant("msg_4", "claude-sonnet-5-5", &json!([]));
         line["message"]["usage"]

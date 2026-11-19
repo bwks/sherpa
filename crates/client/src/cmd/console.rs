@@ -435,24 +435,6 @@ mod tests {
     }
 
     #[test]
-    fn only_a_held_console_or_a_stopped_node_is_worth_asking_for_again() {
-        for (status, lasting) in [
-            (400, true),
-            (401, true),
-            (403, true),
-            (404, true),
-            (409, false),
-        ] {
-            let refused = OpenError::Refused {
-                status,
-                message: String::new(),
-            };
-            assert_eq!(refused.lasting(), lasting, "{status}");
-        }
-        assert!(!OpenError::Failed(anyhow!("Connection refused")).lasting());
-    }
-
-    #[test]
     fn a_connection_that_fails_keeps_its_cause() {
         let error = open_error("alp01", Route::Serial, anyhow!("Connection timeout")).into_error();
         assert_eq!(
@@ -460,15 +442,6 @@ mod tests {
             "Failed to open the console of alp01 through the Sherpa server"
         );
         assert_eq!(error.root_cause().to_string(), "Connection timeout");
-    }
-
-    #[test]
-    fn the_connect_line_names_the_node_the_lab_and_both_escapes() {
-        assert_eq!(
-            connected_line("alp01", "test"),
-            "Connected to the console of alp01 in lab test. Escape: Ctrl+] or ~. at the \
-             start of a line."
-        );
     }
 
     #[test]

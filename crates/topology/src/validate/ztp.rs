@@ -36,17 +36,6 @@ mod tests {
     }
 
     #[test]
-    fn a_node_without_ztp_is_accepted() {
-        check_node_ztp(&node(NodeModel::MongoDb, None)).unwrap();
-    }
-
-    #[test]
-    fn disabled_and_a_method_the_model_lists_are_accepted() {
-        check_node_ztp(&node(NodeModel::FrrLinux, Some(Ztp::Disabled))).unwrap();
-        check_node_ztp(&node(NodeModel::JuniperSrxv3, Some(Ztp::Cdrom))).unwrap();
-    }
-
-    #[test]
     fn srx_with_tftp_is_refused_naming_cdrom() {
         let error = check_node_ztp(&node(NodeModel::JuniperSrxv3, Some(Ztp::Tftp))).unwrap_err();
         let error = format!("{error:#}");

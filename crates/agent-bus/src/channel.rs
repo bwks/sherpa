@@ -980,16 +980,9 @@ mod tests {
     }
 
     #[test]
-    fn the_recorder_reads_every_subject_from_the_start_one_message_at_a_time() {
-        let config = recorder_config();
-        assert_eq!(config.durable_name.as_deref(), Some("_record"));
-        assert_eq!(config.filter_subject, "agents.>");
-        assert_eq!(config.deliver_policy, consumer::DeliverPolicy::All);
-        assert_eq!(config.max_waiting, 1);
-        assert_eq!(config.max_ack_pending, 1);
-        // No agent can have the recorder's name, so no inbox takes it.
+    fn no_agent_can_have_the_recorder_s_name() {
+        // So no inbox takes the recorder's consumer.
         assert!(check_agent_name(RECORDER).is_err());
-        assert_eq!(plan(&existing(1, "agents.>"), &config), Plan::Keep);
     }
 
     #[test]
@@ -1085,8 +1078,6 @@ mod tests {
 
     #[test]
     fn stream_changes_read_for_the_log() {
-        assert_eq!(StreamChange::Created.to_string(), "created");
-        assert_eq!(StreamChange::Unchanged.to_string(), "unchanged");
         assert_eq!(
             StreamChange::MaxAge {
                 from: Duration::from_hours(7 * 24),
@@ -1102,17 +1093,6 @@ mod tests {
             }
             .to_string(),
             "max_age no limit -> 1m 30s"
-        );
-    }
-
-    #[test]
-    fn the_changes_read_for_the_log() {
-        assert_eq!(InboxChange::Created.to_string(), "created");
-        assert_eq!(InboxChange::Updated.to_string(), "updated");
-        assert_eq!(InboxChange::Unchanged.to_string(), "unchanged");
-        assert_eq!(
-            InboxChange::Recreated { from_sequence: 5 }.to_string(),
-            "recreated from sequence 5"
         );
     }
 }

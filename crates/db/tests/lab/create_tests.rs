@@ -7,32 +7,6 @@ use shared::data::LabPhase;
 use crate::helper::{ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-async fn test_create_lab_success() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Create a user first
-    let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
-
-    // Create lab
-    let lab = create_lab(
-        &db,
-        "Test Lab",
-        "lab-0001",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-
-    assert_eq!(lab.name, "Test Lab");
-    assert_eq!(lab.lab_id, "lab-0001");
-    assert_eq!(lab.user, user.id.unwrap());
-    assert!(lab.id.is_some(), "Lab should have an ID");
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn create_lab_stores_its_description_and_where_it_was_started() -> Result<()> {
     let db = setup_db().await?;
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;

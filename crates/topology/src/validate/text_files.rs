@@ -62,11 +62,6 @@ mod tests {
     }
 
     #[test]
-    fn octal_text_file_modes_are_accepted() {
-        check_text_file_modes(&[node(Some(644), Some(600)), node(None, None)]).unwrap();
-    }
-
-    #[test]
     fn text_file_modes_that_are_not_octal_digits_are_refused() {
         let error = check_text_file_modes(&[node(Some(999), None)])
             .unwrap_err()

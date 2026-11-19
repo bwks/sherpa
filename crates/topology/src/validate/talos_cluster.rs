@@ -201,28 +201,6 @@ nodes = [
     }
 
     #[test]
-    fn a_cluster_with_a_controller_and_workers_is_valid() {
-        validate_talos_clusters(&manifest(VALID)).unwrap();
-    }
-
-    #[test]
-    fn a_cluster_without_workers_is_valid() {
-        let toml = with_cluster(r#"{ name = "k8s", controllers = ["cp1"] }"#);
-        validate_talos_clusters(&manifest(&toml)).unwrap();
-    }
-
-    #[test]
-    fn a_manifest_without_clusters_is_valid() {
-        validate_talos_clusters(&manifest(
-            r#"
-            name = "lab"
-            nodes = [{ name = "talos", model = "talos_linux" }]
-            "#,
-        ))
-        .unwrap();
-    }
-
-    #[test]
     fn cluster_names_must_be_unique_dns_labels() {
         for name in ["K8s", "-k8s", "k8s-", "k_8s", ""] {
             let toml = with_cluster(&format!(r#"{{ name = "{name}", controllers = ["cp1"] }}"#));

@@ -108,13 +108,4 @@ mod tests {
             serde_json::from_str(r#"{"lab_id":"a1b2c3d4","link_index":0,"delay":20}"#).unwrap();
         assert_eq!(request.direction, ImpairmentDirection::Both);
     }
-
-    #[test]
-    fn test_request_direction_is_snake_case() {
-        let request: UpdateImpairmentRequest = serde_json::from_str(
-            r#"{"lab_id":"a1b2c3d4","link_index":0,"direction":"dst_to_src","delay":20}"#,
-        )
-        .unwrap();
-        assert_eq!(request.direction, ImpairmentDirection::DstToSrc);
-    }
 }

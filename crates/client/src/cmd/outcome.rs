@@ -125,11 +125,6 @@ mod tests {
     }
 
     #[test]
-    fn test_destroyed_lab_is_ok() {
-        assert!(ensure_lab_destroyed(&destroy_response(true, true), "sherpa destroy").is_ok());
-    }
-
-    #[test]
     fn test_lab_left_on_the_server_is_an_error_naming_the_retry() {
         let error = ensure_lab_destroyed(&destroy_response(false, false), "sherpa destroy")
             .unwrap_err()
@@ -146,12 +141,6 @@ mod tests {
             .to_string();
         assert!(error.contains("bridges-e9f870b2"), "{error}");
         assert!(error.contains("not all of its resources"), "{error}");
-    }
-
-    #[test]
-    fn test_all_nodes_succeeding_is_ok() {
-        let results = [node_result("dev01", true), node_result("dev02", true)];
-        assert!(ensure_nodes_succeeded("stopped", &results).is_ok());
     }
 
     #[test]

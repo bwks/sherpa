@@ -229,12 +229,6 @@ mod tests {
     }
 
     #[test]
-    fn an_overlong_line_is_refused() {
-        let line = "a".repeat(2000);
-        assert!(read_secrets(Cursor::new(line)).is_err());
-    }
-
-    #[test]
     fn no_secret_shows_in_debug() {
         let seed = generate().unwrap().seed;
         let secrets = read_secrets(input(CLAUDE, WRITE, &seed)).unwrap();

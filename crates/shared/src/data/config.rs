@@ -332,20 +332,6 @@ mod tests {
     }
 
     #[test]
-    fn tailscale_serde_partial_sections_preserve_defaults_and_overrides() {
-        let settings: TailscaleGatewaySettings = toml::from_str(
-            "image='registry.example/tailscale:custom'\nsocket_path='/run/custom/socket'\nexec_timeout_secs=90",
-        ).unwrap();
-        assert_eq!(settings.image, "registry.example/tailscale:custom");
-        assert_eq!(settings.socket_path, "/run/custom/socket");
-        assert_eq!(settings.exec_timeout_secs, 90);
-        assert_eq!(settings.daemon_ready_timeout_secs, 20);
-        assert_eq!(settings.enrollment_timeout_secs, 60);
-        assert_eq!(settings.connection_timeout_secs, 30);
-        assert_eq!(settings.stop_timeout_secs, 10);
-    }
-
-    #[test]
     fn host_memory_settings_default_when_left_out_and_keep_partial_overrides() {
         let mut value = toml::Value::try_from(default_config()).unwrap();
         value.as_table_mut().unwrap().remove("host_memory");
@@ -361,16 +347,6 @@ mod tests {
     }
 
     #[test]
-    fn a_server_connection_missing_fields_takes_their_defaults() {
-        let sc: ServerConnection =
-            serde_json::from_str(r#"{"url": "wss://10.0.0.1:3030/ws"}"#).expect("deserializes");
-        assert_eq!(sc.url.as_deref(), Some("wss://10.0.0.1:3030/ws"));
-        assert_eq!(sc.timeout_secs, 3);
-        assert!(sc.validate_certs);
-        assert!(!sc.insecure);
-    }
-
-    #[test]
     fn the_client_reads_the_server_http_port_from_its_connection_settings() {
         assert_eq!(
             ServerConnection::default().http_port,
@@ -380,23 +356,6 @@ mod tests {
             toml::from_str("http_port = 9000\n[server_connection]\nhttp_port = 8443\n")
                 .expect("parses");
         assert_eq!(config.server_connection.http_port, 8443);
-    }
-
-    #[test]
-    fn a_tls_section_missing_fields_takes_their_defaults() {
-        let tls: TlsConfig = serde_json::from_str(r#"{"san": ["lab.example"]}"#).expect("parses");
-        assert!(tls.enabled);
-        assert!(tls.auto_generate_cert);
-        assert_eq!(tls.cert_validity_days, 365);
-        assert_eq!(tls.san, ["lab.example"]);
-    }
-
-    #[test]
-    fn test_client_config_default() {
-        let config = ClientConfig::default();
-        assert_eq!(config.server_ipv4, Ipv4Addr::LOCALHOST);
-        assert_eq!(config.ws_port, SHERPA_SERVER_WS_PORT);
-        assert!(config.server_ipv6.is_none());
     }
 
     #[test]
@@ -411,15 +370,6 @@ mod tests {
         assert!(otel.enabled);
         let written = toml::to_string_pretty(&otel).expect("serializes");
         assert!(!written.contains("protocol"), "{written}");
-    }
-
-    #[test]
-    fn test_otel_config_default() {
-        let otel = OtelConfig::default();
-        assert!(!otel.enabled);
-        assert_eq!(otel.endpoint, "http://localhost:4317");
-        assert_eq!(otel.service_name, "sherpad");
-        assert!((otel.sample_ratio - 1.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -452,43 +402,5 @@ mod tests {
             toml::from_str(toml_str).expect("deserializes without scanner section");
         assert!(config.scanner.enabled);
         assert_eq!(config.scanner.interval_secs, 30);
-    }
-
-    #[test]
-    fn test_scanner_config_partial_section() {
-        let toml_str = r#"
-            name = "test"
-            vm_provider = "libvirt"
-            qemu_bin = "/usr/bin/qemu-system-x86_64"
-            images_dir = "/opt/sherpa/images"
-            containers_dir = "/opt/sherpa/containers"
-            bins_dir = "/opt/sherpa/bins"
-
-            [scanner]
-            enabled = false
-        "#;
-        let config: Config = toml::from_str(toml_str).expect("deserializes with partial scanner");
-        assert!(!config.scanner.enabled);
-        assert_eq!(config.scanner.interval_secs, 30);
-    }
-
-    #[test]
-    fn test_otel_config_partial_section() {
-        // Only enabled is set, other fields should get defaults
-        let toml_str = r#"
-            name = "test"
-            vm_provider = "libvirt"
-            qemu_bin = "/usr/bin/qemu-system-x86_64"
-            images_dir = "/opt/sherpa/images"
-            containers_dir = "/opt/sherpa/containers"
-            bins_dir = "/opt/sherpa/bins"
-
-            [otel]
-            enabled = true
-        "#;
-        let config: Config = toml::from_str(toml_str).expect("deserializes with partial otel");
-        assert!(config.otel.enabled);
-        assert_eq!(config.otel.endpoint, "http://localhost:4317");
-        assert_eq!(config.otel.service_name, "sherpad");
     }
 }

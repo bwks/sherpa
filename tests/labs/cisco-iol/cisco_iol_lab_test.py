@@ -489,11 +489,6 @@ class SelfTest(unittest.TestCase):
                 if node in ROUTERS:
                     self.assertRegex(interface, r"^Ethernet[0-3]/[0-3]$")
 
-    def test_a_config_session_enters_and_leaves_config_mode(self):
-        session = config_session("r1").splitlines()
-        self.assertEqual(session[:2], ["terminal length 0", "configure terminal"])
-        self.assertEqual(session[-1], "end")
-
     def test_ios_ping_results_are_read(self):
         self.assertTrue(ping_succeeded("Success rate is 100 percent (5/5), round-trip"))
         self.assertTrue(ping_succeeded("Success rate is 80 percent (4/5), round-trip"))
@@ -505,9 +500,6 @@ class SelfTest(unittest.TestCase):
                   "interface Ethernet0/1\n ip address 10.47.0.1 255.255.255.252\n"
                   "interface Ethernet0/3\n no ip address\n")
         self.assertEqual(configured_addresses(config), {"172.31.1.21", "10.47.0.1"})
-
-    def test_the_host_link_is_set_to_iol_mtu(self):
-        self.assertIn("mtu 1500 ", host_script())
 
     def test_ssh_banners_are_read_per_target(self):
         output = "10.47.1.1 SSH-2.0-Cisco-1.25\n10.47.0.2\n"

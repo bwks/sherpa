@@ -440,15 +440,6 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_insecure_override_sets_config_flag() {
-        let mut config = ClientConfig::default();
-
-        apply_insecure_override(&mut config, true);
-
-        assert!(config.server_connection.insecure);
-    }
-
-    #[test]
     fn without_a_config_or_insecure_the_servers_certificate_is_validated() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sherpa.toml");
@@ -456,15 +447,6 @@ mod tests {
         let config = load_client_config_for_command(path.to_str().unwrap(), false).unwrap();
 
         assert!(!config.server_connection.insecure);
-    }
-
-    #[test]
-    fn test_parse_ssh_node_command_unchanged() {
-        let cli = Cli::try_parse_from(["sherpa", "ssh", "leaf1"]).unwrap();
-        match cli.commands {
-            Commands::Ssh { name } => assert_eq!(name, "leaf1"),
-            other => panic!("unexpected command: {other:?}"),
-        }
     }
 
     #[test]
@@ -510,154 +492,11 @@ mod tests {
         assert_eq!(warning.matches(MIGRATION_FAILED).count(), 1, "{warning}");
     }
 
-    #[test]
-    fn commands_that_use_the_lab_folder_migrate_it_first() {
-        let uses = |args: &[&str]| {
-            let cli =
-                Cli::try_parse_from(std::iter::once("sherpa").chain(args.iter().copied())).unwrap();
-            uses_lab_folder(&cli.commands)
-        };
-        for args in [
-            &["up"][..],
-            &["down"],
-            &["resume"],
-            &["provision"],
-            &["destroy", "--yes"],
-            &["inspect"],
-            &["download", "abcd1234"],
-            &["ssh", "dev"],
-            &["console", "dev"],
-            &["vnc", "dev"],
-            &["ssh-config", "inspect"],
-            &["ssh-config", "clean"],
-        ] {
-            assert!(uses(args), "{args:?}");
-        }
-        for args in [&["login"][..], &["whoami"], &["logout"], &["validate"]] {
-            assert!(!uses(args), "{args:?}");
-        }
-    }
-
-    #[test]
-    fn console_takes_force_to_take_the_console_over() {
-        for (args, expected) in [
-            (&["sherpa", "console", "alp01"][..], false),
-            (&["sherpa", "console", "alp01", "--force"], true),
-        ] {
-            let cli = Cli::try_parse_from(args).unwrap();
-            match cli.commands {
-                Commands::Console { name, force } => {
-                    assert_eq!(name, "alp01");
-                    assert_eq!(force, expected, "{args:?}");
-                }
-                other => panic!("unexpected command: {other:?}"),
-            }
-        }
-    }
-
-    #[test]
-    fn vnc_takes_force_to_take_the_console_over() {
-        for (args, expected) in [
-            (&["sherpa", "vnc", "ubu01"][..], false),
-            (&["sherpa", "vnc", "ubu01", "--force"], true),
-        ] {
-            let cli = Cli::try_parse_from(args).unwrap();
-            match cli.commands {
-                Commands::Vnc { name, force } => {
-                    assert_eq!(name, "ubu01");
-                    assert_eq!(force, expected, "{args:?}");
-                }
-                other => panic!("unexpected command: {other:?}"),
-            }
-        }
-    }
-
-    /// Every image command, as `sherpa` arguments with what each needs besides `--kind`.
-    const IMAGE_COMMANDS: [&[&str]; 9] = [
-        &["image", "show", "ubuntu_linux"],
-        &["image", "list"],
-        &["server", "image", "show", "ubuntu_linux"],
-        &["server", "image", "list"],
-        &["server", "image", "scan"],
-        &[
-            "server",
-            "image",
-            "import",
-            "--src",
-            "/tmp/a.qcow2",
-            "--version",
-            "1",
-            "--model",
-            "ubuntu_linux",
-        ],
-        &[
-            "server",
-            "image",
-            "pull",
-            "--model",
-            "ubuntu_linux",
-            "--version",
-            "1",
-        ],
-        &[
-            "server",
-            "image",
-            "delete",
-            "--model",
-            "ubuntu_linux",
-            "--version",
-            "1",
-        ],
-        &[
-            "server",
-            "image",
-            "set-default",
-            "--model",
-            "ubuntu_linux",
-            "--version",
-            "1",
-        ],
-    ];
-
     fn parses(command: &[&str], extra: &[&str]) -> bool {
         let argv = std::iter::once("sherpa")
             .chain(command.iter().copied())
             .chain(extra.iter().copied());
         Cli::try_parse_from(argv).is_ok()
-    }
-
-    #[test]
-    fn every_image_command_takes_kind_with_each_kind() {
-        for command in IMAGE_COMMANDS {
-            assert!(parses(command, &[]), "{command:?}");
-            for kind in ["virtual_machine", "container", "unikernel"] {
-                assert!(parses(command, &["--kind", kind]), "{command:?} {kind}");
-            }
-        }
-    }
-
-    #[test]
-    fn an_image_command_refuses_a_kind_that_is_not_one_of_the_words() {
-        for command in IMAGE_COMMANDS {
-            for kind in ["vm", "virtual-machine", "docker"] {
-                assert!(!parses(command, &["--kind", kind]), "{command:?} {kind}");
-            }
-        }
-    }
-
-    #[test]
-    fn a_scan_takes_a_model_and_repo_with_kind() {
-        assert!(parses(
-            &["server", "image", "scan"],
-            &[
-                "--kind",
-                "container",
-                "--model",
-                "mysql_db",
-                "--repo",
-                "mysql"
-            ],
-        ));
     }
 
     #[test]

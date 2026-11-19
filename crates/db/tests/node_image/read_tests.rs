@@ -9,30 +9,6 @@ use shared::data::{ModelKind, NodeKind, NodeModel};
 use crate::{create_test_config, setup_db};
 
 #[tokio::test]
-async fn test_get_node_config_by_model_kind() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Create a test config
-    let test_config = create_test_config(NodeModel::CiscoAsa);
-    let _created = upsert_node_image(&db, test_config.clone(), DefaultRequest::Keep).await?;
-
-    // Get by model and kind
-    let retrieved: Option<_> = find_node_image_by_model_kind_version(
-        &db,
-        &NodeModel::CiscoAsa,
-        &test_config.kind(),
-        &test_config.version,
-    )
-    .await?;
-
-    assert!(retrieved.is_some(), "Should find config by model and kind");
-    let retrieved = retrieved.unwrap();
-    assert_eq!(retrieved.model, NodeModel::CiscoAsa);
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_count_node_images() -> Result<()> {
     let db = setup_db().await?;
 

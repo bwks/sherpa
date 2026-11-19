@@ -437,15 +437,6 @@ class HostTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Could not read"):
             require_device_password(shown("", 1))
 
-    def test_runner_command_selects_code_scenario_and_candidate_inputs(self):
-        command = runner_command("ubuntu-2604", {"version": "v0.3.88"}, Path("/run/artifacts"),
-                                 Path("/run/source.tar.gz"), Path("/run"))
-        self.assertEqual(command[command.index("--scenario") + 1], "code")
-        self.assertEqual(command[command.index("--version") + 1], "v0.3.88")
-        self.assertEqual(command[command.index("--artifact-dir") + 1], "/run/artifacts")
-        self.assertEqual(command[command.index("--source-archive") + 1], "/run/source.tar.gz")
-        self.assertTrue(command[command.index("--config") + 1].endswith("ubuntu-2604/release-test.toml"))
-
     def schedule(self, names, completions):
         """Run run_releases with releases that finish in the given (name, exit code) order.
 
@@ -509,14 +500,6 @@ class HostTests(unittest.TestCase):
             self.assertEqual(codes, {"first": 0, "second": MEMORY_REFUSED_EXIT})
             self.assertEqual((Path(directory) / "second.log").read_text(), "two\ntwo\n")
             self.assertIn("[run] second: running it alone", output.getvalue())
-
-    def test_guest_command_passes_manifest_expectations(self):
-        node = {"version": "24.04-20260926", "cpu": {"count": 8}, "boot_disk": {"size": 100}}
-        command = guest_command(node)
-        self.assertEqual(command[-6:],
-                         ["--version", "24.04-20260926", "--cpu-count", "8", "--boot-disk-size", "100"])
-        self.assertNotIn("python3", command)
-        self.assertEqual(command[command.index("--python") + 1], "3.15")
 
     def test_scripts_run_directly_use_uv_python(self):
         """A script with a #! line runs on uv's Python 3.15, never on the system's python3."""

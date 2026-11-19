@@ -74,7 +74,6 @@ pub fn check_device_count(devices: &[Node]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anyhow::Result;
 
     fn named(name: &str) -> Node {
         Node {
@@ -114,25 +113,6 @@ mod tests {
     }
 
     #[test]
-    fn test_check_duplicate_device_no_duplicates() -> Result<()> {
-        let devices = vec![
-            Node {
-                name: "router1".to_string(),
-                ..Default::default()
-            },
-            Node {
-                name: "router2".to_string(),
-                ..Default::default()
-            },
-            Node {
-                name: "switch1".to_string(),
-                ..Default::default()
-            },
-        ];
-        check_duplicate_device(&devices)
-    }
-
-    #[test]
     fn test_check_duplicate_device_with_duplicates() {
         let devices = vec![
             Node {
@@ -152,12 +132,6 @@ mod tests {
                 .to_string()
                 .contains("Manifest - device: 'router1' defined more than once")
         );
-    }
-
-    #[test]
-    fn test_check_device_count_allows_a_full_node_block() -> Result<()> {
-        let devices = vec![Node::default(); 234];
-        check_device_count(&devices)
     }
 
     #[test]

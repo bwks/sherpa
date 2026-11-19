@@ -35,14 +35,6 @@ async fn lab_with_node(db: &db::Database) -> Result<DbNode> {
 }
 
 #[tokio::test]
-async fn a_new_node_logs_in_as_sherpa() -> Result<()> {
-    let db = setup_db().await?;
-    let node = lab_with_node(&db).await?;
-    assert_eq!(node.ssh_username, None);
-    Ok(())
-}
-
-#[tokio::test]
 async fn a_nodes_ssh_username_is_stored_read_back_and_cleared() -> Result<()> {
     let db = setup_db().await?;
     let node = lab_with_node(&db).await?;

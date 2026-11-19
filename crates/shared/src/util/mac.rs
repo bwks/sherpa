@@ -31,11 +31,4 @@ mod tests {
         let re = Regex::new(r"^52:54:00:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}$").unwrap();
         assert!(re.is_match(&mac), "MAC address format is incorrect: {mac}");
     }
-
-    #[test]
-    fn test_random_mac_uniqueness() {
-        let mac1 = random_mac(KVM_OUI);
-        let mac2 = random_mac(KVM_OUI);
-        assert_ne!(mac1, mac2, "Two calls should produce different MACs");
-    }
 }

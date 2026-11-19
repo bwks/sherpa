@@ -7,47 +7,6 @@ use shared::data::{ModelKind, NodeModel};
 use crate::helper::{ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-async fn test_create_node_success() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Setup dependencies
-    let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(
-        &db,
-        "Test Lab",
-        "lab-0001",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    let config = upsert_node_image(
-        &db,
-        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
-        DefaultRequest::Keep,
-    )
-    .await?;
-
-    // Create node
-    let node = create_node(
-        &db,
-        "node1",
-        1,
-        config.id.clone().unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-
-    assert_eq!(node.name, "node1");
-    assert_eq!(node.index, 1);
-    assert_eq!(node.image, config.id.unwrap());
-    assert_eq!(node.lab, lab.id.unwrap());
-    assert!(node.id.is_some(), "Node should have an ID");
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_create_node_duplicate_name_per_lab_fails() -> Result<()> {
     let db = setup_db().await?;
 

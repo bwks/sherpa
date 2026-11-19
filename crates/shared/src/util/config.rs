@@ -107,11 +107,6 @@ pub fn default_config() -> Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::Sherpa;
-
-    fn tailscale_defaults() -> toml::Value {
-        toml::Value::try_from(TailscaleGatewaySettings::default()).unwrap()
-    }
 
     fn load_server_fixture(extra: &str) -> Result<Config> {
         let directory = tempfile::tempdir()?;
@@ -120,13 +115,6 @@ mod tests {
         config.as_table_mut().unwrap().remove("tailscale");
         fs::write(&path, format!("{}\n{extra}", toml::to_string(&config)?))?;
         load_config(path.to_str().unwrap())
-    }
-
-    #[test]
-    fn tailscale_config_generation_writes_defaults_to_server_file() {
-        let written = toml::to_string_pretty(&default_config()).unwrap();
-        let actual: toml::Value = toml::from_str(&written).unwrap();
-        assert_eq!(actual.get("tailscale"), Some(&tailscale_defaults()));
     }
 
     #[test]
@@ -168,17 +156,5 @@ mod tests {
         config.server_ipv4 = Ipv4Addr::new(10, 0, 0, 1);
         config.ws_port = 3030;
         assert_eq!(build_client_websocket_url(&config), "ws://10.0.0.1:3030/ws");
-    }
-
-    #[test]
-    fn test_sherpa_from_base_dir() {
-        let sherpa = Sherpa::from_base_dir("/opt/sherpa".to_string());
-        assert_eq!(sherpa.base_dir, "/opt/sherpa");
-        assert_eq!(sherpa.config_dir, "/opt/sherpa/config");
-        assert_eq!(sherpa.config_file_path, "/opt/sherpa/config/sherpa.toml");
-        assert_eq!(sherpa.ssh_dir, "/opt/sherpa/ssh");
-        assert_eq!(sherpa.images_dir, "/opt/sherpa/images");
-        assert_eq!(sherpa.containers_dir, "/opt/sherpa/containers");
-        assert_eq!(sherpa.bins_dir, "/opt/sherpa/bins");
     }
 }

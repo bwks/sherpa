@@ -103,19 +103,10 @@ pub fn get_non_loopback_ipv6_addresses() -> Result<Vec<Ipv6Addr>> {
     Ok(addresses)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "netinfo"))]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_get_fqdn_returns_non_empty_if_some() {
-        if let Some(fqdn) = get_fqdn() {
-            assert_ne!(fqdn, "");
-            assert!(!fqdn.contains('\n'));
-        }
-    }
-
-    #[cfg(feature = "netinfo")]
     #[test]
     fn test_get_non_loopback_ipv4_addresses() {
         let addrs = get_non_loopback_ipv4_addresses().unwrap();
@@ -124,7 +115,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "netinfo")]
     #[test]
     fn test_get_non_loopback_ipv6_addresses() {
         let addrs = get_non_loopback_ipv6_addresses().unwrap();

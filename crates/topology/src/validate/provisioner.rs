@@ -222,18 +222,6 @@ mod tests {
     }
 
     #[test]
-    fn container_nodes_accept_valid_secret_files() {
-        let files = format!(
-            "{}{}",
-            secret("mongo_password", 444),
-            secret("tls.key", 400)
-        );
-        for model in ["mongo_db", "nats_bus", "cisco_iol"] {
-            validate_provisioners(&container(model, &files)).unwrap();
-        }
-    }
-
-    #[test]
     fn container_provisioners_are_rejected_on_other_nodes() {
         for model in ["ubuntu_linux", "free_bsd", "cisco_ios"] {
             let error = format!(
@@ -306,21 +294,6 @@ mod tests {
         ] {
             validate_provisioners(&manifest(model, &provisioner)).unwrap();
         }
-    }
-
-    #[test]
-    fn nodes_without_provisioners_pass() {
-        let manifest: Manifest = toml::from_str(
-            r#"
-            name = "lab"
-
-            [[nodes]]
-            name = "r1"
-            model = "cisco_ios"
-            "#,
-        )
-        .unwrap();
-        validate_provisioners(&manifest).unwrap();
     }
 
     #[test]

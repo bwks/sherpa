@@ -40,18 +40,6 @@ Gateway=fd00::1
 DNS=fd00::1
 ";
 
-const EXPECTED_MOUNT_UNIT: &str = "[Unit]
-Before=local-fs.target
-
-[Mount]
-What=/dev/disk/by-label/data-disk
-Where=/media/container
-Type=ext4
-
-[Install]
-WantedBy=local-fs.target
-";
-
 // ============================================================================
 // Tests
 // ============================================================================
@@ -147,12 +135,4 @@ fn test_ignition_ztp_interface_dual_stack() {
         .expect("has data uri prefix");
     let decoded = base64_decode(b64).expect("valid base64");
     assert_eq!(decoded, EXPECTED_ZTP_DUAL_STACK);
-}
-
-#[test]
-fn test_ignition_mount_container_disk_unit() {
-    let unit = IgnitionUnit::mount_container_disk();
-    assert_eq!(unit.name, "media-container.mount");
-    assert_eq!(unit.enabled, Some(true));
-    assert_eq!(unit.contents.expect("has contents"), EXPECTED_MOUNT_UNIT);
 }

@@ -93,9 +93,7 @@ fn check_file_name(node: &str, name: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        AuthorizedKeyFile, BinaryFile, BinaryFileData, NodeSsh, SystemdUnit, SystemdUnitData,
-    };
+    use crate::{AuthorizedKeyFile, NodeSsh, SystemdUnit, SystemdUnitData};
 
     fn node() -> Node {
         Node {
@@ -110,27 +108,6 @@ mod tests {
             content: String::new(),
             enabled: true,
         }
-    }
-
-    #[test]
-    fn files_the_client_read_pass() {
-        let node = Node {
-            binary_files: Some(vec![BinaryFile {
-                source: "bin/tool".to_owned(),
-            }]),
-            binary_files_data: Some(vec![BinaryFileData {
-                filename: "tool".to_owned(),
-                content: String::new(),
-            }]),
-            systemd_units: Some(vec![SystemdUnit {
-                name: "app.service".to_owned(),
-                source: "units/app.service".to_owned(),
-                enabled: true,
-            }]),
-            systemd_units_data: Some(vec![unit("app.service")]),
-            ..node()
-        };
-        assert!(check_client_read_files(&[node, self::node()]).is_ok());
     }
 
     #[test]

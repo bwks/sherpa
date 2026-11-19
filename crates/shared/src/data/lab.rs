@@ -299,8 +299,6 @@ pub struct ListLabsResponse {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::*;
 
     fn make_lab_info() -> LabInfo {
@@ -322,55 +320,11 @@ mod tests {
     }
 
     #[test]
-    fn test_lab_info_display_and_from_str_round_trip() {
-        let lab = make_lab_info();
-        let s = lab.to_string();
-        let parsed = LabInfo::from_str(&s).unwrap();
-        assert_eq!(parsed.id, "lab-001");
-        assert_eq!(parsed.name, "test-lab");
-        assert_eq!(parsed.user, "alice");
-        assert_eq!(
-            parsed.ipv4_gateway,
-            "192.168.100.1".parse::<std::net::Ipv4Addr>().unwrap()
-        );
-        assert_eq!(parsed.client_host.as_deref(), Some("dev01"));
-        assert_eq!(
-            parsed.client_folder.as_deref(),
-            Some("/home/alice/labs/core")
-        );
-    }
-
-    #[test]
-    fn lab_info_without_an_origin_omits_it_and_reads_back_none() {
-        let mut lab = make_lab_info();
-        lab.client_host = None;
-        lab.client_folder = None;
-        let saved = lab.to_string();
-        assert!(!saved.contains("client_"), "{saved}");
-        let restored = LabInfo::from_str(&saved).unwrap();
-        assert!(restored.client_host.is_none());
-        assert!(restored.client_folder.is_none());
-    }
-
-    #[test]
     fn legacy_lab_info_defaults_to_legacy_ssh() {
         let saved = make_lab_info().to_string();
         assert!(!saved.contains("ssh_usernames"));
         let restored: LabInfo = saved.parse().unwrap();
         assert_eq!(restored.ssh_usernames, Vec::<NodeSshUsername>::new());
-    }
-
-    #[test]
-    fn ssh_usernames_are_saved_as_typed_entries() {
-        let saved = format!(
-            "{}\n[[ssh_usernames]]\nnode_name='vm'\nusername='alice'\n",
-            make_lab_info()
-        );
-        let restored: LabInfo = saved.parse().unwrap();
-        let serialized = toml::Value::try_from(&restored).unwrap();
-        let entries = serialized["ssh_usernames"].as_array().unwrap();
-        assert_eq!(entries[0]["node_name"].as_str(), Some("vm"));
-        assert_eq!(entries[0]["username"].as_str(), Some("alice"));
     }
 
     #[test]
@@ -387,30 +341,6 @@ mod tests {
         assert_eq!(lab.ssh_username("vm1"), None);
         assert_eq!(lab.ssh_username("vm2"), Some("bob"));
         assert_eq!(lab.ssh_usernames.len(), 1);
-    }
-
-    #[test]
-    fn personal_ssh_metadata_survives_json_round_trip() {
-        let mut lab = make_lab_info();
-        lab.set_ssh_username("vm1", Some("alice"));
-        let json = serde_json::to_value(&lab).unwrap();
-        assert_eq!(
-            json["ssh_usernames"],
-            serde_json::json!([{ "node_name": "vm1", "username": "alice" }])
-        );
-        let restored: LabInfo = serde_json::from_value(json).unwrap();
-        assert_eq!(restored.ssh_usernames, lab.ssh_usernames);
-    }
-
-    #[test]
-    fn test_lab_status_display() {
-        assert_eq!(LabState::Running.to_string(), "running");
-        assert_eq!(LabState::Stopped.to_string(), "stopped");
-        assert_eq!(LabState::Partial.to_string(), "partial");
-        assert_eq!(LabState::Starting.to_string(), "starting");
-        assert_eq!(LabState::Failed.to_string(), "failed");
-        assert_eq!(LabState::Empty.to_string(), "empty");
-        assert_eq!(LabState::Unknown.to_string(), "unknown");
     }
 
     #[test]

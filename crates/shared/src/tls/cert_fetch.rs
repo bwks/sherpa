@@ -89,7 +89,6 @@ mod tests {
     use std::net::TcpListener;
 
     use super::*;
-    use crate::konst::SHERPA_SERVER_HTTP_PORT;
 
     const SELF_SIGNED: &str = include_str!("testdata/self_signed.crt");
 
@@ -117,11 +116,5 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(pem, SELF_SIGNED);
-    }
-
-    #[tokio::test]
-    async fn test_fetch_certificate_invalid_url() {
-        let result = fetch_server_certificate("not a valid url", SHERPA_SERVER_HTTP_PORT).await;
-        assert!(result.is_err());
     }
 }

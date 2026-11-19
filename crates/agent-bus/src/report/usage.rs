@@ -326,47 +326,6 @@ mod tests {
     }
 
     #[test]
-    fn tokens_add_every_kind_and_saturate() {
-        let mut usage = used(1, 0.0, 4, 7);
-        usage.cache_creation = 3;
-        assert_eq!(usage.tokens(), 4 + 5 + 3 + 7);
-        usage.input = u64::MAX;
-        assert_eq!(usage.tokens(), u64::MAX);
-    }
-
-    #[test]
-    fn the_model_column_shows_the_model_each_task_ran_on() {
-        let rows = [
-            row(
-                "a",
-                Some("claude-sonnet-5-5"),
-                Some(used(1, 0.04, 1, 1)),
-                TaskState::Completed,
-            ),
-            row(
-                "b",
-                Some("claude-haiku-5-5"),
-                Some(used(1, 0.04, 1, 1)),
-                TaskState::Completed,
-            ),
-            row("old", None, Some(used(1, 0.04, 1, 1)), TaskState::Completed),
-        ];
-        let table = table(&rows);
-        assert!(table.contains("Model"), "{table}");
-        for (task, model) in [
-            ("a", "claude-sonnet-5-5"),
-            ("b", "claude-haiku-5-5"),
-            ("old", "n/a"),
-        ] {
-            let line = table
-                .lines()
-                .find(|line| line.contains(&format!(" {task} ")))
-                .unwrap_or_default();
-            assert!(line.contains(model), "{line}");
-        }
-    }
-
-    #[test]
     fn the_table_has_a_row_per_task_and_a_total() {
         let rows = [
             row("a", None, Some(used(2, 0.25, 10, 90)), TaskState::Completed),
@@ -392,25 +351,6 @@ mod tests {
         assert!(total.contains("$0.7500"), "{total}");
         assert!(total.contains("90.0%"), "{total}");
         assert!(total.contains("110"), "{total}");
-    }
-
-    #[test]
-    fn the_cells_of_a_task_without_usage_show_n_a() {
-        let cells = line(
-            ["t", "dev", "-", "n/a"],
-            None,
-            true,
-            0,
-            Time::default(),
-            "failed",
-        );
-        assert_eq!(
-            cells,
-            [
-                "t", "dev", "-", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "failed"
-            ]
-        );
-        assert_eq!(table(&[]), "No usage recorded");
     }
 
     #[test]

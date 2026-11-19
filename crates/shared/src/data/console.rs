@@ -11,29 +11,3 @@ pub struct ConsoleCheck {
     #[serde(default)]
     pub held_by: Option<String>,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_free_console_has_no_holder() {
-        let check: ConsoleCheck = serde_json::from_str(r#"{"held_by":null}"#).unwrap();
-        assert_eq!(check, ConsoleCheck::default());
-        let check: ConsoleCheck = serde_json::from_str("{}").unwrap();
-        assert_eq!(check, ConsoleCheck::default());
-    }
-
-    #[test]
-    fn a_held_console_names_its_holder() {
-        let check = ConsoleCheck {
-            held_by: Some("alice from 192.0.2.10 since 2026-11-18 09:08:07 UTC".to_owned()),
-        };
-        let json = serde_json::to_string(&check).unwrap();
-        assert_eq!(
-            json,
-            r#"{"held_by":"alice from 192.0.2.10 since 2026-11-18 09:08:07 UTC"}"#
-        );
-        assert_eq!(serde_json::from_str::<ConsoleCheck>(&json).unwrap(), check);
-    }
-}

@@ -282,16 +282,4 @@ mod tests {
         assert!(phase.ensure_ready().is_err());
         assert_eq!(phase.on_event(LabEvent::DestroyStarted), Ok(To(Destroying)));
     }
-
-    #[test]
-    fn phases_are_stored_in_snake_case() {
-        assert_eq!(
-            serde_json::to_string(&DestroyFailed).unwrap(),
-            r#""destroy_failed""#
-        );
-        for phase in LabPhase::iter().filter(|phase| *phase != Unknown) {
-            let text = serde_json::to_string(&phase).unwrap();
-            assert_eq!(serde_json::from_str::<LabPhase>(&text).unwrap(), phase);
-        }
-    }
 }

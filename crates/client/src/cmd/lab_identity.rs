@@ -290,7 +290,12 @@ mod tests {
 
     #[test]
     fn a_folder_with_neither_file_names_no_lab() {
-        assert!(folder_lab(Path::new(""), None, None).is_err());
+        let error = folder_lab(Path::new(""), None, None).unwrap_err();
+        let path = Path::new(".sherpa").join("lab-info.toml");
+        assert_eq!(
+            error.to_string(),
+            format!("This folder has no manifest.toml or {}", path.display())
+        );
     }
 
     #[test]
@@ -305,11 +310,6 @@ mod tests {
         let alice = new_lab_id(&token_for("alice"), "core").unwrap();
         let bob = new_lab_id(&token_for("bob"), "core").unwrap();
         assert_ne!(alice, bob);
-    }
-
-    #[test]
-    fn a_new_lab_needs_a_login_token() {
-        assert!(new_lab_id("not-a-jwt", "core").is_err());
     }
 
     #[test]

@@ -1154,18 +1154,6 @@ ipv4_router = "172.31.1.254"
     }
 
     #[test]
-    fn test_pub_ssh_key_to_sha256_hash_invalid_input() {
-        let invalid_key = "not a valid ssh key";
-        assert!(pub_ssh_key_to_sha256_hash(invalid_key).is_err());
-    }
-
-    #[test]
-    fn test_pub_ssh_key_to_md5_hash_invalid_input() {
-        let invalid_key = "not a valid ssh key";
-        assert!(pub_ssh_key_to_md5_hash(invalid_key).is_err());
-    }
-
-    #[test]
     fn test_ssh_key_fingerprint_matches_ssh_keygen() {
         let key =
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh test";

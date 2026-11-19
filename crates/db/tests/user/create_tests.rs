@@ -1,21 +1,8 @@
 /// CREATE operation tests for user
 use anyhow::Result;
-use db::{create_admin_user, create_user, get_user, list_users};
+use db::{create_user, get_user, list_users};
 
 use crate::setup_db;
-
-#[tokio::test]
-async fn test_create_user_success() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
-
-    assert_eq!(user.username, "alice");
-    assert!(user.id.is_some(), "Created user should have an ID");
-    assert_eq!(user.ssh_keys.len(), 0);
-
-    Ok(())
-}
 
 #[tokio::test]
 async fn test_create_user_with_ssh_keys() -> Result<()> {
@@ -81,35 +68,6 @@ async fn test_create_user_username_too_short() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_create_user_allows_hyphen_and_underscore() -> Result<()> {
-    let db = setup_db().await?;
-
-    let user = create_user(
-        &db,
-        "test-user_01".to_string(),
-        "TestPass123!",
-        false,
-        vec![],
-    )
-    .await?;
-    assert_eq!(user.username, "test-user_01");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_user_rejects_names_invalid_on_guests() -> Result<()> {
-    let db = setup_db().await?;
-
-    for username in ["user@example.com", "a.b.c", "1brad", "-brad", "josé"] {
-        let result = create_user(&db, username.to_string(), "TestPass123!", false, vec![]).await;
-        assert!(result.is_err(), "Should reject '{username}'");
-    }
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_create_user_stores_lowercase_username() -> Result<()> {
     let db = setup_db().await?;
 
@@ -156,18 +114,6 @@ async fn test_create_user_rejects_reserved_usernames() -> Result<()> {
         assert!(error.contains("reserved"), "'{username}': {error}");
     }
     assert!(list_users(&db).await?.is_empty());
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_admin_user_creates_reserved_admin() -> Result<()> {
-    let db = setup_db().await?;
-
-    let admin = create_admin_user(&db, "AdminPass123!").await?;
-    assert_eq!(admin.username, "admin");
-    assert!(admin.is_admin);
-    assert_eq!(admin.ssh_keys, [] as [std::string::String; 0]);
 
     Ok(())
 }

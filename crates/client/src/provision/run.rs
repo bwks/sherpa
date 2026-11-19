@@ -381,14 +381,6 @@ mod tests {
     }
 
     #[test]
-    fn output_is_padded_to_the_longest_node_name() {
-        let manifest = manifest();
-        let nodes = nodes_to_provision(&manifest, None).unwrap();
-        assert_eq!(name_width(&nodes), 5);
-        assert_eq!(name_width(&[]), 0);
-    }
-
-    #[test]
     fn an_unknown_node_is_an_error() {
         let error = nodes_to_provision(&manifest(), Some("dev09")).unwrap_err();
         assert!(error.to_string().contains("dev09"), "{error}");

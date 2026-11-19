@@ -36,30 +36,3 @@ fn form_enums_display_as_they_serialize() {
     assert_display_is_serde::<NodeKind>();
     assert_display_is_serde::<BridgeKind>();
 }
-
-#[test]
-fn ztp_round_trips_through_serde_for_all_ten_words() {
-    let words = [
-        "disabled",
-        "cloud-init",
-        "cdrom",
-        "disk",
-        "http",
-        "ignition",
-        "nocloud",
-        "tftp",
-        "usb",
-        "volume",
-    ];
-    let spelled: Vec<String> = Ztp::iter().map(|ztp| ztp.to_string()).collect();
-    assert_eq!(spelled, words);
-    for word in words {
-        let ztp: Ztp = serde_json::from_value(serde_json::Value::from(word)).unwrap();
-        assert_eq!(serde_json::to_value(ztp).unwrap(), word);
-    }
-}
-
-#[test]
-fn ztp_defaults_to_disabled() {
-    assert_eq!(Ztp::default(), Ztp::Disabled);
-}

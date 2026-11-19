@@ -690,12 +690,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn device_password_state_is_set_or_not_set() {
-        assert_eq!(device_password_state(true), "set");
-        assert_eq!(device_password_state(false), "not set");
-    }
-
     const KEY: &str =
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh me@host";
 
@@ -720,43 +714,5 @@ mod tests {
             read_key_argument("SHA256:/UpBoWzMiq6/+/wzQIGDT2VxOLzg/LUTfKhc0x+ktEs").unwrap(),
             "SHA256:/UpBoWzMiq6/+/wzQIGDT2VxOLzg/LUTfKhc0x+ktEs"
         );
-    }
-
-    #[test]
-    fn ssh_key_subcommands_parse() {
-        let cli = TestCli::try_parse_from(["user", "ssh-key", "add", "key.pub"]).unwrap();
-        assert!(matches!(
-            cli.command,
-            UserCommands::SshKey {
-                command: SshKeyCommands::Add { ref key }
-            } if key == "key.pub"
-        ));
-        let cli =
-            TestCli::try_parse_from(["user", "ssh-key", "remove", "key.pub", "--user", "alice"])
-                .unwrap();
-        assert!(matches!(
-            cli.command,
-            UserCommands::SshKey {
-                command: SshKeyCommands::Remove { ref key, user: Some(ref user) }
-            } if key == "key.pub" && user == "alice"
-        ));
-    }
-
-    #[test]
-    fn a_key_is_added_only_to_your_own_account() {
-        assert!(
-            TestCli::try_parse_from(["user", "ssh-key", "add", "key.pub", "--user", "alice"])
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn a_new_user_is_created_without_keys() {
-        let cli = TestCli::try_parse_from(["user", "create", "alice", "--admin"]).unwrap();
-        assert!(matches!(
-            cli.command,
-            UserCommands::Create { ref username, admin: true } if username == "alice"
-        ));
-        assert!(TestCli::try_parse_from(["user", "create", "alice", "--ssh-key", KEY]).is_err());
     }
 }

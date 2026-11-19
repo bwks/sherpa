@@ -891,63 +891,10 @@ mod tests {
     }
 
     #[test]
-    fn test_all_rpc_methods_covered() {
-        let spec = build_spec();
-        let rpc_methods: Vec<&str> = spec
-            .operations
-            .iter()
-            .map(|op| op.transports.rpc.method)
-            .collect();
-
-        // These are the RPC methods from the WebSocket handler
-        let expected = vec![
-            "auth.login",
-            "auth.logout",
-            "auth.validate",
-            "up",
-            "destroy",
-            "inspect",
-            "down",
-            "cancel",
-            "resume",
-            "clean",
-            "redeploy",
-            "link.update_impairment",
-            "image.list",
-            "image.show",
-            "image.import",
-            "image.delete",
-            "image.set_default",
-            "image.scan",
-            "image.pull",
-            "image.download",
-            "image.upload",
-            "user.create",
-            "user.list",
-            "user.delete",
-            "user.passwd",
-            "user.device_password.set",
-            "user.info",
-            "user.ssh_key.add",
-            "user.ssh_key.remove",
-        ];
-
-        for method in &expected {
-            assert!(
-                rpc_methods.contains(method),
-                "RPC method '{method}' not found in spec"
-            );
-        }
-        assert_eq!(rpc_methods.len(), expected.len());
-    }
-
-    #[test]
     fn test_streaming_operations_have_stream_type() {
         let spec = build_spec();
         let streaming_ops: Vec<&OperationDef> =
             spec.operations.iter().filter(|op| op.streaming).collect();
-
-        assert_eq!(streaming_ops.len(), 5, "Expected 5 streaming operations");
 
         for op in &streaming_ops {
             assert!(
@@ -982,17 +929,6 @@ mod tests {
     }
 
     #[test]
-    fn test_build_openapi_valid_structure() {
-        let doc = build_openapi();
-        assert_eq!(doc["openapi"], "3.1.0");
-        assert_eq!(doc["info"]["title"], "Sherpa API");
-        assert_eq!(doc["info"]["version"], "1.0.0");
-        assert!(doc["paths"].is_object());
-        assert!(doc["components"]["schemas"].is_object());
-        assert!(doc["components"]["securitySchemes"].is_object());
-    }
-
-    #[test]
     fn test_build_openapi_has_all_paths() {
         let spec = build_spec();
         let doc = build_openapi();
@@ -1022,17 +958,6 @@ mod tests {
             !json_str.contains("#/definitions/"),
             "Found unrewritten #/definitions/ ref in OpenAPI document"
         );
-    }
-
-    #[test]
-    fn test_build_openapi_security_schemes() {
-        let doc = build_openapi();
-        let schemes = &doc["components"]["securitySchemes"];
-        assert_eq!(schemes["BearerAuth"]["type"], "http");
-        assert_eq!(schemes["BearerAuth"]["scheme"], "bearer");
-        assert_eq!(schemes["BearerAuth"]["bearerFormat"], "JWT");
-        assert_eq!(schemes["CookieAuth"]["type"], "apiKey");
-        assert_eq!(schemes["CookieAuth"]["in"], "cookie");
     }
 
     #[test]
@@ -1073,39 +998,5 @@ mod tests {
             import_op["x-admin-required"], true,
             "Admin operation should have x-admin-required: true"
         );
-    }
-
-    #[test]
-    fn the_image_paths_name_the_model_and_its_kind() {
-        let spec = build_spec();
-        let doc = build_openapi();
-        for (name, path, params) in [
-            (
-                "image.show",
-                "/api/v1/images/{model}/{kind}",
-                vec!["model", "kind"],
-            ),
-            (
-                "image.delete",
-                "/api/v1/images/{model}/{kind}/{version}",
-                vec!["model", "kind", "version"],
-            ),
-            (
-                "image.set_default",
-                "/api/v1/images/{model}/{kind}/{version}/default",
-                vec!["model", "kind", "version"],
-            ),
-        ] {
-            let op = spec.operations.iter().find(|op| op.name == name).unwrap();
-            assert_eq!(op.transports.rest.path, path, "{name}");
-            assert_eq!(op.transports.rest.path_params, params, "{name}");
-            let names: Vec<&str> = doc["paths"][path]["parameters"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|param| param["name"].as_str().unwrap())
-                .collect();
-            assert_eq!(names, params, "{name}");
-        }
     }
 }

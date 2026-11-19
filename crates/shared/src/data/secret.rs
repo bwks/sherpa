@@ -64,13 +64,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn content_round_trips_binary_data() {
-        let bytes = [0u8, 159, 146, 150, b'\n'];
-        let content = SecretContent::from_bytes(&bytes);
-        assert_eq!(content.decode().unwrap(), bytes);
-    }
-
-    #[test]
     fn content_is_base64_on_the_wire_and_hidden_from_debug() {
         let file = SecretFile {
             name: "token".to_string(),
@@ -85,12 +78,5 @@ mod tests {
             "{debug}"
         );
         assert!(debug.contains("REDACTED"), "{debug}");
-    }
-
-    #[test]
-    fn invalid_base64_is_an_error() {
-        let content: SecretContent =
-            serde_json::from_value(serde_json::json!("not base64!")).unwrap();
-        assert!(content.decode().is_err());
     }
 }

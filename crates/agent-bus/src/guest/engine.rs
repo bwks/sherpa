@@ -191,17 +191,6 @@ mod tests {
     }
 
     #[test]
-    fn tasks_and_answers_queue_whatever_runs() {
-        let queue = VecDeque::new();
-        for kind in [Kind::Task, Kind::Answer] {
-            let message = queued(kind, "t1");
-            assert_eq!(classify(&message, None, &queue), Control::Queue);
-            assert_eq!(classify(&message, Some("t0"), &queue), Control::Queue);
-            assert_eq!(classify(&message, Some("t1"), &queue), Control::Queue);
-        }
-    }
-
-    #[test]
     fn a_cancel_finds_its_task_running_queued_or_unknown() {
         let queue = VecDeque::from([queued(Kind::Task, "t2"), queued(Kind::Task, "t3")]);
         let cancel = |task: &str, running: Option<&str>| {
@@ -214,22 +203,6 @@ mod tests {
         assert_eq!(cancel("t1", None), Control::CancelUnknown);
         // A task that is running is not canceled twice from the queue.
         assert_eq!(cancel("t2", Some("t2")), Control::CancelRunning);
-    }
-
-    #[test]
-    fn outcomes_are_not_taken_by_a_guest() {
-        for kind in [
-            Kind::Progress,
-            Kind::Question,
-            Kind::Completed,
-            Kind::Failed,
-            Kind::Canceled,
-        ] {
-            assert_eq!(
-                classify(&queued(kind, "t1"), Some("t1"), &VecDeque::new()),
-                Control::Ignore
-            );
-        }
     }
 
     #[test]

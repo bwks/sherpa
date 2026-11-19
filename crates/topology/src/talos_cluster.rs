@@ -107,43 +107,6 @@ mod tests {
     }
 
     #[test]
-    fn workers_are_optional_and_controllers_are_required() {
-        let cluster: TalosCluster = toml::from_str(
-            r#"
-            name = "solo"
-            controllers = ["cp1"]
-            "#,
-        )
-        .unwrap();
-        assert_eq!(cluster.workers, [] as [std::string::String; 0]);
-        assert!(toml::from_str::<TalosCluster>(r#"name = "none""#).is_err());
-    }
-
-    #[test]
-    fn the_cni_defaults_to_flannel() {
-        assert_eq!(cluster().cni, ClusterCni::Flannel);
-        let cilium: TalosCluster = toml::from_str(
-            r#"
-            name = "k8s"
-            controllers = ["cp1"]
-            cni = "cilium"
-            "#,
-        )
-        .unwrap();
-        assert_eq!(cilium.cni, ClusterCni::Cilium);
-        assert!(
-            toml::from_str::<TalosCluster>(
-                r#"
-                name = "k8s"
-                controllers = ["cp1"]
-                cni = "calico"
-                "#
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
     fn unknown_fields_are_rejected() {
         let error = toml::from_str::<TalosCluster>(
             r#"

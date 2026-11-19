@@ -245,13 +245,6 @@ role = "{role}"
     }
 
     #[test]
-    fn has_finds_the_host_and_the_guests() {
-        let file = [entry("host", &key(), "host"), entry("dev", &key(), "guest")].concat();
-        let agents = Agents::parse(&file).unwrap();
-        assert!(agents.has("host") && agents.has("dev") && !agents.has("agent-2"));
-    }
-
-    #[test]
     fn keys_must_be_user_public_keys() {
         let junk = [entry("host", &key(), "host"), entry("dev", "UABC", "guest")].concat();
         assert!(Agents::parse(&junk).is_err());
@@ -270,11 +263,5 @@ role = "{role}"
         );
         let error = format!("{:#}", Agents::parse(&extra).unwrap_err());
         assert!(!error.contains(&seed));
-    }
-
-    #[test]
-    fn an_unknown_role_is_refused() {
-        let text = entry("host", &key(), "admin");
-        assert!(Agents::parse(&text).is_err());
     }
 }

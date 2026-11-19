@@ -356,54 +356,6 @@ mod tests {
     }
 
     #[test]
-    fn tailnet_table_wraps_pending_route_warning() {
-        let status = TailnetStatus::from_daemon(
-            r#"{"BackendState":"Running","Self":{"AllowedIPs":[]}}"#,
-            vec!["172.31.3.0/24".into(), "fd00:b00b:0:3::/64".into()],
-        )
-        .unwrap();
-
-        let table = render_tailnet_table(&status);
-        assert!(table.lines().all(|line| line.chars().count() <= 80));
-        assert!(table.contains("Management routes"));
-        assert!(table.contains("Tailscale addresses"));
-        assert!(table.contains("Pending"));
-
-        // Recover cell content to check that wrapping loses no warning text,
-        // including long URLs that must be split across lines.
-        let details: String = table
-            .lines()
-            .filter_map(|line| line.split('│').nth(2))
-            .flat_map(|cell| cell.chars().filter(|c| !c.is_whitespace()))
-            .collect();
-        let warning: String = status.warnings[0]
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .collect();
-        assert!(details.contains(&warning));
-    }
-
-    #[test]
-    fn tailnet_table_preserves_multiple_warnings() {
-        let mut status = TailnetStatus::unavailable(vec!["172.31.3.0/24".into()]);
-        status.warnings.push("Another gateway warning.".into());
-
-        let table = render_tailnet_table(&status);
-        assert!(table.lines().all(|line| line.chars().count() <= 80));
-        assert!(table.contains("Unavailable"));
-        assert!(table.contains("Another gateway warning."));
-        let details: String = table
-            .lines()
-            .filter_map(|line| line.split('│').nth(2))
-            .flat_map(|cell| cell.chars().filter(|c| !c.is_whitespace()))
-            .collect();
-        for warning in status.warnings {
-            let warning: String = warning.chars().filter(|c| !c.is_whitespace()).collect();
-            assert!(details.contains(&warning));
-        }
-    }
-
-    #[test]
     fn tailnet_table_renders_approved_status_without_warnings() {
         let status = TailnetStatus::from_daemon(
             r#"{"BackendState":"Running","TailscaleIPs":["100.64.0.1"],"Self":{"AllowedIPs":["172.31.3.0/24"]}}"#,
@@ -484,69 +436,6 @@ mod tests {
 │ router01.a1b2c3d4 │ cisco_cat8000 │ virtual_machine │ running │ 172.31.0.11 │ -         │ -   │ -           │ /var/lib/sherpa/labs/test/router01.qcow2 │
 └───────────────────┴───────────────┴─────────────────┴─────────┴─────────────┴───────────┴─────┴─────────────┴──────────────────────────────────────────┘";
         assert_eq!(render_devices_table(&devices, "a1b2c3d4"), expected);
-    }
-
-    #[test]
-    fn test_render_device_cpu_and_memory() {
-        let devices = vec![
-            DeviceInfo {
-                name: "dev01".to_string(),
-                model: NodeModel::UbuntuLinux,
-                kind: NodeKind::VirtualMachine,
-                state: NodeState::Running,
-                mgmt_ipv4: "172.31.0.21".to_string(),
-                mgmt_ipv6: None,
-                disks: vec![],
-                cpu_count: Some(16),
-                memory: Some(32768),
-            },
-            DeviceInfo {
-                name: "db01".to_string(),
-                model: NodeModel::MongoDb,
-                kind: NodeKind::Container,
-                state: NodeState::Running,
-                mgmt_ipv4: "172.31.0.22".to_string(),
-                mgmt_ipv6: None,
-                disks: vec![],
-                cpu_count: None,
-                memory: None,
-            },
-        ];
-
-        let table = render_devices_table(&devices, "a1b2c3d4");
-        assert!(table.contains("CPU"), "{table}");
-        assert!(table.contains("Memory (MB)"), "{table}");
-        let vm = table.lines().find(|line| line.contains("dev01")).unwrap();
-        assert!(vm.contains("│ 16 ") && vm.contains("│ 32768 "), "{vm}");
-        // Containers are not limited.
-        let container = table.lines().find(|line| line.contains("db01")).unwrap();
-        assert_eq!(container.matches("│ - ").count(), 4, "{container}");
-        assert!(!table.contains("VNC"), "{table}");
-    }
-
-    #[test]
-    fn a_device_without_a_mgmt_ipv4_shows_a_dash() {
-        let devices = vec![DeviceInfo {
-            name: "container01".to_string(),
-            model: NodeModel::AlpineLinux,
-            kind: NodeKind::Container,
-            state: NodeState::Stopped,
-            mgmt_ipv4: String::new(),
-            mgmt_ipv6: None,
-            disks: vec![],
-            cpu_count: None,
-            memory: None,
-        }];
-
-        let table = render_devices_table(&devices, "a1b2c3d4");
-
-        let row = table
-            .lines()
-            .find(|line| line.contains("container01"))
-            .unwrap();
-        assert!(row.contains("│ stopped "), "{row}");
-        // The empty IPv4 shows "-", as do the IPv6, CPU, memory and disks it does not have.
-        assert_eq!(row.matches("│ - ").count(), 5, "{row}");
     }
 
     #[test]

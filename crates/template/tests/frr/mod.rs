@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 
 use askama::Template;
 
-use template::{FrrDaemonsTemplate, FrrStartupTemplate, FrrZtpTemplate};
+use template::{FrrStartupTemplate, FrrZtpTemplate};
 
 use crate::helpers;
 
@@ -24,26 +24,6 @@ ip route 0.0.0.0/0 172.20.0.1
 !
 line vty
 !";
-
-const EXPECTED_FRR_DAEMONS: &str = "\
-zebra=yes
-bgpd=no
-ospfd=no
-ospf6d=no
-ripd=no
-ripngd=no
-isisd=no
-pimd=no
-ldpd=no
-nhrpd=no
-eigrpd=no
-babeld=no
-sharpd=no
-pbrd=no
-vrrpd=no
-staticd=no
-
-vtysh_enable=yes";
 
 const EXPECTED_FRR_STARTUP: &str = r#"#!/bin/sh
 # Install OpenSSH server and sudo, retrying while the network is not yet reachable
@@ -105,13 +85,6 @@ fn test_frr_config_static_ipv4() {
     };
     let output = t.render().expect("template renders");
     assert_eq!(output, EXPECTED_FRR_CONFIG_STATIC);
-}
-
-#[test]
-fn test_frr_daemons() {
-    let t = FrrDaemonsTemplate {};
-    let output = t.render().expect("template renders");
-    assert_eq!(output, EXPECTED_FRR_DAEMONS);
 }
 
 fn startup(hash: &str) -> FrrStartupTemplate {

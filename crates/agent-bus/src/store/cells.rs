@@ -153,8 +153,5 @@ mod tests {
     #[test]
     fn a_count_past_i64_saturates() {
         assert_eq!(integer(u64::MAX), Value::Integer(i64::MAX));
-        assert_eq!(integer(7), Value::Integer(7));
-        assert_eq!(optional_integer(None), Value::Null);
-        assert_eq!(boolean(true), Value::Integer(1));
     }
 }

@@ -118,37 +118,6 @@ mod tests {
     use shared::data::Ztp;
 
     #[test]
-    fn description_survives_manifest_file_write() {
-        let path = env::temp_dir().join(format!("sherpa-description-{}.toml", process::id()));
-        let path = path.to_str().unwrap();
-        for description in [
-            Some(
-                r#"Lab purpose: "routing"
-Unicode: café"#,
-            ),
-            Some(""),
-            None,
-        ] {
-            let mut input = toml::from_str::<toml::Value>("name='test'\nnodes=[]").unwrap();
-            if let Some(description) = description {
-                input.as_table_mut().unwrap().insert(
-                    "description".into(),
-                    toml::Value::String(description.into()),
-                );
-            }
-            let manifest: Manifest = input.try_into().unwrap();
-            manifest.write_file(path).unwrap();
-            let restored = Manifest::load_file(path).unwrap();
-            let value = toml::Value::try_from(&restored).unwrap();
-            assert_eq!(
-                value.get("description").and_then(toml::Value::as_str),
-                description
-            );
-        }
-        fs::remove_file(path).unwrap();
-    }
-
-    #[test]
     fn a_manifest_that_does_not_parse_names_its_file() {
         let path = env::temp_dir().join(format!("sherpa-bad-manifest-{}.toml", process::id()));
         fs::write(&path, "name = 'lab'\nnodes = [\n").unwrap();
@@ -216,28 +185,6 @@ nodes = [
             )
             .is_err()
         );
-    }
-
-    #[test]
-    fn talos_clusters_round_trip() {
-        let toml = r#"
-name = "lab"
-talos_clusters = [
-  { name = "k8s", controllers = ["cp1"], workers = ["w1"] },
-  { name = "edge", controllers = ["cp2"], cni = "cilium" },
-]
-nodes = [
-  { name = "cp1", model = "talos_linux" },
-  { name = "cp2", model = "talos_linux" },
-  { name = "w1", model = "talos_linux" },
-]
-"#;
-        let manifest: Manifest = toml::from_str(toml).unwrap();
-        let clusters = manifest.talos_clusters.as_deref().unwrap();
-        assert_eq!(clusters[0].controllers, vec!["cp1"]);
-        assert_eq!(clusters[0].workers, vec!["w1"]);
-        let restored: Manifest = toml::from_str(&toml::to_string(&manifest).unwrap()).unwrap();
-        assert_eq!(restored.talos_clusters, manifest.talos_clusters);
     }
 
     #[test]

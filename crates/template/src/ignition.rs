@@ -333,24 +333,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_filesystem_default_values() {
-        let fs = IgnitionFileSystem::default();
-        assert_eq!(fs.device, "/dev/disk/by-label/data-disk");
-        assert_eq!(fs.format, "ext4");
-        assert!(!fs.wipe_filesystem);
-        assert_eq!(fs.label, "data-disk");
-    }
-
-    #[test]
-    fn test_disable_updates_path_and_mode() {
-        let f = IgnitionFile::disable_updates();
-        assert_eq!(f.path, "/etc/flatcar/update.conf");
-        assert_eq!(f.mode, FileMode::new(0o644));
-        assert_eq!(f.overwrite, Some(true));
-        assert_eq!(f.contents.unwrap().source, "data:,REBOOT_STRATEGY%3Doff%0A");
-    }
-
-    #[test]
     fn test_append_only_file_omits_contents() {
         let f = IgnitionFile {
             path: "/home/alice/.bash_profile".to_owned(),

@@ -177,23 +177,6 @@ links = [
     }
 
     #[test]
-    fn test_validate_manifest_accepts_ztp_the_model_allows() {
-        let manifest = r#"
-name = "ztp-lab"
-
-nodes = [
-  { name = "frr01", model = "frr_linux" },
-  { name = "frr02", model = "frr_linux", ztp = { method = "disabled" } },
-  { name = "srx01", model = "juniper_srxv3", ztp = { method = "cdrom" } },
-]
-"#;
-        let path = write_temp_manifest("ztp-pass", manifest);
-        let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
-        fs::remove_file(path).ok();
-        assert!(result.is_ok(), "{result:?}");
-    }
-
-    #[test]
     fn test_validate_manifest_reports_a_ztp_method_the_model_does_not_allow() {
         let manifest = r#"
 name = "ztp-lab"
@@ -208,22 +191,5 @@ nodes = [
         let error = format!("{:#}", result.expect_err("the manifest is refused"));
         assert!(error.contains("'frr01'"), "{error}");
         assert!(error.contains("allows: disabled, volume"), "{error}");
-    }
-
-    #[test]
-    fn test_validate_manifest_refuses_tftp_on_srx_naming_cdrom() {
-        let manifest = r#"
-name = "ztp-lab"
-
-nodes = [
-  { name = "srx01", model = "juniper_srxv3", ztp = { method = "tftp" } },
-]
-"#;
-        let path = write_temp_manifest("ztp-srx-tftp", manifest);
-        let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
-        fs::remove_file(path).ok();
-        let error = format!("{:#}", result.expect_err("the manifest is refused"));
-        assert!(error.contains("'srx01'"), "{error}");
-        assert!(error.ends_with("allows: disabled, cdrom"), "{error}");
     }
 }

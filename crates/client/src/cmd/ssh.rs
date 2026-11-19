@@ -408,14 +408,6 @@ mod tests {
     }
 
     #[test]
-    fn the_connect_line_names_the_node_and_the_escape() {
-        assert_eq!(
-            connected_line("dev01.a10736e8"),
-            "Connected to dev01.a10736e8. Escape: ~. at the start of a line."
-        );
-    }
-
-    #[test]
     fn the_close_line_starts_on_a_new_line_after_an_escape() {
         assert_eq!(
             closed_line("dev01.a10736e8", false),

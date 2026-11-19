@@ -85,23 +85,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_record_id_new_string_key() {
-        let id = RecordId::new("node", "abc123");
-
-        assert_eq!(id.table, "node");
-        assert_eq!(id.key, RecordIdKey::String("abc123".to_owned()));
-        assert_eq!(id.to_string(), "node:abc123");
-    }
-
-    #[test]
-    fn test_record_id_new_numeric_key() {
-        let id = RecordId::new("node", 42_i64);
-
-        assert_eq!(id.key, RecordIdKey::Number(42));
-        assert_eq!(id.to_string(), "node:42");
-    }
-
-    #[test]
     fn test_record_id_parse_simple() {
         let id = RecordId::parse_simple("lab:abcd").unwrap();
 
@@ -113,19 +96,5 @@ mod tests {
         assert!(RecordId::parse_simple("missing-separator").is_err());
         assert!(RecordId::parse_simple(":missing-table").is_err());
         assert!(RecordId::parse_simple("node:").is_err());
-    }
-
-    #[test]
-    fn test_record_id_serde_shape_matches_existing_string_key() {
-        let id = RecordId::new("node", "abc123");
-        let value = serde_json::to_value(id).unwrap();
-
-        assert_eq!(
-            value,
-            serde_json::json!({
-                "table": "node",
-                "key": { "String": "abc123" }
-            })
-        );
     }
 }

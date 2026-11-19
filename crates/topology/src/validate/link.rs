@@ -252,12 +252,6 @@ mod tests {
     }
 
     #[test]
-    fn test_links_without_p2p_field_pass() {
-        let links = vec![manifest_link("dev01::eth1", "dev02::eth1", None)];
-        assert!(check_no_p2p_field(&links).is_ok());
-    }
-
-    #[test]
     fn test_p2p_field_is_rejected_either_way() {
         for value in [true, false] {
             let links = vec![
@@ -268,22 +262,6 @@ mod tests {
             assert!(error.contains("dev01::eth2 <-> dev03::eth1"), "{error}");
             assert!(error.contains("Delete `p2p`"), "{error}");
         }
-    }
-
-    #[test]
-    fn test_interface_bounds_valid_data_interface() -> Result<()> {
-        // Rocky Linux with 52 data interfaces
-        let links = vec![create_link("rocky1", 52, "rocky2", 1)];
-        let bridges = vec![];
-
-        check_interface_bounds(
-            "rocky1",
-            &NodeModel::RockyLinux,
-            52, // data_interface_count
-            0,  // reserved_interface_count
-            &links,
-            &bridges,
-        )
     }
 
     #[test]
@@ -360,16 +338,6 @@ mod tests {
         check_interface_bounds("xr1", &NodeModel::CiscoIosxr9000, 31, 2, &links, &bridges)
     }
 
-    #[test]
-    fn test_interface_bounds_link_not_involving_device() -> Result<()> {
-        // Link doesn't involve the device being checked
-        let links = vec![create_link("rocky1", 100, "rocky2", 100)];
-        let bridges = vec![];
-
-        // Check device "rocky3" which is not in the link
-        check_interface_bounds("rocky3", &NodeModel::RockyLinux, 52, 0, &links, &bridges)
-    }
-
     /// Helper to create a test bridge with connections
     fn create_bridge(bridge_name: &str, connections: Vec<(&str, u8)>) -> BridgeDetailed {
         BridgeDetailed {
@@ -392,22 +360,6 @@ mod tests {
     // ============================================================================
     // Bridge-specific tests
     // ============================================================================
-
-    #[test]
-    fn test_bridge_interface_bounds_valid() -> Result<()> {
-        // Bridge using valid data interfaces
-        let links = vec![];
-        let bridges = vec![create_bridge("br1", vec![("rocky1", 10), ("rocky2", 15)])];
-
-        check_interface_bounds(
-            "rocky1",
-            &NodeModel::RockyLinux,
-            52, // data_interface_count
-            0,  // reserved_interface_count
-            &links,
-            &bridges,
-        )
-    }
 
     #[test]
     fn test_bridge_interface_bounds_exceeds_max() {

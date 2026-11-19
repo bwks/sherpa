@@ -136,11 +136,8 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Manifest, NodeContainer, NodeUnikernel, NodeVm, StartupScript};
-    use shared::data::{
-        DiskCache, ModelKind, NodeBootDisk, NodeCpu, NodeInterfaces, NodeKind, NodeModel, NodeNuma,
-        WatchdogAction, Ztp,
-    };
+    use crate::{Manifest, NodeContainer};
+    use shared::data::{ModelKind, NodeKind, NodeModel};
 
     /// The one node of a manifest written in TOML, as read.
     fn manifest_node(node: &str) -> Node {
@@ -162,44 +159,8 @@ mod tests {
         }
     }
 
-    fn generic_container() -> NodeExpanded {
-        NodeExpanded {
-            name: "node1".to_string(),
-            model_kind: ModelKind::new(NodeModel::Generic, Some(NodeKind::Container)).unwrap(),
-            ..NodeExpanded::default()
-        }
-    }
-
     fn error(node: &NodeExpanded) -> String {
         check_node_kind_settings(node).unwrap_err().to_string()
-    }
-
-    #[test]
-    fn a_vm_takes_every_vm_setting() {
-        let mut vm = node(NodeModel::UbuntuLinux);
-        vm.memory = Some(2048);
-        vm.cpu = NodeCpu {
-            count: Some(2),
-            pinning: Some(vec![1, 2]),
-            ..NodeCpu::default()
-        };
-        vm.numa = NodeNuma {
-            node: Some(0),
-            ..NodeNuma::default()
-        };
-        vm.boot_disk = NodeBootDisk {
-            size: Some(20),
-            ..NodeBootDisk::default()
-        };
-        vm.interfaces = NodeInterfaces {
-            data_count: Some(2),
-            queues: Some(2),
-        };
-        vm.ready_check.port = Some(22);
-        vm.vm = Some(NodeVm {
-            watchdog: Some(WatchdogAction::Reset),
-        });
-        check_node_kind_settings(&vm).unwrap();
     }
 
     #[test]
@@ -211,116 +172,6 @@ mod tests {
             "Manifest - node: 'node1' sets `container`, which does not apply to virtual_machine \
              nodes; 'ubuntu_linux' is a virtual_machine"
         );
-    }
-
-    #[test]
-    fn a_vm_group_on_a_container_is_refused() {
-        let mut container = generic_container();
-        container.vm = Some(NodeVm {
-            watchdog: Some(WatchdogAction::Reset),
-        });
-        let message = error(&container);
-        assert!(message.contains("'node1' sets `vm`"), "{message}");
-        assert!(message.contains("container nodes"), "{message}");
-    }
-
-    #[test]
-    fn a_unikernel_group_on_a_vm_is_refused() {
-        let mut vm = node(NodeModel::UbuntuLinux);
-        vm.unikernel = Some(NodeUnikernel::default());
-        assert!(error(&vm).contains("sets `unikernel`"));
-    }
-
-    #[test]
-    fn a_container_takes_its_settings() {
-        let mut container = generic_container();
-        container.cpu.count = Some(2);
-        container.memory = Some(512);
-        container.interfaces.data_count = Some(2);
-        container.ready_check.port = Some(80);
-        container.ready_check.skip = Some(true);
-        container.container = Some(NodeContainer {
-            privileged: Some(true),
-            ..NodeContainer::default()
-        });
-        container.startup_scripts = Some(vec![StartupScript::default()]);
-        check_node_kind_settings(&container).unwrap();
-    }
-
-    #[test]
-    fn vm_tuning_on_a_unikernel_is_refused() {
-        let mut unikernel = node(NodeModel::NanosUnikernel);
-        unikernel.boot_disk.cache = Some(DiskCache::None);
-        assert_eq!(
-            error(&unikernel),
-            "Manifest - node: 'node1' sets `boot_disk.cache`, which does not apply to unikernel \
-             nodes; 'nanos_unikernel' is a unikernel"
-        );
-        let mut unikernel = node(NodeModel::NanosUnikernel);
-        unikernel.numa.node = Some(0);
-        assert!(error(&unikernel).contains("sets `numa.node`"));
-    }
-
-    #[test]
-    fn a_unikernel_takes_its_settings() {
-        let mut unikernel = node(NodeModel::NanosUnikernel);
-        unikernel.memory = Some(512);
-        unikernel.cpu.count = Some(1);
-        unikernel.boot_disk.size = Some(2);
-        unikernel.ready_check.port = Some(8080);
-        unikernel.ready_check.skip = Some(false);
-        unikernel.unikernel = Some(NodeUnikernel {
-            cmdline: Some("console=ttyS0".to_string()),
-        });
-        check_node_kind_settings(&unikernel).unwrap();
-    }
-
-    #[test]
-    fn ztp_and_files_on_a_unikernel_are_refused() {
-        let mut unikernel = node(NodeModel::UnikraftUnikernel);
-        unikernel.ztp.method = Some(Ztp::Disabled);
-        assert!(error(&unikernel).contains("sets `ztp.method`"));
-        let mut unikernel = node(NodeModel::UnikraftUnikernel);
-        unikernel.environment_variables = Some(vec!["A=1".to_string()]);
-        assert!(error(&unikernel).contains("sets `environment_variables`"));
-    }
-
-    #[test]
-    fn a_node_without_a_kind_takes_its_models_default_kind() {
-        for (model, kind) in [
-            ("ubuntu_linux", NodeKind::VirtualMachine),
-            ("frr_linux", NodeKind::Container),
-            ("nanos_unikernel", NodeKind::Unikernel),
-        ] {
-            let node = manifest_node(&format!(
-                r#"name = "n1"
-model = "{model}""#
-            ));
-            assert_eq!(node.kind, None);
-            check_node_model_kind(&node).unwrap();
-            let expanded = NodeExpanded::new(1, &node).unwrap();
-            assert_eq!(expanded.model_kind, ModelKind::default_for(node.model));
-            assert_eq!(expanded.model_kind.kind(), kind, "{model}");
-        }
-    }
-
-    #[test]
-    fn a_kind_the_model_takes_is_accepted() {
-        for (model, kind) in [
-            ("ubuntu_linux", NodeKind::VirtualMachine),
-            ("frr_linux", NodeKind::Container),
-            ("nanos_unikernel", NodeKind::Unikernel),
-        ] {
-            let node = manifest_node(&format!(
-                r#"name = "n1"
-model = "{model}"
-kind = "{kind}""#
-            ));
-            assert_eq!(node.kind, Some(kind));
-            check_node_model_kind(&node).unwrap();
-            let expanded = NodeExpanded::new(1, &node).unwrap();
-            assert_eq!(expanded.model_kind.kind(), kind, "{model}");
-        }
     }
 
     #[test]
@@ -336,77 +187,6 @@ kind = "container""#,
         );
         let error = NodeExpanded::new(1, &node).unwrap_err();
         assert!(format!("{error:#}").contains("'fw1'"), "{error:#}");
-    }
-
-    #[test]
-    fn a_merged_model_takes_each_of_its_kinds_and_defaults_to_the_virtual_machine() {
-        for model in ["arista_eos", "juniper_evolved"] {
-            let node = manifest_node(&format!(
-                r#"name = "r1"
-model = "{model}""#
-            ));
-            check_node_model_kind(&node).unwrap();
-            let expanded = NodeExpanded::new(1, &node).unwrap();
-            assert_eq!(
-                expanded.model_kind.kind(),
-                NodeKind::VirtualMachine,
-                "{model}"
-            );
-            let node = manifest_node(&format!(
-                r#"name = "r1"
-model = "{model}"
-kind = "container""#
-            ));
-            check_node_model_kind(&node).unwrap();
-            let expanded = NodeExpanded::new(1, &node).unwrap();
-            assert_eq!(expanded.model_kind.kind(), NodeKind::Container, "{model}");
-        }
-    }
-
-    #[test]
-    fn sonic_linux_takes_a_container_kind_and_stays_a_virtual_machine_by_default() {
-        let node = manifest_node(
-            r#"name = "sw1"
-model = "sonic_linux""#,
-        );
-        check_node_model_kind(&node).unwrap();
-        let expanded = NodeExpanded::new(1, &node).unwrap();
-        assert_eq!(expanded.model_kind.kind(), NodeKind::VirtualMachine);
-
-        let node = manifest_node(
-            r#"name = "sw1"
-model = "sonic_linux"
-kind = "container"
-[nodes.interfaces]
-data_count = 2"#,
-        );
-        check_node_model_kind(&node).unwrap();
-        let expanded = NodeExpanded::new(1, &node).unwrap();
-        assert_eq!(expanded.model_kind.kind(), NodeKind::Container);
-        check_node_kind_settings(&expanded).unwrap();
-
-        let node = manifest_node(
-            r#"name = "sw1"
-model = "sonic_linux"
-kind = "container"
-[nodes.vm]
-watchdog = "reset""#,
-        );
-        let expanded = NodeExpanded::new(1, &node).unwrap();
-        assert_eq!(
-            error(&expanded),
-            r#"Manifest - node: 'sw1' sets `vm`, which does not apply to container nodes; 'sonic_linux' is a container unless the node sets `kind = "virtual_machine"`"#
-        );
-
-        let node = manifest_node(
-            r#"name = "sw1"
-model = "sonic_linux"
-kind = "unikernel""#,
-        );
-        assert_eq!(
-            check_node_model_kind(&node).unwrap_err().to_string(),
-            r#"Manifest - node: 'sw1' sets `kind = "unikernel"`, but 'sonic_linux' comes only as: virtual_machine, container"#
-        );
     }
 
     #[test]

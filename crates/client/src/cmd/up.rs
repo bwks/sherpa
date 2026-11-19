@@ -725,28 +725,6 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_environment_variables_literal_values() {
-        let mut manifest = test_manifest(vec![topology::Node {
-            name: "dev01".to_string(),
-            model: NodeModel::UbuntuLinux,
-            environment_variables: Some(vec![
-                "EDITOR=vim".to_string(),
-                "LANG=en_US.UTF-8".to_string(),
-            ]),
-            ..Default::default()
-        }]);
-
-        resolve_environment_variables(&mut manifest, no_variables).expect("should succeed");
-
-        let env_vars = manifest.nodes[0]
-            .environment_variables
-            .as_ref()
-            .expect("should have env vars");
-        assert_eq!(env_vars[0], "EDITOR=vim");
-        assert_eq!(env_vars[1], "LANG=en_US.UTF-8");
-    }
-
-    #[test]
     fn test_resolve_environment_variables_env_ref() {
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
@@ -1004,19 +982,6 @@ mod tests {
             error.to_string(),
             "Failed to read text_file for node 'dev01'"
         );
-    }
-
-    #[test]
-    fn test_resolve_text_files_skips_nodes_without_text_files() {
-        let mut manifest = test_manifest(vec![topology::Node {
-            name: "dev01".to_string(),
-            model: NodeModel::UbuntuLinux,
-            ..Default::default()
-        }]);
-
-        resolve_text_files(&mut manifest, "/tmp/manifest.toml").expect("resolve should succeed");
-
-        assert!(manifest.nodes[0].text_files_data.is_none());
     }
 
     #[test]

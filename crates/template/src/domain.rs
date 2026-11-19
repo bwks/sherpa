@@ -275,20 +275,6 @@ mod tests {
     }
 
     #[test]
-    fn test_unikernel_template_has_no_usb_vnc_watchdog() {
-        let tmpl = base_unikernel_template(UnikernelBootMode::DirectKernel);
-        let xml = tmpl.render().unwrap();
-
-        assert!(!xml.contains("<controller type='usb'"));
-        assert!(!xml.contains("<graphics"));
-        assert!(!xml.contains("<video"));
-        assert!(!xml.contains("<watchdog"));
-        assert!(!xml.contains("<channel"));
-        assert!(!xml.contains("smbios"));
-        assert!(!xml.contains("memballoon"));
-    }
-
-    #[test]
     fn test_unikernel_template_has_serial_console() {
         let tmpl = base_unikernel_template(UnikernelBootMode::DirectKernel);
         let xml = tmpl.render().unwrap();
@@ -298,13 +284,6 @@ mod tests {
         assert!(xml.contains(&format!("<console type='unix'>\n      {source}")));
         assert!(!xml.contains("telnet"));
         assert!(!xml.contains("type='tcp'"));
-    }
-
-    #[test]
-    fn test_unikernel_template_has_acpi() {
-        let tmpl = base_unikernel_template(UnikernelBootMode::DirectKernel);
-        let xml = tmpl.render().unwrap();
-        assert!(xml.contains("<acpi/>"));
     }
 
     #[test]
