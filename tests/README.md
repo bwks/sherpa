@@ -8,7 +8,7 @@ instead of repeating these instructions.
 | Path | Contents |
 |---|---|
 | `crates/*/tests/`, `#[cfg(test)]` modules | Rust unit and integration tests (Cargo requires these locations) |
-| `tests/specs/` | Testing principles and what each crate must test ([README](specs/README.md)) |
+| `tests/specs/` | Test specs: the behaviours each area must show and the rules for tests ([README](specs/README.md)) |
 | `tests/environments/` | Disposable Ubuntu VMs for the VM suites, the long-lived dev lab with its two dev servers, and the manifest of the Windows box on the Sherpa host that the client's Windows code is tested on ([README](environments/README.md)) |
 | `tests/harness/` | VM test tooling: `test_env.py`, the release-test runner, guest helpers and the build cache |
 | `tests/labs/` | Labs under test, driven by the `sherpa` CLI against an installed server ([README](labs/README.md)) |

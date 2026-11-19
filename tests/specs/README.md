@@ -1,257 +1,87 @@
-# Sherpa Test Specifications
+# Sherpa test specs
 
-This directory contains test specification documents for the Sherpa project. Each spec describes
-**what** needs to be tested at a high level — functional areas, behaviors, and expected outcomes.
-These are living documents that will be updated as the project evolves.
+A spec says what Sherpa must do, as behaviours a user, a guest or another system relies on. Every test proves one case of one behaviour written down here, and its name says which. A test that proves no case in a spec is deleted, or a case is added for it first.
 
-## Testing Principles
+How to run each kind of test is in [running tests](../README.md). The disposable VMs that installer and integration tests run in are defined in [`tests/environments/`](../environments/README.md).
 
-### Red/Green/Refactor (TDD)
+## Specs
 
-All test implementation should follow the Red/Green/Refactor cycle:
+One file per area a user sees, flat in this folder.
 
-1. **Red** — Write a failing test first. The test defines the expected behavior before any implementation exists or changes. Run it and confirm it fails.
-2. **Green** — Write the minimum code necessary to make the test pass. No more, no less. Resist the urge to over-engineer at this stage.
-3. **Refactor** — Clean up the implementation and the test. Remove duplication, improve naming, simplify logic. The tests must still pass after refactoring.
+| Area | Spec | Covers |
+|---|---|---|
+| Lab lifecycle | [lab-lifecycle.md](lab-lifecycle.md) | up, down, resume, destroy, redeploy, clean, operations on labs at the same time |
+| Nodes | not yet written | VM, container and unikernel nodes: boot, ready checks, state, failures |
+| Links and bridges | not yet written | P2p links, private bridges, impairment |
+| Images | not yet written | import, scan, defaults, versions, container pulls |
+| Accounts and auth | not yet written | users, login, sessions, device passwords, owner logins on nodes, access control |
+| Consoles | not yet written | serial console, VNC, the relay through sherpad |
+| ZTP | not yet written | ZTP methods and configs per model |
+| Provisioning | not yet written | provisioners, text files, scripts, environment variables |
+| Client lab files and secrets | not yet written | lab folder, SSH config, known hosts, kubeconfig and other secret files |
+| Tailnet | not yet written | Tailscale gateway, enrollment, routes |
+| Talos | not yet written | Talos clusters, Cilium, OIDC, Vault |
+| Install and update | not yet written | install, update and uninstall scripts |
 
-This cycle applies whether you are adding new functionality, fixing a bug, or extending existing behavior. Every bug fix should start with a test that reproduces the bug.
+The folders here named after crates (`client/`, `server/`, `integration/` and the rest) are the old specs, written by crate. Each is deleted once the area specs that replace it are written. Until then they describe what exists, not how to write a new test.
 
-### General Principles
+## Behaviours
 
-- **Test behavior, not implementation.** Tests should verify what a function does, not how it does it. This makes tests resilient to refactoring.
-- **One assertion per concern.** Each test should validate a single behavior or invariant. If a test name needs "and" in it, consider splitting it.
-- **Tests are documentation.** A well-named test communicates intent. Someone reading the test suite should understand the system's expected behavior without reading the source code.
-- **Isolate external dependencies.** Unit tests must not require Docker, libvirt, a database server, or network access; database tests use in-memory databases. Use integration tests (gated behind feature flags or `#[ignore]`) for real service interactions.
-- **Deterministic and repeatable.** Tests must produce the same result every run. No reliance on global state, ordering, or timing (except where explicitly testing timeouts).
-- **Fast feedback.** Unit tests should run in milliseconds. Keep the unit test suite fast so it can run on every change. Integration tests are slower by nature but should still avoid unnecessary waits.
-- **Test at the right level.** Use the test pyramid: many unit tests, fewer integration tests, fewest e2e tests. Push testing as low in the stack as possible.
+Each spec lists behaviours. A behaviour has:
 
----
+- **ID:** a short snake_case name, unique across all specs, such as `lab_up`. No behaviour ID starts with another behaviour ID followed by `_`: `lab_up` and `lab_up_refusals` can't both exist, so a search for one behaviour never finds another's tests. An ID is never reused; a dropped behaviour is marked retired, not deleted.
+- **Statement:** one sentence of what must hold.
+- **Relied on by:** the user, the admin, a guest, another system.
+- **Priority:** P0 to P3, as the issue labels.
+- **Cases:** a table with the case number, what it shows, and the level it is tested at.
 
-## Conventions
+A behaviour is written as a heading, `` ## `lab_up`: up builds a lab from a manifest ``, then its statement, who relies on it and its priority, then the cases. [lab-lifecycle.md](lab-lifecycle.md) is the example to follow.
 
-When populating spec files, follow this structure:
+## Cases and test IDs
 
-- **Scope**: Brief description of what the spec covers
-- **External Dependencies**: Services, permissions, or environment required (e.g., Docker, libvirt, root access)
-- **What To Test**: High-level list of functional areas and behaviors grouped by operation or concern
-  - Success paths
-  - Error/failure paths
-  - Edge cases and boundary conditions
-- **Test Type**: Label each area as `[unit]`, `[integration]`, or `[e2e]` to indicate the appropriate test level
+A case is one test. The test's name is its ID: the behaviour ID, a three-digit case number, and a description.
 
-Priority markers:
-- **P0** — Critical: core functionality that must work for the project to be usable
-- **P1** — Important: significant functionality that should be tested for confidence
-- **P2** — Nice-to-have: edge cases, polish, and defensive coverage
+- Behaviour `lab_up`, case 001: `lab_up_001_a_container_lab_comes_up_with_every_node_running`.
+- Rust: `fn lab_up_001_a_container_lab_comes_up_with_every_node_running()`.
+- Python (pytest): `def test_lab_up_001_a_container_lab_comes_up_with_every_node_running()`.
+- `grep lab_up_` finds every test of the behaviour in any language; `cargo test lab_up_` or `pytest -k lab_up_` runs them. `lab_up_001_` finds the one case.
 
----
+Case numbers are never reused. A case that is dropped is marked retired in the table, and its number stays taken.
 
-## Directory Structure
+One test proves one case. A test that checks two cases is split.
 
-How to run each kind of test is in [running tests](../README.md). The disposable VMs
-that installer and integration tests run in are defined in
-[`tests/environments/`](../environments/README.md).
+## Levels, highest first
 
-```
-tests/specs/
-  README.md
-  client/
-    cli-commands.md
-    websocket-client.md
-    token-management.md
-  container/
-    lifecycle.md
-    image-management.md
-    networking.md
-  db/
-    schema-and-seeding.md
-    crud-operations.md
-    relationships.md
-  iso/
-    iso-writer.md
-  libvirt/
-    vm-lifecycle.md
-    disk-operations.md
-    network-management.md
-    storage-pools.md
-  network/
-    host-networking.md
-  server/
-    auth.md
-    http-routes.md
-    websocket-rpc.md
-    services.md
-    tls.md
-    daemon.md
-    talos.md
-    validation.md
-  shared/
-    auth-utilities.md
-    data-models.md
-    networking-utilities.md
-    tls.md
-    validators.md
-  template/
-    vendor-configs.md
-    cloud-init-ignition.md
-    infrastructure.md
-  topology/
-    manifest-parsing.md
-    manifest-validation.md
-  install/
-    sherpa-install.md
-    vm-release-harness.md
-  integration/
-    vm-release-test-plan.md
-    lab-lifecycle-e2e.md
-    image-management-e2e.md
-    user-management-e2e.md
-    tailscale.md
-    current-user.md
-```
+Each case is tested at the highest level that can show it:
 
----
+1. **e2e:** the `sherpa` CLI against an installed server: the lab tests (`tests/labs/`) and the VM suite.
+2. **integration:** real libvirt, Docker, the database or a running sherpad: the server integration tests (`crates/server/tests/integration/`) and the `#[ignore]` crate tests.
+3. **unit:** only for logic with too many branches to cover above: parsing, validation, allocation, template rendering. Still a case of a behaviour, with its ID.
 
-## Folder & File Descriptions
+### e2e lab tests
 
-### `client/` — CLI Client
+A lab test is a pytest module. A module-scoped fixture brings the lab up once and destroys it at the end, even when a case fails. Each case is a test function using it, defined in case order. Nothing rebuilds a lab per case; only tests whose subject is a fresh build, such as the installer, start from scratch.
 
-The Sherpa CLI (`sherpad-client`) is the user-facing tool that communicates with the server over WebSocket.
+- A case that changes the lab, such as down, leaves it as the next case needs it: it puts it back, or it comes last.
+- A case that changes an account works on a throwaway account the fixture creates and deletes. A test never changes the account running it.
+- One lab test may hold cases of several behaviours, so a lab is not booted twice to show two things.
 
-| File | Purpose |
-|------|---------|
-| `cli-commands.md` | What to test for every CLI command: `up`, `down`, `destroy`, `resume`, `redeploy`, `inspect`, `validate`, `login`, `logout`, `init`, `new`, `console`, `vnc`, `ssh`, `image`, `cert`, and `server` admin subcommands. Covers argument parsing, manifest loading, environment variable expansion, output formatting, and error reporting for each command. |
-| `websocket-client.md` | What to test for the WebSocket transport layer: connection establishment (plain and TLS), authentication handshake, request/response message handling, streaming message consumption (for long-running ops like `up` and `destroy`), timeout behavior, reconnection logic, and graceful disconnection. |
-| `token-management.md` | What to test for JWT token persistence: saving tokens to disk, loading from disk, detecting expired tokens, handling missing/corrupt token files, and file permission safety. |
+### Integration tests
 
-### `container/` — Docker Container Management
+An integration test sets up and tears down what it uses; integration tests never share a node. A case that needs a running VM shared with other cases is an e2e case.
 
-Manages containers via the Bollard library (Docker API). All operations require a running Docker daemon.
+Use the cheapest node that shows the case: a `generic` container on `alpine`, or the `alpine_linux` VM, unless the case is about a particular model.
 
-| File | Purpose |
-|------|---------|
-| `lifecycle.md` | What to test for the full container lifecycle: creating containers (with env vars, volumes, capabilities, networks, privileged mode), starting, stopping, pausing/unpausing, killing, executing commands inside containers (sync and detached), listing, and removing. Covers daemon unavailability, stale state (container already exists/stopped), network timeout, and idempotency. |
-| `image-management.md` | What to test for Docker image operations: pulling from registries with progress tracking, listing local images, saving images to tar.gz, handling image-not-found errors, and network failures during pull. |
-| `networking.md` | What to test for Docker network operations: creating bridge networks, macvlan networks, macvlan bridge networks, deleting networks, listing networks. Covers duplicate network names, network-in-use deletion, and filter behavior. |
+## What a test must not depend on
 
-### `db/` — Database Layer (embedded Turso)
+A test fails on a regression of its case, and only then. It must not depend on:
 
-CRUD operations and schema management for 6 tables: lab, node, link, bridge, user, node_image. Tests use in-memory databases.
+- **the past:** asserting removed code is gone. Delete the code and its tests instead.
+- **nothing:** asserting what the compiler, the type system or a library already guarantees, or what a mock was told to return.
+- **the implementation:** expected values computed the way the code computes them, private state, which helper was called, or a copy of a constant, table, match or default. If the test would only fail when someone deliberately edits the thing it mirrors, it proves nothing.
 
-| File | Purpose |
-|------|---------|
-| `schema-and-seeding.md` | What to test for database initialization: schema application across all tables, schema idempotency (applying twice does not fail or corrupt), field constraints and validation rules defined in schema, index uniqueness enforcement, and admin user seeding (first run and when admin already exists). |
-| `crud-operations.md` | What to test for create/read/update/delete across all 6 tables. For each table: successful CRUD, constraint violations (duplicate names, invalid references), edge cases (empty strings, boundary values for numeric fields like index 0-65535), and query variations (by ID, by name, by relationship, list with filters, count). |
-| `relationships.md` | What to test for cross-table integrity: foreign key references (lab→nodes, node→image, node→links), cascade delete behavior (deleting a lab removes its nodes/links/bridges), reference rejection (cannot delete an image in use by nodes), orphan prevention, and multi-table query correctness (e.g., listing labs with node counts). |
+A bug fix starts with a test that fails on the bug, as a case of the behaviour the bug broke; add the case to the spec if it is missing.
 
-### `iso/` — ISO 9660 Image Writer
+## Enforcement
 
-The writer for node config media (ZTP ISOs, NoCloud seeds, the PAN-OS bootstrap). Tests build images in temporary directories and read them back.
-
-| File | Purpose |
-|------|---------|
-| `iso-writer.md` | What to test for image structure (descriptors, primary, Rock Ridge and Joliet names, path tables, contents, multi-sector directories, leaving out its own output) and each refusal by its `IsoError` variant. |
-
-### `libvirt/` — VM & Unikernel Management
-
-Manages VMs and unikernels via the `virt` crate (libvirt bindings). Requires a running libvirt daemon with QEMU/KVM.
-
-| File | Purpose |
-|------|---------|
-| `vm-lifecycle.md` | What to test for VM creation and management: defining a VM from XML, starting a defined domain, retrieving management IP addresses (guest agent available vs unavailable), handling connection failures, domain-already-exists scenarios, and lifecycle race conditions (VM destroyed between check and operation). |
-| `disk-operations.md` | What to test for disk management: cloning disks across supported formats (qcow2, iso, raw, json, ign, img), rejecting unsupported extensions, cloning from nonexistent source, streaming upload in chunks, resizing disks (valid upsize, rejecting downsize), deleting disks, and storage pool unavailability. |
-| `network-management.md` | What to test for libvirt network types: creating bridge, isolated, NAT, and reserved networks, idempotency (network already exists and active, exists but inactive), XML template rendering correctness, autostart configuration, and cleanup/deletion. |
-| `storage-pools.md` | What to test for storage pool management: creating directory-based pools, idempotency (pool already exists), directory creation failures (permissions), pool activation, autostart setting, and pool refresh. |
-
-### `network/` — Host Network Management
-
-Linux host-level network operations via rtnetlink. Requires elevated privileges.
-
-| File | Purpose |
-|------|---------|
-| `host-networking.md` | What to test for host network interface management: creating Linux bridges (with jumbo MTU), creating veth pairs, enslaving interfaces to bridges, deleting interfaces, fuzzy interface name matching (zero/one/many results), handling nonexistent interfaces, duplicate name handling, and netlink connection failures. |
-
-### `server/` — Sherpa Server
-
-The main Axum-based web server with HTTP routes, WebSocket RPC, authentication, services, TLS, and daemon management.
-
-| File | Purpose |
-|------|---------|
-| `auth.md` | What to test for authentication and authorization: JWT token creation and validation (valid, expired, malformed, missing), cookie-based sessions, auth middleware extractors (`AuthenticatedUser`, `AdminUser`), login/signup flows, password verification, SSH key auth, admin vs non-admin permission boundaries, and session expiry. |
-| `http-routes.md` | What to test for HTTP endpoints: public routes (login page, signup page, health check, cert endpoint), protected routes (dashboard, labs, profile, admin pages), API routes (lab list, lab detail), static asset serving, SSE streaming endpoints, WebSocket upgrade. For each: correct status codes, auth requirements, response format, redirect behavior, and error responses. |
-| `websocket-rpc.md` | What to test for the JSON-RPC 2.0 WebSocket interface: method dispatch for all ~20 RPC methods, parameter validation, auth/admin requirements per method, success response shapes, error response codes, streaming message sequences (for `up`, `destroy`, `redeploy`, `image.pull`, `image.download`), unknown method handling, and malformed request handling. |
-| `services.md` | What to test for the service/orchestration layer: lab startup (`up` — network creation, VM/container provisioning, ZTP config generation, progress reporting), lab shutdown (`down`), lab destruction (`destroy` — resource cleanup ordering), node resume, node redeploy, lab inspection, image import/scan, container image pull, and lab cleanup. Covers partial failure handling, rollback behavior, progress streaming, and idempotency. |
-| `tls.md` | What to test for TLS certificate management: self-signed certificate generation, loading certs from disk, handling invalid/expired certs, certificate renewal, and the `/cert` endpoint for client cert distribution. |
-| `talos.md` | What to test for Talos Linux nodes and Kubernetes clusters: model defaults, readiness port, NoCloud delivery, cluster validation and planning, secrets and credentials, machine config documents, bootstrap, redeploy rules, and the end-to-end cluster test. |
-| `daemon.md` | What to test for daemon lifecycle management: starting the server, PID file creation and cleanup, stop/restart behavior, stale PID file detection, log output, AppState initialization, and health check (`doctor`). |
-| `validation.md` | What to test for server-only validators in `crates/server/src/validate/`: environment variable entries, node image field updates, version resolution with container image and VM disk existence, Tailscale gateway settings, and the node readiness port check. |
-
-### `shared/` — Shared Data Models & Utilities
-
-Common types, utilities, and constants used across all crates.
-
-| File | Purpose |
-|------|---------|
-| `auth-utilities.md` | What to test for auth primitives: password hashing and verification (argon2), and JWT token encode/decode/claims extraction. |
-| `data-models.md` | What to test for core data types: serialization/deserialization round-trips (serde) for key structs and enums, `NodeModel` enum completeness (60+ variants), `NodeState` transitions, `Display` and `FromStr` implementations, `Default` trait correctness, interface type/name mappings per device model, and enum variant string representations. |
-| `networking-utilities.md` | What to test for network utility functions: IPv4/IPv6 address parsing and arithmetic, subnet calculations, MAC address generation and formatting, port availability checks, DNS record generation, DHCP configuration generation, interface naming utilities, SSH config generation, and host resolution helpers. |
-| `tls.md` | What to test for TLS utilities: certificate fetching from remote servers, TLS configuration construction, trust store management (adding/removing/listing trusted certs), and certificate validation. |
-| `validators.md` | What to test for validators shared by more than one crate (`crates/shared/src/validators/`): password strength, SSH public key format, guest usernames, Tailscale auth keys, and data interface count overrides. |
-
-### `template/` — Configuration Template Generation
-
-Askama-based templates for generating device-specific bootstrap/ZTP configurations.
-
-| File | Purpose |
-|------|---------|
-| `vendor-configs.md` | What to test for vendor-specific template rendering: correct output for each vendor family (Cisco IOS/IOS-XE/IOS-XR/NX-OS/ASA/FTDv/ISE, Arista EOS, Juniper JunOS, Nokia SR Linux, Palo Alto PAN-OS, Aruba AOS-CX, Cumulus, Mikrotik RouterOS, SONiC, FRR). Covers required fields producing valid config syntax, optional field handling, special character escaping, and interface naming correctness per platform. |
-| `cloud-init-ignition.md` | What to test for cloud-init and ignition template rendering: cloud-init user-data, network-config, and meta-data generation; cloudbase-init for Windows; ignition config generation (users, files, systemd units, links, filesystems). Covers YAML validity for cloud-init output and JSON validity for ignition output. |
-| `infrastructure.md` | What to test for infrastructure template rendering: libvirt domain XML generation (correct CPU, memory, disk, network interface definitions), dnsmasq DHCP/DNS config, SSH client config (host entries, key paths), and HashiCorp Vault config. |
-
-### `topology/` — Lab Topology Configuration
-
-TOML manifest parsing and representation for lab definitions.
-
-| File | Purpose |
-|------|---------|
-| `manifest-parsing.md` | What to test for manifest handling: parsing valid TOML manifests, round-trip fidelity (parse then serialize), minimal manifest (just a name and one node), full manifest with all optional fields populated, missing required fields, invalid TOML syntax, node/link/bridge struct defaults, volume mount and startup script parsing, example manifest generation, and TOML editing operations (add/remove nodes and links). |
-| `manifest-validation.md` | What to test for manifest checks in `crates/topology/src/validate/`, shared by the client and the server: duplicate device names and device count, management interface protection, duplicate interface usage across links and bridges, interface index bounds per device model, and link and bridge device existence. |
-
-### `install/` — Install Script
-
-The main installation script that deploys Sherpa on Ubuntu 24.04+ systems.
-
-| File | Purpose |
-|------|---------|
-| `sherpa-install.md` | What to test for `scripts/sherpa_install.sh`: CLI argument parsing, pre-flight checks (Ubuntu version, root, curl, virtualization, pre-0.5.0 SurrealDB container), IP validation, system package installation, Docker/libvirt setup, sherpa user/group creation, directory structure, health checks, binary download/install from GitHub releases, systemd service/env file/logrotate setup, and error cleanup. |
-
-### `integration/` — Cross-Crate End-to-End Tests
-
-Tests that exercise multiple crates together through realistic workflows.
-
-| File | Purpose |
-|------|---------|
-| [vm-release-test-plan.md](integration/vm-release-test-plan.md) | Task checklist for disposable VM release testing, starting with server install/uninstall on bare Ubuntu 26.04. |
-| [tailscale.md](integration/tailscale.md) | Developer verification guide for Tailscale regressions, Docker smoke checks, live enrollment, mixed VM/container acceptance, and cleanup retries. |
-| [current-user.md](integration/current-user.md) | Gated personal Linux VM login, sudo, resume persistence, key rotation on owner redeploy, and refreshed SSH metadata. |
-| `lab-lifecycle-e2e.md` | What to test for the complete lab lifecycle: client sends manifest via WebSocket, server validates and parses, database records are created, networks are provisioned, VMs and containers are created with correct ZTP configs, progress is streamed back to client, inspect returns accurate state, `down` gracefully stops all nodes, `destroy` cleans up all resources (VMs, containers, networks, DB records). Covers the happy path, partial failure during provisioning, destroying a partially-created lab, and mixed VM+container labs. |
-| `image-management-e2e.md` | What to test for image workflows end-to-end: importing a VM image from file, scanning disk for available images, setting a default image version, deleting an image (with and without nodes using it), pulling a container image from registry, and downloading a VM image. Each flow goes from client command through RPC to server service to database state change. |
-| `user-management-e2e.md` | What to test for user workflows end-to-end: creating a user (admin and non-admin), login and token issuance, token validation on subsequent requests, password change, SSH key management (add/remove), user deletion (with and without owned labs), admin permission boundaries (non-admin cannot access admin operations), and the last-admin safety check (cannot delete the only admin). |
-
----
-
-## Current Test Coverage Summary
-
-| Crate | Existing Tests | Status |
-|-------|---------------|--------|
-| client | None | No coverage |
-| container | None | No coverage |
-| db | 28 integration test files (CRUD across all tables) | Partial — CRUD covered, schema/seeding/relationships gaps |
-| iso | Inline `#[cfg(test)]` module, 14 tests | Covered — structure, contents and refusals |
-| libvirt | None | No coverage |
-| network | None | No coverage |
-| server | None | No coverage |
-| shared | ~48 files with inline `#[cfg(test)]` modules | Partial — utilities well-covered, data models/TLS gaps |
-| template | None | No coverage |
-| topology | Minimal inline tests | Minimal |
+A check script will fail CI on a test whose name is not a known behaviour ID and case number, and on a case number the spec does not list or lists twice. It also reports cases with no test, without failing. It is added once the tree passes it.
