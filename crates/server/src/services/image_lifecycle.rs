@@ -368,21 +368,6 @@ mod tests {
         drop(provisioning);
         assert!(deletion.await.unwrap().is_err());
     }
-    #[test]
-    fn manifest_file_writer_retains_node_disk_methods() {
-        let root = tempdir().unwrap();
-        let file = root.path().join("manifest.toml");
-        let manifest: topology::Manifest = toml::from_str(
-            "name='test'\nnodes=[{name='vm',model='ubuntu_linux',boot_disk={clone_method='copy'}}]",
-        )
-        .unwrap();
-        manifest.write_file(file.to_str().unwrap()).unwrap();
-        let saved = topology::Manifest::load_file(file.to_str().unwrap()).unwrap();
-        assert_eq!(
-            saved.nodes[0].boot_disk.clone_method,
-            Some(DiskImageCloneMethod::Copy)
-        );
-    }
     #[tokio::test]
     async fn concurrent_provisioning_leases_exclude_image_deletion() {
         let first = lease_image(

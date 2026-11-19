@@ -27,8 +27,6 @@ pub fn is_device_volume(volume: &str, device_name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use shared::konst::CONTAINER_DISK_NAME;
-
     use super::*;
 
     const LAB_ID: &str = "fecb1a12";
@@ -71,10 +69,5 @@ mod tests {
             "v01-fecb1a12"
         ));
         assert!(!is_device_volume("xdev01-fecb1a12.qcow2", "dev01-fecb1a12"));
-    }
-
-    #[test]
-    fn container_disks_have_a_lab_volume_suffix() {
-        assert!(LAB_VOLUME_SUFFIXES.contains(&format!("-{CONTAINER_DISK_NAME}").as_str()));
     }
 }

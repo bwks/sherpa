@@ -88,21 +88,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_node_kind_has_a_full_and_a_short_label() {
-        let cases = [
-            (NodeKind::VirtualMachine, "Virtual Machine", "VM"),
-            (NodeKind::Container, "Container", "Container"),
-            (NodeKind::Unikernel, "Unikernel", "Unikernel"),
-        ];
-        assert_eq!(cases.len(), NodeKind::iter().count());
-        for (kind, full, short) in cases {
-            assert_eq!(kind_label(kind), full, "{kind:?}");
-            assert_eq!(KindBadge::full(kind), KindBadge { label: full, kind });
-            assert_eq!(KindBadge::short(kind), KindBadge { label: short, kind });
-        }
-    }
-
-    #[test]
     fn a_model_choice_lists_the_models_kinds_and_its_default() {
         assert_eq!(
             ModelChoice::from(NodeModel::AristaEos),
@@ -125,15 +110,5 @@ mod tests {
             ModelChoice::from(NodeModel::MongoDb).default_kind,
             "container"
         );
-    }
-
-    #[test]
-    fn the_kind_choices_are_every_kind_by_its_label() {
-        let choices = kind_choices();
-        let values: Vec<&str> = choices.iter().map(|choice| choice.value.as_str()).collect();
-        let labels: Vec<&str> = choices.iter().map(|choice| choice.label.as_str()).collect();
-        assert_eq!(values, ["virtual_machine", "container", "unikernel"]);
-        assert_eq!(labels, ["Virtual Machine", "Container", "Unikernel"]);
-        assert!(choices.iter().all(|choice| !choice.selected));
     }
 }

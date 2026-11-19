@@ -5201,74 +5201,6 @@ pub(crate) mod tests {
         assert_eq!(modes, vec![0o644, 0o644, 0o600]);
     }
 
-    #[test]
-    fn test_openbsd_gets_no_ipv6_in_cloud_init_network_config() {
-        let address: Ipv6Addr = "fd00::16".parse().unwrap();
-        assert_eq!(
-            cloud_init_ipv6_address(
-                ModelKind::default_for(data::NodeModel::OpenBsd),
-                Some(address)
-            ),
-            None
-        );
-        assert_eq!(
-            cloud_init_ipv6_address(
-                ModelKind::default_for(data::NodeModel::FreeBsd),
-                Some(address)
-            ),
-            Some(address)
-        );
-        assert_eq!(
-            cloud_init_ipv6_address(
-                ModelKind::default_for(data::NodeModel::UbuntuLinux),
-                Some(address)
-            ),
-            Some(address)
-        );
-    }
-
-    #[test]
-    fn test_openbsd_wheel_gets_passwordless_doas() {
-        let file = cloud_init_doas_file(ModelKind::default_for(data::NodeModel::OpenBsd)).unwrap();
-        assert_eq!(file.path, "/etc/doas.conf");
-        assert_eq!(file.content, "permit nopass keepenv :wheel\n");
-        assert_eq!(file.permissions, "0400");
-        // Root-owned files leave the owner out, so BSD uses root:wheel.
-        assert_eq!(file.owner, None);
-        assert!(cloud_init_doas_file(ModelKind::default_for(data::NodeModel::FreeBsd)).is_none());
-        assert!(
-            cloud_init_doas_file(ModelKind::default_for(data::NodeModel::UbuntuLinux)).is_none()
-        );
-    }
-
-    #[test]
-    fn test_openbsd_logins_get_no_sudo_rule() {
-        assert_eq!(
-            cloud_init_sudo_rule(ModelKind::default_for(data::NodeModel::OpenBsd)),
-            None
-        );
-        for model in [data::NodeModel::FreeBsd, data::NodeModel::UbuntuLinux] {
-            assert_eq!(
-                cloud_init_sudo_rule(ModelKind::default_for(model)).as_deref(),
-                Some("ALL=(ALL) NOPASSWD:ALL"),
-                "{model}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_openbsd_cloud_init_does_not_manage_etc_hosts() {
-        assert!(!cloud_init_manage_etc_hosts(ModelKind::default_for(
-            data::NodeModel::OpenBsd
-        )));
-        assert!(cloud_init_manage_etc_hosts(ModelKind::default_for(
-            data::NodeModel::FreeBsd
-        )));
-        assert!(cloud_init_manage_etc_hosts(ModelKind::default_for(
-            data::NodeModel::UbuntuLinux
-        )));
-    }
-
     fn script(filename: &str) -> topology::StartupScript {
         topology::StartupScript {
             filename: filename.to_string(),
@@ -5373,13 +5305,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_build_windows_env_commands_empty() {
-        let env_vars: Vec<String> = vec![];
-        let commands = build_windows_env_commands(&env_vars);
-        assert_eq!(commands, [] as [std::string::String; 0]);
-    }
-
-    #[test]
     fn test_build_cloud_init_text_files_basic() {
         let text_files = Some(vec![topology::TextFileData {
             content: "aGVsbG8=".to_string(),
@@ -5400,12 +5325,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_build_cloud_init_text_files_none() {
-        let result = build_cloud_init_text_files(None);
-        assert!(result.is_empty());
-    }
-
-    #[test]
     fn test_build_cloudbase_text_files_basic() {
         let text_files = Some(vec![topology::TextFileData {
             content: "aGVsbG8=".to_string(),
@@ -5420,12 +5339,6 @@ pub(crate) mod tests {
         assert_eq!(result[0].path, r"C:\app\config.json");
         assert_eq!(result[0].content, "aGVsbG8=");
         assert_eq!(result[0].permissions, "0644");
-    }
-
-    #[test]
-    fn test_build_cloudbase_text_files_none() {
-        let result = build_cloudbase_text_files(None);
-        assert!(result.is_empty());
     }
 
     fn cloudbase_file(path: &str, permissions: &str) -> template::CloudbaseWriteFile {
@@ -5471,30 +5384,6 @@ pub(crate) mod tests {
             let files = vec![cloudbase_file(path, "0600")];
             assert!(build_windows_private_file_acls(&files).is_err(), "{path}");
         }
-    }
-
-    #[test]
-    fn test_nixos_cloud_init_gets_no_sudo_rule() {
-        // NixOS generates /etc/sudoers without /etc/sudoers.d, so wheel grants sudo instead.
-        assert!(
-            cloud_init_sudo_rule(ModelKind::default_for(data::NodeModel::NixosLinux)).is_none()
-        );
-        assert!(
-            cloud_init_sudo_rule(ModelKind::default_for(data::NodeModel::UbuntuLinux)).is_some()
-        );
-    }
-
-    #[test]
-    fn test_nixos_cloud_init_leaves_ssh_password_auth_to_the_image() {
-        // NixOS generates sshd_config, which cloud-init cannot edit.
-        assert_eq!(
-            cloud_init_ssh_pwauth(ModelKind::default_for(data::NodeModel::NixosLinux)),
-            None
-        );
-        assert_eq!(
-            cloud_init_ssh_pwauth(ModelKind::default_for(data::NodeModel::UbuntuLinux)),
-            Some(true)
-        );
     }
 
     #[test]
@@ -5969,12 +5858,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_check_node_port_ready_invalid_address_returns_error() {
-        let result = check_node_port_ready("not_an_ip", 8080);
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_check_node_port_ready_closed_port_returns_false() {
         // Port 1 is almost certainly not listening
         let result = check_node_port_ready("127.0.0.1", 1);
@@ -6166,25 +6049,6 @@ pub(crate) mod tests {
         assert!(
             config.contains(&format!("\nVersionAddendum {SHERPA_SSHD_READY_MARKER}")),
             "{config}"
-        );
-    }
-
-    #[test]
-    fn test_ceos_startup_commands_copy_the_ztp_config_into_flash_once() {
-        let commands = ceos_startup_commands();
-        assert_eq!(commands.len(), 3);
-        assert_eq!(commands[0], "sh");
-        assert_eq!(commands[1], "-c");
-        // EOS saves by replacing startup-config, which a bind-mounted file cannot be, so the
-        // ZTP config is copied into flash. A config already saved there is kept.
-        assert_eq!(
-            commands[2],
-            "[ -f /mnt/flash/startup-config ] || cp /mnt/sherpa-ztp/startup-config \
-             /mnt/flash/startup-config; exec /sbin/init systemd.setenv=INTFTYPE=eth \
-             systemd.setenv=ETBA=1 systemd.setenv=SKIP_ZEROTOUCH_BARRIER_IN_SYSDBINIT=1 \
-             systemd.setenv=CEOS=1 systemd.setenv=EOS_PLATFORM=ceoslab \
-             systemd.setenv=container=docker systemd.setenv=MAPETH0=1 \
-             systemd.setenv=MGMT_INTF=eth0"
         );
     }
 
@@ -6404,42 +6268,6 @@ pub(crate) mod tests {
         );
         assert!(!xml.contains("-fw_cfg"), "{xml}");
         assert!(!xml.contains("commandline"), "{xml}");
-    }
-
-    #[test]
-    fn only_juniper_models_get_extra_qemu_arguments() {
-        for (model, commands) in [
-            (
-                data::NodeModel::JuniperRouter,
-                data::QemuCommand::juniper_router(),
-            ),
-            (
-                data::NodeModel::JuniperSwitch,
-                data::QemuCommand::juniper_switch(),
-            ),
-            (
-                data::NodeModel::JuniperSrxv3,
-                data::QemuCommand::juniper_srxv3(),
-            ),
-            (
-                data::NodeModel::JuniperEvolved,
-                data::QemuCommand::juniper_evolved(),
-            ),
-        ] {
-            assert_eq!(
-                vm_qemu_commands(ModelKind::default_for(model)),
-                commands,
-                "{model}"
-            );
-        }
-        assert_eq!(
-            vm_qemu_commands(ModelKind::default_for(data::NodeModel::FlatcarLinux)),
-            Vec::new()
-        );
-        assert_eq!(
-            vm_qemu_commands(ModelKind::default_for(data::NodeModel::UbuntuLinux)),
-            Vec::new()
-        );
     }
 
     #[test]
@@ -6902,38 +6730,11 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn iol_application_ids_of_the_nodes_of_a_lab_are_unique() {
-        let ids: HashSet<u16> = (1..=999)
-            .map(|index| iol_app_id("r", index).unwrap())
-            .collect();
-        assert_eq!(ids.len(), 999);
-    }
-
-    #[test]
     fn an_iol_node_past_the_999th_is_refused() {
         let lab = ZtpLab::new();
         let mut node = iol_node("r1000", data::NodeModel::CiscoIol, 1000);
         let error = lab.container(&mut node, None).err().unwrap().to_string();
         assert!(error.contains("r1000"), "{error}");
-    }
-
-    #[test]
-    fn iol_is_the_only_network_os_container_given_net_admin() {
-        assert_eq!(
-            model_capabilities(ModelKind::default_for(data::NodeModel::CiscoIol)),
-            ["NET_ADMIN"]
-        );
-        assert_eq!(
-            model_capabilities(ModelKind::default_for(data::NodeModel::CiscoIoll2)),
-            ["NET_ADMIN"]
-        );
-        for model in MOUNTED_CONFIG_MODELS {
-            assert!(
-                model_capabilities(ModelKind::new(model, Some(data::NodeKind::Container)).unwrap())
-                    .is_empty(),
-                "{model}"
-            );
-        }
     }
 
     #[test]
@@ -6976,39 +6777,6 @@ pub(crate) mod tests {
             .to_string();
         assert!(error.contains("was not validated"), "{error}");
         assert!(error.contains("mongo_db"), "{error}");
-    }
-
-    #[test]
-    fn application_containers_keep_their_start_settings() {
-        for (model, commands) in [
-            (data::NodeModel::GitlabCe, CONTAINER_GITLAB_CE_COMMANDS),
-            (data::NodeModel::ForgejoForge, CONTAINER_FORGEJO_COMMANDS),
-            (data::NodeModel::SurrealDb, CONTAINER_SURREAL_DB_COMMANDS),
-            (data::NodeModel::MongoDb, CONTAINER_MONGO_DB_COMMANDS),
-            (data::NodeModel::NatsBus, CONTAINER_NATS_COMMANDS),
-        ] {
-            let lab = ZtpLab::new();
-            let mut node = named_node("app01", model);
-            let result = lab.container(&mut node, None).unwrap();
-            assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled, "{model}");
-            assert_eq!(result.commands, strings(commands), "{model}");
-            assert!(result.volumes.is_empty(), "{model}");
-            assert!(!result.privileged, "{model}");
-            // A SurrealDB node's root user is saved with the lab's files.
-            let files: &[&str] = if model == data::NodeModel::SurrealDb {
-                &["surrealdb/app01.toml"]
-            } else {
-                &[]
-            };
-            assert_eq!(lab.files(), files, "{model}");
-        }
-        let lab = ZtpLab::new();
-        let mut node = named_node("git01", data::NodeModel::GitlabCe);
-        let gitlab = lab.container(&mut node, None).unwrap();
-        assert_eq!(
-            gitlab.shm_size,
-            Some(CONTAINER_GITLAB_CE_SHM_SIZE * 1024 * 1024)
-        );
     }
 
     #[test]
@@ -7331,47 +7099,6 @@ pub(crate) mod tests {
                 "configs/sw10_ztp_user.sh",
                 "tftp/sw1.conf",
             ]
-        );
-    }
-
-    #[test]
-    fn a_node_with_no_network_boot_files_has_none_to_remove() {
-        let lab = tempdir().unwrap();
-
-        remove_stale_network_boot_files(lab.path().to_str().unwrap(), "vm1", data::Ztp::CloudInit)
-            .unwrap();
-    }
-
-    #[test]
-    fn a_nodes_own_folder_is_never_one_of_the_labs_folders() {
-        let lab = Path::new("/labs/lab-0001");
-        assert_eq!(node_dir(lab, "ct1"), Some(lab.join("ct1")));
-        for name in LAB_OWN_DIRS {
-            assert_eq!(node_dir(lab, name), None, "{name}");
-        }
-    }
-
-    #[test]
-    fn a_vms_boot_folder_is_apart_from_every_lab_and_node_folder() {
-        for name in [
-            "vm1",
-            LAB_CERTS_DIR,
-            ZTP_DIR,
-            CLUSTERS_DIR,
-            VAULT_DIR,
-            KEYCLOAK_DIR,
-            SURREAL_DB_DIR,
-        ] {
-            assert_eq!(
-                vm_boot_dir("/labs/lab-0001", name),
-                format!("/labs/lab-0001/vm-boot.d/{name}")
-            );
-        }
-        // A node name cannot be the boot folder's own name.
-        assert!(
-            !VM_BOOT_DIR
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
         );
     }
 

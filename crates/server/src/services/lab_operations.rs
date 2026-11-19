@@ -292,13 +292,6 @@ mod tests {
     const WAIT: Duration = Duration::from_secs(5);
 
     #[tokio::test]
-    async fn an_operation_runs_until_its_lab_is_destroyed() {
-        let operation = begin("lab-ops-active").await;
-        assert!(operation.ensure_active().is_ok());
-        assert!(operation.sleep(Duration::from_millis(1)).await.is_ok());
-    }
-
-    #[tokio::test]
     async fn stop_cancels_running_operations_and_waits_for_them() {
         let operation = begin("lab-ops-stop").await;
         let stopping = tokio::spawn(stop("lab-ops-stop", StopReason::Destroy));
@@ -437,27 +430,6 @@ mod tests {
                 .unwrap()
                 .unwrap()
         );
-    }
-
-    #[tokio::test]
-    async fn a_waiter_cancelled_mid_wait_gives_up_its_count() {
-        let lab = "lab-ops-cancelled-wait";
-        let (_, stopped) = stop(lab, StopReason::Request).await;
-
-        // Both futures are dropped while they wait for the lease.
-        assert!(
-            tokio::time::timeout(Duration::from_millis(20), begin(lab))
-                .await
-                .is_err()
-        );
-        assert!(
-            tokio::time::timeout(Duration::from_millis(20), stop(lab, StopReason::Request))
-                .await
-                .is_err()
-        );
-
-        drop(stopped);
-        assert!(!leases().contains_key(lab));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

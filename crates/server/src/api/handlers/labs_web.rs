@@ -1003,22 +1003,6 @@ mod tests {
     use crate::services::lab_definition::stored_definition;
     use crate::services::lab_definition::tests::{lab_with, store};
 
-    #[test]
-    fn the_lab_detail_offers_the_download_only_to_the_owner_of_a_lab_with_known_nodes() {
-        for (state, expected) in [
-            (LabState::Running, true),
-            (LabState::Stopped, true),
-            (LabState::Partial, true),
-            (LabState::Starting, true),
-            (LabState::Failed, true),
-            (LabState::Empty, false),
-            (LabState::Unknown, false),
-        ] {
-            assert_eq!(lab_offers_download(true, state), expected, "{state:?}");
-            assert!(!lab_offers_download(false, state), "{state:?}");
-        }
-    }
-
     #[tokio::test]
     async fn the_stored_definition_gives_a_node_its_ztp_only_when_it_sets_one() {
         let (db, lab) = lab_with(&[

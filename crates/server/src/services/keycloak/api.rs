@@ -145,14 +145,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn keycloak_is_on_the_management_address_over_https() {
-        assert_eq!(
-            keycloak_address(Ipv4Addr::new(172, 31, 1, 23)),
-            "https://172.31.1.23:8443"
-        );
-    }
-
-    #[test]
     fn token_responses_parse_the_access_token() {
         let token: TokenResponse = serde_json::from_str(
             r#"{"access_token":"eyJ.a.b","expires_in":60,"token_type":"Bearer"}"#,

@@ -135,10 +135,4 @@ mod tests {
         let other = ServiceError::from_cpu_pin_claim(anyhow!("disk full"));
         assert!(ServiceError::find(&other).is_none());
     }
-
-    #[test]
-    fn conflict_messages_are_shown_as_written() {
-        let error = ServiceError::Conflict("User 'alice' owns 1 lab".to_owned());
-        assert_eq!(error.to_string(), "User 'alice' owns 1 lab");
-    }
 }

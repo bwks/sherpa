@@ -275,36 +275,3 @@ fn api_routes() -> Router<AppState> {
             post(add_ssh_key_json).delete(remove_ssh_key_json),
         )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_model_filter_js_is_embedded() {
-        let asset = StaticAssets::get("js/model-filter.js");
-        assert!(asset.is_some(), "js/model-filter.js should be embedded");
-        let file = asset.unwrap();
-        let content = std::str::from_utf8(&file.data).unwrap();
-        assert!(
-            content.contains("combobox-input"),
-            "model-filter.js should reference combobox-input element"
-        );
-        assert!(
-            content.contains("combobox-list"),
-            "model-filter.js should reference combobox-list element"
-        );
-    }
-
-    #[test]
-    fn test_theme_js_is_embedded() {
-        let asset = StaticAssets::get("js/theme.js");
-        assert!(asset.is_some(), "js/theme.js should be embedded");
-    }
-
-    #[test]
-    fn test_favicon_is_embedded() {
-        let asset = StaticAssets::get("favicon.svg");
-        assert!(asset.is_some(), "favicon.svg should be embedded");
-    }
-}

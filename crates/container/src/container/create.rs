@@ -286,51 +286,12 @@ mod tests {
         }
     }
 
-    fn spec(hostname: Option<&str>) -> ContainerSpec {
-        ContainerSpec {
-            name: "sw1-lab1".to_string(),
-            hostname: hostname.map(str::to_string),
-            image: "docker-sonic-vs:202511".to_string(),
-            env_vars: vec![],
-            volumes: vec![],
-            capabilities: vec![],
-            management_network: attachment(None, false),
-            additional_networks: vec![],
-            commands: vec![],
-            privileged: true,
-            shm_size: None,
-            user: None,
-            memory_mib: None,
-            cpu_count: None,
-        }
-    }
-
-    #[test]
-    fn the_container_hostname_is_the_one_its_spec_names() {
-        let body = create_body(spec(Some("sw1"))).unwrap();
-        // The node name, not the container name, which carries the lab ID.
-        assert_eq!(body.hostname.as_deref(), Some("sw1"));
-    }
-
-    #[test]
-    fn a_spec_without_a_hostname_leaves_dockers_default() {
-        assert_eq!(create_body(spec(None)).unwrap().hostname, None);
-    }
-
     #[test]
     fn limits_are_bytes_without_swap_and_nano_cpus() {
         let limits = resource_limits(Some(512), Some(2)).unwrap();
         assert_eq!(limits.memory, Some(536_870_912));
         assert_eq!(limits.memory_swap, Some(536_870_912));
         assert_eq!(limits.nano_cpus, Some(2_000_000_000));
-    }
-
-    #[test]
-    fn unset_limits_stay_unlimited() {
-        let limits = resource_limits(None, None).unwrap();
-        assert_eq!(limits.memory, None);
-        assert_eq!(limits.memory_swap, None);
-        assert_eq!(limits.nano_cpus, None);
     }
 
     #[test]

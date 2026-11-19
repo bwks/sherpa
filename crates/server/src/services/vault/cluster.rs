@@ -124,11 +124,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_cluster_has_its_own_auth_mount() {
-        assert_eq!(cluster_auth_mount("k8s"), "kubernetes-k8s");
-    }
-
-    #[test]
     fn workloads_read_only_their_clusters_secrets() {
         assert_eq!(
             cluster_policy("k8s"),

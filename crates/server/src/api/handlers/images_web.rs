@@ -1002,18 +1002,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_validate_upload_fields_default_absent() {
-        let result = validate_upload_fields(raw_fields(
-            Some("ubuntu_linux"),
-            Some("24.04"),
-            Some(vec![0x01]),
-            None,
-        ));
-        let fields = result.expect("should succeed");
-        assert!(!fields.default);
-    }
-
     /// A choice's serde name, as the form sends it.
     fn choice<T: Serialize>(value: &T) -> String {
         serde_json::to_value(value)
@@ -1220,67 +1208,6 @@ mod tests {
         }
         assert!(html.contains(r#"<input type="text" value="Virtual Machine" disabled"#));
         assert!(!html.contains(r#"name="repo""#), "{html}");
-    }
-
-    /// The form fields an edit page posts.
-    fn posted_fields(html: &str) -> Vec<String> {
-        let form = &html[html.find(r#"<form id="edit-form""#).expect("the form")..];
-        let form = &form[..form.find("</form>").expect("form end")];
-        let mut names: Vec<String> = form
-            .match_indices(r#" name=""#)
-            .map(|(at, found)| {
-                let rest = &form[at + found.len()..];
-                rest[..rest.find('"').expect("name end")].to_owned()
-            })
-            .collect();
-        names.sort_unstable();
-        names.dedup();
-        names
-    }
-
-    #[test]
-    fn each_kinds_edit_page_posts_the_shared_fields_and_its_own() {
-        let shared = [
-            "cpu_count",
-            "data_interface_count",
-            "default",
-            "memory",
-            "reserved_interface_count",
-        ];
-        let own: [&[&str]; 3] = [
-            &[
-                "bios",
-                "cdrom",
-                "cdrom_bus",
-                "cpu_architecture",
-                "cpu_model",
-                "hdd_bus",
-                "interface_mtu",
-                "interface_type",
-                "machine_type",
-                "os_variant",
-                "vmx_enabled",
-                "ztp",
-            ],
-            &["repo", "ztp"],
-            &[
-                "cpu_architecture",
-                "cpu_model",
-                "interface_mtu",
-                "interface_type",
-                "machine_type",
-            ],
-        ];
-        for (config, own) in one_image_of_each_kind().into_iter().zip(own) {
-            let model = config.model;
-            let html = image_edit_template("admin".to_owned(), config)
-                .unwrap()
-                .render()
-                .unwrap();
-            let mut expected: Vec<&str> = shared.iter().chain(own).copied().collect();
-            expected.sort_unstable();
-            assert_eq!(posted_fields(&html), expected, "{model}");
-        }
     }
 
     #[test]

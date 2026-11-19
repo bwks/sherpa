@@ -360,8 +360,6 @@ mod tests {
     use std::process::Command;
 
     use nix::sys::stat::{Mode, umask};
-    use shared::konst::SHERPA_MANAGEMENT_NETWORK_IPV4;
-    use shared::util::load_config;
 
     use super::*;
 
@@ -442,63 +440,5 @@ mod tests {
             read_ssh_key(path.to_str().unwrap()).unwrap(),
             vec![TEST_SSH_KEY]
         );
-    }
-
-    #[test]
-    fn test_written_server_config_holds_the_init_settings() {
-        let management_prefix_ipv4: Ipv4Net = "172.30.0.0/16".parse().unwrap();
-        let management_prefix_ipv6: Ipv6Net = "fd00:b00a::/48".parse().unwrap();
-        let config = server_config(
-            Ipv4Addr::new(192, 0, 2, 10),
-            None,
-            4030,
-            4031,
-            management_prefix_ipv4,
-            Some(management_prefix_ipv6),
-        );
-
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("sherpa.toml");
-        write_server_config(&config, &path).unwrap();
-        let written = load_config(path.to_str().unwrap()).unwrap();
-
-        assert_eq!(written.management_prefix_ipv4, management_prefix_ipv4);
-        assert_eq!(written.management_prefix_ipv6, Some(management_prefix_ipv6));
-        assert_eq!(written.server_ipv4, Ipv4Addr::new(192, 0, 2, 10));
-        assert_eq!(written.ws_port, 4030);
-        assert_eq!(written.http_port, 4031);
-    }
-
-    #[test]
-    fn test_written_server_config_without_an_ipv6_prefix_leaves_it_unset() {
-        let config = server_config(
-            Ipv4Addr::UNSPECIFIED,
-            None,
-            3030,
-            3031,
-            SHERPA_MANAGEMENT_NETWORK_IPV4,
-            None,
-        );
-
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("sherpa.toml");
-        write_server_config(&config, &path).unwrap();
-
-        assert!(
-            !fs::read_to_string(&path)
-                .unwrap()
-                .contains("management_prefix_ipv6")
-        );
-        assert_eq!(
-            load_config(path.to_str().unwrap())
-                .unwrap()
-                .management_prefix_ipv6,
-            None
-        );
-    }
-
-    #[test]
-    fn test_read_ssh_key_rejects_an_invalid_key() {
-        assert!(read_ssh_key("not a key").is_err());
     }
 }

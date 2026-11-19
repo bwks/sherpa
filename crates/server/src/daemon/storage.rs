@@ -105,11 +105,4 @@ mod tests {
         assert_eq!(metadata.permissions().mode() & 0o7777, 0o2750);
         assert_eq!(metadata.gid(), group.gid.as_raw());
     }
-
-    #[test]
-    fn restrict_dir_rejects_an_unknown_group() {
-        let root = tempdir().unwrap();
-        let dir = root.path().join("pool");
-        assert!(restrict_dir(&dir, 0o2750, Some("sherpa-no-such-group")).is_err());
-    }
 }

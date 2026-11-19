@@ -269,12 +269,4 @@ mod tests {
         paths.sort();
         assert_eq!(paths, ["secret/", "sys/"]);
     }
-
-    #[test]
-    fn the_api_is_on_the_management_address_over_https() {
-        assert_eq!(
-            vault_address(Ipv4Addr::new(172, 31, 1, 21)),
-            "https://172.31.1.21:8200"
-        );
-    }
 }

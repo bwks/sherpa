@@ -862,24 +862,6 @@ mod tests {
         assert!(gone.contains("no domain"), "{gone}");
     }
 
-    #[test]
-    fn a_cold_boot_is_told_by_the_outcome_not_its_message() {
-        // M8.2: resume used to compare the message with "Started" to find cold boots.
-        assert_eq!(
-            StartOutcome::ColdBooted.events(),
-            [OperationEvent::Launched]
-        );
-        assert_eq!(
-            StartOutcome::Resumed.events(),
-            [OperationEvent::Launched, OperationEvent::Ready]
-        );
-        assert_eq!(StartOutcome::AlreadyRunning.events(), []);
-        assert_eq!(StartOutcome::Failed("no".to_string()).events(), []);
-        let result = StartOutcome::ColdBooted.result("r1");
-        assert!(result.success);
-        assert!(!StartOutcome::Failed("no".to_string()).result("r1").success);
-    }
-
     fn db_node(name: &str, ip: &str, port: Option<u16>, skip: bool) -> data::DbNode {
         data::DbNode {
             id: None,

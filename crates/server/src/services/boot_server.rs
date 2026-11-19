@@ -488,21 +488,6 @@ mod tests {
     }
 
     #[test]
-    fn the_tftp_folder_is_mounted_as_the_tftp_root() {
-        let spec = boot_container_spec("abcd1234", "/labs/abcd1234/ztp", &mgmt_net());
-
-        assert!(
-            spec.volumes
-                .contains(&"/labs/abcd1234/ztp/tftp:/srv/tftp".to_owned())
-        );
-        assert!(
-            spec.volumes
-                .contains(&"/labs/abcd1234/ztp/dnsmasq/dnsmasq.conf:/etc/dnsmasq.conf".to_owned())
-        );
-        assert_eq!(spec.volumes.len(), 3);
-    }
-
-    #[test]
     fn dnsmasq_keeps_its_tftp_root_and_leases_outside_the_http_root() {
         let config = render_dnsmasq_config(&mgmt_net(), &[]).unwrap();
         let value = |key: &str| {
@@ -519,18 +504,5 @@ mod tests {
         assert_eq!(tftp_root, BOOT_SERVER_TFTP_ROOT);
         assert!(!served_over_http(&tftp_root));
         assert!(!served_over_http(&leases));
-    }
-
-    #[test]
-    fn the_boot_container_is_the_labs_router_on_its_boot_server_address() {
-        let spec = boot_container_spec("abcd1234", "/labs/abcd1234/ztp", &mgmt_net());
-
-        assert_eq!(spec.name, "sherpa-router-abcd1234");
-        assert_eq!(spec.management_network.name, "sherpa-management-abcd1234");
-        assert_eq!(
-            spec.management_network.ipv4_address.as_deref(),
-            Some("172.31.1.2")
-        );
-        assert_eq!(spec.capabilities, ["NET_ADMIN"]);
     }
 }

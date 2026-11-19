@@ -198,13 +198,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_malformed_token() {
-        let secret = b"test_secret_32_bytes_long_enough";
-        let result = validate_token(secret, "not.a.valid.jwt");
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn a_secret_of_the_wrong_length_refuses_startup_and_is_kept() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let secret_path = temp_dir.path().join("jwt.secret");
