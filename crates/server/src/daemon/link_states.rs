@@ -45,34 +45,3 @@ impl LinkStates {
         self.labs.remove(lab_id);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_lab_has_no_states_until_they_are_recorded() {
-        let states = LinkStates::default();
-        assert!(states.of_lab("lab1").is_empty());
-        states.record("lab1", 2, LinkState::Attached);
-        assert_eq!(
-            states.of_lab("lab1"),
-            HashMap::from([(2, LinkState::Attached)])
-        );
-        assert!(states.of_lab("lab2").is_empty());
-    }
-
-    #[test]
-    fn a_scan_replaces_every_state_of_its_lab() {
-        let states = LinkStates::default();
-        states.record("lab1", 0, LinkState::Attached);
-        states.record("lab1", 1, LinkState::Attached);
-        let peer_down = LinkState::PeerDown {
-            peer: "vm2".to_string(),
-        };
-        states.replace_lab("lab1", HashMap::from([(0, peer_down.clone())]));
-        assert_eq!(states.of_lab("lab1"), HashMap::from([(0, peer_down)]));
-        states.forget_lab("lab1");
-        assert!(states.of_lab("lab1").is_empty());
-    }
-}

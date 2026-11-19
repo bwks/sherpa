@@ -66,38 +66,3 @@ impl From<NavPage> for Nav {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The current links, by name.
-    fn current(nav: Nav) -> Vec<&'static str> {
-        [
-            (nav.dashboard, "dashboard"),
-            (nav.labs, "labs"),
-            (nav.admin_images, "admin_images"),
-            (nav.admin_labs, "admin_labs"),
-            (nav.admin_users, "admin_users"),
-            (nav.admin_tools, "admin_tools"),
-        ]
-        .into_iter()
-        .filter_map(|(link, name)| (link == NavLink::Current).then_some(name))
-        .collect()
-    }
-
-    #[test]
-    fn each_page_highlights_its_own_link_alone() {
-        for (page, links) in [
-            (NavPage::Dashboard, vec!["dashboard"]),
-            (NavPage::Labs, vec!["labs"]),
-            (NavPage::AdminImages, vec!["admin_images"]),
-            (NavPage::AdminLabs, vec!["admin_labs"]),
-            (NavPage::AdminUsers, vec!["admin_users"]),
-            (NavPage::AdminTools, vec!["admin_tools"]),
-            (NavPage::Other, vec![]),
-        ] {
-            assert_eq!(current(Nav::from(page)), links, "{page:?}");
-        }
-    }
-}

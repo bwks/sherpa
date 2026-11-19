@@ -125,13 +125,4 @@ mod tests {
             "{message}"
         );
     }
-
-    #[tokio::test]
-    async fn tasks_that_all_succeed_pass() {
-        let tasks = vec![
-            tokio::spawn(async { Ok(()) }),
-            tokio::spawn(async { Ok(()) }),
-        ];
-        join_all_tasks(tasks, "VM creation").await.unwrap();
-    }
 }

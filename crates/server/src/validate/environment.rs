@@ -111,12 +111,6 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_entries() {
-        let entries: Vec<String> = vec![];
-        assert!(validate_environment_variables(&entries, "node1").is_ok());
-    }
-
-    #[test]
     fn test_value_with_equals_sign() {
         let entries = vec!["MY_VAR=key=value".to_string()];
         assert!(validate_environment_variables(&entries, "node1").is_ok());

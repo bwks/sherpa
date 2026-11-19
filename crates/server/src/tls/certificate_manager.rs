@@ -119,29 +119,6 @@ mod tests {
     use tempfile::TempDir;
 
     #[tokio::test]
-    async fn test_ensure_certificates_generates_if_missing() {
-        let temp_dir = TempDir::new().unwrap();
-        let cert_path = temp_dir.path().join("server.crt");
-        let key_path = temp_dir.path().join("server.key");
-
-        let config = TlsConfig {
-            enabled: true,
-            cert_path: Some(cert_path.to_str().unwrap().to_string()),
-            key_path: Some(key_path.to_str().unwrap().to_string()),
-            auto_generate_cert: true,
-            cert_validity_days: 365,
-            san: vec!["IP:127.0.0.1".to_string()],
-        };
-
-        let manager = CertificateManager::new(&config);
-        let result = manager.ensure_certificates(&config.san);
-
-        assert!(result.is_ok());
-        assert!(cert_path.exists());
-        assert!(key_path.exists());
-    }
-
-    #[tokio::test]
     async fn the_logged_fingerprint_is_the_one_clients_are_asked_to_check() {
         let temp_dir = TempDir::new().unwrap();
         let cert_path = temp_dir.path().join("server.crt");

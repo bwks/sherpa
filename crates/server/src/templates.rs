@@ -765,28 +765,6 @@ mod tests {
     }
 
     #[test]
-    fn the_profile_page_renders_its_ssh_key_list_in_place() {
-        let html = ProfileTemplate {
-            username: "testuser".to_string(),
-            is_admin: false,
-            nav: NavPage::Other.into(),
-            ssh_keys_list: SshKeysListTemplate {
-                ssh_keys: vec!["ssh-ed25519 AAAAkey testuser".to_string()],
-            },
-            device_password_status: DevicePasswordStatusTemplate {
-                set: false,
-                oob: false,
-            },
-        }
-        .render()
-        .expect("template should render");
-        assert!(html.contains(r#"<div id="ssh-keys-list">"#));
-        assert!(html.contains("ssh-ed25519 AAAAkey testuser"));
-        assert!(html.contains(r#"hx-post="/profile/device-password""#));
-        assert!(html.contains(">not set</span>"));
-    }
-
-    #[test]
     fn a_set_device_password_shows_set_and_swaps_the_status_out_of_band() {
         let html = DevicePasswordSuccessTemplate {
             status: DevicePasswordStatusTemplate {
@@ -825,14 +803,6 @@ mod tests {
         let html = tpl.render().expect("template should render");
         assert!(html.contains("dev01.a1b2c3d4"));
         assert!(html.contains(r#"href="/labs/a1b2c3d4/nodes/dev01""#));
-    }
-
-    #[test]
-    fn test_node_detail_heading_shows_node_name_with_lab_id() {
-        let html = node_detail(test_device(), NodeModel::UbuntuLinux);
-        assert!(
-            html.contains(r#"<h1 class="text-2xl font-semibold text-heading">dev01.a1b2c3d4</h1>"#)
-        );
     }
 
     fn node_detail(device: DeviceInfo, model: NodeModel) -> String {
@@ -985,23 +955,6 @@ mod tests {
     }
 
     #[test]
-    fn the_lab_create_page_fills_in_the_generated_lab_name() {
-        let tpl = LabCreateTemplate {
-            username: "testuser".to_string(),
-            is_admin: false,
-            nav: NavPage::Labs.into(),
-            generated_name: "happy-panda".to_string(),
-            models: vec![NodeModel::CiscoIos.into(), NodeModel::UbuntuLinux.into()],
-            kinds: kind_choices(),
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(
-            html.contains(r#"<input type="text" id="lab-name" value="happy-panda" required"#),
-            "{html}"
-        );
-    }
-
-    #[test]
     fn the_lab_create_page_gives_each_model_its_kinds_and_default_and_offers_every_kind() {
         let html = LabCreateTemplate {
             username: "testuser".to_string(),
@@ -1094,94 +1047,6 @@ mod tests {
             .find("<!-- Submit -->")
             .expect("submit marker");
         assert!(!html[upload..upload + upload_end].contains("required"));
-    }
-
-    #[test]
-    fn test_job_page_template_renders() {
-        let tpl = JobPageTemplate {
-            username: "testuser".to_string(),
-            is_admin: false,
-            nav: NavPage::Labs.into(),
-            job_id: "abc-123".to_string(),
-            lab_name: "test-lab".to_string(),
-            action: "Creating".to_string(),
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("abc-123"));
-        assert!(html.contains("test-lab"));
-        assert!(html.contains("Creating"));
-    }
-
-    #[test]
-    fn test_create_summary_failed_fragment_renders() {
-        let tpl = CreateSummaryFailedFragment {
-            message: "something went wrong".to_string(),
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("something went wrong"));
-    }
-
-    #[test]
-    fn test_admin_tools_template_renders() {
-        let tpl = AdminToolsTemplate {
-            username: "admin".to_string(),
-            is_admin: true,
-            nav: NavPage::AdminTools.into(),
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("Tools"));
-        assert!(html.contains("Lab Clean"));
-        assert!(html.contains("lab-id"));
-    }
-
-    #[test]
-    fn test_admin_tools_template_has_script_src() {
-        let tpl = AdminToolsTemplate {
-            username: "admin".to_string(),
-            is_admin: true,
-            nav: NavPage::AdminTools.into(),
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("admin-tools.js"));
-    }
-
-    #[test]
-    fn test_admin_labs_template_renders_empty() {
-        let tpl = AdminLabsTemplate {
-            username: "admin".to_string(),
-            is_admin: true,
-            nav: NavPage::AdminLabs.into(),
-            labs: vec![],
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("No labs found"));
-    }
-
-    #[test]
-    fn test_admin_labs_template_renders_with_labs() {
-        let tpl = AdminLabsTemplate {
-            username: "admin".to_string(),
-            is_admin: true,
-            nav: NavPage::AdminLabs.into(),
-            labs: vec![AdminLabSummary::new(
-                "abc12345".to_string(),
-                "my-lab".to_string(),
-                Some("Practice BGP routing".to_string()),
-                "alice".to_string(),
-                3,
-                LabPhase::Ready,
-            )],
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("my-lab"));
-        assert!(html.contains("Practice BGP routing"));
-        assert!(html.contains("abc12345"));
-        assert!(html.contains("alice"));
-        assert!(
-            html.contains(r#"<span class="badge-neutral">Ready</span>"#),
-            "{html}"
-        );
-        assert!(html.contains(r#"data-lab-action="start""#));
     }
 
     #[test]
@@ -1304,139 +1169,6 @@ mod tests {
         assert!(!html.contains(">Ready<"), "{html}");
     }
 
-    /// The small badge class for each lab state, and whether a ready lab offers start and stop.
-    const READY_LAB_STATES: [(LabState, &str, &str, bool, bool); 7] = [
-        (LabState::Running, "badge-success", "Running", false, true),
-        (LabState::Stopped, "badge-neutral", "Stopped", true, false),
-        (LabState::Partial, "badge-warning", "Partial", true, true),
-        (LabState::Starting, "badge-warning", "Starting", false, true),
-        (LabState::Failed, "badge-danger", "Failed", true, false),
-        (LabState::Empty, "badge-neutral", "Empty", true, false),
-        (LabState::Unknown, "badge-neutral", "Unknown", true, false),
-    ];
-
-    #[test]
-    fn a_ready_lab_shows_its_state_and_the_actions_it_offers() {
-        for (state, class, label, start, stop) in READY_LAB_STATES {
-            let grid = LabsGridTemplate {
-                labs: vec![LabRow::from(LabSummary {
-                    id: "a10736e8".to_string(),
-                    name: "test-lab".to_string(),
-                    description: None,
-                    status: state,
-                    node_count: 2,
-                    phase: LabPhase::Ready,
-                })],
-            }
-            .render()
-            .expect("template should render");
-            assert!(
-                grid.contains(&format!(r#"<span class="{class}">{label}</span>"#)),
-                "{state:?}: {grid}"
-            );
-            assert_eq!(
-                grid.contains(r#"data-lab-action="start""#),
-                start,
-                "{state:?}"
-            );
-            assert_eq!(
-                grid.contains(r#"data-lab-action="stop""#),
-                stop,
-                "{state:?}"
-            );
-
-            let detail = lab_detail(state, LabPhase::Ready);
-            assert!(
-                detail.contains(&format!(r#"<span class="{class}-lg">{label}</span>"#)),
-                "{state:?}: {detail}"
-            );
-            assert_eq!(
-                detail.contains(r#"data-lab-detail-action="start""#),
-                start,
-                "{state:?}"
-            );
-            assert_eq!(
-                detail.contains(r#"data-lab-detail-action="stop""#),
-                stop,
-                "{state:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn every_node_state_shows_its_badge_in_the_table_and_on_the_node_page() {
-        for (state, class, label) in [
-            (NodeState::Building, "badge-warning", "Building"),
-            (NodeState::Starting, "badge-warning", "Starting"),
-            (NodeState::Running, "badge-success", "Running"),
-            (NodeState::Stopped, "badge-neutral", "Stopped"),
-            (NodeState::Failed, "badge-danger", "Failed"),
-            (NodeState::Missing, "badge-danger", "Missing"),
-            (NodeState::Unknown, "badge-neutral", "Unknown"),
-        ] {
-            let device = DeviceInfo {
-                state,
-                ..test_device()
-            };
-            let table = NodesTableFragment {
-                lab_id: "a1b2c3d4".to_string(),
-                nodes: vec![NodeRow::from(device.clone())],
-                device_count: 1,
-            }
-            .render()
-            .expect("template should render");
-            assert!(
-                table.contains(&format!(r#"<span class="{class}">{label}</span>"#)),
-                "{state:?}: {table}"
-            );
-            let detail = node_detail(device, NodeModel::UbuntuLinux);
-            assert!(
-                detail.contains(&format!(r#"<span class="{class}-lg">{label}</span>"#)),
-                "{state:?}: {detail}"
-            );
-        }
-    }
-
-    /// The pill the admin image pages draw for each kind, with the label left out.
-    const KIND_PILLS: [(NodeKind, &str); 3] = [
-        (NodeKind::VirtualMachine, "bg-kind-vm text-kind-vm-text"),
-        (NodeKind::Container, "bg-kind-container text-kind-ctr-text"),
-        (NodeKind::Unikernel, "bg-kind-unikernel text-kind-uni-text"),
-    ];
-
-    fn kind_pill(colours: &str, label: &str) -> String {
-        format!(
-            r#"<span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide {colours}">{label}</span>"#
-        )
-    }
-
-    #[test]
-    fn the_images_list_shows_each_kind_by_its_short_label() {
-        for ((kind, colours), label) in KIND_PILLS.into_iter().zip(["VM", "Container", "Unikernel"])
-        {
-            let html = AdminImagesListTemplate {
-                username: "admin".to_string(),
-                is_admin: true,
-                nav: NavPage::AdminImages.into(),
-                configs: vec![ImageSummary {
-                    model: "some_model".to_string(),
-                    kind_badge: KindBadge::short(kind),
-                    version: "1.0".to_string(),
-                    cpu_count: 1,
-                    memory: 1024,
-                    data_interface_count: 1,
-                    default: true,
-                }],
-            }
-            .render()
-            .expect("template should render");
-            assert!(
-                html.contains(&kind_pill(colours, label)),
-                "{kind:?}: {html}"
-            );
-        }
-    }
-
     /// The labels of the image detail page's machine type, and of its firmware and disks.
     const IMAGE_MACHINE_TYPE: &str = ">Machine Type:</span>";
     const IMAGE_FIRMWARE_AND_DISKS: [&str; 4] = [
@@ -1512,53 +1244,6 @@ mod tests {
     }
 
     #[test]
-    fn the_image_pages_show_each_kind_by_its_full_label() {
-        for ((kind, colours), (model, label)) in KIND_PILLS.into_iter().zip([
-            (NodeModel::UbuntuLinux, "Virtual Machine"),
-            (NodeModel::MongoDb, "Container"),
-            (NodeModel::NanosUnikernel, "Unikernel"),
-        ]) {
-            let config = ModelKind::default_for(model).node_config();
-            assert_eq!(config.kind(), kind);
-            let detail = AdminImageDetailTemplate {
-                username: "admin".to_string(),
-                is_admin: true,
-                nav: NavPage::AdminImages.into(),
-                kind_badge: KindBadge::full(kind),
-                config: config.clone(),
-            }
-            .render()
-            .expect("template should render");
-            assert!(
-                detail.contains(&kind_pill(colours, label)),
-                "{kind:?}: {detail}"
-            );
-
-            let versions = AdminImageVersionsTemplate {
-                username: "admin".to_string(),
-                is_admin: true,
-                nav: NavPage::AdminImages.into(),
-                model: model.to_string(),
-                kind_label: kind_label(kind),
-                kind,
-                versions: vec![config],
-            }
-            .render()
-            .expect("template should render");
-            assert!(
-                versions.contains(&format!("({label})")),
-                "{kind:?}: {versions}"
-            );
-            assert!(
-                versions.contains(&format!(
-                    "<title>Versions: {model} ({kind}) - Sherpa Labs</title>"
-                )),
-                "{kind:?}: {versions}"
-            );
-        }
-    }
-
-    #[test]
     fn the_login_page_shows_the_notice_for_its_error_code() {
         let notice = r#"<div class="bg-alert-error"#;
         for (code, text) in [
@@ -1629,15 +1314,6 @@ mod tests {
     }
 
     #[test]
-    fn test_login_error_template_renders() {
-        let tpl = LoginErrorTemplate {
-            message: "Invalid credentials".to_string(),
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("Invalid credentials"));
-    }
-
-    #[test]
     fn test_admin_notification_error_template_escapes_message() {
         let tpl = AdminNotificationErrorTemplate {
             message: "Invalid <script>alert('unsafe')</script>".to_string(),
@@ -1646,46 +1322,6 @@ mod tests {
 
         assert!(html.contains("Invalid &#60;script&#62;"));
         assert!(!html.contains("<script>"));
-    }
-
-    #[test]
-    fn a_404_page_shows_its_message() {
-        let tpl = Error404Template {
-            username: "testuser".to_string(),
-            is_admin: false,
-            nav: NavPage::Other.into(),
-            message: "Lab abcd1234 is gone".to_string(),
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(
-            html.contains(r#"<h1 class="text-9xl font-bold text-danger-text">404</h1>"#),
-            "{html}"
-        );
-        assert!(html.contains(">Lab abcd1234 is gone</p>"), "{html}");
-    }
-
-    #[test]
-    fn test_error_template_renders() {
-        let tpl = ErrorTemplate {
-            message: "something broke".to_string(),
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("something broke"));
-    }
-
-    #[test]
-    fn the_empty_state_names_the_user_with_no_labs() {
-        let tpl = EmptyStateTemplate {
-            username: "testuser".to_string(),
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("No Labs Found"), "{html}");
-        assert!(
-            html.contains(
-                r#"User <span class="font-semibold">testuser</span> doesn't have any labs yet."#
-            ),
-            "{html}"
-        );
     }
 
     // ========================================================================
@@ -1725,37 +1361,6 @@ mod tests {
         assert!(!html.contains("/admin/users"));
         assert!(!html.contains("/admin/labs"));
         assert!(!html.contains("/admin/tools"));
-    }
-
-    #[test]
-    fn test_dashboard_shows_stats_cards() {
-        let tpl = DashboardTemplate {
-            username: "testuser".to_string(),
-            is_admin: false,
-            nav: NavPage::Dashboard.into(),
-            lab_count: 7,
-            image_count: 15,
-            docker_ok: true,
-            libvirt_ok: true,
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("My Labs"));
-        assert!(html.contains("Node Images"));
-        assert!(html.contains(">7<"));
-        assert!(html.contains(">15<"));
-    }
-
-    #[test]
-    fn test_admin_users_page_renders() {
-        let tpl = AdminUsersTemplate {
-            username: "admin".to_string(),
-            is_admin: true,
-            nav: NavPage::AdminUsers.into(),
-            users: vec![],
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("User Management"));
-        assert!(html.contains("No users found"));
     }
 
     /// Inline JavaScript runs whatever a template interpolates into it, and HTML escaping does

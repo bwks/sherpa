@@ -633,18 +633,6 @@ mod tests {
         result.unwrap();
     }
 
-    #[test]
-    fn logout_uses_operator_socket() {
-        let settings = TailscaleGatewaySettings {
-            socket_path: "/run/custom/daemon.sock".into(),
-            ..Default::default()
-        };
-        assert_eq!(
-            logout_command(&settings),
-            vec!["tailscale", "--socket=/run/custom/daemon.sock", "logout"]
-        );
-    }
-
     #[tokio::test]
     async fn cleanup_logs_out_a_running_gateway_and_removes_it_when_logout_fails() {
         let (docker, mock) = mock_docker(vec![

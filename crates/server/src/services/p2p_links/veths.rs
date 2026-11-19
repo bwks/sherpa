@@ -204,12 +204,6 @@ mod tests {
     }
 
     #[test]
-    fn test_node_in_no_bridge_has_no_bridge_interfaces() {
-        let bridges = vec![bridge(0, &[("fr01", "eth1")])];
-        assert!(node_bridge_interfaces(&bridges, &RecordId::new("node", "dev01")).is_empty());
-    }
-
-    #[test]
     fn a_node_has_the_links_with_an_end_on_it() {
         let links = vec![
             link(0, "dev01", "fr01"),

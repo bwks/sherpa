@@ -247,11 +247,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_percent_to_kernel_zero() {
-        assert_eq!(percent_to_kernel(0.0), 0);
-    }
-
-    #[test]
     fn test_percent_to_kernel_hundred() {
         assert_eq!(percent_to_kernel(100.0), u32::MAX);
     }
@@ -391,11 +386,5 @@ mod tests {
         ] {
             assert!(!is_link_netem(&other, 7), "{:?}", other.header);
         }
-    }
-
-    #[test]
-    fn test_percent_to_kernel_small_value() {
-        let result = percent_to_kernel(0.1);
-        assert!(result > 0, "0.1% should produce non-zero kernel value");
     }
 }

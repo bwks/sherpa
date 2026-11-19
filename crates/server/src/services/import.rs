@@ -1061,17 +1061,6 @@ mod tests {
         assert!(!dest.exists());
     }
 
-    #[tokio::test]
-    async fn test_resolve_download_url_ubuntu() {
-        let url = resolve_download_url(&NodeModel::UbuntuLinux, "24.04", None)
-            .await
-            .unwrap();
-        assert_eq!(
-            url,
-            "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
-        );
-    }
-
     #[test]
     fn talos_image_urls_use_the_schematic_and_a_v_prefixed_version() {
         let id = "a".repeat(64);

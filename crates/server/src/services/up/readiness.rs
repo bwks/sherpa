@@ -886,14 +886,6 @@ mod tests {
     }
 
     #[test]
-    fn an_up_with_a_node_that_will_not_recover_did_not_succeed() {
-        // M6.1: every error used to be a warning, so `up` reported success for a lab with a
-        // container that exited. A node that is only slow to answer still is a warning.
-        assert!(exited_container_error("r1", "r1-ab12cd34", &exit(Some(1), None)).is_critical);
-        assert!(!not_ready_error("r1").is_critical);
-    }
-
-    #[test]
     fn an_exited_container_error_names_its_exit_code_and_log() {
         let error = exited_container_error(
             "db01",

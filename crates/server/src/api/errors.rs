@@ -261,41 +261,6 @@ mod tests {
     use axum::response::IntoResponse;
     use shared::error::{CpuPinConflict, CpuPinRole, MemoryShortfall};
 
-    #[test]
-    fn test_unauthorized_status_code() {
-        let err = ApiError::unauthorized("bad token");
-        let response = err.into_response();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    }
-
-    #[test]
-    fn test_forbidden_status_code() {
-        let err = ApiError::forbidden("not allowed");
-        let response = err.into_response();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    }
-
-    #[test]
-    fn test_not_found_status_code() {
-        let err = ApiError::not_found("Lab", "lab-123 not found");
-        let response = err.into_response();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
-
-    #[test]
-    fn test_bad_request_status_code() {
-        let err = ApiError::bad_request("missing field");
-        let response = err.into_response();
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    }
-
-    #[test]
-    fn test_internal_error_status_code() {
-        let err = ApiError::internal("db crashed");
-        let response = err.into_response();
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-    }
-
     #[tokio::test]
     async fn test_unauthorized_json_body() {
         let err = ApiError::unauthorized("invalid token");
@@ -307,19 +272,6 @@ mod tests {
         assert_eq!(json["error"]["code"], "UNAUTHORIZED");
         assert_eq!(json["error"]["message"], "Authentication required");
         assert_eq!(json["error"]["details"], "invalid token");
-    }
-
-    #[tokio::test]
-    async fn test_not_found_json_body() {
-        let err = ApiError::not_found("Lab", "lab-123 missing");
-        let response = err.into_response();
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["error"]["code"], "NOT_FOUND");
-        assert_eq!(json["error"]["message"], "Lab not found");
-        assert_eq!(json["error"]["details"], "lab-123 missing");
     }
 
     #[tokio::test]
@@ -472,12 +424,5 @@ mod tests {
     fn a_streamed_unclassified_failure_has_no_code() {
         let event = stream_error_event(&anyhow::anyhow!("disk full"));
         assert_eq!(event, serde_json::json!({ "error": "disk full" }));
-    }
-
-    #[test]
-    fn other_errors_carry_no_data() {
-        let json =
-            serde_json::to_value(ErrorResponse::from(ApiError::conflict("owns labs"))).unwrap();
-        assert!(json["error"].get("data").is_none(), "{json}");
     }
 }

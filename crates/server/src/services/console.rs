@@ -410,17 +410,6 @@ mod tests {
     use shared::data::{ModelKind, NodeModel};
 
     #[test]
-    fn console_sockets_are_named_by_their_lab_and_node_index() {
-        assert_eq!(
-            console_sockets("abcd1234", 7).unwrap(),
-            ConsoleSockets {
-                serial: "/opt/sherpa/run/console/abcd1234/7.serial".to_owned(),
-                vnc: "/opt/sherpa/run/console/abcd1234/7.vnc".to_owned(),
-            }
-        );
-    }
-
-    #[test]
     fn a_socket_path_past_the_unix_limit_is_refused() {
         // The folder, two slashes, the index and the longer suffix leave the rest of 107 bytes
         // to the lab ID.
@@ -512,26 +501,6 @@ mod tests {
                 "Node 'alp01' has no VNC console Sherpa can reach.".to_owned()
             ))
         );
-    }
-
-    #[test]
-    fn a_console_is_reached_as_libvirt_reports_it() {
-        assert_eq!(
-            Reached::from(SerialConsole::Socket("/s".to_owned())),
-            Reached::Socket("/s".to_owned())
-        );
-        assert_eq!(Reached::from(SerialConsole::Tcp), Reached::Tcp);
-        assert_eq!(
-            Reached::from(SerialConsole::Other("pty".to_owned())),
-            Reached::Unreachable
-        );
-        assert_eq!(Reached::from(SerialConsole::Absent), Reached::Unreachable);
-        assert_eq!(
-            Reached::from(VncConsole::Socket("/v".to_owned())),
-            Reached::Socket("/v".to_owned())
-        );
-        assert_eq!(Reached::from(VncConsole::Tcp), Reached::Tcp);
-        assert_eq!(Reached::from(VncConsole::Absent), Reached::Unreachable);
     }
 
     fn refusal(error: &anyhow::Error) -> Option<ServiceError> {

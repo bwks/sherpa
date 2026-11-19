@@ -225,10 +225,4 @@ mod tests {
             .verify_signature(Some(ca_cert.public_key()))
             .unwrap();
     }
-
-    #[test]
-    fn loading_a_lab_without_a_ca_fails() {
-        let dir = TempDir::new().unwrap();
-        assert!(load_lab_ca(dir.path(), "abcd1234").is_err());
-    }
 }

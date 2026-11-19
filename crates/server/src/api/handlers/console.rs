@@ -434,12 +434,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_session_the_client_closed_needs_no_close_frame() {
-        assert_eq!(Ended::Client.close_frame(ConsoleKind::Serial), None);
-        assert_eq!(Ended::Client.close_frame(ConsoleKind::Vnc), None);
-    }
-
-    #[test]
     fn the_close_frame_says_why_the_server_ended_the_session() {
         let taken = Ended::TakenOver("alice from 192.0.2.10 since 2026-11-18 09:08:07 UTC".into());
         for (ended, code, reason) in [

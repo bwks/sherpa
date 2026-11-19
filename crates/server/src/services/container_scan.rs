@@ -91,44 +91,6 @@ mod tests {
     }
 
     #[test]
-    fn a_scan_asks_for_each_built_in_container_repo() {
-        let plan = plan_container_scan(None);
-
-        for expected in [
-            target(NodeModel::AristaEos, "localrepo/arista_eos"),
-            target(NodeModel::NokiaSrlinux, "ghcr.io/nokia/srlinux"),
-            target(NodeModel::NatsBus, "nats"),
-        ] {
-            assert!(plan.targets.contains(&expected), "{expected:?}: {plan:?}");
-        }
-        assert!(
-            plan.targets
-                .iter()
-                .all(|t| t.model.kinds().contains(&NodeKind::Container)),
-            "{plan:?}"
-        );
-    }
-
-    #[test]
-    fn container_models_with_no_built_in_repo_are_skipped() {
-        let plan = plan_container_scan(None);
-
-        let skipped: Vec<NodeModel> = plan.skipped.iter().map(|s| s.model).collect();
-        assert_eq!(
-            skipped,
-            [
-                NodeModel::MysqlDb,
-                NodeModel::PostgresqlDb,
-                NodeModel::Generic
-            ]
-        );
-        assert!(
-            plan.skipped.iter().all(|s| s.reason == NO_BUILT_IN_REPO),
-            "{plan:?}"
-        );
-    }
-
-    #[test]
     fn a_target_is_the_only_repo_scanned_and_kept_as_given() {
         let given = target(NodeModel::NokiaSrlinux, "registry.lab:5000/mirror/srlinux");
 

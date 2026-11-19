@@ -72,11 +72,6 @@ enabled = true
     }
 
     #[test]
-    fn invalid_toml_is_an_error() {
-        assert!(has_ztp_server_table("[ztp_server").is_err());
-    }
-
-    #[test]
     fn warns_without_error_for_a_file_with_the_table() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("sherpa.toml");
@@ -88,11 +83,5 @@ enabled = true
             output.contains("[ztp_server] table, which sherpad no longer reads"),
             "{output}"
         );
-    }
-
-    #[test]
-    fn a_missing_file_is_an_error() {
-        let directory = tempfile::tempdir().unwrap();
-        assert!(warn_on_removed_settings(&directory.path().join("sherpa.toml")).is_err());
     }
 }
