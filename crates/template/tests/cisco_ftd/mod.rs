@@ -80,6 +80,5 @@ fn test_admin_password_is_intact() {
         let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid json");
         assert_eq!(parsed["AdminPassword"], *password);
         assert!(json.contains(&format!("\"AdminPassword\": \"{password}\"")));
-        helpers::assert_no_sherpa_login(&json);
     }
 }

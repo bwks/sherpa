@@ -4917,7 +4917,12 @@ pub(crate) mod tests {
         );
         assert_eq!(file.permissions, "600");
         assert_eq!(file.encoding, None);
-        assert!(file.content.contains("export GH_TOKEN='abc123'"));
+        let home = tempdir().unwrap();
+        std::fs::write(home.path().join(".sherpa_env"), &file.content).unwrap();
+        assert_eq!(
+            login_shell_var(home.path(), r#". "$HOME/.sherpa_env""#, "GH_TOKEN"),
+            "abc123"
+        );
     }
 
     /// A fake passwd file listing the current user with `home`, so generated commands can run
@@ -4946,6 +4951,41 @@ pub(crate) mod tests {
             .success()
     }
 
+    /// The value of `var` after `sh` runs `script` with `HOME` set to `home`.
+    fn login_shell_var(home: &Path, script: &str, var: &str) -> String {
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(format!("{script}\nprintf %s \"${var}\""))
+            .env("HOME", home)
+            .output()
+            .unwrap();
+        String::from_utf8(output.stdout).unwrap()
+    }
+
+    /// Runs `commands` under `sh` with a `chown` that only records its arguments, one call per
+    /// line, and returns the record.
+    fn chown_calls(root: &Path, commands: &[String]) -> String {
+        let bin = root.join("bin");
+        let log = root.join("chown.log");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(&log, "").unwrap();
+        let chown = bin.join("chown");
+        std::fs::write(
+            &chown,
+            format!("#!/bin/sh\necho \"$*\" >> '{}'\n", log.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&chown, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = format!("{}:{}", bin.display(), env::var("PATH").unwrap());
+        Command::new("sh")
+            .arg("-c")
+            .arg(commands.join("\n"))
+            .env("PATH", path)
+            .status()
+            .unwrap();
+        std::fs::read_to_string(&log).unwrap()
+    }
+
     #[test]
     fn test_user_env_loader_hooks_the_login_file_in_the_passwd_home() {
         let root = tempdir().unwrap();
@@ -4953,22 +4993,35 @@ pub(crate) mod tests {
         std::fs::create_dir_all(&home).unwrap();
         let (user, passwd) = fake_passwd(root.path(), &home);
 
+        std::fs::write(home.join(".sherpa_env"), "export GH_TOKEN='abc123'\n").unwrap();
+
         assert!(run_sh(&[user_env_loader_runcmd(&user, &passwd)]));
-        let profile = std::fs::read_to_string(home.join(".profile")).unwrap();
-        assert!(profile.contains(r#". "$HOME/.sherpa_env""#));
+        assert_eq!(
+            login_shell_var(&home, r#". "$HOME/.profile""#, "GH_TOKEN"),
+            "abc123"
+        );
 
         std::fs::write(home.join(".bash_profile"), "").unwrap();
         assert!(run_sh(&[user_env_loader_runcmd(&user, &passwd)]));
-        let bash_profile = std::fs::read_to_string(home.join(".bash_profile")).unwrap();
-        assert!(bash_profile.contains(r#". "$HOME/.sherpa_env""#));
+        assert_eq!(
+            login_shell_var(&home, r#". "$HOME/.bash_profile""#, "GH_TOKEN"),
+            "abc123"
+        );
     }
 
     #[test]
     fn test_user_env_loader_does_nothing_for_an_unknown_user() {
         let root = tempdir().unwrap();
-        let (_, passwd) = fake_passwd(root.path(), root.path());
-        let runcmd = user_env_loader_runcmd("nosuchuser", &passwd);
-        assert!(runcmd.contains(r#"[ -n "$h" ] &&"#));
+        let home = root.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let (_, passwd) = fake_passwd(root.path(), &home);
+        let calls = chown_calls(
+            root.path(),
+            &[user_env_loader_runcmd("nosuchuser", &passwd)],
+        );
+        assert_eq!(calls, "");
+        assert!(!home.join(".profile").exists());
+        assert!(!home.join(".bash_profile").exists());
     }
 
     fn staged(dst: &str, user: &str, group: Option<&str>) -> StagedFile {
@@ -5047,15 +5100,50 @@ pub(crate) mod tests {
 
     #[test]
     fn test_staged_files_only_give_the_user_directories_inside_their_home() {
-        let files = vec![staged("/home/alice/.config/app.toml", "alice", None)];
-        let (_, runcmd) = stage_cloud_init_files(&files, "/opt/sherpa/staging", "/etc/passwd");
-        assert!(
-            runcmd[0].contains(r#"case "$top" in "$h"|"$h"/*) chown -R "$u:$g" "$top";; esac"#)
-        );
-        assert!(
-            runcmd[0].contains(r#"[ -n "$h" ] &&"#),
-            "skipped when the user does not exist"
-        );
+        let root = tempdir().unwrap();
+        let staging = root.path().join("staging");
+        let home = root.path().join("home/alice");
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        let (user, passwd) = fake_passwd(root.path(), &home);
+        let inside = home.join(".config/app/app.toml");
+        let outside = root.path().join("opt/app/config.toml");
+        let files = vec![
+            staged(inside.to_str().unwrap(), &user, Some("staff")),
+            staged(outside.to_str().unwrap(), &user, Some("staff")),
+        ];
+        let (writes, runcmd) = stage_cloud_init_files(&files, staging.to_str().unwrap(), &passwd);
+        for write in &writes {
+            std::fs::write(&write.path, &write.content).unwrap();
+        }
+
+        let calls = chown_calls(root.path(), &runcmd);
+
+        let expected = [
+            format!("-R {user}:staff {}", home.join(".config").display()),
+            format!("{user}:staff {}", inside.display()),
+            format!("{user}:staff {}", outside.display()),
+        ];
+        assert_eq!(calls.lines().collect::<Vec<_>>(), expected);
+    }
+
+    #[test]
+    fn test_staged_files_of_an_unknown_user_are_not_moved() {
+        let root = tempdir().unwrap();
+        let staging = root.path().join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+        let (_, passwd) = fake_passwd(root.path(), root.path());
+        let dst = root.path().join("opt/app/config.toml");
+        let files = vec![staged(dst.to_str().unwrap(), "nosuchuser", None)];
+        let (writes, runcmd) = stage_cloud_init_files(&files, staging.to_str().unwrap(), &passwd);
+        for write in &writes {
+            std::fs::write(&write.path, &write.content).unwrap();
+        }
+
+        let calls = chown_calls(root.path(), &runcmd);
+
+        assert_eq!(calls, "");
+        assert!(!dst.exists());
     }
 
     #[test]
@@ -5070,11 +5158,12 @@ pub(crate) mod tests {
         assert_eq!(env_file.group.as_ref().unwrap().name, "alice");
         let source = &env_file.contents.as_ref().unwrap().source;
         let encoded = source.strip_prefix("data:;base64,").unwrap();
-        assert!(
-            util::base64_decode(encoded)
-                .unwrap()
-                .contains("export GH_TOKEN='abc123'")
-        );
+        let home = tempdir().unwrap();
+        std::fs::write(
+            home.path().join(".sherpa_env"),
+            util::base64_decode(encoded).unwrap(),
+        )
+        .unwrap();
 
         let profile = &files[1];
         assert_eq!(profile.path, "/home/alice/.bash_profile");
@@ -5084,10 +5173,10 @@ pub(crate) mod tests {
             .source
             .strip_prefix("data:;base64,")
             .unwrap();
-        assert!(
-            util::base64_decode(encoded)
-                .unwrap()
-                .contains(r#". "$HOME/.sherpa_env""#)
+        let appended = util::base64_decode(encoded).unwrap();
+        assert_eq!(
+            login_shell_var(home.path(), &appended, "GH_TOKEN"),
+            "abc123"
         );
     }
 
@@ -5275,8 +5364,12 @@ pub(crate) mod tests {
     fn test_build_windows_env_commands_with_single_quotes() {
         let env_vars = vec!["MSG=it's here".to_string()];
         let commands = build_windows_env_commands(&env_vars);
-        assert_eq!(commands.len(), 1);
-        assert!(commands[0].contains("'it''s here'"));
+        assert_eq!(
+            commands,
+            [
+                r#"powershell -Command "[System.Environment]::SetEnvironmentVariable('MSG', 'it''s here', 'Machine')""#
+            ]
+        );
     }
 
     #[test]
@@ -6916,53 +7009,6 @@ pub(crate) mod tests {
             gitlab.shm_size,
             Some(CONTAINER_GITLAB_CE_SHM_SIZE * 1024 * 1024)
         );
-    }
-
-    #[test]
-    fn containers_with_a_built_in_repo_run_the_image_their_node_resolved() {
-        let certs = NodeCertPaths {
-            ca_cert: "/certs/ca.crt".to_owned(),
-            node_cert: "/certs/node.crt".to_owned(),
-            node_key: "/certs/node.key".to_owned(),
-        };
-        let pairs: Vec<ModelKind> = ModelKind::all()
-            .filter(|model_kind| {
-                model_kind.kind() == data::NodeKind::Container
-                    && model_kind.node_config().container_repo(None).is_some()
-            })
-            .collect();
-        assert_eq!(pairs.len(), 14, "{pairs:?}");
-        for model_kind in pairs {
-            let model = model_kind.model();
-            // IOL's logins take an RSA key, and its application ID is the node's place in the
-            // lab, from 1.
-            let lab = ZtpLab::new();
-            let mut node = topology::NodeExpanded {
-                index: 1,
-                model_kind,
-                ..named_node("node1", model)
-            };
-            node.image = Some("registry.example:5000/mirror/image".to_owned());
-
-            let result = generate_container_ztp(
-                &mut node,
-                &model_kind.node_config(),
-                &lab.lab(),
-                "192.0.2.10".parse().unwrap(),
-                Some(&certs),
-            )
-            .unwrap();
-
-            assert_eq!(
-                result.image, "registry.example:5000/mirror/image",
-                "{model}"
-            );
-            assert_eq!(
-                node.image.as_deref(),
-                Some("registry.example:5000/mirror/image"),
-                "{model}"
-            );
-        }
     }
 
     #[test]

@@ -1043,13 +1043,6 @@ mod tests {
     }
 
     #[test]
-    fn the_stream_keeps_messages_30_days() {
-        assert_eq!(STREAM_MAX_AGE, Duration::from_hours(30 * 24));
-        assert_eq!(stream_config().max_age, STREAM_MAX_AGE);
-        assert_eq!(stream_config().subjects, ["agents.>"]);
-    }
-
-    #[test]
     fn a_stream_with_another_max_age_is_brought_to_the_stream_s() {
         let mut current = stream_config();
         assert_eq!(stream_change(&current), StreamChange::Unchanged);

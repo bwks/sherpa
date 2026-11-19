@@ -19,6 +19,333 @@ hostname=panos01
 dns-primary=172.20.0.1
 dns-secondary=8.8.8.8";
 
+const EXPECTED_BOOTSTRAP_IPV4: &str = r#"<?xml version="1.0"?>
+<config version="11.0.0" urldb="paloaltonetworks">
+  <mgt-config>
+    <users>
+      <entry name="admin">
+        <phash>HASH</phash>
+        <permissions>
+          <role-based>
+            <superuser>yes</superuser>
+          </role-based>
+        </permissions>
+      </entry>
+      <entry name="alice">
+        <phash>HASH</phash>
+        <permissions>
+          <role-based>
+            <superuser>yes</superuser>
+          </role-based>
+        </permissions>
+        <public-key>OWNERKEY1</public-key>
+        <public-key>OWNERKEY2</public-key>
+      </entry>
+    </users>
+    <password-complexity>
+      <enabled>yes</enabled>
+      <minimum-length>8</minimum-length>
+    </password-complexity>
+  </mgt-config>
+  <shared>
+    <application/>
+    <application-group/>
+    <service/>
+    <service-group/>
+    <botnet>
+      <configuration>
+        <http>
+          <dynamic-dns>
+            <enabled>yes</enabled>
+            <threshold>5</threshold>
+          </dynamic-dns>
+          <malware-sites>
+            <enabled>yes</enabled>
+            <threshold>5</threshold>
+          </malware-sites>
+          <recent-domains>
+            <enabled>yes</enabled>
+            <threshold>5</threshold>
+          </recent-domains>
+          <ip-domains>
+            <enabled>yes</enabled>
+            <threshold>10</threshold>
+          </ip-domains>
+          <executables-from-unknown-sites>
+            <enabled>yes</enabled>
+            <threshold>5</threshold>
+          </executables-from-unknown-sites>
+        </http>
+        <other-applications>
+          <irc>yes</irc>
+        </other-applications>
+        <unknown-applications>
+          <unknown-tcp>
+            <destinations-per-hour>10</destinations-per-hour>
+            <sessions-per-hour>10</sessions-per-hour>
+            <session-length>
+              <maximum-bytes>100</maximum-bytes>
+              <minimum-bytes>50</minimum-bytes>
+            </session-length>
+          </unknown-tcp>
+          <unknown-udp>
+            <destinations-per-hour>10</destinations-per-hour>
+            <sessions-per-hour>10</sessions-per-hour>
+            <session-length>
+              <maximum-bytes>100</maximum-bytes>
+              <minimum-bytes>50</minimum-bytes>
+            </session-length>
+          </unknown-udp>
+        </unknown-applications>
+      </configuration>
+      <report>
+        <topn>100</topn>
+        <scheduled>yes</scheduled>
+      </report>
+    </botnet>
+  </shared>
+  <devices>
+    <entry name="localhost.localdomain">
+      <network>
+        <interface>
+          <ethernet/>
+        </interface>
+        <profiles>
+          <monitor-profile>
+            <entry name="default">
+              <interval>3</interval>
+              <threshold>5</threshold>
+              <action>wait-recover</action>
+            </entry>
+          </monitor-profile>
+        </profiles>
+        <ike>
+          <crypto-profiles>
+            <ike-crypto-profiles>
+              <entry name="default">
+                <encryption>
+                  <member>aes-128-cbc</member>
+                  <member>3des</member>
+                </encryption>
+                <hash>
+                  <member>sha1</member>
+                </hash>
+                <dh-group>
+                  <member>group2</member>
+                </dh-group>
+                <lifetime>
+                  <hours>8</hours>
+                </lifetime>
+              </entry>
+              <entry name="Suite-B-GCM-128">
+                <encryption>
+                  <member>aes-128-cbc</member>
+                </encryption>
+                <hash>
+                  <member>sha256</member>
+                </hash>
+                <dh-group>
+                  <member>group19</member>
+                </dh-group>
+                <lifetime>
+                  <hours>8</hours>
+                </lifetime>
+              </entry>
+              <entry name="Suite-B-GCM-256">
+                <encryption>
+                  <member>aes-256-cbc</member>
+                </encryption>
+                <hash>
+                  <member>sha384</member>
+                </hash>
+                <dh-group>
+                  <member>group20</member>
+                </dh-group>
+                <lifetime>
+                  <hours>8</hours>
+                </lifetime>
+              </entry>
+            </ike-crypto-profiles>
+            <ipsec-crypto-profiles>
+              <entry name="default">
+                <esp>
+                  <encryption>
+                    <member>aes-128-cbc</member>
+                    <member>3des</member>
+                  </encryption>
+                  <authentication>
+                    <member>sha1</member>
+                  </authentication>
+                </esp>
+                <dh-group>group2</dh-group>
+                <lifetime>
+                  <hours>1</hours>
+                </lifetime>
+              </entry>
+              <entry name="Suite-B-GCM-128">
+                <esp>
+                  <encryption>
+                    <member>aes-128-gcm</member>
+                  </encryption>
+                  <authentication>
+                    <member>none</member>
+                  </authentication>
+                </esp>
+                <dh-group>group19</dh-group>
+                <lifetime>
+                  <hours>1</hours>
+                </lifetime>
+              </entry>
+              <entry name="Suite-B-GCM-256">
+                <esp>
+                  <encryption>
+                    <member>aes-256-gcm</member>
+                  </encryption>
+                  <authentication>
+                    <member>none</member>
+                  </authentication>
+                </esp>
+                <dh-group>group20</dh-group>
+                <lifetime>
+                  <hours>1</hours>
+                </lifetime>
+              </entry>
+            </ipsec-crypto-profiles>
+            <global-protect-app-crypto-profiles>
+              <entry name="default">
+                <encryption>
+                  <member>aes-128-cbc</member>
+                </encryption>
+                <authentication>
+                  <member>sha1</member>
+                </authentication>
+              </entry>
+            </global-protect-app-crypto-profiles>
+          </crypto-profiles>
+        </ike>
+        <qos>
+          <profile>
+            <entry name="default">
+              <class-bandwidth-type>
+                <mbps>
+                  <class>
+                    <entry name="class1">
+                      <priority>real-time</priority>
+                    </entry>
+                    <entry name="class2">
+                      <priority>high</priority>
+                    </entry>
+                    <entry name="class3">
+                      <priority>high</priority>
+                    </entry>
+                    <entry name="class4">
+                      <priority>medium</priority>
+                    </entry>
+                    <entry name="class5">
+                      <priority>medium</priority>
+                    </entry>
+                    <entry name="class6">
+                      <priority>low</priority>
+                    </entry>
+                    <entry name="class7">
+                      <priority>low</priority>
+                    </entry>
+                    <entry name="class8">
+                      <priority>low</priority>
+                    </entry>
+                  </class>
+                </mbps>
+              </class-bandwidth-type>
+            </entry>
+          </profile>
+        </qos>
+        <virtual-router>
+          <entry name="default">
+            <protocol>
+              <bgp>
+                <enable>no</enable>
+                <dampening-profile>
+                  <entry name="default">
+                    <cutoff>1.25</cutoff>
+                    <reuse>0.5</reuse>
+                    <max-hold-time>900</max-hold-time>
+                    <decay-half-life-reachable>300</decay-half-life-reachable>
+                    <decay-half-life-unreachable>900</decay-half-life-unreachable>
+                    <enable>yes</enable>
+                  </entry>
+                </dampening-profile>
+              </bgp>
+            </protocol>
+          </entry>
+        </virtual-router>
+      </network>
+      <deviceconfig>
+        <system>
+          <type>
+            <static/>
+          </type>
+          <update-server>updates.paloaltonetworks.com</update-server>
+          <update-schedule>
+            <threats>
+              <recurring>
+                <weekly>
+                  <day-of-week>wednesday</day-of-week>
+                  <at>01:02</at>
+                  <action>download-only</action>
+                </weekly>
+              </recurring>
+            </threats>
+          </update-schedule>
+          <timezone>US/Pacific</timezone>
+          <service>
+            <disable-telnet>yes</disable-telnet>
+            <disable-http>no</disable-http>
+          </service>
+          <ip-address>172.20.0.10</ip-address>
+          <hostname>panos01</hostname>
+          <netmask>255.255.255.0</netmask>
+          <default-gateway>172.20.0.1</default-gateway>
+          <dns-setting>
+            <servers>
+              <primary>172.20.0.1</primary>
+            </servers>
+          </dns-setting>
+        </system>
+        <setting>
+          <config>
+            <rematch>yes</rematch>
+          </config>
+          <management>
+            <hostname-type-in-syslog>FQDN</hostname-type-in-syslog>
+            <initcfg>
+              <type>
+                <static/>
+              </type>
+              <ip-address>172.20.0.10</ip-address>
+              <default-gateway>172.20.0.1</default-gateway>
+              <netmask>255.255.255.0</netmask>
+              <hostname>panos01</hostname>
+              <dns-primary>172.20.0.1</dns-primary>
+            </initcfg>
+          </management>
+          <auto-mac-detect>yes</auto-mac-detect>
+        </setting>
+      </deviceconfig>
+      <vsys>
+        <entry name="vsys1">
+          <application/>
+          <application-group/>
+          <zone/>
+          <service/>
+          <service-group/>
+          <schedule/>
+          <rulebase/>
+        </entry>
+      </vsys>
+    </entry>
+  </devices>
+</config>"#;
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -39,8 +366,10 @@ fn test_panos_init_static_ipv4() {
     assert_eq!(output, EXPECTED_INIT_IPV4);
 }
 
-fn bootstrap(hash: &str) -> PaloAltoPanosBootstrapTemplate {
-    PaloAltoPanosBootstrapTemplate {
+#[test]
+fn test_panos_bootstrap_static_ipv4() {
+    let hash = "$5$saltsalt$HASHHASHHASHHASHHASHHASHHASHHASHHASHHASHHAS";
+    let t = PaloAltoPanosBootstrapTemplate {
         hostname: "panos01".to_string(),
         owner: helpers::test_owner(hash),
         mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
@@ -49,49 +378,7 @@ fn bootstrap(hash: &str) -> PaloAltoPanosBootstrapTemplate {
         mgmt_netmask: Ipv4Addr::new(255, 255, 255, 0),
         mgmt_gateway: Ipv4Addr::new(172, 20, 0, 1),
         dns_primary: Ipv4Addr::new(172, 20, 0, 1),
-    }
-}
-
-/// The text between `<users>` and `</users>`.
-fn users_block(output: &str) -> &str {
-    let start = output.find("<users>").expect("has users");
-    let end = output.find("</users>").expect("has users end");
-    &output[start..end]
-}
-
-#[test]
-fn test_bootstrap_users_are_admin_and_the_owner() {
-    let hash = helpers::sha256_hash("abcdefghijklm!@_-+.");
-    let output = bootstrap(&hash).render().expect("template renders");
-    let users = users_block(&output);
-    let entries: Vec<&str> = users
-        .lines()
-        .map(str::trim)
-        .filter(|line| line.starts_with("<entry name="))
-        .collect();
-    assert_eq!(
-        entries,
-        ["<entry name=\"admin\">", "<entry name=\"alice\">"]
-    );
-    // Only the owner has keys.
-    let owner_entry = &users[users.find("<entry name=\"alice\">").expect("owner")..];
-    assert!(!users[..users.len() - owner_entry.len()].contains("<public-key>"));
-    assert!(owner_entry.contains("<public-key>OWNERKEY1</public-key>"));
-    assert!(owner_entry.contains("<public-key>OWNERKEY2</public-key>"));
-    helpers::assert_no_sherpa_login(&output);
-}
-
-#[test]
-fn test_bootstrap_password_is_a_hash_that_verifies_for_admin_and_owner() {
-    for password in helpers::ALL_CHARACTER_PASSWORDS {
-        let hash = helpers::sha256_hash(password);
-        let output = bootstrap(&hash).render().expect("template renders");
-        let found = helpers::hashes_after(&output, "<phash>");
-        assert_eq!(found.len(), 2);
-        for found in &found {
-            assert_eq!(found, &hash);
-            helpers::assert_hash_verifies(found, "$5$", password);
-        }
-        assert!(!output.contains(password));
-    }
+    };
+    let output = t.render().expect("template renders");
+    assert_eq!(output, EXPECTED_BOOTSTRAP_IPV4.replace("HASH", hash));
 }

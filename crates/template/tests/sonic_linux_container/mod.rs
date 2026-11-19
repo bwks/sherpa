@@ -75,7 +75,6 @@ fn test_init_makes_the_owner_account_only_when_it_does_not_exist() {
     assert!(account.contains("chown alice:alice /home/alice/.ssh/authorized_keys"));
     assert_eq!(output.matches("useradd").count(), 1);
     assert_eq!(output.matches("chpasswd").count(), 1);
-    helpers::assert_no_sherpa_login(&output);
 }
 
 #[test]

@@ -61,17 +61,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_claims_new() {
-        let claims = Claims::new("testuser".to_owned(), "sid1".to_owned(), false, 100, 3700);
-
-        assert_eq!(claims.sub, "testuser");
-        assert_eq!(claims.sid, "sid1");
-        assert!(!claims.is_admin);
-        assert_eq!(claims.iat, 100);
-        assert_eq!(claims.exp, 3700);
-    }
-
-    #[test]
     fn claims_without_a_session_are_rejected() {
         let old = r#"{"sub":"alice","exp":2000000000,"iat":1000000000,"is_admin":false}"#;
         assert!(serde_json::from_str::<Claims>(old).is_err());

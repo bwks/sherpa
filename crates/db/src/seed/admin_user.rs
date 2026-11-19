@@ -74,24 +74,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_seed_admin_user_creates_when_other_users_exist() -> Result<()> {
+    async fn the_admin_account_is_seeded_even_when_another_admin_exists() -> Result<()> {
         let db = crate::open_in_memory().await?;
         crate::schema::apply_schema(&db).await?;
+        create_user(&db, "alice".to_string(), "AlicePass123!", true, vec![]).await?;
 
-        // Create a regular user first
-        create_user(&db, "alice".to_string(), "AlicePass123!", false, vec![]).await?;
+        assert!(seed_admin_user(&db, "AdminPass123!").await?);
 
-        // Seed admin user should still work (because "admin" doesn't exist)
-        let created = seed_admin_user(&db, "AdminPass123!").await?;
-        assert!(
-            created,
-            "Should create admin user even when other users exist"
+        let mut users: Vec<(String, bool)> = list_users(&db)
+            .await?
+            .into_iter()
+            .map(|user| (user.username, user.is_admin))
+            .collect();
+        users.sort();
+        assert_eq!(
+            users,
+            [("admin".to_string(), true), ("alice".to_string(), true)]
         );
-
-        // Verify admin user was created
-        let admin = get_user(&db, "admin").await?;
-        assert_eq!(admin.username, "admin");
-        assert!(admin.is_admin, "User should have admin privileges");
 
         Ok(())
     }

@@ -68,15 +68,28 @@ LkK3HQdFGQWqVGqfyN5x
 -----END CERTIFICATE-----";
 
     #[test]
-    fn test_load_certificates() {
+    fn every_certificate_of_a_chain_file_is_loaded() {
         let mut cert_file = NamedTempFile::new().unwrap();
-        cert_file.write_all(TEST_CERT_PEM.as_bytes()).unwrap();
-        cert_file.flush().unwrap();
+        writeln!(cert_file, "{TEST_CERT_PEM}\n{TEST_CERT_PEM}").unwrap();
 
-        let result = load_certificates(cert_file.path());
-        assert!(result.is_ok());
+        let certs = load_certificates(cert_file.path()).unwrap();
 
-        let certs = result.unwrap();
-        assert_ne!(certs, [] as [rustls::pki_types::CertificateDer<'_>; 0]);
+        assert_eq!(certs.len(), 2);
+    }
+
+    #[test]
+    fn a_file_without_a_certificate_is_refused() {
+        let mut cert_file = NamedTempFile::new().unwrap();
+        writeln!(cert_file, "not a certificate").unwrap();
+
+        let error = load_certificates(cert_file.path()).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "No certificates found in file: {}",
+                cert_file.path().display()
+            )
+        );
     }
 }

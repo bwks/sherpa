@@ -121,6 +121,7 @@ pub fn send_signal(pid: Pid, signal: Signal) -> Result<()> {
 mod tests {
     use super::*;
     use std::fs;
+    use std::process::Command;
     use tempfile::TempDir;
 
     #[test]
@@ -196,11 +197,14 @@ mod tests {
     }
 
     #[test]
-    fn test_is_process_running() {
-        // Current process should be running
+    fn a_process_is_running_until_it_has_exited() {
         assert!(is_process_running(Pid::this()));
 
-        // PID 99999 should not exist
-        assert!(!is_process_running(Pid::from_raw(99999)));
+        let mut child = Command::new("sleep").arg("60").spawn().unwrap();
+        let pid = Pid::from_raw(i32::try_from(child.id()).unwrap());
+        assert!(is_process_running(pid));
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(!is_process_running(pid));
     }
 }

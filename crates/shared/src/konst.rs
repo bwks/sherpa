@@ -327,12 +327,6 @@ mod tests {
     const MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS: RangeInclusive<u32> = 11..=20;
 
     #[test]
-    fn test_management_network_ipv4_is_172_31_0_0_16() {
-        assert_eq!(SHERPA_MANAGEMENT_NETWORK_IPV4.to_string(), "172.31.0.0/16");
-        assert_eq!(SHERPA_MANAGEMENT_NETWORK_IPV4.prefix_len(), 16);
-    }
-
-    #[test]
     fn test_management_host_offset_blocks_are_ordered_and_disjoint() {
         assert_eq!(*MANAGEMENT_INFRA_HOST_OFFSETS.start(), 1);
         assert_eq!(

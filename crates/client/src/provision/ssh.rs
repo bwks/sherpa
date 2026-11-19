@@ -176,8 +176,6 @@ mod tests {
 
     use topology::ProvisionerFile;
 
-    use crate::provision::remote::shell_quote;
-
     use tempfile::tempdir;
 
     #[test]
@@ -218,11 +216,12 @@ mod tests {
             ..Default::default()
         };
         let (_, env_files, _) = read_client_files(&provisioner, dir.path()).unwrap();
-        // PATH is set on every client platform; HOME is not set on Windows.
-        let path = shell_quote(&env::var("PATH").unwrap());
+        // PATH is set on every client platform, and holds no single quote; HOME is not set on
+        // Windows.
+        let path = env::var("PATH").unwrap();
         assert_eq!(
             String::from_utf8(env_files[0].content.clone()).unwrap(),
-            format!("WHERE={path}\nPATH=$HOME/bin:$PATH\n")
+            format!("WHERE='{path}'\nPATH=$HOME/bin:$PATH\n")
         );
     }
 

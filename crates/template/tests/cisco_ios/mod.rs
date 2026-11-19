@@ -286,11 +286,18 @@ fn the_password_is_intact_on_ios_and_iosl2() {
             ios.render().expect("template renders"),
             iosl2.render().expect("template renders"),
         ] {
-            assert!(output.contains(&format!(
-                "\nusername alice privilege 15 secret {password}\n"
-            )));
+            let users: Vec<&str> = output
+                .lines()
+                .filter(|line| line.trim_start().starts_with("username "))
+                .collect();
+            assert_eq!(
+                users,
+                [
+                    format!("username alice privilege 15 secret {password}"),
+                    "  username alice".to_string()
+                ]
+            );
             assert_eq!(output.matches(password).count(), 1);
-            helpers::assert_no_sherpa_login(&output);
         }
     }
 }

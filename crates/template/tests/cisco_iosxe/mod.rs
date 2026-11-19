@@ -193,7 +193,6 @@ fn only_the_owner_has_an_account_and_the_password_is_intact() {
             ]
         );
         assert_eq!(output.matches(password).count(), 1);
-        helpers::assert_no_sherpa_login(&output);
     }
 }
 

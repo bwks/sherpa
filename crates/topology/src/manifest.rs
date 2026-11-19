@@ -195,14 +195,12 @@ nodes = [
 ]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
-        let set: Vec<Option<Ztp>> = manifest.nodes.iter().map(|node| node.ztp.method).collect();
-        assert_eq!(set, [None, Some(Ztp::Disabled), Some(Ztp::Cdrom)]);
         let expanded: Vec<Option<Ztp>> = manifest
             .nodes
             .iter()
             .map(|node| NodeExpanded::new(1, node).unwrap().ztp.method)
             .collect();
-        assert_eq!(expanded, set);
+        assert_eq!(expanded, [None, Some(Ztp::Disabled), Some(Ztp::Cdrom)]);
     }
 
     #[test]
