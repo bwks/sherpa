@@ -3,8 +3,8 @@
 # Builds the Sherpa dev server: toolchains, the sherpa and sherpa-docs checkouts, and a Sherpa
 # server installed with the checkout's own installer. Runs as the node's login user, the account
 # of the Sherpa user who owns the lab, through the SSH
-# provisioner; safe to run again with `sherpa provision`. Both dev servers, dev and agent-2, run
-# every step.
+# provisioner; safe to run again with `sherpa provision`. Both dev servers, dev01 and dev02, the
+# nodes of lab sherpa-dev, run every step.
 
 set -euo pipefail
 

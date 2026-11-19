@@ -1,29 +1,25 @@
 # Sherpa dev servers
 
-Two long-lived, identical Sherpa servers for development, each built as a lab by the host's
-Sherpa: `dev` and `agent-2`. Each is a full Sherpa server, with `sherpad`, Docker and libvirt,
-toolchains and checkouts, and runs one guest agent on the
-[agent bus](../../../docs/architecture/AGENT_BUS.md). Any task can go to either. Unlike the
-other environments they are not disposable: Sherpa is developed, installed and tested inside
-them with root, without `sudo` on the host. The original design and its decisions are in
-[the investigation note](../../../docs/investigations/sherpa-dev-server.md).
+Two long-lived, identical Sherpa servers for development, the two nodes `dev01` and `dev02` of
+one lab, `sherpa-dev`, built by the host's Sherpa from this directory. Each is a full Sherpa
+server, with `sherpad`, Docker and libvirt, toolchains and checkouts, and runs one guest agent on
+the [agent bus](../../../docs/architecture/AGENT_BUS.md), named as its node. Any task can go to
+either. Unlike the other environments they are not disposable: Sherpa is developed, installed and
+tested inside them with root, without `sudo` on the host. The original design and its decisions
+are in [the investigation note](../../../docs/investigations/sherpa-dev-server.md).
 
-| | dev | agent-2 |
+| | dev01 | dev02 |
 |---|---|---|
-| Directory | `tests/environments/dev` | `tests/environments/agent` |
-| Lab | `sherpa-dev` | `sherpa-agent-2` |
-| Node | `dev` | `agent-2` |
-| Guest agent | `dev01` | `dev02` |
+| Node and guest agent | `dev01` | `dev02` |
 | NUMA node | 1 | 0 |
 | vCPUs on host CPUs | sibling pairs 10/26 to 15/31 | sibling pairs 2/18 to 7/23 |
 | QEMU and disk I/O threads | 9/25 | 1/17 |
 | Left to the host | 8/24 | 0/16 |
 
-The two manifests differ only in those rows. `tests/environments/agent/provision` is a link to
-`../dev/provision`, so both use the same provisioning files: do not move or rename them without
-updating the link.
+The two `[[nodes]]` entries in `manifest.toml` differ only in those rows; both use the same
+provisioning files in `provision/`.
 
-## Node
+## Nodes
 
 | Setting | Value |
 |---|---|
@@ -36,7 +32,7 @@ updating the link.
 
 ## Login account
 
-The node's login is the account of the host Sherpa user who brings the lab up (the lab owner),
+Each node's login is the account of the host Sherpa user who brings the lab up (the lab owner),
 with that user's SSH keys and device password, and not `sherpa`. Its name is
 that Sherpa user's name: nothing in the repository names it. It has passwordless `sudo` and is in
 the `sherpa`, `docker`, `libvirt` and `kvm` groups, so the integration tests and the lab tooling
@@ -58,9 +54,9 @@ anything.
 
 The host has 32 threads in two NUMA nodes: node 0 is CPUs 0–7 and 16–23, node 1 is CPUs 8–15
 and 24–31, where CPU `n` and `n + 16` are the two threads of one core. Each dev server takes one
-node: 12 vCPUs on six whole cores, and one more core for QEMU's emulator and disk I/O threads.
+NUMA node: 12 vCPUs on six whole cores, and one more core for QEMU's emulator and disk I/O threads.
 The node's first core stays with the host, for `sherpad`, libvirt, Docker, the bus container and
-the host agent. The two VMs never share a core, a cache or a memory controller.
+the host agent. The two nodes never share a core, a cache or a memory controller.
 
 Memory prefers the VM's own node (`numa.memory_mode = "preferred"`) and falls back to the other
 node when it is full, rather than the host OOM killer ending the VM (#514), at the cost of slower
@@ -122,7 +118,7 @@ prompts too. Node images are not part of provisioning; [seed them](#seeding-imag
 
 ## Secrets
 
-The manifests name two env files. Each line of the form `KEY=$NAME` is filled in by the CLI from
+The manifest names two env files for each node. Each line of the form `KEY=$NAME` is filled in by the CLI from
 your environment when it provisions, so no secret is in the repository, on a command line or sent
 to the Sherpa server. They land in `~/.env.d/` in the guest, mode `600`. `sherpa up` stops before
 it changes the node if a variable they name is not set.
@@ -162,10 +158,10 @@ cache on the host, or build without it in the guest with `RUSTC_WRAPPER= cargo .
 Put the variables in the environment with a `mise` task that loads them from the secret store,
 rather than typing them.
 
-## Bringing a lab up
+## Bringing the lab up
 
-On the host, bring each lab up from a lab directory outside the repository, linking the manifest
-and the provisioning from the host's checkout (`<repo>` below). For dev:
+On the host, bring the lab up from a lab directory outside the repository, linking the manifest
+and the provisioning from the host's checkout (`<repo>` below):
 
 ```
 mkdir -p ~/labs/sherpa-dev
@@ -178,10 +174,11 @@ sherpa up
 
 `sherpa up` is refused until the lab owner has set a device password, the password of their login
 on the node. `sherpa server user device-password` asks for the Sherpa login password, then the
-device password twice; set it once, not for each lab. For agent-2, the same in
-`~/labs/sherpa-agent-2` with `tests/environments/agent`. Run `sherpa up` with the variables from [Secrets](#secrets) in its environment. A manifest cannot point at
-another directory's provisioning and still be brought up elsewhere: the CLI resolves relative
-paths from the directory `sherpa up` runs in, so the links are what every layout shares.
+device password twice; set it once, not for each lab. Run `sherpa up` with the variables from
+[Secrets](#secrets) in its environment. It builds and provisions both nodes. A manifest cannot
+point at another directory's provisioning and still be brought up elsewhere: the CLI resolves
+relative paths from the directory `sherpa up` runs in, so the links are what every layout
+shares.
 
 `sherpa up` prints nothing until it finishes when run through a `mise` task, because the task's
 output is buffered. Do not stop it: an interrupted `up` leaves a half-created lab that must be
@@ -190,7 +187,7 @@ destroyed first. It writes `.sherpa/lab-info.toml`, `.sherpa/ssh/config` and
 
 ## Connecting
 
-The guest is rebuilt from its manifest, so its address changes with every `sherpa up`: never
+The guests are rebuilt from the manifest, so their addresses change with every `sherpa up`: never
 write it down or hard-code it anywhere, and derive it from the files Sherpa generates for the lab.
 
 `.sherpa/ssh/config` routes through a ProxyJump to the host's Sherpa server. Its alias is
@@ -198,21 +195,23 @@ write it down or hard-code it anywhere, and derive it from the files Sherpa gene
 
 ```
 cd ~/labs/sherpa-dev
-ssh -F .sherpa/ssh/config dev.<lab id>
+ssh -F .sherpa/ssh/config dev01.<lab id>
 ```
 
-For a faster connection, after every `sherpa up` write a direct config from it:
+For a faster connection, after every `sherpa up` or `sherpa redeploy` write a direct config
+from it:
 
 ```
 uv run <repo>/tests/environments/dev/direct_ssh_config.py ~/labs/sherpa-dev
-ssh -F ~/labs/sherpa-dev/.sherpa/ssh/direct_config dev
+ssh -F ~/labs/sherpa-dev/.sherpa/ssh/direct_config dev01
+ssh -F ~/labs/sherpa-dev/.sherpa/ssh/direct_config dev02
 ```
 
-`direct_ssh_config.py` resolves each node from the lab's `.sherpa/ssh/config` and
+`direct_ssh_config.py` resolves both nodes from the lab's `.sherpa/ssh/config` and
 `.sherpa/lab-info.toml`, and writes `.sherpa/ssh/direct_config` with no ProxyJump, the bare node
 name as its alias, and a shared master connection, so each command after the first takes
 milliseconds. The master socket lives in `$XDG_RUNTIME_DIR`. `sherpa destroy` deletes the file
-with `.sherpa/`. Close the master connection with `ssh -F .sherpa/ssh/direct_config -O exit dev`.
+with `.sherpa/`. Close a node's master connection with `ssh -F .sherpa/ssh/direct_config -O exit dev01`.
 
 The node logs in as you, with your own key: Sherpa's config names no key file for it, and
 neither does the direct config, so `ssh` uses your SSH agent or your default key files, as it
@@ -223,11 +222,11 @@ Do not add SSH config to `~/.ssh` or mount the guest on the host; use the genera
 ## Seeding images
 
 Node images are not copied while the lab is built. Once provisioning has finished, copy the
-host's VM images in, on the host:
+host's VM images into each node, on the host:
 
 ```
-<repo>/tests/environments/dev/seed-images.sh ~/labs/sherpa-dev dev
-<repo>/tests/environments/dev/seed-images.sh ~/labs/sherpa-agent-2 agent-2
+<repo>/tests/environments/dev/seed-images.sh ~/labs/sherpa-dev dev01
+<repo>/tests/environments/dev/seed-images.sh ~/labs/sherpa-dev dev02
 ```
 
 For each model and version in [`images.toml`](images.toml), the script asks the guest's server
@@ -277,7 +276,7 @@ container --version <version> --src <archive>`.
 
 Everything runs in the guest, as its login (see [Login account](#login-account)), which has
 passwordless `sudo`. The tools from mise are on the `PATH` of login shells, so run commands
-through one: `ssh -F .sherpa/ssh/direct_config dev 'bash -lc "cargo --version"'`.
+through one: `ssh -F .sherpa/ssh/direct_config dev01 'bash -lc "cargo --version"'`.
 
 - **Code:** the checkouts are `~/code/rust/sherpa` and `~/code/rust/sherpa-docs`. They are the
   only working copies: commit and push from there. Git authenticates through `gh` with
@@ -311,15 +310,15 @@ before a release.
 
 ## Guest agents
 
-Each dev server runs one guest agent, named apart from its node: `dev01` on `dev` and `dev02` on
-`agent-2`. With the bus running, start or restart one from the host with the `agent-bus:agent`
+Each dev server runs one guest agent, named as its node: `dev01` on `dev01` and `dev02` on
+`dev02`. With the bus running, start or restart one from the host with the `agent-bus:agent`
 task described in "Operating it" in the
 [agent bus document](../../../docs/architecture/AGENT_BUS.md#operating-it), giving the lab
-directory, the node and the agent's name:
+directory and the node; the agent's name, an optional third argument, defaults to the node's:
 
 ```
-mise run agent-bus:agent ~/labs/sherpa-dev dev dev01
-mise run agent-bus:agent ~/labs/sherpa-agent-2 agent-2 dev02
+mise run agent-bus:agent ~/labs/sherpa-dev dev01
+mise run agent-bus:agent ~/labs/sherpa-dev dev02
 ```
 
 Give the lab directory as an absolute path, since mise may run the task from another directory.
@@ -339,56 +338,48 @@ checkout; the steps for a rename, and what happens to the old name's history, ar
 
 ### Reaching the bus
 
-The bus is started with `--lab` on dev's lab and listens on one address: dev's management
-gateway (`ipv4_gateway` in dev's `.sherpa/lab-info.toml`), the host's address on dev's lab
-bridge. It changes when dev's lab is brought up again; then run `bus start` and start both
-agents again. agent-2's own default gateway is the host's address on its own bridge, where
-nothing listens on 4222, so its agent connects to dev's gateway address instead. The packets go
-to the host through agent-2's bridge, and because the address belongs to the host they are
-delivered locally, not forwarded between the bridges.
+The bus is started with `--lab` on this lab and listens on one address: the lab's management
+gateway (`ipv4_gateway` in `.sherpa/lab-info.toml`), the host's address on the lab's bridge.
+Both nodes are on that management network, so the gateway is each guest's default gateway and
+both agents reach the bus there. The address changes only when the lab is brought up again;
+then run `bus start` and start both agents again. `sherpa redeploy` keeps the lab and its
+bridge, so the address stays.
 
 The setup script runs `sherpad init` with `SHERPA_MANAGEMENT_PREFIX_IPV4=172.30.0.0/16` and
 `SHERPA_MANAGEMENT_PREFIX_IPV6=fd00:b00a::/48`, so each dev server's lab management ranges are
 outside the host's defaults, `172.31.0.0/16` and `fd00:b00b::/48`. A lab inside a dev server with
-the defaults could be given the same subnet as dev's lab on the host, putting the bus address on
-a bridge inside that dev server. Its agent would then reach its own bridge, get "connection
+the defaults could be given the same subnet as `sherpa-dev` on the host, putting the bus address
+on a bridge inside that dev server. Its agent would then reach its own bridge, get "connection
 refused" and stop. `init` writes the prefixes only with a new config and keeps an existing one,
 so a dev server whose config was written before needs `management_prefix_ipv4` and
 `management_prefix_ipv6` set in `/opt/sherpa/config/sherpa.toml` and a `sherpad` restart.
 
-**Checked:** from `agent-2` in lab `sherpa-agent-2`, on its own bridge, the bus at dev's gateway
-address on port 4222 answered with NATS's `INFO` line, with no firewall change.
-
-To recheck, with the bus running, in agent-2:
-
-```
-timeout 5 bash -c 'exec 3<>/dev/tcp/<bus address>/4222; head -c 4 <&3; echo'
-```
-
-It prints `INFO` when the bus is reachable. If the connection is refused or times out, the
-host's firewall drops input from that bridge to port 4222; it then needs a rule for the bridge,
-or the bus needs to listen on more than one address (see "One lab per bus" in the agent bus
-document).
-
 ## Tearing down
 
-Push any work from the guest first: destroying a lab deletes its checkouts. Then, in its lab
-directory:
+`sherpa destroy` takes both nodes down: push any work from both guests first, since destroying
+the lab deletes their checkouts. Then, in the lab directory:
 
 ```
-ssh -F .sherpa/ssh/direct_config -O exit <node>
+ssh -F .sherpa/ssh/direct_config -O exit dev01
+ssh -F .sherpa/ssh/direct_config -O exit dev02
 sherpa destroy
 ```
+
+To rebuild one node and leave the other running, use `sherpa redeploy -n <node>` instead (see
+[Rebuilding](#rebuilding)).
 
 ## Rebuilding
 
 A guest built before the login moved off `sherpa` cannot be converted: the login is recorded
 for the node only by `sherpa up` and `sherpa redeploy`, which both make a new disk, and setup
-refuses to run there (`sherpa provision` stops at step 1). Rebuild it with `sherpa destroy` and
-`sherpa up`, agent-2 first: the bus listens on dev's lab, so agent-2 can be rebuilt while dev
-keeps working.
+refuses to run there (`sherpa provision` stops at step 1).
 
-Destroying a lab deletes its disk. Copy out first what is worth keeping:
+Rebuild one node with `sherpa redeploy -n dev02` (or `dev01`) in the lab directory: it destroys
+that node and recreates it with a new disk, runs its provisioners again, and leaves the other
+node, the lab and the bus address as they are, so the other guest keeps working. `sherpa destroy`
+and `sherpa up` rebuild both, and move the bus address.
+
+Rebuilding a node deletes its disk. Copy out first what is worth keeping:
 
 - unpushed commits and uncommitted work in both checkouts: push them, or copy patches out;
 - the guest agent's `~/.claude` (memory and session history). Claude Code names its project
@@ -399,14 +390,16 @@ Destroying a lab deletes its disk. Copy out first what is worth keeping:
   the new server;
 - scratch work in the home directory.
 
-Then bring the lab up as in [Bringing a lab up](#bringing-a-lab-up), write the direct config,
-[seed the images](#seeding-images) again and start the guest agent. When dev is rebuilt, the bus
-address moves: run `bus start` and start both agents again (see [Reaching the bus](#reaching-the-bus)).
+Then redeploy the node, or bring the lab up as in [Bringing the lab up](#bringing-the-lab-up),
+write the direct config again, [seed the images](#seeding-images) of each rebuilt node and start
+its guest agent. When the whole lab is rebuilt, the bus address moves: run `bus start` and start
+both agents again (see [Reaching the bus](#reaching-the-bus)).
 
 ## Another dev server
 
 This host has no cores left for a third dev server of this size: each NUMA node holds one, and
 the host keeps one core per node. A third means smaller servers, sharing cores on purpose, or
-another host; decide that before copying a directory. A copy (`cp -a`, which keeps the
-`provision` link) changes the lab name, the node name and the CPU, NUMA and disk I/O pinning (`cpu`, `numa`, `boot_disk`), and the node's
-memory should fit on the NUMA node it prefers.
+another host; decide that first. A third is another `[[nodes]]` entry in `manifest.toml`, a
+copy of one of the two with its own name and its own CPU, NUMA and disk I/O pinning (`cpu`,
+`numa`, `boot_disk`), and its memory should fit on the NUMA node it prefers. Its agent takes
+the node's name.

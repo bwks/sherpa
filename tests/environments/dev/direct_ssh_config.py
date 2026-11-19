@@ -12,10 +12,12 @@ node from that file with `ssh -G`, so it always follows the current lab, and wri
 The paths in it are absolute, as in Sherpa's config, and `sherpa destroy` deletes it with
 `.sherpa/`.
 
-Run it after every `sherpa up`, with the lab directory (default: this script's directory):
+Run it after every `sherpa up` or `sherpa redeploy`, with the lab directory (default: this
+script's directory). It writes one block per node in the lab's manifest:
 
     uv run direct_ssh_config.py ~/labs/sherpa-dev
-    ssh -F ~/labs/sherpa-dev/.sherpa/ssh/direct_config dev
+    ssh -F ~/labs/sherpa-dev/.sherpa/ssh/direct_config dev01
+    ssh -F ~/labs/sherpa-dev/.sherpa/ssh/direct_config dev02
 """
 
 import os
