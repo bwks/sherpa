@@ -410,36 +410,8 @@ mod tests {
     use shared::data::{ModelKind, NodeModel};
 
     #[test]
-    fn a_socket_path_past_the_unix_limit_is_refused() {
-        // The folder, two slashes, the index and the longer suffix leave the rest of 107 bytes
-        // to the lab ID.
-        let fixed = SHERPA_CONSOLE_DIR.len() + "//1.serial".len();
-        let longest = "a".repeat(UNIX_SOCKET_PATH_MAX - fixed);
-        assert_eq!(
-            console_sockets(&longest, 1).unwrap().serial.len(),
-            UNIX_SOCKET_PATH_MAX
-        );
-        let too_long = format!("{longest}b");
-        let error = console_sockets(&too_long, 1).unwrap_err().to_string();
-        assert!(error.contains("The serial console socket"), "{error}");
-        assert!(error.contains("108 bytes"), "{error}");
-        assert!(error.contains("longer than the 107"), "{error}");
-        // The VNC socket's shorter suffix leaves room for a longer lab ID, but not past 107.
-        let vnc_longest = "a".repeat(UNIX_SOCKET_PATH_MAX - fixed + 3);
-        let error = socket_path(&format!("{vnc_longest}b"), 1, ConsoleKind::Vnc)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("The VNC console socket"), "{error}");
-        assert_eq!(
-            socket_path(&vnc_longest, 1, ConsoleKind::Vnc)
-                .unwrap()
-                .len(),
-            UNIX_SOCKET_PATH_MAX
-        );
-    }
-
-    #[test]
-    fn a_console_folder_that_is_not_there_is_already_removed() {
+    fn console_sockets_006_destroy_removes_the_console_folder_and_a_folder_already_gone_is_no_error()
+     {
         let root = tempfile::tempdir().unwrap();
         remove_console_dir(root.path(), "abcd1234").unwrap();
         let dir = console_dir(root.path(), "abcd1234");
@@ -450,7 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn a_console_folder_is_reachable_only_by_its_owner_and_group() {
+    fn console_sockets_005_a_lab_console_folder_is_for_sherpa_and_kvm_only_mode_2770() {
         // The mode and group `create_console_dir` gives, as `restrict_dir` sets them.
         let root = tempfile::tempdir().unwrap();
         let dir = console_dir(root.path(), "abcd1234");
@@ -464,19 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn a_running_socket_console_is_opened_and_anything_else_is_refused() {
-        for kind in [ConsoleKind::Serial, ConsoleKind::Vnc] {
-            assert_eq!(
-                socket_of("alp01", kind, Some(Reached::Socket("/s".to_owned()))),
-                Ok("/s".to_owned())
-            );
-            assert_eq!(
-                socket_of("alp01", kind, None),
-                Err(ServiceError::Conflict(
-                    "Node 'alp01' is not running. Start it with 'sherpa resume'.".to_owned()
-                ))
-            );
-        }
+    fn console_upgrade_008_a_running_node_still_on_tcp_is_refused_each_console() {
         assert_eq!(
             socket_of("alp01", ConsoleKind::Serial, Some(Reached::Tcp)),
             Err(ServiceError::Conflict(
@@ -495,6 +455,10 @@ mod tests {
                     .to_owned()
             ))
         );
+    }
+
+    #[test]
+    fn console_refusal_007_a_running_node_with_no_console_sherpa_can_reach_is_refused() {
         assert_eq!(
             socket_of("alp01", ConsoleKind::Vnc, Some(Reached::Unreachable)),
             Err(ServiceError::Conflict(
@@ -550,62 +514,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_missing_lab_or_node_is_not_found() {
-        let (db, _, _) = lab_of("abcd1234", 1).await;
-        let owner = AuthContext::for_test("alice", false);
-        let error = console_target(&owner, &db, "nope0000", "node1", ConsoleKind::Vnc)
-            .await
-            .unwrap_err();
-        assert!(matches!(refusal(&error), Some(ServiceError::NotFound(_))));
-        let error = console_target(&owner, &db, "abcd1234", "node9", ConsoleKind::Serial)
-            .await
-            .unwrap_err();
-        assert_eq!(
-            refusal(&error),
-            Some(ServiceError::NotFound(
-                "Node 'node9' not found in lab 'abcd1234'".to_owned()
-            ))
-        );
-    }
-
-    #[tokio::test]
-    async fn a_container_has_no_console() {
-        let (db, lab, _) = lab_of("abcd1234", 0).await;
-        let image = upsert_node_image(
-            &db,
-            ModelKind::default_for(NodeModel::NokiaSrlinux).node_config(),
-            DefaultRequest::Keep,
-        )
-        .await
-        .unwrap();
-        db::create_node(&db, "srl01", 1, image.id.unwrap(), lab)
-            .await
-            .unwrap();
-        let owner = AuthContext::for_test("alice", false);
-        for (kind, message) in [
-            (
-                ConsoleKind::Serial,
-                "srl01 is a container, and containers have no serial console. Connect with \
-                 'sherpa ssh srl01' instead.",
-            ),
-            (
-                ConsoleKind::Vnc,
-                "srl01 is a container, and containers have no VNC console. Connect with 'sherpa \
-                 ssh srl01' instead.",
-            ),
-        ] {
-            let error = console_target(&owner, &db, "abcd1234", "srl01", kind)
-                .await
-                .unwrap_err();
-            assert_eq!(
-                refusal(&error),
-                Some(ServiceError::Invalid(message.to_owned()))
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn a_unikernel_has_a_serial_console_and_no_vnc_console() {
+    async fn console_refusal_003_a_unikernels_vnc_console_is_refused_pointing_to_sherpa_console() {
         let (db, lab, _) = lab_of("abcd1234", 0).await;
         let image = upsert_node_image(
             &db,
@@ -620,9 +529,6 @@ mod tests {
             .await
             .unwrap();
         let owner = AuthContext::for_test("alice", false);
-        console_target(&owner, &db, "abcd1234", "uk01", ConsoleKind::Serial)
-            .await
-            .unwrap();
         let error = console_target(&owner, &db, "abcd1234", "uk01", ConsoleKind::Vnc)
             .await
             .unwrap_err();

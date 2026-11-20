@@ -1928,23 +1928,23 @@ socket's folder and the owner-only route are what keep it to the owner.
 - `libvirt::console` and `libvirt::vnc`: each rewrite (TCP to socket with every other byte the
   same, already on a socket, no device, children and end tags, an escaped path, XML not well
   formed), both in one definition, and reading the serial device and the VNC graphics.
-- `services::console`: the socket paths and their length limit, the folder's mode and group, its
-  removal, the owner-only rule for both consoles as the owner, an admin and another user against
-  an in-memory database, a missing lab or node, a container, a unikernel's VNC, and each refusal
-  of a domain's console.
+- `services::console`: the folder's mode and group, its removal, the owner-only rule for both
+  consoles as the owner, an admin and another user against an in-memory database, a unikernel's
+  VNC, and the refusals of a console still on TCP and of one Sherpa cannot reach.
 - `daemon::console_sessions`: one session per console, a node's serial and VNC consoles held
   apart, `force` taking over the owner's own session and not another user's, and how a holder is
   named. `api::handlers::console`: the close frames, the in-use message of each kind, and a
   check's answer naming the holder without claiming.
-- `crates/server/tests/integration/lab_authorization.rs`,
-  `a_console_check_refuses_as_opening_the_console_does` (`#[ignore]`, libvirt): `?check=true` on
-  both routes, against the server's router, refused with no token (401), to another user and to
-  an admin (403), for a container (400), a node not running (409) and one that does not exist
-  (404); without `check`, a request that is no upgrade gets 400. A running node's `200` and a
-  node still on TCP need a running domain; they are covered by the unit tests of `check_answer`
-  and `socket_of`, and end to end by the console lab test.
-- `crates/libvirt/tests/console_socket.rs` (`#[ignore]`, root, run by the VM release suite): a
-  domain with a TCP console and a VNC port moved to its sockets and started, nothing listening on
+- `crates/server/tests/integration/lab_authorization.rs`, `console_access_003`,
+  `console_refusal_004`, `005` and `006` (`#[ignore]`, libvirt): `?check=true` on both routes,
+  against the server's router, refused with no token (401), for a node not running (409) and for
+  a lab or a node that does not exist (404); without `check`, a request that is no upgrade gets
+  400. Another user, an admin and a container are refused end to end by the console and
+  owner-login lab tests. A running node's `200` and a node still on TCP need a running domain;
+  they are covered by the unit tests of `check_answer` and `socket_of`.
+- `crates/libvirt/tests/console_socket.rs` (`#[ignore]`, root, run by the VM release suite), each
+  test with its own domain: a domain with a TCP console and a VNC port moved to its sockets and
+  started, nothing listening on
   `127.127.0.0/16` or 5900 to 6999, `sherpa` opening both sockets and an account in no groups
   refused.
 - `tests/labs/console/`: end to end through the CLI, `sherpa console` and `sherpa vnc`.

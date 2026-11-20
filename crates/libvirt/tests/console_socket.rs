@@ -2,11 +2,10 @@
 //! and remove an OS account and run commands as other accounts), a libvirt daemon with KVM, the
 //! installed `sherpa` account and `/usr/bin/python3`, so it runs in the VM release suite.
 //!
-//! A domain defined as Sherpa defined them before, with a telnet console and VNC on TCP, is moved
-//! to its sockets by the code `resume` and sherpad's startup use, in a folder made as sherpad
-//! makes a lab's (`sherpa:kvm`, mode 2770, under `/opt/sherpa/run/console`), and started. Then
-//! nothing listens on the loopback block the consoles used nor on the VNC ports, `sherpa` opens
-//! both sockets, and an OS account in no groups cannot.
+//! Each test defines a domain as Sherpa defined them before, with a telnet console and VNC on TCP,
+//! moves it to its sockets by the code `resume` and sherpad's startup use, in a folder made as
+//! sherpad makes a lab's (`sherpa:kvm`, mode 2770, under `/opt/sherpa/run/console`), and starts
+//! it. Each test has its own lab ID, so its domain and folder are its own.
 
 use std::fs;
 use std::net::Ipv4Addr;
@@ -20,13 +19,8 @@ use libvirt::{
     vnc_console,
 };
 
-/// sherpad's console folder, the lab console folder it would make for lab `t674host`, and that
-/// lab's node 1's socket.
+/// sherpad's console folder.
 const CONSOLE_ROOT: &str = "/opt/sherpa/run/console";
-const CONSOLE_DIR: &str = "/opt/sherpa/run/console/t674host";
-const SOCKET: &str = "/opt/sherpa/run/console/t674host/1.serial";
-const VNC_SOCKET: &str = "/opt/sherpa/run/console/t674host/1.vnc";
-const DOMAIN: &str = "sherpa-test-console-socket";
 /// An OS account the test adds in no group but `nogroup`, and removes.
 const OTHER_ACCOUNT: &str = "sherpa-t674-other";
 /// The loopback block the telnet consoles listened in, `127.127.0.0/16`.
@@ -38,46 +32,93 @@ const TCP_LISTEN: &str = "0A";
 /// Connects to the UNIX socket named by its first argument; fails with the error if it cannot.
 const CONNECT: &str = "import socket, sys; socket.socket(socket.AF_UNIX).connect(sys.argv[1])";
 
-/// Removes what the test made, however it ends.
-struct Cleanup;
+/// A test's lab: its console folder, node 1's sockets and the domain, all named by the lab ID.
+/// Dropping it removes the domain and the folder, however the test ends.
+struct TestLab {
+    dir: String,
+    sockets: ConsoleSockets,
+    domain: String,
+}
 
-impl Drop for Cleanup {
+/// Removes the OS account [`OTHER_ACCOUNT`], however the test ends.
+struct OtherAccount;
+
+impl TestLab {
+    /// A lab named by `lab_id`, with nothing of it left from an earlier run.
+    fn new(conn: &Connect, lab_id: &str) -> Self {
+        let dir = format!("{CONSOLE_ROOT}/{lab_id}");
+        let lab = Self {
+            sockets: ConsoleSockets {
+                serial: format!("{dir}/1.serial"),
+                vnc: format!("{dir}/1.vnc"),
+            },
+            domain: format!("sherpa-test-console-{lab_id}"),
+            dir,
+        };
+        remove_domain(conn, &lab.domain);
+        lab
+    }
+
+    /// Makes the lab's console folder, defines the domain with its consoles on TCP and returns it.
+    fn define(&self, conn: &Connect) -> Domain {
+        make_console_dir(&self.dir);
+        Domain::define_xml(conn, &tcp_console_domain(&self.domain)).expect("defines the domain")
+    }
+
+    /// Defines the domain, moves its consoles to their sockets and starts it.
+    fn start_moved(&self, conn: &Connect) {
+        let domain = self.define(conn);
+        move_consoles_to_sockets(conn, &self.domain, &self.sockets).expect("moves the consoles");
+        domain.create().expect("starts the domain");
+    }
+}
+
+impl Drop for TestLab {
     fn drop(&mut self) {
         if let Ok(conn) = Qemu::default().connect() {
-            remove_domain(&conn);
+            remove_domain(&conn, &self.domain);
         }
+        let _ = fs::remove_dir_all(&self.dir);
+    }
+}
+
+impl Drop for OtherAccount {
+    fn drop(&mut self) {
         // The account may not exist; the test checks nothing about removing it.
         let _ = Command::new("userdel").arg(OTHER_ACCOUNT).output();
-        let _ = fs::remove_dir_all(CONSOLE_DIR);
     }
 }
 
 #[test]
 #[ignore = "requires root, a libvirt daemon with KVM, the sherpa account and /usr/bin/python3"]
-fn a_console_socket_is_reached_by_sherpa_and_by_no_account_in_no_group() {
-    let _cleanup = Cleanup;
+fn console_upgrade_009_a_domain_moved_then_started_runs_with_both_consoles_on_its_sockets() {
     let conn = Qemu::default().connect().expect("connects to libvirt");
-    remove_domain(&conn);
-    let _ = Command::new("userdel").arg(OTHER_ACCOUNT).output();
-
-    make_console_dir();
-    let path = SOCKET.to_owned();
-    let sockets = ConsoleSockets {
-        serial: path.clone(),
-        vnc: VNC_SOCKET.to_owned(),
-    };
-    let domain = Domain::define_xml(&conn, &tcp_console_domain()).expect("defines the domain");
-    assert!(move_consoles_to_sockets(&conn, DOMAIN, &sockets).expect("moves the consoles"));
-    assert!(!move_consoles_to_sockets(&conn, DOMAIN, &sockets).expect("reads the domain again"));
+    let lab = TestLab::new(&conn, "t674upgr");
+    let domain = lab.define(&conn);
+    assert!(
+        move_consoles_to_sockets(&conn, &lab.domain, &lab.sockets).expect("moves the consoles")
+    );
+    assert!(
+        !move_consoles_to_sockets(&conn, &lab.domain, &lab.sockets)
+            .expect("reads the domain again")
+    );
     domain.create().expect("starts the domain");
     assert_eq!(
-        serial_console(&conn, DOMAIN).expect("reads the running domain"),
-        Some(SerialConsole::Socket(path.clone()))
+        serial_console(&conn, &lab.domain).expect("reads the running domain"),
+        Some(SerialConsole::Socket(lab.sockets.serial.clone()))
     );
     assert_eq!(
-        vnc_console(&conn, DOMAIN).expect("reads the running domain"),
-        Some(VncConsole::Socket(VNC_SOCKET.to_owned()))
+        vnc_console(&conn, &lab.domain).expect("reads the running domain"),
+        Some(VncConsole::Socket(lab.sockets.vnc.clone()))
     );
+}
+
+#[test]
+#[ignore = "requires root, a libvirt daemon with KVM, the sherpa account and /usr/bin/python3"]
+fn console_sockets_002_a_running_nodes_consoles_listen_on_no_tcp_port() {
+    let conn = Qemu::default().connect().expect("connects to libvirt");
+    let lab = TestLab::new(&conn, "t674ntcp");
+    lab.start_moved(&conn);
 
     let table = fs::read_to_string("/proc/net/tcp").expect("reads the TCP sockets");
     let listening = loopback_console_listeners(&table);
@@ -90,8 +131,19 @@ fn a_console_socket_is_reached_by_sherpa_and_by_no_account_in_no_group() {
         vnc_ports.is_empty(),
         "listening on VNC ports: {vnc_ports:?}"
     );
+}
 
-    for socket in [path.as_str(), VNC_SOCKET] {
+#[test]
+#[ignore = "requires root, a libvirt daemon with KVM, the sherpa account and /usr/bin/python3"]
+fn console_sockets_001_sherpa_opens_both_sockets_and_an_account_in_neither_group_is_refused() {
+    let _account = OtherAccount;
+    let conn = Qemu::default().connect().expect("connects to libvirt");
+    let lab = TestLab::new(&conn, "t674perm");
+    let _ = Command::new("userdel").arg(OTHER_ACCOUNT).output();
+    lab.start_moved(&conn);
+
+    let sockets = [lab.sockets.serial.as_str(), lab.sockets.vnc.as_str()];
+    for socket in sockets {
         let sherpa = run_as(
             &["--reuid=sherpa", "--regid=sherpa", "--init-groups"],
             socket,
@@ -116,7 +168,7 @@ fn a_console_socket_is_reached_by_sherpa_and_by_no_account_in_no_group() {
         .expect("runs useradd");
     assert!(added.status.success(), "{added:?}");
     let reuid = format!("--reuid={OTHER_ACCOUNT}");
-    for socket in [path.as_str(), VNC_SOCKET] {
+    for socket in sockets {
         let other = run_as(&[&reuid, "--regid=nogroup", "--clear-groups"], socket);
         let refusal = String::from_utf8_lossy(&other.stderr);
         assert!(!other.status.success(), "{OTHER_ACCOUNT} opened {socket}");
@@ -124,11 +176,11 @@ fn a_console_socket_is_reached_by_sherpa_and_by_no_account_in_no_group() {
     }
 }
 
-/// The lab's console folder, and the folder above it, as sherpad makes them: `sherpa:kvm`, modes
-/// 2750 and 2770. The folder above is made as sherpad would, so a test run before sherpad's
+/// The lab's console folder `dir`, and the folder above it, as sherpad makes them: `sherpa:kvm`,
+/// modes 2750 and 2770. The folder above is made as sherpad would, so a test run before sherpad's
 /// first start does not leave it to root.
-fn make_console_dir() {
-    for (mode, dir) in [("2750", CONSOLE_ROOT), ("2770", CONSOLE_DIR)] {
+fn make_console_dir(dir: &str) {
+    for (mode, dir) in [("2750", CONSOLE_ROOT), ("2770", dir)] {
         let status = Command::new("install")
             .args(["-d", "-o", "sherpa", "-g", "kvm", "-m", mode, dir])
             .status()
@@ -139,9 +191,9 @@ fn make_console_dir() {
 
 /// A 64 MiB domain with no disks, a telnet console and VNC on TCP, as Sherpa defined domains
 /// before consoles moved behind sherpad.
-fn tcp_console_domain() -> String {
+fn tcp_console_domain(name: &str) -> String {
     format!(
-        "<domain type='kvm'><name>{DOMAIN}</name><memory unit='MiB'>64</memory><vcpu>1</vcpu>\
+        "<domain type='kvm'><name>{name}</name><memory unit='MiB'>64</memory><vcpu>1</vcpu>\
          <os><type arch='x86_64'>hvm</type></os><devices>\
          <serial type='tcp'><source mode='bind' host='127.127.250.1' service='2323'/>\
          <protocol type='telnet'/><target port='0'/></serial>\
@@ -161,9 +213,9 @@ fn run_as(identity: &[&str], path: &str) -> Output {
         .expect("runs setpriv")
 }
 
-/// Stop and remove the test domain, if it is there.
-fn remove_domain(conn: &Connect) {
-    if let Ok(domain) = Domain::lookup_by_name(conn, DOMAIN) {
+/// Stop and remove the test domain `name`, if it is there.
+fn remove_domain(conn: &Connect, name: &str) {
+    if let Ok(domain) = Domain::lookup_by_name(conn, name) {
         let _ = domain.destroy();
         let _ = domain.undefine();
     }

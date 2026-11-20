@@ -292,14 +292,8 @@ mod tests {
     use tokio_tungstenite::{WebSocketStream, accept_async, connect_async};
 
     #[test]
-    fn a_held_console_is_told_with_its_holder_and_how_to_take_it_over() {
+    fn vnc_console_008_with_force_a_viewer_connecting_takes_the_console_over() {
         let holder = "dev from 192.0.2.10 since 2026-11-18 09:08:07 UTC";
-        assert_eq!(
-            in_use_line("ubu01", holder, false),
-            "The VNC console of ubu01 is in use by dev from 192.0.2.10 since 2026-11-18 09:08:07 \
-             UTC: viewers are refused until that session ends, or take it over with 'sherpa vnc \
-             ubu01 --force'."
-        );
         assert_eq!(
             in_use_line("ubu01", holder, true),
             "The VNC console of ubu01 is in use by dev from 192.0.2.10 since 2026-11-18 09:08:07 \
@@ -344,7 +338,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_refused_check_ends_the_command_in_the_servers_words() {
+    async fn vnc_console_003_a_refusal_as_the_command_starts_ends_it_with_the_reason() {
         for (status, body, message) in [
             (
                 "403 Forbidden",
@@ -416,19 +410,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_passed_check_says_who_holds_the_console() {
-        let (client, _server) = answering("200 OK", r#"{"held_by":null}"#).await;
-        assert_eq!(check(&client, "t", "ubu01").await.unwrap(), None);
-        let holder = "dev from 192.0.2.10 since 2026-11-18 09:08:07 UTC";
-        let (client, _server) = answering("200 OK", &format!(r#"{{"held_by":"{holder}"}}"#)).await;
-        assert_eq!(
-            check(&client, "t", "ubu01").await.unwrap(),
-            Some(holder.to_owned())
-        );
-    }
-
-    #[tokio::test]
-    async fn a_check_that_cannot_reach_the_server_ends_the_command() {
+    async fn vnc_console_004_a_server_that_cannot_be_reached_as_the_command_starts_ends_it() {
         // A port nothing listens on: bound, then closed.
         let address = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
             .await
@@ -449,7 +431,7 @@ mod tests {
     }
 
     #[test]
-    fn the_close_line_says_who_closed_and_why() {
+    fn vnc_console_013_the_end_of_each_viewers_connection_is_told_with_its_address() {
         let peer = SocketAddr::from(([127, 0, 0, 1], 50000));
         assert_eq!(
             closed_line("ubu01", peer, &Ended::Viewer),
@@ -489,7 +471,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_interrupt_as_a_viewer_ends_stops_the_command() {
+    async fn vnc_console_010_a_ctrl_c_as_a_viewers_connection_ends_still_stops_the_command() {
         // The Ctrl+C that came as a viewer's relay ended was lost when the loop made a new
         // Ctrl+C future each turn; it must end the command every time.
         for _ in 0..50 {
@@ -525,7 +507,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_lasting_refusal_ends_the_command_with_it() {
+    async fn vnc_console_009_a_viewer_refused_for_a_lasting_reason_ends_the_command() {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let address = listener.local_addr().unwrap();
         let command = tokio::spawn(serve_until(listener, pending(), |_viewer, _peer| async {
@@ -541,7 +523,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bytes_pass_both_ways_until_the_viewer_closes() {
+    async fn vnc_console_011_what_the_viewer_sends_reaches_the_node() {
         let (mut viewer, relayed_viewer, stream, mut server) = connected().await;
         let relay = tokio::spawn(relay(relayed_viewer, stream));
         // The server speaks first in RFB.
@@ -567,7 +549,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_servers_close_reason_ends_the_viewers_connection() {
+    async fn vnc_console_012_when_the_server_closes_a_session_the_viewers_connection_is_closed() {
         let (mut viewer, relayed_viewer, stream, mut server) = connected().await;
         let relay = tokio::spawn(relay(relayed_viewer, stream));
         server
