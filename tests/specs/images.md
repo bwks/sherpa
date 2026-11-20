@@ -1,6 +1,6 @@
 # Images
 
-What Sherpa does with images themselves: importing and uploading VM and unikernel disk images, downloading a VM image, pulling container images, scanning for images that are on the server but not recorded, the default version of each model and kind, listing, showing, editing and deleting images, who may do each, and which image up and redeploy give a node. How a node boots from its image is in [nodes](nodes.md); the lab-level refusal of a lab whose image is missing is `lab_preflight_001` in [lab lifecycle](lab-lifecycle.md); which kinds a model takes, an image's ZTP setting, and the install and update scripts have their own specs.
+What Sherpa does with images themselves: importing and uploading VM and unikernel disk images, downloading a VM image, pulling container images, scanning for images that are on the server but not recorded, the default version of each model and kind, listing, showing, editing and deleting images, who may do each, and which image up and redeploy give a node. How a node boots from its image is in [nodes](nodes.md); the lab-level refusal of a lab whose image is missing is `lab_preflight_001` in [lab lifecycle](lab-lifecycle.md); which kinds a model takes, an image's ZTP setting, and the install and update scripts, with the move of a renamed model's image folders after an update, have their own specs.
 
 An image is a model, a kind (virtual machine, container or unikernel) and a version.
 
@@ -8,8 +8,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `image_import`: an imported disk image is on the server whole, or not at all
 
-**Statement:** importing or uploading an image puts the whole file on the server and records it, or leaves the server as it was.
-**Relied on by:** the admin, every lab built from the image. **Priority:** P0.
+**Statement:** importing or uploading an image puts the whole file on the server and records it under a version that is a plain name, never a path, or leaves the server as it was.
+**Relied on by:** the admin, every lab built from the image, the server's files outside the images directory. **Priority:** P0.
 
 | Case | What it shows | Level |
 |---|---|---|
@@ -33,6 +33,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 018 | An upload without a kind takes the model's default kind, and with one takes that kind | unit |
 | 019 | The upload page offers each model its kinds with its default chosen, and asks for a kind where the model has no default | unit |
 | 020 | An image imported with `sherpa server image import` is listed, and a lab comes up from it (no test yet) | e2e |
+| 021 | A version is 1 to 64 letters, digits, `.`, `_`, `+` or `-`, starting with a letter or digit: versions vendors use, such as `24.4`, `9-23-1` and `26.2R1.7-EVO`, are taken | unit |
+| 022 | An empty version, one over 64 characters, one starting with another character, and one with `/`, `..` or any other character is refused, so a version is never a path | unit |
+| 023 | Import, pull, download and delete refuse such a version before they touch a file, Docker or the database (no test yet) | integration |
 
 ## `image_download`: a VM image is downloaded whole from a URL
 
@@ -141,17 +144,6 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 017 | Operations on one image version run one at a time, and another version is not held up | unit |
 | 018 | An up whose image was deleted before it built anything is refused, with nothing created (no test yet) | integration |
 
-## `image_version`: an image version is a plain name
-
-**Statement:** an image version is 1 to 64 letters, digits, `.`, `_`, `+` or `-`, starting with a letter or digit, so it is never a path.
-**Relied on by:** the admin, the server's files outside the images directory. **Priority:** P1.
-
-| Case | What it shows | Level |
-|---|---|---|
-| 001 | Versions vendors use, such as `24.4`, `9-23-1` and `26.2R1.7-EVO`, are taken | unit |
-| 002 | An empty version, one over 64 characters, one starting with another character, and one with `/`, `..` or any other character is refused | unit |
-| 003 | Import, pull, download and delete refuse such a version before they touch a file, Docker or the database (no test yet) | integration |
-
 ## `image_list`: list and show report the recorded images
 
 **Statement:** list and show report the recorded images, each named by its model, kind and version.
@@ -228,19 +220,3 @@ The ZTP setting of an image, and which methods a model and kind take, belong to 
 | 002 | Scan, import, upload, pull, download, delete and set-default are refused to a user who is not an admin, over RPC and HTTP | integration |
 | 003 | The admin image pages are refused to a user who is not an admin (no test with its ID yet; `admin_pages_are_refused_to_others_and_served_to_admins` covers them) | integration |
 | 004 | A user who is not an admin runs `sherpa image list` and `sherpa image show`, and is refused `sherpa server image` commands that change images (no test yet) | e2e |
-
-## `image_folder_rename`: images of renamed models are found under the new names
-
-**Statement:** after an update that renamed models, each image is under its model's new name, and every existing lab disk still finds its base.
-**Relied on by:** the admin who updates a server, labs created before the update. **Priority:** P2.
-
-| Case | What it shows | Level |
-|---|---|---|
-| 001 | A folder no lab disk uses is moved to the new name, with nothing left at the old one | unit |
-| 002 | A folder a lab disk is built on is moved, and the old name links to it until no disk uses it | unit |
-| 003 | A lab disk built on another model's image does not keep a link | unit |
-| 004 | Each old folder moves to its own new name, and only the one a disk uses is linked | unit |
-| 005 | Two old models that became one have their folders merged into its folder | unit |
-| 006 | A file the new folder already has is left in the old folder, and nothing is replaced | unit |
-| 007 | When the lab disks cannot be read, every moved folder keeps a link | unit |
-| 008 | A server with nothing to move is left as it was | unit |

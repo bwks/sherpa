@@ -21,7 +21,7 @@ One file per area a user sees, flat in this folder.
 | Client lab files and secrets | [client-lab-files.md](client-lab-files.md) | lab folder, SSH config, known hosts, kubeconfig and other secret files, how the CLI reaches nodes (only `ssh_access` written so far) |
 | Tailnet | not yet written | Tailscale gateway, enrollment, routes |
 | Talos | not yet written | Talos clusters, Cilium, OIDC, Vault |
-| Install and update | not yet written | install, update and uninstall scripts |
+| Install and update | not yet written | install, update and uninstall scripts, database migrations, image folders of renamed models after an update |
 | Manifests | not yet written | manifest parsing and validation, which kinds a model takes and which settings a kind takes |
 | Inspect and web UI | not yet written | what Sherpa shows about labs and nodes |
 
