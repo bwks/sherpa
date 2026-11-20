@@ -53,32 +53,3 @@ impl fmt::Display for LinkReport {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_report_reads_as_its_state() {
-        let report = |state| LinkReport {
-            link: "vm1::eth1 <-> vm2::eth1".to_string(),
-            state,
-        };
-        assert_eq!(
-            report(LinkState::PeerDown {
-                peer: "vm2".to_string()
-            })
-            .to_string(),
-            "link vm1::eth1 <-> vm2::eth1 not attached: vm2 is down; it is attached when vm2 starts"
-        );
-        let failed = report(LinkState::Failed {
-            reason: "no tap".to_string(),
-        });
-        assert!(failed.failed());
-        assert_eq!(
-            failed.to_string(),
-            "link vm1::eth1 <-> vm2::eth1 not attached: no tap"
-        );
-        assert!(!report(LinkState::Attached).failed());
-    }
-}

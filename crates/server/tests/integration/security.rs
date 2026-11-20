@@ -467,7 +467,7 @@ async fn the_server_never_reads_a_file_a_manifest_names() -> Result<()> {
 // ── Impairment requests ──
 
 #[tokio::test]
-async fn out_of_range_impairment_numbers_are_refused_not_wrapped() -> Result<()> {
+async fn link_impair_010_a_number_too_large_for_its_field_is_refused_not_wrapped() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = user_token(&server, &mut ws, "alice", false).await?;

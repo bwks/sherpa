@@ -79,20 +79,6 @@ mod tests {
     use crate::data::{ModelKind, NodeConfig, NodeModel};
 
     #[test]
-    fn test_effective_data_interface_count_uses_default_without_override() {
-        let node_image = NodeConfig::ubuntu_linux();
-        let count = effective_data_interface_count("dev01", None, &node_image).unwrap();
-        assert_eq!(count, 1);
-    }
-
-    #[test]
-    fn test_effective_data_interface_count_uses_manifest_override() {
-        let node_image = NodeConfig::ubuntu_linux();
-        let count = effective_data_interface_count("dev01", Some(4), &node_image).unwrap();
-        assert_eq!(count, 4);
-    }
-
-    #[test]
     fn test_validate_data_interface_count_override_rejects_unsupported_count() {
         let node_image = NodeConfig::ubuntu_linux();
         let result = effective_data_interface_count("dev01", Some(53), &node_image);

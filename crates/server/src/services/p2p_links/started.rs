@@ -74,7 +74,7 @@ pub(crate) async fn follow_started_links(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use shared::data::ReadyCheck;
 
@@ -88,7 +88,7 @@ mod tests {
         RecordId::new("node", name)
     }
 
-    fn ids(names: &[&str]) -> HashSet<RecordId> {
+    pub(crate) fn ids(names: &[&str]) -> HashSet<RecordId> {
         names.iter().map(|name| id(name)).collect()
     }
 
@@ -130,7 +130,7 @@ mod tests {
 
     /// vm1 linked to ctr1 (0) and vm2 linked to ctr2 (1), every end made and wired, with
     /// carrier.
-    fn lab() -> (FakeHost, LabLinks) {
+    pub(crate) fn lab() -> (FakeHost, LabLinks) {
         let nodes = ["vm1", "ctr1", "vm2", "ctr2"].map(node);
         let kinds = HashMap::from([
             (id("vm1"), NodeKind::VirtualMachine),
@@ -156,7 +156,7 @@ mod tests {
     }
 
     /// What the runtimes report when the nodes in `running` run and the others are paused.
-    fn runtimes(running: &[&str]) -> Runtimes {
+    pub(crate) fn runtimes(running: &[&str]) -> Runtimes {
         let state = |name: &str| {
             if running.contains(&name) {
                 ContainerStateStatusEnum::RUNNING
@@ -215,7 +215,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_unpaused_container_gives_its_vm_peer_carrier_at_once() {
+    async fn link_carrier_020_an_unpaused_container_gives_its_vm_peer_carrier_at_once() {
         // `sherpa down -n ctr1` paused the container, and a scan took vm1's link down.
         let (host, lab) = lab();
         let link_states = LinkStates::default();
@@ -251,129 +251,111 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_node_started_while_its_peer_is_down_leaves_its_link_down() {
-        // `sherpa down`: vm1 shut off, ctr1 paused. The scan names vm1 and takes ctr1's end down.
-        let (host, lab) = lab();
-        host.remove(&["tpa0"]);
-        let link_states = LinkStates::default();
-        let writes = scan(&host, &lab, &ids(&["vm2", "ctr2"]), &link_states).await;
-        assert_eq!(writes, vec![(EndDevice::Veth("tpb0".to_string()), false)]);
+    async fn link_carrier_012_a_resume_decides_only_the_links_of_the_nodes_it_started() {
+        {
+            // `sherpa down`: vm1 shut off, ctr1 paused. The scan names vm1 and takes ctr1's end down.
+            let (host, lab) = lab();
+            host.remove(&["tpa0"]);
+            let link_states = LinkStates::default();
+            let writes = scan(&host, &lab, &ids(&["vm2", "ctr2"]), &link_states).await;
+            assert_eq!(writes, vec![(EndDevice::Veth("tpb0".to_string()), false)]);
 
-        // `sherpa resume -n ctr1`: vm1 is still off, so the state is the same and nothing moves.
-        let states = follow_started_links(
-            &host,
-            &lab,
-            &ids(&["ctr1"]),
-            &runtimes(&["ctr1", "vm2", "ctr2"]),
-            &link_states,
-        )
-        .await;
-        assert_eq!(states, HashMap::from([(0, peer_down("vm1"))]));
-        assert_eq!(host.take_carrier_writes(), vec![]);
-        assert!(!host.has_carrier("tpb0"));
-        let writes = scan(&host, &lab, &ids(&["ctr1", "vm2", "ctr2"]), &link_states).await;
-        assert_eq!(writes, vec![]);
+            // `sherpa resume -n ctr1`: vm1 is still off, so the state is the same and nothing moves.
+            let states = follow_started_links(
+                &host,
+                &lab,
+                &ids(&["ctr1"]),
+                &runtimes(&["ctr1", "vm2", "ctr2"]),
+                &link_states,
+            )
+            .await;
+            assert_eq!(states, HashMap::from([(0, peer_down("vm1"))]));
+            assert_eq!(host.take_carrier_writes(), vec![]);
+            assert!(!host.has_carrier("tpb0"));
+            let writes = scan(&host, &lab, &ids(&["ctr1", "vm2", "ctr2"]), &link_states).await;
+            assert_eq!(writes, vec![]);
+        }
+
+        {
+            // vm1 was off and ctr1 is paused. Resume boots vm1, and its re-attach finds ctr1's end,
+            // so it records the link attached and gives both ends carrier. ctr1 is not running.
+            let (host, lab) = lab();
+            let link_states = LinkStates::default();
+            link_states.record("lab", 0, LinkState::Attached);
+            let states = follow_started_links(
+                &host,
+                &lab,
+                &ids(&["vm1"]),
+                &runtimes(&["vm1", "vm2", "ctr2"]),
+                &link_states,
+            )
+            .await;
+            assert_eq!(states, HashMap::from([(0, peer_down("ctr1"))]));
+            assert_eq!(
+                host.take_carrier_writes(),
+                vec![(vm_tap("vm1-lab", "tpa0"), false)]
+            );
+            let writes = scan(&host, &lab, &ids(&["vm1", "vm2", "ctr2"]), &link_states).await;
+            assert_eq!(writes, vec![], "the scan finds the state recorded");
+        }
+
+        {
+            // ctr2 is paused and link 1's state is recorded as before; resuming ctr1 leaves it.
+            let (host, lab) = lab();
+            let link_states = LinkStates::default();
+            link_states.record("lab", 0, peer_down("ctr1"));
+            link_states.record("lab", 1, LinkState::Attached);
+            host.set_carrier_by_hand("tpa0", false);
+            let states = follow_started_links(
+                &host,
+                &lab,
+                &ids(&["ctr1"]),
+                &runtimes(&["vm1", "ctr1", "vm2"]),
+                &link_states,
+            )
+            .await;
+            assert_eq!(states.keys().copied().collect::<Vec<_>>(), vec![0]);
+            assert_eq!(link_states.of_lab("lab")[&1], LinkState::Attached);
+            assert_eq!(
+                host.take_carrier_writes(),
+                vec![(vm_tap("vm1-lab", "tpa0"), true)]
+            );
+        }
     }
 
     #[tokio::test]
-    async fn a_vm_booted_beside_a_paused_peer_has_its_link_taken_down_at_once() {
-        // vm1 was off and ctr1 is paused. Resume boots vm1, and its re-attach finds ctr1's end,
-        // so it records the link attached and gives both ends carrier. ctr1 is not running.
-        let (host, lab) = lab();
-        let link_states = LinkStates::default();
-        link_states.record("lab", 0, LinkState::Attached);
-        let states = follow_started_links(
-            &host,
-            &lab,
-            &ids(&["vm1"]),
-            &runtimes(&["vm1", "vm2", "ctr2"]),
-            &link_states,
-        )
-        .await;
-        assert_eq!(states, HashMap::from([(0, peer_down("ctr1"))]));
-        assert_eq!(
-            host.take_carrier_writes(),
-            vec![(vm_tap("vm1-lab", "tpa0"), false)]
-        );
-        let writes = scan(&host, &lab, &ids(&["vm1", "vm2", "ctr2"]), &link_states).await;
-        assert_eq!(writes, vec![], "the scan finds the state recorded");
-    }
+    async fn link_carrier_013_a_link_to_repair_or_a_runtime_with_no_answer_decides_nothing() {
+        {
+            // ctr1's veth is gone while it runs: the scan repairs it. Nothing is recorded or set.
+            let (host, lab) = lab();
+            let link_states = LinkStates::default();
+            link_states.record("lab", 0, peer_down("ctr1"));
+            host.remove(&["tpb0"]);
+            let states = follow_started_links(
+                &host,
+                &lab,
+                &ids(&["ctr1"]),
+                &runtimes(&["vm1", "ctr1", "vm2", "ctr2"]),
+                &link_states,
+            )
+            .await;
+            assert_eq!(states, HashMap::new());
+            assert_eq!(host.take_carrier_writes(), vec![]);
+            assert_eq!(link_states.of_lab("lab")[&0], peer_down("ctr1"));
+        }
 
-    #[tokio::test]
-    async fn only_the_links_of_the_started_nodes_are_decided() {
-        // ctr2 is paused and link 1's state is recorded as before; resuming ctr1 leaves it.
-        let (host, lab) = lab();
-        let link_states = LinkStates::default();
-        link_states.record("lab", 0, peer_down("ctr1"));
-        link_states.record("lab", 1, LinkState::Attached);
-        host.set_carrier_by_hand("tpa0", false);
-        let states = follow_started_links(
-            &host,
-            &lab,
-            &ids(&["ctr1"]),
-            &runtimes(&["vm1", "ctr1", "vm2"]),
-            &link_states,
-        )
-        .await;
-        assert_eq!(states.keys().copied().collect::<Vec<_>>(), vec![0]);
-        assert_eq!(link_states.of_lab("lab")[&1], LinkState::Attached);
-        assert_eq!(
-            host.take_carrier_writes(),
-            vec![(vm_tap("vm1-lab", "tpa0"), true)]
-        );
-    }
-
-    #[tokio::test]
-    async fn a_link_with_an_end_to_repair_is_left_to_the_scan() {
-        // ctr1's veth is gone while it runs: the scan repairs it. Nothing is recorded or set.
-        let (host, lab) = lab();
-        let link_states = LinkStates::default();
-        link_states.record("lab", 0, peer_down("ctr1"));
-        host.remove(&["tpb0"]);
-        let states = follow_started_links(
-            &host,
-            &lab,
-            &ids(&["ctr1"]),
-            &runtimes(&["vm1", "ctr1", "vm2", "ctr2"]),
-            &link_states,
-        )
-        .await;
-        assert_eq!(states, HashMap::new());
-        assert_eq!(host.take_carrier_writes(), vec![]);
-        assert_eq!(link_states.of_lab("lab")[&0], peer_down("ctr1"));
-    }
-
-    #[tokio::test]
-    async fn nothing_is_decided_when_a_runtime_did_not_answer() {
-        // libvirt did not answer: vm1 would be taken as down, and ctr1's end with it.
-        let (host, lab) = lab();
-        let link_states = LinkStates::default();
-        link_states.record("lab", 0, peer_down("ctr1"));
-        let mut answered = runtimes(&["vm1", "ctr1", "vm2", "ctr2"]);
-        answered.domains = None;
-        let states =
-            follow_started_links(&host, &lab, &ids(&["ctr1"]), &answered, &link_states).await;
-        assert_eq!(states, HashMap::new());
-        assert_eq!(host.take_carrier_writes(), vec![]);
-        assert_eq!(link_states.of_lab("lab")[&0], peer_down("ctr1"));
-    }
-
-    #[tokio::test]
-    async fn an_end_a_user_took_down_stays_down_when_the_state_is_the_same() {
-        // A resume of a node that was already running finds the link attached, as recorded.
-        let (host, lab) = lab();
-        let link_states = LinkStates::default();
-        link_states.record("lab", 0, LinkState::Attached);
-        host.set_carrier_by_hand("tpb0", false);
-        follow_started_links(
-            &host,
-            &lab,
-            &ids(&["ctr1"]),
-            &runtimes(&["vm1", "ctr1", "vm2", "ctr2"]),
-            &link_states,
-        )
-        .await;
-        assert_eq!(host.take_carrier_writes(), vec![]);
-        assert!(!host.has_carrier("tpb0"));
+        {
+            // libvirt did not answer: vm1 would be taken as down, and ctr1's end with it.
+            let (host, lab) = lab();
+            let link_states = LinkStates::default();
+            link_states.record("lab", 0, peer_down("ctr1"));
+            let mut answered = runtimes(&["vm1", "ctr1", "vm2", "ctr2"]);
+            answered.domains = None;
+            let states =
+                follow_started_links(&host, &lab, &ids(&["ctr1"]), &answered, &link_states).await;
+            assert_eq!(states, HashMap::new());
+            assert_eq!(host.take_carrier_writes(), vec![]);
+            assert_eq!(link_states.of_lab("lab")[&0], peer_down("ctr1"));
+        }
     }
 }

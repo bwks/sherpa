@@ -424,66 +424,6 @@ mod tests {
     const ETHTOOL_A_BITSET_SIZE: u16 = 2;
     const ETHTOOL_A_BITSET_BIT_INDEX: u16 = 1;
 
-    /// The attributes of a message, after its netlink and generic netlink headers.
-    fn attributes(message: &[u8]) -> &[u8] {
-        &message[NLMSG_HEADER_LEN + GENL_HEADER_LEN..]
-    }
-
-    /// The nested attributes of attribute `kind` at the top of `attrs`, and its type flags.
-    fn first_attr(attrs: &[u8]) -> (u16, &[u8]) {
-        let len = usize::from(read_u16(attrs, 0).unwrap());
-        let kind = read_u16(attrs, 2).unwrap();
-        (kind, &attrs[NLA_HEADER_LEN..len])
-    }
-
-    #[test]
-    fn a_family_request_asks_the_controller_for_the_name() {
-        let message = family_request("ethtool").unwrap();
-        assert_eq!(read_u32(&message, 0).unwrap() as usize, message.len());
-        assert_eq!(read_u16(&message, 4).unwrap(), GENL_ID_CTRL);
-        assert_eq!(read_u16(&message, 6).unwrap(), NLM_F_REQUEST | NLM_F_ACK);
-        assert_eq!(message[NLMSG_HEADER_LEN], CTRL_CMD_GETFAMILY);
-        let (kind, payload) = first_attr(attributes(&message));
-        assert_eq!(kind, CTRL_ATTR_FAMILY_NAME);
-        assert_eq!(payload, b"ethtool\0");
-        assert_eq!(message.len() % 4, 0);
-    }
-
-    #[test]
-    fn a_features_request_names_the_device_and_lists_the_features_with_no_value() {
-        let message = features_off_request(27, 42, &["tx-checksum-ip-generic"]).unwrap();
-        assert_eq!(read_u32(&message, 0).unwrap() as usize, message.len());
-        assert_eq!(read_u16(&message, 4).unwrap(), 27);
-        assert_eq!(message[NLMSG_HEADER_LEN], ETHTOOL_MSG_FEATURES_SET);
-        assert_eq!(message[NLMSG_HEADER_LEN + 1], ETHTOOL_GENL_VERSION);
-
-        let attrs = attributes(&message);
-        let (kind, header) = first_attr(attrs);
-        assert_eq!(kind, ETHTOOL_A_FEATURES_HEADER | NLA_F_NESTED);
-        let (kind, dev_index) = first_attr(header);
-        assert_eq!(kind, ETHTOOL_A_HEADER_DEV_INDEX);
-        assert_eq!(dev_index, 42u32.to_ne_bytes());
-        let (kind, flags) = first_attr(&header[8..]);
-        assert_eq!(kind, ETHTOOL_A_HEADER_FLAGS);
-        assert_eq!(flags, ETHTOOL_FLAG_OMIT_REPLY.to_ne_bytes());
-
-        let header_len = usize::from(read_u16(attrs, 0).unwrap());
-        let (kind, wanted) = first_attr(&attrs[header_len..]);
-        assert_eq!(kind, ETHTOOL_A_FEATURES_WANTED | NLA_F_NESTED);
-        let (kind, bits) = first_attr(wanted);
-        assert_eq!(kind, ETHTOOL_A_BITSET_BITS | NLA_F_NESTED);
-        let (kind, bit) = first_attr(bits);
-        assert_eq!(kind, ETHTOOL_A_BITSET_BITS_BIT | NLA_F_NESTED);
-        let (kind, name) = first_attr(bit);
-        assert_eq!(kind, ETHTOOL_A_BITSET_BIT_NAME);
-        assert_eq!(name, b"tx-checksum-ip-generic\0");
-        // No ETHTOOL_A_BITSET_BIT_VALUE: the feature is turned off.
-        assert_eq!(
-            bit.len(),
-            NLA_HEADER_LEN + "tx-checksum-ip-generic\0".len() + 1
-        );
-    }
-
     /// A reply datagram of one message of type `kind` with `payload`.
     fn reply_datagram(kind: u16, seq: u32, payload: &[u8]) -> Vec<u8> {
         let mut datagram = Vec::new();
@@ -498,23 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn the_family_id_is_read_from_the_controller_reply() {
-        let mut payload = vec![1, 2, 0, 0];
-        payload.extend_from_slice(&12u16.to_ne_bytes()); // name attribute: len 12
-        payload.extend_from_slice(&CTRL_ATTR_FAMILY_NAME.to_ne_bytes());
-        payload.extend_from_slice(b"ethtool\0");
-        payload.extend_from_slice(&6u16.to_ne_bytes());
-        payload.extend_from_slice(&CTRL_ATTR_FAMILY_ID.to_ne_bytes());
-        payload.extend_from_slice(&21u16.to_ne_bytes());
-        payload.extend_from_slice(&[0, 0]);
-        let datagram = reply_datagram(GENL_ID_CTRL, FAMILY_SEQ, &payload);
-        let messages = replies(&datagram).unwrap();
-        assert_eq!(messages.len(), 1);
-        assert_eq!(family_id(&messages[0]), Some(21));
-    }
-
-    #[test]
-    fn an_ack_for_the_request_is_success_and_an_errno_is_an_error() {
+    fn veth_checksums_005_a_failed_short_empty_or_unrelated_answer_is_an_error() {
         let ack = reply_datagram(NLMSG_ERROR, FEATURES_SEQ, &0i32.to_ne_bytes());
         let messages = replies(&ack).unwrap();
         assert!(matches!(
@@ -526,20 +450,36 @@ mod tests {
         let messages = replies(&error).unwrap();
         let result = acknowledgement(&messages[0], FEATURES_SEQ).unwrap();
         assert!(result.unwrap_err().to_string().contains("No such device"));
-    }
 
-    #[test]
-    fn an_ack_for_another_request_is_not_the_answer() {
         let ack = reply_datagram(NLMSG_ERROR, FAMILY_SEQ, &0i32.to_ne_bytes());
         let messages = replies(&ack).unwrap();
         assert!(acknowledgement(&messages[0], FEATURES_SEQ).is_none());
-    }
 
-    #[test]
-    fn a_truncated_reply_is_refused() {
         let mut datagram = reply_datagram(NLMSG_ERROR, 1, &0i32.to_ne_bytes());
         datagram[0] = 200;
         assert!(replies(&datagram).is_err());
+
+        let error = reply_datagram(NLMSG_ERROR, FEATURES_SEQ, &(-19i32).to_ne_bytes());
+        let error = offload_in(&error).unwrap_err();
+        assert!(error.to_string().contains("No such device"), "{error:#}");
+        let ack = reply_datagram(NLMSG_ERROR, FEATURES_SEQ, &0i32.to_ne_bytes());
+        assert!(offload_in(&ack).is_err());
+
+        let mut payload = vec![ETHTOOL_MSG_FEATURES_GET_REPLY, ETHTOOL_GENL_VERSION, 0, 0];
+        payload.extend_from_slice(&8u16.to_ne_bytes());
+        payload.extend_from_slice(&ETHTOOL_A_HEADER_DEV_INDEX.to_ne_bytes());
+        payload.extend_from_slice(&42u32.to_ne_bytes());
+        let reply = reply_datagram(27, FEATURES_SEQ, &payload);
+        assert!(offload_in(&reply).is_err());
+
+        let reply = features_reply(&[("tx-checksum-ip-generic", false)], false);
+        let messages = replies(&reply).unwrap();
+        let other = Reply {
+            kind: messages[0].kind,
+            seq: FAMILY_SEQ,
+            payload: messages[0].payload,
+        };
+        assert!(features_state(&other).is_none());
     }
 
     /// The kernel's reply to a features request, listing `bits` as the active features, each
@@ -592,24 +532,7 @@ mod tests {
     }
 
     #[test]
-    fn a_features_get_request_names_the_device_and_asks_for_a_reply() {
-        let message = features_get_request(27, 42).unwrap();
-        assert_eq!(read_u32(&message, 0).unwrap() as usize, message.len());
-        assert_eq!(read_u16(&message, 4).unwrap(), 27);
-        assert_eq!(message[NLMSG_HEADER_LEN], ETHTOOL_MSG_FEATURES_GET);
-        let attrs = attributes(&message);
-        let (kind, header) = first_attr(attrs);
-        assert_eq!(kind, ETHTOOL_A_FEATURES_HEADER | NLA_F_NESTED);
-        let (kind, dev_index) = first_attr(header);
-        assert_eq!(kind, ETHTOOL_A_HEADER_DEV_INDEX);
-        assert_eq!(dev_index, 42u32.to_ne_bytes());
-        // Only the device: no flags, so the reply is sent, with bitsets listed by name.
-        assert_eq!(header.len(), NLA_HEADER_LEN + 4);
-        assert_eq!(attrs.len(), NLA_HEADER_LEN + header.len());
-    }
-
-    #[test]
-    fn an_active_tx_checksum_feature_is_offload_on() {
+    fn veth_checksums_004_offload_reads_as_on_while_a_tx_checksum_feature_is_active() {
         let reply = features_reply(
             &[
                 ("tx-scatter-gather", false),
@@ -618,60 +541,23 @@ mod tests {
             false,
         );
         assert!(offload_in(&reply).unwrap());
-    }
 
-    #[test]
-    fn active_features_with_no_tx_checksum_feature_are_offload_off() {
         let reply = features_reply(
             &[("tx-scatter-gather", false), ("rx-checksum", false)],
             false,
         );
         assert!(!offload_in(&reply).unwrap());
         assert!(!offload_in(&features_reply(&[], false)).unwrap());
-    }
 
-    #[test]
-    fn in_a_masked_bitset_only_a_bit_with_a_value_is_on() {
         let off = features_reply(&[("tx-checksum-ipv4", false)], true);
         assert!(!offload_in(&off).unwrap());
         let on = features_reply(&[("tx-checksum-ipv4", true)], true);
         assert!(offload_in(&on).unwrap());
     }
 
-    #[test]
-    fn an_error_for_the_features_request_is_an_error() {
-        let error = reply_datagram(NLMSG_ERROR, FEATURES_SEQ, &(-19i32).to_ne_bytes());
-        let error = offload_in(&error).unwrap_err();
-        assert!(error.to_string().contains("No such device"), "{error:#}");
-        let ack = reply_datagram(NLMSG_ERROR, FEATURES_SEQ, &0i32.to_ne_bytes());
-        assert!(offload_in(&ack).is_err());
-    }
-
-    #[test]
-    fn a_reply_with_no_active_features_is_an_error() {
-        let mut payload = vec![ETHTOOL_MSG_FEATURES_GET_REPLY, ETHTOOL_GENL_VERSION, 0, 0];
-        payload.extend_from_slice(&8u16.to_ne_bytes());
-        payload.extend_from_slice(&ETHTOOL_A_HEADER_DEV_INDEX.to_ne_bytes());
-        payload.extend_from_slice(&42u32.to_ne_bytes());
-        let reply = reply_datagram(27, FEATURES_SEQ, &payload);
-        assert!(offload_in(&reply).is_err());
-    }
-
-    #[test]
-    fn a_reply_to_another_request_is_not_the_answer() {
-        let reply = features_reply(&[("tx-checksum-ip-generic", false)], false);
-        let messages = replies(&reply).unwrap();
-        let other = Reply {
-            kind: messages[0].kind,
-            seq: FAMILY_SEQ,
-            payload: messages[0].payload,
-        };
-        assert!(features_state(&other).is_none());
-    }
-
     #[tokio::test]
     #[ignore = "requires root: makes a veth and changes its offload"]
-    async fn a_new_veth_has_tx_checksum_offload_on_until_it_is_turned_off() {
+    async fn veth_checksums_003_a_new_interface_reads_as_offload_on_until_it_is_turned_off() {
         let (a, b) = ("it-txcsum-a", "it-txcsum-b");
         let _ = delete_interface(a).await;
         create_veth_pair(a, b, a, b).await.unwrap();

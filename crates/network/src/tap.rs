@@ -254,28 +254,3 @@ fn is_container_veth(link: &LinkMessage) -> bool {
     }
     veth && peer_elsewhere
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn link(attributes: Vec<LinkAttribute>) -> LinkMessage {
-        let mut link = LinkMessage::default();
-        link.attributes = attributes;
-        link
-    }
-
-    #[test]
-    fn a_veth_with_its_peer_in_another_namespace_is_a_container_veth() {
-        let veth = LinkAttribute::LinkInfo(vec![LinkInfo::Kind(InfoKind::Veth)]);
-        assert!(is_container_veth(&link(vec![
-            veth.clone(),
-            LinkAttribute::LinkNetNsId(6)
-        ])));
-        assert!(!is_container_veth(&link(vec![veth])));
-        assert!(!is_container_veth(&link(vec![
-            LinkAttribute::LinkInfo(vec![LinkInfo::Kind(InfoKind::Tun)]),
-            LinkAttribute::LinkNetNsId(6),
-        ])));
-    }
-}

@@ -76,5 +76,15 @@ Each run logs every command and its output, and keeps the captures, under
 | Lifecycle | Pings each way on every Linux link after `up`, after redeploying u1 (VM end of two links) and c1 (container end of two links), after rebooting u2 from inside the guest, after `down`/`resume` and, with `--sherpad-restart`, after a `sherpad` restart. Impairment must be as it was set after each, except the reboot. Frames, capture and the bundles are checked again after `resume`; the VMs cold boot, so the runner makes their bonds again. |
 | Destroy | Nothing of the lab is left: no container, Docker network, host interface or libvirt domain. |
 
-Not covered: link state when a node goes down, and a VM cold boot or container restart made
-outside Sherpa. Sherpa does not handle those yet (#394).
+Not checked by this lab yet: link state when a node goes down, and a VM cold boot or container
+restart made outside Sherpa. Sherpa handles both. Each scan of the scanner (every 30 seconds
+unless `[scanner]` in `sherpa.toml` says otherwise) gives each link a state, shown by
+`sherpa inspect`: attached, waiting for a peer that is down, or failed (`link_state`). When a
+node stops, its peer's end loses carrier, inside a VM's guest or on a container's interface,
+and gets it back when the link is attached again (`link_carrier`). A VM destroyed and started
+with `virsh`, or a container restarted with `docker restart` or `docker stop` and `start`, has
+its interfaces and links back within one scan (`link_reattach` 016 to 019). The server's
+integration and unit tests show those. The end-to-end cases that would belong in this lab have
+no test yet: `link_state_009`, a link shown waiting after `sherpa down --node` of one end and
+attached again after the resume, and `link_carrier_016`, a redeployed node's peers keeping their
+carrier while it is replaced.

@@ -17,9 +17,9 @@ use anyhow::Result;
 
 use network::{
     NetemRemoval, NetnsVethState, apply_netem, attach_p2p_redirect, container_veth_peer_ifindex,
-    create_bridge, create_tap, create_veth_in_netns, create_veth_pair, delete_interface,
-    disable_tx_checksum_offload, enslave_to_bridge, find_ifindex, get_ifindex, link_is_up,
-    list_interface_names, remove_netem, set_link_state, sync_netem, update_netem,
+    create_bridge, create_veth_in_netns, create_veth_pair, delete_interface,
+    disable_tx_checksum_offload, enslave_to_bridge, get_ifindex, list_interface_names,
+    remove_netem, set_link_state, sync_netem,
 };
 use shared::data::LinkImpairment;
 
@@ -30,24 +30,6 @@ use shared::data::LinkImpairment;
 /// Delete an interface, ignoring errors (it may not exist).
 async fn cleanup_interface(name: &str) {
     let _ = delete_interface(name).await;
-}
-
-/// Returns true if rtnetlink TAP creation is unsupported on this kernel.
-///
-/// Kernel ≥ 6.8 rejects `ip link add type tun` via rtnetlink with EOPNOTSUPP.
-/// The ioctl-based path (`ip tuntap add`) still works; fix is tracked separately.
-/// TAP tests call this at entry and skip gracefully when it returns true.
-async fn tap_rtnetlink_unsupported() -> bool {
-    let probe = "st-tap-probe";
-    let _ = delete_interface(probe).await;
-    match create_tap(probe, "probe").await {
-        Ok(()) => {
-            let _ = delete_interface(probe).await;
-            false
-        }
-        Err(e) if format!("{e:?}").contains("Operation not supported") => true,
-        Err(_) => false,
-    }
 }
 
 /// Number of `p2p_redirect` programs attached to an interface's ingress as legacy TC filters,
@@ -163,7 +145,7 @@ async fn interfaces_containing(part: &str) -> Result<Vec<String>> {
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_create_bridge() -> Result<()> {
+async fn private_bridge_005_a_bridge_is_made_up_with_mtu_9600() -> Result<()> {
     let name = "st-br0";
     let alias = "sherpa-test-bridge";
 
@@ -188,12 +170,6 @@ async fn test_create_bridge() -> Result<()> {
         "Bridge should be gone after deletion"
     );
 
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_bridge_mtu_and_up_state() -> Result<()> {
     let name = "st-br-mtu";
     let alias = "sherpa-test-mtu";
 
@@ -213,13 +189,13 @@ async fn test_bridge_mtu_and_up_state() -> Result<()> {
     );
 
     delete_interface(name).await?;
-
     Ok(())
 }
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_create_bridge_duplicate() -> Result<()> {
+async fn private_bridge_011_a_taken_bridge_name_or_a_missing_member_or_bridge_fails() -> Result<()>
+{
     let name = "st-br-dup";
     let alias = "sherpa-test-dup";
 
@@ -235,61 +211,37 @@ async fn test_create_bridge_duplicate() -> Result<()> {
 
     delete_interface(name).await?;
 
-    Ok(())
-}
+    let br = "st-br2";
 
-// ============================================================================
-// Veth pair
-// ============================================================================
+    cleanup_interface(br).await;
 
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_create_veth_pair() -> Result<()> {
-    let src = "st-veth0a";
-    let dst = "st-veth0b";
+    create_bridge(br, "test-bridge-noexist").await?;
 
-    cleanup_interface(src).await;
-    cleanup_interface(dst).await;
-
-    create_veth_pair(src, dst, "test-src-alias", "test-dst-alias").await?;
-
-    // Verify both ends exist
-    let found = interfaces_containing("st-veth0").await?;
-    assert!(found.iter().any(|n| n == src), "src veth should exist");
-    assert!(found.iter().any(|n| n == dst), "dst veth should exist");
-
-    // Cleanup — deleting one end removes both
-    delete_interface(src).await?;
-
-    let found = interfaces_containing("st-veth0").await?;
-    assert!(!found.iter().any(|n| n == src), "src should be gone");
-    assert!(
-        !found.iter().any(|n| n == dst),
-        "dst should be gone (deleting one end removes both)"
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_create_veth_pair_duplicate() -> Result<()> {
-    let src = "st-veth-dp-a";
-    let dst = "st-veth-dp-b";
-
-    cleanup_interface(src).await;
-    cleanup_interface(dst).await;
-
-    create_veth_pair(src, dst, "test-dup-src", "test-dup-dst").await?;
-
-    let result = create_veth_pair(src, dst, "test-dup-src", "test-dup-dst").await;
+    // Try to enslave an interface that doesn't exist
+    let result = enslave_to_bridge("st-noexist", br).await;
     assert!(
         result.is_err(),
-        "Creating a duplicate veth pair should fail with an error"
+        "Enslaving nonexistent interface should fail"
+    );
+
+    delete_interface(br).await?;
+
+    let src = "st-veth3a";
+    let dst = "st-veth3b";
+
+    cleanup_interface(src).await;
+    cleanup_interface(dst).await;
+
+    create_veth_pair(src, dst, "test-enslv-src", "test-enslv-dst").await?;
+
+    // Try to enslave to a bridge that doesn't exist
+    let result = enslave_to_bridge(src, "st-nobridge").await;
+    assert!(
+        result.is_err(),
+        "Enslaving to a nonexistent bridge should fail"
     );
 
     delete_interface(src).await?;
-
     Ok(())
 }
 
@@ -299,7 +251,7 @@ async fn test_create_veth_pair_duplicate() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_enslave_veth_to_bridge() -> Result<()> {
+async fn private_bridge_006_a_host_end_joins_its_bridge() -> Result<()> {
     let br = "st-br1";
     let src = "st-veth1a";
     let dst = "st-veth1b";
@@ -327,115 +279,15 @@ async fn test_enslave_veth_to_bridge() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_enslave_nonexistent_interface_fails() -> Result<()> {
-    let br = "st-br2";
-
-    cleanup_interface(br).await;
-
-    create_bridge(br, "test-bridge-noexist").await?;
-
-    // Try to enslave an interface that doesn't exist
-    let result = enslave_to_bridge("st-noexist", br).await;
-    assert!(
-        result.is_err(),
-        "Enslaving nonexistent interface should fail"
-    );
-
-    delete_interface(br).await?;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_enslave_to_nonexistent_bridge() -> Result<()> {
-    let src = "st-veth3a";
-    let dst = "st-veth3b";
-
-    cleanup_interface(src).await;
-    cleanup_interface(dst).await;
-
-    create_veth_pair(src, dst, "test-enslv-src", "test-enslv-dst").await?;
-
-    // Try to enslave to a bridge that doesn't exist
-    let result = enslave_to_bridge(src, "st-nobridge").await;
-    assert!(
-        result.is_err(),
-        "Enslaving to a nonexistent bridge should fail"
-    );
-
-    delete_interface(src).await?;
-
-    Ok(())
-}
-
 // ============================================================================
 // Delete interface
 // ============================================================================
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_delete_nonexistent_interface_succeeds() -> Result<()> {
+async fn link_cleanup_005_deleting_an_interface_already_gone_succeeds() -> Result<()> {
     // An interface that is already gone counts as deleted, so a retried destroy succeeds.
     delete_interface("st-noexist99").await?;
-    Ok(())
-}
-
-// ============================================================================
-// Tap device
-// ============================================================================
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_create_tap() -> Result<()> {
-    if tap_rtnetlink_unsupported().await {
-        eprintln!("SKIP: rtnetlink TAP not supported on this kernel — fix deferred");
-        return Ok(());
-    }
-
-    let name = "st-tap0";
-
-    cleanup_interface(name).await;
-
-    create_tap(name, "test-tap-alias").await?;
-
-    let found = interfaces_containing(name).await?;
-    assert!(
-        found.iter().any(|n| n == name),
-        "Tap {name} should exist, found: {found:?}"
-    );
-
-    assert!(
-        interface_is_up(name),
-        "Tap should have UP flag set after creation"
-    );
-
-    assert_eq!(
-        interface_mtu(name),
-        Some(9600),
-        "Tap MTU should be 9600 (jumbo frames)"
-    );
-
-    delete_interface(name).await?;
-
-    let found = interfaces_containing(name).await?;
-    assert!(
-        !found.iter().any(|n| n == name),
-        "Tap should be gone after deletion"
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_get_ifindex_nonexistent_fails() -> Result<()> {
-    let error = get_ifindex("st-noexist99").await.unwrap_err();
-    assert!(
-        error.to_string().contains("Link st-noexist99 not found"),
-        "{error:#}"
-    );
     Ok(())
 }
 
@@ -445,7 +297,35 @@ async fn test_get_ifindex_nonexistent_fails() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_remove_netem() -> Result<()> {
+async fn link_impair_014_a_new_impairment_replaces_the_old_and_a_clear_leaves_no_netem()
+-> Result<()> {
+    let src = "st-netem-sync-a";
+    let dst = "st-netem-sync-b";
+
+    cleanup_interface(src).await;
+    create_veth_pair(src, dst, "netem-sync-src", "netem-sync-dst").await?;
+    let idx = get_ifindex(src).await?;
+    let tc_show = || {
+        let output = Command::new("tc")
+            .args(["qdisc", "show", "dev", src])
+            .output()
+            .expect("tc command failed");
+        String::from_utf8_lossy(&output.stdout).to_string()
+    };
+
+    let impairment = LinkImpairment {
+        delay_us: 10000,
+        ..LinkImpairment::default()
+    };
+    sync_netem(idx, &impairment).await?;
+    assert!(tc_show().contains("netem"), "{}", tc_show());
+    sync_netem(idx, &LinkImpairment::default()).await?;
+    assert!(!tc_show().contains("netem"), "{}", tc_show());
+    // Clear again: nothing to remove, not an error.
+    sync_netem(idx, &LinkImpairment::default()).await?;
+
+    delete_interface(src).await?;
+
     let src = "st-netem-rm-a";
     let dst = "st-netem-rm-b";
 
@@ -481,12 +361,6 @@ async fn test_remove_netem() -> Result<()> {
 
     delete_interface(src).await?;
 
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_remove_netem_of_a_missing_interface_finds_nothing() -> Result<()> {
     // An index no interface has holds no qdisc: a removed end has nothing left to remove.
     assert_eq!(
         remove_netem(2_000_000_000).await?,
@@ -495,77 +369,10 @@ async fn test_remove_netem_of_a_missing_interface_finds_nothing() -> Result<()> 
     Ok(())
 }
 
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_sync_netem_applies_and_clears() -> Result<()> {
-    let src = "st-netem-sync-a";
-    let dst = "st-netem-sync-b";
-
-    cleanup_interface(src).await;
-    create_veth_pair(src, dst, "netem-sync-src", "netem-sync-dst").await?;
-    let idx = get_ifindex(src).await?;
-    let tc_show = || {
-        let output = Command::new("tc")
-            .args(["qdisc", "show", "dev", src])
-            .output()
-            .expect("tc command failed");
-        String::from_utf8_lossy(&output.stdout).to_string()
-    };
-
-    let impairment = LinkImpairment {
-        delay_us: 10000,
-        ..LinkImpairment::default()
-    };
-    sync_netem(idx, &impairment).await?;
-    assert!(tc_show().contains("netem"), "{}", tc_show());
-    sync_netem(idx, &LinkImpairment::default()).await?;
-    assert!(!tc_show().contains("netem"), "{}", tc_show());
-    // Clear again: nothing to remove, not an error.
-    sync_netem(idx, &LinkImpairment::default()).await?;
-
-    delete_interface(src).await?;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_find_ifindex_of_a_missing_interface_is_none() -> Result<()> {
-    assert_eq!(find_ifindex("st-noexist98").await?, None);
-    Ok(())
-}
-
 // ============================================================================
 // eBPF P2p redirect
 // Requires: CAP_NET_ADMIN + CAP_BPF + CAP_PERFMON
 // ============================================================================
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_ebpf_redirect_between_veths() -> Result<()> {
-    let src = "st-ebpf-a";
-    let dst = "st-ebpf-b";
-
-    cleanup_interface(src).await;
-
-    create_veth_pair(src, dst, "ebpf-src", "ebpf-dst").await?;
-
-    let idx_src = get_ifindex(src).await?;
-    let idx_dst = get_ifindex(dst).await?;
-
-    // Attach redirect: src ingress → dst egress
-    attach_p2p_redirect(src, idx_dst)?;
-    // Attach redirect: dst ingress → src egress
-    attach_p2p_redirect(dst, idx_src)?;
-
-    // Verify p2p_redirect is attached on both interfaces as a TC filter
-    assert_eq!(p2p_redirect_filters(src), 1, "p2p_redirect on {src}");
-    assert_eq!(p2p_redirect_filters(dst), 1, "p2p_redirect on {dst}");
-
-    // Deleting the interface removes the BPF program automatically
-    delete_interface(src).await?;
-
-    Ok(())
-}
 
 /// The number of file descriptors this process has open.
 fn open_descriptors() -> usize {
@@ -576,7 +383,7 @@ fn open_descriptors() -> usize {
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_ebpf_redirect_closes_its_descriptors() -> Result<()> {
+async fn p2p_link_010_attaching_a_link_keeps_no_descriptor_open() -> Result<()> {
     let src = "st-ebpf-fd-a";
     let dst = "st-ebpf-fd-b";
 
@@ -600,18 +407,24 @@ async fn test_ebpf_redirect_closes_its_descriptors() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_ebpf_redirect_nonexistent_interface_fails() -> Result<()> {
+async fn p2p_link_012_a_missing_host_end_is_not_attached_and_the_error_names_it() -> Result<()> {
     let result = attach_p2p_redirect("st-noexist99", 1);
     assert!(
         result.is_err(),
         "Attaching eBPF redirect to nonexistent interface should fail"
+    );
+
+    let error = get_ifindex("st-noexist99").await.unwrap_err();
+    assert!(
+        error.to_string().contains("Link st-noexist99 not found"),
+        "{error:#}"
     );
     Ok(())
 }
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_ebpf_redirect_idempotent() -> Result<()> {
+async fn p2p_link_011_attaching_an_attached_link_leaves_one_redirect_on_its_end() -> Result<()> {
     let src = "st-ebpf-id-a";
     let dst = "st-ebpf-id-b";
 
@@ -641,276 +454,14 @@ async fn test_ebpf_redirect_idempotent() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_ebpf_redirect_between_taps() -> Result<()> {
-    if tap_rtnetlink_unsupported().await {
-        eprintln!("SKIP: rtnetlink TAP not supported on this kernel — fix deferred");
-        return Ok(());
-    }
-
-    let tap_a = "st-ebpf-ta";
-    let tap_b = "st-ebpf-tb";
-
-    cleanup_interface(tap_a).await;
-    cleanup_interface(tap_b).await;
-
-    create_tap(tap_a, "ebpf-tap-a").await?;
-    create_tap(tap_b, "ebpf-tap-b").await?;
-
-    let idx_a = get_ifindex(tap_a).await?;
-    let idx_b = get_ifindex(tap_b).await?;
-
-    // Attach bidirectional redirect
-    attach_p2p_redirect(tap_a, idx_b)?;
-    attach_p2p_redirect(tap_b, idx_a)?;
-
-    // Verify p2p_redirect is attached on both taps as a TC filter
-    for name in [tap_a, tap_b] {
-        assert_eq!(p2p_redirect_filters(name), 1, "p2p_redirect on {name}");
-    }
-
-    delete_interface(tap_a).await?;
-    delete_interface(tap_b).await?;
-
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_ebpf_and_netem_coexist() -> Result<()> {
-    let src = "st-ebpf-nm-a";
-    let dst = "st-ebpf-nm-b";
-
-    cleanup_interface(src).await;
-
-    create_veth_pair(src, dst, "ebpf-nm-src", "ebpf-nm-dst").await?;
-
-    let idx_src = get_ifindex(src).await?;
-    let idx_dst = get_ifindex(dst).await?;
-
-    // Attach eBPF redirect first (clsact qdisc, ingress)
-    attach_p2p_redirect(src, idx_dst)?;
-    attach_p2p_redirect(dst, idx_src)?;
-
-    // Apply netem on top (root qdisc, egress) — both should coexist
-    let impairment = LinkImpairment {
-        delay_us: 25000, // 25ms
-        jitter_us: 2000, // 2ms
-        loss_percent: 0.5,
-        reorder_percent: 0.0,
-        corrupt_percent: 0.0,
-    };
-
-    apply_netem(idx_src, &impairment).await?;
-    apply_netem(idx_dst, &impairment).await?;
-
-    // Verify p2p_redirect is still attached after netem
-    assert_eq!(p2p_redirect_filters(src), 1, "p2p_redirect after netem");
-
-    let netem_output = Command::new("tc")
-        .args(["qdisc", "show", "dev", src])
-        .output()
-        .expect("tc command failed");
-    let netem_out = String::from_utf8_lossy(&netem_output.stdout);
-    assert!(
-        netem_out.contains("netem"),
-        "netem qdisc should be present, got: {netem_out}"
-    );
-    assert!(
-        netem_out.contains("clsact"),
-        "clsact qdisc should coexist with netem, got: {netem_out}"
-    );
-
-    // Verify netem can be removed without affecting eBPF
-    remove_netem(idx_src).await?;
-
-    assert_eq!(
-        p2p_redirect_filters(src),
-        1,
-        "p2p_redirect after netem removal"
-    );
-
-    delete_interface(src).await?;
-
-    Ok(())
-}
-
-// ============================================================================
-// set_link_state
-// ============================================================================
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_set_link_state() -> Result<()> {
-    let src = "st-down-a";
-    let dst = "st-down-b";
-
-    cleanup_interface(src).await;
-
-    create_veth_pair(src, dst, "down-src", "down-dst").await?;
-
-    // Both should be UP after creation
-    assert!(
-        interface_is_up(src),
-        "src should be UP before set_link_state"
-    );
-    assert!(
-        interface_is_up(dst),
-        "dst should be UP before set_link_state"
-    );
-
-    // Set src DOWN
-    set_link_state(src, false).await?;
-
-    assert!(
-        !interface_is_up(src),
-        "src should be DOWN after set_link_state"
-    );
-    assert_eq!(link_is_up(src).await?, Some(false));
-
-    // dst loses carrier when peer goes down, but its admin state (UP flag)
-    // remains set — verify dst still has UP flag
-    assert!(
-        interface_is_up(dst),
-        "dst admin state should still have UP flag (carrier lost, not admin down)"
-    );
-    assert_eq!(link_is_up(dst).await?, Some(true));
-
-    // Set src UP again: dst has its carrier back.
-    set_link_state(src, true).await?;
-    assert!(interface_is_up(src), "src should be UP again");
-    assert_eq!(link_is_up(src).await?, Some(true));
-
-    delete_interface(src).await?;
-
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_set_link_state_nonexistent_fails() -> Result<()> {
-    let result = set_link_state("st-noexist99", false).await;
-    assert!(
-        result.is_err(),
-        "Setting down a nonexistent interface should fail"
-    );
-    assert_eq!(link_is_up("st-noexist99").await?, None);
-    Ok(())
-}
-
-// ============================================================================
-// update_netem
-// ============================================================================
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_update_netem() -> Result<()> {
-    let src = "st-netem-up-a";
-    let dst = "st-netem-up-b";
-
-    cleanup_interface(src).await;
-
-    create_veth_pair(src, dst, "netem-up-src", "netem-up-dst").await?;
-
-    let idx = get_ifindex(src).await?;
-
-    // Apply initial impairment
-    let initial = LinkImpairment {
-        delay_us: 10000, // 10ms
-        jitter_us: 0,
-        loss_percent: 0.0,
-        reorder_percent: 0.0,
-        corrupt_percent: 0.0,
-    };
-    apply_netem(idx, &initial).await?;
-
-    // Update to different impairment
-    let updated = LinkImpairment {
-        delay_us: 100_000, // 100ms
-        jitter_us: 10000,  // 10ms
-        loss_percent: 5.0,
-        reorder_percent: 0.0,
-        corrupt_percent: 0.0,
-    };
-    update_netem(idx, &updated).await?;
-
-    // Verify netem still present with updated values
-    let output = Command::new("tc")
-        .args(["qdisc", "show", "dev", src])
-        .output()
-        .expect("tc command failed");
-    let tc_output = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        tc_output.contains("netem"),
-        "netem should still be present after update, got: {tc_output}"
-    );
-    // 100ms delay should appear in tc output
-    assert!(
-        tc_output.contains("100ms") || tc_output.contains("100.0ms"),
-        "tc output should show ~100ms delay, got: {tc_output}"
-    );
-
-    delete_interface(src).await?;
-
-    Ok(())
-}
-
 // ============================================================================
 // Veth created into another network namespace
 // ============================================================================
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_create_veth_in_netns_enabled() -> Result<()> {
-    let host = "st-nsv-on";
-    cleanup_interface(host).await;
-    let holder = NetnsHolder::start();
-
-    create_veth_in_netns(
-        host,
-        "test-nsv-on",
-        "eth1",
-        holder.pid(),
-        NetnsVethState::Enabled,
-    )
-    .await?;
-
-    // The far end is in the namespace, already named, up and promiscuous, without anything
-    // run inside the namespace.
-    let inside = holder.ip_link_show("eth1");
-    assert!(has_flag(&inside, "UP"), "eth1 should be up: {inside}");
-    assert!(
-        has_flag(&inside, "PROMISC"),
-        "eth1 should be promiscuous: {inside}"
-    );
-    assert!(
-        has_flag(&inside, "LOWER_UP"),
-        "eth1 should have carrier: {inside}"
-    );
-    assert!(
-        inside.contains("mtu 9600"),
-        "eth1 should have jumbo MTU: {inside}"
-    );
-
-    let outside = ip_link_show(host);
-    assert!(has_flag(&outside, "UP"), "host end should be up: {outside}");
-    assert!(
-        outside.contains("mtu 9600"),
-        "host end should have jumbo MTU: {outside}"
-    );
-    assert!(
-        outside.contains("alias test-nsv-on"),
-        "host end alias: {outside}"
-    );
-
-    delete_interface(host).await?;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_create_veth_in_netns_disabled() -> Result<()> {
+async fn node_interfaces_006_an_unused_container_interface_is_down_or_up_with_no_carrier()
+-> Result<()> {
     let host = "st-nsv-off";
     cleanup_interface(host).await;
     let holder = NetnsHolder::start();
@@ -944,12 +495,7 @@ async fn test_create_veth_in_netns_disabled() -> Result<()> {
     );
 
     delete_interface(host).await?;
-    Ok(())
-}
 
-#[tokio::test]
-#[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_create_veth_in_netns_disabled_up() -> Result<()> {
     let host = "st-nsv-dup";
     cleanup_interface(host).await;
     let holder = NetnsHolder::start();
@@ -982,7 +528,8 @@ async fn test_create_veth_in_netns_disabled_up() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_create_veth_in_netns_of_missing_pid_fails() -> Result<()> {
+async fn p2p_link_015_an_interface_for_a_gone_container_fails_and_leaves_no_host_end() -> Result<()>
+{
     let host = "st-nsv-nopid";
     cleanup_interface(host).await;
     let holder = NetnsHolder::start();
@@ -1002,7 +549,7 @@ async fn test_create_veth_in_netns_of_missing_pid_fails() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_create_veth_in_netns_named_like_a_host_interface() -> Result<()> {
+async fn p2p_link_013_a_container_interface_named_like_a_host_interface_is_made() -> Result<()> {
     // Hosts often have their own eth0 and eth1. The name belongs to the namespace it is created
     // in, so a host interface with the same name must neither block nor be changed.
     let host = "st-nsv-clash";
@@ -1048,7 +595,8 @@ async fn test_create_veth_in_netns_named_like_a_host_interface() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_create_veth_in_netns_replaces_a_stale_container_veth() -> Result<()> {
+async fn link_reattach_027_an_interface_is_made_again_beside_the_removed_containers_old_one()
+-> Result<()> {
     let host = "st-nsv-stale";
     cleanup_interface(host).await;
     // The namespace of a removed container can outlive it for minutes, with its veths.
@@ -1088,7 +636,8 @@ async fn test_create_veth_in_netns_replaces_a_stale_container_veth() -> Result<(
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_create_veth_in_netns_with_host_end_taken_fails() -> Result<()> {
+async fn p2p_link_014_a_host_end_name_held_by_another_interface_is_refused_and_left() -> Result<()>
+{
     let host = "st-nsv-taken";
     cleanup_interface(host).await;
     create_veth_pair(host, "st-nsv-takenp", "taken", "taken-peer").await?;
@@ -1134,7 +683,7 @@ fn ethtool_feature(iface: &str, feature: &str) -> String {
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_disable_tx_checksum_offload_turns_off_checksum_and_segmentation_offload() -> Result<()>
+async fn veth_checksums_002_turning_offload_off_turns_checksum_and_segmentation_off() -> Result<()>
 {
     let host = "st-csum-a";
     let peer = "st-csum-b";
@@ -1159,7 +708,7 @@ async fn test_disable_tx_checksum_offload_turns_off_checksum_and_segmentation_of
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_disable_tx_checksum_offload_of_a_missing_interface_fails() -> Result<()> {
+async fn veth_checksums_006_turning_offload_off_on_a_missing_interface_fails() -> Result<()> {
     let result = disable_tx_checksum_offload(u32::MAX - 1);
     assert!(result.is_err(), "expected an error, got {result:?}");
     Ok(())
@@ -1167,7 +716,8 @@ async fn test_disable_tx_checksum_offload_of_a_missing_interface_fails() -> Resu
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn test_container_veth_peer_ifindex_is_the_host_end() -> Result<()> {
+async fn veth_checksums_007_a_container_interfaces_host_end_is_found_from_its_namespace()
+-> Result<()> {
     let container = NetnsHolder::start();
     let host = "st-peer-host";
     cleanup_interface(host).await;

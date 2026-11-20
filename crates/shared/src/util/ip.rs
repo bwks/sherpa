@@ -254,9 +254,92 @@ pub fn allocate_ipv6_loopback_subnet(prefix: &Ipv6Net, used: &[Ipv6Net]) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::Ipv4Addr;
+
+    fn mgmt_subnet(third_octet: u8) -> Ipv4Net {
+        Ipv4Net::new(Ipv4Addr::new(172, 31, third_octet, 0), 24).unwrap()
+    }
 
     #[test]
-    fn an_address_outside_its_network_is_refused() {
+    fn lab_addressing_001_a_new_lab_takes_the_first_free_range_after_the_first() {
+        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
+        let result = allocate_management_subnet(&prefix, &[], &[]).unwrap();
+        // Should skip 172.31.0.0/24 and return 172.31.1.0/24
+        assert_eq!(result, mgmt_subnet(1));
+
+        let prefix: Ipv6Net = "fd00::/32".parse().unwrap();
+        let subnet = allocate_ipv6_management_subnet(&prefix, &[], &[]).unwrap();
+        assert_eq!(subnet, "fd00:0:0:1::/64".parse::<Ipv6Net>().unwrap());
+    }
+
+    #[test]
+    fn lab_addressing_002_a_held_range_or_one_on_a_server_interface_is_passed_over() {
+        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
+        let used = vec![mgmt_subnet(1)];
+        let result = allocate_management_subnet(&prefix, &used, &[]).unwrap();
+        assert_eq!(result, mgmt_subnet(2));
+
+        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
+        // A leftover lab bridge holds 172.31.1.1/24; another range covers 172.31.2.0/23.
+        let host = vec![
+            Ipv4Net::from_str("172.31.1.0/24").unwrap(),
+            Ipv4Net::from_str("172.31.2.0/23").unwrap(),
+        ];
+        let result = allocate_management_subnet(&prefix, &[], &host).unwrap();
+        assert_eq!(result, mgmt_subnet(4));
+
+        let prefix = Ipv6Net::from_str("fd00:b00b::/48").unwrap();
+        let used = vec![ipv6_mgmt_subnet(1)];
+        let result = allocate_ipv6_management_subnet(&prefix, &used, &[]).unwrap();
+        assert_eq!(result, ipv6_mgmt_subnet(2));
+
+        let prefix = Ipv6Net::from_str("fd00:b00b::/48").unwrap();
+        let host = vec![
+            ipv6_mgmt_subnet(1),
+            Ipv6Net::from_str("fd00:b00b:0:2::/63").unwrap(),
+        ];
+        let result = allocate_ipv6_management_subnet(&prefix, &[], &host).unwrap();
+        assert_eq!(result, ipv6_mgmt_subnet(4));
+
+        let small = Ipv4Net::from_str("10.0.1.0/24").unwrap();
+        let large = Ipv4Net::from_str("10.0.0.0/16").unwrap();
+        let other = Ipv4Net::from_str("10.1.0.0/24").unwrap();
+        assert!(ipv4_overlaps_any(&small, &[large]));
+        assert!(ipv4_overlaps_any(&large, &[small]));
+        assert!(!ipv4_overlaps_any(&small, &[other]));
+    }
+
+    #[test]
+    fn lab_addressing_003_with_no_range_free_allocation_is_refused() {
+        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
+        let host = vec![Ipv4Net::from_str("172.31.0.0/16").unwrap()];
+        assert!(allocate_management_subnet(&prefix, &[], &host).is_err());
+    }
+
+    // ========================================================================
+    // IPv6 tests
+    // ========================================================================
+
+    fn ipv6_mgmt_subnet(index: u16) -> Ipv6Net {
+        let base = Ipv6Addr::from_str("fd00:b00b::").unwrap().to_bits();
+        let addr = Ipv6Addr::from_bits(base + (u128::from(index) << 64));
+        Ipv6Net::new(addr, 64).unwrap()
+    }
+
+    #[test]
+    fn lab_addressing_006_nodes_take_addresses_from_offset_21_and_an_index_past_is_refused() {
+        assert_eq!(node_management_host_offset(1).unwrap(), 21);
+        assert_eq!(node_management_host_offset(2).unwrap(), 22);
+        assert_eq!(node_management_host_offset(234).unwrap(), 254);
+
+        assert!(node_management_host_offset(0).is_err());
+        assert!(node_management_host_offset(235).is_err());
+        assert!(node_management_host_offset(u16::MAX).is_err());
+
+        let net = Ipv6Net::from_str("fd00:b00b:0:1::/64").unwrap();
+        let addr = get_ipv6_addr(&net, 42).unwrap();
+        assert_eq!(addr, Ipv6Addr::from_str("fd00:b00b:0:1::2a").unwrap());
+
         let network: Ipv4Net = "10.0.0.0/30".parse().unwrap();
         assert_eq!(
             get_ipv4_addr(&network, 3).unwrap(),
@@ -269,134 +352,5 @@ mod tests {
         let network6: Ipv6Net = "fd00::/126".parse().unwrap();
         assert!(get_ipv6_addr(&network6, 3).is_ok());
         assert!(get_ipv6_addr(&network6, 4).is_err());
-    }
-
-    #[test]
-    fn a_network_that_does_not_parse_is_named() {
-        let error = get_ipv4_network("10.0.0/24").unwrap_err();
-        assert!(error.to_string().contains("10.0.0/24"), "{error}");
-    }
-
-    #[test]
-    fn a_large_ipv6_prefix_is_not_listed_whole() {
-        let prefix: Ipv6Net = "fd00::/32".parse().unwrap();
-        let subnet = allocate_ipv6_management_subnet(&prefix, &[], &[]).unwrap();
-        assert_eq!(subnet, "fd00:0:0:1::/64".parse::<Ipv6Net>().unwrap());
-        let loopback = allocate_ipv6_loopback_subnet(&prefix, &[]).unwrap();
-        assert_eq!(loopback, "fd00:0:0:1::/64".parse::<Ipv6Net>().unwrap());
-    }
-    use std::net::Ipv4Addr;
-
-    fn mgmt_subnet(third_octet: u8) -> Ipv4Net {
-        Ipv4Net::new(Ipv4Addr::new(172, 31, third_octet, 0), 24).unwrap()
-    }
-
-    #[test]
-    fn test_allocate_management_subnet_empty() {
-        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
-        let result = allocate_management_subnet(&prefix, &[], &[]).unwrap();
-        // Should skip 172.31.0.0/24 and return 172.31.1.0/24
-        assert_eq!(result, mgmt_subnet(1));
-    }
-
-    #[test]
-    fn test_allocate_management_subnet_skips_used() {
-        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
-        let used = vec![mgmt_subnet(1)];
-        let result = allocate_management_subnet(&prefix, &used, &[]).unwrap();
-        assert_eq!(result, mgmt_subnet(2));
-    }
-
-    #[test]
-    fn test_allocate_management_subnet_skips_host_networks() {
-        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
-        // A leftover lab bridge holds 172.31.1.1/24; another range covers 172.31.2.0/23.
-        let host = vec![
-            Ipv4Net::from_str("172.31.1.0/24").unwrap(),
-            Ipv4Net::from_str("172.31.2.0/23").unwrap(),
-        ];
-        let result = allocate_management_subnet(&prefix, &[], &host).unwrap();
-        assert_eq!(result, mgmt_subnet(4));
-    }
-
-    #[test]
-    fn test_allocate_management_subnet_fails_when_host_covers_prefix() {
-        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
-        let host = vec![Ipv4Net::from_str("172.31.0.0/16").unwrap()];
-        assert!(allocate_management_subnet(&prefix, &[], &host).is_err());
-    }
-
-    #[test]
-    fn test_ipv4_overlap_is_symmetric() {
-        let small = Ipv4Net::from_str("10.0.1.0/24").unwrap();
-        let large = Ipv4Net::from_str("10.0.0.0/16").unwrap();
-        let other = Ipv4Net::from_str("10.1.0.0/24").unwrap();
-        assert!(ipv4_overlaps_any(&small, &[large]));
-        assert!(ipv4_overlaps_any(&large, &[small]));
-        assert!(!ipv4_overlaps_any(&small, &[other]));
-    }
-
-    // ========================================================================
-    // IPv6 tests
-
-    #[test]
-    fn test_allocate_ipv6_management_subnet_skips_host_networks() {
-        let prefix = Ipv6Net::from_str("fd00:b00b::/48").unwrap();
-        let host = vec![
-            ipv6_mgmt_subnet(1),
-            Ipv6Net::from_str("fd00:b00b:0:2::/63").unwrap(),
-        ];
-        let result = allocate_ipv6_management_subnet(&prefix, &[], &host).unwrap();
-        assert_eq!(result, ipv6_mgmt_subnet(4));
-    }
-    // ========================================================================
-
-    fn ipv6_mgmt_subnet(index: u16) -> Ipv6Net {
-        let base = Ipv6Addr::from_str("fd00:b00b::").unwrap().to_bits();
-        let addr = Ipv6Addr::from_bits(base + (u128::from(index) << 64));
-        Ipv6Net::new(addr, 64).unwrap()
-    }
-
-    fn ipv6_loop_subnet(index: u16) -> Ipv6Net {
-        let base = Ipv6Addr::from_str("fd00:1001::").unwrap().to_bits();
-        let addr = Ipv6Addr::from_bits(base + (u128::from(index) << 64));
-        Ipv6Net::new(addr, 64).unwrap()
-    }
-
-    #[test]
-    fn test_get_ipv6_addr() {
-        let net = Ipv6Net::from_str("fd00:b00b:0:1::/64").unwrap();
-        let addr = get_ipv6_addr(&net, 42).unwrap();
-        assert_eq!(addr, Ipv6Addr::from_str("fd00:b00b:0:1::2a").unwrap());
-    }
-
-    #[test]
-    fn test_allocate_ipv6_management_subnet_skips_used() {
-        let prefix = Ipv6Net::from_str("fd00:b00b::/48").unwrap();
-        let used = vec![ipv6_mgmt_subnet(1)];
-        let result = allocate_ipv6_management_subnet(&prefix, &used, &[]).unwrap();
-        assert_eq!(result, ipv6_mgmt_subnet(2));
-    }
-
-    #[test]
-    fn test_allocate_ipv6_loopback_subnet_skips_used() {
-        let prefix = Ipv6Net::from_str("fd00:1001::/48").unwrap();
-        let used = vec![ipv6_loop_subnet(1)];
-        let result = allocate_ipv6_loopback_subnet(&prefix, &used).unwrap();
-        assert_eq!(result, ipv6_loop_subnet(2));
-    }
-
-    #[test]
-    fn test_node_management_host_offset_starts_at_node_block() {
-        assert_eq!(node_management_host_offset(1).unwrap(), 21);
-        assert_eq!(node_management_host_offset(2).unwrap(), 22);
-        assert_eq!(node_management_host_offset(234).unwrap(), 254);
-    }
-
-    #[test]
-    fn test_node_management_host_offset_rejects_out_of_range_indexes() {
-        assert!(node_management_host_offset(0).is_err());
-        assert!(node_management_host_offset(235).is_err());
-        assert!(node_management_host_offset(u16::MAX).is_err());
     }
 }

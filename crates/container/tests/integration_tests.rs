@@ -257,7 +257,8 @@ async fn container_run_004_a_privileged_container_runs_privileged() -> Result<()
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon"]
-async fn test_create_bridge_network_reports_failure() -> Result<()> {
+async fn management_network_005_a_management_network_docker_cannot_make_is_reported() -> Result<()>
+{
     let docker = docker_connection()?;
     let result = create_docker_bridge_network(
         &docker,
@@ -293,7 +294,8 @@ async fn test_create_existing_bridge_network_succeeds() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon"]
-async fn test_delete_network_in_use_fails_and_missing_succeeds() -> Result<()> {
+async fn link_cleanup_006_a_network_in_use_is_not_removed_and_one_gone_counts_as_removed()
+-> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-net-in-use";
     let net = TestNet::new("in-use", 52);

@@ -33,29 +33,10 @@ pub fn validate_management_prefix_ipv6(prefix: Ipv6Net) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::util::get_ipv4_network;
 
     #[test]
-    fn accepts_ipv6_prefixes_with_room_for_a_lab() {
-        for prefix in ["fd00:b00b::/48", "fd00:b00a::/48", "fd00:b00a::/63"] {
-            assert!(
-                validate_management_prefix_ipv6(prefix.parse().unwrap()).is_ok(),
-                "{prefix} was refused"
-            );
-        }
-    }
-
-    #[test]
-    fn refuses_ipv6_prefixes_without_room_for_a_lab() {
-        for prefix in ["fd00:b00a::/64", "fd00:b00a::/80", "fd00:b00a::/128"] {
-            assert!(
-                validate_management_prefix_ipv6(prefix.parse().unwrap()).is_err(),
-                "{prefix} was accepted"
-            );
-        }
-    }
-
-    #[test]
-    fn accepts_prefixes_with_room_for_a_lab() {
+    fn lab_addressing_008_a_management_range_too_small_for_one_lab_is_refused() {
         for prefix in [
             "172.31.0.0/16",
             "172.30.0.0/16",
@@ -67,15 +48,29 @@ mod tests {
                 "{prefix} was refused"
             );
         }
-    }
 
-    #[test]
-    fn refuses_prefixes_without_room_for_a_lab() {
         for prefix in ["172.30.0.0/25", "10.0.0.0/24", "10.0.0.0/32"] {
             assert!(
                 validate_management_prefix_ipv4(prefix.parse().unwrap()).is_err(),
                 "{prefix} was accepted"
             );
         }
+
+        for prefix in ["fd00:b00b::/48", "fd00:b00a::/48", "fd00:b00a::/63"] {
+            assert!(
+                validate_management_prefix_ipv6(prefix.parse().unwrap()).is_ok(),
+                "{prefix} was refused"
+            );
+        }
+
+        for prefix in ["fd00:b00a::/64", "fd00:b00a::/80", "fd00:b00a::/128"] {
+            assert!(
+                validate_management_prefix_ipv6(prefix.parse().unwrap()).is_err(),
+                "{prefix} was accepted"
+            );
+        }
+
+        let error = get_ipv4_network("10.0.0/24").unwrap_err();
+        assert!(error.to_string().contains("10.0.0/24"), "{error}");
     }
 }

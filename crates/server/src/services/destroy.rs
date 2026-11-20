@@ -917,7 +917,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_labs_own_host_interfaces_are_deleted() {
+    fn link_cleanup_003_only_the_labs_own_host_interfaces_are_deleted() {
         for name in [
             "tpa3-fecb1a12",
             "tpb3-fecb1a12",

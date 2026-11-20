@@ -94,7 +94,7 @@ mod tests {
     }
 
     #[test]
-    fn a_link_with_both_ends_is_attached_both_ways() {
+    fn link_state_001_a_link_with_both_ends_is_attached() {
         let step = step(
             Side::A,
             &at("tpa0", End::Present(10)),
@@ -111,7 +111,7 @@ mod tests {
     }
 
     #[test]
-    fn a_link_whose_peer_end_is_missing_waits_for_its_peer() {
+    fn link_state_002_a_link_whose_peers_end_is_missing_is_peer_down() {
         // M9.2 and M25.1: a peer that is shut off has no tap. That is expected, not a failure.
         for side in [Side::A, Side::B] {
             let (a, b) = match side {
@@ -129,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn a_link_whose_own_end_is_missing_has_failed_even_with_its_peer_down() {
+    fn link_state_003_a_link_whose_own_end_is_missing_has_failed_even_with_its_peer_down() {
         assert_eq!(
             step(
                 Side::B,
@@ -144,7 +144,7 @@ mod tests {
     }
 
     #[test]
-    fn an_end_that_could_not_be_made_or_seen_fails_the_link() {
+    fn link_state_004_an_end_that_could_not_be_made_or_read_fails_the_link() {
         let broken = || End::Broken("netlink refused".to_string());
         for (side, a, b) in [
             (Side::A, broken(), End::Present(2)),
@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn a_link_between_two_interfaces_of_one_node_needs_both() {
+    fn link_state_005_a_link_between_two_interfaces_of_one_node_needs_both() {
         assert_eq!(
             step(
                 Side::Both,

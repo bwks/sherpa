@@ -171,7 +171,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn container_interface_names_follow_each_model() {
+    fn node_interfaces_002_a_containers_data_interfaces_are_named_as_its_model_needs() {
         assert_eq!(
             container_interface_name(ModelKind::default_for(NodeModel::NokiaSrlinux), 3).unwrap(),
             "e1-3"
@@ -200,10 +200,47 @@ mod tests {
             .unwrap(),
             "eth2"
         );
+
+        assert_eq!(srlinux_to_linux_interface("eth-1/1").unwrap(), "e1-1");
+        assert_eq!(srlinux_to_linux_interface("eth-1/3").unwrap(), "e1-3");
+        assert_eq!(srlinux_to_linux_interface("eth-1/34").unwrap(), "e1-34");
+
+        assert!(srlinux_to_linux_interface("mgmt0").is_err());
+
+        for model in [NodeModel::CiscoIol, NodeModel::CiscoIoll2] {
+            for idx in 0..16u8 {
+                assert_eq!(
+                    container_interface_name(ModelKind::default_for(model), idx).unwrap(),
+                    format!("eth{idx}")
+                );
+            }
+        }
     }
 
     #[test]
-    fn both_kinds_of_sonic_name_their_data_interfaces_eth1_to_eth32() {
+    fn node_interfaces_001_a_named_interface_is_that_interface_for_each_model_and_kind() {
+        for model_kind in ModelKind::all() {
+            let name = interface_from_idx(model_kind, 0).unwrap();
+            assert_eq!(
+                interface_to_idx(model_kind, &name).unwrap(),
+                0,
+                "{model_kind:?}: {name}"
+            );
+        }
+
+        let veos = ModelKind::default_for(NodeModel::AristaEos);
+        let ceos = ModelKind::new(NodeModel::AristaEos, Some(NodeKind::Container)).unwrap();
+        assert_eq!(interface_from_idx(veos, 0).unwrap(), "Management1");
+        assert_eq!(interface_from_idx(ceos, 0).unwrap(), "Management0");
+        assert_eq!(container_interface_name(ceos, 2).unwrap(), "eth2");
+
+        let vevolved = ModelKind::default_for(NodeModel::JuniperEvolved);
+        let cevolved =
+            ModelKind::new(NodeModel::JuniperEvolved, Some(NodeKind::Container)).unwrap();
+        assert_eq!(interface_from_idx(cevolved, 36).unwrap(), "et-0/0/35");
+        assert!(interface_from_idx(vevolved, 36).is_err());
+        assert_eq!(container_interface_name(cevolved, 1).unwrap(), "eth4");
+
         let vm = ModelKind::default_for(NodeModel::SonicLinux);
         let container = ModelKind::new(NodeModel::SonicLinux, Some(NodeKind::Container)).unwrap();
         for model_kind in [vm, container] {
@@ -218,10 +255,14 @@ mod tests {
                 format!("eth{idx}")
             );
         }
-    }
 
-    #[test]
-    fn cisco_iol_interfaces_are_ethernet_slot_and_port_and_container_eth_by_index() {
+        let cevolved =
+            ModelKind::new(NodeModel::JuniperEvolved, Some(NodeKind::Container)).unwrap();
+        assert_eq!(interface_from_idx(cevolved, 1).unwrap(), "et-0/0/0");
+        assert_eq!(interface_from_idx(cevolved, 36).unwrap(), "et-0/0/35");
+        assert_eq!(interface_to_idx(cevolved, "re0:mgmt-0").unwrap(), 0);
+        assert!(interface_from_idx(cevolved, 37).is_err());
+
         for model in [NodeModel::CiscoIol, NodeModel::CiscoIoll2] {
             for idx in 0..16u8 {
                 let name = format!("Ethernet{}/{}", idx / 4, idx % 4);
@@ -232,10 +273,6 @@ mod tests {
                 assert_eq!(
                     interface_to_idx(ModelKind::default_for(model), &name).unwrap(),
                     idx
-                );
-                assert_eq!(
-                    container_interface_name(ModelKind::default_for(model), idx).unwrap(),
-                    format!("eth{idx}")
                 );
             }
             assert!(interface_from_idx(ModelKind::default_for(model), 16).is_err());
@@ -250,93 +287,6 @@ mod tests {
                     .management
                     .to_string(),
                 "Ethernet0/0"
-            );
-        }
-    }
-
-    #[test]
-    fn cevolved_interfaces_are_the_36_et_ports() {
-        let cevolved =
-            ModelKind::new(NodeModel::JuniperEvolved, Some(NodeKind::Container)).unwrap();
-        assert_eq!(interface_from_idx(cevolved, 1).unwrap(), "et-0/0/0");
-        assert_eq!(interface_from_idx(cevolved, 36).unwrap(), "et-0/0/35");
-        assert_eq!(interface_to_idx(cevolved, "re0:mgmt-0").unwrap(), 0);
-        assert!(interface_from_idx(cevolved, 37).is_err());
-    }
-
-    #[test]
-    fn test_srlinux_to_linux_interface() {
-        assert_eq!(srlinux_to_linux_interface("eth-1/1").unwrap(), "e1-1");
-        assert_eq!(srlinux_to_linux_interface("eth-1/3").unwrap(), "e1-3");
-        assert_eq!(srlinux_to_linux_interface("eth-1/34").unwrap(), "e1-34");
-    }
-
-    #[test]
-    fn test_srlinux_to_linux_interface_invalid() {
-        assert!(srlinux_to_linux_interface("mgmt0").is_err());
-    }
-
-    #[test]
-    fn test_interface_roundtrip_cisco_ios() {
-        let model = NodeModel::CiscoIos;
-        let name = interface_from_idx(ModelKind::default_for(model), 0).unwrap();
-        let idx = interface_to_idx(ModelKind::default_for(model), &name).unwrap();
-        assert_eq!(idx, 0);
-
-        let name1 = interface_from_idx(ModelKind::default_for(model), 1).unwrap();
-        let idx1 = interface_to_idx(ModelKind::default_for(model), &name1).unwrap();
-        assert_eq!(idx1, 1);
-    }
-
-    #[test]
-    fn test_interface_roundtrip_arista_eos_vm() {
-        let model = NodeModel::AristaEos;
-        for idx in 0..5 {
-            let name = interface_from_idx(ModelKind::default_for(model), idx).unwrap();
-            let back = interface_to_idx(ModelKind::default_for(model), &name).unwrap();
-            assert_eq!(back, idx, "round-trip failed for idx {idx}: name={name}");
-        }
-    }
-
-    #[test]
-    fn test_interface_roundtrip_generic_ethernet() {
-        let model = NodeModel::UbuntuLinux;
-        let name = interface_from_idx(ModelKind::default_for(model), 0).unwrap();
-        assert_eq!(
-            interface_to_idx(ModelKind::default_for(model), &name).unwrap(),
-            0
-        );
-        let name3 = interface_from_idx(ModelKind::default_for(model), 3).unwrap();
-        assert_eq!(
-            interface_to_idx(ModelKind::default_for(model), &name3).unwrap(),
-            3
-        );
-    }
-
-    #[test]
-    fn each_kind_of_a_merged_model_has_its_own_interface_names() {
-        let veos = ModelKind::default_for(NodeModel::AristaEos);
-        let ceos = ModelKind::new(NodeModel::AristaEos, Some(NodeKind::Container)).unwrap();
-        assert_eq!(interface_from_idx(veos, 0).unwrap(), "Management1");
-        assert_eq!(interface_from_idx(ceos, 0).unwrap(), "Management0");
-        assert_eq!(container_interface_name(ceos, 2).unwrap(), "eth2");
-
-        let vevolved = ModelKind::default_for(NodeModel::JuniperEvolved);
-        let cevolved =
-            ModelKind::new(NodeModel::JuniperEvolved, Some(NodeKind::Container)).unwrap();
-        assert_eq!(interface_from_idx(cevolved, 36).unwrap(), "et-0/0/35");
-        assert!(interface_from_idx(vevolved, 36).is_err());
-        assert_eq!(container_interface_name(cevolved, 1).unwrap(), "eth4");
-    }
-
-    #[test]
-    fn the_first_interface_of_every_pair_round_trips() {
-        for model_kind in ModelKind::all() {
-            let name = interface_from_idx(model_kind, 0).unwrap();
-            assert_eq!(
-                interface_to_idx(model_kind, &name).unwrap(),
-                0,
-                "{model_kind:?}: {name}"
             );
         }
     }

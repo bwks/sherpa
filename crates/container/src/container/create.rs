@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn interface_names_are_shell_arguments_not_script() {
+    fn node_interfaces_011_an_interface_name_reaches_the_rename_command_as_an_argument() {
         let name = "e1;touch /x";
         let command = data_interface_command(&attachment(Some(name), false)).unwrap();
         assert_eq!(command.last().map(String::as_str), Some(name));

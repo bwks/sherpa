@@ -1,6 +1,7 @@
 use anyhow::Result;
 use db::{
-    LabDetails, LabNetworks, create_lab, create_user, get_lab, list_labs, update_lab_phase_from,
+    LabDetails, LabNetworks, create_lab, create_user, get_lab, get_used_ipv6_management_networks,
+    get_used_management_networks, list_labs, update_lab_phase_from,
 };
 use shared::data::LabPhase;
 
@@ -217,52 +218,29 @@ fn dual_stack_networks(index: u8) -> LabNetworks {
 }
 
 #[tokio::test]
-async fn test_create_lab_duplicate_management_network_fails() -> Result<()> {
+async fn lab_addressing_004_a_held_range_is_reported_used_and_cannot_be_held_twice() -> Result<()> {
     let db = setup_db().await?;
     let user = create_user(&db, "mia".to_string(), "TestPass123!", false, vec![]).await?;
-
-    create_lab(
-        &db,
-        "Lab One",
-        "lab-0101",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    let result = create_lab(
-        &db,
-        "Lab Two",
-        "lab-0102",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await;
-    assert!(
-        result.is_err(),
-        "A management subnet must belong to one lab"
-    );
-
     assert_eq!(
-        list_labs(&db).await?.len(),
-        1,
-        "Rejected labs must not be created"
+        get_used_management_networks(&db).await?.len(),
+        0,
+        "no lab yet"
     );
 
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_lab_stores_and_reserves_ipv6() -> Result<()> {
-    let db = setup_db().await?;
-    let user = create_user(&db, "noah".to_string(), "TestPass123!", false, vec![]).await?;
-
-    let networks = dual_stack_networks(1);
+    // Labs with no IPv6 range do not collide with each other or with a dual-stack lab.
+    for (name, lab_id, index) in [("Lab One", "lab-0101", 1), ("Lab Two", "lab-0102", 2)] {
+        let networks = ipv4_lab_networks(
+            &format!("172.31.{index}.0/24"),
+            &format!("172.31.{index}.1"),
+            &format!("172.31.{index}.2"),
+        );
+        create_lab(&db, name, lab_id, &user, &networks, &LabDetails::default()).await?;
+    }
+    let networks = dual_stack_networks(3);
     let lab = create_lab(
         &db,
-        "Lab One",
-        "lab-0111",
+        "Lab Three",
+        "lab-0103",
         &user,
         &networks,
         &LabDetails::default(),
@@ -273,61 +251,45 @@ async fn test_create_lab_stores_and_reserves_ipv6() -> Result<()> {
     assert_eq!(lab.gateway_ipv6, networks.gateway_ipv6);
     assert_eq!(lab.router_ipv6, networks.router_ipv6);
 
-    // Distinct IPv4 subnets, same IPv6 management subnet.
-    let clash = LabNetworks {
-        management_network_v6: networks.management_network_v6.clone(),
-        ..dual_stack_networks(2)
-    };
-    let result = create_lab(
-        &db,
-        "Lab Two",
-        "lab-0112",
-        &user,
-        &clash,
-        &LabDetails::default(),
-    )
-    .await;
-    assert!(
-        result.is_err(),
-        "An IPv6 management subnet must belong to one lab"
+    let in_use = get_used_management_networks(&db).await?;
+    assert_eq!(in_use.len(), 3, "{in_use:?}");
+    for net in ["172.31.1.0/24", "172.31.2.0/24", "172.31.3.0/24"] {
+        assert!(
+            in_use.contains(&net.parse()?),
+            "{net} should be used: {in_use:?}"
+        );
+    }
+    assert_eq!(
+        get_used_ipv6_management_networks(&db)
+            .await?
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["fd00:b00b:0:3::/64"]
     );
 
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_labs_without_ipv6_do_not_conflict() -> Result<()> {
-    let db = setup_db().await?;
-    let user = create_user(&db, "olga".to_string(), "TestPass123!", false, vec![]).await?;
-
-    create_lab(
-        &db,
-        "Lab One",
-        "lab-0121",
-        &user,
-        &ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    create_lab(
-        &db,
-        "Lab Two",
-        "lab-0122",
-        &user,
-        &ipv4_lab_networks("172.31.2.0/24", "172.31.2.1", "172.31.2.2"),
-        &LabDetails::default(),
-    )
-    .await?;
-    create_lab(
-        &db,
-        "Lab Three",
-        "lab-0123",
-        &user,
-        &dual_stack_networks(3),
-        &LabDetails::default(),
-    )
-    .await?;
-    assert_eq!(list_labs(&db).await?.len(), 3);
-
+    // A second lab is refused a held IPv4 range, and a held IPv6 range with a free IPv4 one.
+    let held_ipv4 = ipv4_lab_networks("172.31.1.0/24", "172.31.1.1", "172.31.1.2");
+    let held_ipv6 = LabNetworks {
+        management_network_v6: networks.management_network_v6.clone(),
+        ..dual_stack_networks(4)
+    };
+    for (lab_id, networks) in [("lab-0104", &held_ipv4), ("lab-0105", &held_ipv6)] {
+        let result = create_lab(
+            &db,
+            "Lab Four",
+            lab_id,
+            &user,
+            networks,
+            &LabDetails::default(),
+        )
+        .await;
+        assert!(result.is_err(), "{networks:?} must belong to one lab");
+    }
+    assert_eq!(
+        list_labs(&db).await?.len(),
+        3,
+        "Rejected labs must not be created"
+    );
     Ok(())
 }

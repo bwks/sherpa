@@ -411,7 +411,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_lab_nothing_changed_in_is_left_alone() {
+    async fn link_reattach_020_a_scan_of_a_lab_in_which_nothing_changed_makes_nothing() {
         // A guest reboot, a pause and unpause, a sherpad restart: the ends and their filters
         // are as they were.
         let (host, lab) = wired_lab();
@@ -425,19 +425,49 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_vm_shut_off_outside_sherpa_is_not_repaired_and_its_links_wait() {
-        // `virsh destroy` or `shutdown`: vm2's tap goes with its filter; vm1's end stays.
-        let (host, lab) = wired_lab();
-        host.remove(&["tpb0"]);
-        let scan = scan(&host, &lab, &running(&["vm1", "ctr1"]), &[]).await;
-        assert_eq!(scan.repaired, Vec::<RecordId>::new());
-        assert_eq!(host.writes.get(), 0);
-        assert_eq!(scan.states[&0], peer_down("vm2"));
-        assert_eq!(scan.states[&1], LinkState::Attached);
+    async fn link_reattach_022_a_stopped_or_paused_node_is_not_repaired_and_its_links_wait() {
+        {
+            // `virsh destroy` or `shutdown`: vm2's tap goes with its filter; vm1's end stays.
+            let (host, lab) = wired_lab();
+            host.remove(&["tpb0"]);
+            let scan = scan(&host, &lab, &running(&["vm1", "ctr1"]), &[]).await;
+            assert_eq!(scan.repaired, Vec::<RecordId>::new());
+            assert_eq!(host.writes.get(), 0);
+            assert_eq!(scan.states[&0], peer_down("vm2"));
+            assert_eq!(scan.states[&1], LinkState::Attached);
+        }
+
+        {
+            // `docker stop`, an OOM kill, the main process exiting.
+            let (host, lab) = wired_lab();
+            host.remove(&["tpb1", "cd1i2-lab"]);
+            let scan = scan(
+                &host,
+                &lab,
+                &running(&["vm1", "vm2"]),
+                &[("ctr1", ctr1_end)],
+            )
+            .await;
+            assert_eq!(scan.repaired, Vec::<RecordId>::new());
+            assert_eq!(host.writes.get(), 0);
+            assert!(host.index("tpb1").is_none(), "nothing is made for it");
+            assert_eq!(scan.states[&1], peer_down("ctr1"));
+        }
+
+        {
+            // `virsh suspend` after the VM was started outside Sherpa: its tap is bare, but the
+            // node is not running, so nothing is done to it.
+            let (host, lab) = wired_lab();
+            host.make(&["tpb0"]);
+            let scan = scan(&host, &lab, &running(&["vm1", "ctr1"]), &[]).await;
+            assert_eq!(scan.repaired, Vec::<RecordId>::new());
+            assert_eq!(host.writes.get(), 0);
+            assert_eq!(scan.states[&0], peer_down("vm2"));
+        }
     }
 
     #[tokio::test]
-    async fn a_vm_started_outside_sherpa_has_its_bare_taps_wired() {
+    async fn link_reattach_030_a_vm_started_outside_sherpa_has_its_bare_taps_wired() {
         // `virsh start`: libvirt made vm2 a new tap with no filter; vm1's points at the old one.
         let (host, lab) = wired_lab();
         host.make(&["tpb0"]);
@@ -450,7 +480,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_restarted_container_gets_its_missing_veths_back_and_its_links_wired() {
+    async fn link_reattach_031_a_restarted_container_gets_its_interfaces_back_and_its_links() {
         // `docker restart`, or `docker stop` then `start`: the new namespace has none of the
         // container's data interfaces.
         let (host, lab) = wired_lab();
@@ -474,7 +504,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_the_missing_veths_of_a_container_are_made() {
+    async fn link_reattach_021_only_the_missing_interfaces_of_a_container_are_made() {
         // Making a veth deletes its host end first, which would flap a healthy interface.
         let (host, lab) = wired_lab();
         let disabled = host.index("cd1i2-lab");
@@ -491,37 +521,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_stopped_container_is_not_repaired_and_its_links_wait() {
-        // `docker stop`, an OOM kill, the main process exiting.
-        let (host, lab) = wired_lab();
-        host.remove(&["tpb1", "cd1i2-lab"]);
-        let scan = scan(
-            &host,
-            &lab,
-            &running(&["vm1", "vm2"]),
-            &[("ctr1", ctr1_end)],
-        )
-        .await;
-        assert_eq!(scan.repaired, Vec::<RecordId>::new());
-        assert_eq!(host.writes.get(), 0);
-        assert!(host.index("tpb1").is_none(), "nothing is made for it");
-        assert_eq!(scan.states[&1], peer_down("ctr1"));
-    }
-
-    #[tokio::test]
-    async fn a_paused_node_is_not_repaired() {
-        // `virsh suspend` after the VM was started outside Sherpa: its tap is bare, but the
-        // node is not running, so nothing is done to it.
-        let (host, lab) = wired_lab();
-        host.make(&["tpb0"]);
-        let scan = scan(&host, &lab, &running(&["vm1", "ctr1"]), &[]).await;
-        assert_eq!(scan.repaired, Vec::<RecordId>::new());
-        assert_eq!(host.writes.get(), 0);
-        assert_eq!(scan.states[&0], peer_down("vm2"));
-    }
-
-    #[tokio::test]
-    async fn a_bare_end_whose_peer_is_down_waits_for_the_peer() {
+    async fn link_reattach_023_a_bare_end_whose_peer_is_down_waits_for_the_peer() {
         // vm1 was started outside Sherpa while vm2 is shut off: nothing can be attached, so it
         // is not repaired on every scan.
         let (host, lab) = wired_lab();
@@ -540,7 +540,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_first_scan_repairs_with_nothing_remembered_and_the_next_finds_nothing() {
+    async fn link_reattach_032_one_scan_repairs_with_nothing_remembered_and_the_next_nothing() {
         // As after a sherpad restart: a change made while it was down is seen from the kernel.
         let (host, lab) = wired_lab();
         host.make(&["tpb0"]);
@@ -559,7 +559,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_repair_that_fails_does_not_stop_the_others_and_is_tried_again() {
+    async fn link_reattach_024_a_repair_that_fails_stops_no_other_and_is_tried_again() {
         let (mut host, lab) = wired_lab();
         host.failing_redirects.insert("tpb0".to_string());
         host.make(&["tpa0", "tpa1"]);
@@ -582,28 +582,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_running_vm_whose_tap_is_missing_fails_its_link() {
-        let (host, lab) = wired_lab();
-        host.remove(&["tpb0"]);
-        let scan = scan(&host, &lab, &running(&["vm1", "vm2", "ctr1"]), &[]).await;
-        assert_eq!(scan.faults, vec!["its end tpb0 does not exist"]);
-        assert_eq!(
-            scan.states[&0],
-            LinkState::Failed {
-                reason: "its end tpb0 does not exist".to_string()
-            }
-        );
-    }
+    async fn link_reattach_025_a_missing_tap_or_an_unreadable_end_fails_the_link_with_no_repair() {
+        {
+            let (host, lab) = wired_lab();
+            host.remove(&["tpb0"]);
+            let scan = scan(&host, &lab, &running(&["vm1", "vm2", "ctr1"]), &[]).await;
+            assert_eq!(scan.faults, vec!["its end tpb0 does not exist"]);
+            assert_eq!(
+                scan.states[&0],
+                LinkState::Failed {
+                    reason: "its end tpb0 does not exist".to_string()
+                }
+            );
+        }
 
-    #[tokio::test]
-    async fn an_end_that_cannot_be_read_fails_its_link_without_a_repair() {
-        let (mut host, lab) = wired_lab();
-        host.failing_filter_reads.insert("tpb0".to_string());
-        let scan = scan(&host, &lab, &running(&["vm1", "vm2", "ctr1"]), &[]).await;
-        assert_eq!(scan.repaired, Vec::<RecordId>::new());
-        assert_eq!(host.writes.get(), 0);
-        assert!(matches!(scan.states[&0], LinkState::Failed { .. }));
-        assert_eq!(scan.states[&1], LinkState::Attached);
+        {
+            let (mut host, lab) = wired_lab();
+            host.failing_filter_reads.insert("tpb0".to_string());
+            let scan = scan(&host, &lab, &running(&["vm1", "vm2", "ctr1"]), &[]).await;
+            assert_eq!(scan.repaired, Vec::<RecordId>::new());
+            assert_eq!(host.writes.get(), 0);
+            assert!(matches!(scan.states[&0], LinkState::Failed { .. }));
+            assert_eq!(scan.states[&1], LinkState::Attached);
+        }
     }
 
     // Integration: real kernel, Docker and libvirt, as root.
@@ -781,7 +782,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires root and Docker with alpine:latest: makes containers, veths and eBPF programs"]
-    async fn a_docker_restart_is_repaired_by_one_scan() {
+    async fn link_reattach_016_a_docker_restart_is_repaired_by_one_scan() {
         let pair = ContainerPair::up().await;
         pair.docker
             .restart_container(CTR_B, None::<RestartContainerOptions>)
@@ -802,7 +803,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires root and Docker with alpine:latest: makes containers, veths and eBPF programs"]
-    async fn a_docker_stop_waits_and_the_start_is_repaired_by_one_scan() {
+    async fn link_reattach_017_a_docker_stop_waits_and_the_start_is_repaired_by_one_scan() {
         let pair = ContainerPair::up().await;
         pair.docker
             .stop_container(CTR_B, None::<StopContainerOptions>)
@@ -825,7 +826,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires root and Docker with alpine:latest: makes containers, veths and eBPF programs"]
-    async fn a_scan_with_nothing_remembered_repairs_what_changed_before_it() {
+    async fn link_reattach_019_the_first_scan_repairs_what_changed_while_sherpad_was_down() {
         // As after a sherpad restart: the container was restarted while nothing was scanning,
         // and the check is made by a new host with no state.
         let pair = ContainerPair::up().await;
@@ -858,7 +859,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires root and libvirt: makes a domain, a veth and eBPF programs"]
-    async fn a_vm_destroyed_and_started_outside_sherpa_is_repaired_by_one_scan() {
+    async fn link_reattach_018_a_vm_destroyed_and_started_with_virsh_is_repaired_by_one_scan() {
         let (vm, tap, peer) = ("it-repair-vm1", "it-rvm0", "it-rpeer0");
         let mut conn = Connect::open(Some("qemu:///system")).unwrap();
         if let Ok(old) = Domain::lookup_by_name(&conn, vm) {
@@ -1145,7 +1146,7 @@ chmod +x /var/lib/cloud/scripts/per-boot/carrier.sh
 
     #[tokio::test]
     #[ignore = "requires root, Docker with alpine:latest, libvirt and the alpine_linux image: boots a VM"]
-    async fn a_stopped_container_takes_the_link_of_its_vm_peer_down_inside_the_guest() {
+    async fn link_carrier_001_a_stopped_container_takes_the_link_down_in_its_vm_peers_guest() {
         let pair = GuestPair::up("itcarr1", "itc1a0", "itc1b0").await;
 
         pair.docker
@@ -1176,7 +1177,7 @@ chmod +x /var/lib/cloud/scripts/per-boot/carrier.sh
 
     #[tokio::test]
     #[ignore = "requires root, Docker with alpine:latest, libvirt and the alpine_linux image: boots a VM"]
-    async fn a_stopped_vm_takes_the_link_of_its_container_peer_down_in_its_namespace() {
+    async fn link_carrier_002_a_stopped_vm_takes_carrier_from_its_container_peer() {
         let pair = GuestPair::up("itcarr2", "itc2a0", "itc2b0").await;
 
         pair.domain.destroy().unwrap();
@@ -1195,7 +1196,7 @@ chmod +x /var/lib/cloud/scripts/per-boot/carrier.sh
 
     #[tokio::test]
     #[ignore = "requires root, Docker with alpine:latest, libvirt and the alpine_linux image: boots a VM"]
-    async fn an_unpaused_container_gives_its_vm_peer_carrier_without_waiting_for_a_scan() {
+    async fn link_carrier_003_a_container_unpaused_by_resume_gives_its_vm_peer_carrier_at_once() {
         let pair = GuestPair::up("itcarr3", "itc3a0", "itc3b0").await;
 
         // `sherpa down -n ctr1` pauses the container; a scan takes the VM's link down.

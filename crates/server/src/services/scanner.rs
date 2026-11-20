@@ -600,7 +600,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_management_veth_of_a_running_iol_node_gets_offload_off_only_when_it_is_on() {
+    async fn veth_checksums_008_each_scan_turns_offload_off_on_a_running_iol_node_only_when_on() {
         let running = db_node(NodeState::Running, true);
         let building = db_node(NodeState::Building, true);
         let nodes = [
@@ -650,7 +650,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_node_whose_management_veth_cannot_be_found_does_not_stop_the_others() {
+    async fn veth_checksums_009_a_node_whose_management_interface_is_not_found_stops_no_other() {
         let running = db_node(NodeState::Running, true);
         let nodes = [
             container(&running, NodeModel::CiscoIol, "gone-lab"),

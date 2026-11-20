@@ -87,7 +87,7 @@ fn test_create_bridge_network() {
 
 #[test]
 #[ignore = "requires a libvirt daemon"]
-fn test_create_isolated_network() {
+fn node_interfaces_010_reserved_and_unused_interfaces_are_on_networks_of_their_own() {
     let conn = connect().expect("connects");
     let name = "sherpa-test-iso-net";
     let bridge = "sherpa-tiso0";
@@ -114,15 +114,7 @@ fn test_create_isolated_network() {
 
     let _ = net.destroy();
     let _ = net.undefine();
-}
 
-// ============================================================================
-// Network — Reserved
-// ============================================================================
-
-#[test]
-#[ignore = "requires a libvirt daemon"]
-fn test_create_reserved_network() {
     let conn = connect().expect("connects");
     let name = "sherpa-test-rsv-net";
     let bridge = "sherpa-trsv0";
@@ -154,12 +146,16 @@ fn test_create_reserved_network() {
 }
 
 // ============================================================================
+// Network — Reserved
+// ============================================================================
+
+// ============================================================================
 // Network — NAT
 // ============================================================================
 
 #[test]
 #[ignore = "requires a libvirt daemon"]
-fn test_create_nat_network_ipv4() {
+fn management_network_003_a_labs_management_network_is_made_ipv4_or_dual_stack_once() {
     let conn = connect().expect("connects");
     let name = "sherpa-test-nat-net";
     let bridge = "sherpa-tnat0";
@@ -190,11 +186,7 @@ fn test_create_nat_network_ipv4() {
 
     let _ = net.destroy();
     let _ = net.undefine();
-}
 
-#[test]
-#[ignore = "requires a libvirt daemon"]
-fn test_create_nat_network_dual_stack() {
     let conn = connect().expect("connects");
     let name = "sherpa-test-nat6-net";
     let bridge = "sherpa-tnat6";
@@ -219,15 +211,7 @@ fn test_create_nat_network_dual_stack() {
 
     let _ = net.destroy();
     let _ = net.undefine();
-}
 
-// ============================================================================
-// Network — Idempotency
-// ============================================================================
-
-#[test]
-#[ignore = "requires a libvirt daemon"]
-fn test_network_create_idempotent() {
     let conn = connect().expect("connects");
     let name = "sherpa-test-idem-net";
     let bridge = "sherpa-tidem";
@@ -254,6 +238,10 @@ fn test_network_create_idempotent() {
     let _ = net.destroy();
     let _ = net.undefine();
 }
+
+// ============================================================================
+// Network — Idempotency
+// ============================================================================
 
 // ============================================================================
 // Storage Pool

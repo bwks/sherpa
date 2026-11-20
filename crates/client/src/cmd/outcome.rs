@@ -76,7 +76,7 @@ mod tests {
     use shared::data::{DestroyError, DestroySummary};
 
     #[test]
-    fn only_links_that_are_not_attached_are_told() {
+    fn link_state_008_links_that_are_not_attached_are_told_as_information_or_warning() {
         let report = |state| LinkReport {
             link: "vm1::eth1 <-> vm2::eth1".to_string(),
             state,
@@ -92,6 +92,27 @@ mod tests {
         }))
         .unwrap();
         assert!(failed.contains("not attached: netlink refused"), "{failed}");
+
+        let report = |state| LinkReport {
+            link: "vm1::eth1 <-> vm2::eth1".to_string(),
+            state,
+        };
+        assert_eq!(
+            report(LinkState::PeerDown {
+                peer: "vm2".to_string()
+            })
+            .to_string(),
+            "link vm1::eth1 <-> vm2::eth1 not attached: vm2 is down; it is attached when vm2 starts"
+        );
+        let failed = report(LinkState::Failed {
+            reason: "no tap".to_string(),
+        });
+        assert!(failed.failed());
+        assert_eq!(
+            failed.to_string(),
+            "link vm1::eth1 <-> vm2::eth1 not attached: no tap"
+        );
+        assert!(!report(LinkState::Attached).failed());
     }
 
     fn destroy_response(success: bool, database_records_deleted: bool) -> DestroyResponse {

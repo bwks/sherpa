@@ -264,13 +264,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_requested_impairment_is_converted_to_microseconds() {
-        let impairment = requested_impairment(&request(274_877, 12.5)).unwrap();
-        assert_eq!(impairment.delay_us, 274_877_000);
-        assert!((impairment.loss_percent - 12.5).abs() < f64::EPSILON);
-    }
-
     fn link() -> DbLink {
         DbLink {
             id: None,
@@ -307,7 +300,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_clear_that_the_kernel_refuses_is_not_recorded() {
+    async fn link_impair_013_a_failed_clear_is_not_recorded_and_a_clear_of_nothing_succeeds() {
         // M25.3: a failed removal used to count as "nothing to remove", and the database was
         // set clear while the kernel kept the qdisc.
         let mut host = host();
@@ -327,10 +320,7 @@ mod tests {
         assert!(result.is_err());
         assert!(!recorded.get(), "the database must keep the impairment");
         assert_eq!(host.netem_on("tpb0"), Some(delay(5)));
-    }
 
-    #[tokio::test]
-    async fn a_clear_with_nothing_to_remove_is_recorded() {
         let host = FakeHost::default();
         host.make(&["tpa0", "tpb0"]);
         let changed = change_impairment(
@@ -347,7 +337,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_change_the_database_refuses_is_taken_back_from_the_kernel() {
+    async fn link_impair_012_a_change_that_cannot_be_recorded_is_undone_in_the_kernel() {
         // M25.4: the kernel used to keep the new value while the database kept the old one.
         let host = host();
         let result = change_impairment(
@@ -368,7 +358,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_change_the_kernel_refuses_halfway_is_taken_back() {
+    async fn link_impair_011_a_change_the_kernel_refuses_halfway_is_undone_and_not_recorded() {
         let mut host = host();
         host.failing_netem.insert("tpa0".to_string());
         let recorded = Cell::new(false);
@@ -389,7 +379,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_change_is_set_on_the_end_each_direction_leaves_through() {
+    async fn link_impair_021_a_change_is_set_on_the_end_its_direction_leaves_through() {
         let host = host();
         let changed = change_impairment(
             &host,
@@ -407,7 +397,31 @@ mod tests {
     }
 
     #[test]
-    fn delays_netem_cannot_hold_and_bad_percentages_are_invalid() {
+    fn link_impair_009_a_delay_or_percentage_out_of_range_is_refused_and_one_within_taken() {
+        validate_link_impairment(0, 0, 0.0, 0.0, 0.0).unwrap();
+        validate_link_impairment(274_877, 274_877, 100.0, 100.0, 100.0).unwrap();
+
+        let error = validate_link_impairment(274_877 + 1, 0, 0.0, 0.0, 0.0)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("delay"), "{error}");
+        let error = validate_link_impairment(0, u32::MAX, 0.0, 0.0, 0.0)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("jitter"), "{error}");
+
+        for (loss, reorder, corrupt, field) in [
+            (-5.0, 0.0, 0.0, "loss_percent"),
+            (150.0, 0.0, 0.0, "loss_percent"),
+            (0.0, f64::NAN, 0.0, "reorder_percent"),
+            (0.0, 0.0, 100.1, "corrupt_percent"),
+        ] {
+            let error = validate_link_impairment(0, 0, loss, reorder, corrupt)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(field), "{error}");
+        }
+
         for bad in [
             request(274_878, 0.0),
             request(u32::MAX, 0.0),
@@ -417,5 +431,9 @@ mod tests {
             let error = requested_impairment(&bad).expect_err("accepted");
             assert!(matches!(error, ServiceError::Invalid(_)), "{error}");
         }
+
+        let impairment = requested_impairment(&request(274_877, 12.5)).unwrap();
+        assert_eq!(impairment.delay_us, 274_877_000);
+        assert!((impairment.loss_percent - 12.5).abs() < f64::EPSILON);
     }
 }

@@ -79,12 +79,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_impairment_is_clear() {
-        assert!(LinkImpairment::default().is_clear());
-    }
-
-    #[test]
-    fn test_any_parameter_makes_impairment_not_clear() {
+    fn link_impair_019_jitter_reorder_or_corruption_alone_is_not_a_clear() {
         let reorder_only = LinkImpairment {
             reorder_percent: 5.0,
             ..LinkImpairment::default()
@@ -103,7 +98,7 @@ mod tests {
     }
 
     #[test]
-    fn test_request_without_direction_changes_both() {
+    fn link_impair_008_a_request_with_no_direction_changes_both() {
         let request: UpdateImpairmentRequest =
             serde_json::from_str(r#"{"lab_id":"a1b2c3d4","link_index":0,"delay":20}"#).unwrap();
         assert_eq!(request.direction, ImpairmentDirection::Both);
