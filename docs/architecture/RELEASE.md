@@ -117,3 +117,22 @@ pull request must leave it alone.
 
 `Version` is a required check in the `main-protect` ruleset, beside `Lint`, `Coverage` and
 `Windows Client`. Repository admins can bypass the ruleset, and with it the check.
+
+## Docs-only pull requests
+
+`pr.yml`'s first job, `Changes`, runs `.github/scripts/changes_code.py` on the merge commit's
+first parent and the merge commit, after `.github/scripts/test_changes_code.py`, its tests, and
+outputs `code=false` when every changed path is docs: a `*.md` file anywhere, or anything under
+`docs/` or `tests/specs/`. A rename counts both its old and its new path. Everything else is code,
+`.github/`, Python, shell and TOML included. On a push to main it outputs `code=true` without
+looking, so main keeps saving the build caches that pull request runs restore.
+
+`Lint`, `Coverage`, `Windows Client` and `macOS Client` need `Changes` and skip when it outputs
+`code=false`. A job skipped by its `if:` counts as passed for a required check, so a docs-only
+pull request can merge without running them. If `Changes` fails, its output is empty and the
+build jobs run, so a broken detection never skips them. `Version` does not need `Changes` and runs
+on every pull request.
+
+This replaces the `[skip ci]` commit tag. A `[skip ci]` commit stops `pr.yml` from starting, so the
+required checks never report and the pull request stays blocked until an admin bypasses the
+ruleset; commits never carry it.

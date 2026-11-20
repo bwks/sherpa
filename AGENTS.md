@@ -26,7 +26,7 @@ You are working on a Rust application that manages virtual machines, containers,
 - Prefer local branches rather than worktrees.
 
 ## Pull Requests
-- Add `[skip ci]` to the commit message of changes that contain no code, such as documentation-only changes.
+- Docs-only pull requests (every changed path is a `*.md` file or under `docs/` or `tests/specs/`) skip the build jobs automatically, so commits never carry `[skip ci]`.
 - Every pull request description ends with a `## Generation` section. See "Pull request Generation section" in `docs/architecture/AGENT_BUS.md`.
 
 ## Dependencies
