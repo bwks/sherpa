@@ -628,15 +628,9 @@ pub async fn lab_download_handler(
 ) -> Result<Response, ApiError> {
     let auth = auth.into_context();
     let db_lab = require_lab_owner(&auth, &state.db, &lab_id).await?;
-    let files = download::download_lab_files(
-        &auth,
-        &lab_id,
-        &state.db,
-        state.config.server_ipv4,
-        SHERPA_LABS_PATH.as_ref(),
-    )
-    .await
-    .map_err(ApiError::from)?;
+    let files = download::download_lab_files(&auth, &lab_id, &state.db, SHERPA_LABS_PATH.as_ref())
+        .await
+        .map_err(ApiError::from)?;
 
     let mut entries = vec![
         (LAB_FILE_NAME, files.lab_info.to_string()),

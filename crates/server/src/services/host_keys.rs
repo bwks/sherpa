@@ -76,13 +76,7 @@ pub async fn refresh_node_host_key(
     };
 
     let lab_info = lab_info::load_lab_info(&state.db, &db_lab).await?;
-    let files = ssh_config::lab_ssh_files(
-        &state.db,
-        &lab_record_id,
-        &lab_info,
-        state.config.server_ipv4,
-    )
-    .await?;
+    let files = ssh_config::lab_ssh_files(&state.db, &lab_record_id, &lab_info).await?;
     Ok(NodeHostKeysResponse {
         known_hosts: files.known_hosts,
         changed,

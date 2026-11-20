@@ -20,7 +20,6 @@ pub struct SshHostConfig {
 #[template(path = "ssh/ssh_config.jinja", ext = "txt")]
 pub struct SshConfigTemplate {
     pub hosts: Vec<SshHostConfig>,
-    pub proxy_jump: String,
 }
 
 /// One node's host key in a lab `known_hosts` file.

@@ -1,10 +1,11 @@
-//! SSH transport for provisioners, through the Jato SSH library: connecting to a node through
-//! the Sherpa server as the lab's `.sherpa/ssh/config` says, running commands and copying
-//! files over SFTP. No `ssh` or `scp` program is run.
+//! SSH transport for provisioners, through the Jato SSH library: connecting to a node as the
+//! lab's `.sherpa/ssh/config` says, directly or through the Sherpa server with `--ssh-jump`,
+//! running commands and copying files over SFTP. No `ssh` or `scp` program is run.
 //!
-//! Only the jump to the Sherpa server may ask for a passphrase or password, and answers are
-//! kept for the run, so provisioning many nodes asks once. A node is never asked about: while
-//! it boots its login fails, and `wait_for_node` retries instead.
+//! Any hop may ask for the passphrase of the user's key, and the jump to the Sherpa server for
+//! a password too; answers are kept for the run, so provisioning many nodes asks once. A node
+//! is never asked for a password: while it boots its login fails, and `wait_for_node` retries
+//! instead.
 use std::path::Path;
 use std::time::Duration;
 
@@ -16,7 +17,7 @@ use shared::konst::{
 };
 
 use super::output::NodeOutput;
-use crate::ssh_client::{self, HostKeyRefresh, PromptScope};
+use crate::ssh_client::{self, HostKeyRefresh, PromptScope, SshAccess, node_route};
 
 /// A node reached through the lab's SSH config.
 pub struct SshTarget {
@@ -34,25 +35,22 @@ pub struct NodeSession {
 }
 
 impl SshTarget {
-    /// The node `node_name`, by its `<node>.<lab-id>` alias in `config`. Answers to prompts
-    /// are kept in `prompts`, shared by every node of a run, and a node host key that does not
-    /// match is fetched again with `refresh`.
+    /// The node `node_name`, by its `<node>.<lab-id>` alias in `config`, reached as `access`
+    /// says. Answers to prompts are kept in `prompts`, shared by every node of a run.
     ///
-    /// Every node in a lab SSH config is reached through the Sherpa server. An alias with no
-    /// `Host` block resolves, as in `ssh`, to a direct connection to the alias as a hostname,
-    /// which would only fail its DNS lookup until the ready timeout, so it fails here.
+    /// Every node in a lab SSH config has a `HostName`, its management address. An alias with
+    /// no `Host` block resolves, as in `ssh`, to the alias itself as a hostname, which would
+    /// only fail its DNS lookup, so it fails here.
     pub fn new(
         config: &SshConfig,
         node_name: &str,
         lab_id: &str,
         prompts: &PromptCache,
-        refresh: &HostKeyRefresh,
+        access: &SshAccess,
     ) -> Result<Self> {
         let host = format!("{node_name}.{lab_id}");
-        let route = config
-            .route(&host)
-            .with_context(|| format!("Cannot read {host} from the lab SSH config"))?;
-        if route.jumps.is_empty() {
+        let route = node_route(config, &host, access.jump.as_ref())?;
+        if route.target.hostname == host {
             bail!(
                 "{host} is not in the lab SSH config; was the node added to the manifest after \
                  the lab was created?"
@@ -63,7 +61,7 @@ impl SshTarget {
             host,
             route,
             prompts: prompts.clone(),
-            refresh: refresh.clone(),
+            refresh: access.refresh.clone(),
         })
     }
 
@@ -85,7 +83,7 @@ impl SshTarget {
         let session = ssh_client::connect(
             &self.route,
             &options,
-            PromptScope::JumpHostsOnly,
+            PromptScope::NoNodePassword,
             &self.prompts,
             &self.node_name,
             &self.refresh,
@@ -217,7 +215,7 @@ mod tests {
     use std::fs;
 
     const LAB_SSH_CONFIG: &str = "Host web01.ab12cd34\n    HostName 172.31.0.11\n    \
-                                  User sherpa\n    ProxyJump admin@sherpa.example:22\n";
+                                  User sherpa\n";
 
     fn lab_ssh_config() -> SshConfig {
         let dir = tempfile::tempdir().unwrap();
@@ -226,23 +224,26 @@ mod tests {
         SshConfig::load_file(&path).unwrap()
     }
 
-    fn refresh() -> HostKeyRefresh {
-        HostKeyRefresh::new(
-            "ab12cd34",
-            "wss://sherpa.example:3030/ws",
-            &ClientConfig::default(),
-            Path::new("/nonexistent"),
-        )
+    fn access() -> SshAccess {
+        SshAccess {
+            refresh: HostKeyRefresh::new(
+                "ab12cd34",
+                "wss://sherpa.example:3030/ws",
+                &ClientConfig::default(),
+                Path::new("/nonexistent"),
+            ),
+            jump: None,
+        }
     }
 
     #[test]
-    fn a_node_in_the_lab_ssh_config_is_reached_through_the_server() {
+    fn a_node_in_the_lab_ssh_config_is_found_by_its_alias() {
         let target = SshTarget::new(
             &lab_ssh_config(),
             "web01",
             "ab12cd34",
             &PromptCache::new(),
-            &refresh(),
+            &access(),
         )
         .unwrap();
         assert_eq!(target.host(), "web01.ab12cd34");
@@ -256,7 +257,7 @@ mod tests {
             "web02",
             "ab12cd34",
             &PromptCache::new(),
-            &refresh(),
+            &access(),
         )
         .err()
         .unwrap();

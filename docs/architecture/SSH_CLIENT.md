@@ -16,16 +16,50 @@ the alias is in `.sherpa/ssh/config`, and the saved lab info is the lab's. No ke
 nodes take the user's own keys. Then:
 
 1. `jato::SshConfig::load_file(".sherpa/ssh/config")` reads the lab's configuration, as
-   `ssh -F` does, and `route(alias)` resolves the node and its `ProxyJump` to the Sherpa
-   server.
+   `ssh -F` does, and `ssh_client::node_route` resolves the node. The config has no
+   `ProxyJump`: the route goes straight to the node. With `--ssh-jump`, `SshJump::apply` puts
+   the Sherpa server in front of it, as `ssh -J` does (see [The jump](#the-jump)).
 2. `ssh_client::connect` connects along the route (keepalives every 30 s, 3 missed), with a
    `jato::TerminalPrompter` wrapped in a `jato::PromptCache` on every hop
-   (`PromptScope::AllHops`).
+   (`PromptScope::AllHops`). A route with no jump is checked for a route to the node first
+   (see [Unreachable nodes](#unreachable-nodes)).
 3. `Session::interactive_shell` runs the shell until it ends, and `ssh` exits with
    `ShellEnd::exit_code`.
 
-`ssh_client` holds only what is Sherpa's to decide: which hops may ask (`PromptScope`) and,
-for provisioners, which failures are worth retrying (`retryable`). `sherpa console` makes no SSH
+`ssh_client` holds only what is Sherpa's to decide: whether to add the jump (`SshAccess`,
+`SshJump`), which hops may ask (`PromptScope`), whether a node reached directly has a route,
+and, for provisioners, which failures are worth retrying (`retryable`).
+
+## The jump
+
+The lab's SSH config, built by sherpad (`services/ssh_config.rs`), reaches every node
+directly. A client on the Sherpa server, or on the lab's tailnet with its routes accepted, needs
+nothing else. A client with no route to the management network adds the Sherpa server as a jump
+host for one command with `--ssh-jump`, on `sherpa ssh` and on the commands that run SSH
+provisioners: `sherpa up`, `sherpa provision` and `sherpa redeploy`. Nothing is saved, in the
+manifest or the lab folder.
+
+`SshAccess::new` builds the jump when the flag is set: `SshJump::logged_in` takes the user from
+the login token and the host from the server URL the command uses (an IPv6 address without its
+brackets). `SshJump::apply` resolves that host in the lab config, which has no block for it, so
+it gets OpenSSH's defaults (port 22, `StrictHostKeyChecking ask` against `~/.ssh/known_hosts`),
+sets its user to the Sherpa user, and makes it the route's only jump, replacing any other, as
+`ssh -J` does. The user needs an account of the same name on the server's host that takes their
+key. Plain OpenSSH does the same with `ssh -F .sherpa/ssh/config -J <user>@<server>
+<node>.<lab-id>`.
+
+## Unreachable nodes
+
+A node reached directly from a machine with no route to it would otherwise fail only after the
+connect time limit, and a provisioner would retry it until the lab's ready timeout. Before a
+route with no jump connects, `ssh_client::connect` opens a TCP connection to the node's SSH port,
+for at most `konst::SSH_DIRECT_ROUTE_TIMEOUT` (10 s). An answer, or a refusal (the node itself
+replied, so it is reachable and its SSH server is not up yet), lets the connection go ahead.
+Anything else, such as no route, an unreachable host or no answer, fails at once with
+`<node> at <address>:<port> is not reachable from this machine (<cause>). Use --ssh-jump to go
+through the Sherpa server, or join the lab's tailnet and accept its routes.` That error is not a
+Jato error, so `retryable` says no and provisioners stop at once. There is no fallback to the
+jump. `sherpa console` makes no SSH
 connection; it goes through sherpad's API (see [`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md)).
 
 ## Lines
@@ -41,7 +75,7 @@ The console prints lines of the same form.
 
 ## The server host key question
 
-The server hop has no `StrictHostKeyChecking` in the lab config, so Jato uses OpenSSH's
+With `--ssh-jump`, the server hop has no `StrictHostKeyChecking` in the lab config, so Jato uses OpenSSH's
 default, `ask` (`HostKeyPolicy::Ask`), against `~/.ssh/known_hosts`. A lab node whose key the
 server recorded has `StrictHostKeyChecking yes` and the lab's `.sherpa/ssh/known_hosts` file
 (`HostKeyPolicy::Strict`), so it is never asked about. Other nodes have
@@ -75,8 +109,10 @@ off. Jato's `docs/architecture/connecting.md` has the details.
 
 An empty answer declines. Prompts happen while connecting, before the terminal goes into raw
 mode. The SSH provisioners (see [`PROVISIONERS.md`](PROVISIONERS.md)) use the same
-`ssh_client::connect` but ask only about the jump to the server
-(`PromptScope::JumpHostsOnly`), and keep answers for the run in one `PromptCache`. While a
+`ssh_client::connect` with `PromptScope::NoNodePassword`: the node, which is the first hop
+without a jump, may ask only for the passphrase of the user's key, never for a password, since a
+node whose login is not ready yet must fail and be retried; the jump to the server may ask
+anything. Answers are kept for the run in one `PromptCache`, so a passphrase is asked once. While a
 prompt may be shown, the authentication limit is `konst::SSH_PROMPT_AUTH_TIMEOUT` (300 s), so
 typing is not cut off.
 

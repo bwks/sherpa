@@ -116,7 +116,12 @@ enum Commands {
         force: bool,
     },
     /// Build environment
-    Up,
+    Up {
+        /// Reach the nodes for provisioners through the Sherpa server, as the logged-in user,
+        /// like `ssh -J <user>@<server>`
+        #[arg(long)]
+        ssh_jump: bool,
+    },
 
     /// Stop environment
     Down {
@@ -135,12 +140,20 @@ enum Commands {
         /// Target node to redeploy
         #[arg(short, long)]
         node: String,
+        /// Reach the node for provisioners through the Sherpa server, as the logged-in user,
+        /// like `ssh -J <user>@<server>`
+        #[arg(long)]
+        ssh_jump: bool,
     },
     /// Run node provisioners again (resend container secret files; copy files and run scripts over SSH)
     Provision {
         /// Target a specific node (omit for all nodes with provisioners)
         #[arg(short, long)]
         node: Option<String>,
+        /// Reach the nodes through the Sherpa server, as the logged-in user, like
+        /// `ssh -J <user>@<server>`
+        #[arg(long)]
+        ssh_jump: bool,
     },
     /// Destroy environment
     Destroy {
@@ -183,8 +196,13 @@ enum Commands {
         force: bool,
     },
 
-    /// SSH to a device.
-    Ssh { name: String },
+    /// SSH to a device, directly or through the Sherpa server with --ssh-jump.
+    Ssh {
+        name: String,
+        /// Go through the Sherpa server, as the logged-in user, like `ssh -J <user>@<server>`
+        #[arg(long)]
+        ssh_jump: bool,
+    },
 
     /// Inspect or clean Sherpa SSH config Include entries.
     SshConfig {
@@ -348,10 +366,18 @@ async fn run_remote(command: &Commands, server_url: &str, config: &ClientConfig)
     match command {
         Commands::Login => login(server_url, config).await,
         Commands::Whoami => whoami(server_url, config).await,
-        Commands::Up => {
+        Commands::Up { ssh_jump } => {
             let manifest = load_source_manifest(Path::new(SHERPA_MANIFEST_FILE), "up")?;
             let lab = manifest_lab_identity(Path::new(""), &manifest)?;
-            up(&lab.name, &lab.id, SHERPA_MANIFEST_FILE, server_url, config).await
+            up(
+                &lab.name,
+                &lab.id,
+                SHERPA_MANIFEST_FILE,
+                server_url,
+                config,
+                *ssh_jump,
+            )
+            .await
         }
         Commands::Down { node } => {
             let lab = resolve_lab_identity(Path::new(""))?;
@@ -361,7 +387,7 @@ async fn run_remote(command: &Commands, server_url: &str, config: &ClientConfig)
             let lab = resolve_lab_identity(Path::new(""))?;
             resume(&lab.name, &lab.id, node.as_deref(), server_url, config).await
         }
-        Commands::Redeploy { node } => {
+        Commands::Redeploy { node, ssh_jump } => {
             let manifest = load_source_manifest(Path::new(SHERPA_MANIFEST_FILE), "redeploy")?;
             let lab = manifest_lab_identity(Path::new(""), &manifest)?;
             redeploy(
@@ -371,10 +397,13 @@ async fn run_remote(command: &Commands, server_url: &str, config: &ClientConfig)
                 SHERPA_MANIFEST_FILE,
                 server_url,
                 config,
+                *ssh_jump,
             )
             .await
         }
-        Commands::Provision { node } => provision(node.as_deref(), server_url, config).await,
+        Commands::Provision { node, ssh_jump } => {
+            provision(node.as_deref(), server_url, config, *ssh_jump).await
+        }
         Commands::Destroy { yes } => {
             let lab = resolve_lab_identity(Path::new(""))?;
             destroy(&lab.name, &lab.id, server_url, config, *yes).await
@@ -392,9 +421,9 @@ async fn run_remote(command: &Commands, server_url: &str, config: &ClientConfig)
             let lab = resolve_lab_identity(Path::new(""))?;
             vnc(name, &lab, *force, server_url, config).await
         }
-        Commands::Ssh { name } => {
+        Commands::Ssh { name, ssh_jump } => {
             let lab = resolve_lab_identity(Path::new(""))?;
-            ssh(name, &lab.id, server_url, config).await
+            ssh(name, &lab.id, server_url, config, *ssh_jump).await
         }
         Commands::SshConfig { command } => match command {
             SshConfigCommands::Inspect => ssh_config_inspect(server_url, config).await,

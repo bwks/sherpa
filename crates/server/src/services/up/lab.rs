@@ -758,13 +758,9 @@ impl LabUp<'_> {
         self.errors.extend(readiness_errors);
 
         // The SSH files for the response, with the host keys recorded as nodes became ready.
-        let ssh_files = ssh_config::lab_ssh_files(
-            self.build.db,
-            &records.lab_record_id,
-            &network.lab_info,
-            self.build.config.server_ipv4,
-        )
-        .await?;
+        let ssh_files =
+            ssh_config::lab_ssh_files(self.build.db, &records.lab_record_id, &network.lab_info)
+                .await?;
 
         let LabServices {
             clusters,

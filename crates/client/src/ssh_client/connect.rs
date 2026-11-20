@@ -1,18 +1,28 @@
-//! Connecting to a lab node through the Sherpa server with Jato, asking on the terminal as
-//! OpenSSH does. Jato asks: about a server whose host key is not recorded (the lab config
-//! leaves `StrictHostKeyChecking` at `ask` for the server), and for a key passphrase or
-//! password, with answers kept for the run in a `PromptCache`. Lab nodes whose host key the
-//! server recorded are checked against the lab's `known_hosts` file without asking; when a
-//! node's key is unknown or has changed, the current keys are fetched from the server, with a
-//! warning for a changed key, and the connection is tried once more. The Sherpa server itself,
-//! the last jump host on the way to a node, is reached the same way for `sherpa console`.
+//! Connecting to a lab node with Jato, directly or through the Sherpa server as a jump host,
+//! asking on the terminal as OpenSSH does. Jato asks: about a server whose host key is not
+//! recorded (the lab config leaves `StrictHostKeyChecking` at `ask` for the server), and for a
+//! key passphrase or password, with answers kept for the run in a `PromptCache`. Lab nodes
+//! whose host key the server recorded are checked against the lab's `known_hosts` file without
+//! asking; when a node's key is unknown or has changed, the current keys are fetched from the
+//! server, with a warning for a changed key, and the connection is tried once more.
+//!
+//! A node reached directly that has no route from this machine fails at once, with a hint to
+//! use `--ssh-jump` or the lab's tailnet, rather than being retried until a ready timeout.
 
+use std::io::ErrorKind;
+use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use jato::{
-    ConnectOptions, Error, HostConfig, Node, PromptCache, Route, Session, TerminalPrompter,
+    ConnectOptions, Error, HostConfig, Node, PromptCache, Prompter, Route, Secret, Session,
+    TerminalPrompter,
 };
+use tokio::net::TcpStream;
+use tokio::time;
+
+use shared::konst::SSH_DIRECT_ROUTE_TIMEOUT;
 
 use crate::ssh_client::host_keys::HostKeyRefresh;
 
@@ -25,21 +35,39 @@ enum KeyMismatch {
     Unknown,
 }
 
-/// Which hops may ask for a passphrase or password.
+/// Which questions the hops may ask.
 #[derive(Clone, Copy, Debug)]
 pub enum PromptScope {
-    /// Every hop, as `ssh` does: for `sherpa ssh`.
+    /// Every question at every hop, as `ssh` does: for `sherpa ssh`.
     AllHops,
-    /// Only the jump hosts. A node whose login is not ready yet must fail and be retried,
-    /// not ask for a password: for provisioners.
-    JumpHostsOnly,
+    /// Every question at a jump host, but only for a key passphrase at the node, which may be
+    /// the first hop. A node whose login is not ready yet must fail and be retried, not ask for
+    /// a password: for provisioners.
+    NoNodePassword,
+}
+
+/// Asks the inner prompter for key passphrases only: a password is not asked for, and an
+/// unknown host key is refused.
+#[derive(Debug)]
+struct PassphraseOnly(Arc<dyn Prompter>);
+
+impl Prompter for PassphraseOnly {
+    fn passphrase(&self, path: &Path) -> Option<Secret> {
+        self.0.passphrase(path)
+    }
+
+    fn password(&self, node: &Node, username: &str) -> Option<Secret> {
+        tracing::debug!(%node, username, "not asking for a node password");
+        None
+    }
 }
 
 /// Connect along `route` to the lab node `node_name`, asking on the terminal about a
-/// server's unknown host key and for a key passphrase or password the hops in `scope` need,
-/// with answers kept in `cache`. When the node's host key is unknown or has changed, the
-/// lab's keys are fetched with `refresh` and the connection tried once more; a changed key
-/// is warned about. A revoked key, or the server's changed key, is refused.
+/// server's unknown host key and for a key passphrase or password as `scope` allows, with
+/// answers kept in `cache`. A node reached directly is checked first for a route from this
+/// machine, and fails at once without one. When the node's host key is unknown or has
+/// changed, the lab's keys are fetched with `refresh` and the connection tried once more; a
+/// changed key is warned about. A revoked key, or the server's changed key, is refused.
 #[tracing::instrument(skip(route, options, cache, refresh), level = "debug")]
 pub async fn connect(
     route: &Route,
@@ -49,6 +77,9 @@ pub async fn connect(
     node_name: &str,
     refresh: &HostKeyRefresh,
 ) -> Result<Session> {
+    if route.jumps.is_empty() {
+        require_direct_route(&route.target.node(), node_name).await?;
+    }
     let error = match attempt(&route.jumps, &route.target, options, scope, cache).await {
         Ok(session) => return Ok(session),
         Err(error) => error,
@@ -99,12 +130,38 @@ async fn attempt(
     for jump in jumps {
         hops.push(jump.hop().prompter(Arc::clone(&prompter)));
     }
-    let target_hop = match scope {
-        PromptScope::AllHops => target.hop().prompter(prompter),
-        PromptScope::JumpHostsOnly => target.hop(),
-    };
+    let target_hop = target.hop().prompter(node_prompter(scope, prompter));
     let options = target.connect_options(options);
     Session::connect_via(&hops, &target_hop, &options).await
+}
+
+/// What the node, the last hop, may ask through `prompter` in `scope`.
+fn node_prompter(scope: PromptScope, prompter: Arc<dyn Prompter>) -> Arc<dyn Prompter> {
+    match scope {
+        PromptScope::AllHops => prompter,
+        PromptScope::NoNodePassword => Arc::new(PassphraseOnly(prompter)),
+    }
+}
+
+/// Stop unless `node`, the lab node `node_name` reached with no jump host, has a route from
+/// this machine: a TCP connection to its SSH port is answered, or refused by the node itself,
+/// within `SSH_DIRECT_ROUTE_TIMEOUT`. The error is not a Jato error, so it is never retried.
+#[tracing::instrument(level = "debug")]
+async fn require_direct_route(node: &Node, node_name: &str) -> Result<()> {
+    let limit = Duration::from_secs(SSH_DIRECT_ROUTE_TIMEOUT);
+    let cause = match time::timeout(limit, TcpStream::connect((node.host(), node.port()))).await {
+        Ok(Ok(_)) => return Ok(()),
+        Ok(Err(error)) if error.kind() == ErrorKind::ConnectionRefused => {
+            tracing::debug!(%node, "node refused the connection; it is reachable");
+            return Ok(());
+        }
+        Ok(Err(error)) => error.to_string(),
+        Err(_) => format!("no answer within {}s", limit.as_secs()),
+    };
+    Err(anyhow!(
+        "{node_name} at {node} is not reachable from this machine ({cause}). Use --ssh-jump to \
+         go through the Sherpa server, or join the lab's tailnet and accept its routes."
+    ))
 }
 
 /// Whether `error` refused the host key of `target`, the lab node, rather than of a jump host.
@@ -212,5 +269,38 @@ mod tests {
             source: io::Error::from(io::ErrorKind::ConnectionRefused),
         };
         assert_eq!(key_mismatch(&refused, &node()), None);
+    }
+
+    /// A prompter that answers every question.
+    #[derive(Debug)]
+    struct Answers;
+
+    impl Prompter for Answers {
+        fn passphrase(&self, _path: &Path) -> Option<Secret> {
+            Some(Secret::new("key-passphrase".into()))
+        }
+
+        fn password(&self, _node: &Node, _username: &str) -> Option<Secret> {
+            Some(Secret::new("node-password".into()))
+        }
+
+        fn confirm_host_key(&self, _node: &Node, _fingerprint: &str) -> bool {
+            true
+        }
+    }
+
+    fn answer(secret: Option<Secret>) -> Option<String> {
+        secret.map(|secret| secret.expose().to_owned())
+    }
+
+    #[test]
+    fn ssh_access_008_a_provisioner_asks_the_node_for_a_key_passphrase_but_never_a_password() {
+        let prompter = node_prompter(PromptScope::NoNodePassword, Arc::new(Answers));
+        let key = Path::new("/home/me/.ssh/id_ed25519");
+        assert_eq!(
+            answer(prompter.passphrase(key)).as_deref(),
+            Some("key-passphrase")
+        );
+        assert_eq!(answer(prompter.password(&node(), "alice")), None);
     }
 }

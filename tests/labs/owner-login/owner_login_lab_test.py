@@ -155,7 +155,6 @@ class SshHost(NamedTuple):
     hostname: str
     port: int
     user: str
-    proxy_jump: str
 
 
 class PasswordPrompt(NamedTuple):
@@ -259,14 +258,13 @@ def parse_ssh_hosts(config):
         value = value.strip()
         if key == "Host":
             blocks.append({"aliases": tuple(value.split())})
-        elif blocks and key in ("HostName", "Port", "User", "ProxyJump"):
+        elif blocks and key in ("HostName", "Port", "User"):
             blocks[-1][key] = value
     hosts = []
     for block in blocks:
-        require("HostName" in block and "User" in block and "ProxyJump" in block,
-                f"the lab SSH config has a Host block without a HostName, User or ProxyJump: {block}")
-        hosts.append(SshHost(block["aliases"], block["HostName"], int(block.get("Port", "22")),
-                             block["User"], block["ProxyJump"]))
+        require("HostName" in block and "User" in block,
+                f"the lab SSH config has a Host block without a HostName or User: {block}")
+        hosts.append(SshHost(block["aliases"], block["HostName"], int(block.get("Port", "22")), block["User"]))
     return hosts
 
 
@@ -275,11 +273,6 @@ def find_host(hosts, alias):
         if alias in host.aliases:
             return host
     raise TestFailure(f"the lab SSH config has no host {alias}")
-
-
-def jump_address(proxy_jump):
-    """The server, with its port if the config gives one, in a `ProxyJump` of the form `user@host`."""
-    return proxy_jump.rpartition("@")[2]
 
 
 def parse_devices_table(text):
@@ -337,16 +330,14 @@ def private_key_files(folder):
 
 
 def password_ssh_config(lab_config, aliases):
-    """An SSH config that gives the nodes `aliases` password logins only, then the lab's own config.
-    The jump to the Sherpa server is not one of them, so it still uses the owner's key."""
+    """An SSH config that gives the nodes `aliases` password logins only, then the lab's own config."""
     blocks = [f"Host {alias}\n    PubkeyAuthentication no\n    PreferredAuthentications "
               "password,keyboard-interactive\n    NumberOfPasswordPrompts 3\n" for alias in aliases]
     return "\n".join(blocks) + "\n" + lab_config
 
 
 def admin_ssh_config(key):
-    """An SSH config for the admin's own key and nothing else: no agent, no other identity, no prompt.
-    A jump host reads it too."""
+    """An SSH config for the admin's own key and nothing else: no agent, no other identity, no prompt."""
     return (f"Host *\n    IdentityFile {key}\n    IdentitiesOnly yes\n    IdentityAgent none\n"
             "    BatchMode yes\n    PreferredAuthentications publickey\n    PasswordAuthentication no\n"
             "    KbdInteractiveAuthentication no\n    StrictHostKeyChecking no\n"
@@ -354,10 +345,9 @@ def admin_ssh_config(key):
 
 
 def direct_ssh_arguments(config, key, host, login, command):
-    """`ssh` to a node's management address through the Sherpa server, as `login`, with the admin's key."""
+    """`ssh` straight to a node's management address, as `login`, with the admin's key."""
     return ["ssh", "-F", str(config), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-i", str(key),
-            "-J", f"{login}@{jump_address(host.proxy_jump)}", "-p", str(host.port), "-l", login,
-            host.hostname, command]
+            "-p", str(host.port), "-l", login, host.hostname, command]
 
 
 # -- REST ----------------------------------------------------------------------------------------
@@ -800,7 +790,7 @@ class LabRun:
         (self.admin_key.parent / "ssh_config").write_text(admin_ssh_config(self.admin_key))
 
     def check_admin_direct_ssh_refused(self, node, login):
-        """The admin's own key does not log in to the node through the server, as the admin or as the owner."""
+        """The admin's own key does not log in to the node, as the admin or as the owner."""
         marker = f"reached-{uuid.uuid4().hex[:8]}"
         label = f"ssh {login}@{node} with the admin's key"
         outcome = self.command(label, direct_ssh_arguments(self.admin_key.parent / "ssh_config", self.admin_key,
@@ -1034,19 +1024,17 @@ class SelfTest(unittest.TestCase):
 
     def test_the_lab_ssh_config_is_read_into_hosts(self):
         config = ("\nHost 172.31.0.21 ubu01.abcd1234 ubu01.abcd1234.sherpa.lab.local\n    HostName 172.31.0.21\n"
-                  "    Port 22\n    User alice\n    ProxyJump alice@10.0.0.1\n    StrictHostKeyChecking yes\n"
+                  "    Port 22\n    User alice\n    StrictHostKeyChecking yes\n"
                   "Host 172.31.0.22 srl01.abcd1234 srl01.abcd1234.sherpa.lab.local\n    HostName 172.31.0.22\n"
-                  "    Port 2222\n    User alice\n    ProxyJump alice@10.0.0.1\n")
+                  "    Port 2222\n    User alice\n")
         hosts = parse_ssh_hosts(config)
         self.assertEqual(find_host(hosts, "srl01.abcd1234"),
                          SshHost(("172.31.0.22", "srl01.abcd1234", "srl01.abcd1234.sherpa.lab.local"),
-                                 "172.31.0.22", 2222, "alice", "alice@10.0.0.1"))
-        self.assertEqual(jump_address("alice@10.0.0.1"), "10.0.0.1")
-        self.assertEqual(jump_address("alice@10.0.0.1:2200"), "10.0.0.1:2200")
+                                 "172.31.0.22", 2222, "alice"))
         with self.assertRaises(TestFailure):
             find_host(hosts, "nope.abcd1234")
         with self.assertRaises(TestFailure):
-            parse_ssh_hosts("Host a\n    HostName 1.2.3.4\n")
+            parse_ssh_hosts("Host a\n    Port 22\n")
 
     def test_the_devices_table_is_read_from_inspect_output(self):
         text = ("Sherpa Environment - x-abcd1234\nConnecting to server: wss://s\n"
@@ -1102,21 +1090,20 @@ class SelfTest(unittest.TestCase):
             self.assertEqual([path.name for path in private_key_files(folder)], ["k.pem", "other"])
 
     def test_the_password_config_takes_keys_away_from_the_nodes_only(self):
-        text = password_ssh_config("Host x.1\n    User alice\n    ProxyJump alice@10.0.0.1\n", ["a.1", "b.1"])
+        text = password_ssh_config("Host x.1\n    User alice\n", ["a.1", "b.1"])
         self.assertTrue(text.startswith("Host a.1\n    PubkeyAuthentication no\n"))
         self.assertEqual(text.count("PubkeyAuthentication no"), 2)
         self.assertEqual(text.count("Host "), 3)
-        self.assertTrue(text.endswith("ProxyJump alice@10.0.0.1\n"))
+        self.assertTrue(text.endswith("Host x.1\n    User alice\n"))
         self.assertNotIn("Host *", text)
 
-    def test_the_admin_ssh_uses_only_the_admins_key_through_the_server(self):
-        host = SshHost(("172.31.0.21",), "172.31.0.21", 22, "alice", "alice@10.0.0.1")
+    def test_the_admin_ssh_uses_only_the_admins_key(self):
+        host = SshHost(("172.31.0.21",), "172.31.0.21", 22, "alice")
         arguments = direct_ssh_arguments(Path("/run/ssh_config"), Path("/run/key"), host, "dana", "true")
         self.assertEqual(arguments[:2], ["ssh", "-F"])
         for option in ("BatchMode=yes", "IdentitiesOnly=yes"):
             self.assertIn(option, arguments)
         self.assertEqual(arguments[arguments.index("-i") + 1], "/run/key")
-        self.assertEqual(arguments[arguments.index("-J") + 1], "dana@10.0.0.1")
         self.assertEqual(arguments[arguments.index("-l") + 1], "dana")
         self.assertEqual(arguments[-2:], ["172.31.0.21", "true"])
         config = admin_ssh_config(Path("/run/key"))

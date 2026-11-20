@@ -1,5 +1,4 @@
 use std::io::ErrorKind;
-use std::net::Ipv4Addr;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -27,13 +26,12 @@ use crate::services::vault::lab::VAULT_DIR;
 /// no copy of them. Only the lab's owner may download them, admins included: the files are for
 /// connecting to the lab's nodes, and the cluster, Vault, Keycloak and `SurrealDB` credentials and
 /// the lab CA are the owner's. Those are read from the lab's folder in `labs_root`, the server's
-/// labs directory; the SSH config reaches the nodes through the server at `server_ipv4`.
+/// labs directory.
 #[instrument(skip(ctx, db), fields(username = %ctx.username, %lab_id, labs_root = %labs_root.display()))]
 pub async fn download_lab_files(
     ctx: &AuthContext,
     lab_id: &str,
     db: &Database,
-    server_ipv4: Ipv4Addr,
     labs_root: &Path,
 ) -> Result<DownloadLabResponse> {
     let db_lab = require_lab_owner(ctx, db, lab_id).await?;
@@ -44,7 +42,7 @@ pub async fn download_lab_files(
     let LabSshFiles {
         ssh_config,
         known_hosts,
-    } = ssh_config::lab_ssh_files(db, &lab_record_id, &lab_info, server_ipv4).await?;
+    } = ssh_config::lab_ssh_files(db, &lab_record_id, &lab_info).await?;
 
     let clusters = talos::read_cluster_credentials(db, labs_root, &lab_record_id, lab_id).await?;
 
@@ -87,8 +85,6 @@ mod tests {
     use crate::services::node_lifecycle::tests::lab_of;
     use crate::services::surreal_db::ensure_surreal_db_credentials;
 
-    const SERVER: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 1);
-
     /// A lab owned by `alice`, with a Keycloak and a `SurrealDB` node's admins saved in the
     /// labs directory `labs_root`, and those admins.
     async fn lab_with_admins(
@@ -119,7 +115,7 @@ mod tests {
         let (db, keycloak, surreal_db) = lab_with_admins("dl-own01", labs_root.path()).await;
         let alice = AuthContext::new("alice".to_owned(), false, "session".to_owned());
 
-        let files = download_lab_files(&alice, "dl-own01", &db, SERVER, labs_root.path())
+        let files = download_lab_files(&alice, "dl-own01", &db, labs_root.path())
             .await
             .unwrap();
 
@@ -136,7 +132,7 @@ mod tests {
         let (db, _, _) = lab_with_admins("dl-adm01", labs_root.path()).await;
         let admin = AuthContext::new("admin".to_owned(), true, "session".to_owned());
 
-        let error = download_lab_files(&admin, "dl-adm01", &db, SERVER, labs_root.path())
+        let error = download_lab_files(&admin, "dl-adm01", &db, labs_root.path())
             .await
             .unwrap_err();
 

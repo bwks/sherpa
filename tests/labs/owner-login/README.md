@@ -18,9 +18,9 @@ SR Linux needs no internet. The runner adds a unique suffix to the lab name for 
 - The `sherpa` CLI logged in as the owner: a normal user (not an admin, not the built-in
   `admin`) with an SSH key registered on their account and available to `ssh`, and a device
   password (`sherpa server user device-password`). `ssh` and `ssh-keygen` on `PATH`.
-- An account on the Sherpa server's host for the owner, of the same name, taking the owner's key:
-  the lab's SSH config jumps through the server as that user. The admin's direct `ssh` is refused
-  at that hop when they have no host account, or at the node when they do; either counts.
+- A route from where it runs to the lab's management network: run it on the Sherpa server, or on
+  a machine on the lab's tailnet that accepts its routes. The lab's SSH config reaches the nodes
+  directly, with no jump through the server.
 - A second account that is an admin, is not the built-in `admin` and has a device password. The
   run logs it in non-interactively, to a `HOME` of its own: the owner's client config and trusted
   server certificate are copied there, and the admin's token is kept there, so the owner's login
@@ -63,9 +63,8 @@ As the owner, on each node:
 - `sherpa ssh <node>` logs in by key, in a pseudo-terminal, and the session shows the owner's own
   name;
 - `ssh` logs in with the owner's device password and no key offered (the lab's SSH config, with
-  public key authentication turned off for the node only: the jump through the Sherpa server still
-  uses the key). The runner types the password at the node's prompt itself, so there is no
-  `sshpass`; a prompt of the Sherpa server fails the check;
+  public key authentication turned off for the node). The runner types the password at the
+  node's prompt itself, so there is no `sshpass`; a prompt from any other host fails the check;
 - the owner has administrator rights, by key and by password: on the VM `sudo -n true` succeeds;
   on SR Linux the owner's account state (`info from state /system aaa authentication user
   <owner>`) shows the login just made (`last-successful-login`) and the `srl-admin` role, the
@@ -85,8 +84,8 @@ is how an admin names a lab they do not own:
 - `sherpa ssh` on each node is refused with `Only the owner of lab '<id>' can connect to its
   nodes`, and `sherpa console` on the VM by the server with `Access denied: only the owner of lab
   '<id>' can open its consoles`, before anything connects;
-- `ssh` straight to each node's management address through the Sherpa server (the server hop and
-  addresses come from the owner's lab SSH config), with only the admin's own throwaway key, is
+- `ssh` straight to each node's management address (the addresses come from the owner's lab SSH
+  config), with only the admin's own throwaway key, is
   refused (`Permission denied`) as the admin's username and as the owner's username;
 - adding a key to the owner's account with `POST /api/v1/admin/users/<owner>/ssh-keys` and the
   admin's token (Python's `urllib`, checking the server's certificate as the client config says)

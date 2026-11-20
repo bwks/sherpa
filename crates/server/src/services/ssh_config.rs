@@ -1,5 +1,3 @@
-use std::net::Ipv4Addr;
-
 use anyhow::{Context, Result};
 use askama::Template;
 use tracing::instrument;
@@ -42,13 +40,13 @@ pub(crate) async fn record_node_host_key(
 /// The lab's SSH config and `known_hosts` file, built from the database: its nodes'
 /// addresses, whether their images have SSH, and the host keys recorded for them, with
 /// `lab_info` for the SSH accounts. Nothing is saved: the client gets them from `up` and
-/// `download`.
+/// `download`. Every node is reached directly; a jump through the server is the client's to
+/// add (`--ssh-jump`, or `ssh -J`).
 #[instrument(skip(db, lab_info), fields(lab_id = %lab_info.id), level = "debug")]
 pub(crate) async fn lab_ssh_files(
     db: &db::Database,
     lab_record_id: &RecordId,
     lab_info: &LabInfo,
-    server_ipv4: Ipv4Addr,
 ) -> Result<LabSshFiles> {
     let nodes = db::list_nodes_by_lab(db, lab_record_id.clone())
         .await
@@ -63,7 +61,7 @@ pub(crate) async fn lab_ssh_files(
         .await
         .context("Failed to load node images for the SSH configuration")?;
     let records = saved_node_ssh_records(&nodes, &images)?;
-    render_lab_ssh_files(&records, lab_info, &node_host_keys(&nodes), server_ipv4)
+    render_lab_ssh_files(&records, lab_info, &node_host_keys(&nodes))
 }
 
 /// SSH records for a lab's saved nodes: every node with a management address, with SSH
@@ -121,7 +119,6 @@ pub(crate) fn render_lab_ssh_files(
     records: &[ZtpRecord],
     lab_info: &LabInfo,
     host_keys: &[NodeHostKey],
-    server_ipv4: Ipv4Addr,
 ) -> Result<LabSshFiles> {
     let template = build_ssh_config(
         records,
@@ -129,7 +126,6 @@ pub(crate) fn render_lab_ssh_files(
         host_keys,
         &lab_info.id,
         &lab_info.user,
-        server_ipv4,
     );
     let ssh_config = template
         .render()
@@ -144,8 +140,8 @@ pub(crate) fn render_lab_ssh_files(
 }
 
 /// Resolve each node's login and aliases before passing data to the renderer. A node logs in
-/// with its recorded login, else as the lab's owner, `owner`, who also jumps through the
-/// server. No node names an identity file: each logs in with the owner's own keys. Nodes with
+/// with its recorded login, else as the lab's owner, `owner`, and is reached directly, with
+/// no jump host. No node names an identity file: each logs in with the owner's own keys. Nodes with
 /// a recorded host key are checked strictly against the lab's `known_hosts` file.
 #[instrument(level = "debug", skip(records, ssh_usernames, host_keys))]
 pub(crate) fn build_ssh_config(
@@ -154,7 +150,6 @@ pub(crate) fn build_ssh_config(
     host_keys: &[NodeHostKey],
     lab_id: &str,
     owner: &str,
-    server_ipv4: Ipv4Addr,
 ) -> SshConfigTemplate {
     let hosts = records
         .iter()
@@ -179,10 +174,7 @@ pub(crate) fn build_ssh_config(
             })
         })
         .collect();
-    SshConfigTemplate {
-        hosts,
-        proxy_jump: format!("{owner}@{server_ipv4}"),
-    }
+    SshConfigTemplate { hosts }
 }
 
 /// The lab's `known_hosts` file: the recorded host key of every node that has SSH.
@@ -244,25 +236,16 @@ mod tests {
             node_name: "router".to_owned(),
             username: "admin".to_owned(),
         }];
-        let config = build_ssh_config(
-            &records(),
-            &usernames,
-            &[],
-            "abcd1234",
-            "alice",
-            "192.0.2.1".parse().unwrap(),
-        );
+        let config = build_ssh_config(&records(), &usernames, &[], "abcd1234", "alice");
         assert_eq!(config.hosts[0].username, "alice");
         assert_eq!(config.hosts[1].username, "admin");
         assert_eq!(
             config.hosts[0].aliases,
             "192.0.2.10 vm.abcd1234 vm.abcd1234.sherpa.lab.local"
         );
-        assert_eq!(config.proxy_jump, "alice@192.0.2.1");
         let output = config.render().unwrap();
         let (vm, router) = output.split_once("Host 192.0.2.11").unwrap();
         assert!(vm.contains("User alice"));
-        assert!(vm.contains("ProxyJump alice@192.0.2.1"));
         assert!(router.contains("User admin"));
         assert!(router.contains("Port 830"));
         assert!(!output.contains("IdentityFile"));
@@ -353,13 +336,10 @@ mod tests {
         );
     }
 
-    /// One host of the SSH config as the template writes it, the lab's owner `alice` jumping
-    /// through the server.
+    /// One host of the SSH config as the template writes it.
     fn host(aliases: &str, address: &str, user: &str, checked: bool) -> String {
-        let mut host = format!(
-            "\nHost {aliases}\n    HostName {address}\n    Port 22\n    User {user}\n    \
-             ProxyJump alice@192.0.2.1"
-        );
+        let mut host =
+            format!("\nHost {aliases}\n    HostName {address}\n    Port 22\n    User {user}");
         if checked {
             host.push_str(
                 "\n    StrictHostKeyChecking yes\n    UserKnownHostsFile sherpa_known_hosts",
@@ -412,9 +392,7 @@ mod tests {
             .unwrap();
         let lab_info = lab_info::load_lab_info(&db, &lab).await.unwrap();
 
-        let files = lab_ssh_files(&db, &lab_record_id, &lab_info, "192.0.2.1".parse().unwrap())
-            .await
-            .unwrap();
+        let files = lab_ssh_files(&db, &lab_record_id, &lab_info).await.unwrap();
 
         // Nodes in name order; Talos Linux has no SSH, so it is left out. `web` has no recorded
         // login, so it logs in as the owner. No node names an identity file.
