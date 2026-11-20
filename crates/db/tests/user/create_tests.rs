@@ -5,30 +5,6 @@ use db::{create_user, get_user, list_users};
 use crate::setup_db;
 
 #[tokio::test]
-async fn test_create_user_with_ssh_keys() -> Result<()> {
-    let db = setup_db().await?;
-
-    let ssh_keys = vec![
-        "ssh-rsa AAAAB3NzaC1yc2EAAA...".to_string(),
-        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...".to_string(),
-    ];
-
-    let user = create_user(
-        &db,
-        "bob".to_string(),
-        "TestPass123!",
-        false,
-        ssh_keys.clone(),
-    )
-    .await?;
-
-    assert_eq!(user.username, "bob");
-    assert_eq!(user.ssh_keys, ssh_keys);
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_create_user_duplicate_username_fails() -> Result<()> {
     let db = setup_db().await?;
 

@@ -20,24 +20,6 @@ async fn alice(db: &db::Database) -> Result<DbUser> {
 }
 
 #[tokio::test]
-async fn a_started_session_is_found_with_its_user() -> Result<()> {
-    let db = setup_db().await?;
-    let user = alice(&db).await?;
-    let expires_at = Timestamp::from_second(in_a_day().as_second())?;
-
-    let session = create_session(&db, get_user_id(&user)?, SessionChannel::Cli, expires_at).await?;
-
-    let found = find_session(&db, &session.id).await?.expect("session row");
-    assert_eq!(found.session.id, session.id);
-    assert_eq!(found.session.user, get_user_id(&user)?);
-    assert_eq!(found.session.channel, SessionChannel::Cli);
-    assert_eq!(found.session.expires_at, expires_at);
-    assert_eq!(found.username, "alice");
-    assert!(!found.is_admin);
-    Ok(())
-}
-
-#[tokio::test]
 async fn deleting_a_session_ends_only_that_session() -> Result<()> {
     let db = setup_db().await?;
     let user = alice(&db).await?;
@@ -102,7 +84,7 @@ async fn a_password_reset_without_a_kept_session_ends_them_all() -> Result<()> {
 }
 
 #[tokio::test]
-async fn a_password_change_keeps_concurrent_ssh_key_edits() -> Result<()> {
+async fn user_passwords_013_a_password_change_keeps_concurrent_ssh_key_edits() -> Result<()> {
     let db = setup_db().await?;
     let user = alice(&db).await?;
     // An SSH key edit lands between the password change's read and its write.

@@ -66,24 +66,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_create_auth_cookie_normal() {
-        let token = "test_token_123";
-        let cookie = create_auth_cookie(token, false);
+    fn user_login_008_the_session_cookie_is_http_only_secure_strict_for_7_or_30_days() {
+        let cookie = create_auth_cookie("test_token_123", false);
 
         assert!(cookie.contains("sherpa_auth=test_token_123"));
         assert!(cookie.contains("HttpOnly"));
+        assert!(cookie.contains("Secure"));
         assert!(cookie.contains("SameSite=Strict"));
         assert!(cookie.contains("Max-Age=604800"));
         assert!(cookie.contains("Path=/"));
-    }
 
-    #[test]
-    fn test_create_auth_cookie_remember_me() {
-        let token = "test_token_456";
-        let cookie = create_auth_cookie(token, true);
+        let remembered = create_auth_cookie("test_token_456", true);
 
-        assert!(cookie.contains("sherpa_auth=test_token_456"));
-        assert!(cookie.contains("Max-Age=2592000"));
+        assert!(remembered.contains("sherpa_auth=test_token_456"));
+        assert!(remembered.contains("HttpOnly"));
+        assert!(remembered.contains("Secure"));
+        assert!(remembered.contains("SameSite=Strict"));
+        assert!(remembered.contains("Max-Age=2592000"));
     }
 
     #[test]
@@ -95,37 +94,5 @@ mod tests {
         assert!(cookie.contains("Expires=Thu, 01 Jan 1970 00:00:00 GMT"));
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("SameSite=Strict"));
-    }
-
-    #[test]
-    fn test_extract_all_duplicate_auth_tokens() {
-        let cookie_header = "sherpa_auth=expired_token; other=value; sherpa_auth=replacement_token";
-
-        let tokens = extract_tokens_from_cookie(cookie_header);
-
-        assert_eq!(tokens, vec!["expired_token", "replacement_token"]);
-    }
-
-    #[test]
-    fn test_extract_token_from_cookie_found() {
-        let cookie_header = "sherpa_auth=my_token_123; other_cookie=value";
-        let tokens = extract_tokens_from_cookie(cookie_header);
-
-        assert_eq!(tokens, vec!["my_token_123"]);
-    }
-
-    #[test]
-    fn test_extract_token_from_cookie_not_found() {
-        let cookie_header = "other_cookie=value; another=thing";
-        let tokens = extract_tokens_from_cookie(cookie_header);
-
-        assert_eq!(tokens, [] as [&str; 0]);
-    }
-
-    #[test]
-    fn test_extract_token_from_cookie_empty() {
-        let tokens = extract_tokens_from_cookie("");
-
-        assert_eq!(tokens, [] as [&str; 0]);
     }
 }

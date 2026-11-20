@@ -216,7 +216,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_refused_change_ends_no_session() {
+    async fn user_sessions_014_a_refused_change_ends_no_session() {
         let db = database_with_users(&[("alice", false)]).await;
         let other = session_of(&db, "alice").await;
 
@@ -234,7 +234,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_user_cannot_change_someone_elses_password() {
+    async fn user_passwords_006_a_user_cannot_change_someone_elses_password() {
         let db = database_with_users(&[("alice", false), ("bob", false)]).await;
 
         let error = change_password(
@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_weak_new_password_is_refused() {
+    async fn user_passwords_009_a_weak_new_password_is_refused_at_change() {
         let db = database_with_users(&[("alice", false)]).await;
 
         let error = change_password(

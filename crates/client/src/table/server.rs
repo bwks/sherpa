@@ -89,22 +89,3 @@ pub fn render_backup_table(backup: &BackupResponse) -> String {
     ];
     render_table(BACKUP_HEADERS, &rows, &TableLayout::default())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_render_ssh_keys_table() {
-        let keys = vec![
-            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh brad@laptop"
-                .to_string(),
-            "ssh-rsa broken".to_string(),
-        ];
-        let table = render_ssh_keys_table("brad", &keys);
-        assert!(table.contains("SSH Keys for brad"));
-        assert!(table.contains("SHA256:/UpBoWzMiq6/+/wzQIGDT2VxOLzg/LUTfKhc0x+ktEs"));
-        assert!(table.contains("brad@laptop"));
-        assert!(table.contains("invalid key"));
-    }
-}

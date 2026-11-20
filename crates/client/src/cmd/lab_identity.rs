@@ -331,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_owner_of_a_folder_lab_may_connect_to_its_nodes() {
+    fn access_control_016_a_folder_lab_of_another_user_is_refused_and_a_manifest_alone_is_own() {
         let dir = downloaded_folder("core", "0a1b2c3d");
         let lab_info = folder_lab_info(dir.path()).unwrap();
         assert!(check_lab_owner(&lab_info, "dev").is_ok());
@@ -341,10 +341,7 @@ mod tests {
                 "Only the owner of lab '0a1b2c3d' can connect to its nodes"
             );
         }
-    }
 
-    #[test]
-    fn a_folder_with_only_a_manifest_is_the_login_s_own_lab() {
         // No lab-info.toml: the lab's ID comes from the login, so it is the user's own lab and
         // no token is read.
         let dir = tempfile::tempdir().unwrap();

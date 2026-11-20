@@ -125,80 +125,8 @@ mod tests {
 
     use tempfile::TempDir;
 
-    /// Claims for `username`, valid for `expiry` seconds from now.
-    fn claims(username: &str, is_admin: bool, expiry: i64) -> Claims {
-        let now = jiff::Timestamp::now().as_second();
-        Claims::new(
-            username.to_owned(),
-            "session".to_owned(),
-            is_admin,
-            now,
-            now + expiry,
-        )
-    }
-
     #[test]
-    fn test_create_and_validate_token() {
-        let secret = b"test_secret_32_bytes_long_enough";
-        let username = "testuser";
-        let is_admin = false;
-        let expiry = 3600; // 1 hour
-
-        // Create token
-        let token = create_token(secret, &claims(username, is_admin, expiry))
-            .expect("Failed to create token");
-
-        // Validate token
-        let claims = validate_token(secret, &token).expect("Failed to validate token");
-
-        assert_eq!(claims.sub, username);
-        assert_eq!(claims.is_admin, is_admin);
-    }
-
-    #[test]
-    fn test_validate_with_wrong_secret() {
-        let secret1 = b"test_secret_32_bytes_long_enough";
-        let secret2 = b"different_secret_32bytes_exactly";
-
-        let token =
-            create_token(secret1, &claims("user", false, 3600)).expect("Failed to create token");
-
-        // Should fail with different secret
-        let result = validate_token(secret2, &token);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_validate_expired_token() {
-        let secret = b"test_secret_32_bytes_long_enough";
-
-        // Create token that's already expired (negative expiry)
-        let now = jiff::Timestamp::now().as_second();
-        let expired_claims = Claims {
-            sub: "user".to_string(),
-            sid: "session".to_string(),
-            exp: now - 100, // Expired 100 seconds ago
-            iat: now - 200,
-            is_admin: false,
-        };
-
-        let token = encode(
-            &Header::default(),
-            &expired_claims,
-            &EncodingKey::from_secret(secret),
-        )
-        .expect("Failed to encode token");
-
-        // Validation should fail due to expiration
-        let result = validate_token(secret, &token);
-        assert!(
-            result.is_err(),
-            "Token validation should fail for expired token, got: {result:?}"
-        );
-    }
-
-    #[test]
-    fn a_secret_of_the_wrong_length_refuses_startup_and_is_kept() {
+    fn user_sessions_024_a_secret_of_the_wrong_length_refuses_startup_and_is_kept() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let secret_path = temp_dir.path().join("jwt.secret");
         fs::write(&secret_path, b"too short").expect("write secret");
@@ -219,39 +147,31 @@ mod tests {
     }
 
     #[test]
-    fn a_secret_of_the_right_length_is_loaded() {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let secret_path = temp_dir.path().join("jwt.secret");
-        fs::write(&secret_path, [7u8; 32]).expect("write secret");
-
-        assert_eq!(
-            load_or_generate_secret(&secret_path).expect("load"),
-            vec![7u8; 32]
-        );
-    }
-
-    #[test]
-    #[ignore = "writes the JWT secret file to the server's filesystem"]
-    fn test_generate_secret() {
+    fn user_sessions_023_the_secret_is_generated_once_private_and_loaded_the_next_start() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let secret_path = temp_dir.path().join("jwt.secret");
 
         let secret = generate_and_save_secret(&secret_path).expect("Failed to generate secret");
 
-        // Verify secret length
         assert_eq!(secret.len(), 32);
-
-        // Verify file exists
         assert!(secret_path.exists());
-
-        // Verify file contents match
         let read_secret = fs::read(&secret_path).expect("Failed to read secret file");
         assert_eq!(secret, read_secret);
-
         let mode = fs::metadata(&secret_path)
             .expect("Failed to read metadata")
             .permissions()
             .mode();
         assert_eq!(mode & 0o777, 0o600);
+        assert_eq!(load_or_generate_secret(&secret_path).expect("load"), secret);
+
+        {
+            let secret_path = temp_dir.path().join("fixed.secret");
+            fs::write(&secret_path, [7u8; 32]).expect("write secret");
+
+            assert_eq!(
+                load_or_generate_secret(&secret_path).expect("load"),
+                vec![7u8; 32]
+            );
+        }
     }
 }

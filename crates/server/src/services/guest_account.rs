@@ -613,12 +613,12 @@ pub(crate) mod tests {
     use std::sync::OnceLock;
     use std::thread;
 
+    use crate::services::node_ops::tests as node_ops_tests;
     use db::SecretKey;
     use jiff::Timestamp;
     use sha_crypt::{PasswordVerifier, ShaCrypt};
     use shared::data::{ModelKind, RecordId};
     use shared::konst::{ADMIN_USERNAME, SHERPA_USERNAME};
-    use shared::util::base64_decode;
     use template::{CloudInitConfig, IgnitionConfig};
     use tokio::runtime::Builder;
 
@@ -708,32 +708,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn equivalent_keys_are_deduplicated_and_comments_removed() {
-        let user = owner(
-            "alice",
-            vec![format!("{KEY} laptop"), format!("  {KEY} desktop  ")],
-        );
-        let account = account_of(&user).unwrap();
-        assert_eq!(account.username, "alice");
-        assert_eq!(account.ssh_keys, vec![KEY]);
-        assert_eq!(account.device_password.expose(), DEVICE_PASSWORD);
-    }
-
-    #[test]
-    fn rejects_missing_invalid_and_malformed_keys() {
-        for keys in [
-            vec![],
-            vec!["invalid".to_owned()],
-            vec![format!("{KEY}\n{KEY}")],
-            vec!["ssh-ed25519 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_owned()],
-            vec![KEY.to_owned(), "broken".to_owned()],
-        ] {
-            assert!(account_of(&owner("alice", keys)).is_err());
-        }
-    }
-
-    #[test]
-    fn owners_whose_name_cannot_be_a_login_are_refused_with_the_reason() {
+    fn owner_login_011_owners_whose_name_cannot_be_a_login_are_refused_with_the_reason() {
         // Legacy accounts created before the reserved names were refused, and older names.
         for name in [
             "root",
@@ -752,17 +727,39 @@ pub(crate) mod tests {
             );
             assert!(error.contains("cannot be a login on lab nodes"), "{error}");
         }
+
+        for name in ["alice", "_a", "user-12", "a_b", &"a".repeat(32)] {
+            assert!(validate_guest_username(name, &["sherpa"]).is_ok());
+        }
+        for name in [
+            "",
+            "Alice",
+            "1user",
+            "-user",
+            "a.b",
+            "a@b",
+            "é",
+            "alice\n",
+            &"a".repeat(33),
+        ] {
+            assert!(validate_guest_username(name, &[]).is_err(), "{name:?}");
+        }
+        for name in ["root", "sherpa", "core", "systemd-network"] {
+            assert!(validate_guest_username(name, &["sherpa", "core"]).is_err());
+        }
     }
 
     #[test]
-    fn nixos_account_uses_wheel_and_the_system_bash() {
-        let user = nixos_cloud_init_user(&account(&[KEY])).unwrap();
-        assert_eq!(user.groups, vec!["wheel".to_owned()]);
-        assert_eq!(user.shell, NODE_NIXOS_SHELL);
-        assert_eq!(user.homedir.as_deref(), Some("/home/alice"));
-        assert!(!user.lock_passwd);
-        assert!(verifies(user.hashed_passwd.as_deref().unwrap()));
-        assert_eq!(user.ssh_authorized_keys, vec![KEY.to_owned()]);
+    fn rejects_missing_invalid_and_malformed_keys() {
+        for keys in [
+            vec![],
+            vec!["invalid".to_owned()],
+            vec![format!("{KEY}\n{KEY}")],
+            vec!["ssh-ed25519 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_owned()],
+            vec![KEY.to_owned(), "broken".to_owned()],
+        ] {
+            assert!(account_of(&owner("alice", keys)).is_err());
+        }
     }
 
     #[test]
@@ -807,75 +804,308 @@ pub(crate) mod tests {
         assert_eq!(opened.expose(), DEVICE_PASSWORD);
     }
 
+    /// The owner's account on a cloud-init guest, as the user data holds it, as text and parsed.
+    fn personal_cloud_init() -> (String, serde_json::Value) {
+        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
+        let config = CloudInitConfig {
+            users: vec![cloud_init_user(&account).unwrap()],
+            ..Default::default()
+        }
+        .render()
+        .unwrap();
+        let parsed = serde_json::from_str(config.strip_prefix("#cloud-config\n").unwrap()).unwrap();
+        (config, parsed)
+    }
+
+    /// The owner's account on Flatcar, as the Ignition config holds it, as text and parsed.
+    fn personal_ignition() -> (String, serde_json::Value) {
+        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
+        let config = IgnitionConfig::new(
+            vec![ignition_user(&account).unwrap()],
+            vec![sudoers_file(&account)],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+        )
+        .to_json_pretty()
+        .unwrap();
+        let json = serde_json::from_str(&config).unwrap();
+        (config, json)
+    }
+
+    /// The Ignition files that are sudoers rules.
+    fn sudoers_files(json: &serde_json::Value) -> Vec<&serde_json::Value> {
+        json["storage"]["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|file| {
+                file["path"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("/etc/sudoers.d/")
+            })
+            .collect()
+    }
+
+    /// The sudoers rule of an Ignition config: one file, `/etc/sudoers.d/alice`, mode 0440,
+    /// letting the owner run anything without a password.
+    fn assert_alice_has_passwordless_sudo(json: &serde_json::Value) {
+        let sudoers = sudoers_files(json);
+        assert_eq!(sudoers.len(), 1, "{json}");
+        assert_eq!(sudoers[0]["path"], "/etc/sudoers.d/alice");
+        assert_eq!(sudoers[0]["mode"], 0o440);
+        assert_eq!(
+            node_ops_tests::ignition_file_text(sudoers[0]),
+            "alice ALL=(ALL) NOPASSWD: ALL\n"
+        );
+    }
+
+    fn nixos_has_wheel_and_the_system_bash() {
+        let user = nixos_cloud_init_user(&account(&[KEY])).unwrap();
+        assert_eq!(user.groups, vec!["wheel".to_owned()]);
+        assert_eq!(user.shell, NODE_NIXOS_SHELL);
+        assert_eq!(user.homedir.as_deref(), Some("/home/alice"));
+        assert!(!user.lock_passwd);
+        assert!(verifies(user.hashed_passwd.as_deref().unwrap()));
+        assert_eq!(user.ssh_authorized_keys, vec![KEY.to_owned()]);
+    }
+
+    fn windows_is_a_local_administrator() {
+        let user = cloudbase_user(&account(&[KEY]));
+        assert_eq!(user.name, "alice");
+        assert_eq!(user.groups, vec!["Administrators"]);
+        assert_eq!(user.ssh_authorized_keys, vec![KEY]);
+    }
+
+    fn cloud_init_has_bash_home_and_passwordless_sudo() {
+        let (_, parsed) = personal_cloud_init();
+        let user = &parsed["users"][0];
+        assert_eq!(user["name"], "alice");
+        assert_eq!(user["homedir"], "/home/alice");
+        assert_eq!(user["shell"], "/bin/bash");
+        assert_eq!(user["ssh_authorized_keys"][0], KEY);
+        assert!(user["sudo"].as_str().unwrap().contains("NOPASSWD:ALL"));
+        assert_eq!(user["lock_passwd"], false);
+    }
+
+    fn alpine_has_ash_wheel_and_a_doas_rule() {
+        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
+        let user = alpine_cloud_init_user(&account).unwrap();
+        assert_eq!(user.name, "alice");
+        assert_eq!(user.shell, "/bin/sh");
+        assert_eq!(user.groups, vec!["wheel"]);
+        assert_eq!(user.ssh_authorized_keys, vec![KEY]);
+        assert!(verifies(user.hashed_passwd.as_deref().unwrap()));
+        assert_eq!(user.plain_text_passwd, None);
+        let file = doas_file(&account);
+        assert_eq!(file.path, "/etc/doas.d/alice.conf");
+        assert_eq!(file.content, "permit nopass alice\n");
+        assert_eq!(file.owner, None);
+    }
+
+    fn bsd_has_sh_wheel_and_the_os_home() {
+        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
+        let user = bsd_cloud_init_user(&account, NodeModel::FreeBsd).unwrap();
+        assert_eq!(user.name, "alice");
+        assert_eq!(user.shell, "/bin/sh");
+        assert_eq!(user.groups, vec!["wheel"]);
+        assert_eq!(user.ssh_authorized_keys, vec![KEY]);
+        // FreeBSD homes are under /usr/home, so the OS picks the home.
+        assert_eq!(user.homedir, None);
+    }
+
+    fn ignition_has_native_fields_and_dedicated_sudoers() {
+        let (_, json) = personal_ignition();
+        let user = &json["passwd"]["users"][0];
+        assert_eq!(user["name"], "alice");
+        assert_eq!(user["homeDir"], "/home/alice");
+        assert_eq!(user["shell"], "/bin/bash");
+        assert_eq!(user["sshAuthorizedKeys"], serde_json::json!([KEY]));
+        assert_eq!(user["groups"], serde_json::json!(["wheel", "docker"]));
+        assert_alice_has_passwordless_sudo(&json);
+    }
+
+    fn flatcar_has_wheel_docker_and_dedicated_sudoers() {
+        let (json, _) = node_ops_tests::flatcar_ignition_config();
+        let owner = &json["passwd"]["users"][0];
+        assert_eq!(owner["groups"], serde_json::json!(["wheel", "docker"]));
+        assert_alice_has_passwordless_sudo(&json);
+    }
+
     #[test]
-    fn an_account_never_shows_its_device_password() {
+    fn owner_login_015_each_system_gives_the_account_its_shell_home_and_admin_rights() {
+        nixos_has_wheel_and_the_system_bash();
+        windows_is_a_local_administrator();
+        cloud_init_has_bash_home_and_passwordless_sudo();
+        alpine_has_ash_wheel_and_a_doas_rule();
+        bsd_has_sh_wheel_and_the_os_home();
+        ignition_has_native_fields_and_dedicated_sudoers();
+        flatcar_has_wheel_docker_and_dedicated_sudoers();
+    }
+
+    /// The hash a generated config holds verifies against the device password, and the password
+    /// itself is not written into the config.
+    fn assert_hash_only(hash: &str, config: &str) {
+        assert!(verifies(hash), "{hash}");
+        assert!(!config.contains(DEVICE_PASSWORD), "{config}");
+    }
+
+    fn the_password_is_plain_or_a_verifying_hash_in_each_form() {
+        let account = account(&[KEY]);
+        let plain = owner_user(Some(&account), KeyFormat::OpenSsh, PasswordForm::Plain).unwrap();
+        assert_eq!(plain.password, DEVICE_PASSWORD);
+        for (algorithm, prefix) in [(CryptHash::Sha512, "$6$"), (CryptHash::Sha256, "$5$")] {
+            let hashed = owner_user(
+                Some(&account),
+                KeyFormat::OpenSsh,
+                PasswordForm::Hashed(algorithm),
+            )
+            .unwrap()
+            .password;
+            assert!(hashed.starts_with(prefix), "{hashed}");
+            assert!(!hashed.contains(DEVICE_PASSWORD));
+            assert!(verifies(&hashed), "{hashed}");
+        }
+    }
+
+    fn crypt_hashes_verify_against_the_password_only() {
+        for algorithm in [CryptHash::Sha512, CryptHash::Sha256] {
+            let hashed = crypt_hash(DEVICE_PASSWORD, algorithm).unwrap();
+            let verifier = ShaCrypt::default();
+            assert!(
+                verifier
+                    .verify_password(DEVICE_PASSWORD.as_bytes(), hashed.as_str())
+                    .is_ok()
+            );
+            assert!(
+                verifier
+                    .verify_password(b"Granite-Owl43!", hashed.as_str())
+                    .is_err()
+            );
+        }
+    }
+
+    fn cloud_init_and_ignition_hold_a_hash_that_verifies() {
+        let (config, parsed) = personal_cloud_init();
+        assert_hash_only(
+            parsed["users"][0]["hashed_passwd"].as_str().unwrap(),
+            &config,
+        );
+        assert!(!config.contains("plain_text_passwd"));
+        let (config, json) = personal_ignition();
+        assert_hash_only(
+            json["passwd"]["users"][0]["passwordHash"].as_str().unwrap(),
+            &config,
+        );
+        assert!(!config.contains("server-login-hash"));
+    }
+
+    fn windows_takes_the_password_itself_and_openbsd_hashes_it_on_the_node() {
+        assert_eq!(cloudbase_user(&account(&[KEY])).passwd, DEVICE_PASSWORD);
+        let user = bsd_cloud_init_user(&account(&[KEY]), NodeModel::OpenBsd).unwrap();
+        assert_eq!(user.plain_text_passwd.as_deref(), Some(DEVICE_PASSWORD));
+        assert_eq!(user.hashed_passwd, None);
+        assert!(!user.lock_passwd);
+        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
+        let freebsd = bsd_cloud_init_user(&account, NodeModel::FreeBsd).unwrap();
+        assert!(verifies(freebsd.hashed_passwd.as_deref().unwrap()));
+        assert_eq!(freebsd.plain_text_passwd, None);
+    }
+
+    fn generated_node_configs_hold_the_password_as_their_model_takes_it() {
+        let (json, config) = node_ops_tests::flatcar_ignition_config();
+        assert_hash_only(
+            json["passwd"]["users"][0]["passwordHash"].as_str().unwrap(),
+            &config,
+        );
+        for (model, user_data, parsed) in node_ops_tests::owner_cloud_init_configs() {
+            let user = &parsed["users"][0];
+            if model == NodeModel::WindowsServer {
+                // cloudbase-init takes the password itself.
+                assert_eq!(user["passwd"], DEVICE_PASSWORD, "{model}");
+            } else {
+                assert_hash_only(user["hashed_passwd"].as_str().unwrap(), &user_data);
+            }
+        }
+    }
+
+    #[test]
+    fn owner_login_016_the_password_is_plain_or_a_hash_that_verifies_as_the_model_takes() {
+        the_password_is_plain_or_a_verifying_hash_in_each_form();
+        crypt_hashes_verify_against_the_password_only();
+        cloud_init_and_ignition_hold_a_hash_that_verifies();
+        windows_takes_the_password_itself_and_openbsd_hashes_it_on_the_node();
+        generated_node_configs_hold_the_password_as_their_model_takes_it();
+    }
+
+    #[test]
+    fn owner_login_023_a_generated_cloud_init_cloudbase_init_or_ignition_config_has_one_account() {
+        let (config, parsed) = personal_cloud_init();
+        let users = parsed["users"].as_array().unwrap();
+        assert_eq!(
+            users.len(),
+            1,
+            "only the personal account is added: {config}"
+        );
+        let (config, json) = personal_ignition();
+        assert_eq!(
+            json["passwd"]["users"].as_array().unwrap().len(),
+            1,
+            "{config}"
+        );
+
+        let (json, config) = node_ops_tests::flatcar_ignition_config();
+        let users = json["passwd"]["users"].as_array().unwrap();
+        assert_eq!(users.len(), 1, "{config}");
+        assert_eq!(users[0]["name"], "alice");
+        assert_eq!(
+            users[0]["sshAuthorizedKeys"],
+            serde_json::json!([KEY, node_ops_tests::FLATCAR_SECOND_KEY])
+        );
+
+        for (model, user_data, parsed) in node_ops_tests::owner_cloud_init_configs() {
+            let users = parsed["users"].as_array().unwrap();
+            assert_eq!(users.len(), 1, "{model}: {user_data}");
+            assert_eq!(users[0]["name"], "alice", "{model}");
+            assert!(user_data.contains(KEY), "{model}: {user_data}");
+            if model == NodeModel::WindowsServer {
+                assert!(user_data.contains(r"authorized_keys\\alice"), "{model}");
+            }
+        }
+    }
+
+    #[test]
+    fn owner_login_026_the_account_is_not_locked_on_alpine_and_the_bsds() {
+        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
+        // Alpine's sshd has no PAM and refuses locked (`!`) accounts, even for key logins.
+        assert!(!alpine_cloud_init_user(&account).unwrap().lock_passwd);
+        // OpenSSH refuses locked accounts on FreeBSD, even for key logins.
+        for model in [NodeModel::FreeBsd, NodeModel::OpenBsd] {
+            assert!(!bsd_cloud_init_user(&account, model).unwrap().lock_passwd);
+        }
+    }
+
+    #[test]
+    fn owner_login_021_an_account_never_shows_its_device_password() {
         let shown = format!("{:?}", account(&[KEY]));
         assert!(!shown.contains(DEVICE_PASSWORD), "{shown}");
         assert!(shown.contains("REDACTED"), "{shown}");
     }
 
     #[test]
-    fn a_model_that_cannot_take_the_owners_name_is_refused() {
-        let long = test_account(&"a".repeat(21), &[KEY]);
-        let image = ModelKind::default_for(NodeModel::WindowsServer).node_config();
-        let error = node_account(&long, "win1", &image).unwrap_err().to_string();
-        assert!(
-            error.contains("Node 'win1' (windows_server) takes login names of at most 20"),
-            "{error}"
-        );
-        let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
-        assert!(node_account(&long, "vm1", &image).is_ok());
-    }
-
-    #[test]
-    fn a_manifest_ztp_decides_the_owner_account_over_the_images() {
+    fn owner_login_017_a_node_with_custom_ztp_or_ztp_off_gets_no_owner_account() {
         let image = ModelKind::default_for(NodeModel::FrrLinux).node_config();
-        let mut node = topology::NodeExpanded {
+        let mut frr = topology::NodeExpanded {
             name: "frr01".to_owned(),
             model_kind: ModelKind::default_for(NodeModel::FrrLinux),
             ..Default::default()
         };
-        assert!(provisions_owner(&node, &image));
-        node.ztp.method = Some(Ztp::Disabled);
-        assert!(!provisions_owner(&node, &image));
-    }
+        assert!(provisions_owner(&frr, &image));
+        frr.ztp.method = Some(Ztp::Disabled);
+        assert!(!provisions_owner(&frr, &image));
 
-    #[test]
-    fn frr_keeps_the_owner_account_with_a_custom_frr_conf() {
-        // FRR's custom config is `frr.conf`; the account is in its generated startup script.
-        let image = ModelKind::default_for(NodeModel::FrrLinux).node_config();
-        let mut node = topology::NodeExpanded {
-            name: "frr01".to_owned(),
-            model_kind: ModelKind::default_for(NodeModel::FrrLinux),
-            ..Default::default()
-        };
-        node.ztp.config = Some("router bgp 65000\n".to_owned());
-        assert!(provisions_owner(&node, &image));
-    }
-
-    #[test]
-    fn the_sonic_container_keeps_the_owner_account_with_a_custom_config_db_and_the_vm_does_not() {
-        // The container's custom config is `config_db.json`; the account is in its start
-        // script. The VM's account is in a ZTP step a custom config replaces.
-        let container = ModelKind::new(NodeModel::SonicLinux, Some(NodeKind::Container)).unwrap();
-        let vm = ModelKind::default_for(NodeModel::SonicLinux);
-        for (model_kind, keeps) in [(container, true), (vm, false)] {
-            let mut node = topology::NodeExpanded {
-                name: "sonic01".to_owned(),
-                model_kind,
-                ..Default::default()
-            };
-            node.ztp.config = Some("{}".to_owned());
-            assert_eq!(
-                provisions_owner(&node, &model_kind.node_config()),
-                keeps,
-                "{model_kind}"
-            );
-        }
-    }
-
-    #[test]
-    fn nodes_with_custom_ztp_get_no_owner_account() {
         let node = topology::Node {
             name: "r1".to_owned(),
             model: NodeModel::CiscoIos,
@@ -894,7 +1124,45 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn linux_nodes_take_every_registered_key() {
+    fn owner_login_018_frr_and_the_sonic_container_keep_the_owner_with_a_custom_config() {
+        // FRR's custom config is `frr.conf`; the account is in its generated startup script.
+        let image = ModelKind::default_for(NodeModel::FrrLinux).node_config();
+        let mut node = topology::NodeExpanded {
+            name: "frr01".to_owned(),
+            model_kind: ModelKind::default_for(NodeModel::FrrLinux),
+            ..Default::default()
+        };
+        node.ztp.config = Some("router bgp 65000\n".to_owned());
+        assert!(provisions_owner(&node, &image));
+
+        // The container's custom config is `config_db.json`; the account is in its start
+        // script. The VM's account is in a ZTP step a custom config replaces.
+        let container = ModelKind::new(NodeModel::SonicLinux, Some(NodeKind::Container)).unwrap();
+        let vm = ModelKind::default_for(NodeModel::SonicLinux);
+        for (model_kind, keeps) in [(container, true), (vm, false)] {
+            let mut node = topology::NodeExpanded {
+                name: "sonic01".to_owned(),
+                model_kind,
+                ..Default::default()
+            };
+            node.ztp.config = Some("{}".to_owned());
+            assert_eq!(
+                provisions_owner(&node, &model_kind.node_config()),
+                keeps,
+                "{model_kind}"
+            );
+        }
+        node_ops_tests::assert_sonic_container_with_a_custom_config_adds_the_owner();
+    }
+
+    #[test]
+    fn owner_login_012_linux_bsd_and_windows_take_every_key_with_duplicates_dropped() {
+        let user = owner(
+            "alice",
+            vec![format!("{KEY} laptop"), format!("  {KEY} desktop  ")],
+        );
+        assert_eq!(account_of(&user).unwrap().ssh_keys, vec![KEY]);
+
         let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         let node_account =
             node_account(&account(&[KEY, RSA_KEY, ECDSA_KEY]), "vm", &image).unwrap();
@@ -904,23 +1172,39 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn devices_take_only_the_key_types_they_accept() {
-        let image = ModelKind::default_for(NodeModel::CiscoNexus9300).node_config();
-        let node_account = node_account(&account(&[KEY, ECDSA_KEY]), "nx1", &image).unwrap();
-        assert_eq!(node_account.account.ssh_keys, vec![ECDSA_KEY]);
-        assert_eq!(node_account.skipped_keys, vec!["ssh-ed25519"]);
+    fn owner_login_013_a_device_takes_only_the_key_types_and_count_it_accepts() {
+        {
+            let image = ModelKind::default_for(NodeModel::CiscoNexus9300).node_config();
+            let taken = node_account(&account(&[KEY, ECDSA_KEY]), "nx1", &image).unwrap();
+            assert_eq!(taken.account.ssh_keys, vec![ECDSA_KEY]);
+            assert_eq!(taken.skipped_keys, vec!["ssh-ed25519"]);
+        }
+        {
+            let image = ModelKind::default_for(NodeModel::PaloaltoPanos).node_config();
+            let taken = node_account(&account(&[RSA_KEY, KEY]), "fw1", &image).unwrap();
+            assert_eq!(taken.account.ssh_keys, vec![RSA_KEY]);
+            assert_eq!(taken.skipped_keys, vec!["ssh-ed25519"]);
+        }
+        for model in [NodeModel::CiscoIol, NodeModel::CiscoIoll2] {
+            let image = ModelKind::default_for(model).node_config();
+            let taken = node_account(&account(&[KEY, RSA_KEY, ECDSA_KEY]), "r1", &image).unwrap();
+            assert_eq!(taken.account.ssh_keys, vec![RSA_KEY], "{model}");
+            assert_eq!(
+                taken.skipped_keys,
+                vec!["ssh-ed25519", "ecdsa-sha2-nistp256"],
+                "{model}"
+            );
+        }
+        {
+            let image = ModelKind::default_for(NodeModel::CiscoIse).node_config();
+            let taken = node_account(&account(&[KEY, RSA_KEY]), "ise1", &image).unwrap();
+            assert_eq!(taken.account.username, "alice");
+            assert_eq!(taken.account.ssh_keys, vec![RSA_KEY]);
+        }
     }
 
     #[test]
-    fn devices_take_no_more_keys_than_they_hold() {
-        let image = ModelKind::default_for(NodeModel::PaloaltoPanos).node_config();
-        let node_account = node_account(&account(&[RSA_KEY, KEY]), "fw1", &image).unwrap();
-        assert_eq!(node_account.account.ssh_keys, vec![RSA_KEY]);
-        assert_eq!(node_account.skipped_keys, vec!["ssh-ed25519"]);
-    }
-
-    #[test]
-    fn a_device_without_an_accepted_key_fails_with_how_to_make_one() {
+    fn owner_login_014_a_device_without_an_accepted_key_fails_with_how_to_make_one() {
         let image = ModelKind::default_for(NodeModel::CiscoIos).node_config();
         let error = node_account(&account(&[KEY, ECDSA_KEY]), "r1", &image)
             .unwrap_err()
@@ -933,31 +1217,32 @@ pub(crate) mod tests {
         assert!(error.contains(SSH_KEYS_DOCS_URL), "{error}");
     }
 
-    #[test]
-    fn iol_takes_rsa_keys_only_as_ios_key_hashes_do() {
-        for model in [NodeModel::CiscoIol, NodeModel::CiscoIoll2] {
-            let image = ModelKind::default_for(model).node_config();
-            let node_account =
-                node_account(&account(&[KEY, RSA_KEY, ECDSA_KEY]), "r1", &image).unwrap();
-            assert_eq!(node_account.account.ssh_keys, vec![RSA_KEY], "{model}");
-            assert_eq!(
-                node_account.skipped_keys,
-                vec!["ssh-ed25519", "ecdsa-sha2-nistp256"],
-                "{model}"
-            );
+    /// The hash of the key data of each known key, as Cisco takes it.
+    fn assert_cisco_hashes_of_known_keys() {
+        let rsa = "AAAAB3NzaC1yc2EAAAABIwAAAQEA6NF8iallvQVp22WDkTkyrtvp9eWW6A8YVr+kz4TjGYe7gHzIw+niNltGEFHzD8+v1I2YJ6oXevct1YeS0o9HZyN1Q9qgCgzUFtdOKLv6IedplqoPkcmF0aYet2PkEDo3MlTBckFXPITAMzF8dJSIFo9D8HfdOV0IAdx4O7PtixWKn5y2hMNG0zQPyUecp4pzC6kivAIhyfHilFR61RGL+GPXQ2MWZWFYbAGjyiYJnAmCP3NOTd0jMZEnDkbUvxhMmBYSdETk1rRgm+R4LOzFUGaHqHDLKLX+FIPKcF96hrucXzcWyLbIbEgE98OHlnVYCzRdK8jlqm8tehUc9c9WhQ==";
+        let ed25519 = "AAAAC3NzaC1lZDI1NTE5AAAAIPxpcrq+EIzKyYav9c/h3BRAHcv4M1fzSDY7OhGDwFf+";
+        for (input, expected) in [
+            (rsa, "DD3BB82E850406E9ABFFA80AC0046ED6"),
+            (ed25519, "51A61C4047F60237A80D2D4B02ED7885"),
+        ] {
+            assert_eq!(pub_ssh_key_to_md5_hash(input).unwrap(), expected);
+        }
+        for (input, expected) in [
+            (
+                rsa,
+                "d4:ce:11:ce:13:32:5a:e1:52:ff:ce:ae:3d:8f:dc:7b:6a:6b:87:f7:55:4c:75:bb:88:3d:91:86:9a:ae:39:90",
+            ),
+            (
+                ed25519,
+                "8c:7f:4d:2a:44:e3:fe:56:80:f2:5d:b5:4e:8a:f1:7a:71:a6:4d:18:2d:ab:3d:c9:ab:26:10:69:15:cd:8b:61",
+            ),
+        ] {
+            assert_eq!(pub_ssh_key_to_sha256_hash(input).unwrap(), expected);
         }
     }
 
     #[test]
-    fn ise_admin_is_the_owner_with_their_first_rsa_key() {
-        let image = ModelKind::default_for(NodeModel::CiscoIse).node_config();
-        let node_account = node_account(&account(&[KEY, RSA_KEY]), "ise1", &image).unwrap();
-        assert_eq!(node_account.account.username, "alice");
-        assert_eq!(node_account.account.ssh_keys, vec![RSA_KEY]);
-    }
-
-    #[test]
-    fn owner_keys_are_written_in_each_device_format() {
+    fn owner_login_022_each_device_is_given_the_owner_keys_in_the_form_it_takes() {
         let account = account(&[RSA_KEY]);
         let key_data = RSA_KEY.strip_prefix("ssh-rsa ").unwrap();
         let openssh = first_key(&account, KeyFormat::OpenSsh);
@@ -988,144 +1273,6 @@ pub(crate) mod tests {
         let ecdsa = first_key(&self::account(&[ECDSA_KEY]), KeyFormat::Junos);
         assert_eq!(ecdsa.kind, "ssh-ecdsa");
         assert!(owner_user(None, KeyFormat::OpenSsh, PasswordForm::Plain).is_err());
-    }
-
-    #[test]
-    fn the_owners_password_is_plain_or_a_hash_that_verifies() {
-        let account = account(&[KEY]);
-        let plain = owner_user(Some(&account), KeyFormat::OpenSsh, PasswordForm::Plain).unwrap();
-        assert_eq!(plain.password, DEVICE_PASSWORD);
-        for (algorithm, prefix) in [(CryptHash::Sha512, "$6$"), (CryptHash::Sha256, "$5$")] {
-            let hashed = owner_user(
-                Some(&account),
-                KeyFormat::OpenSsh,
-                PasswordForm::Hashed(algorithm),
-            )
-            .unwrap()
-            .password;
-            assert!(hashed.starts_with(prefix), "{hashed}");
-            assert!(!hashed.contains(DEVICE_PASSWORD));
-            assert!(verifies(&hashed), "{hashed}");
-        }
-    }
-
-    #[test]
-    fn windows_owner_is_an_administrator_with_the_device_password() {
-        let user = cloudbase_user(&account(&[KEY]));
-        assert_eq!(user.name, "alice");
-        assert_eq!(user.groups, vec!["Administrators"]);
-        assert_eq!(user.ssh_authorized_keys, vec![KEY]);
-        assert_eq!(user.passwd, DEVICE_PASSWORD);
-    }
-
-    #[test]
-    fn personal_cloud_init_user_has_keys_home_shell_and_sudo_without_password() {
-        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
-        let config = CloudInitConfig {
-            users: vec![cloud_init_user(&account).unwrap()],
-            ..Default::default()
-        }
-        .render()
-        .unwrap();
-        let parsed: serde_json::Value =
-            serde_json::from_str(config.strip_prefix("#cloud-config\n").unwrap()).unwrap();
-        let users = parsed["users"].as_array().unwrap();
-        assert_eq!(users.len(), 1, "only the personal account is added");
-        let user = &users[0];
-        assert_eq!(user["name"], "alice");
-        assert_eq!(user["homedir"], "/home/alice");
-        assert_eq!(user["shell"], "/bin/bash");
-        assert_eq!(user["ssh_authorized_keys"][0], KEY);
-        assert!(user["sudo"].as_str().unwrap().contains("NOPASSWD:ALL"));
-        assert_eq!(user["lock_passwd"], false);
-        assert!(verifies(user["hashed_passwd"].as_str().unwrap()));
-        assert!(!config.contains("plain_text_passwd"));
-        assert!(!config.contains(DEVICE_PASSWORD));
-        assert!(!config.contains("server-login-hash"));
-    }
-
-    #[test]
-    fn personal_alpine_user_uses_ash_and_wheel() {
-        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
-        let user = alpine_cloud_init_user(&account).unwrap();
-        assert_eq!(user.name, "alice");
-        assert_eq!(user.shell, "/bin/sh");
-        assert_eq!(user.groups, vec!["wheel"]);
-        assert_eq!(user.ssh_authorized_keys, vec![KEY]);
-        // Alpine's sshd has no PAM and refuses locked (`!`) accounts, even for key logins.
-        assert!(!user.lock_passwd);
-        assert!(verifies(user.hashed_passwd.as_deref().unwrap()));
-        assert_eq!(user.plain_text_passwd, None);
-    }
-
-    #[test]
-    fn personal_bsd_user_uses_sh_wheel_and_the_os_home() {
-        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
-        let user = bsd_cloud_init_user(&account, NodeModel::FreeBsd).unwrap();
-        assert_eq!(user.name, "alice");
-        assert_eq!(user.shell, "/bin/sh");
-        assert_eq!(user.groups, vec!["wheel"]);
-        assert_eq!(user.ssh_authorized_keys, vec![KEY]);
-        // FreeBSD homes are under /usr/home, so the OS picks the home.
-        assert_eq!(user.homedir, None);
-        // OpenSSH refuses locked accounts on FreeBSD, even for key logins.
-        assert!(!user.lock_passwd);
-        assert!(verifies(user.hashed_passwd.as_deref().unwrap()));
-        assert_eq!(user.plain_text_passwd, None);
-    }
-
-    #[test]
-    fn openbsd_gets_the_device_password_to_hash_with_its_own_crypt() {
-        let user = bsd_cloud_init_user(&account(&[KEY]), NodeModel::OpenBsd).unwrap();
-        assert_eq!(user.plain_text_passwd.as_deref(), Some(DEVICE_PASSWORD));
-        assert_eq!(user.hashed_passwd, None);
-        assert!(!user.lock_passwd);
-    }
-
-    #[test]
-    fn personal_alpine_user_gets_a_dedicated_doas_rule() {
-        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
-        let file = doas_file(&account);
-        assert_eq!(file.path, "/etc/doas.d/alice.conf");
-        assert_eq!(file.content, "permit nopass alice\n");
-        assert_eq!(file.permissions, "0400");
-        assert_eq!(file.owner, None);
-    }
-
-    #[test]
-    fn personal_ignition_user_has_native_fields_and_dedicated_sudoers() {
-        let account = account_of(&owner("alice", vec![KEY.to_owned()])).unwrap();
-        let config = IgnitionConfig::new(
-            vec![ignition_user(&account).unwrap()],
-            vec![sudoers_file(&account)],
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-        )
-        .to_json_pretty()
-        .unwrap();
-        let json: serde_json::Value = serde_json::from_str(&config).unwrap();
-        let user = &json["passwd"]["users"][0];
-        assert_eq!(user["name"], "alice");
-        assert_eq!(user["homeDir"], "/home/alice");
-        assert_eq!(user["shell"], "/bin/bash");
-        assert_eq!(user["sshAuthorizedKeys"], serde_json::json!([KEY]));
-        assert_eq!(user["groups"], serde_json::json!(["wheel", "docker"]));
-        assert!(verifies(user["passwordHash"].as_str().unwrap()));
-        assert!(!config.contains(DEVICE_PASSWORD));
-        assert!(!config.contains("server-login-hash"));
-        let file = &json["storage"]["files"][0];
-        assert_eq!(file["path"], "/etc/sudoers.d/alice");
-        assert_eq!(file["mode"], 0o440);
-        let encoded = file["contents"]["source"]
-            .as_str()
-            .unwrap()
-            .strip_prefix("data:;base64,")
-            .unwrap();
-        assert_eq!(
-            base64_decode(encoded).unwrap(),
-            "alice ALL=(ALL) NOPASSWD: ALL\n"
-        );
+        assert_cisco_hashes_of_known_keys();
     }
 }

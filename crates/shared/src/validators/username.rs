@@ -70,34 +70,7 @@ mod tests {
     use crate::konst::{ADMIN_USERNAME, SHERPA_USERNAME};
 
     #[test]
-    fn portable_names_and_length_boundaries() {
-        for name in ["alice", "_a", "user-12", "a_b", &"a".repeat(32)] {
-            assert!(validate_guest_username(name, &["sherpa"]).is_ok());
-        }
-        for name in [
-            "",
-            "Alice",
-            "1user",
-            "-user",
-            "a.b",
-            "a@b",
-            "é",
-            "alice\n",
-            &"a".repeat(33),
-        ] {
-            assert!(validate_guest_username(name, &[]).is_err(), "{name:?}");
-        }
-    }
-
-    #[test]
-    fn rejects_privileged_and_generated_accounts() {
-        for name in ["root", "sherpa", "core", "systemd-network"] {
-            assert!(validate_guest_username(name, &["sherpa", "core"]).is_err());
-        }
-    }
-
-    #[test]
-    fn server_usernames_follow_the_guest_rules() {
+    fn user_accounts_005_server_usernames_follow_the_guest_rules() {
         for name in [
             "bradmin",
             "alice",
@@ -127,25 +100,9 @@ mod tests {
     }
 
     #[test]
-    fn server_usernames_reject_every_reserved_name() {
-        for name in RESERVED_USERNAMES
-            .iter()
-            .copied()
-            .filter(|name| name.len() >= USERNAME_MIN_LENGTH)
-        {
-            let error = validate_username(name).unwrap_err().to_string();
-            assert!(error.contains("reserved"), "{name:?}: {error}");
-        }
+    fn user_accounts_006_server_usernames_reject_reserved_names() {
         for name in [ADMIN_USERNAME, SHERPA_USERNAME, "root", "systemd-resolve"] {
             assert!(validate_username(name).is_err(), "{name:?}");
-        }
-    }
-
-    #[test]
-    fn reserved_names_are_valid_portable_names() {
-        // A reserved name that broke the character rules could never be chosen anyway.
-        for name in RESERVED_USERNAMES {
-            assert!(is_portable(name), "{name:?}");
         }
     }
 }

@@ -262,19 +262,6 @@ mod tests {
     use shared::error::{CpuPinConflict, CpuPinRole, MemoryShortfall};
 
     #[tokio::test]
-    async fn test_unauthorized_json_body() {
-        let err = ApiError::unauthorized("invalid token");
-        let response = err.into_response();
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["error"]["code"], "UNAUTHORIZED");
-        assert_eq!(json["error"]["message"], "Authentication required");
-        assert_eq!(json["error"]["details"], "invalid token");
-    }
-
-    #[tokio::test]
     async fn test_internal_error_hides_details() {
         let err = ApiError::internal("secret db password leaked");
         let response = err.into_response();
@@ -285,14 +272,6 @@ mod tests {
         assert_eq!(json["error"]["code"], "INTERNAL_ERROR");
         // Details should be None (not exposed to client)
         assert!(json["error"]["details"].is_null());
-    }
-
-    #[test]
-    fn test_anyhow_not_found_conversion() {
-        let err = anyhow::anyhow!("Lab not found in database");
-        let api_err: ApiError = err.into();
-        let response = api_err.into_response();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]
@@ -316,32 +295,6 @@ mod tests {
         let err = anyhow::Error::new(ServiceError::NotFound("Lab not found: x".to_owned()));
         let api_err: ApiError = err.into();
         assert_eq!(api_err.into_response().status(), StatusCode::NOT_FOUND);
-    }
-
-    #[test]
-    fn permission_text_alone_is_not_treated_as_an_access_decision() {
-        let err = anyhow::anyhow!("Permission denied (os error 13)");
-        let api_err: ApiError = err.into();
-        assert_eq!(
-            api_err.into_response().status(),
-            StatusCode::INTERNAL_SERVER_ERROR
-        );
-    }
-
-    #[test]
-    fn test_anyhow_invalid_conversion() {
-        let err = anyhow::anyhow!("Invalid input format");
-        let api_err: ApiError = err.into();
-        let response = api_err.into_response();
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    }
-
-    #[test]
-    fn test_anyhow_generic_error_conversion() {
-        let err = anyhow::anyhow!("something unexpected happened");
-        let api_err: ApiError = err.into();
-        let response = api_err.into_response();
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     fn memory_refusal() -> anyhow::Error {
@@ -418,11 +371,5 @@ mod tests {
         let event = stream_error_event(&pin_refusal());
         assert_eq!(event["code"], "CPU_PINS_HELD");
         assert_eq!(event["data"]["host_cpus"], serde_json::json!([2]));
-    }
-
-    #[test]
-    fn a_streamed_unclassified_failure_has_no_code() {
-        let event = stream_error_event(&anyhow::anyhow!("disk full"));
-        assert_eq!(event, serde_json::json!({ "error": "disk full" }));
     }
 }

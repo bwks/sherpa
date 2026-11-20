@@ -608,7 +608,7 @@ mod tests {
     }
 
     #[test]
-    fn a_redeployed_node_records_the_owner_or_ftdvs_admin() {
+    fn owner_login_020_a_redeployed_node_records_the_owner_or_ftdvs_admin() {
         assert_eq!(
             login_after_redeploy("alice", NodeModel::UbuntuLinux, false).unwrap(),
             Some("alice".to_owned())

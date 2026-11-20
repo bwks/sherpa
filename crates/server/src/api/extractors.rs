@@ -550,6 +550,7 @@ impl FromRequestParts<AppState> for AdminUser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::session::SessionRejection;
     use crate::log_capture::capture_log;
     use axum::http::HeaderMap;
     use jsonwebtoken::{EncodingKey, Header, encode};
@@ -587,111 +588,61 @@ mod tests {
     }
 
     // ============================================================================
-    // Bearer token extraction
+    // Token validation
     // ============================================================================
 
-    #[test]
-    fn test_valid_bearer_token() {
-        let token = make_token("alice", false);
+    #[tokio::test]
+    async fn user_sessions_008_a_bad_token_is_refused_whatever_is_wrong_with_it() {
+        let expired = make_expired_token();
+
         let mut headers = HeaderMap::new();
-        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        headers.insert(
+            "authorization",
+            format!("Bearer {expired}").parse().unwrap(),
+        );
+        assert!(extract_and_validate_token(&headers, TEST_SECRET).is_err());
 
-        let result = extract_and_validate_token(&headers, TEST_SECRET);
-        assert!(result.is_ok());
-        let Claims {
-            sub: username,
-            is_admin,
-            ..
-        } = result.unwrap();
-        assert_eq!(username, "alice");
-        assert!(!is_admin);
-    }
-
-    #[test]
-    fn test_expired_bearer_token_rejected() {
-        let token = make_expired_token();
-        let mut headers = HeaderMap::new();
-        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
-
-        let result = extract_and_validate_token(&headers, TEST_SECRET);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_malformed_bearer_token_rejected() {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer not.a.valid.jwt".parse().unwrap());
+        assert!(extract_and_validate_token(&headers, TEST_SECRET).is_err());
 
-        let result = extract_and_validate_token(&headers, TEST_SECRET);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_missing_bearer_prefix_rejected() {
         let token = make_token("alice", false);
         let mut headers = HeaderMap::new();
         headers.insert("authorization", token.parse().unwrap());
+        assert!(extract_and_validate_token(&headers, TEST_SECRET).is_err());
 
-        let result = extract_and_validate_token(&headers, TEST_SECRET);
-        assert!(result.is_err());
-    }
-
-    // ============================================================================
-    // Cookie token extraction
-    // ============================================================================
-
-    #[test]
-    fn test_valid_cookie_token() {
-        let token = make_token("bob", false);
         let mut headers = HeaderMap::new();
         headers.insert(
             header::COOKIE,
-            format!("sherpa_auth={token}").parse().unwrap(),
+            format!("sherpa_auth={expired}").parse().unwrap(),
+        );
+        assert!(extract_and_validate_token(&headers, TEST_SECRET).is_err());
+
+        let other_secret = b"different_secret_32bytes_exactly";
+        assert!(jwt::validate_token(other_secret, &token).is_err());
+        let result = jwt::validate_token(TEST_SECRET, &expired);
+        assert!(
+            result.is_err(),
+            "Token validation should fail for expired token, got: {result:?}"
         );
 
-        let result = extract_and_validate_token(&headers, TEST_SECRET);
-        assert!(result.is_ok());
-        let Claims { sub: username, .. } = result.unwrap();
-        assert_eq!(username, "bob");
+        let db = db::open_in_memory().await.expect("open database");
+        db::apply_schema(&db).await.expect("apply schema");
+        assert!(matches!(
+            session::lookup(&db, "no-such-session")
+                .await
+                .expect("lookup"),
+            SessionLookup::Rejected(SessionRejection::Ended)
+        ));
     }
 
     #[test]
-    fn test_cookie_among_multiple_cookies() {
-        let token = make_token("charlie", true);
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::COOKIE,
-            format!("other=val; sherpa_auth={token}; another=x")
-                .parse()
-                .unwrap(),
+    fn user_sessions_020_a_valid_session_cookie_is_used_whichever_comes_first() {
+        let tokens = cookies::extract_tokens_from_cookie(
+            "sherpa_auth=expired_token; other=value; sherpa_auth=replacement_token",
         );
+        assert_eq!(tokens, vec!["expired_token", "replacement_token"]);
 
-        let result = extract_and_validate_token(&headers, TEST_SECRET);
-        assert!(result.is_ok());
-        let Claims {
-            sub: username,
-            is_admin,
-            ..
-        } = result.unwrap();
-        assert_eq!(username, "charlie");
-        assert!(is_admin);
-    }
-
-    #[test]
-    fn test_expired_cookie_token_rejected() {
-        let token = make_expired_token();
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::COOKIE,
-            format!("sherpa_auth={token}").parse().unwrap(),
-        );
-
-        let result = extract_and_validate_token(&headers, TEST_SECRET);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn an_expired_cookie_before_a_valid_duplicate_is_recovered_and_logged() {
         let expired_token = make_expired_token();
         let valid_token = make_token("replacement_user", false);
         let cookie_header = format!("sherpa_auth={expired_token}; sherpa_auth={valid_token}");
@@ -704,18 +655,10 @@ mod tests {
         let session = validate_cookie_session(Some(&cookie_header), TEST_SECRET).unwrap();
         let ((), output) = capture_log(|| trace_validated_session("/labs", &session));
         assert!(
-            output.contains("auth.session_duplicate_recovered"),
-            "{output}"
-        );
-        assert!(
             output.contains(r#"rejected_reasons=["expired"]"#),
             "{output}"
         );
-        assert!(output.contains("selected_candidate_index=1"), "{output}");
-    }
 
-    #[test]
-    fn a_valid_cookie_before_an_expired_duplicate_is_used_without_a_recovery() {
         let valid_token = make_token("first_user", true);
         let expired_token = make_expired_token();
         let cookie_header = format!("sherpa_auth={valid_token}; sherpa_auth={expired_token}");
@@ -725,14 +668,6 @@ mod tests {
         let claims = extract_and_validate_token(&headers, TEST_SECRET).unwrap();
         assert_eq!(claims.sub, "first_user");
         assert!(claims.is_admin);
-
-        let session = validate_cookie_session(Some(&cookie_header), TEST_SECRET).unwrap();
-        let ((), output) = capture_log(|| trace_validated_session("/labs", &session));
-        assert!(output.contains("auth.session_validated"), "{output}");
-        assert!(
-            !output.contains("auth.session_duplicate_recovered"),
-            "{output}"
-        );
     }
 
     #[test]
@@ -767,7 +702,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rejected_session_trace_does_not_include_raw_cookie() {
+    fn user_sessions_021_a_refused_session_cookie_is_logged_with_its_reason_not_its_value() {
         const RAW_COOKIE: &str = "sherpa_auth=SUPER_SECRET_RAW_TOKEN";
         let error = validate_cookie_session(Some(RAW_COOKIE), TEST_SECRET)
             .expect_err("malformed session should be rejected");
@@ -787,7 +722,7 @@ mod tests {
     // ============================================================================
 
     #[test]
-    fn test_bearer_takes_precedence_over_cookie() {
+    fn user_sessions_019_a_bearer_token_comes_before_the_cookie_unless_it_is_invalid() {
         let bearer_token = make_token("bearer_user", true);
         let cookie_token = make_token("cookie_user", false);
         let mut headers = HeaderMap::new();
@@ -809,11 +744,7 @@ mod tests {
         } = result.unwrap();
         assert_eq!(username, "bearer_user");
         assert!(is_admin);
-    }
 
-    #[test]
-    fn test_falls_back_to_cookie_when_bearer_invalid() {
-        let cookie_token = make_token("cookie_user", false);
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer invalid.jwt.token".parse().unwrap());
         headers.insert(

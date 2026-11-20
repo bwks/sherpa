@@ -268,14 +268,7 @@ mod tests {
     }
 
     #[test]
-    fn an_ended_session_is_reported_as_ended() {
-        let outcome =
-            server_logout_outcome(response(Some(serde_json::json!({"ended": true})), None));
-        assert!(matches!(outcome, ServerLogout::Ended), "{outcome:?}");
-    }
-
-    #[test]
-    fn a_session_that_was_already_gone_is_not_a_failure() {
+    fn user_sessions_005_a_session_that_was_already_gone_is_not_a_failure() {
         let outcome =
             server_logout_outcome(response(Some(serde_json::json!({"ended": false})), None));
         assert!(matches!(outcome, ServerLogout::AlreadyEnded), "{outcome:?}");
@@ -285,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn a_server_error_is_a_failure_and_says_the_session_may_still_work() {
+    fn user_sessions_006_a_server_error_is_a_failure_and_says_the_session_may_still_work() {
         let outcome = server_logout_outcome(response(None, Some(RpcErrorCode::InternalError)));
         assert!(matches!(outcome, ServerLogout::Failed(_)), "{outcome:?}");
         let message = logout_message(&outcome);

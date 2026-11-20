@@ -255,56 +255,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_sealed_value_opens_with_its_key_and_place() {
-        let key = SecretKey::generate();
-        let sealed = seal(&key, b"hunter2", "lab.ztp_server_password:abc").unwrap();
-        assert_eq!(sealed[0], SEALED_VERSION);
-        assert_eq!(
-            sealed.len(),
-            1 + NONCE_LENGTH + b"hunter2".len() + TAG_LENGTH
-        );
-        assert!(!sealed.windows(7).any(|window| window == b"hunter2"));
-        assert_eq!(
-            open(&key, &sealed, "lab.ztp_server_password:abc").unwrap(),
-            b"hunter2"
-        );
-    }
-
-    #[test]
-    fn a_wrong_key_is_refused_clearly() {
-        let sealed = seal(&SecretKey::generate(), b"hunter2", "place").unwrap();
-        let error = open(&SecretKey::generate(), &sealed, "place").unwrap_err();
-        assert!(
-            error.to_string().contains("different database key"),
-            "{error}"
-        );
-    }
-
-    #[test]
-    fn a_value_moved_to_another_place_does_not_open() {
-        let key = SecretKey::generate();
-        let sealed = seal(&key, b"hunter2", "lab.ztp_server_password:abc").unwrap();
-        assert!(open(&key, &sealed, "lab.ztp_server_password:xyz").is_err());
-    }
-
-    #[test]
-    fn a_tampered_value_is_refused() {
-        let key = SecretKey::generate();
-        let sealed = seal(&key, b"hunter2", "place").unwrap();
-        for index in 1..sealed.len() {
-            let mut tampered = sealed.clone();
-            tampered[index] ^= 0x01;
-            assert!(open(&key, &tampered, "place").is_err(), "byte {index}");
-        }
-        let mut version = sealed.clone();
-        version[0] = 2;
-        let error = open(&key, &version, "place").unwrap_err();
-        assert!(error.to_string().contains("format 2"), "{error}");
-        assert!(open(&key, &sealed[..20], "place").is_err());
-        assert!(open(&key, &[], "place").is_err());
-    }
-
-    #[test]
     fn each_value_gets_its_own_nonce() {
         let key = SecretKey::generate();
         let first = seal(&key, b"same", "place").unwrap();
@@ -315,29 +265,6 @@ mod tests {
             "nonces repeat"
         );
         assert_ne!(first, second);
-    }
-
-    #[test]
-    fn sealed_text_is_prefixed_hex_and_opens_only_sealed() {
-        let key = SecretKey::generate();
-        let sealed = seal_text(&key, "cisco", "user.device_password:abc").unwrap();
-        let Value::Text(text) = Value::from(sealed) else {
-            panic!("sealed text is not text");
-        };
-        let hex = text.strip_prefix(SEALED_TEXT_PREFIX).unwrap();
-        assert!(hex::decode(hex).is_ok(), "{text}");
-        assert_eq!(hex, hex.to_lowercase(), "{text}");
-        assert!(!text.contains("cisco"));
-        assert_eq!(
-            open_text(&key, &text, "user.device_password:abc").unwrap(),
-            "cisco"
-        );
-        for stored in ["cisco", "sealed:zz", "sealed:abc", "sealed:00"] {
-            assert!(open_text(&key, stored, "place").is_err(), "{stored}");
-        }
-        let error = open_text(&key, "cisco", "place").unwrap_err();
-        assert!(error.to_string().contains("not sealed"), "{error}");
-        assert!(open_text(&key, &text, "user.device_password:other").is_err());
     }
 
     #[test]

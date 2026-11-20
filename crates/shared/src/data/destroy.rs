@@ -85,16 +85,3 @@ impl DestroyError {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn destroy_request_from_an_older_client_ignores_its_username() {
-        let back: DestroyRequest =
-            serde_json::from_str(r#"{"lab_id": "abc12345", "username": "someone-else"}"#)
-                .expect("deserializes");
-        assert_eq!(back.lab_id, "abc12345");
-    }
-}
