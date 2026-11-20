@@ -14,6 +14,39 @@ permissions:
   pull-requests: write
 
 jobs:
+  changes:
+    name: Changes
+    # Decides whether the pull request changes code; the build jobs skip when it changes only docs
+    # (.github/scripts/changes_code.py). A job skipped by its `if:` passes a required check.
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
+    steps:
+      - name: Checkout
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          # The merge commit and its first parent, the base it merges into.
+          fetch-depth: 2
+
+      - name: Install uv
+        if: github.event_name == 'pull_request'
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Test the change detection
+        if: github.event_name == 'pull_request'
+        run: uv run .github/scripts/test_changes_code.py
+
+      - name: Detect code changes
+        id: changes
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            uv run .github/scripts/changes_code.py HEAD^1 HEAD >> "$GITHUB_OUTPUT"
+          else
+            # A push to main always builds, to save the build caches.
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          fi
+
   version:
     name: Version
     # A pull request leaves the version alone, unless it is a bump pull request
@@ -41,6 +74,10 @@ jobs:
 
   lint:
     name: Lint
+    needs: changes
+    # Runs unless the pull request changes only docs. If `changes` fails its output is empty, so
+    # the job runs rather than skipping, and passing, untested.
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -77,6 +114,10 @@ jobs:
 
   coverage:
     name: Coverage
+    needs: changes
+    # Runs unless the pull request changes only docs. If `changes` fails its output is empty, so
+    # the job runs rather than skipping, and passing, untested.
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - name: Free disk space
@@ -169,6 +210,10 @@ jobs:
 
   windows-client:
     name: Windows Client
+    needs: changes
+    # Runs unless the pull request changes only docs. If `changes` fails its output is empty, so
+    # the job runs rather than skipping, and passing, untested.
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -194,6 +239,10 @@ jobs:
 
   macos-client:
     name: macOS Client
+    needs: changes
+    # Runs unless the pull request changes only docs. If `changes` fails its output is empty, so
+    # the job runs rather than skipping, and passing, untested.
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     # macos-latest is Apple silicon, so this builds and tests aarch64-apple-darwin natively.
     runs-on: macos-latest
     steps:
