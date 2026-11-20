@@ -83,6 +83,10 @@ A config template is tested one case per model, not one table-driven case for al
 | 025 | Any method but `volume` on a container fails as not validated, and nothing is written | unit |
 | 026 | `volume` on a container of a model Sherpa generates no config for fails as not validated, naming the model | unit |
 | 027 | The image's own CD-ROM, such as vEOS's Aboot, is attached unless the ZTP method brings a CD-ROM (no test yet) | unit |
+| 028 | At up, every container and every VM is issued a certificate and a key by the lab's CA, in the lab's certificates folder beside the CA's own, and a unikernel is issued none | integration |
+| 029 | An Ignition config carries the lab CA's certificate and the node's certificate as files anyone on the node reads (0644), and the node's key as a file only root reads (0600) | unit |
+
+The lab's CA and a node's certificate are here because they reach the node in its first config: as files of its cloud-init, cloudbase-init or Ignition config, or as mounts of a container. A unikernel has no boot config or mount to carry one.
 
 ## `config_iso`: a config ISO holds a node's files as every guest reads them
 
