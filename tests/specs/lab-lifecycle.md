@@ -58,6 +58,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 006 | Nodes take addresses in manifest order from offset 21, in IPv4 and IPv6, and an index past the node block is refused | unit |
 | 007 | The gateway, the lab router and the other infrastructure addresses are apart from each other and from the node block | unit |
 | 008 | A configured management range too small for one lab is refused, in IPv4 and IPv6 | unit |
+| 009 | The management network a lab's nodes are configured with spans the lab's /24 and /64, from the gateway to the end of each, with the lab router as its boot server | unit |
 
 Labs brought up at once getting distinct ranges is `lab_concurrency_003`. Whether nodes reach each other on the management network is `management_network` in [links and bridges](links-and-bridges.md).
 

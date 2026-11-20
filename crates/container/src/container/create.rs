@@ -287,7 +287,7 @@ mod tests {
     }
 
     #[test]
-    fn docker_names_renamed_interfaces() {
+    fn node_interfaces_013_a_renamed_container_interface_is_named_by_docker_with_its_address() {
         let settings = data_endpoint_settings(&attachment(Some("e1-1"), false));
         assert_eq!(
             settings
@@ -316,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn only_active_renamed_interfaces_run_a_command() {
+    fn node_interfaces_014_only_an_active_renamed_container_interface_runs_a_command() {
         assert!(data_interface_command(&attachment(Some("e1-1"), false)).is_some());
         // Disabled interfaces run nothing, so images without `ip` start.
         assert_eq!(
