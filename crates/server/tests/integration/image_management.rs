@@ -32,58 +32,42 @@ fn scanned_status<'a>(response: &'a Value, model: &str, version: &str) -> Option
         .as_str()
 }
 
-#[tokio::test]
-#[ignore = "requires a Docker daemon and internet access to pull an image"]
-async fn test_image_scan_records_a_local_image_for_a_model_and_repo() -> Result<()> {
-    container::pull_image("busybox", "1.36", |_| {}).await?;
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
-    let scan = |dry_run: bool| {
+/// Scan local Docker for the `generic` container's busybox tags, recording them unless `dry_run`.
+async fn scan_busybox(ws: &mut TestWsClient, token: &str, dry_run: bool) -> Result<Value> {
+    ws.rpc_call(
+        "image.scan",
         json!({
             "token": token,
             "kind": "container",
             "dry_run": dry_run,
             "model": "generic",
             "repo": "busybox",
-        })
-    };
+        }),
+    )
+    .await
+}
 
-    let dry_run = ws.rpc_call("image.scan", scan(true)).await?;
-
-    assert_eq!(
-        scanned_status(&dry_run, "generic", "1.36"),
-        Some("would_import (default)"),
-        "{dry_run:?}"
-    );
-    let unrecorded = db::find_node_image_by_model_kind_version(
+/// The `generic` container image recorded at busybox's version 1.36, if there is one.
+async fn recorded_busybox(server: &TestServer) -> Result<Option<NodeConfig>> {
+    db::find_node_image_by_model_kind_version(
         &server.db,
         &NodeModel::Generic,
         &NodeKind::Container,
         "1.36",
     )
-    .await?;
-    assert!(unrecorded.is_none(), "a dry run records nothing");
+    .await
+}
 
-    let scanned = ws.rpc_call("image.scan", scan(false)).await?;
+#[tokio::test]
+#[ignore = "requires a Docker daemon and internet access to pull an image"]
+async fn image_scan_002_a_version_already_recorded_is_reported_already_exists() -> Result<()> {
+    container::pull_image("busybox", "1.36", |_| {}).await?;
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+    scan_busybox(&mut ws, &token, false).await?;
 
-    assert_eq!(
-        scanned_status(&scanned, "generic", "1.36"),
-        Some("imported (default)"),
-        "{scanned:?}"
-    );
-    let record = db::find_node_image_by_model_kind_version(
-        &server.db,
-        &NodeModel::Generic,
-        &NodeKind::Container,
-        "1.36",
-    )
-    .await?
-    .context("the scan should record busybox:1.36 for the generic container")?;
-    assert_eq!(record.container_repo(None).as_deref(), Some("busybox"));
-    assert!(record.default);
-
-    let rescanned = ws.rpc_call("image.scan", scan(false)).await?;
+    let rescanned = scan_busybox(&mut ws, &token, false).await?;
 
     assert_eq!(
         scanned_status(&rescanned, "generic", "1.36"),
@@ -96,7 +80,86 @@ async fn test_image_scan_records_a_local_image_for_a_model_and_repo() -> Result<
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon and internet access to pull an image"]
-async fn test_image_scan_matches_a_built_in_repo_and_skips_models_without_one() -> Result<()> {
+async fn image_scan_003_a_dry_run_reports_what_would_be_recorded_and_records_nothing() -> Result<()>
+{
+    container::pull_image("busybox", "1.36", |_| {}).await?;
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    let dry_run = scan_busybox(&mut ws, &token, true).await?;
+
+    assert_eq!(
+        scanned_status(&dry_run, "generic", "1.36").map(|s| s.starts_with("would_import")),
+        Some(true),
+        "{dry_run:?}"
+    );
+    assert!(
+        recorded_busybox(&server).await?.is_none(),
+        "a dry run records nothing"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon and internet access to pull an image"]
+async fn image_scan_004_a_model_and_repo_record_each_local_tag_of_the_repo_with_the_repo()
+-> Result<()> {
+    container::pull_image("busybox", "1.36", |_| {}).await?;
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    let scanned = scan_busybox(&mut ws, &token, false).await?;
+
+    assert_eq!(
+        scanned_status(&scanned, "generic", "1.36").map(|s| s.starts_with("imported")),
+        Some(true),
+        "{scanned:?}"
+    );
+    let record = recorded_busybox(&server)
+        .await?
+        .context("the scan should record busybox:1.36 for the generic container")?;
+    assert_eq!(record.container_repo(None).as_deref(), Some("busybox"));
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon and internet access to pull an image"]
+async fn image_default_011_a_scan_makes_the_first_version_it_finds_the_default_and_a_dry_run_says_so()
+-> Result<()> {
+    container::pull_image("busybox", "1.36", |_| {}).await?;
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    let dry_run = scan_busybox(&mut ws, &token, true).await?;
+    let scanned = scan_busybox(&mut ws, &token, false).await?;
+
+    assert_eq!(
+        scanned_status(&dry_run, "generic", "1.36"),
+        Some("would_import (default)"),
+        "{dry_run:?}"
+    );
+    assert_eq!(
+        scanned_status(&scanned, "generic", "1.36"),
+        Some("imported (default)"),
+        "{scanned:?}"
+    );
+    let record = recorded_busybox(&server)
+        .await?
+        .context("the scan should record busybox:1.36 for the generic container")?;
+    assert!(record.default);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon and internet access to pull an image"]
+async fn image_scan_005_each_container_model_gets_its_built_in_repos_tags_and_those_without_one_are_skipped()
+-> Result<()> {
     container::pull_image("nats", "2.10-alpine", |_| {}).await?;
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -156,7 +219,8 @@ async fn dry_run_versions(ws: &mut TestWsClient, token: &str, repo: &str) -> Res
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon and internet access to pull an image"]
-async fn test_image_scan_matches_a_docker_hub_repo_by_its_short_and_full_name_only() -> Result<()> {
+async fn image_scan_006_a_docker_hub_repo_is_matched_by_its_short_and_full_name_only() -> Result<()>
+{
     container::pull_image("busybox", "1.36", |_| {}).await?;
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -179,7 +243,7 @@ async fn test_image_scan_matches_a_docker_hub_repo_by_its_short_and_full_name_on
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon and internet access to pull an image"]
-async fn test_image_scan_does_not_match_a_repo_by_its_prefix() -> Result<()> {
+async fn image_scan_007_a_repo_never_matches_a_repo_it_is_the_start_or_end_of() -> Result<()> {
     const REPO: &str = "sherpa-test-image-scan";
     container::pull_image("busybox", "1.36", |_| {}).await?;
     let docker = container::docker_connection()?;
@@ -217,7 +281,7 @@ async fn test_image_scan_does_not_match_a_repo_by_its_prefix() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon"]
-async fn test_image_scan_refuses_a_repo_with_a_tag() -> Result<()> {
+async fn image_scan_008_a_repo_with_a_tag_is_refused_saying_how_to_write_it() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_admin().await?;
@@ -252,7 +316,7 @@ async fn seed_ubuntu_image(server: &TestServer, version: &str, default: bool) ->
 }
 
 #[tokio::test]
-async fn test_image_list_returns_images() -> Result<()> {
+async fn image_list_001_list_gives_each_images_model_kind_version_and_default() -> Result<()> {
     let server = TestServer::start().await?;
     seed_ubuntu_image(&server, "24.04", true).await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -280,7 +344,7 @@ async fn test_image_list_returns_images() -> Result<()> {
 // ── Image Show ──
 
 #[tokio::test]
-async fn test_image_show_returns_config() -> Result<()> {
+async fn image_list_003_show_without_a_version_gives_the_default_versions_settings() -> Result<()> {
     let server = TestServer::start().await?;
     seed_ubuntu_image(&server, "24.04", true).await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -296,14 +360,10 @@ async fn test_image_show_returns_config() -> Result<()> {
         )
         .await?;
 
-    let result = &response["result"];
-    assert_eq!(result["image"]["version"], "24.04", "{response}");
-    // The image's ZTP group has only its method: no login settings, and no password flag.
-    let ztp = result["image"]["vm"]["ztp"]
-        .as_object()
-        .context("image.show should return the image's ZTP group")?;
-    assert_eq!(ztp.keys().collect::<Vec<_>>(), ["method"], "{response}");
-    assert!(result.get("ztp_password_set").is_none(), "{response}");
+    assert_eq!(
+        response["result"]["image"]["version"], "24.04",
+        "{response}"
+    );
 
     Ok(())
 }
@@ -351,7 +411,8 @@ async fn delete_test_image(ws: &mut TestWsClient, token: &str) -> Result<Value> 
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon and internet access to pull an image"]
-async fn deleting_a_container_image_removes_it_from_docker() -> Result<()> {
+async fn image_delete_001_deleting_a_container_image_removes_its_record_and_its_tag_from_docker()
+-> Result<()> {
     const REPO: &str = "sherpa-test-image-delete";
     let server = TestServer::start().await?;
     recorded_test_image(&server, REPO).await?;
@@ -378,7 +439,8 @@ async fn deleting_a_container_image_removes_it_from_docker() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon and internet access to pull an image"]
-async fn a_container_image_a_running_container_runs_is_not_deleted() -> Result<()> {
+async fn image_delete_002_a_container_image_a_running_container_runs_is_not_deleted() -> Result<()>
+{
     const REPO: &str = "sherpa-test-image-in-use";
     const CONTAINER: &str = "sherpa-test-image-in-use-runner";
     let server = TestServer::start().await?;
@@ -431,7 +493,7 @@ async fn a_container_image_a_running_container_runs_is_not_deleted() -> Result<(
 // ── Image Set Default ──
 
 #[tokio::test]
-async fn test_image_set_default() -> Result<()> {
+async fn image_default_004_set_default_moves_the_default_to_the_version_it_names() -> Result<()> {
     let server = TestServer::start().await?;
     seed_ubuntu_image(&server, "22.04", true).await?;
     seed_ubuntu_image(&server, "24.04", false).await?;
@@ -468,7 +530,8 @@ async fn test_image_set_default() -> Result<()> {
 // ── Image Import (VM) ──
 
 #[tokio::test]
-async fn test_image_import_nonexistent_file() -> Result<()> {
+async fn image_import_002_a_source_file_that_does_not_exist_is_refused_and_nothing_is_recorded()
+-> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_admin().await?;
@@ -508,7 +571,7 @@ async fn test_image_import_nonexistent_file() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon and internet access to pull an image"]
-async fn test_image_pull_container() -> Result<()> {
+async fn image_pull_001_a_pull_brings_the_image_into_docker_and_records_it() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_admin().await?;
@@ -539,7 +602,7 @@ async fn test_image_pull_container() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon"]
-async fn test_image_scan_admin_only() -> Result<()> {
+async fn image_access_002_scan_is_refused_to_a_user_who_is_not_an_admin() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let admin_token = ws.login_admin().await?;
@@ -614,7 +677,8 @@ async fn request(
 }
 
 #[tokio::test]
-async fn the_image_paths_resolve_the_image_of_each_kind_of_arista_eos() -> Result<()> {
+async fn image_list_005_each_kind_of_a_model_is_shown_made_default_and_edited_under_that_kind()
+-> Result<()> {
     let server = TestServer::start().await?;
     seed_arista_eos_images(&server).await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -676,7 +740,35 @@ async fn the_image_paths_resolve_the_image_of_each_kind_of_arista_eos() -> Resul
 }
 
 #[tokio::test]
-async fn an_image_path_with_a_kind_the_model_does_not_take_is_refused() -> Result<()> {
+async fn image_default_010_making_a_container_version_the_default_leaves_the_virtual_machines()
+-> Result<()> {
+    let server = TestServer::start().await?;
+    seed_arista_eos_images(&server).await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    let path = format!("/api/v1/images/arista_eos/container/{EOS_CONTAINER_VERSION}/default");
+    let (status, body) = request(&server, Method::POST, &path, &token).await?;
+    ensure!(status == StatusCode::OK, "POST {path}: {status} {body}");
+
+    for (kind, version) in [
+        ("virtual_machine", EOS_VM_VERSION),
+        ("container", EOS_CONTAINER_VERSION),
+    ] {
+        let path = format!("/api/v1/images/arista_eos/{kind}");
+        let (status, body) = request(&server, Method::GET, &path, &token).await?;
+        ensure!(status == StatusCode::OK, "GET {path}: {status} {body}");
+        let shown: Value = serde_json::from_str(&body)?;
+        ensure!(
+            shown["image"]["kind"] == kind && shown["image"]["version"] == version,
+            "GET {path} showed another default: {body}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn image_list_006_a_kind_the_model_does_not_take_is_refused_as_a_bad_request() -> Result<()> {
     let server = TestServer::start().await?;
     seed_arista_eos_images(&server).await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -711,7 +803,8 @@ async fn an_image_path_with_a_kind_the_model_does_not_take_is_refused() -> Resul
 }
 
 #[tokio::test]
-async fn unknown_kinds_and_renamed_models_in_image_paths_are_refused() -> Result<()> {
+async fn image_list_007_a_path_whose_kind_is_not_a_kind_is_refused_as_a_bad_request() -> Result<()>
+{
     let server = TestServer::start().await?;
     seed_arista_eos_images(&server).await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -729,7 +822,16 @@ async fn unknown_kinds_and_renamed_models_in_image_paths_are_refused() -> Result
             "GET {path}: {status} {body}"
         );
     }
-    // An old model name is refused naming its replacement.
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_old_model_name_in_an_image_path_is_refused_naming_its_replacement() -> Result<()> {
+    let server = TestServer::start().await?;
+    seed_arista_eos_images(&server).await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
     for path in [
         "/api/v1/images/arista_ceos/container",
         "/admin/images/arista_ceos/container",

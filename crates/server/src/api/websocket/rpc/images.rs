@@ -122,7 +122,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn an_import_with_its_token_is_read_without_it() {
+    fn image_import_015_an_import_with_a_field_the_server_does_not_take_is_refused_naming_it() {
         let request = import_request(json!({
             "model": "generic",
             "kind": "unikernel",
@@ -132,10 +132,7 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(request.kind, Some(data::NodeKind::Unikernel));
-    }
 
-    #[test]
-    fn an_import_with_another_unknown_field_is_still_refused() {
         let error = import_request(json!({
             "model": "ubuntu_linux",
             "version": "1",

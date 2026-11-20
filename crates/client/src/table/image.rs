@@ -180,7 +180,7 @@ mod tests {
     use shared::data::{ModelKind, NodeKind, NodeModel};
 
     #[test]
-    fn images_table_shows_each_image_and_whether_it_is_the_default() {
+    fn image_list_008_image_list_prints_each_images_model_kind_version_and_default() {
         let images = [
             ImageSummary {
                 model: NodeModel::CiscoCat8000,
@@ -209,7 +209,8 @@ mod tests {
     }
 
     #[test]
-    fn scanned_images_table_shows_each_image_with_its_status() {
+    fn image_scan_019_the_cli_lists_each_image_found_with_its_status_and_each_skipped_model_with_the_reason()
+     {
         let scanned = [
             ScannedImage {
                 model: NodeModel::CiscoCat8000,
@@ -235,10 +236,7 @@ mod tests {
 │ arista_eos    │ 4.33      │ virtual_machine │ already present │
 └───────────────┴───────────┴─────────────────┴─────────────────┘";
         assert_eq!(render_scanned_images_table(&scanned), expected);
-    }
 
-    #[test]
-    fn skipped_models_table_shows_each_model_with_its_reason() {
         let skipped = [
             SkippedModel {
                 model: NodeModel::MysqlDb,
@@ -249,7 +247,7 @@ mod tests {
                 reason: "no built-in repo".to_string(),
             },
         ];
-        let expected = "\
+        let expected_skipped = "\
 ┌─────────────────────────────┐
 │       Skipped Models        │
 ├──────────┬──────────────────┤
@@ -259,7 +257,7 @@ mod tests {
 ├──────────┼──────────────────┤
 │ generic  │ no built-in repo │
 └──────────┴──────────────────┘";
-        assert_eq!(render_skipped_models_table(&skipped), expected);
+        assert_eq!(render_skipped_models_table(&skipped), expected_skipped);
     }
 
     /// The rows of an image's detail table, by their names.
@@ -286,7 +284,7 @@ mod tests {
     ];
 
     #[test]
-    fn a_vm_images_detail_table_shows_the_shared_rows_and_its_vm_group() {
+    fn image_list_009_image_show_prints_the_shared_rows_then_its_kinds_group() {
         let image = ModelKind::default_for(NodeModel::CiscoCat8000).node_config();
         let table = render_image_detail_table(&image);
         let mut expected: Vec<&str> = SHARED_ROWS.to_vec();

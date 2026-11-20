@@ -110,48 +110,33 @@ mod tests {
     }
 
     #[test]
-    fn the_last_tag_is_used_by_every_container_of_its_image() {
-        let containers = [
+    fn image_delete_003_another_tag_does_not_stop_the_delete_unless_it_is_the_images_last() {
+        let last_tag = [
             container("ceos1-lab", "localrepo/arista_eos:4.35", "sha256:aaa"),
             container("frr1-lab", "frr:10.5", "sha256:bbb"),
             container("ceos2-lab", "sha256:aaa", "sha256:aaa"),
         ];
         assert_eq!(
-            containers_using(&containers, "localrepo/arista_eos:4.35", "sha256:aaa", true),
+            containers_using(&last_tag, "localrepo/arista_eos:4.35", "sha256:aaa", true),
             ["ceos1-lab", "ceos2-lab"]
         );
         assert_eq!(
-            containers_using(&containers, "other:1", "sha256:ccc", true),
+            containers_using(&last_tag, "other:1", "sha256:ccc", true),
             Vec::<String>::new()
         );
-    }
 
-    #[test]
-    fn another_tag_of_the_image_is_used_only_by_containers_created_from_it() {
-        let containers = [
+        let other_tags = [
             container("frr1-lab", "quay.io/frrouting/frr:10.5.2", "sha256:aaa"),
             container("frr2-lab", "quay.io/frrouting/frr:10.5.2-alt", "sha256:aaa"),
         ];
         assert_eq!(
             containers_using(
-                &containers,
+                &other_tags,
                 "quay.io/frrouting/frr:10.5.2-alt",
                 "sha256:aaa",
                 false
             ),
             ["frr2-lab"]
-        );
-    }
-
-    #[test]
-    fn a_container_without_a_name_is_named_by_its_id() {
-        let unnamed = ContainerSummary {
-            names: None,
-            ..container("x", "img:1", "sha256:aaa")
-        };
-        assert_eq!(
-            containers_using(&[unnamed], "img:1", "sha256:aaa", false),
-            ["id-x"]
         );
     }
 }

@@ -91,7 +91,7 @@ mod tests {
     }
 
     #[test]
-    fn a_target_is_the_only_repo_scanned_and_kept_as_given() {
+    fn image_scan_015_a_model_and_repo_scan_no_other_repo() {
         let given = target(NodeModel::NokiaSrlinux, "registry.lab:5000/mirror/srlinux");
 
         assert_eq!(
@@ -104,36 +104,26 @@ mod tests {
     }
 
     #[test]
-    fn every_listed_tag_is_a_version() {
+    fn image_scan_013_each_listed_tag_is_a_version_a_registry_port_included() {
         let repo_tags = listed(&["nats:2.10-alpine", "nats:2.11", "nats:latest"]);
-
         assert_eq!(
             tagged_versions(&repo_tags),
             ["2.10-alpine", "2.11", "latest"]
         );
+
+        let repo_tags = listed(&["localhost:5000/app:1", "localhost:5000/app"]);
+        assert_eq!(tagged_versions(&repo_tags), ["1"]);
     }
 
     #[test]
-    fn a_digest_listing_is_not_a_version() {
+    fn image_scan_014_an_image_with_no_tag_or_an_invalid_tag_is_left_out() {
         let repo_tags = listed(&[
             "nats@sha256:afae2fdbe2e326c65e1246cb83b9d05d319188734f3bd577ac8072daae78a10f",
             "nats:2.11",
         ]);
-
         assert_eq!(tagged_versions(&repo_tags), ["2.11"]);
-    }
 
-    #[test]
-    fn untagged_and_invalid_tags_are_left_out() {
         let repo_tags = listed(&["<none>:<none>", "nats:-bad", "nats", "nats:2.11"]);
-
         assert_eq!(tagged_versions(&repo_tags), ["2.11"]);
-    }
-
-    #[test]
-    fn a_registry_port_is_not_taken_for_a_tag() {
-        let repo_tags = listed(&["localhost:5000/app:1", "localhost:5000/app"]);
-
-        assert_eq!(tagged_versions(&repo_tags), ["1"]);
     }
 }

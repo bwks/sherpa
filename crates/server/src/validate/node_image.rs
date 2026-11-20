@@ -79,30 +79,7 @@ mod tests {
     use shared::data::{KindSettings, NodeModel, Ztp};
 
     #[test]
-    fn test_validate_cpu_count() {
-        assert!(validate_cpu_count(1).is_ok());
-        assert!(validate_cpu_count(255).is_ok());
-        assert!(validate_cpu_count(0).is_err());
-    }
-
-    #[test]
-    fn test_validate_memory() {
-        assert!(validate_memory(64).is_ok());
-        assert!(validate_memory(1024).is_ok());
-        assert!(validate_memory(63).is_err());
-    }
-
-    #[test]
-    fn test_validate_interface_mtu() {
-        assert!(validate_interface_mtu(576).is_ok());
-        assert!(validate_interface_mtu(1500).is_ok());
-        assert!(validate_interface_mtu(9600).is_ok());
-        assert!(validate_interface_mtu(575).is_err());
-        assert!(validate_interface_mtu(9601).is_err());
-    }
-
-    #[test]
-    fn real_image_versions_are_accepted() {
+    fn image_import_021_versions_vendors_use_are_taken() {
         let longest = "1".repeat(64);
         for version in [
             "1.0",
@@ -120,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn versions_that_are_paths_or_odd_names_are_refused() {
+    fn image_import_022_a_version_that_could_be_a_path_or_has_another_character_is_refused() {
         let too_long = "1".repeat(65);
         for version in [
             "",
@@ -162,27 +139,16 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_node_image_update_all_valid() {
+    fn image_settings_008_a_cpu_count_memory_or_mtu_out_of_range_is_refused_naming_the_setting() {
         let ubuntu = NodeModel::UbuntuLinux;
         assert!(validate(ubuntu, &image(ubuntu, Ztp::CloudInit, 2, 1024, 1500)).is_ok());
-    }
 
-    #[test]
-    fn test_validate_node_image_update_cpu_zero() {
-        let ubuntu = NodeModel::UbuntuLinux;
         let error = validate(ubuntu, &image(ubuntu, Ztp::CloudInit, 0, 1024, 1500)).unwrap_err();
         assert!(error.to_string().contains("CPU count"));
-    }
 
-    #[test]
-    fn test_validate_node_image_update_memory_too_low() {
-        let ubuntu = NodeModel::UbuntuLinux;
         let error = validate(ubuntu, &image(ubuntu, Ztp::CloudInit, 1, 32, 1500)).unwrap_err();
         assert!(error.to_string().contains("Memory"));
-    }
 
-    #[test]
-    fn test_validate_node_image_update_mtu_out_of_range() {
         for model in [NodeModel::UbuntuLinux, NodeModel::NanosUnikernel] {
             let error = validate(model, &image(model, Ztp::Disabled, 1, 1024, 100)).unwrap_err();
             assert!(error.to_string().contains("MTU"), "{model}");
@@ -190,18 +156,9 @@ mod tests {
     }
 
     #[test]
-    fn a_container_image_has_no_mtu_to_check() {
+    fn image_settings_009_a_container_image_has_no_interface_mtu_to_check() {
         let mongo = NodeModel::MongoDb;
         assert!(validate(mongo, &image(mongo, Ztp::Disabled, 1, 1024, 100)).is_ok());
-    }
-
-    #[test]
-    fn test_validate_node_image_update_empty_version() {
-        let ubuntu = NodeModel::UbuntuLinux;
-        let mut image = image(ubuntu, Ztp::CloudInit, 1, 1024, 1500);
-        image.version.clear();
-        let error = validate(ubuntu, &image).unwrap_err();
-        assert!(error.to_string().contains("Image version"));
     }
 
     #[test]

@@ -157,6 +157,8 @@ fn remove_image_file(image_file: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use db::{DefaultRequest, delete_node_image, find_node_image_by_model_kind_version};
+    use shared::data::{ModelKind, NodeModel};
     use shared::konst::{UNIKERNEL_KERNEL_FILENAME, VM_DISK_FILENAME};
     use std::path::PathBuf;
     use tempfile::tempdir;
@@ -171,7 +173,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejected_database_deletion_preserves_image_files() {
+    async fn image_delete_013_a_delete_whose_record_cannot_be_removed_keeps_the_images_file() {
         let root = tempdir().unwrap();
         let version = shared_version(root.path());
         let image = version.join(VM_DISK_FILENAME);
@@ -185,25 +187,60 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deleting_one_kind_keeps_the_other_kinds_file_at_the_same_version() {
+    async fn image_delete_005_deleting_one_kind_keeps_the_other_kinds_record_and_file() {
         for (deleted, kept) in [
-            (VM_DISK_FILENAME, UNIKERNEL_KERNEL_FILENAME),
-            (UNIKERNEL_KERNEL_FILENAME, VM_DISK_FILENAME),
+            (NodeKind::VirtualMachine, NodeKind::Unikernel),
+            (NodeKind::Unikernel, NodeKind::VirtualMachine),
         ] {
-            let root = tempdir().unwrap();
-            let version = shared_version(root.path());
-            let ((), image_deleted) =
-                delete_files_after_database(async { Ok(()) }, Some(&version.join(deleted)))
+            let db = db::open_in_memory().await.unwrap();
+            db::apply_schema(&db).await.unwrap();
+            for kind in [deleted, kept] {
+                let mut image = ModelKind::new(NodeModel::Generic, Some(kind))
+                    .unwrap()
+                    .node_config();
+                "1.0".clone_into(&mut image.version);
+                db::upsert_node_image(&db, image, DefaultRequest::Keep)
                     .await
                     .unwrap();
+            }
+            let id =
+                find_node_image_by_model_kind_version(&db, &NodeModel::Generic, &deleted, "1.0")
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .id
+                    .unwrap();
+            let root = tempdir().unwrap();
+            let version = shared_version(root.path());
+            let file = |kind| match kind {
+                NodeKind::Unikernel => version.join(UNIKERNEL_KERNEL_FILENAME),
+                _ => version.join(VM_DISK_FILENAME),
+            };
+
+            let (_, image_deleted) =
+                delete_files_after_database(delete_node_image(&db, id), Some(&file(deleted)))
+                    .await
+                    .unwrap();
+
             assert!(image_deleted, "{deleted}");
-            assert!(!version.join(deleted).exists(), "{deleted}");
-            assert!(version.join(kept).is_file(), "{deleted} took {kept}");
+            assert!(!file(deleted).exists(), "{deleted}");
+            assert!(file(kept).is_file(), "{deleted} took the {kept} file");
+            let deleted_record =
+                find_node_image_by_model_kind_version(&db, &NodeModel::Generic, &deleted, "1.0")
+                    .await
+                    .unwrap();
+            let kept_record =
+                find_node_image_by_model_kind_version(&db, &NodeModel::Generic, &kept, "1.0")
+                    .await
+                    .unwrap();
+            assert!(deleted_record.is_none(), "{deleted}");
+            assert!(kept_record.is_some(), "{deleted} took the {kept} record");
         }
     }
 
     #[tokio::test]
-    async fn the_version_folder_goes_with_its_last_file() {
+    async fn image_delete_004_deleting_an_image_removes_its_file_and_the_version_folder_with_the_last_file()
+     {
         let root = tempdir().unwrap();
         let version = shared_version(root.path());
         for file in [VM_DISK_FILENAME, UNIKERNEL_KERNEL_FILENAME] {
@@ -219,7 +256,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_image_file_already_gone_is_deleted_and_its_empty_folder_removed() {
+    async fn image_delete_014_an_image_whose_file_is_already_gone_is_deleted_with_its_empty_folder()
+    {
         let root = tempdir().unwrap();
         let version = root.path().join("generic").join("1.0");
         fs::create_dir_all(&version).unwrap();

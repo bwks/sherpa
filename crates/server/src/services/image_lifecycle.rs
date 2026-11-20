@@ -167,7 +167,8 @@ mod tests {
     use tempfile::tempdir;
 
     #[tokio::test]
-    async fn lifecycle_lock_serializes_same_image_and_allows_other_versions() {
+    async fn image_delete_017_operations_on_one_image_version_run_one_at_a_time_and_another_version_is_not_held_up()
+     {
         let held = lock_image(
             ModelKind::default_for(NodeModel::UbuntuLinux),
             "lock-test-one",
@@ -276,7 +277,8 @@ mod tests {
     }
 
     #[test]
-    fn a_disk_built_on_the_image_blocks_it_and_names_the_disk() {
+    fn image_delete_006_an_image_with_a_lab_disk_built_on_it_is_not_deleted_and_the_refusal_names_the_disk()
+     {
         let root = tempdir().unwrap();
         let (version, other) = two_versions(root.path());
         let pool = TestPool(Mutex::new(vec![
@@ -296,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn a_disk_on_another_image_running_or_stopped_does_not_block_it() {
+    fn image_delete_007_a_lab_disk_built_on_another_image_does_not_stop_the_delete() {
         let root = tempdir().unwrap();
         let (version, other) = two_versions(root.path());
         let pool = TestPool(Mutex::new(vec![backed(
@@ -308,7 +310,8 @@ mod tests {
     }
 
     #[test]
-    fn a_base_reached_through_a_renamed_models_link_is_protected() {
+    fn image_delete_009_a_lab_disk_whose_base_is_reached_through_a_renamed_models_folder_stops_the_delete()
+     {
         let root = tempdir().unwrap();
         let new = root.path().join("arista_eos");
         let version = new.join("4.33");
@@ -321,7 +324,8 @@ mod tests {
     }
 
     #[test]
-    fn a_pool_that_cannot_be_read_or_a_base_that_cannot_be_resolved_blocks_deletion() {
+    fn image_delete_010_lab_disks_that_cannot_be_read_or_a_base_that_cannot_be_found_refuse_the_delete()
+     {
         struct Unreadable;
         impl BackedVolumes for Unreadable {
             fn backed_volumes(&self) -> Result<Vec<BackedVolume>> {
@@ -339,7 +343,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deletion_waits_for_provisioning_then_observes_overlay() {
+    async fn image_delete_016_a_delete_waits_for_an_up_building_a_disk_on_the_image_and_is_refused_by_it()
+     {
+        // Every lease an up holds keeps the delete waiting, until the last is dropped.
+        let first = lease_image(
+            ModelKind::default_for(NodeModel::UbuntuLinux),
+            "read-leases-test",
+        )
+        .await;
+        let second = lease_image(
+            ModelKind::default_for(NodeModel::UbuntuLinux),
+            "read-leases-test",
+        )
+        .await;
+        let blocking_task_lease = first.clone();
+        let deletion = tokio::spawn(lock_image(
+            ModelKind::default_for(NodeModel::UbuntuLinux),
+            "read-leases-test",
+        ));
+        drop(first);
+        drop(second);
+        tokio::task::yield_now().await;
+        assert!(!deletion.is_finished());
+        drop(blocking_task_lease);
+        let deleted = deletion.await.unwrap();
+        drop(deleted);
+
+        // The delete then sees the disk the up built on the image, and is refused.
         let root = tempdir().unwrap();
         let (version, _) = two_versions(root.path());
         let base = version.join(VM_DISK_FILENAME);
@@ -367,30 +397,5 @@ mod tests {
             .push(backed("new-overlay.qcow2", &base));
         drop(provisioning);
         assert!(deletion.await.unwrap().is_err());
-    }
-    #[tokio::test]
-    async fn concurrent_provisioning_leases_exclude_image_deletion() {
-        let first = lease_image(
-            ModelKind::default_for(NodeModel::UbuntuLinux),
-            "read-leases-test",
-        )
-        .await;
-        let second = lease_image(
-            ModelKind::default_for(NodeModel::UbuntuLinux),
-            "read-leases-test",
-        )
-        .await;
-        let blocking_task_lease = first.clone();
-        let deletion = tokio::spawn(lock_image(
-            ModelKind::default_for(NodeModel::UbuntuLinux),
-            "read-leases-test",
-        ));
-        drop(first);
-        drop(second);
-        tokio::task::yield_now().await;
-        assert!(!deletion.is_finished());
-        drop(blocking_task_lease);
-        let deleted = deletion.await.unwrap();
-        drop(deleted);
     }
 }

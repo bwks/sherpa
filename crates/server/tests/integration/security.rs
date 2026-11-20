@@ -561,7 +561,7 @@ async fn admin_api_operations_are_refused_to_others() -> Result<()> {
 }
 
 #[tokio::test]
-async fn image_reads_need_a_login_but_not_admin() -> Result<()> {
+async fn image_access_001_listing_and_showing_images_need_a_login_but_not_admin() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     seed_matrix_image(&server).await?;

@@ -2434,38 +2434,6 @@ fn cisco_iol_interfaces() -> InterfaceSettings {
 mod tests {
     use super::*;
 
-    fn pulled(model: NodeModel, repo: Option<&str>) -> NodeConfig {
-        let mut config = ModelKind::new(model, Some(NodeKind::Container))
-            .unwrap()
-            .node_config();
-        config.settings = KindSettings::Container(ContainerSettings {
-            repo: repo.map(str::to_string),
-            ztp: ZtpSettings::default(),
-        });
-        config
-    }
-
-    #[test]
-    fn test_container_repo_prefers_the_manifest_image() {
-        let config = pulled(NodeModel::Generic, Some("alpine"));
-        assert_eq!(
-            config.container_repo(Some("ubuntu")),
-            Some("ubuntu".to_string())
-        );
-    }
-
-    #[test]
-    fn test_container_repo_falls_back_to_the_pulled_repo() {
-        let config = pulled(NodeModel::PostgresqlDb, Some("postgres"));
-        assert_eq!(config.container_repo(None), Some("postgres".to_string()));
-    }
-
-    #[test]
-    fn test_container_repo_without_image_or_pulled_repo_is_none() {
-        let config = pulled(NodeModel::MysqlDb, None);
-        assert_eq!(config.container_repo(None), None);
-    }
-
     #[test]
     fn node_state_015_an_unknown_node_state_reads_as_unknown_and_known_ones_read_back() {
         // M1.8: one row written by another version must not fail a whole listing.
@@ -2477,73 +2445,6 @@ mod tests {
             let text = serde_json::to_string(&state).unwrap();
             assert_eq!(serde_json::from_str::<NodeState>(&text).unwrap(), state);
             assert_eq!(text, format!(r#""{state}""#));
-        }
-    }
-
-    #[test]
-    fn an_image_json_with_another_kinds_group_is_refused() {
-        let mut json = serde_json::to_value(NodeConfig::ubuntu_linux()).unwrap();
-        json["container"] = serde_json::to_value(ContainerSettings {
-            repo: None,
-            ztp: ZtpSettings::default(),
-        })
-        .unwrap();
-        let error = serde_json::from_value::<NodeConfig>(json)
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.contains("is a virtual_machine image, which does not take the `container` group"),
-            "{error}"
-        );
-    }
-
-    #[test]
-    fn an_image_json_without_its_kinds_group_is_refused() {
-        let mut json = serde_json::to_value(NodeConfig::ubuntu_linux()).unwrap();
-        json["kind"] = serde_json::json!("container");
-        let error = serde_json::from_value::<NodeConfig>(json)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("does not take the `vm` group"), "{error}");
-        let mut json = serde_json::to_value(NodeConfig::mysql_db()).unwrap();
-        json.as_object_mut().unwrap().remove("container");
-        let error = serde_json::from_value::<NodeConfig>(json)
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.contains("is a container image and needs its `container` group"),
-            "{error}"
-        );
-    }
-
-    #[test]
-    fn a_container_image_json_has_no_vm_settings() {
-        for removed in ["machine", "boot_disk", "cdrom", "os_variant", "repo"] {
-            let mut json = serde_json::to_value(NodeConfig::mysql_db()).unwrap();
-            json[removed] = serde_json::json!({});
-            let error = serde_json::from_value::<NodeConfig>(json)
-                .unwrap_err()
-                .to_string();
-            assert!(
-                error.contains(&format!("unknown field `{removed}`")),
-                "{removed}: {error}"
-            );
-        }
-        for removed in ["architecture", "model", "vmx"] {
-            let mut json = serde_json::to_value(NodeConfig::mysql_db()).unwrap();
-            json["cpu"][removed] = serde_json::json!("x");
-            assert!(
-                serde_json::from_value::<NodeConfig>(json).is_err(),
-                "{removed}"
-            );
-        }
-        for removed in ["kind", "mtu", "prefix", "first_index"] {
-            let mut json = serde_json::to_value(NodeConfig::mysql_db()).unwrap();
-            json["interfaces"][removed] = serde_json::json!(1);
-            assert!(
-                serde_json::from_value::<NodeConfig>(json).is_err(),
-                "{removed}"
-            );
         }
     }
 

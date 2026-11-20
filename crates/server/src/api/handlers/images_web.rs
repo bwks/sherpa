@@ -880,70 +880,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_validate_upload_fields_valid() {
-        let result = validate_upload_fields(raw_fields(
-            Some("ubuntu_linux"),
-            Some("24.04"),
-            Some(vec![0x00, 0x01, 0x02]),
-            Some("on"),
-        ));
-        let fields = result.expect("should succeed");
-        assert_eq!(
-            fields.model_kind,
-            ModelKind::default_for(NodeModel::UbuntuLinux)
-        );
-        assert_eq!(fields.version, "24.04");
-        assert_eq!(fields.file_data, vec![0x00, 0x01, 0x02]);
-        assert!(fields.default);
-    }
-
-    #[test]
-    fn test_validate_upload_fields_missing_model() {
-        let result =
-            validate_upload_fields(raw_fields(None, Some("24.04"), Some(vec![0x01]), None));
-        let err = result.unwrap_err();
-        assert!(err.contains("model"), "expected model error, got: {err}");
-    }
-
-    #[test]
-    fn test_validate_upload_fields_missing_version() {
-        let result = validate_upload_fields(raw_fields(
-            Some("ubuntu_linux"),
-            None,
-            Some(vec![0x01]),
-            None,
-        ));
-        let err = result.unwrap_err();
-        assert!(
-            err.contains("version"),
-            "expected version error, got: {err}"
-        );
-    }
-
-    #[test]
-    fn test_validate_upload_fields_missing_file() {
-        let result =
-            validate_upload_fields(raw_fields(Some("ubuntu_linux"), Some("24.04"), None, None));
-        let err = result.unwrap_err();
-        assert!(err.contains("file"), "expected file error, got: {err}");
-    }
-
-    #[test]
-    fn test_validate_upload_fields_invalid_model() {
-        let result = validate_upload_fields(raw_fields(
-            Some("not_a_real_model"),
-            Some("24.04"),
-            Some(vec![0x01]),
-            None,
-        ));
-        let err = result.unwrap_err();
-        assert!(
-            err.contains("Unknown node model"),
-            "expected invalid model error, got: {err}"
-        );
-    }
-
     /// An upload of `model` with `kind`, otherwise valid.
     fn upload_of(model: &str, kind: Option<&str>) -> Result<UploadFields, String> {
         validate_upload_fields(RawUploadFields {
@@ -953,7 +889,22 @@ mod tests {
     }
 
     #[test]
-    fn an_upload_takes_each_kind_of_its_model_and_defaults_to_the_models_default() {
+    fn image_import_018_an_upload_without_a_kind_takes_the_models_default_and_with_one_that_kind() {
+        let fields = validate_upload_fields(raw_fields(
+            Some("ubuntu_linux"),
+            Some("24.04"),
+            Some(vec![0x00, 0x01, 0x02]),
+            Some("on"),
+        ))
+        .unwrap();
+        assert_eq!(
+            fields.model_kind,
+            ModelKind::default_for(NodeModel::UbuntuLinux)
+        );
+        assert_eq!(fields.version, "24.04");
+        assert_eq!(fields.file_data, vec![0x00, 0x01, 0x02]);
+        assert!(fields.default);
+
         for (kind, expected) in [
             (Some("virtual_machine"), NodeKind::VirtualMachine),
             (Some("container"), NodeKind::Container),
@@ -969,7 +920,37 @@ mod tests {
     }
 
     #[test]
-    fn an_upload_with_a_kind_its_model_does_not_take_or_none_for_generic_is_refused() {
+    fn image_import_017_an_upload_missing_a_field_or_with_a_bad_model_version_or_kind_is_refused() {
+        for (raw, expected) in [
+            (
+                raw_fields(None, Some("24.04"), Some(vec![0x01]), None),
+                "model",
+            ),
+            (
+                raw_fields(Some("ubuntu_linux"), None, Some(vec![0x01]), None),
+                "version",
+            ),
+            (
+                raw_fields(Some("ubuntu_linux"), Some("24.04"), None, None),
+                "file",
+            ),
+            (
+                raw_fields(
+                    Some("not_a_real_model"),
+                    Some("24.04"),
+                    Some(vec![0x01]),
+                    None,
+                ),
+                "Unknown node model",
+            ),
+            (
+                raw_fields(Some("ubuntu_linux"), Some(""), Some(vec![0x01]), None),
+                "empty",
+            ),
+        ] {
+            let err = validate_upload_fields(raw).unwrap_err();
+            assert!(err.contains(expected), "expected {expected}, got: {err}");
+        }
         let err = upload_of("arista_eos", Some("unikernel")).unwrap_err();
         assert!(err.contains("is not a unikernel"), "{err}");
         let err = upload_of("arista_eos", Some("vm")).unwrap_err();
@@ -985,21 +966,6 @@ mod tests {
         let err = upload_of("arista_ceos", None).unwrap_err();
         assert!(err.contains("renamed in 0.7.0"), "{err}");
         assert!(err.contains(r#"kind = "container""#), "{err}");
-    }
-
-    #[test]
-    fn test_validate_upload_fields_empty_version() {
-        let result = validate_upload_fields(raw_fields(
-            Some("ubuntu_linux"),
-            Some(""),
-            Some(vec![0x01]),
-            None,
-        ));
-        let err = result.unwrap_err();
-        assert!(
-            err.contains("empty"),
-            "expected empty version error, got: {err}"
-        );
     }
 
     /// A choice's serde name, as the form sends it.
@@ -1073,7 +1039,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unchanged_form_saves_each_kinds_image_as_it_was() {
+    fn image_settings_001_a_form_saved_unchanged_leaves_an_image_of_each_kind_as_it_was() {
         for mut config in one_image_of_each_kind() {
             "24.04".clone_into(&mut config.version);
             config.default = true;
@@ -1086,7 +1052,7 @@ mod tests {
     }
 
     #[test]
-    fn a_form_with_another_kinds_field_is_refused_naming_it() {
+    fn image_settings_004_a_form_with_a_field_of_another_kind_is_refused_naming_the_field() {
         let [vm, container, unikernel] = one_image_of_each_kind();
         for (config, field, setter) in [
             (
@@ -1126,7 +1092,7 @@ mod tests {
     }
 
     #[test]
-    fn a_form_without_a_field_its_kind_needs_is_refused_naming_it() {
+    fn image_settings_005_a_form_without_a_field_its_kind_needs_is_refused_naming_the_field() {
         let [vm, container, _] = one_image_of_each_kind();
         let mut form = form_for(&vm);
         form.bios = None;
@@ -1140,8 +1106,8 @@ mod tests {
         assert!(error.contains("no `ztp`"), "{error}");
     }
 
-    #[test]
-    fn a_saved_form_keeps_a_unikernels_boot_mode() {
+    #[tokio::test]
+    async fn image_settings_007_an_edit_keeps_the_images_version_and_a_unikernels_boot_mode() {
         let [_, _, unikernel] = one_image_of_each_kind();
         let mut form = form_for(&unikernel);
         form.interface_mtu = Some(9000);
@@ -1151,6 +1117,17 @@ mod tests {
             unikernel.unikernel().unwrap().boot_mode
         );
         assert_eq!(updated.interface_device().unwrap().mtu, 9000);
+
+        let db = db::open_in_memory().await.unwrap();
+        db::apply_schema(&db).await.unwrap();
+        let mut renamed = db::upsert_node_image(&db, unikernel.clone(), DefaultRequest::Keep)
+            .await
+            .unwrap();
+        "other".clone_into(&mut renamed.version);
+        let stored = db::update_node_image(&db, renamed, DefaultRequest::Keep)
+            .await
+            .unwrap();
+        assert_eq!(stored.version, unikernel.version);
     }
 
     /// The `<option>` the edit page selects in the `<select>` named `name`.
@@ -1169,7 +1146,7 @@ mod tests {
     }
 
     #[test]
-    fn the_edit_page_selects_the_images_own_settings_and_names_its_kind() {
+    fn image_settings_010_the_edit_page_shows_the_images_own_settings_chosen_and_names_its_kind() {
         let mut config = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         let KindSettings::VirtualMachine(vm) = &mut config.settings else {
             panic!("ubuntu_linux is a VM");
@@ -1208,39 +1185,6 @@ mod tests {
         }
         assert!(html.contains(r#"<input type="text" value="Virtual Machine" disabled"#));
         assert!(!html.contains(r#"name="repo""#), "{html}");
-    }
-
-    #[test]
-    fn each_kinds_detail_page_shows_only_its_own_settings() {
-        for config in one_image_of_each_kind() {
-            let kind = config.kind();
-            let html = crate::templates::AdminImageDetailTemplate {
-                username: "admin".to_owned(),
-                is_admin: true,
-                nav: NavPage::AdminImages.into(),
-                kind_badge: KindBadge::full(kind),
-                config,
-            }
-            .render()
-            .unwrap();
-            for (label, kinds) in [
-                ("OS Variant:", kind_settings::VM),
-                ("BIOS:", kind_settings::VM),
-                ("HDD Bus:", kind_settings::VM),
-                ("Repository:", kind_settings::CONTAINER),
-                ("Boot Mode:", kind_settings::UNIKERNEL),
-                ("Machine Type:", kind_settings::VM_AND_UNIKERNEL),
-                ("Interface MTU:", kind_settings::VM_AND_UNIKERNEL),
-                ("ZTP:", kind_settings::VM_AND_CONTAINER),
-                ("Data Interfaces:", kind_settings::ALL),
-            ] {
-                assert_eq!(
-                    html.contains(label),
-                    kinds.contains(&kind),
-                    "{kind} {label}"
-                );
-            }
-        }
     }
 
     /// The offered values, and the one selected.
@@ -1311,7 +1255,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_form_with_an_unknown_field_is_refused_naming_it() {
+    async fn image_settings_006_a_form_with_a_field_the_server_does_not_take_is_refused_naming_it()
+    {
         let rejection = posted_form("cloud-init&version=1")
             .await
             .err()

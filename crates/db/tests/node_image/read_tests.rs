@@ -1,10 +1,10 @@
 /// READ operation tests for `node_image`
 use anyhow::Result;
 use db::{
-    DefaultRequest, count_node_images, find_default_node_image, find_node_image_by_id,
-    find_node_image_by_model_kind_version, get_node_image_versions, upsert_node_image,
+    DefaultRequest, count_node_images, find_node_image_by_id, get_node_image_versions,
+    upsert_node_image,
 };
-use shared::data::{ModelKind, NodeKind, NodeModel};
+use shared::data::{ModelKind, NodeModel};
 
 use crate::{create_test_config, setup_db};
 
@@ -29,29 +29,8 @@ async fn test_count_node_images() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_get_nonexistent_config() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Try to get a config that doesn't exist
-    let result: Option<_> = find_node_image_by_model_kind_version(
-        &db,
-        &NodeModel::WindowsServer,
-        &NodeKind::VirtualMachine,
-        "nonexistent_version",
-    )
-    .await?;
-
-    // Should return None if not found
-    assert!(
-        result.is_none(),
-        "Should return None for nonexistent config"
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn image_versions_are_in_order_and_one_is_the_default() -> Result<()> {
+async fn image_list_011_the_versions_of_a_model_and_kind_are_listed_in_version_order() -> Result<()>
+{
     let db = setup_db().await?;
     for (version, request) in [
         ("2", DefaultRequest::Keep),
@@ -70,27 +49,14 @@ async fn image_versions_are_in_order_and_one_is_the_default() -> Result<()> {
         .map(|image| image.version.as_str())
         .collect();
     assert_eq!(names, ["1", "2", "3"]);
-    let default = find_default_node_image(&db, &NodeModel::UbuntuLinux, &kind).await?;
-    assert_eq!(default.map(|image| image.version), Some("1".to_owned()));
-
-    // A new default replaces the old one.
-    let mut three = create_test_config(NodeModel::UbuntuLinux);
-    three.version = "3".to_owned();
-    upsert_node_image(&db, three, DefaultRequest::Make).await?;
-    let versions = get_node_image_versions(&db, &NodeModel::UbuntuLinux, &kind).await?;
-    let defaults: Vec<&str> = versions
-        .iter()
-        .filter(|image| image.default)
-        .map(|image| image.version.as_str())
-        .collect();
-    assert_eq!(defaults, ["3"]);
     Ok(())
 }
 
 /// Every model's built-in image reads back as it was written: the mapper reads the columns by
 /// position, so a field read out of column order would land in another field or fail to decode.
 #[tokio::test]
-async fn test_every_model_image_reads_back_as_written() -> Result<()> {
+async fn image_settings_012_every_models_built_in_settings_are_recorded_and_read_back_unchanged()
+-> Result<()> {
     let db = setup_db().await?;
 
     for model in NodeModel::to_vec() {

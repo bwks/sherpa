@@ -146,7 +146,7 @@ mod tests {
     use shared::data::NodeModel;
 
     #[test]
-    fn test_pulled_node_image_records_the_repo_it_was_pulled_from() {
+    fn image_pull_002_the_repo_is_recorded_as_it_was_written() {
         let request = ContainerPullRequest {
             model: NodeModel::PostgresqlDb,
             kind: None,

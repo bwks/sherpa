@@ -524,7 +524,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_model_has_one_default_image_per_kind() {
+    async fn image_default_009_two_defaults_for_one_model_and_kind_are_never_stored() {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
         let first = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();

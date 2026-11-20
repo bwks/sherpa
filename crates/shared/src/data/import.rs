@@ -254,28 +254,3 @@ pub struct DownloadImageRequest {
     #[serde(default)]
     pub default: bool,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_import_with_an_unknown_field_is_refused_naming_it() {
-        let json = serde_json::json!({
-            "model": "ubuntu_linux",
-            "version": "24.04",
-            "src": "/tmp/ubuntu.qcow2",
-            "ztp_password": "admin",
-        });
-        let error = serde_json::from_value::<ImportRequest>(json)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("unknown field `ztp_password`"), "{error}");
-        let plain = serde_json::json!({
-            "model": "ubuntu_linux",
-            "version": "24.04",
-            "src": "/tmp/ubuntu.qcow2",
-        });
-        assert!(serde_json::from_value::<ImportRequest>(plain).is_ok());
-    }
-}

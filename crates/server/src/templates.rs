@@ -992,7 +992,7 @@ mod tests {
     }
 
     #[test]
-    fn the_upload_page_gives_each_model_its_kinds_and_default_and_asks_for_a_kind() {
+    fn image_import_019_the_upload_page_offers_each_model_its_kinds_with_its_default_chosen() {
         let html = AdminImageUploadTemplate {
             username: "admin".to_string(),
             is_admin: true,
@@ -1170,14 +1170,6 @@ mod tests {
     }
 
     /// The labels of the image detail page's machine type, and of its firmware and disks.
-    const IMAGE_MACHINE_TYPE: &str = ">Machine Type:</span>";
-    const IMAGE_FIRMWARE_AND_DISKS: [&str; 4] = [
-        ">BIOS:</span>",
-        ">HDD Bus:</span>",
-        ">CD-ROM Bus:</span>",
-        "Storage Configuration",
-    ];
-
     fn image_detail(config: NodeConfig) -> String {
         AdminImageDetailTemplate {
             username: "admin".to_string(),
@@ -1191,18 +1183,42 @@ mod tests {
     }
 
     #[test]
-    fn the_image_page_shows_each_kind_the_machine_and_disk_settings_it_uses() {
-        // A VM uses them all, a unikernel only its machine type, a container none.
-        for (model, machine_type, firmware_and_disks) in [
-            (NodeModel::UbuntuLinux, true, true),
-            (NodeModel::NanosUnikernel, true, false),
-            (NodeModel::NokiaSrlinux, false, false),
-            (NodeModel::MongoDb, false, false),
+    fn image_settings_011_the_image_page_shows_each_kind_only_the_settings_it_takes() {
+        const VM: &[NodeKind] = &[NodeKind::VirtualMachine];
+        const VM_AND_UNIKERNEL: &[NodeKind] = &[NodeKind::VirtualMachine, NodeKind::Unikernel];
+        const ALL: &[NodeKind] = &[
+            NodeKind::VirtualMachine,
+            NodeKind::Container,
+            NodeKind::Unikernel,
+        ];
+        for model in [
+            NodeModel::CiscoCat8000,
+            NodeModel::UbuntuLinux,
+            NodeModel::NanosUnikernel,
+            NodeModel::NokiaSrlinux,
+            NodeModel::MongoDb,
         ] {
-            let html = image_detail(ModelKind::default_for(model).node_config());
-            assert_eq!(html.contains(IMAGE_MACHINE_TYPE), machine_type, "{model}");
-            for label in IMAGE_FIRMWARE_AND_DISKS {
-                assert_eq!(html.contains(label), firmware_and_disks, "{model} {label}");
+            let config = ModelKind::default_for(model).node_config();
+            let kind = config.kind();
+            let html = image_detail(config);
+            for (label, kinds) in [
+                ("OS Variant:", VM),
+                ("BIOS:", VM),
+                ("HDD Bus:", VM),
+                (">CD-ROM Bus:</span>", VM),
+                ("Storage Configuration", VM),
+                ("Repository:", &[NodeKind::Container]),
+                ("Boot Mode:", &[NodeKind::Unikernel]),
+                (">Machine Type:</span>", VM_AND_UNIKERNEL),
+                ("Interface MTU:", VM_AND_UNIKERNEL),
+                ("ZTP:", &[NodeKind::VirtualMachine, NodeKind::Container]),
+                ("Data Interfaces:", ALL),
+            ] {
+                assert_eq!(
+                    html.contains(label),
+                    kinds.contains(&kind),
+                    "{model} {label}"
+                );
             }
         }
     }
