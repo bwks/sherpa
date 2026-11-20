@@ -31,11 +31,6 @@ pub fn check_client_read_files(nodes: &[Node]) -> Result<()> {
                 count(node.systemd_units_data.as_ref()),
             ),
             (
-                "ssh.authorized_key_files",
-                count(node.ssh.authorized_key_files.as_ref()),
-                count(node.ssh_authorized_key_files_data.as_ref()),
-            ),
-            (
                 "startup_scripts",
                 count(node.startup_scripts.as_ref()),
                 count(node.startup_scripts_data.as_ref()),
@@ -93,7 +88,7 @@ fn check_file_name(node: &str, name: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AuthorizedKeyFile, NodeSsh, SystemdUnit, SystemdUnitData};
+    use crate::{SystemdUnit, SystemdUnitData};
 
     fn node() -> Node {
         Node {
@@ -113,19 +108,11 @@ mod tests {
     #[test]
     fn files_listed_without_their_contents_are_refused() {
         let node = Node {
-            ssh: NodeSsh {
-                authorized_keys: None,
-                authorized_key_files: Some(vec![AuthorizedKeyFile {
-                    source: "keys/alice.pub".to_owned(),
-                }]),
-            },
+            systemd_units: Some(vec![SystemdUnit::default()]),
             ..node()
         };
-        let error = check_client_read_files(&[node]).expect_err("unread key file accepted");
-        assert!(
-            error.to_string().contains("ssh.authorized_key_files"),
-            "{error}"
-        );
+        let error = check_client_read_files(&[node]).expect_err("unread unit accepted");
+        assert!(error.to_string().contains("systemd_units"), "{error}");
     }
 
     #[test]

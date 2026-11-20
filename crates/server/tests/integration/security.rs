@@ -450,7 +450,6 @@ async fn the_server_never_reads_a_file_a_manifest_names() -> Result<()> {
     let token = user_token(&server, &mut ws, "alice", false).await?;
 
     for extra in [
-        json!({ "ssh": { "authorized_key_files": [{ "source": "/etc/ssh/ssh_host_ed25519_key.pub" }] } }),
         json!({ "systemd_units": [{ "name": "x.service", "source": "/etc/passwd", "enabled": true }] }),
         json!({ "binary_files": [{ "source": "/etc/shadow" }] }),
     ] {

@@ -96,7 +96,6 @@ impl Manifest {
             node.systemd_units_data = None;
             node.startup_scripts_data = None;
             node.user_scripts_data = None;
-            node.ssh_authorized_key_files_data = None;
         }
         Ok(definition)
     }
@@ -111,7 +110,6 @@ impl Manifest {
                 || node.systemd_units_data.is_some()
                 || node.startup_scripts_data.is_some()
                 || node.user_scripts_data.is_some()
-                || node.ssh_authorized_key_files_data.is_some()
         })
     }
 }

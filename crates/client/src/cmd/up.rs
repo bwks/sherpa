@@ -7,12 +7,10 @@ use std::time::Duration;
 
 use shared::data::{ClientConfig, NodeInfo, StatusMessage, UpResponse};
 use shared::util::{
-    Emoji, LabFolder, base64_encode, base64_encode_bytes, get_cwd, get_ssh_public_key, load_file,
-    term_msg_surround, term_msg_underline,
+    Emoji, LabFolder, base64_encode, base64_encode_bytes, get_cwd, load_file, term_msg_surround,
+    term_msg_underline,
 };
-use topology::{
-    AuthorizedKeyFile, BinaryFile, BinaryFileData, StartupScript, SystemdUnit, SystemdUnitData,
-};
+use topology::{BinaryFile, BinaryFileData, StartupScript, SystemdUnit, SystemdUnitData};
 
 use super::progress::status_emoji;
 use crate::cmd::interrupt::{
@@ -358,7 +356,7 @@ pub(crate) fn resolve_text_files(
     Ok(())
 }
 
-/// Read each node's `binary_files`, `systemd_units` and `ssh.authorized_key_files` and fill in
+/// Read each node's `binary_files` and `systemd_units` and fill in
 /// their `*_data` fields. The server never opens manifest paths: it uses what the client read.
 /// Paths may start with `~`; relative paths start at the manifest's folder.
 pub(crate) fn resolve_node_files(
@@ -372,10 +370,6 @@ pub(crate) fn resolve_node_files(
         }
         if let Some(units) = node.systemd_units.as_deref() {
             node.systemd_units_data = Some(read_systemd_units(&node.name, units, manifest_dir)?);
-        }
-        if let Some(files) = node.ssh.authorized_key_files.as_deref() {
-            node.ssh_authorized_key_files_data =
-                Some(read_authorized_key_files(&node.name, files, manifest_dir)?);
         }
     }
     Ok(())
@@ -429,30 +423,6 @@ fn read_systemd_units(
                 content: base64_encode(&contents),
                 enabled: unit.enabled,
             })
-        })
-        .collect()
-}
-
-/// Each key file's key, as one OpenSSH line.
-fn read_authorized_key_files(
-    node: &str,
-    files: &[AuthorizedKeyFile],
-    manifest_dir: &Path,
-) -> Result<Vec<String>> {
-    files
-        .iter()
-        .map(|file| {
-            let path = resolve_client_path(manifest_dir, &file.source);
-            let key = get_ssh_public_key(&path.to_string_lossy()).with_context(|| {
-                format!("Failed to read ssh_authorized_key_file for node '{node}'")
-            })?;
-            let line = format!(
-                "{} {} {}",
-                key.algorithm,
-                key.key,
-                key.comment.unwrap_or_default()
-            );
-            Ok(line.trim_end().to_owned())
         })
         .collect()
 }
@@ -570,7 +540,7 @@ mod tests {
     use shared::data::{NodeKind, NodeModel, NodeState};
     use shared::util::base64_decode;
     use tempfile::NamedTempFile;
-    use topology::{NodeSsh, NodeZtp};
+    use topology::NodeZtp;
 
     fn test_manifest(nodes: Vec<topology::Node>) -> topology::Manifest {
         topology::Manifest {
@@ -772,11 +742,6 @@ mod tests {
         )
         .expect("unit");
         fs::write(dir.path().join("tool"), [0_u8, 159, 146, 150]).expect("binary");
-        fs::write(
-            dir.path().join("key.pub"),
-            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh me@host\n",
-        )
-        .expect("key");
         let manifest_path = dir.path().join("manifest.toml");
 
         let mut manifest = test_manifest(vec![topology::Node {
@@ -790,12 +755,6 @@ mod tests {
                 source: "units/app.service".to_string(),
                 enabled: true,
             }]),
-            ssh: NodeSsh {
-                authorized_keys: None,
-                authorized_key_files: Some(vec![AuthorizedKeyFile {
-                    source: "key.pub".to_string(),
-                }]),
-            },
             ..Default::default()
         }]);
 
@@ -818,13 +777,6 @@ mod tests {
         assert_eq!(
             base64_decode(&units[0].content).expect("decode"),
             "[Unit]\nDescription=app\n"
-        );
-        assert_eq!(
-            node.ssh_authorized_key_files_data.as_deref(),
-            Some(
-                &["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh me@host"
-                    .to_string()][..]
-            )
         );
         topology::validate::check_client_read_files(&manifest.nodes).expect("server accepts");
     }

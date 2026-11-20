@@ -4,10 +4,10 @@ use shared::data::{
     NumaMemoryMode, PtxPlatform, RecordId, WatchdogAction, Ztp, ZtpServer,
 };
 use topology::{
-    AuthorizedKeyFile, BinaryFile, Bridge, ContainerProvisioner, ContainerSecretFile, Link2,
-    Manifest, ManifestImpairment, Node, NodeContainer, NodeReadyCheck, NodeSsh, NodeUnikernel,
-    NodeVm, NodeZtp, Provisioner, ProvisionerFile, SshProvisioner, StartupScript, SystemdUnit,
-    TailscaleConfig, TalosCluster, TextFile, VolumeMount,
+    BinaryFile, Bridge, ContainerProvisioner, ContainerSecretFile, Link2, Manifest,
+    ManifestImpairment, Node, NodeContainer, NodeReadyCheck, NodeUnikernel, NodeVm, NodeZtp,
+    Provisioner, ProvisionerFile, SshProvisioner, StartupScript, SystemdUnit, TailscaleConfig,
+    TalosCluster, TextFile, VolumeMount,
 };
 use turso::Value;
 
@@ -77,15 +77,6 @@ fn full_node() -> Node {
         ztp: NodeZtp {
             method: Some(Ztp::CloudInit),
             config: Some("configs/dev01.yaml".to_owned()),
-        },
-        ssh: NodeSsh {
-            authorized_keys: Some(vec![
-                "ssh-ed25519 AAAA1 alice".to_owned(),
-                "ssh-ed25519 AAAA2 bob".to_owned(),
-            ]),
-            authorized_key_files: Some(vec![AuthorizedKeyFile {
-                source: "~/.ssh/id_ed25519.pub".to_owned(),
-            }]),
         },
         ready_check: NodeReadyCheck {
             port: Some(2222),
@@ -277,7 +268,6 @@ fn assert_every_node_field_set(node: &Node) {
         boot_disk,
         interfaces,
         ztp,
-        ssh,
         ready_check,
         vm,
         container,
@@ -293,7 +283,6 @@ fn assert_every_node_field_set(node: &Node) {
         text_files_data,
         binary_files_data,
         systemd_units_data,
-        ssh_authorized_key_files_data,
         provisioners,
     } = node;
     assert!(image.is_some() && version.is_some() && memory.is_some());
@@ -324,11 +313,6 @@ fn assert_every_node_field_set(node: &Node) {
     assert!(data_count.is_some() && queues.is_some());
     let NodeZtp { method, config } = ztp;
     assert!(method.is_some() && config.is_some());
-    let NodeSsh {
-        authorized_keys,
-        authorized_key_files,
-    } = ssh;
-    assert!(authorized_keys.is_some() && authorized_key_files.is_some());
     let NodeReadyCheck { port, skip } = ready_check;
     assert!(port.is_some() && skip.is_some());
     let NodeVm { watchdog } = vm.as_ref().unwrap();
@@ -359,7 +343,7 @@ fn assert_every_node_field_set(node: &Node) {
     // The contents the client reads are not part of the manifest as written.
     assert!(startup_scripts_data.is_none() && user_scripts_data.is_none());
     assert!(text_files_data.is_none() && binary_files_data.is_none());
-    assert!(systemd_units_data.is_none() && ssh_authorized_key_files_data.is_none());
+    assert!(systemd_units_data.is_none());
 }
 
 /// A database with a key, and the lab `core` holding the nodes `dev01` (Ubuntu) and `web` (a

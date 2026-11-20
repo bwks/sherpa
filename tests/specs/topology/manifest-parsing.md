@@ -54,8 +54,8 @@
 - `text_files`, `binary_files`, `systemd_units` parsed `[unit]` **P1**
 - `environment_variables` parsed as Vec<String> `[unit]` **P1**
 - `cpu.count`, `memory`, `boot_disk.size` optional overrides `[unit]` **P1**
-- Every group parsed: `cpu`, `numa`, `boot_disk`, `interfaces`, `ztp`, `ssh`, `ready_check`, `vm`, `container`, `unikernel` `[unit]` **P0**
-- A flat key of an earlier manifest (`cpu_count`, `performance_tuning`, ...) or an old key inside a group is refused with serde's `unknown field` error `[unit]` **P0**
+- Every group parsed: `cpu`, `numa`, `boot_disk`, `interfaces`, `ztp`, `ready_check`, `vm`, `container`, `unikernel` `[unit]` **P0**
+- A flat key of an earlier manifest (`cpu_count`, `performance_tuning`, ...), the removed `ssh` group (table or inline) or an old key inside a group is refused with serde's `unknown field` error `[unit]` **P0**
 - A kind group or setting the node's kind does not take is refused, naming the node, the key and the kind (`check_node_kind_settings`) `[unit]` **P0**
 - `interfaces.data_count` optional per-node data interface override parsed correctly `[unit]` **P0**
 - `ipv4_address` and `ipv6_address` are rejected as unknown fields; management addresses are always allocated by the server `[unit]` **P1**

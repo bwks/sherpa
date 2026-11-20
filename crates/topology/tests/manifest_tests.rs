@@ -46,10 +46,6 @@ queues = 2
 method = "cloud-init"
 config = "configs/router1.cfg"
 
-[nodes.ssh]
-authorized_keys = ["ssh-rsa AAAA... user@host"]
-authorized_key_files = [{ source = "keys/admin.pub" }]
-
 [nodes.ready_check]
 port = 2222
 skip = true
@@ -177,10 +173,6 @@ fn test_parse_full_manifest() {
     assert_eq!(r1.interfaces.queues, Some(2));
     assert_eq!(r1.ztp.method, Some(Ztp::CloudInit));
     assert_eq!(r1.ztp.config, Some("configs/router1.cfg".to_string()));
-    let keys = r1.ssh.authorized_keys.as_ref().expect("has keys");
-    assert_eq!(keys[0], "ssh-rsa AAAA... user@host");
-    let key_files = r1.ssh.authorized_key_files.as_ref().expect("has key files");
-    assert_eq!(key_files[0].source, "keys/admin.pub");
     assert_eq!(r1.ready_check.port, Some(2222));
     assert_eq!(r1.ready_check.skip, Some(true));
     assert_eq!(
@@ -337,11 +329,12 @@ fn test_parse_text_files_rejects_unknown_fields() {
 // Tests — keys of earlier manifests are refused
 // ============================================================================
 
-/// Each flat key of earlier manifests, and a group key under its old name, with a value of
-/// its type. Each is refused with serde's unknown-field error naming it.
+/// Each flat key of earlier manifests, a group key under its old name, and the removed `ssh`
+/// group as a table or inline, with a value of its type. Each is refused with serde's
+/// unknown-field error naming it.
 #[test]
 fn test_old_flat_keys_are_refused() {
-    for (key, value) in [
+    for (key, line) in [
         ("cpu_count", "2"),
         ("boot_disk_size", "20"),
         ("boot_disk_clone_method", "'copy'"),
@@ -360,10 +353,19 @@ fn test_old_flat_keys_are_refused() {
         ("watchdog", "'reset'"),
         ("platform", "'bt'"),
         ("performance_tuning", "{ cpu_mode = 'host-model' }"),
-    ] {
-        let manifest = format!(
-            "name = 'lab'\n[[nodes]]\nname = 'dev01'\nmodel = 'ubuntu_linux'\n{key} = {value}\n"
-        );
+        (
+            "ssh",
+            "{ authorized_key_files = [{ source = 'keys/admin.pub' }] }",
+        ),
+    ]
+    .map(|(key, value)| (key, format!("{key} = {value}")))
+    .into_iter()
+    .chain([(
+        "ssh",
+        "[nodes.ssh]\nauthorized_keys = ['ssh-ed25519 AAAA']".to_owned(),
+    )]) {
+        let manifest =
+            format!("name = 'lab'\n[[nodes]]\nname = 'dev01'\nmodel = 'ubuntu_linux'\n{line}\n");
         let error = toml::from_str::<Manifest>(&manifest)
             .expect_err("an old key is refused")
             .to_string();

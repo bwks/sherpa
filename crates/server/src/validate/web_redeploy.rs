@@ -4,9 +4,9 @@ use anyhow::{Result, bail};
 /// needs what the server does not keep. The definition holds the manifest as the user wrote it,
 /// without file contents or resolved values, and only the `sherpa` CLI, in the lab folder, can
 /// read the files and variables these parts name: a `ztp.config`, `text_files`,
-/// `binary_files`, `systemd_units`, startup and user scripts, `ssh.authorized_key_files`, and
-/// `environment_variables` with a `$VAR`. Provisioners are refused too, as only the CLI runs
-/// them. A node with none of these is rebuilt from its definition alone.
+/// `binary_files`, `systemd_units`, startup and user scripts, and `environment_variables` with
+/// a `$VAR`. Provisioners are refused too, as only the CLI runs them. A node with none of these
+/// is rebuilt from its definition alone.
 ///
 /// # Errors
 ///
@@ -19,10 +19,6 @@ pub fn check_web_redeployable(node: &topology::Node) -> Result<()> {
         (has_items(node.systemd_units.as_ref()), "systemd_units"),
         (has_items(node.startup_scripts.as_ref()), "startup_scripts"),
         (has_items(node.user_scripts.as_ref()), "user_scripts"),
-        (
-            has_items(node.ssh.authorized_key_files.as_ref()),
-            "ssh.authorized_key_files",
-        ),
         (
             node.environment_variables.iter().flatten().any(|entry| {
                 entry
@@ -83,7 +79,6 @@ model = "ubuntu_linux"
             r#"memory = 2048
 environment_variables = ["MODE=lab"]
 ztp = { method = "cdrom" }
-ssh = { authorized_keys = ["ssh-ed25519 AAAA test"] }
 "#,
         ))
         .unwrap();
@@ -127,11 +122,6 @@ enabled = true
                 r#"user_scripts = ["scripts/user.sh"]
 "#,
                 "user_scripts",
-            ),
-            (
-                r#"ssh = { authorized_key_files = [{ source = "keys/id.pub" }] }
-"#,
-                "ssh.authorized_key_files",
             ),
             (
                 r#"environment_variables = ["MODE=lab", "TOKEN=$LAB_TOKEN"]

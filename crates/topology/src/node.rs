@@ -11,7 +11,7 @@ use shared::data::{
 use crate::provisioner::Provisioner;
 
 /// A node in the manifest: `[[nodes]]`. The settings are grouped; `cpu`, `numa`, `boot_disk`,
-/// `interfaces`, `ztp`, `ssh` and `ready_check` are shared by the kinds that take them, and
+/// `interfaces`, `ztp` and `ready_check` are shared by the kinds that take them, and
 /// `vm`, `container` and `unikernel` hold the settings of one kind. Every setting is optional:
 /// one left out keeps the image's value. Unknown keys, such as the flat keys of earlier
 /// manifests, are refused.
@@ -38,8 +38,6 @@ pub struct Node {
     #[serde(default, skip_serializing_if = "is_default")]
     pub ztp: NodeZtp,
     #[serde(default, skip_serializing_if = "is_default")]
-    pub ssh: NodeSsh,
-    #[serde(default, skip_serializing_if = "is_default")]
     pub ready_check: NodeReadyCheck,
     /// Settings only a virtual machine takes.
     pub vm: Option<NodeVm>,
@@ -65,9 +63,6 @@ pub struct Node {
     /// The `systemd_units` the client read, for the server.
     #[serde(default)]
     pub systemd_units_data: Option<Vec<SystemdUnitData>>,
-    /// The keys in the `ssh.authorized_key_files` the client read, one OpenSSH line each.
-    #[serde(default)]
-    pub ssh_authorized_key_files_data: Option<Vec<String>>,
     /// Client-side provisioners, run by the CLI once the node is ready. Never serialized, so
     /// the client never sends them to the server and the server never stores them.
     #[serde(default, skip_serializing)]
@@ -88,14 +83,6 @@ pub struct NodeZtp {
     pub method: Option<Ztp>,
     /// A file with the node's own startup configuration.
     pub config: Option<String>,
-}
-
-/// `[nodes.ssh]`: SSH keys the node's account accepts.
-#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct NodeSsh {
-    pub authorized_keys: Option<Vec<String>>,
-    pub authorized_key_files: Option<Vec<AuthorizedKeyFile>>,
 }
 
 /// `[nodes.ready_check]`: how Sherpa decides the node is ready.
@@ -138,14 +125,6 @@ pub struct NodeUnikernel {
     pub cmdline: Option<String>,
 }
 
-/// A node's `ssh` group once the client has read its key files.
-#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
-pub struct ExpandedSsh {
-    pub authorized_keys: Option<Vec<String>>,
-    /// The keys the client read from the manifest's `ssh.authorized_key_files`.
-    pub authorized_key_files: Option<Vec<String>>,
-}
-
 /// A manifest node as one node of its lab: its settings grouped as in the manifest, its
 /// addresses, and the contents of the files and scripts the client read.
 #[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
@@ -162,7 +141,6 @@ pub struct NodeExpanded {
     pub boot_disk: NodeBootDisk,
     pub interfaces: NodeInterfaces,
     pub ztp: NodeZtp,
-    pub ssh: ExpandedSsh,
     pub ready_check: NodeReadyCheck,
     pub vm: Option<NodeVm>,
     pub container: Option<NodeContainer>,
@@ -201,10 +179,6 @@ impl NodeExpanded {
             boot_disk: node.boot_disk.clone(),
             interfaces: node.interfaces.clone(),
             ztp: node.ztp.clone(),
-            ssh: ExpandedSsh {
-                authorized_keys: node.ssh.authorized_keys.clone(),
-                authorized_key_files: node.ssh_authorized_key_files_data.clone(),
-            },
             ready_check: node.ready_check.clone(),
             vm: node.vm.clone(),
             container: node.container.clone(),
@@ -265,12 +239,6 @@ pub struct SystemdUnit {
     pub name: String,
     pub source: String,
     pub enabled: bool,
-}
-
-#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct AuthorizedKeyFile {
-    pub source: String,
 }
 
 /// A binary file the client read: its file name and base64 contents.
