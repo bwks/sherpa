@@ -1,6 +1,6 @@
 # Links and bridges
 
-What a lab's data plane does: point-to-point links between virtual machines, containers and unikernels, what happens to a link when the node at one end stops or is made again, link impairment, private bridges, where each interface of a node is and what an unused one looks like, the management network as far as it carries nodes' traffic, and what destroy and redeploy leave on the host. Whether a lab with links comes up at all is `lab_up_003` in [lab lifecycle](lab-lifecycle.md); how a node boots, stops and starts is in [nodes](nodes.md); which link, bridge and interface settings a manifest may hold, and the refusal of one that is wrong, are in the Manifests spec; who may change a lab is in [accounts and auth](accounts-and-auth.md); the lab router's DHCP and DNS, the Tailscale gateway and how `sherpa inspect` and the web UI lay a lab out have their own specs.
+What a lab's data plane does: point-to-point links between virtual machines, containers and unikernels, what happens to a link when the node at one end stops or is made again, link impairment, private bridges, where each interface of a node is and what an unused one looks like, the management network as far as it carries nodes' traffic, and what destroy and redeploy leave on the host. Whether a lab with links comes up at all is `lab_up_003` in [lab lifecycle](lab-lifecycle.md); how a node boots, stops and starts is in [nodes](nodes.md); which link, bridge and interface settings a manifest may hold, and the refusal of one that is wrong, are in the Manifests spec; who may change a lab is in [accounts and auth](accounts-and-auth.md); the address ranges a lab gets, and its nodes' addresses in them, are `lab_addressing` in lab lifecycle; the lab router's DHCP and DNS, the Tailscale gateway and how `sherpa inspect` and the web UI lay a lab out, its Links table included, have their own specs.
 
 A link is one `[[links]]` entry: two ends, `src` and `dst`, each an interface of a node. Each end has an interface on the Sherpa server, its host end: `tpa<link>-<lab>` for `src` and `tpb<link>-<lab>` for `dst`.
 
@@ -36,6 +36,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 A VM or unikernel that boots again, a container started again and a redeployed node get new link ends. A reboot from inside the guest, a pause and an unpause keep them.
 
+Cases 016, 018 and 019 show a repair on a real host. Cases 030 to 032 show what the scan decides given the same host state, on a fake host, where no root, Docker or libvirt is needed.
+
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | After redeploying a VM that ends two links, pings pass each way on every link (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
@@ -67,6 +69,9 @@ A VM or unikernel that boots again, a container started again and a redeployed n
 | 027 | A redeployed container's interface is made again while the removed container's old one, of the same name, is still on the host | integration |
 | 028 | Only a filter running Sherpa's redirect counts as a link's redirect, so an end with another filter is still found bare | unit |
 | 029 | A new interface has no redirect until a link is attached to it | integration |
+| 030 | Given a VM started outside Sherpa, whose new tap has no redirect while its peer's still points at the old one, a scan attaches the link in both directions | unit |
+| 031 | Given a container restarted outside Sherpa with none of its data interfaces left, a scan makes its link ends and unused interfaces again and attaches its links, and leaves the lab's other links as they were | unit |
+| 032 | Given a VM and a container both changed with nothing remembered of the lab, one scan repairs both, and the next repairs nothing and writes nothing to the host | unit |
 
 ## `link_state`: each link reports whether it is attached
 
@@ -82,11 +87,12 @@ A VM or unikernel that boots again, a container started again and a redeployed n
 | 005 | A link between two interfaces of one node is `attached` only with both | unit |
 | 006 | `sherpa inspect` gives each link its index and the state the server last found or left it in, and none for a link not checked since sherpad started | unit |
 | 007 | A link from a server that sends no state or no index still reads, with neither | unit |
-| 008 | The Links table of `sherpa inspect` shows `attached`, `peer down: <node>`, `failed: <reason>` and `not checked` | unit |
-| 009 | `sherpa resume` and `sherpa redeploy` list each link that is not attached, a waiting one as information and a failed one as a warning, and exit zero (no test at this level yet) | e2e |
-| 010 | After `sherpa down --node` of one end, `sherpa inspect` shows the link `peer down: <node>` within a scan interval, and `attached` again after the resume (no test yet) | e2e |
-| 011 | The nodes counted as running are those libvirt and Docker report running, so a paused node is down | unit |
-| 012 | A lab's links are its own: another lab's are not listed with them | integration |
+| 008 | `sherpa resume` and `sherpa redeploy` list each link that is not attached, a waiting one as information and a failed one as a warning, and exit zero (no test at this level yet) | e2e |
+| 009 | After `sherpa down --node` of one end, `sherpa inspect` shows the link `peer down: <node>` within a scan interval, and `attached` again after the resume (no test yet) | e2e |
+| 010 | The nodes counted as running are those libvirt and Docker report running, so a paused node is down | unit |
+| 011 | A lab's links are its own: another lab's are not listed with them | integration |
+
+How `sherpa inspect` prints a link's state in its Links table is for the Inspect and web UI spec.
 
 ## `link_carrier`: a link end has carrier only while its link is attached
 
@@ -112,6 +118,11 @@ A VM or unikernel that boots again, a container started again and a redeployed n
 | 015 | A VM's interface is read as up unless its link state says down, and a domain that is not well formed, or has no such interface, is refused | unit |
 | 016 | A redeployed node's peers keep their carrier while it is replaced (no test yet) | e2e |
 | 017 | With the scanner disabled, `sherpa down` leaves the peers' carrier, and `sherpa resume` still sets it (no test yet) | integration |
+| 018 | Given a link that goes from attached to waiting for its container end, the VM peer's link is taken down through libvirt, and brought up again when the link is attached | unit |
+| 019 | Given a link that goes from attached to waiting for its VM end, the container peer's host end is taken down, and it alone is brought up when the link is attached again | unit |
+| 020 | Given a paused container whose VM peer's link a scan took down, a resume that unpauses it brings the VM's link up at once, and the next scan moves no carrier | unit |
+
+Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is decided given the same host state, on a fake host.
 
 ## `link_impair`: an impairment applies to one direction of a link and stays
 
@@ -140,6 +151,7 @@ A VM or unikernel that boots again, a container started again and a redeployed n
 | 018 | `sherpa link impair` with no value and no `--clear` is refused (no test yet) | unit |
 | 019 | An impairment of jitter, reorder or corruption alone is set, not taken for a clear | unit |
 | 020 | Recording a link's impairments leaves the rest of the link as it was, and a link that is gone is refused | integration |
+| 021 | Given a change to one direction, the impairment is set on the host end that direction leaves through, and the other direction's is left as it was | unit |
 
 ## `private_bridge`: the members of a bridge share one segment
 
@@ -200,26 +212,18 @@ A VM or unikernel that boots again, a container started again and a redeployed n
 
 ## `management_network`: every node is reachable on its lab's management network
 
-**Statement:** every node of a lab has a management address on a network of the lab's own, which no other lab and no other network on the server uses, and reaches the server and the lab's other nodes there.
+**Statement:** every node of a lab has a management address on a network of the lab's own, and reaches the server and the lab's other nodes there.
 **Relied on by:** the user, SSH and provisioners, ZTP, the Tailscale gateway. **Priority:** P0.
 
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | A VM and a container of one lab reach each other and the server on their management addresses, and each reaches the internet through the server (no test yet) | e2e |
-| 002 | A new lab takes the first free /24 and /64 of the server's ranges, after the first of each, which is never given out | unit |
-| 003 | A range a lab holds, or one that overlaps a network on one of the server's interfaces, is passed over | unit |
-| 004 | With no range free, up is refused | unit |
-| 005 | A range held by one lab is reported as used and cannot be recorded for a second, in IPv4 and IPv6, and labs with no IPv6 range do not collide | integration |
-| 006 | The ranges a lab holds are free again once it is destroyed (no test yet) | integration |
-| 007 | Nodes take addresses in manifest order from offset 21, in IPv4 and IPv6, and an index past the node block is refused | unit |
-| 008 | The gateway, the lab router and the other infrastructure addresses are apart from each other and from the node block | unit |
-| 009 | A configured management range too small for one lab is refused, in IPv4 and IPv6 | unit |
-| 010 | The management bridge runs no spanning tree (no test at this level yet) | integration |
-| 011 | A lab's management network is made in libvirt and Docker on one bridge, in IPv4 alone or with IPv6, and making it again changes nothing | integration |
-| 012 | A node's management interface passes traffic from the moment it starts, with no four-second wait (no test yet) | e2e |
-| 013 | A management network Docker cannot make is reported, not passed over | integration |
+| 002 | The management bridge runs no spanning tree (no test at this level yet) | integration |
+| 003 | A lab's management network is made in libvirt and Docker on one bridge, in IPv4 alone or with IPv6, and making it again changes nothing | integration |
+| 004 | A node's management interface passes traffic from the moment it starts, with no four-second wait (no test yet) | e2e |
+| 005 | A management network Docker cannot make is reported, not passed over | integration |
 
-Labs brought up at once getting distinct ranges is `lab_concurrency_003` in [lab lifecycle](lab-lifecycle.md).
+Which ranges a lab's management network takes, and which addresses its nodes get in them, are `lab_addressing` in [lab lifecycle](lab-lifecycle.md).
 
 ## `link_cleanup`: destroy and redeploy leave nothing of theirs on the host
 
