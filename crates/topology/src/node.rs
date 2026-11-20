@@ -37,10 +37,6 @@ pub struct Node {
     pub interfaces: NodeInterfaces,
     #[serde(default, skip_serializing_if = "is_default")]
     pub ztp: NodeZtp,
-    /// Removed: the owner's account keys reach every node. Kept only so validation can reject
-    /// a manifest that still sets it (`validate::check_no_ssh_group`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ssh: Option<toml::Value>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub ready_check: NodeReadyCheck,
     /// Settings only a virtual machine takes.

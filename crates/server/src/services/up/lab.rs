@@ -47,7 +47,7 @@ use shared::data;
 use shared::data::{LabEvent, LabSubnets, StatusKind, TailnetAuthKey, TailnetStatus};
 use shared::konst::{READINESS_TIMEOUT, SHERPA_LABS_PATH};
 use shared::util;
-use topology::validate::{check_client_read_files, check_lab_description, check_no_ssh_group};
+use topology::validate::{check_client_read_files, check_lab_description};
 
 /// What setup (phase 1) gives the later phases: the libvirt connection, the owner's record,
 /// every node image, the manifest's nodes with their images checked, and the lab's reservation.
@@ -278,7 +278,6 @@ fn check_up_request(
     require_host_access(ctx, &manifest.nodes)?;
     check_lab_description(manifest.description.as_deref())
         .context("Manifest validation failed: description")?;
-    check_no_ssh_group(&manifest.nodes).context("Manifest validation failed: node settings")?;
     check_client_read_files(&manifest.nodes).context("Manifest validation failed: files")?;
     reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
     let as_written = lab_definition::parse_as_written(as_written)?;

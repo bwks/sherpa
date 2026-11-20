@@ -3,7 +3,6 @@ use shared::data::{
     NumaMemoryMode, PtxPlatform, WatchdogAction, Ztp,
 };
 use topology::Manifest;
-use topology::validate::check_no_ssh_group;
 
 // ============================================================================
 // Expected TOML manifests
@@ -330,11 +329,12 @@ fn test_parse_text_files_rejects_unknown_fields() {
 // Tests — keys of earlier manifests are refused
 // ============================================================================
 
-/// Each flat key of earlier manifests, and a group key under its old name, with a value of
-/// its type. Each is refused with serde's unknown-field error naming it.
+/// Each flat key of earlier manifests, a group key under its old name, and the removed `ssh`
+/// group as a table or inline, with a value of its type. Each is refused with serde's
+/// unknown-field error naming it.
 #[test]
 fn test_old_flat_keys_are_refused() {
-    for (key, value) in [
+    for (key, line) in [
         ("cpu_count", "2"),
         ("boot_disk_size", "20"),
         ("boot_disk_clone_method", "'copy'"),
@@ -353,10 +353,19 @@ fn test_old_flat_keys_are_refused() {
         ("watchdog", "'reset'"),
         ("platform", "'bt'"),
         ("performance_tuning", "{ cpu_mode = 'host-model' }"),
-    ] {
-        let manifest = format!(
-            "name = 'lab'\n[[nodes]]\nname = 'dev01'\nmodel = 'ubuntu_linux'\n{key} = {value}\n"
-        );
+        (
+            "ssh",
+            "{ authorized_key_files = [{ source = 'keys/admin.pub' }] }",
+        ),
+    ]
+    .map(|(key, value)| (key, format!("{key} = {value}")))
+    .into_iter()
+    .chain([(
+        "ssh",
+        "[nodes.ssh]\nauthorized_keys = ['ssh-ed25519 AAAA']".to_owned(),
+    )]) {
+        let manifest =
+            format!("name = 'lab'\n[[nodes]]\nname = 'dev01'\nmodel = 'ubuntu_linux'\n{line}\n");
         let error = toml::from_str::<Manifest>(&manifest)
             .expect_err("an old key is refused")
             .to_string();
@@ -374,31 +383,4 @@ fn test_old_keys_inside_a_group_are_refused() {
         .expect_err("an old key in a group is refused")
         .to_string();
     assert!(error.contains("unknown field `cpu_pinning`"), "{error}");
-}
-
-/// The removed `ssh` group, as a table or inline, with keys or key files: each is refused
-/// naming the node and pointing to the account's keys.
-#[test]
-fn test_the_removed_ssh_group_is_refused_pointing_to_the_account_keys() {
-    for group in [
-        "[nodes.ssh]\nauthorized_keys = ['ssh-ed25519 AAAA']\n",
-        "ssh = { authorized_key_files = [{ source = 'keys/admin.pub' }] }\n",
-    ] {
-        let manifest =
-            format!("name = 'lab'\n[[nodes]]\nname = 'dev01'\nmodel = 'ubuntu_linux'\n{group}");
-        let manifest = toml::from_str::<Manifest>(&manifest).expect("parses");
-        let error = check_no_ssh_group(&manifest.nodes)
-            .expect_err("the ssh group is refused")
-            .to_string();
-        assert!(error.contains("'dev01'"), "{group}: {error}");
-        assert!(
-            error.contains("`ssh` group, which has been removed"),
-            "{group}: {error}"
-        );
-        assert!(
-            error.contains("sherpa server user ssh-key add"),
-            "{group}: {error}"
-        );
-        assert!(error.contains("Profile page"), "{group}: {error}");
-    }
 }

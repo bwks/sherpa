@@ -7,10 +7,9 @@ use shared::validators::effective_data_interface_count;
 use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_lab_description,
-    check_link_impairments, check_no_p2p_field, check_no_ssh_group, check_node_kind_settings,
-    check_node_model_kind, check_node_names, check_node_ztp, check_ptx_platform,
-    check_text_file_modes, check_vm_tuning, validate_provisioners, validate_tailscale,
-    validate_talos_clusters,
+    check_link_impairments, check_no_p2p_field, check_node_kind_settings, check_node_model_kind,
+    check_node_names, check_node_ztp, check_ptx_platform, check_text_file_modes, check_vm_tuning,
+    validate_provisioners, validate_tailscale, validate_talos_clusters,
 };
 use topology::{Manifest, process_manifest_bridges, process_manifest_links};
 
@@ -51,10 +50,6 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     println!("→ Checking text files...");
     check_text_file_modes(&manifest.nodes)?;
     println!("  ✓ Text file modes are valid");
-
-    println!("→ Checking for removed node settings...");
-    check_no_ssh_group(&manifest.nodes)?;
-    println!("  ✓ No node sets a removed group");
 
     println!("→ Checking each node's kind...");
     for node in &manifest.nodes {

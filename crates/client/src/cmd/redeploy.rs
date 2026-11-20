@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use shared::data::{ClientConfig, RedeployResponse};
 use shared::util::{Emoji, term_msg_surround};
-use topology::validate::{check_no_ssh_group, check_text_file_modes, validate_provisioners};
+use topology::validate::{check_text_file_modes, validate_provisioners};
 
 use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
@@ -40,7 +40,6 @@ pub async fn redeploy(
 
     // Load the manifest and resolve its client files, as `up` does.
     let mut manifest = topology::Manifest::load_file(manifest_path)?;
-    check_no_ssh_group(&manifest.nodes).context("Manifest validation failed: node settings")?;
     validate_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
     check_text_file_modes(&manifest.nodes).context("Manifest validation failed: text files")?;
     // As written, before the files and variables are resolved: what the server stores.

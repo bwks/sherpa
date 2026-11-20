@@ -37,8 +37,7 @@ use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;
 use topology::validate::{
-    check_client_read_files, check_no_ssh_group, check_node_kind_settings, check_ptx_platform,
-    check_vm_tuning,
+    check_client_read_files, check_node_kind_settings, check_ptx_platform, check_vm_tuning,
 };
 
 /// The node being redeployed and its lab, loaded and checked before the node is torn down.
@@ -241,7 +240,6 @@ fn check_manifest(
     require_host_access(ctx, &manifest.nodes)?;
     let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
     talos::ensure_redeployable(node_name, find_talos_cluster(talos_clusters, node_name))?;
-    check_no_ssh_group(&manifest.nodes).context("Manifest validation failed: node settings")?;
     check_client_read_files(&manifest.nodes).context("Manifest validation failed: files")?;
     reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
     let as_written = match lab_definition::parse_as_written(as_written)? {

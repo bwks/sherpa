@@ -25,9 +25,7 @@ use crate::ssh_client::SshAccess;
 use crate::table::{render_lab_info_table, render_nodes_table, render_tailnet_table};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
-use topology::validate::{
-    check_lab_description, check_no_ssh_group, check_text_file_modes, validate_provisioners,
-};
+use topology::validate::{check_lab_description, check_text_file_modes, validate_provisioners};
 
 /// Helper struct for deserializing log messages
 #[derive(Deserialize)]
@@ -64,7 +62,6 @@ pub async fn up(
 
     let mut manifest = topology::Manifest::load_file(manifest_path)
         .with_context(|| format!("Failed to parse manifest: {manifest_path}"))?;
-    check_no_ssh_group(&manifest.nodes).context("Manifest validation failed: node settings")?;
     validate_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
     check_lab_description(manifest.description.as_deref())
         .context("Manifest validation failed: description")?;
