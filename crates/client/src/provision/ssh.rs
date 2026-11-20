@@ -295,7 +295,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "opens a TCP connection to TEST-NET-1, which must have no route from this machine"]
+    #[ignore = "makes a real TCP connection attempt to 192.0.2.10 (TEST-NET-1, never routed)"]
     async fn ssh_access_006_an_unreachable_node_fails_at_once_with_a_hint() {
         let dir = tempdir().unwrap();
         let target = direct_target(dir.path(), "192.0.2.10");

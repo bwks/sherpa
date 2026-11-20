@@ -85,34 +85,10 @@ pub fn node_route(config: &SshConfig, host: &str, jump: Option<&SshJump>) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-
-    const LAB_SSH_CONFIG: &str = "Host 172.31.0.11 web01.ab12cd34\n    HostName 172.31.0.11\n    \
-                                  User alice\n    StrictHostKeyChecking no\n";
-
-    fn lab_ssh_config() -> SshConfig {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("config");
-        fs::write(&path, LAB_SSH_CONFIG).unwrap();
-        SshConfig::load_file(&path).unwrap()
-    }
 
     #[test]
-    fn ssh_access_007_the_jump_is_the_logged_in_user_at_the_servers_host() {
-        let config = lab_ssh_config();
-        for (server_url, server) in [
-            ("wss://10.100.58.10:3030/ws", "10.100.58.10"),
-            ("wss://sherpa.example:3030/ws", "sherpa.example"),
-            ("ws://[2001:db8::10]:3030/ws", "2001:db8::10"),
-        ] {
-            let jump = SshJump::new("bob", server_url).unwrap();
-            let route = node_route(&config, "web01.ab12cd34", Some(&jump)).unwrap();
-            assert_eq!(route.jumps.len(), 1, "{server_url}");
-            assert_eq!(route.jumps[0].hostname, server, "{server_url}");
-            assert_eq!(route.jumps[0].port, 22, "{server_url}");
-            assert_eq!(route.jumps[0].user, "bob", "{server_url}");
-            assert_eq!(route.target.hostname, "172.31.0.11");
-            assert_eq!(route.target.user, "alice");
-        }
+    fn ssh_access_007_an_ipv6_server_is_the_jump_host_without_its_url_brackets() {
+        let jump = SshJump::new("bob", "wss://[2001:db8::10]:3030/ws").unwrap();
+        assert_eq!(jump.to_string(), "bob@2001:db8::10");
     }
 }

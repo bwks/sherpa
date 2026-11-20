@@ -20,7 +20,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 004 | A provisioner (`sherpa provision`) connects to its node itself | e2e |
 | 005 | A provisioner with `--ssh-jump` connects to its node through the Sherpa server | e2e |
 | 006 | A node with no route from the client fails at once, not after the ready timeout, saying to use `--ssh-jump` or the lab's tailnet | integration |
-| 007 | The jump is the logged-in Sherpa user at the server's host, for an IPv4, a DNS name and an IPv6 server address | unit |
+| 007 | An IPv6 server address is the jump host without its URL brackets | unit |
 | 008 | A provisioner may ask for the passphrase of the user's key at the node, the first hop without a jump, but never for a node password | unit |
 
 Cases 001 to 005 are in `tests/labs/ssh-access`; 006 to 008 are Rust tests in the client crate

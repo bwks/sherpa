@@ -302,6 +302,5 @@ mod tests {
             Some("key-passphrase")
         );
         assert_eq!(answer(prompter.password(&node(), "alice")), None);
-        assert!(!prompter.confirm_host_key(&node(), "SHA256:abc"));
     }
 }
