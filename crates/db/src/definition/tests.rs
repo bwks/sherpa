@@ -268,8 +268,6 @@ fn assert_every_node_field_set(node: &Node) {
         boot_disk,
         interfaces,
         ztp,
-        // Removed from the manifest: validation refuses a node that sets it, so none is stored.
-        ssh: _,
         ready_check,
         vm,
         container,
