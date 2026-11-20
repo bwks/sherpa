@@ -3,6 +3,7 @@ use shared::data::{
     NumaMemoryMode, PtxPlatform, WatchdogAction, Ztp,
 };
 use topology::Manifest;
+use topology::validate::check_no_ssh_group;
 
 // ============================================================================
 // Expected TOML manifests
@@ -45,10 +46,6 @@ queues = 2
 [nodes.ztp]
 method = "cloud-init"
 config = "configs/router1.cfg"
-
-[nodes.ssh]
-authorized_keys = ["ssh-rsa AAAA... user@host"]
-authorized_key_files = [{ source = "keys/admin.pub" }]
 
 [nodes.ready_check]
 port = 2222
@@ -177,10 +174,6 @@ fn test_parse_full_manifest() {
     assert_eq!(r1.interfaces.queues, Some(2));
     assert_eq!(r1.ztp.method, Some(Ztp::CloudInit));
     assert_eq!(r1.ztp.config, Some("configs/router1.cfg".to_string()));
-    let keys = r1.ssh.authorized_keys.as_ref().expect("has keys");
-    assert_eq!(keys[0], "ssh-rsa AAAA... user@host");
-    let key_files = r1.ssh.authorized_key_files.as_ref().expect("has key files");
-    assert_eq!(key_files[0].source, "keys/admin.pub");
     assert_eq!(r1.ready_check.port, Some(2222));
     assert_eq!(r1.ready_check.skip, Some(true));
     assert_eq!(
@@ -381,4 +374,31 @@ fn test_old_keys_inside_a_group_are_refused() {
         .expect_err("an old key in a group is refused")
         .to_string();
     assert!(error.contains("unknown field `cpu_pinning`"), "{error}");
+}
+
+/// The removed `ssh` group, as a table or inline, with keys or key files: each is refused
+/// naming the node and pointing to the account's keys.
+#[test]
+fn test_the_removed_ssh_group_is_refused_pointing_to_the_account_keys() {
+    for group in [
+        "[nodes.ssh]\nauthorized_keys = ['ssh-ed25519 AAAA']\n",
+        "ssh = { authorized_key_files = [{ source = 'keys/admin.pub' }] }\n",
+    ] {
+        let manifest =
+            format!("name = 'lab'\n[[nodes]]\nname = 'dev01'\nmodel = 'ubuntu_linux'\n{group}");
+        let manifest = toml::from_str::<Manifest>(&manifest).expect("parses");
+        let error = check_no_ssh_group(&manifest.nodes)
+            .expect_err("the ssh group is refused")
+            .to_string();
+        assert!(error.contains("'dev01'"), "{group}: {error}");
+        assert!(
+            error.contains("`ssh` group, which has been removed"),
+            "{group}: {error}"
+        );
+        assert!(
+            error.contains("sherpa server user ssh-key add"),
+            "{group}: {error}"
+        );
+        assert!(error.contains("Profile page"), "{group}: {error}");
+    }
 }

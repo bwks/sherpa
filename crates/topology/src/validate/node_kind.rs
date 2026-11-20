@@ -48,7 +48,7 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
     let cpu = &node.cpu;
     let disk = &node.boot_disk;
     // Each key the node sets, and the kinds of node that take it.
-    let settings: [KindSetting; 30] = [
+    let settings: [KindSetting; 28] = [
         ("memory", node.memory.is_some(), ALL),
         ("cpu.count", cpu.count.is_some(), ALL),
         ("cpu.mode", cpu.mode.is_some(), VM),
@@ -74,16 +74,6 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
         ("interfaces.queues", node.interfaces.queues.is_some(), VM),
         ("ztp.method", node.ztp.method.is_some(), VM_AND_CONTAINER),
         ("ztp.config", node.ztp.config.is_some(), VM_AND_CONTAINER),
-        (
-            "ssh.authorized_keys",
-            node.ssh.authorized_keys.is_some(),
-            VM_AND_CONTAINER,
-        ),
-        (
-            "ssh.authorized_key_files",
-            node.ssh.authorized_key_files.is_some(),
-            VM_AND_CONTAINER,
-        ),
         ("ready_check.port", node.ready_check.port.is_some(), ALL),
         ("ready_check.skip", node.ready_check.skip.is_some(), ALL),
         (VM_GROUP, node.vm.is_some(), VM),

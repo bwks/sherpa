@@ -47,9 +47,7 @@ use shared::konst::{
     UNIKERNEL_KERNEL_FILENAME, VM_DISK_FILENAME, ZTP_DIR,
 };
 use shared::util;
-use shared::validators::{
-    effective_data_interface_count, effective_ztp, mode_from_octal_digits, validate_ssh_key,
-};
+use shared::validators::{effective_data_interface_count, effective_ztp, mode_from_octal_digits};
 use template::CryptHash;
 use topology::{BinaryFileData, NodeReadyCheck, SystemdUnitData};
 use virt::error::ErrorNumber;
@@ -3567,7 +3565,7 @@ fn generate_ignition_ztp(
             node.name
         )
     })?;
-    let ignition_user = ignition_owner_user(node, account)?;
+    let ignition_user = guest_account::ignition_user(account)?;
     let mut files = ignition_base_files(&node.name);
     files.push(guest_account::sudoers_file(account));
     files.extend(ignition_text_files(node)?);
@@ -3581,25 +3579,6 @@ fn generate_ignition_ztp(
             bail!("Ignition ZTP method not supported for {}", node_image.model);
         }
     }
-}
-
-/// The owner's login in Ignition, with their keys and the manifest's. The client read the key
-/// files; the server checks the keys but opens no files.
-fn ignition_owner_user(
-    node: &topology::NodeExpanded,
-    account: &GuestAccount,
-) -> Result<template::IgnitionUser> {
-    let mut user = guest_account::ignition_user(account)?;
-    let manifest_authorized_key_files = node.ssh.authorized_key_files.clone().unwrap_or_default();
-    for key in &manifest_authorized_key_files {
-        validate_ssh_key(key)
-            .with_context(|| format!("Node '{}' ssh.authorized_key_files", node.name))?;
-    }
-    user.ssh_authorized_keys
-        .extend(node.ssh.authorized_keys.clone().unwrap_or_default());
-    user.ssh_authorized_keys
-        .extend(manifest_authorized_key_files);
-    Ok(user)
 }
 
 /// The files every Ignition node gets: its hostname, and updates off.
@@ -5465,7 +5444,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn flatcar_has_one_login_the_owner_with_sudo_docker_and_the_manifest_keys() {
+    fn flatcar_has_one_login_the_owner_with_sudo_docker_and_exactly_the_account_keys() {
         let dir = tempdir().unwrap();
         let root = dir.path().to_str().unwrap();
         let blank_dir = dir.path().join(SHERPA_BLANK_DISK_DIR);
@@ -5476,14 +5455,14 @@ echo "$*" >> '{}'
             b"disk-fixture",
         )
         .unwrap();
-        let mut node = topology::NodeExpanded {
+        let node = topology::NodeExpanded {
             name: "vm".to_owned(),
             model_kind: ModelKind::default_for(data::NodeModel::FlatcarLinux),
             ..Default::default()
         };
-        node.ssh.authorized_keys = Some(vec!["ssh-ed25519 manifest-key-fixture".to_owned()]);
         let image = data::ModelKind::default_for(data::NodeModel::FlatcarLinux).node_config();
-        let account = test_account("alice", &[OWNER_KEY]);
+        let second_key = "ssh-rsa AAAAB3NzaC1yc2E second-owner-key";
+        let account = test_account("alice", &[OWNER_KEY, second_key]);
         let network = nocloud_test_network();
         let (tx, _rx) = mpsc::unbounded_channel();
         let progress = ProgressSender::new(tx);
@@ -5514,7 +5493,7 @@ echo "$*" >> '{}'
         assert_eq!(owner["groups"], serde_json::json!(["wheel", "docker"]));
         assert_eq!(
             owner["sshAuthorizedKeys"],
-            serde_json::json!([OWNER_KEY, "ssh-ed25519 manifest-key-fixture"])
+            serde_json::json!([OWNER_KEY, second_key])
         );
         assert!(verifies_device_password(
             owner["passwordHash"].as_str().unwrap()

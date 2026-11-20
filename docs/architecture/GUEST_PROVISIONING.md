@@ -275,9 +275,8 @@ shebang runs with `/bin/sh`. Paths are shell-quoted. Flatcar does not run manife
 
 ## Flatcar (Ignition)
 
-The owner's Ignition user has their keys and the manifest's `ssh.authorized_keys` and
-`authorized_key_files`, `wheel` and `docker`, and a `passwordHash` of the device password
-(`guest_account::ignition_user`).
+The owner's Ignition user has exactly the keys on their account, as on every other model, `wheel`
+and `docker`, and a `passwordHash` of the device password (`guest_account::ignition_user`).
 
 `generate_ignition_ztp` writes text files as Ignition files with their own owner and mode, and adds
 user-owned Ignition directories for each missing parent under the owner's `/home/<user>`

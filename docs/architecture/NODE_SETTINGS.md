@@ -225,7 +225,6 @@ from a settings group or an `image`.
 | `boot_disk` | `shared::data::NodeBootDisk` | `size`, `clone_method`, `cache`, `io`, `io_thread_cpus` |
 | `interfaces` | `shared::data::NodeInterfaces` | `data_count`, `queues` |
 | `ztp` | `NodeZtp` | `method`, `config` |
-| `ssh` | `NodeSsh` | `authorized_keys`, `authorized_key_files` |
 | `ready_check` | `NodeReadyCheck` | `port`, `skip` |
 | `vm` | `Option<NodeVm>` | `watchdog` |
 | `container` | `Option<NodeContainer>` | `user`, `privileged`, `shm_size`, `commands`, `volumes`, `platform` |
@@ -234,7 +233,7 @@ from a settings group or an `image`.
 The four hardware groups live in `shared::data::performance` because the `template` crate,
 which depends only on `shared`, renders them into the libvirt domain
 (`template::DomainTuning::from_node_settings`). The others live in `topology`, beside the types
-they hold (`VolumeMount`, `AuthorizedKeyFile`). The manifest groups are their own structs, not
+they hold (`VolumeMount`). The manifest groups are their own structs, not
 the image's: every field is an `Option`.
 
 The shared groups are plain fields with `#[serde(default)]`, so code reads `node.cpu.count`
@@ -247,13 +246,20 @@ so `sherpa new` writes no empty tables. The three kind groups are `Option`s, so 
 serde's `unknown field` error, which names the key and lists the keys the table takes. There is
 no mapping of old keys to new ones.
 
-The `*_data` fields (`text_files_data`, `ssh_authorized_key_files_data` and the rest) are the
+A removed group gets its own message instead. The per-node `ssh` group (`authorized_keys`,
+`authorized_key_files`) was removed in favour of the keys on the owner's account (#754). `Node`
+keeps `ssh` as an untyped `Option<toml::Value>` only so `topology::validate::check_no_ssh_group`
+can refuse a node that sets it, as a table or inline, saying to add the keys to the account with
+`sherpa server user ssh-key add` or on the Profile page. It runs in `sherpa validate`, in the
+client's `up` and `redeploy` before anything is sent, and in the server's `up` and `redeploy`.
+The removed link `p2p` setting is refused the same way (`check_no_p2p_field`).
+
+The `*_data` fields (`text_files_data`, `systemd_units_data` and the rest) are the
 contents the client read, sent to the server; they stay flat.
 
 `NodeExpanded` carries the same groups, and `model_kind`, the node's resolved `ModelKind`, in
 place of the model: `NodeExpanded::new` resolves it once, so nothing downstream resolves it
-again. Its `ssh` group is `ExpandedSsh`, whose `authorized_key_files` holds the keys the client
-read rather than the file names. The server's `process_manifest_nodes` fills in
+again. The server's `process_manifest_nodes` fills in
 `boot_disk.size` from `ModelKind::default_boot_disk_size()` (Talos) when the manifest sets
 none.
 

@@ -8,10 +8,9 @@ use turso::{Connection, Row};
 
 use shared::data::{CpuTopology, NodeKind, NodeModel, RecordId, ZtpServer};
 use topology::{
-    AuthorizedKeyFile, BinaryFile, Bridge, ContainerProvisioner, ContainerSecretFile, Link2,
-    Manifest, ManifestImpairment, Node, NodeContainer, NodeUnikernel, NodeVm, Provisioner,
-    ProvisionerFile, SshProvisioner, SystemdUnit, TailscaleConfig, TalosCluster, TextFile,
-    VolumeMount,
+    BinaryFile, Bridge, ContainerProvisioner, ContainerSecretFile, Link2, Manifest,
+    ManifestImpairment, Node, NodeContainer, NodeUnikernel, NodeVm, Provisioner, ProvisionerFile,
+    SshProvisioner, SystemdUnit, TailscaleConfig, TalosCluster, TextFile, VolumeMount,
 };
 
 use super::write::ztp_password_context;
@@ -562,11 +561,6 @@ async fn read_node_lists(conn: &Connection, lab_key: &str, nodes: &mut Nodes) ->
         let node = nodes.node(&row.node)?;
         let value = row.item.value;
         match row.item.list.as_str() {
-            "authorized_key" => push(&mut node.ssh.authorized_keys, value),
-            "authorized_key_file" => push(
-                &mut node.ssh.authorized_key_files,
-                AuthorizedKeyFile { source: value },
-            ),
             "container_command" => push(
                 &mut node
                     .container

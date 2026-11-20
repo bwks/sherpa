@@ -638,7 +638,7 @@ Web UI create and destroy run as jobs: the POST queues a `Job` in `AppState::pen
 - User info operations allow admins to target anyone and regular users to target themselves. These checks are still in the transports, not in services. Every transport builds the `UserInfo` it returns with `services::user_device_password::user_info`, which adds `device_password_set`.
 - Logins on every route go through `auth::login::check_credentials`. An unknown username is checked against a dummy hash, so it takes as long as a wrong password and response times do not show which usernames exist.
 - `auth::policy::require_host_access` refuses `up` and `redeploy` manifests from non-admins whose nodes are `container.privileged` or bind-mount host paths (`container.volumes`). Either is root on the host.
-- The server never opens a path a manifest names. The CLI reads `text_files`, `binary_files`, `systemd_units`, `ssh.authorized_key_files` and the scripts on the client and sends their contents in the matching `*_data` fields; `topology::validate::check_client_read_files` refuses a manifest that lists files without them, and binary file and unit names that are not plain file names.
+- The server never opens a path a manifest names. The CLI reads `text_files`, `binary_files`, `systemd_units` and the scripts on the client and sends their contents in the matching `*_data` fields; `topology::validate::check_client_read_files` refuses a manifest that lists files without them, and binary file and unit names that are not plain file names.
 - Signup is closed unless `allow_signup = true` in `sherpa.toml`. With it off, `GET` and `POST /signup` return 404 and the login page does not link to it.
 - User deletion goes through `services::user_delete::delete_user` on every transport. It is admin only and refuses self-delete, the last admin account, and any user who owns labs (`Conflict`, listing the labs). The web admin page shows a refusal in its `#user-delete-error` notification using `HX-Retarget`. The database backs up the owned-lab rule: `lab.user` is `REFERENCE ON DELETE REJECT`, because deleting only the records would leave the labs' VMs, containers and networks running unmanaged. With identity read from the database, the last-admin rule can only be hit by a race (two admins deleting each other at once); there is no transaction around the check and the delete.
 - `clean_lab_resources` is the unchecked clean used internally, to roll back a failed `up` on behalf of the user who started it. User requests go through `clean_lab`. Both validate the lab ID first (`Invalid`, a 400 or `InvalidParams`): resources are matched by it and the lab folder is built from it, so an empty or path-like ID would reach every lab.
@@ -1054,10 +1054,9 @@ from the lab's stored definition (`lab_definition::web_redeploy_manifest`), whic
 contents or resolved values. So it refuses, with a `ServiceError::Conflict` (409), a lab with no
 stored definition, and a node whose definition needs any of them
 (`validate::check_web_redeployable`): a `ztp.config`, `text_files`, `binary_files`,
-`systemd_units`, `startup_scripts`, `user_scripts`, `ssh.authorized_key_files`,
-`environment_variables` with a `$VAR` value, and provisioners, which only the CLI runs. The
-error names the node and every missing part, and says to run `sherpa redeploy -n <node>` from
-the lab folder, for example:
+`systemd_units`, `startup_scripts`, `user_scripts`, `environment_variables` with a `$VAR`
+value, and provisioners, which only the CLI runs. The error names the node and every missing
+part, and says to run `sherpa redeploy -n <node>` from the lab folder, for example:
 
 > Node 'dev01' cannot be redeployed from the web UI: it needs ztp.config, text_files, which the
 > server does not keep. Run `sherpa redeploy -n dev01` from the lab folder

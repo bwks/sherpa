@@ -1837,6 +1837,110 @@ mod tests {
         assert_eq!(updated.memory, Some(1024));
     }
 
+    #[tokio::test]
+    async fn stored_manifest_ssh_keys_are_deleted_and_the_definition_still_reads() {
+        // A version 36 database, from before the manifest's `ssh` group was removed, with a lab
+        // whose stored definition gave its node keys, key files and an environment variable.
+        let before = migrations_before(migrations::DELETE_MANIFEST_SSH_KEYS);
+        assert_eq!(before + 1, 36);
+        let db = database_at(before).await;
+        let user = crate::create_user(&db, "alice".to_owned(), "TestPass123!", false, vec![])
+            .await
+            .unwrap();
+        let networks = LabNetworks {
+            management_network: "172.31.1.0/24".to_owned(),
+            gateway_ipv4: "172.31.1.1".to_owned(),
+            router_ipv4: "172.31.1.2".to_owned(),
+            management_network_v6: None,
+            loopback_network_v6: None,
+            gateway_ipv6: None,
+            router_ipv6: None,
+        };
+        let lab = create_lab(
+            &db,
+            "Old",
+            "lab-0001",
+            &user,
+            &networks,
+            &LabDetails::default(),
+        )
+        .await
+        .unwrap();
+        let image = upsert_node_image(
+            &db,
+            ModelKind::default_for(NodeModel::FlatcarLinux).node_config(),
+            DefaultRequest::Keep,
+        )
+        .await
+        .unwrap();
+        let node = crate::create_node(
+            &db,
+            "fc1",
+            1,
+            image.id.clone().unwrap(),
+            lab.id.clone().unwrap(),
+        )
+        .await
+        .unwrap();
+        let lab_key = key_of(lab.id.as_ref().unwrap(), "lab").unwrap();
+        let node_key = key_of(node.id.as_ref().unwrap(), "node").unwrap();
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute(
+                    "UPDATE lab SET has_definition = 1 WHERE id = ?1",
+                    [lab_key.as_str()],
+                )
+                .await
+                .unwrap();
+            for (list, value) in [
+                ("authorized_key", "ssh-ed25519 AAAA alice"),
+                ("authorized_key_file", "keys/admin.pub"),
+                ("environment_variable", "MODE=lab"),
+            ] {
+                writer
+                    .conn
+                    .execute(
+                        "INSERT INTO manifest_node_text (node, list, position, value) \
+                         VALUES (?1, ?2, 0, ?3)",
+                        [node_key.as_str(), list, value],
+                    )
+                    .await
+                    .unwrap();
+            }
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        let conn = db.reader().await.unwrap();
+        let left = query_count(
+            &conn,
+            Query::new(
+                "SELECT count(*) FROM manifest_node_text WHERE list = 'environment_variable'",
+            )
+            .bind([]),
+        )
+        .await
+        .unwrap();
+        let total = query_count(
+            &conn,
+            Query::new("SELECT count(*) FROM manifest_node_text").bind([]),
+        )
+        .await
+        .unwrap();
+        assert_eq!((left, total), (1, 1));
+        drop(conn);
+        let definition = read_lab_definition(&db, lab.id.as_ref().unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            definition.nodes[0].environment_variables,
+            Some(vec!["MODE=lab".to_owned()])
+        );
+    }
+
     /// The position of `migration` in `migrations::ALL`: the number of migrations before it.
     fn migrations_before(migration: &str) -> usize {
         migrations::ALL

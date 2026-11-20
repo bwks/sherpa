@@ -353,24 +353,6 @@ fn node_values(key: &str, node: &Node) -> Result<[Value; 27]> {
 fn text_lists(node: &Node) -> Vec<(&'static str, Vec<&str>)> {
     vec![
         (
-            "authorized_key",
-            node.ssh
-                .authorized_keys
-                .iter()
-                .flatten()
-                .map(String::as_str)
-                .collect(),
-        ),
-        (
-            "authorized_key_file",
-            node.ssh
-                .authorized_key_files
-                .iter()
-                .flatten()
-                .map(|file| file.source.as_str())
-                .collect(),
-        ),
-        (
             "container_command",
             node.container
                 .iter()

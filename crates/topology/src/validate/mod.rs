@@ -11,6 +11,7 @@ mod link;
 mod node_kind;
 mod provisioner;
 mod ptx_platform;
+mod ssh_group;
 mod tailscale;
 mod talos_cluster;
 mod text_files;
@@ -27,6 +28,7 @@ pub use link::{
 pub use node_kind::{check_node_kind_settings, check_node_model_kind};
 pub use provisioner::validate_provisioners;
 pub use ptx_platform::check_ptx_platform;
+pub use ssh_group::check_no_ssh_group;
 pub use tailscale::validate_tailscale;
 pub use talos_cluster::validate_talos_clusters;
 pub use text_files::check_text_file_modes;

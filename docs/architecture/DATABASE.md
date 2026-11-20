@@ -242,6 +242,7 @@ table, copy the rows, drop the old one, rename.
 | 34 | `0034_per_kind_image_settings.sql`: a node image holds only its own kind's settings (#613, #614). The kind-only columns become nullable, each with a `CHECK` that it is set exactly for the kinds that take it: `os_variant`, `vmx_enabled`, `bios`, `hdd_bus`, `cdrom_bus` for a VM (`cdrom` only for a VM); `cpu_architecture`, `cpu_model`, `machine_type`, `interface_type`, `interface_mtu` for a VM or a unikernel; `ztp` for a VM or a container; `repo` only for a container; `boot_mode` for a unikernel. Each row's values are kept for its kind and dropped for the others, and a unikernel stored without a boot mode gets `direct_kernel`, as the code read it. `interface_prefix` and `first_interface_index`, which nothing read, are dropped. `node.image` references `node_image`, and Turso refuses dropping a referenced table even with deferred foreign keys, so the table is not rebuilt: each column is added again under a temporary name, filled in one `UPDATE` (every `CHECK` is tested on each row an `UPDATE` writes), and the old one dropped and replaced. The `CHECK`s are written with `AND` and `OR`, not as a comparison of two conditions, which Turso cannot read back when it re-reads a `STRICT` table's schema, as `VACUUM INTO` (the backup) does |
 | 35 | `0035_retire_lab_loopback_network.sql`: a node's serial console is a UNIX socket only sherpad reaches (#674), so a lab is given no IPv4 loopback network. `lab.loopback_network` is UNIQUE, so it cannot be dropped, and `lab` cannot be rebuilt under the foreign keys that reference it: it is renamed `retired_loopback_network`, and a new lab stores its own `lab_id` in it, which is unique and not null. Nothing reads it. See [`SERVER.md`](SERVER.md#node-consoles) |
 | 36 | `0036_retire_node_vnc_port.sql`: a VM's VNC console is a UNIX socket only sherpad reaches (#674), so no node is given a VNC port. `node.vnc_port` is UNIQUE, so it cannot be dropped, and `node` cannot be rebuilt under the foreign keys that reference it: every value is set to `NULL` and the column is renamed `retired_vnc_port`. Nothing reads or writes it. See [`SERVER.md`](SERVER.md#node-consoles) |
+| 37 | `0037_delete_manifest_ssh_keys.sql`: the manifest's per-node `ssh` group is removed (#754), as every node takes the keys on its owner's account, so the `authorized_key` and `authorized_key_file` rows of `manifest_node_text` are deleted and older labs' definitions still read. The `list` CHECK keeps both names, as the table cannot be rebuilt in place; nothing writes them. See [`NODE_SETTINGS.md`](NODE_SETTINGS.md) |
 
 A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
@@ -399,13 +400,12 @@ server's record of it.
 **No file contents and no resolved values are stored.** Before it sends a manifest, the client
 replaces `ztp.config`, a path, with the file's contents, replaces each `KEY=$VAR` environment
 variable with its value, and adds the `*_data` fields: the contents of `text_files`,
-`binary_files`, `systemd_units`, `startup_scripts`, `user_scripts` and
-`ssh.authorized_key_files`. The server builds the node from that resolved manifest, as before,
-and never writes it to the database. What it stores is the manifest as written:
+`binary_files`, `systemd_units`, `startup_scripts` and `user_scripts`. The server builds the
+node from that resolved manifest, as before, and never writes it to the database. What it stores is the manifest as written:
 
 - Files and scripts as references: `ztp.config`'s path, `text_files` (`src`, `dst`, `user`,
   `group`, `permissions`), `binary_files` (`source`), `systemd_units` (`name`, `source`,
-  `enabled`), `startup_scripts`, `user_scripts` and `ssh.authorized_key_files` (`source`).
+  `enabled`), `startup_scripts` and `user_scripts`.
 - `environment_variables` as written: `KEY=$VAR` keeps `$VAR`.
 - Literal parameters as they are, with `ztp_server.password` sealed.
 
@@ -460,7 +460,7 @@ manifest's where it validates one.
 | `manifest_bridge`, `manifest_bridge_link` | `bridges` and the ends each names |
 | `manifest_talos_cluster`, `manifest_talos_member` | `talos_clusters` (`cni`, `oidc`, `vault`) and their members, by `role` (`controller`, `worker`) |
 | `manifest_node_cpu` | a node's CPU lists, by `list`: `pinning`, `emulator_pinning`, `io_thread` (`boot_disk.io_thread_cpus`) |
-| `manifest_node_text` | a node's lists of strings, by `list`: `authorized_key`, `authorized_key_file` (paths), `container_command`, `environment_variable` (as written), `startup_script`, `user_script` (paths), `binary_file` (paths) |
+| `manifest_node_text` | a node's lists of strings, by `list`: `container_command`, `environment_variable` (as written), `startup_script`, `user_script` (paths), `binary_file` (paths) |
 | `manifest_node_volume` | `container.volumes` |
 | `manifest_node_text_file` | `text_files`: `src`, `dst`, `user`, `group`, `permissions` |
 | `manifest_node_systemd_unit` | `systemd_units`: `name`, `source`, `enabled` |
