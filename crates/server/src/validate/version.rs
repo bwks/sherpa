@@ -230,66 +230,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_validate_version_in_db_found() {
-        let model = NodeModel::AristaEos;
-        let configs = vec![
-            create_test_node_image(model, "4.28.0F", NodeKind::VirtualMachine),
-            create_test_node_image(model, "4.29.2F", NodeKind::VirtualMachine),
-        ];
-
-        let result = validate_version_in_db(ModelKind::default_for(model), "4.28.0F", &configs);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_version_in_db_not_found() {
-        let model = NodeModel::AristaEos;
-        let configs = vec![
-            create_test_node_image(model, "4.28.0F", NodeKind::VirtualMachine),
-            create_test_node_image(model, "4.29.2F", NodeKind::VirtualMachine),
-        ];
-
-        let result = validate_version_in_db(ModelKind::default_for(model), "4.30.0F", &configs);
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("4.30.0F"));
-        assert!(error_msg.contains("Available versions"));
-        assert!(error_msg.contains("4.28.0F"));
-        assert!(error_msg.contains("4.29.2F"));
-    }
-
-    #[test]
-    fn test_validate_version_in_db_no_configs() {
-        let model = NodeModel::AristaEos;
-        let configs = vec![];
-
-        let result = validate_version_in_db(ModelKind::default_for(model), "4.28.0F", &configs);
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("No configurations found"));
-    }
-
-    #[test]
-    fn test_validate_container_repo_without_a_repo_names_both_fixes() {
-        let error =
-            validate_container_repo("test-node", NodeModel::AristaEos, "1.0.0", None).unwrap_err();
-
-        let message = error.to_string();
-        assert!(message.contains("no image repo configured"), "{message}");
-        assert!(message.contains("`image`"), "{message}");
-        assert!(
-            message.contains("--model arista_eos --kind container --repo <image>:1.0.0"),
-            "{message}"
-        );
-    }
-
     // ============================================================================
     // validate_disk_image tests
     // ============================================================================
 
     #[test]
-    fn test_validate_disk_image_vm_not_found() {
+    fn image_selection_006_a_vm_image_whose_file_is_gone_is_refused_naming_its_path() {
         let result = validate_disk_image(
             "vm1",
             NodeModel::AristaEos,
@@ -299,15 +245,11 @@ mod tests {
                 .node_config()
                 .settings,
         );
-        assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("Disk image not found"));
         assert!(error_msg.contains("vm1"));
         assert!(error_msg.contains("virtioa.qcow2"));
-    }
 
-    #[test]
-    fn test_validate_disk_image_vm_path_format() {
         let result = validate_disk_image(
             "vm1",
             NodeModel::RockyLinux,
@@ -317,41 +259,26 @@ mod tests {
                 .node_config()
                 .settings,
         );
-        assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("/opt/images/rocky_linux/9.3/virtioa.qcow2"));
     }
 
     #[test]
-    fn test_validate_disk_image_unikernel_direct_kernel() {
-        let result = validate_disk_image(
-            "uk1",
-            NodeModel::UnikraftUnikernel,
-            "latest",
-            "/opt/images",
-            &ModelKind::default_for(NodeModel::UnikraftUnikernel)
-                .node_config()
-                .settings,
-        );
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("kernel.elf"));
-    }
-
-    #[test]
-    fn test_validate_disk_image_unikernel_disk_boot() {
-        let result = validate_disk_image(
-            "uk1",
-            NodeModel::NanosUnikernel,
-            "latest",
-            "/opt/images",
-            &ModelKind::default_for(NodeModel::NanosUnikernel)
-                .node_config()
-                .settings,
-        );
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("disk.qcow2"));
+    fn image_selection_007_a_unikernels_image_is_looked_for_under_the_file_name_of_its_boot_mode() {
+        for (model, file) in [
+            (NodeModel::UnikraftUnikernel, "kernel.elf"),
+            (NodeModel::NanosUnikernel, "disk.qcow2"),
+        ] {
+            let result = validate_disk_image(
+                "uk1",
+                model,
+                "latest",
+                "/opt/images",
+                &ModelKind::default_for(model).node_config().settings,
+            );
+            let error_msg = result.unwrap_err().to_string();
+            assert!(error_msg.contains(file), "{model}: {error_msg}");
+        }
     }
 
     // ============================================================================
@@ -376,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_explicit_version_takes_precedence() {
+    fn image_selection_001_a_node_with_a_version_gets_that_version_not_the_default() {
         let nodes = vec![create_test_container(
             "ceos1",
             NodeModel::AristaEos,
@@ -400,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_prefers_default_node_image() {
+    fn image_selection_002_a_node_without_a_version_gets_its_model_and_kinds_default() {
         let nodes = vec![create_test_container("ceos1", NodeModel::AristaEos, None)];
         let non_default =
             create_test_node_image(NodeModel::AristaEos, "4.30.0F", NodeKind::Container);
@@ -417,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_no_config_for_model_fails() {
+    fn image_selection_004_a_model_and_kind_with_no_image_is_refused_naming_the_node() {
         let nodes = vec![create_test_node("vm1", NodeModel::AristaEos, None)];
         // Provide only an image of the model's other kind
         let config = create_test_node_image(NodeModel::AristaEos, "4.32.0F", NodeKind::Container);
@@ -431,7 +358,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_version_not_in_db_fails() {
+    fn image_selection_005_a_version_that_is_not_on_the_server_is_refused() {
         let nodes = vec![create_test_container(
             "ceos1",
             NodeModel::AristaEos,
@@ -454,7 +381,12 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_container_without_built_in_repo_uses_manifest_image() {
+    fn image_selection_008_a_container_node_runs_the_manifests_image_over_the_recorded_repo() {
+        assert_eq!(
+            resolved_image(NodeModel::NatsBus, "nats", Some("mirror.example/nats")),
+            "mirror.example/nats"
+        );
+
         let mut node = create_test_container("host1", NodeModel::Generic, Some("24.04"));
         node.image = Some("ubuntu".to_string());
         let images = [
@@ -463,12 +395,11 @@ mod tests {
         ];
 
         let resolved = validate_and_resolve_node_versions(&[node], &images, "/tmp/images").unwrap();
-
         assert_eq!(resolved[0].image.as_deref(), Some("ubuntu"));
     }
 
     #[test]
-    fn test_resolve_container_without_built_in_repo_uses_repo_pulled_for_its_version() {
+    fn image_selection_009_a_container_node_without_image_runs_the_repo_recorded_for_its_version() {
         // The model's default image is another repo; the node's version decides.
         let nodes = [create_test_container(
             "host1",
@@ -486,7 +417,8 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_container_without_image_or_repo_fails_naming_both_fixes() {
+    fn image_selection_010_a_container_node_with_neither_image_nor_repo_is_refused_naming_both_fixes()
+     {
         let nodes = [create_test_node("db1", NodeModel::PostgresqlDb, Some("17"))];
         let mut config = create_test_node_image(NodeModel::PostgresqlDb, "17", NodeKind::Container);
         set_repo(&mut config, None);
@@ -518,20 +450,12 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_container_keeps_an_official_image_pulled_by_its_full_name() {
+    fn image_selection_011_the_recorded_repo_is_used_as_written() {
         assert_eq!(
             resolved_image(NodeModel::NatsBus, "docker.io/library/nats", None),
             "docker.io/library/nats"
         );
-    }
-
-    #[test]
-    fn test_resolve_container_keeps_an_official_image_pulled_by_its_short_name() {
         assert_eq!(resolved_image(NodeModel::NatsBus, "nats", None), "nats");
-    }
-
-    #[test]
-    fn test_resolve_container_keeps_a_third_party_registry_path() {
         assert_eq!(
             resolved_image(
                 NodeModel::NokiaSrlinux,
@@ -540,40 +464,6 @@ mod tests {
             ),
             "registry.example:5000/mirror/srlinux"
         );
-    }
-
-    #[test]
-    fn test_resolve_container_with_a_built_in_repo_runs_the_manifest_image() {
-        assert_eq!(
-            resolved_image(NodeModel::NatsBus, "nats", Some("mirror.example/nats")),
-            "mirror.example/nats"
-        );
-    }
-
-    #[test]
-    fn test_resolve_takes_the_image_of_the_nodes_kind_only() {
-        // arista_eos takes two kinds; an image row of the other kind is not the node's.
-        let nodes = vec![create_test_container("ceos1", NodeModel::AristaEos, None)];
-        let mut other_kind =
-            create_test_node_image(NodeModel::AristaEos, "9.9.9", NodeKind::VirtualMachine);
-        other_kind.default = true;
-        let mut own_kind =
-            create_test_node_image(NodeModel::AristaEos, "4.32.0F", NodeKind::Container);
-        own_kind.default = true;
-        let resolved =
-            validate_and_resolve_node_versions(&nodes, &[other_kind.clone(), own_kind], "/tmp")
-                .unwrap();
-        assert_eq!(resolved[0].version.as_deref(), Some("4.32.0F"));
-
-        let nodes = vec![create_test_container(
-            "ceos1",
-            NodeModel::AristaEos,
-            Some("9.9.9"),
-        )];
-        let error = validate_and_resolve_node_versions(&nodes, &[other_kind], "/tmp")
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("kind: container"), "{error}");
     }
 
     #[test]

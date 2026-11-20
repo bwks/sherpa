@@ -12,15 +12,14 @@
 /// even when it fails, so one failure cannot cascade into the others.
 use anyhow::{Result, ensure};
 use bollard::Docker;
-use bollard::query_parameters::{InspectContainerOptions, RemoveImageOptions, TagImageOptions};
-use std::sync::atomic::{AtomicU32, Ordering};
+use bollard::query_parameters::InspectContainerOptions;
 use std::time::Duration;
 
 use container::{
     ContainerMemory, ContainerSpec, create_docker_bridge_network, delete_network,
-    docker_connection, exec_container_with_retry, get_local_images, image_exists, kill_container,
-    list_container_memory, list_containers, list_networks, load_image, pull_image,
-    remove_container, run_container,
+    docker_connection, exec_container_with_retry, get_local_images, kill_container,
+    list_container_memory, list_containers, list_networks, load_image, remove_container,
+    run_container,
 };
 use shared::data::ContainerNetworkAttachment;
 
@@ -155,116 +154,6 @@ async fn test_create_and_delete_bridge_network() -> Result<()> {
     .await;
     let _ = delete_network(&docker, &net.name).await;
     result
-}
-
-// ============================================================================
-// Images
-// ============================================================================
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn test_get_local_images() -> Result<()> {
-    let docker = docker_connection()?;
-    let images = get_local_images(&docker, None).await?;
-
-    // We pulled alpine:latest earlier, it should be in the list
-    assert!(
-        images.iter().any(|i| i.contains("alpine")),
-        "alpine should be in local images, got: {images:?}"
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon and internet access to pull an image"]
-async fn an_official_image_is_found_by_its_full_and_short_name() -> Result<()> {
-    let docker = docker_connection()?;
-    pull_image("docker.io/library/busybox", "1.36", |_| {}).await?;
-
-    for reference in [
-        "docker.io/library/busybox:1.36",
-        "library/busybox:1.36",
-        "busybox:1.36",
-    ] {
-        ensure!(
-            image_exists(&docker, reference).await?,
-            "{reference} was not found"
-        );
-    }
-    ensure!(
-        !image_exists(&docker, "docker.io/library/busybox:sherpa-no-such-tag").await?,
-        "a tag that was never pulled was found"
-    );
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon and internet access to pull an image"]
-async fn a_docker_hub_repo_is_listed_by_its_short_and_full_name_only() -> Result<()> {
-    let docker = docker_connection()?;
-    pull_image("docker.io/library/busybox", "1.36", |_| {}).await?;
-
-    for reference in ["busybox", "docker.io/library/busybox"] {
-        let images = get_local_images(&docker, Some(reference)).await?;
-        ensure!(
-            images.contains(&"busybox:1.36".to_string()),
-            "{reference} did not list busybox:1.36: {images:?}"
-        );
-    }
-    for reference in ["docker.io/busybox", "index.docker.io/library/busybox"] {
-        let images = get_local_images(&docker, Some(reference)).await?;
-        ensure!(images.is_empty(), "{reference} listed {images:?}");
-    }
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn a_repo_does_not_list_names_it_is_a_prefix_or_suffix_of() -> Result<()> {
-    const REPO: &str = "sherpa-test-scan";
-    let docker = docker_connection()?;
-    let tags = [REPO, "sherpa-test-scan-box", "sherpa-test/sherpa-test-scan"];
-    for repo in tags {
-        docker
-            .tag_image(
-                TEST_IMAGE,
-                Some(TagImageOptions {
-                    repo: Some(repo.to_string()),
-                    tag: Some("1".to_string()),
-                }),
-            )
-            .await?;
-    }
-
-    let listed = get_local_images(&docker, Some(REPO)).await;
-
-    for repo in tags {
-        docker
-            .remove_image(&format!("{repo}:1"), None::<RemoveImageOptions>, None)
-            .await?;
-    }
-    let listed = listed?;
-    ensure!(listed == ["sherpa-test-scan:1"], "{REPO} listed {listed:?}");
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn test_pull_image() -> Result<()> {
-    let count = AtomicU32::new(0);
-    pull_image("alpine", "latest", |_msg| {
-        count.fetch_add(1, Ordering::Relaxed);
-    })
-    .await?;
-
-    // Should have received at least one progress message
-    assert!(
-        count.load(Ordering::Relaxed) > 0,
-        "Should receive progress messages during pull"
-    );
-
-    Ok(())
 }
 
 // ============================================================================
@@ -428,7 +317,8 @@ async fn test_remove_missing_container_succeeds() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon"]
-async fn test_load_image_reports_a_read_error() -> Result<()> {
+async fn image_import_014_a_container_archive_that_cannot_be_read_through_is_a_failed_import()
+-> Result<()> {
     let docker = docker_connection()?;
     // A directory opens, but reading it fails.
     let directory = std::env::temp_dir();

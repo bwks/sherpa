@@ -129,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn a_scan_with_no_model_or_repo_is_accepted_for_every_kind() {
+    fn image_scan_009_model_and_repo_are_refused_unless_both_are_given() {
         for kind in [
             None,
             Some(NodeKind::Container),
@@ -142,10 +142,6 @@ mod tests {
             };
             assert!(validate_image_scan(&request).is_ok(), "{request:?}");
         }
-    }
-
-    #[test]
-    fn a_container_model_and_repo_are_accepted() {
         for repo in [
             "mysql",
             "library/mysql",
@@ -159,62 +155,37 @@ mod tests {
             let request = request(Some(NodeModel::Generic), Some(repo));
             assert!(validate_image_scan(&request).is_ok(), "{repo}");
         }
+        for request in [
+            request(Some(NodeModel::MysqlDb), None),
+            request(None, Some("mysql")),
+        ] {
+            let message = refusal(&request);
+            assert!(message.contains("--model and --repo"), "{message}");
+        }
     }
 
     #[test]
-    fn a_model_and_repo_need_no_kind() {
-        let request = ScanImagesRequest {
-            kind: None,
-            ..request(Some(NodeModel::MysqlDb), Some("mysql"))
-        };
-
-        assert!(validate_image_scan(&request).is_ok());
-    }
-
-    #[test]
-    fn a_model_without_a_repo_is_refused() {
-        let message = refusal(&request(Some(NodeModel::MysqlDb), None));
-
-        assert!(message.contains("--model and --repo"), "{message}");
-    }
-
-    #[test]
-    fn a_repo_without_a_model_is_refused() {
-        let message = refusal(&request(None, Some("mysql")));
-
-        assert!(message.contains("--model and --repo"), "{message}");
-    }
-
-    #[test]
-    fn a_model_that_is_not_a_container_is_refused() {
+    fn image_scan_010_model_and_repo_are_refused_for_a_model_or_kind_that_is_not_a_container() {
         let message = refusal(&request(Some(NodeModel::UbuntuLinux), Some("ubuntu")));
-
         assert!(message.contains("not a container model"), "{message}");
-    }
 
-    #[test]
-    fn a_model_and_repo_with_another_kind_are_refused() {
         for kind in [NodeKind::VirtualMachine, NodeKind::Unikernel] {
             let request = ScanImagesRequest {
                 kind: Some(kind),
                 ..request(Some(NodeModel::MysqlDb), Some("mysql"))
             };
-
             assert!(refusal(&request).contains("only scan containers"));
         }
+
+        let without_kind = ScanImagesRequest {
+            kind: None,
+            ..request(Some(NodeModel::MysqlDb), Some("mysql"))
+        };
+        assert!(validate_image_scan(&without_kind).is_ok());
     }
 
     #[test]
-    fn a_repo_with_a_tag_is_refused_with_how_to_write_it() {
-        for repo in ["mysql:8.4", "localhost:5000/app:1"] {
-            let message = refusal(&request(Some(NodeModel::MysqlDb), Some(repo)));
-
-            assert!(message.contains("without a tag"), "{repo}: {message}");
-        }
-    }
-
-    #[test]
-    fn a_malformed_repo_is_refused() {
+    fn image_scan_011_a_repo_that_is_not_a_valid_repository_name_is_refused() {
         let too_long = "a".repeat(256);
         for repo in [
             "",

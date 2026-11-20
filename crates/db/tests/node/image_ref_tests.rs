@@ -42,24 +42,27 @@ async fn node_on(db: &db::Database, image: &NodeConfig) -> Result<RecordId> {
 }
 
 #[tokio::test]
-async fn a_node_moved_to_another_version_frees_the_old_image() -> Result<()> {
+async fn image_delete_011_an_image_a_lab_node_records_is_not_deleted() -> Result<()> {
+    let db = setup_db().await?;
+    let image = ceos(&db, "4.33").await?;
+    node_on(&db, &image).await?;
+
+    assert!(delete_node_image(&db, image.id.unwrap()).await.is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn image_delete_012_after_a_redeploy_onto_another_version_the_old_image_can_be_deleted_and_the_new_cannot()
+-> Result<()> {
     let db = setup_db().await?;
     let old = ceos(&db, "4.33").await?;
     let new = ceos(&db, "4.34").await?;
     let node = node_on(&db, &old).await?;
 
-    // The old image is in use, so it cannot be deleted.
-    assert!(
-        delete_node_image(&db, old.id.clone().unwrap())
-            .await
-            .is_err()
-    );
-
     let moved = update_node_image_ref(&db, node.clone(), new.id.as_ref().unwrap()).await?;
     assert_eq!(moved.image, new.id.clone().unwrap());
     assert_eq!(get_node(&db, node).await?.image, new.id.clone().unwrap());
 
-    // Now the node uses the new image, the old one can go, and the new one cannot.
     assert!(delete_node_image(&db, old.id.unwrap()).await.is_ok());
     assert!(delete_node_image(&db, new.id.unwrap()).await.is_err());
     Ok(())

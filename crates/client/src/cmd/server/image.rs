@@ -674,9 +674,19 @@ fn print_status(msg_text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cmd::Cli;
+    use clap::Parser;
 
     #[test]
-    fn an_image_reference_splits_at_its_tag() {
+    fn image_pull_004_a_repo_is_split_at_its_tag() {
+        assert_eq!(
+            split_image_reference("nats:2.11").unwrap(),
+            ("nats", "2.11")
+        );
+        assert_eq!(
+            split_image_reference("docker.io/library/nats:2.11").unwrap(),
+            ("docker.io/library/nats", "2.11")
+        );
         assert_eq!(
             split_image_reference("ghcr.io/nokia/srlinux:1.2.3").unwrap(),
             ("ghcr.io/nokia/srlinux", "1.2.3")
@@ -688,19 +698,7 @@ mod tests {
     }
 
     #[test]
-    fn an_official_docker_hub_image_reference_splits_at_its_tag() {
-        assert_eq!(
-            split_image_reference("nats:2.11").unwrap(),
-            ("nats", "2.11")
-        );
-        assert_eq!(
-            split_image_reference("docker.io/library/nats:2.11").unwrap(),
-            ("docker.io/library/nats", "2.11")
-        );
-    }
-
-    #[test]
-    fn a_refused_image_reference_names_the_short_and_full_forms() {
+    fn image_pull_005_a_repo_without_a_tag_or_with_a_digest_is_refused_naming_the_forms_taken() {
         for reference in ["nats", "localhost:5000/img", "img:", ":1", "img@sha256:abc"] {
             let message = split_image_reference(reference).unwrap_err().to_string();
             assert!(
@@ -725,7 +723,7 @@ mod tests {
     }
 
     #[test]
-    fn a_scan_records_a_repo_only_for_container_images() {
+    fn image_scan_012_the_cli_refuses_model_or_repo_alone_or_without_kind_container() {
         let request = scan(Some(NodeKind::Container), Some(NodeModel::MysqlDb))
             .request()
             .unwrap();
@@ -738,10 +736,6 @@ mod tests {
                 .to_string();
             assert!(error.contains("--kind container"), "{error}");
         }
-    }
-
-    #[test]
-    fn a_scan_without_a_model_takes_any_kind_or_none() {
         for kind in [
             None,
             Some(NodeKind::VirtualMachine),
@@ -749,6 +743,14 @@ mod tests {
             Some(NodeKind::Unikernel),
         ] {
             assert_eq!(scan(kind, None).request().unwrap().kind, kind);
+        }
+        for args in [
+            &["--kind", "container", "--model", "mysql_db"][..],
+            &["--kind", "container", "--repo", "mysql"],
+            &["--model", "mysql_db", "--repo", "mysql"],
+        ] {
+            let argv = ["sherpa", "server", "image", "scan"].iter().chain(args);
+            assert!(Cli::try_parse_from(argv).is_err(), "{args:?}");
         }
     }
 }

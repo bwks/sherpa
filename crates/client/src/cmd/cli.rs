@@ -521,24 +521,6 @@ mod tests {
         assert_eq!(warning.matches(MIGRATION_FAILED).count(), 1, "{warning}");
     }
 
-    fn parses(command: &[&str], extra: &[&str]) -> bool {
-        let argv = std::iter::once("sherpa")
-            .chain(command.iter().copied())
-            .chain(extra.iter().copied());
-        Cli::try_parse_from(argv).is_ok()
-    }
-
-    #[test]
-    fn a_scan_refuses_a_model_or_repo_alone_or_without_kind() {
-        for args in [
-            &["--kind", "container", "--model", "mysql_db"][..],
-            &["--kind", "container", "--repo", "mysql"],
-            &["--model", "mysql_db", "--repo", "mysql"],
-        ] {
-            assert!(!parses(&["server", "image", "scan"], args), "{args:?}");
-        }
-    }
-
     #[test]
     fn a_removed_model_name_on_the_command_line_names_its_replacement() {
         for argv in [

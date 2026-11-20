@@ -765,7 +765,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_redeploy_is_rebuilt_from_the_manifests_version_of_its_model_and_kind() {
+    async fn image_selection_014_a_redeploy_rebuilds_a_node_from_the_manifests_version_of_its_model_and_kind()
+     {
         let database = database_with_ceos_versions().await;
         let ceos = ModelKind::new(NodeModel::AristaEos, Some(data::NodeKind::Container)).unwrap();
 

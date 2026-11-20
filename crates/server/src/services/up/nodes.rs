@@ -56,6 +56,7 @@ pub(super) fn get_node_image(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::validate::validate_and_resolve_node_versions;
 
     #[test]
     fn talos_nodes_default_to_a_boot_disk_large_enough_for_talos() {
@@ -137,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn a_sonic_node_finds_the_image_of_its_own_kind_when_both_have_the_version() {
+    fn image_selection_003_a_node_gets_an_image_of_its_own_kind_only() {
         let sonic = |kind| data::ModelKind::new(data::NodeModel::SonicLinux, Some(kind)).unwrap();
         let images = [
             data::NodeConfig {
@@ -158,14 +159,15 @@ mod tests {
                 assert_eq!(found.version, "202511");
             }
         }
-    }
 
-    #[test]
-    fn a_node_image_is_found_by_model_kind_and_version() {
         // An image row of another kind is never the node's, default or not.
+        let mut own_kind = image(data::NodeKind::Container, "10.5", true);
+        if let data::KindSettings::Container(container) = &mut own_kind.settings {
+            container.repo = Some("test-repo".to_owned());
+        }
         let images = [
             image(data::NodeKind::VirtualMachine, "9.9", true),
-            image(data::NodeKind::Container, "10.5", true),
+            own_kind,
             image(data::NodeKind::Container, "10.4", false),
         ];
         let ceos =
@@ -180,5 +182,22 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("kind: container"), "{error}");
+
+        // Up's check of the manifest takes the same image, and refuses the other kind's version.
+        let node = |version: Option<&str>| topology::Node {
+            name: "ceos1".into(),
+            model: data::NodeModel::AristaEos,
+            kind: Some(data::NodeKind::Container),
+            version: version.map(str::to_owned),
+            ..Default::default()
+        };
+        let resolved = validate_and_resolve_node_versions(&[node(None)], &images, "/tmp").unwrap();
+        assert_eq!(resolved[0].version.as_deref(), Some("10.5"));
+        let error =
+            validate_and_resolve_node_versions(&[node(Some("9.9"))], &images, "/tmp").unwrap_err();
+        assert!(
+            format!("{error:#}").contains("kind: container"),
+            "{error:#}"
+        );
     }
 }

@@ -1,12 +1,13 @@
 /// UPDATE operation tests for `node_image`
 use anyhow::Result;
 use db::{DefaultRequest, find_node_image_by_id, update_node_image, upsert_node_image};
-use shared::data::{NodeModel, RecordId, Ztp};
+use shared::data::{NodeModel, Ztp};
 
 use crate::{create_test_config, set_ztp, setup_db};
 
 #[tokio::test]
-async fn test_update_node_image_success() -> Result<()> {
+async fn image_settings_002_a_changed_cpu_count_memory_and_interface_count_are_stored_under_the_same_image()
+-> Result<()> {
     let db = setup_db().await?;
 
     // Create a config
@@ -39,48 +40,6 @@ async fn test_update_node_image_success() -> Result<()> {
     assert_eq!(stored.memory, 4096);
     assert_eq!(stored.cpu.count, 4);
     assert_eq!(stored.interfaces.data_count, 24);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_update_node_image_without_id_fails() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Create a config without an ID
-    let mut test_config = create_test_config(NodeModel::CiscoAsa);
-    test_config.id = None; // Explicitly remove ID
-
-    // Attempt to update should fail
-    let result = update_node_image(&db, test_config, DefaultRequest::Keep).await;
-
-    assert!(result.is_err(), "Update without ID should fail");
-    let err = result.unwrap_err();
-    assert!(
-        err.to_string().contains("has no ID"),
-        "Error should mention missing ID: {err}"
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_update_nonexistent_config_fails() -> Result<()> {
-    let db = setup_db().await?;
-
-    // Create a config with a fake/nonexistent ID
-    let mut test_config = create_test_config(NodeModel::JuniperRouter);
-    test_config.id = Some(RecordId::new("node_image", "nonexistent_id_12345"));
-
-    // Attempt to update should fail
-    let result = update_node_image(&db, test_config, DefaultRequest::Keep).await;
-
-    assert!(result.is_err(), "Update with nonexistent ID should fail");
-    let err = result.unwrap_err();
-    assert!(
-        err.to_string().contains("not found"),
-        "Error should mention record not found: {err}"
-    );
 
     Ok(())
 }

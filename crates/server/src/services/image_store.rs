@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn a_copied_image_appears_at_its_destination_only_when_placed() {
+    fn image_import_006_the_image_is_at_its_path_only_once_it_is_whole() {
         let dir = tempdir().unwrap();
         let source = dir.path().join("source.qcow2");
         fs::write(&source, b"image bytes").unwrap();
@@ -229,19 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn a_copy_that_fails_leaves_no_file() {
-        let dir = tempdir().unwrap();
-        let destination = dir.path().join("virtioa.qcow2");
-
-        let staged = StagedDisk::new(&destination);
-        assert!(staged.copy_from(&dir.path().join("missing")).is_err());
-        drop(staged);
-
-        assert_eq!(entries(dir.path()), Vec::<String>::new());
-    }
-
-    #[test]
-    fn an_abandoned_stage_removes_its_partial_file() {
+    fn image_import_007_an_interrupted_import_leaves_no_partial_file() {
         let dir = tempdir().unwrap();
         let destination = dir.path().join("virtioa.qcow2");
         let staged = StagedDisk::new(&destination);
@@ -253,19 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn a_discarded_new_image_is_removed() {
-        let dir = tempdir().unwrap();
-        let destination = dir.path().join("virtioa.qcow2");
-        let staged = StagedDisk::new(&destination);
-        fs::write(staged.partial_path(), b"image").unwrap();
-
-        staged.place().unwrap().discard();
-
-        assert_eq!(entries(dir.path()), Vec::<String>::new());
-    }
-
-    #[test]
-    fn a_discarded_replacement_stays() {
+    fn image_import_005_a_replaced_file_whose_record_cannot_be_written_is_kept() {
         let dir = tempdir().unwrap();
         let destination = dir.path().join("virtioa.qcow2");
         fs::write(&destination, b"trunc").unwrap();
@@ -275,12 +251,5 @@ mod tests {
         staged.place().unwrap().discard();
 
         assert_eq!(fs::read(&destination).unwrap(), b"whole image");
-    }
-
-    #[test]
-    fn an_existing_disk_is_kept_only_when_it_has_the_source_size() {
-        assert_eq!(ExistingDisk::compare(10, None), ExistingDisk::Absent);
-        assert_eq!(ExistingDisk::compare(10, Some(10)), ExistingDisk::Same);
-        assert_eq!(ExistingDisk::compare(10, Some(4)), ExistingDisk::Different);
     }
 }

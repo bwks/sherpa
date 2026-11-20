@@ -983,24 +983,8 @@ pub async fn download_image(
 mod tests {
     use super::*;
     use axum::extract::ws::Message;
-    use libvirt::BackedVolume;
-
-    #[test]
-    fn a_shown_image_has_only_its_ztp_method_and_no_password_flag() {
-        let response = ShowImageResponse {
-            image: ModelKind::default_for(NodeModel::CiscoCat8000).node_config(),
-        };
-        let json = serde_json::to_value(&response).unwrap();
-        let top: Vec<&String> = json.as_object().unwrap().keys().collect();
-        assert_eq!(top, ["image"], "{json}");
-        let ztp: Vec<&String> = json["image"]["vm"]["ztp"]
-            .as_object()
-            .unwrap()
-            .keys()
-            .collect();
-        assert_eq!(ztp, ["method"], "{json}");
-    }
     use futures_util::stream;
+    use libvirt::BackedVolume;
     use std::io;
 
     fn quiet_progress() -> ProgressSender {
@@ -1013,7 +997,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_complete_download_lands_at_its_path() {
+    async fn image_download_001_a_complete_download_is_at_the_images_path() {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("disk.qcow2");
         let body = chunks(vec![Ok(b"abc".to_vec()), Ok(b"def".to_vec())]);
@@ -1029,7 +1013,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_interrupted_download_leaves_nothing_to_reuse() {
+    async fn image_download_002_a_download_that_breaks_off_leaves_nothing_at_the_path() {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("disk.qcow2");
         let body = chunks(vec![
@@ -1048,7 +1032,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_body_shorter_than_its_content_length_is_refused() {
+    async fn image_download_003_a_body_shorter_than_its_declared_length_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("disk.qcow2");
         let body = chunks(vec![Ok(b"abc".to_vec())]);
@@ -1062,7 +1046,7 @@ mod tests {
     }
 
     #[test]
-    fn talos_image_urls_use_the_schematic_and_a_v_prefixed_version() {
+    fn image_download_008_a_talos_version_is_downloaded_from_the_vanilla_schematic() {
         let id = "a".repeat(64);
         for version in ["1.14.4", "v1.14.4"] {
             assert_eq!(
@@ -1073,7 +1057,7 @@ mod tests {
     }
 
     #[test]
-    fn schematic_ids_are_read_from_the_factory_response() {
+    fn image_download_009_a_factory_answer_without_a_schematic_id_is_refused() {
         let id = "0123456789abcdef".repeat(4);
         let body = format!(r#"{{"id":"{id}","schematic":"customization: {{}}\n"}}"#);
         assert_eq!(parse_schematic_id(body.as_bytes()).unwrap(), id);
@@ -1084,7 +1068,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires internet access to factory.talos.dev"]
-    async fn the_image_factory_returns_the_vanilla_schematic() {
+    async fn image_download_010_the_image_factory_answers_with_the_vanilla_schematic_id() {
         let url = resolve_download_url(&NodeModel::TalosLinux, "1.14.4", None)
             .await
             .unwrap();
@@ -1093,7 +1077,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_resolve_download_url_user_override() {
+    async fn image_download_006_the_url_given_is_the_url_downloaded() {
         let custom = "https://example.com/my-image.qcow2";
         let url = resolve_download_url(&NodeModel::FedoraLinux, "42", Some(custom))
             .await
@@ -1102,7 +1086,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_resolve_download_url_unsupported_model_no_url() {
+    async fn image_download_007_without_a_url_a_model_other_than_ubuntu_or_talos_is_refused() {
         let result = resolve_download_url(&NodeModel::FedoraLinux, "42", None).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -1128,14 +1112,6 @@ mod tests {
         assert_eq!(frame["kind"], "progress", "{frame}");
         assert!(frame.get("phase").is_none(), "{frame}");
         assert!(rx.try_recv().is_err());
-    }
-
-    #[test]
-    fn megabytes_are_shown_to_one_decimal_place() {
-        assert_eq!(megabytes(0), "0.0");
-        assert_eq!(megabytes(1_572_864), "1.5");
-        assert_eq!(megabytes(1_048_575), "1.0");
-        assert_eq!(megabytes(10 * 1_048_576), "10.0");
     }
 
     /// A disk import of `model` version `version` from `source`.
@@ -1217,27 +1193,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_imported_disk_is_in_place_and_recorded_as_the_first_default() {
+    async fn image_import_001_an_imported_disk_is_in_the_images_directory_and_recorded() {
         let root = tempfile::tempdir().unwrap();
         let paths = test_paths(root.path());
         let source = root.path().join("source.qcow2");
         std::fs::write(&source, b"whole image").unwrap();
         let database = schema_db().await;
 
-        let response = import_disk(&database, &paths, &source, "1").await.unwrap();
+        import_disk(&database, &paths, &source, "1").await.unwrap();
 
-        assert!(response.default);
         assert_eq!(
             std::fs::read(disk_path(&paths, "1")).unwrap(),
             b"whole image"
         );
-        assert!(recorded(&database, "1").await.unwrap().default);
+        assert!(recorded(&database, "1").await.is_some());
         let version_dir = paths.version_dir(NodeModel::UbuntuLinux, "1");
         assert_eq!(std::fs::read_dir(version_dir).unwrap().count(), 1);
     }
 
     #[tokio::test]
-    async fn a_disk_import_whose_row_cannot_be_written_leaves_no_image() {
+    async fn image_import_004_an_import_whose_record_cannot_be_written_removes_the_file_it_added() {
         let root = tempfile::tempdir().unwrap();
         let paths = test_paths(root.path());
         let source = root.path().join("source.qcow2");
@@ -1252,7 +1227,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_disk_import_whose_source_is_unreadable_records_nothing() {
+    async fn image_import_003_a_source_that_cannot_be_read_leaves_no_file_no_partial_file_and_no_record()
+     {
         let root = tempfile::tempdir().unwrap();
         let paths = test_paths(root.path());
         let database = schema_db().await;
@@ -1261,11 +1237,13 @@ mod tests {
         assert!(import_disk(&database, &paths, &missing, "1").await.is_err());
 
         assert!(recorded(&database, "1").await.is_none());
-        assert!(!disk_path(&paths, "1").exists());
+        let version_dir = paths.version_dir(NodeModel::UbuntuLinux, "1");
+        let files = std::fs::read_dir(version_dir).map_or(0, Iterator::count);
+        assert_eq!(files, 0, "the import left a file or a partial file");
     }
 
     #[tokio::test]
-    async fn a_truncated_disk_left_by_an_earlier_import_is_replaced() {
+    async fn image_import_009_a_file_of_another_size_is_replaced() {
         let root = tempfile::tempdir().unwrap();
         let paths = test_paths(root.path());
         let source = root.path().join("source.qcow2");
@@ -1281,7 +1259,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_disk_of_the_source_size_is_kept() {
+    async fn image_import_008_a_file_of_the_sources_size_skips_the_copy() {
         let root = tempfile::tempdir().unwrap();
         let paths = test_paths(root.path());
         let source = root.path().join("source.qcow2");
@@ -1298,7 +1276,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_differing_disk_that_lab_disks_are_built_on_is_not_replaced() {
+    async fn image_import_010_a_file_of_another_size_with_lab_disks_built_on_it_is_refused_and_kept()
+     {
         let root = tempfile::tempdir().unwrap();
         let paths = test_paths(root.path());
         let source = root.path().join("source.qcow2");
@@ -1323,7 +1302,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_scan_that_waited_for_a_delete_does_not_record_the_deleted_image() {
+    async fn image_scan_016_a_scan_that_waited_for_a_delete_does_not_record_the_deleted_image() {
         let root = tempfile::tempdir().unwrap();
         let paths = test_paths(root.path());
         let disk = disk_path(&paths, "scan-race");

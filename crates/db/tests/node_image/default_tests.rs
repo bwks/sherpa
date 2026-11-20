@@ -28,7 +28,8 @@ async fn record(db: &Database, name: &str, request: DefaultRequest) -> Result<No
 }
 
 #[tokio::test]
-async fn the_first_version_of_a_model_becomes_its_default_without_being_asked() -> Result<()> {
+async fn image_default_001_the_first_version_of_a_model_and_kind_becomes_its_default_without_being_asked()
+-> Result<()> {
     let db = setup_db().await?;
     record(&db, "1", DefaultRequest::Keep).await?;
     record(&db, "2", DefaultRequest::Keep).await?;
@@ -37,7 +38,8 @@ async fn the_first_version_of_a_model_becomes_its_default_without_being_asked() 
 }
 
 #[tokio::test]
-async fn importing_the_default_again_without_the_option_keeps_it_the_default() -> Result<()> {
+async fn image_default_003_recording_the_default_again_without_default_keeps_it_the_default()
+-> Result<()> {
     let db = setup_db().await?;
     record(&db, "1", DefaultRequest::Keep).await?;
     record(&db, "2", DefaultRequest::Keep).await?;
@@ -50,7 +52,8 @@ async fn importing_the_default_again_without_the_option_keeps_it_the_default() -
 }
 
 #[tokio::test]
-async fn importing_a_version_again_keeps_its_edited_settings() -> Result<()> {
+async fn image_import_011_importing_a_version_again_keeps_the_settings_an_admin_changed()
+-> Result<()> {
     let db = setup_db().await?;
     let mut edited = record(&db, "1", DefaultRequest::Keep).await?;
     edited.memory = 8192;
@@ -69,16 +72,26 @@ async fn importing_a_version_again_keeps_its_edited_settings() -> Result<()> {
 }
 
 #[tokio::test]
-async fn making_a_version_the_default_moves_the_flag() -> Result<()> {
+async fn image_default_002_making_a_version_the_default_leaves_the_old_default_no_longer_one()
+-> Result<()> {
     let db = setup_db().await?;
     record(&db, "1", DefaultRequest::Keep).await?;
     record(&db, "2", DefaultRequest::Make).await?;
+
     assert_eq!(default_version(&db).await?.as_deref(), Some("2"));
+    let kind = create_test_config(MODEL).kind();
+    let versions = get_node_image_versions(&db, &MODEL, &kind).await?;
+    let defaults: Vec<&str> = versions
+        .iter()
+        .filter(|image| image.default)
+        .map(|image| image.version.as_str())
+        .collect();
+    assert_eq!(defaults, ["2"]);
     Ok(())
 }
 
 #[tokio::test]
-async fn an_edit_cannot_unset_the_only_default() -> Result<()> {
+async fn image_default_006_an_edit_cannot_unset_the_default() -> Result<()> {
     let db = setup_db().await?;
     let one = record(&db, "1", DefaultRequest::Keep).await?;
     let two = record(&db, "2", DefaultRequest::Keep).await?;
@@ -111,7 +124,8 @@ async fn an_edit_keeps_the_version_it_was_read_with() -> Result<()> {
 }
 
 #[tokio::test]
-async fn deleting_the_default_makes_the_newest_remaining_version_the_default() -> Result<()> {
+async fn image_default_007_deleting_the_default_makes_the_most_recently_added_remaining_version_the_default()
+-> Result<()> {
     let db = setup_db().await?;
     let one = record(&db, "1", DefaultRequest::Keep).await?;
     record(&db, "3", DefaultRequest::Keep).await?;
@@ -125,7 +139,8 @@ async fn deleting_the_default_makes_the_newest_remaining_version_the_default() -
 }
 
 #[tokio::test]
-async fn deleting_another_version_or_the_last_promotes_nothing() -> Result<()> {
+async fn image_default_008_deleting_a_version_that_is_not_the_default_or_the_last_changes_no_default()
+-> Result<()> {
     let db = setup_db().await?;
     let one = record(&db, "1", DefaultRequest::Keep).await?;
     let two = record(&db, "2", DefaultRequest::Keep).await?;

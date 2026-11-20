@@ -247,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn a_volumes_backing_file_is_read_from_its_xml() {
+    fn image_delete_008_a_disks_backing_file_is_read_from_its_volume_xml() {
         let overlay = "<volume type='file'><name>srx1-lab-hdd.qcow2</name>\
             <target><path>/opt/sherpa/libvirt/images/srx1-lab-hdd.qcow2</path>\
             <format type='qcow2'/></target>\

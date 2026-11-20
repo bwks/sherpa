@@ -578,7 +578,7 @@ async fn lab_clean_001_clean_removes_a_running_lab() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires Docker, internet access to pull an image and host network administration rights (CAP_NET_ADMIN)"]
-async fn an_official_docker_hub_image_pulled_by_its_full_name_brings_a_container_node_up()
+async fn image_selection_013_an_official_docker_hub_image_pulled_by_its_full_name_is_found_and_its_node_comes_up()
 -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -604,6 +604,21 @@ async fn an_official_docker_hub_image_pulled_by_its_full_name_brings_a_container
         response.get("error").is_none(),
         "image.pull failed: {response}"
     );
+    let docker = Docker::connect_with_local_defaults()?;
+    for reference in [
+        "docker.io/library/busybox:1.36",
+        "library/busybox:1.36",
+        "busybox:1.36",
+    ] {
+        ensure!(
+            container::image_exists(&docker, reference).await?,
+            "{reference} was not found"
+        );
+    }
+    ensure!(
+        !container::image_exists(&docker, "docker.io/library/busybox:sherpa-no-such-tag").await?,
+        "a tag that was never pulled was found"
+    );
 
     let lab_name = format!("tb{:06}", std::process::id() % 1_000_000);
     let manifest = json!({
@@ -622,7 +637,6 @@ async fn an_official_docker_hub_image_pulled_by_its_full_name_brings_a_container
             Duration::from_secs(180),
         )
         .await?;
-        let docker = Docker::connect_with_local_defaults()?;
         let container = format!("box1-{lab_name}");
         let (_, image) = container_image(&docker, &container).await?;
         ensure!(

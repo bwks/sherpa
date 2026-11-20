@@ -285,40 +285,6 @@ mod tests {
     }
 
     #[test]
-    fn an_image_path_names_each_kind_of_its_model() {
-        for (kind, expected) in [
-            ("virtual_machine", NodeKind::VirtualMachine),
-            ("container", NodeKind::Container),
-        ] {
-            let model_kind = path_model_kind("arista_eos", kind).unwrap();
-            assert_eq!(model_kind.model(), NodeModel::AristaEos);
-            assert_eq!(model_kind.kind(), expected);
-        }
-        for model_kind in ModelKind::all() {
-            assert_eq!(
-                path_model_kind(
-                    &model_kind.model().to_string(),
-                    &model_kind.kind().to_string()
-                )
-                .unwrap(),
-                model_kind
-            );
-        }
-    }
-
-    #[test]
-    fn an_image_path_with_a_kind_the_model_does_not_take_is_a_bad_request() {
-        assert_eq!(
-            refusal(path_model_kind("arista_eos", "unikernel")),
-            "Model 'arista_eos' is not a unikernel; it comes only as: virtual_machine, container"
-        );
-        assert_eq!(
-            refusal(path_model_kind("arista_eos", "vm")),
-            "Unknown node kind: vm"
-        );
-    }
-
-    #[test]
     fn an_image_path_with_an_old_model_name_is_refused_naming_its_replacement() {
         assert_eq!(
             refusal(path_model_kind("arista_ceos", "container")),
