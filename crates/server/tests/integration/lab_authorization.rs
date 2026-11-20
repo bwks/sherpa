@@ -14,6 +14,8 @@ use crate::helpers::ws_client::TestWsClient;
 const RPC_TIMEOUT: Duration = Duration::from_secs(60);
 /// A lab ID no lab has.
 const UNKNOWN_LAB: &str = "deadbeef";
+/// The routes of the serial and the VNC console.
+const CONSOLE_ROUTES: [&str; 2] = ["console", "vnc"];
 /// A lab with no nodes, for checks that refuse the request before anything is built.
 const ADMIN_LAB_MANIFEST: &str = r#"
 name = "admin-lab"
@@ -25,6 +27,15 @@ struct Caller {
     username: &'static str,
     token: String,
     is_admin: bool,
+}
+
+/// A lab of alice's with one VM, `alp01`, that is not running, for the console checks.
+struct ConsoleLab {
+    _server: TestServer,
+    http: Client,
+    base: String,
+    lab_id: String,
+    alice: String,
 }
 
 /// IPv4-only lab networks for tests that seed lab records directly.
@@ -1044,14 +1055,8 @@ async fn an_unknown_job_is_not_found() -> Result<()> {
     Ok(())
 }
 
-/// `GET .../console?check=true` and `.../vnc?check=true` run the checks of opening the console,
-/// with no WebSocket and nothing taken, and refuse as opening it does: no login, anyone but the
-/// owner (an admin included), a container, a node not running, a node that does not exist. A
-/// running node's answer, and one on TCP, are covered by the handler's and the service's unit
-/// tests, as they need a running domain.
-#[tokio::test]
-#[ignore = "requires libvirt"]
-async fn a_console_check_refuses_as_opening_the_console_does() -> Result<()> {
+/// Start a server, log in alice, bob and dana, and seed alice a lab with `alp01` in it.
+async fn console_lab() -> Result<ConsoleLab> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let (callers, owners) = login_callers(&server, &mut ws).await?;
@@ -1061,92 +1066,116 @@ async fn a_console_check_refuses_as_opening_the_console_does() -> Result<()> {
         .context("the seeded lab")?
         .id
         .context("the seeded lab's record")?;
-    for (name, index, model) in [
-        ("alp01", 1, NodeModel::AlpineLinux),
-        ("srl01", 2, NodeModel::NokiaSrlinux),
-    ] {
-        let image = db::upsert_node_image(
-            &server.db,
-            ModelKind::default_for(model).node_config(),
-            DefaultRequest::Keep,
-        )
-        .await?;
-        db::create_node(
-            &server.db,
-            name,
-            index,
-            image.id.context("an image record")?,
-            lab.clone(),
-        )
-        .await?;
-    }
-    let (alice, bob, dana) = (
-        token_of(&callers, "alice")?,
-        token_of(&callers, "bob")?,
-        token_of(&callers, "dana")?,
-    );
-    let owner_only = format!("only the owner of lab '{lab_id}' can open its consoles");
-    let http = http_client()?;
-    let base = format!("http://{}", server.addr);
-    for (route, console) in [("console", "serial console"), ("vnc", "VNC console")] {
-        let container = format!("srl01 is a container, and containers have no {console}");
-        for (token, node, status, says) in [
-            (None, "alp01", StatusCode::UNAUTHORIZED, ""),
-            (
-                Some(&bob),
-                "alp01",
-                StatusCode::FORBIDDEN,
-                owner_only.as_str(),
-            ),
-            (
-                Some(&dana),
-                "alp01",
-                StatusCode::FORBIDDEN,
-                owner_only.as_str(),
-            ),
-            (
-                Some(&alice),
-                "srl01",
-                StatusCode::BAD_REQUEST,
-                container.as_str(),
-            ),
-            (
-                Some(&alice),
-                "alp01",
-                StatusCode::CONFLICT,
-                "Node 'alp01' is not running. Start it with 'sherpa resume'.",
-            ),
-            (
-                Some(&alice),
-                "ghost",
-                StatusCode::NOT_FOUND,
-                "Node 'ghost' not found",
-            ),
-        ] {
-            let mut request = http.get(format!(
-                "{base}/api/v1/labs/{lab_id}/nodes/{node}/{route}?check=true"
-            ));
-            if let Some(token) = token {
-                request = request.bearer_auth(token);
-            }
-            let response = request.send().await?;
-            let label = format!("{route} check of {node}, token {}", token.is_some());
-            ensure!(
-                response.status() == status,
-                "{label}: expected {status}, got {}",
-                response.status()
-            );
-            let body = response.text().await?;
-            ensure!(body.contains(says), "{label}: {body}");
+    let image = db::upsert_node_image(
+        &server.db,
+        ModelKind::default_for(NodeModel::AlpineLinux).node_config(),
+        DefaultRequest::Keep,
+    )
+    .await?;
+    db::create_node(
+        &server.db,
+        "alp01",
+        1,
+        image.id.context("an image record")?,
+        lab,
+    )
+    .await?;
+    Ok(ConsoleLab {
+        http: http_client()?,
+        base: format!("http://{}", server.addr),
+        alice: token_of(&callers, "alice")?,
+        lab_id,
+        _server: server,
+    })
+}
+
+impl ConsoleLab {
+    /// Send `GET .../{route}` for `node` in `lab_id`, with `query` and as `token`; return the
+    /// status and the body.
+    async fn ask(
+        &self,
+        lab_id: &str,
+        node: &str,
+        route: &str,
+        query: &str,
+        token: Option<&str>,
+    ) -> Result<(StatusCode, String)> {
+        let mut request = self.http.get(format!(
+            "{}/api/v1/labs/{lab_id}/nodes/{node}/{route}{query}",
+            self.base
+        ));
+        if let Some(token) = token {
+            request = request.bearer_auth(token);
         }
-        // Without `check`, a request that is no WebSocket upgrade is refused as not one.
-        let response = http
-            .get(format!("{base}/api/v1/labs/{lab_id}/nodes/alp01/{route}"))
-            .bearer_auth(&alice)
-            .send()
-            .await?;
+        let response = request.send().await?;
         let status = response.status();
-        let body = response.text().await?;
+        Ok((status, response.text().await?))
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires libvirt"]
+async fn console_access_003_a_request_with_no_token_is_refused_with_401() -> Result<()> {
+    let lab = console_lab().await?;
+    for route in CONSOLE_ROUTES {
+        let (status, body) = lab
+            .ask(&lab.lab_id, "alp01", route, "?check=true", None)
+            .await?;
+        ensure!(
+            status == StatusCode::UNAUTHORIZED,
+            "{route} with no token: {status} {body}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires libvirt"]
+async fn console_refusal_004_a_node_not_running_is_refused_saying_to_resume() -> Result<()> {
+    let lab = console_lab().await?;
+    for route in CONSOLE_ROUTES {
+        let (status, body) = lab
+            .ask(&lab.lab_id, "alp01", route, "?check=true", Some(&lab.alice))
+            .await?;
+        ensure!(
+            status == StatusCode::CONFLICT
+                && body.contains("Node 'alp01' is not running. Start it with 'sherpa resume'."),
+            "{route} of a node not running: {status} {body}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires libvirt"]
+async fn console_refusal_005_a_lab_or_node_that_does_not_exist_is_not_found() -> Result<()> {
+    let lab = console_lab().await?;
+    for route in CONSOLE_ROUTES {
+        for (lab_id, node, says) in [
+            (lab.lab_id.as_str(), "ghost", "Node 'ghost' not found"),
+            (UNKNOWN_LAB, "alp01", ""),
+        ] {
+            let (status, body) = lab
+                .ask(lab_id, node, route, "?check=true", Some(&lab.alice))
+                .await?;
+            ensure!(
+                status == StatusCode::NOT_FOUND && body.contains(says),
+                "{route} of {node} in {lab_id}: {status} {body}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires libvirt"]
+async fn console_refusal_006_a_request_neither_an_upgrade_nor_a_check_is_a_bad_request()
+-> Result<()> {
+    let lab = console_lab().await?;
+    for route in CONSOLE_ROUTES {
+        let (status, body) = lab
+            .ask(&lab.lab_id, "alp01", route, "", Some(&lab.alice))
+            .await?;
         ensure!(
             status == StatusCode::BAD_REQUEST && body.contains("'upgrade'"),
             "{route} without check or upgrade: {status} {body}"

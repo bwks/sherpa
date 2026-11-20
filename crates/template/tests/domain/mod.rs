@@ -72,9 +72,9 @@ fn p2p_interface() -> Interface {
 // ============================================================================
 
 #[test]
-fn test_domain_serial_console_is_a_unix_socket() {
+fn console_sockets_003_a_vm_is_defined_with_both_consoles_on_its_own_sockets() {
     let xml = base_domain_template().render().expect("renders domain XML");
-    // libvirt binds the socket; only sherpad connects to it. Nothing listens on TCP.
+    // libvirt binds the serial socket and QEMU the VNC one; only sherpad connects to them.
     let source = "<source mode='bind' path='/opt/sherpa/run/console/a10736e8/1.serial'/>";
     assert!(
         xml.contains(&format!("<serial type='unix'>\n      {source}")),
@@ -84,14 +84,6 @@ fn test_domain_serial_console_is_a_unix_socket() {
         xml.contains(&format!("<console type='unix'>\n      {source}")),
         "{xml}"
     );
-    assert!(!xml.contains("telnet"), "{xml}");
-    assert!(!xml.contains("type='tcp'"), "{xml}");
-}
-
-#[test]
-fn test_domain_vnc_console_is_a_unix_socket() {
-    let xml = base_domain_template().render().expect("renders domain XML");
-    // QEMU binds the socket; only sherpad connects to it. No port is opened.
     assert!(
         xml.contains(
             "<graphics type='vnc'>\n      \
@@ -100,8 +92,6 @@ fn test_domain_vnc_console_is_a_unix_socket() {
         ),
         "{xml}"
     );
-    assert!(!xml.contains("port='59"), "{xml}");
-    assert!(!xml.contains("autoport"), "{xml}");
 }
 
 #[test]

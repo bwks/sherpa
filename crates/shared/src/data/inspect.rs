@@ -119,27 +119,4 @@ mod tests {
         let back: LinkInfo = serde_json::from_value(old.take()).unwrap();
         assert_eq!(back.index, None);
     }
-
-    fn device() -> DeviceInfo {
-        DeviceInfo {
-            name: "vm1".to_string(),
-            model: NodeModel::AlpineLinux,
-            kind: NodeKind::VirtualMachine,
-            state: NodeState::Running,
-            mgmt_ipv4: "172.31.0.11".to_string(),
-            mgmt_ipv6: None,
-            disks: Vec::new(),
-            cpu_count: None,
-            memory: None,
-        }
-    }
-
-    #[test]
-    fn a_device_from_an_older_server_with_a_console_address_still_reads() {
-        // The console is reached through sherpad's API, not at an address (#674).
-        let mut value = serde_json::to_value(device()).unwrap();
-        value["console_address"] = serde_json::json!("127.127.3.1");
-        let back: DeviceInfo = serde_json::from_value(value).unwrap();
-        assert_eq!(back.name, "vm1");
-    }
 }

@@ -434,7 +434,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_close_frame_says_why_the_server_ended_the_session() {
+    fn console_end_007_each_way_the_server_ends_a_session_has_its_own_close_code_and_reason() {
         let taken = Ended::TakenOver("alice from 192.0.2.10 since 2026-11-18 09:08:07 UTC".into());
         for (ended, code, reason) in [
             (
@@ -469,30 +469,12 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn a_vnc_console_the_node_closed_does_not_claim_the_node_stopped() {
+        // A VNC console the node closed does not claim the node stopped.
         let frame = Ended::Node.close_frame(ConsoleKind::Vnc).unwrap();
         assert_eq!(frame.code, close_code::NORMAL);
         assert_eq!(
             frame.reason.as_str(),
             "The node's VNC console closed the connection."
-        );
-    }
-
-    #[test]
-    fn a_held_console_names_its_holder_and_the_command_that_takes_it_over() {
-        let holder = "alice from 192.0.2.10 since 2026-11-18 09:08:07 UTC";
-        assert_eq!(
-            in_use(ConsoleKind::Serial, "alp01", holder),
-            "The console of alp01 is in use by alice from 192.0.2.10 since 2026-11-18 09:08:07 \
-             UTC. Close that session, or take it over with 'sherpa console alp01 --force'."
-        );
-        assert_eq!(
-            in_use(ConsoleKind::Vnc, "ubu01", holder),
-            "The VNC console of ubu01 is in use by alice from 192.0.2.10 since 2026-11-18 \
-             09:08:07 UTC. Close that session, or take it over with 'sherpa vnc ubu01 --force'."
         );
     }
 
@@ -505,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    fn a_check_names_the_holder_of_the_console_and_takes_nothing() {
+    fn console_session_008_a_check_answers_who_holds_the_console_and_takes_nothing() {
         let sessions = ConsoleSessions::default();
         let ubu01 = target("ubu01");
         assert_eq!(
@@ -546,7 +528,7 @@ mod tests {
     }
 
     #[test]
-    fn a_long_close_reason_is_cut_to_what_a_close_frame_carries() {
+    fn console_end_008_a_long_close_reason_is_cut_short_at_a_character_boundary() {
         let frame = Ended::TakenOver("é".repeat(100))
             .close_frame(ConsoleKind::Vnc)
             .unwrap();

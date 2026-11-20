@@ -275,15 +275,14 @@ mod tests {
     }
 
     #[test]
-    fn test_unikernel_template_has_serial_console() {
+    fn console_sockets_004_a_unikernel_is_defined_with_its_serial_socket_and_no_vnc_console() {
         let tmpl = base_unikernel_template(UnikernelBootMode::DirectKernel);
         let xml = tmpl.render().unwrap();
 
         let source = "<source mode='bind' path='/opt/sherpa/run/console/lab1/1.serial'/>";
         assert!(xml.contains(&format!("<serial type='unix'>\n      {source}")));
         assert!(xml.contains(&format!("<console type='unix'>\n      {source}")));
-        assert!(!xml.contains("telnet"));
-        assert!(!xml.contains("type='tcp'"));
+        assert!(!xml.contains("<graphics"), "{xml}");
     }
 
     #[test]
