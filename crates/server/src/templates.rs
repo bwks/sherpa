@@ -824,7 +824,7 @@ mod tests {
     }
 
     #[test]
-    fn the_node_actions_offered_are_the_ones_its_state_allows() {
+    fn node_state_020_the_web_ui_offers_a_node_only_the_actions_its_state_allows() {
         // M1.1 and M4.2: a node being built offers nothing, and a missing one only redeploy.
         let cases = [
             (NodeState::Running, ["stop", "redeploy"].as_slice()),

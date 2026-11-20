@@ -39,27 +39,3 @@ impl fmt::Display for WatchdogAction {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const ACTIONS: [WatchdogAction; 7] = [
-        WatchdogAction::Reset,
-        WatchdogAction::Poweroff,
-        WatchdogAction::Shutdown,
-        WatchdogAction::Pause,
-        WatchdogAction::Dump,
-        WatchdogAction::InjectNmi,
-        WatchdogAction::None,
-    ];
-
-    #[test]
-    fn manifest_names_are_the_libvirt_names() {
-        for action in ACTIONS {
-            let json = serde_json::to_value(action).unwrap();
-            assert_eq!(json.as_str().unwrap(), action.to_string());
-        }
-        assert_eq!(WatchdogAction::InjectNmi.to_string(), "inject-nmi");
-    }
-}

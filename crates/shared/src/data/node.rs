@@ -2467,7 +2467,7 @@ mod tests {
     }
 
     #[test]
-    fn a_node_state_this_build_does_not_know_decodes_as_unknown() {
+    fn node_state_015_an_unknown_node_state_reads_as_unknown_and_known_ones_read_back() {
         // M1.8: one row written by another version must not fail a whole listing.
         for text in [r#""created""#, r#""hibernating""#] {
             let state: NodeState = serde_json::from_str(text).unwrap();

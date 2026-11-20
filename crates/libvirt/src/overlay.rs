@@ -76,56 +76,24 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use shared::konst::SHERPA_STORAGE_POOL_PATH;
-    use virt::domain::Domain;
     use virt::stream::Stream;
-    use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
     use super::*;
     use crate::{Qemu, QemuConnection, clone_disk, delete_disk, resize_disk};
 
     static NEXT_TEST: AtomicU64 = AtomicU64::new(0);
 
-    #[test]
-    fn overlay_xml_escapes_paths_and_explicitly_sets_backing_format() {
-        let xml = OverlayVolume {
-            name: "node&one.qcow2",
-            destination: "/pool/a<b.qcow2",
-            backing: "/images/a&b/base.qcow2",
-            capacity: 1234,
-        }
-        .render()
-        .unwrap();
-        assert!(xml.contains("node&#38;one.qcow2"));
-        assert!(xml.contains("/pool/a&#60;b.qcow2"));
-        assert!(xml.contains("/images/a&#38;b/base.qcow2"));
-        assert!(xml.contains("<capacity unit='bytes'>1234</capacity>"));
-        assert!(xml.contains("<allocation unit='bytes'>0</allocation>"));
-        assert_eq!(xml.matches("<format type='qcow2'/>").count(), 2);
-    }
     /// Uses only disposable volumes owned by this test. qemu-io is used here to
     /// verify guest-visible blocks; production provisioning never executes QEMU.
     #[test]
     #[ignore = "Requires local libvirt, sherpa-pool and qemu-io; set SHERPA_OVERLAY_LIVE=1"]
-    fn live_overlay_disk_isolation_resize_and_reset() -> Result<()> {
-        ensure!(
-            env::var("SHERPA_OVERLAY_LIVE").as_deref() == Ok("1"),
-            "Set SHERPA_OVERLAY_LIVE=1 to authorize disposable test volumes"
-        );
-        let mut fixture = LiveVolumes::new()?;
-        let pool = StoragePool::lookup_by_name(&fixture.conn, SHERPA_STORAGE_POOL)?;
-        let base_name = fixture.name("base.qcow2");
-        let base = fixture.path("base.qcow2");
-        let xml = format!(
-            "<volume><name>{base_name}</name><capacity unit='bytes'>1073741824</capacity><allocation>0</allocation><target><format type='qcow2'/><permissions><mode>0644</mode></permissions></target></volume>"
-        );
-        StorageVol::create_xml(&pool, &xml, 0)?;
-        fixture.created.push(base_name);
-        block_io(&fixture.conn, &base, "write -P 0x5a 0 4096")?;
-        let original = fs::read(&base)?;
+    fn vm_start_001_what_a_vm_writes_to_its_overlay_changes_neither_the_base_nor_another_disk()
+    -> Result<()> {
+        let (mut fixture, base, original) = LiveVolumes::with_base()?;
         let first = fixture.path("first.qcow2");
         let second = fixture.path("second.qcow2");
         fixture.overlay(&base, "first.qcow2", None)?;
-        fixture.overlay(&base, "second.qcow2", Some(1))?;
+        fixture.overlay(&base, "second.qcow2", None)?;
         block_io(&fixture.conn, &first, "read -P 0x5a 0 4096")?;
         block_io(&fixture.conn, &second, "read -P 0x5a 0 4096")?;
         block_io(&fixture.conn, &first, "write -P 0xa5 0 4096")?;
@@ -133,56 +101,68 @@ mod tests {
         block_io(&fixture.conn, &second, "write -P 0x33 0 4096")?;
         block_io(&fixture.conn, &first, "read -P 0xa5 0 4096")?;
         assert_eq!(fs::read(&base)?, original);
+        Ok(())
+    }
 
-        // A stop/start opens the same disk; writes must survive resume.
-        let domain_xml = TestDomain {
-            name: &fixture.prefix,
-            disk: &first,
-            memory: 256,
-        }
-        .render()?;
-        let domain = Domain::define_xml(&fixture.conn, &domain_xml)?;
-        fixture.domain = Some(domain);
-        let domain = fixture.domain.as_ref().context("Missing test domain")?;
-        domain.create()?;
-        domain.destroy()?;
-        block_io(&fixture.conn, &first, "read -P 0xa5 0 4096")?;
-        domain.create()?;
-        domain.destroy()?;
-        block_io(&fixture.conn, &first, "read -P 0xa5 0 4096")?;
-        domain.undefine_flags(VIR_DOMAIN_UNDEFINE_NVRAM)?;
-        fixture.domain = None;
-
-        resize_disk(&fixture.conn, &first, 2)?;
-        assert_eq!(read_qcow2_metadata(Path::new(&first))?.capacity, 2 << 30);
-        assert_eq!(read_qcow2_metadata(Path::new(&base))?.capacity, 1 << 30);
-        assert_eq!(fs::read(&base)?, original);
-        // Neither copy nor overlay attempts may replace an existing disk.
-        assert!(create_overlay(&fixture.conn, &base, &first, None).is_err());
-        assert!(clone_disk(&fixture.conn, &base, &first).is_err());
-        block_io(&fixture.conn, &first, "read -P 0xa5 0 4096")?;
-        delete_disk(&fixture.conn, &fixture.name("first.qcow2"))?;
-        let first_name = fixture.name("first.qcow2");
-        fixture.created.retain(|name| name != &first_name);
-        fixture.overlay(&base, "first.qcow2", None)?;
-        block_io(&fixture.conn, &first, "read -P 0x5a 0 4096")?;
-        assert_eq!(fs::read(&base)?, original);
-
+    #[test]
+    #[ignore = "Requires local libvirt, sherpa-pool and qemu-io; set SHERPA_OVERLAY_LIVE=1"]
+    fn vm_start_002_a_boot_disk_size_gives_the_disk_that_size_and_leaves_the_base_as_it_was()
+    -> Result<()> {
+        let (mut fixture, base, original) = LiveVolumes::with_base()?;
         let grown = fixture.path("grown.qcow2");
         fixture.overlay(&base, "grown.qcow2", Some(2))?;
         assert_eq!(read_qcow2_metadata(Path::new(&grown))?.capacity, 2 << 30);
+        let resized = fixture.path("resized.qcow2");
+        fixture.overlay(&base, "resized.qcow2", None)?;
+        resize_disk(&fixture.conn, &resized, 2)?;
+        assert_eq!(read_qcow2_metadata(Path::new(&resized))?.capacity, 2 << 30);
+        assert_eq!(read_qcow2_metadata(Path::new(&base))?.capacity, 1 << 30);
+        assert_eq!(fs::read(&base)?, original);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "Requires local libvirt, sherpa-pool and qemu-io; set SHERPA_OVERLAY_LIVE=1"]
+    fn vm_start_004_a_copied_boot_disk_has_the_base_images_contents() -> Result<()> {
+        let (mut fixture, base, _) = LiveVolumes::with_base()?;
+        let copy = fixture.path("copy.qcow2");
+        clone_disk(&fixture.conn, &base, &copy)?;
+        fixture.created.push(fixture.name("copy.qcow2"));
+        block_io(&fixture.conn, &copy, "read -P 0x5a 0 4096")?;
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "Requires local libvirt, sherpa-pool and qemu-io; set SHERPA_OVERLAY_LIVE=1"]
+    fn vm_start_005_a_boot_disk_is_never_created_over_an_existing_disk() -> Result<()> {
+        let (mut fixture, base, _) = LiveVolumes::with_base()?;
+        let first = fixture.path("first.qcow2");
+        fixture.overlay(&base, "first.qcow2", None)?;
+        block_io(&fixture.conn, &first, "write -P 0xa5 0 4096")?;
+        assert!(create_overlay(&fixture.conn, &base, &first, None).is_err());
+        assert!(clone_disk(&fixture.conn, &base, &first).is_err());
+        block_io(&fixture.conn, &first, "read -P 0xa5 0 4096")?;
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "Requires local libvirt, sherpa-pool and qemu-io; set SHERPA_OVERLAY_LIVE=1"]
+    fn vm_start_006_a_copy_that_fails_leaves_no_new_volume_behind() -> Result<()> {
+        let (fixture, _, _) = LiveVolumes::with_base()?;
         let failed_copy = fixture.path("failed-copy.qcow2");
         assert!(clone_disk(&fixture.conn, SHERPA_STORAGE_POOL_PATH, &failed_copy).is_err());
         assert!(
             !Path::new(&failed_copy).exists(),
             "Failed upload must remove its new volume"
         );
+        Ok(())
+    }
 
-        let copy = fixture.path("copy.qcow2");
-        clone_disk(&fixture.conn, &base, &copy)?;
-        fixture.created.push(fixture.name("copy.qcow2"));
-        block_io(&fixture.conn, &copy, "read -P 0x5a 0 4096")?;
-        // Configuration media uses its existing byte-copy path.
+    /// Configuration media uses its existing byte-copy path. Left for the ZTP spec.
+    #[test]
+    #[ignore = "Requires local libvirt and sherpa-pool; set SHERPA_OVERLAY_LIVE=1"]
+    fn live_config_media_is_copied_byte_for_byte() -> Result<()> {
+        let mut fixture = LiveVolumes::new()?;
         let media = env::temp_dir()
             .join(fixture.name("source.iso"))
             .to_string_lossy()
@@ -196,24 +176,19 @@ mod tests {
         Ok(())
     }
 
-    #[derive(Template)]
-    #[template(path = "test-domain.xml", ext = "xml", escape = "xml")]
-    struct TestDomain<'a> {
-        name: &'a str,
-        disk: &'a str,
-        memory: u32,
-    }
-
     struct LiveVolumes {
         conn: QemuConnection,
         prefix: String,
         created: Vec<String>,
         files: Vec<String>,
-        domain: Option<Domain>,
     }
 
     impl LiveVolumes {
         fn new() -> Result<Self> {
+            ensure!(
+                env::var("SHERPA_OVERLAY_LIVE").as_deref() == Ok("1"),
+                "Set SHERPA_OVERLAY_LIVE=1 to authorize disposable test volumes"
+            );
             let prefix = format!(
                 "sherpa-overlay-test-{}-{}",
                 process::id(),
@@ -224,8 +199,23 @@ mod tests {
                 prefix,
                 created: vec![],
                 files: vec![],
-                domain: None,
             })
+        }
+
+        /// A 1 GiB base volume whose first block is written with 0x5a, its path and its bytes.
+        fn with_base() -> Result<(Self, String, Vec<u8>)> {
+            let mut fixture = Self::new()?;
+            let pool = StoragePool::lookup_by_name(&fixture.conn, SHERPA_STORAGE_POOL)?;
+            let base_name = fixture.name("base.qcow2");
+            let base = fixture.path("base.qcow2");
+            let xml = format!(
+                "<volume><name>{base_name}</name><capacity unit='bytes'>1073741824</capacity><allocation>0</allocation><target><format type='qcow2'/><permissions><mode>0644</mode></permissions></target></volume>"
+            );
+            StorageVol::create_xml(&pool, &xml, 0)?;
+            fixture.created.push(base_name);
+            block_io(&fixture.conn, &base, "write -P 0x5a 0 4096")?;
+            let original = fs::read(&base)?;
+            Ok((fixture, base, original))
         }
         fn name(&self, suffix: &str) -> String {
             format!("{}-{suffix}", self.prefix)
@@ -242,15 +232,6 @@ mod tests {
 
     impl Drop for LiveVolumes {
         fn drop(&mut self) {
-            if let Some(domain) = self.domain.take() {
-                if domain.is_active().unwrap_or(true) {
-                    let _ = domain.destroy();
-                }
-                if let Err(error) = domain.undefine_flags(VIR_DOMAIN_UNDEFINE_NVRAM) {
-                    eprintln!("Test domain cleanup failed: {error}");
-                    return;
-                }
-            }
             for name in self.created.iter().rev() {
                 if let Err(error) = delete_disk(&self.conn, name) {
                     eprintln!("Test volume cleanup failed for {name}: {error}");

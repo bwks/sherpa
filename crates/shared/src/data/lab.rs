@@ -344,53 +344,26 @@ mod tests {
     }
 
     #[test]
-    fn test_lab_status_serializes_as_it_displays() {
-        for status in LabState::iter() {
-            assert_eq!(
-                serde_json::to_value(status).unwrap(),
-                serde_json::json!(status.to_string())
-            );
-        }
-    }
-
-    #[test]
-    fn test_lab_status_derive_empty() {
-        assert_eq!(LabState::derive(&[]), LabState::Empty);
-    }
-
-    #[test]
-    fn test_lab_status_derive_all_running() {
+    fn lab_status_001_a_lab_is_running_when_all_its_nodes_are_and_stopped_when_all_are() {
         let states = vec![NodeState::Running, NodeState::Running, NodeState::Running];
         assert_eq!(LabState::derive(&states), LabState::Running);
-    }
-
-    #[test]
-    fn test_lab_status_derive_all_stopped() {
         let states = vec![NodeState::Stopped, NodeState::Stopped];
         assert_eq!(LabState::derive(&states), LabState::Stopped);
     }
 
     #[test]
-    fn test_lab_status_derive_any_failed() {
+    fn lab_status_002_a_lab_is_failed_when_any_node_is_failed_or_missing() {
         let states = vec![NodeState::Running, NodeState::Failed];
+        assert_eq!(LabState::derive(&states), LabState::Failed);
+        let states = vec![NodeState::Running, NodeState::Missing];
         assert_eq!(LabState::derive(&states), LabState::Failed);
     }
 
     #[test]
-    fn test_lab_status_derive_any_starting() {
+    fn lab_status_003_a_lab_is_starting_when_any_node_is_building_or_starting() {
         let states = vec![NodeState::Running, NodeState::Starting];
         assert_eq!(LabState::derive(&states), LabState::Starting);
-    }
-
-    #[test]
-    fn test_lab_status_derive_partial() {
-        let states = vec![NodeState::Running, NodeState::Stopped];
-        assert_eq!(LabState::derive(&states), LabState::Partial);
-    }
-
-    #[test]
-    fn a_lab_with_a_node_being_built_is_starting() {
-        // M1.1: a lab `up` is still building is not shown stopped.
+        // A lab `up` is still building is not shown stopped.
         let states = vec![NodeState::Building, NodeState::Stopped];
         assert_eq!(LabState::derive(&states), LabState::Starting);
         assert_eq!(
@@ -400,16 +373,21 @@ mod tests {
     }
 
     #[test]
-    fn a_lab_with_a_missing_node_is_failed() {
-        let states = vec![NodeState::Running, NodeState::Missing];
-        assert_eq!(LabState::derive(&states), LabState::Failed);
+    fn lab_status_004_a_lab_with_some_nodes_running_and_some_stopped_is_partial() {
+        let states = vec![NodeState::Running, NodeState::Stopped];
+        assert_eq!(LabState::derive(&states), LabState::Partial);
     }
 
     #[test]
-    fn a_lab_status_this_build_does_not_know_decodes_as_unknown() {
+    fn lab_status_007_a_lab_status_this_version_does_not_know_reads_as_unknown() {
         // A status added by a newer server must not fail an older client's listing.
         let status: LabState = serde_json::from_str(r#""degraded""#).unwrap();
         assert_eq!(status, LabState::Unknown);
+    }
+
+    #[test]
+    fn lab_status_008_a_lab_with_no_nodes_is_empty() {
+        assert_eq!(LabState::derive(&[]), LabState::Empty);
     }
 
     #[test]

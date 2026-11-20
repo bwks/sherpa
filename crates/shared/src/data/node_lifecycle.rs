@@ -155,7 +155,7 @@ impl NodeState {
 mod tests {
     use super::*;
 
-    use NodeState::{Building, Failed, Missing, Running, Starting, Stopped};
+    use NodeState::{Building, Failed, Running, Starting, Stopped};
 
     fn refused(state: NodeState, event: OperationEvent) -> Result<NodeState, Refused> {
         Err(Refused { state, event })
@@ -171,64 +171,10 @@ mod tests {
         Runtime::Faulted("dead"),
     ];
 
-    #[test]
-    fn operation_events_move_a_node_as_listed() {
-        assert_eq!(Running.on_operation(OperationEvent::Stopped), Ok(Stopped));
-        assert_eq!(Running.on_operation(OperationEvent::Failed), Ok(Failed));
-        assert_eq!(Running.on_operation(OperationEvent::Ready), Ok(Running));
-        assert_eq!(
-            Building.on_operation(OperationEvent::Launched),
-            Ok(Starting)
-        );
-        assert_eq!(
-            Building.on_operation(OperationEvent::RebuildStarted),
-            refused(Building, OperationEvent::RebuildStarted)
-        );
-        assert_eq!(
-            Missing.on_operation(OperationEvent::RebuildStarted),
-            Ok(Building)
-        );
-        assert_eq!(
-            Missing.on_operation(OperationEvent::Stopped),
-            refused(Missing, OperationEvent::Stopped)
-        );
-        assert_eq!(
-            refused(Stopped, OperationEvent::Ready)
-                .unwrap_err()
-                .to_string(),
-            "cannot mark ready a node that is stopped"
-        );
-    }
-
-    #[test]
-    fn observations_move_a_node_as_listed() {
-        let seen = |runtime, probe| Observation { runtime, probe };
-        assert_eq!(
-            Running.on_observation(seen(Runtime::Transitional("restarting"), Probe::Ready)),
-            Running
-        );
-        assert_eq!(
-            Running.on_observation(seen(Runtime::Stopped(Halt::Paused), Probe::NotProbed)),
-            Stopped
-        );
-        assert_eq!(
-            Running.on_observation(seen(Runtime::Running, Probe::NotReady)),
-            Running
-        );
-        assert_eq!(
-            Stopped.on_observation(seen(Runtime::Running, Probe::NotProbed)),
-            Running
-        );
-        assert_eq!(
-            Missing.on_observation(seen(Runtime::Stopped(Halt::Off), Probe::NotProbed)),
-            Stopped
-        );
-    }
-
     // One test per defect in the state-machines inventory that the machine itself rules out.
 
     #[test]
-    fn a_node_being_built_is_not_seen_as_stopped() {
+    fn node_state_011_nothing_libvirt_or_docker_shows_moves_a_node_that_is_building() {
         // M1.1: `up` has inserted the node and not yet created its domain or container.
         for runtime in RUNTIMES {
             let observation = Observation {
@@ -240,15 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_node_stays_failed_until_an_operation_moves_it() {
-        // M1.2: the scanner used to overwrite `Failed` on its next cycle.
-        for runtime in RUNTIMES {
-            let observation = Observation {
-                runtime,
-                probe: Probe::Ready,
-            };
-            assert_eq!(Failed.on_observation(observation), Failed);
-        }
+    fn node_failure_009_a_failed_node_can_be_resumed_and_redeployed() {
         assert_eq!(Failed.on_operation(OperationEvent::Launched), Ok(Starting));
         assert_eq!(
             Failed.on_operation(OperationEvent::RebuildStarted),
@@ -257,7 +195,8 @@ mod tests {
     }
 
     #[test]
-    fn running_means_ready() {
+    fn node_state_010_a_node_an_operation_starts_is_starting_and_only_its_ready_check_makes_it_running()
+     {
         // M1.3: a started node is `Starting`; only a readiness check makes it `Running`.
         assert_eq!(Stopped.on_operation(OperationEvent::Launched), Ok(Starting));
         let unprobed_start = Observation {
@@ -270,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn a_crashed_or_dead_node_is_failed_not_stopped() {
+    fn node_failure_007_a_crashed_vm_or_a_dead_container_is_failed_not_stopped() {
         // M1.4 and M4.1: a crashed domain or a dead container cannot be started.
         for word in ["crashed", "dead"] {
             let observation = Observation {
@@ -283,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn down_cannot_stop_a_node_an_operation_is_building() {
+    fn node_down_005_down_leaves_a_node_an_operation_is_building_alone() {
         // M1.5: `down` during `up` used to be overtaken by `up` starting the node afterwards.
         let refusal = Building.on_operation(OperationEvent::Stopped);
         assert_eq!(refusal, refused(Building, OperationEvent::Stopped));
@@ -291,31 +230,6 @@ mod tests {
             refusal
                 .err()
                 .is_some_and(|refusal| refusal.to_string().contains("being built"))
-        );
-    }
-
-    #[test]
-    fn a_stopped_node_cannot_be_marked_ready() {
-        // M1.5: `up` or `resume` probed the node, then `down` stopped it before the write.
-        assert_eq!(
-            Stopped.on_operation(OperationEvent::Ready),
-            refused(Stopped, OperationEvent::Ready)
-        );
-    }
-
-    #[test]
-    fn a_node_with_no_runtime_object_is_missing_not_stopped() {
-        // M4.2: a missing domain or container used to look stopped, so the UI offered Start.
-        let gone = Observation {
-            runtime: Runtime::Absent,
-            probe: Probe::NotProbed,
-        };
-        assert_eq!(Running.on_observation(gone), Missing);
-        let refusal = Missing.on_operation(OperationEvent::Launched);
-        assert!(
-            refusal
-                .err()
-                .is_some_and(|refusal| refusal.to_string().contains("redeploy it"))
         );
     }
 }

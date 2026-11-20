@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     // Supported header versions inherit capacity and permit only equal or larger sizes.
-    fn standalone_versions_and_overlay_sizes() {
+    fn vm_start_003_a_boot_disk_smaller_than_its_base_image_is_refused() {
         for version in [2, 3] {
             let info = read_metadata(&mut Cursor::new(header(version))).unwrap();
             assert_eq!(info.overlay_capacity(None).unwrap(), 2 << 30);
@@ -224,8 +224,10 @@ mod tests {
     }
 
     #[test]
-    // Reject unsafe bases whether features are advertised by flags or extensions.
-    fn reject_encryption_external_files_and_unsafe_features() {
+    // Unsafe bases are refused whether their features are advertised by flags or extensions,
+    // when they are overlays themselves, and when their header is damaged or truncated,
+    // without panicking on integer overflow.
+    fn vm_start_007_a_base_image_that_cannot_back_an_overlay_is_refused() {
         for (offset, value) in [(35, 1), (79, 1), (79, 2), (79, 4), (79, 32), (95, 2)] {
             let mut bytes = header(3);
             bytes[offset] = value;
@@ -238,11 +240,7 @@ mod tests {
             let info = read_metadata(&mut Cursor::new(bytes)).unwrap();
             assert!(info.overlay_capacity(None).is_err());
         }
-    }
 
-    #[test]
-    // Dependency inspection must retain backing paths while base eligibility rejects them.
-    fn backing_path_is_read_but_nested_bases_are_rejected() {
         let mut bytes = header(3);
         bytes[8..16].copy_from_slice(&128_u64.to_be_bytes());
         bytes[16..20].copy_from_slice(&9_u32.to_be_bytes());
@@ -250,22 +248,14 @@ mod tests {
         let info = read_metadata(&mut Cursor::new(bytes)).unwrap();
         assert_eq!(info.backing_file, Some(PathBuf::from("base.qcow")));
         assert!(info.overlay_capacity(None).is_err());
-    }
 
-    #[test]
-    // Out-of-range offsets must return errors rather than panic on integer overflow.
-    fn malicious_backing_offsets_fail_without_overflow() {
         for offset in [u64::MAX, u64::MAX - 1, 513, 1] {
             let mut bytes = header(3);
             bytes[8..16].copy_from_slice(&offset.to_be_bytes());
             bytes[16..20].copy_from_slice(&1023_u32.to_be_bytes());
             assert!(read_metadata(&mut Cursor::new(bytes)).is_err());
         }
-    }
 
-    #[test]
-    // Truncated or inconsistent metadata must not be accepted during dependency checks.
-    fn malformed_metadata_fails_closed() {
         let original = header(3);
         for len in [0, 4, 71, 103, 511] {
             assert!(read_metadata(&mut Cursor::new(&original[..len])).is_err());

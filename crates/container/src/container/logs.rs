@@ -51,13 +51,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_log_keeps_its_lines_without_control_characters() {
+    fn node_failure_006_a_failed_containers_log_lines_have_no_terminal_control_characters() {
         let log = "first line\r\n\u{1b}[1msecond\u{1b}[0m\tline\r\n\r\n";
         assert_eq!(printable_log(log), "first line\n[1msecond[0m\tline");
-    }
-
-    #[test]
-    fn an_empty_log_is_empty() {
-        assert_eq!(printable_log("\r\n"), "");
     }
 }

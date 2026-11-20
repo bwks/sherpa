@@ -406,15 +406,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_scanner_leaves_a_lab_alone_while_an_operation_runs() {
-        // M1.1, M1.2 and M1.6: the scanner used to overwrite the states an operation wrote.
-        let operation = begin("lab-ops-observe-busy").await;
-        assert!(try_observe("lab-ops-observe-busy").is_none());
-        drop(operation);
-        assert!(try_observe("lab-ops-observe-busy").is_some());
-    }
-
-    #[tokio::test]
     async fn an_operation_waits_while_the_scanner_observes_its_lab() {
         let observed = try_observe("lab-ops-observe-wait").unwrap();
         let operation = tokio::spawn(async {

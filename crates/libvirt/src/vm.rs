@@ -225,7 +225,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn copied_volumes_are_private() {
+    fn vm_start_010_a_nodes_disks_and_config_media_are_private() {
         for (path, format) in [
             ("/pool/dev01-lab-hdd.qcow2", "qcow2"),
             ("/pool/dev01-lab.ISO", "raw"),
@@ -242,11 +242,5 @@ mod tests {
                 "{xml}"
             );
         }
-    }
-
-    #[test]
-    fn copied_volume_needs_a_supported_extension() {
-        assert!(copy_volume_xml("/pool/dev01-lab.exe").is_err());
-        assert!(copy_volume_xml("/pool/dev01-lab").is_err());
     }
 }

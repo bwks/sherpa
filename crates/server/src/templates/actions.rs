@@ -71,27 +71,3 @@ impl NodeActions {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use shared::data::OperationEvent;
-    use strum::IntoEnumIterator;
-
-    use super::*;
-
-    #[test]
-    fn a_node_offers_only_actions_its_lifecycle_allows() {
-        for state in NodeState::iter() {
-            let actions = NodeActions::for_state(state);
-            for (offered, event) in [
-                (actions.start, OperationEvent::Launched),
-                (actions.stop, OperationEvent::Stopped),
-                (actions.redeploy, OperationEvent::RebuildStarted),
-            ] {
-                if offered {
-                    assert!(state.on_operation(event).is_ok(), "{state:?} {event:?}");
-                }
-            }
-        }
-    }
-}

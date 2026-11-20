@@ -539,7 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_running_container_is_paused() {
+    fn node_down_003_down_pauses_only_a_running_container() {
         assert_eq!(
             container_down_step(Some(ContainerStateStatusEnum::RUNNING)),
             Ok(())
@@ -558,12 +558,25 @@ mod tests {
     }
 
     #[test]
-    fn nodes_are_routed_by_kind_model_and_cluster_role() {
-        let vm = NodeKind::VirtualMachine;
+    fn node_down_001_down_shuts_a_vm_down_powers_a_unikernel_off_and_pauses_a_container() {
         assert_eq!(
-            shutdown_route(vm, NodeModel::UbuntuLinux, None),
+            shutdown_route(NodeKind::VirtualMachine, NodeModel::UbuntuLinux, None),
             Route::Acpi
         );
+        assert_eq!(
+            shutdown_route(NodeKind::Unikernel, NodeModel::NanosUnikernel, None),
+            Route::PowerOff(UNIKERNEL_POWER_OFF)
+        );
+        assert_eq!(
+            shutdown_route(NodeKind::Container, NodeModel::Generic, None),
+            Route::Pause
+        );
+    }
+
+    /// Left for the Talos spec.
+    #[test]
+    fn talos_nodes_are_routed_by_cluster_role() {
+        let vm = NodeKind::VirtualMachine;
         assert_eq!(
             shutdown_route(vm, NodeModel::TalosLinux, Some(ClusterRole::Worker)),
             Route::TalosApi
@@ -576,18 +589,10 @@ mod tests {
             shutdown_route(vm, NodeModel::TalosLinux, None),
             Route::PowerOff(TALOS_POWER_OFF)
         );
-        assert_eq!(
-            shutdown_route(NodeKind::Unikernel, NodeModel::NanosUnikernel, None),
-            Route::PowerOff(UNIKERNEL_POWER_OFF)
-        );
-        assert_eq!(
-            shutdown_route(NodeKind::Container, NodeModel::Generic, None),
-            Route::Pause
-        );
     }
 
     #[test]
-    fn stop_messages_say_whether_the_guest_was_forced_off() {
+    fn node_down_002_a_vms_result_says_whether_it_shut_down_or_was_forced_off() {
         assert_eq!(stop_message(&VmStop::Graceful), "Shut down");
         assert!(stop_message(&VmStop::ForcedAfterTimeout).contains("forced: still running 60s"));
         assert!(
