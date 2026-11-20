@@ -13,7 +13,7 @@ One file per area a user sees, flat in this folder.
 | Lab lifecycle | [lab-lifecycle.md](lab-lifecycle.md) | up, down, resume, destroy, redeploy, clean, operations on labs at the same time, lab status |
 | Nodes | [nodes.md](nodes.md) | VM, container and unikernel nodes: boot, ready checks, state, stop and start, failures |
 | Links and bridges | not yet written | P2p links, private bridges, impairment |
-| Images | not yet written | import, scan, defaults, versions, container pulls |
+| Images | [images.md](images.md) | import, upload, download, container pulls, scan, default versions, list, show, edit, delete, which image a node gets, who may change images |
 | Accounts and auth | [accounts-and-auth.md](accounts-and-auth.md) | users, login, sessions, device passwords, owner logins on nodes, access control (only `owner_login`, `access_control` and `account_keys` written so far) |
 | Consoles | not yet written | serial console, VNC, the relay through sherpad |
 | ZTP | not yet written | ZTP methods and configs per model |
@@ -21,7 +21,7 @@ One file per area a user sees, flat in this folder.
 | Client lab files and secrets | [client-lab-files.md](client-lab-files.md) | lab folder, SSH config, known hosts, kubeconfig and other secret files, how the CLI reaches nodes (only `ssh_access` written so far) |
 | Tailnet | not yet written | Tailscale gateway, enrollment, routes |
 | Talos | not yet written | Talos clusters, Cilium, OIDC, Vault |
-| Install and update | not yet written | install, update and uninstall scripts |
+| Install and update | not yet written | install, update and uninstall scripts, database migrations, image folders of renamed models after an update |
 | Manifests | not yet written | manifest parsing and validation, which kinds a model takes and which settings a kind takes |
 | Inspect and web UI | not yet written | what Sherpa shows about labs and nodes |
 
