@@ -12,7 +12,7 @@ One file per area a user sees, flat in this folder.
 |---|---|---|
 | Lab lifecycle | [lab-lifecycle.md](lab-lifecycle.md) | up, down, resume, destroy, redeploy, clean, operations on labs at the same time, lab status |
 | Nodes | [nodes.md](nodes.md) | VM, container and unikernel nodes: boot, ready checks, state, stop and start, failures |
-| Links and bridges | not yet written | P2p links, private bridges, impairment |
+| Links and bridges | [links-and-bridges.md](links-and-bridges.md) | P2p links, re-attach after a node restarts, link state and carrier, impairment, private bridges, node interfaces, the management network, what destroy leaves on the host |
 | Images | [images.md](images.md) | import, upload, download, container pulls, scan, default versions, list, show, edit, delete, which image a node gets, who may change images |
 | Accounts and auth | [accounts-and-auth.md](accounts-and-auth.md) | users, login, sessions, device passwords, owner logins on nodes, access control (only `owner_login`, `access_control` and `account_keys` written so far) |
 | Consoles | not yet written | serial console, VNC, the relay through sherpad |
