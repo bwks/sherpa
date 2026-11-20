@@ -14,7 +14,7 @@ One file per area a user sees, flat in this folder.
 | Nodes | not yet written | VM, container and unikernel nodes: boot, ready checks, state, failures |
 | Links and bridges | not yet written | P2p links, private bridges, impairment |
 | Images | not yet written | import, scan, defaults, versions, container pulls |
-| Accounts and auth | [accounts-and-auth.md](accounts-and-auth.md) | users, login, sessions, device passwords, owner logins on nodes, access control (only `access_control` written so far) |
+| Accounts and auth | [accounts-and-auth.md](accounts-and-auth.md) | users, login, sessions, device passwords, owner logins on nodes, access control (only `owner_login` and `access_control` written so far) |
 | Consoles | not yet written | serial console, VNC, the relay through sherpad |
 | ZTP | not yet written | ZTP methods and configs per model |
 | Provisioning | not yet written | provisioners, text files, scripts, environment variables |

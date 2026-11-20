@@ -51,8 +51,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | A container lab goes down and resumes with its nodes running | integration |
-| 002 | Resume waits for a VM to be ready and streams its progress (no test yet) | e2e |
-| 003 | A resumed VM keeps its guest's keys and the owner can still log in (no test yet) | e2e |
+| 002 | Resume waits for a VM to be ready and streams its progress | e2e |
+| 003 | A resumed VM keeps its guest's keys and the owner can still log in | e2e |
 | 004 | A VM's disk changes survive down and resume (no test yet) | e2e |
 
 ## `lab_destroy`: destroy removes everything the lab created
@@ -74,8 +74,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | A redeployed VM comes back and the owner can log in (no test yet) | e2e |
-| 002 | A refused redeploy leaves the running node untouched (no test yet) | e2e |
+| 001 | A redeployed VM comes back and the owner can log in | e2e |
+| 002 | A refused redeploy leaves the running node untouched | e2e |
 | 003 | A refused redeploy keeps the node's CPU pins | integration |
 | 004 | A redeploy to new pins holds its old ones from a racing up until it ends | integration |
 | 005 | A redeploy that fails after teardown fails its node | integration |
