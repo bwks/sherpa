@@ -253,13 +253,13 @@ fn depths<'e, 'a>(events: &'e [Event<'a>]) -> impl Iterator<Item = (usize, &'e E
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    const PATH: &str = "/opt/sherpa/run/console/abcd1234/1.vnc";
+    pub(crate) const PATH: &str = "/opt/sherpa/run/console/abcd1234/1.vnc";
 
     /// A domain defined before VNC moved behind sherpad, as libvirt writes it back.
-    const TCP: &str = "<domain type='kvm'>
+    pub(crate) const TCP: &str = "<domain type='kvm'>
   <name>alp01-abcd1234</name>
   <devices>
     <!-- a comment, kept -->
@@ -278,7 +278,7 @@ mod tests {
 ";
 
     /// [`TCP`] with its VNC console on the socket: only the graphics element differs.
-    const UNIX: &str = r#"<domain type='kvm'>
+    pub(crate) const UNIX: &str = r#"<domain type='kvm'>
   <name>alp01-abcd1234</name>
   <devices>
     <!-- a comment, kept -->
@@ -297,91 +297,10 @@ mod tests {
 "#;
 
     #[test]
-    fn a_tcp_vnc_console_moves_to_the_socket_and_nothing_else_changes() {
+    fn console_upgrade_002_a_tcp_vnc_console_moves_to_the_socket_and_nothing_else_changes() {
         assert_eq!(
             graphics_on_socket(TCP, PATH).unwrap().as_deref(),
             Some(UNIX)
         );
-    }
-
-    #[test]
-    fn a_vnc_console_already_on_a_socket_is_left_alone() {
-        assert_eq!(graphics_on_socket(UNIX, PATH).unwrap(), None);
-        // As libvirt writes a running domain's: the path in an attribute as well.
-        let live = "<domain><devices><graphics type='vnc' socket='/s'>\
-                    <listen type='socket' socket='/s'/></graphics></devices></domain>";
-        assert_eq!(graphics_on_socket(live, PATH).unwrap(), None);
-        assert_eq!(
-            vnc_console_in(live).unwrap(),
-            VncConsole::Socket("/s".to_owned())
-        );
-    }
-
-    #[test]
-    fn a_domain_with_no_vnc_graphics_is_left_alone() {
-        for xml in [
-            "<domain type='kvm'><name>n</name><devices><disk type='file'/></devices></domain>",
-            "<domain><devices><graphics type='spice' port='5930'/></devices></domain>",
-        ] {
-            assert_eq!(graphics_on_socket(xml, PATH).unwrap(), None, "{xml}");
-            assert_eq!(vnc_console_in(xml).unwrap(), VncConsole::Absent, "{xml}");
-        }
-    }
-
-    #[test]
-    fn an_empty_graphics_element_as_sherpa_wrote_it_gains_a_socket_listen() {
-        let xml = "<domain><devices>\n    <graphics type='vnc' port='5905' autoport='no'/>\n    \
-                   <video/></devices></domain>";
-        assert_eq!(
-            graphics_on_socket(xml, "/s").unwrap().as_deref(),
-            Some(
-                r#"<domain><devices>
-    <graphics type="vnc"><listen type="socket" socket="/s"/></graphics>
-    <video/></devices></domain>"#
-            )
-        );
-    }
-
-    #[test]
-    fn listen_children_with_end_tags_and_other_children_are_handled() {
-        let xml = "<domain><devices><graphics type='vnc' port='1' websocket='2'>\
-                   <listen type='network' network='n'></listen><image compression='off'/>\
-                   </graphics></devices></domain>";
-        assert_eq!(
-            graphics_on_socket(xml, "/s").unwrap().as_deref(),
-            Some(
-                r#"<domain><devices><graphics type="vnc"><listen type="socket" socket="/s"/><image compression='off'/></graphics></devices></domain>"#
-            )
-        );
-    }
-
-    #[test]
-    fn a_path_is_escaped_as_an_attribute_value() {
-        let xml = "<domain><devices><graphics type='vnc' port='1'/></devices></domain>";
-        let rewritten = graphics_on_socket(xml, "/run/a&b").unwrap().unwrap();
-        assert!(
-            rewritten.contains(r#"socket="/run/a&amp;b""#),
-            "{rewritten}"
-        );
-        assert_eq!(
-            vnc_console_in(&rewritten).unwrap(),
-            VncConsole::Socket("/run/a&b".to_owned())
-        );
-    }
-
-    #[test]
-    fn the_vnc_console_is_read_from_the_first_vnc_graphics() {
-        assert_eq!(vnc_console_in(TCP).unwrap(), VncConsole::Tcp);
-        assert_eq!(
-            vnc_console_in(UNIX).unwrap(),
-            VncConsole::Socket(PATH.to_owned())
-        );
-    }
-
-    #[test]
-    fn xml_that_is_not_well_formed_is_refused() {
-        assert!(graphics_on_socket("<domain><devices><graphics type='vnc'>", PATH).is_err());
-        assert!(graphics_on_socket("<domain a='1' a='2'></domain>", PATH).is_err());
-        assert!(vnc_console_in("<domain><graphics type='vnc'></domain>").is_err());
     }
 }

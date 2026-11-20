@@ -171,75 +171,63 @@ mod tests {
     }
 
     #[test]
-    fn a_console_is_held_by_one_session_and_let_go_when_it_ends() {
+    fn console_session_003_a_nodes_serial_and_vnc_consoles_are_held_apart() {
         let sessions = ConsoleSessions::default();
-        let first = sessions
+        let _serial = sessions
             .claim("lab1", "alp01", SERIAL, alice(1), false)
             .unwrap();
-        assert!(first.displaced.is_none());
-        let refused = sessions
-            .claim("lab1", "alp01", SERIAL, alice(2), false)
-            .err()
+        let _vnc = sessions
+            .claim("lab1", "alp01", ConsoleKind::Vnc, alice(2), false)
             .unwrap();
-        assert_eq!(refused.claimant, alice(1));
-        // The refused claim did not let go of the holder's console.
         assert_eq!(
             sessions.holder("lab1", "alp01", SERIAL).unwrap().claimant,
             alice(1)
         );
-        // Another node's console, or the same node in another lab, is its own.
-        let _other = sessions
-            .claim("lab1", "srx01", SERIAL, alice(3), false)
-            .unwrap();
-        let _elsewhere = sessions
-            .claim("lab2", "alp01", SERIAL, alice(4), false)
-            .unwrap();
-        // The node's VNC console is held apart from its serial console.
-        let vnc = sessions
-            .claim("lab1", "alp01", ConsoleKind::Vnc, alice(5), false)
-            .unwrap();
-        assert!(
+        assert_eq!(
             sessions
-                .claim("lab1", "alp01", ConsoleKind::Vnc, alice(6), false)
-                .is_err()
+                .holder("lab1", "alp01", ConsoleKind::Vnc)
+                .unwrap()
+                .claimant,
+            alice(2)
         );
-        drop(vnc);
-        assert!(sessions.holder("lab1", "alp01", ConsoleKind::Vnc).is_none());
-        assert_eq!(
-            sessions.holder("lab1", "alp01", SERIAL).unwrap().claimant,
-            alice(1)
-        );
-        drop(first);
-        assert!(sessions.holder("lab1", "alp01", SERIAL).is_none());
-        let _again = sessions
-            .claim("lab1", "alp01", SERIAL, alice(2), false)
-            .unwrap();
     }
 
-    #[tokio::test]
-    async fn force_takes_over_the_owners_own_session_and_tells_it() {
+    #[test]
+    fn console_session_004_the_consoles_of_two_nodes_and_of_one_name_in_two_labs_are_held_apart() {
+        let sessions = ConsoleSessions::default();
+        let _first = sessions
+            .claim("lab1", "alp01", SERIAL, alice(1), false)
+            .unwrap();
+        let _other = sessions
+            .claim("lab1", "srx01", SERIAL, alice(2), false)
+            .unwrap();
+        let _elsewhere = sessions
+            .claim("lab2", "alp01", SERIAL, alice(3), false)
+            .unwrap();
+        assert_eq!(
+            sessions.holder("lab1", "alp01", SERIAL).unwrap().claimant,
+            alice(1)
+        );
+    }
+
+    #[test]
+    fn console_session_005_a_session_taken_over_does_not_let_go_of_the_new_ones() {
         let sessions = ConsoleSessions::default();
         let first = sessions
             .claim("lab1", "alp01", SERIAL, alice(1), false)
             .unwrap();
-        let second = sessions
+        let _second = sessions
             .claim("lab1", "alp01", SERIAL, alice(2), true)
             .unwrap();
-        assert_eq!(second.displaced.as_ref().unwrap().claimant, alice(1));
-        first.taken_over().await;
-        // The session taken over ends after the new one holds the console: it must not let go
-        // of the new one's.
         drop(first);
         assert_eq!(
             sessions.holder("lab1", "alp01", SERIAL).unwrap().claimant,
             alice(2)
         );
-        drop(second);
-        assert!(sessions.holder("lab1", "alp01", SERIAL).is_none());
     }
 
     #[test]
-    fn force_does_not_take_over_another_users_session() {
+    fn console_session_006_force_takes_over_only_a_session_of_the_same_user() {
         let sessions = ConsoleSessions::default();
         let _first = sessions
             .claim("lab1", "alp01", SERIAL, alice(1), false)
@@ -256,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn a_holder_is_named_by_user_address_and_time() {
+    fn console_session_007_a_holder_is_named_by_user_address_and_time_in_utc() {
         let holder = Holder {
             claimant: alice(40000),
             since: "2026-11-18T09:08:07.654Z".parse().unwrap(),

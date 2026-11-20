@@ -15,7 +15,7 @@ One file per area a user sees, flat in this folder.
 | Links and bridges | [links-and-bridges.md](links-and-bridges.md) | P2p links, re-attach after a node restarts, link state and carrier, impairment, private bridges, node interfaces, reaching nodes on the management network, what destroy leaves on the host |
 | Images | [images.md](images.md) | import, upload, download, container pulls, scan, default versions, list, show, edit, delete, which image a node gets, who may change images |
 | Accounts and auth | [accounts-and-auth.md](accounts-and-auth.md) | user accounts and the built-in admin, login and logout, sessions and tokens, login passwords, SSH keys on an account, device passwords, owner logins on nodes, access control, what only an admin may do |
-| Consoles | not yet written | serial console, VNC, the relay through sherpad |
+| Consoles | [consoles.md](consoles.md) | the serial console and the VNC console through sherpad, who may open one, one session per console and taking it over, refusals, how an open console ends, the console sockets on the server, nodes defined with consoles on TCP |
 | ZTP | [ztp.md](ztp.md) | the ZTP setting of an image and of a node, ZTP off, how a config reaches a node by each method, the config ISO, a node's own `ztp.config`, the config generated for each model, its management addresses and its accounts, the lab's boot server (DHCP, DNS, TFTP, HTTP), who can read a node's config on the server |
 | Provisioning | not yet written | provisioners, text files, scripts, environment variables |
 | Client lab files and secrets | [client-lab-files.md](client-lab-files.md) | lab folder, SSH config, known hosts, kubeconfig and other secret files, how the CLI reaches nodes (only `ssh_access` written so far) |

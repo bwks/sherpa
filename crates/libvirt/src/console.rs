@@ -328,6 +328,8 @@ fn socket_source(element: &BytesStart, path: &str) -> Result<BytesStart<'static>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vnc::tests::{PATH as VNC_PATH, TCP as VNC_TCP, UNIX as VNC_UNIX};
+    use crate::vnc::{VncConsole, vnc_console_in};
 
     /// A domain defined before consoles moved behind sherpad, as libvirt writes it back.
     const TCP: &str = "<domain type='kvm'>
@@ -387,25 +389,37 @@ mod tests {
     const PATH: &str = "/opt/sherpa/run/console/abcd1234/1.serial";
 
     #[test]
-    fn a_tcp_console_moves_to_the_socket_and_nothing_else_changes() {
+    fn console_upgrade_001_a_tcp_serial_console_moves_to_the_socket_and_nothing_else_changes() {
         assert_eq!(serial_on_socket(TCP, PATH).unwrap().as_deref(), Some(UNIX));
     }
 
     #[test]
-    fn a_console_already_on_a_socket_is_left_alone() {
+    fn console_upgrade_004_a_definition_on_sockets_or_with_no_console_is_left_as_it_is() {
         assert_eq!(serial_on_socket(UNIX, PATH).unwrap(), None);
-    }
-
-    #[test]
-    fn a_domain_with_no_serial_device_is_left_alone() {
         let xml =
             "<domain type='kvm'><name>n</name><devices><disk type='file'/></devices></domain>";
         assert_eq!(serial_on_socket(xml, PATH).unwrap(), None);
         assert_eq!(serial_console_in(xml).unwrap(), SerialConsole::Absent);
+        assert_eq!(graphics_on_socket(VNC_UNIX, VNC_PATH).unwrap(), None);
+        // As libvirt writes a running domain's: the path in an attribute as well.
+        let live = "<domain><devices><graphics type='vnc' socket='/s'>\
+                    <listen type='socket' socket='/s'/></graphics></devices></domain>";
+        assert_eq!(graphics_on_socket(live, VNC_PATH).unwrap(), None);
+        assert_eq!(
+            vnc_console_in(live).unwrap(),
+            VncConsole::Socket("/s".to_owned())
+        );
+        for xml in [
+            "<domain type='kvm'><name>n</name><devices><disk type='file'/></devices></domain>",
+            "<domain><devices><graphics type='spice' port='5930'/></devices></domain>",
+        ] {
+            assert_eq!(graphics_on_socket(xml, VNC_PATH).unwrap(), None, "{xml}");
+            assert_eq!(vnc_console_in(xml).unwrap(), VncConsole::Absent, "{xml}");
+        }
     }
 
     #[test]
-    fn a_source_with_children_and_a_protocol_with_an_end_tag_are_replaced_whole() {
+    fn console_upgrade_005_the_elements_are_rewritten_in_each_form_libvirt_and_sherpa_wrote_them() {
         let xml = "<domain><devices><serial type='tcp'><source mode='bind' host='h' \
                    service='1'><reconnect enabled='no'/></source><protocol type='telnet'>\
                    </protocol><target port='0'/></serial></devices></domain>";
@@ -415,22 +429,29 @@ mod tests {
                 r#"<domain><devices><serial type="unix"><source mode="bind" path="/s"/><target port='0'/></serial></devices></domain>"#
             )
         );
-    }
-
-    #[test]
-    fn a_path_is_escaped_as_an_attribute_value() {
-        let xml =
-            "<domain><devices><serial type='tcp'><source mode='bind'/></serial></devices></domain>";
-        let rewritten = serial_on_socket(xml, "/run/a&b").unwrap().unwrap();
-        assert!(rewritten.contains(r#"path="/run/a&amp;b""#), "{rewritten}");
+        let xml = "<domain><devices>\n    <graphics type='vnc' port='5905' autoport='no'/>\n    \
+                   <video/></devices></domain>";
         assert_eq!(
-            serial_console_in(&rewritten).unwrap(),
-            SerialConsole::Socket("/run/a&b".to_owned())
+            graphics_on_socket(xml, "/s").unwrap().as_deref(),
+            Some(
+                r#"<domain><devices>
+    <graphics type="vnc"><listen type="socket" socket="/s"/></graphics>
+    <video/></devices></domain>"#
+            )
+        );
+        let xml = "<domain><devices><graphics type='vnc' port='1' websocket='2'>\
+                   <listen type='network' network='n'></listen><image compression='off'/>\
+                   </graphics></devices></domain>";
+        assert_eq!(
+            graphics_on_socket(xml, "/s").unwrap().as_deref(),
+            Some(
+                r#"<domain><devices><graphics type="vnc"><listen type="socket" socket="/s"/><image compression='off'/></graphics></devices></domain>"#
+            )
         );
     }
 
     #[test]
-    fn the_console_is_read_from_the_first_serial_device() {
+    fn console_upgrade_007_a_running_nodes_console_is_read_from_its_first_serial_and_vnc_device() {
         assert_eq!(serial_console_in(TCP).unwrap(), SerialConsole::Tcp);
         assert_eq!(
             serial_console_in(UNIX).unwrap(),
@@ -442,10 +463,15 @@ mod tests {
             serial_console_in(pty).unwrap(),
             SerialConsole::Other("pty".to_owned())
         );
+        assert_eq!(vnc_console_in(VNC_TCP).unwrap(), VncConsole::Tcp);
+        assert_eq!(
+            vnc_console_in(VNC_UNIX).unwrap(),
+            VncConsole::Socket(VNC_PATH.to_owned())
+        );
     }
 
     #[test]
-    fn both_consoles_move_in_one_definition() {
+    fn console_upgrade_003_both_consoles_move_in_one_definition_and_one_moves_alone() {
         let sockets = ConsoleSockets {
             serial: PATH.to_owned(),
             vnc: "/opt/sherpa/run/console/abcd1234/1.vnc".to_owned(),
@@ -467,9 +493,12 @@ mod tests {
     }
 
     #[test]
-    fn xml_that_is_not_well_formed_is_refused() {
+    fn console_upgrade_006_a_definition_that_is_not_well_formed_xml_is_refused() {
         assert!(serial_on_socket("<domain><devices><serial type='tcp'>", PATH).is_err());
         assert!(serial_on_socket("<domain a='1' a='2'></domain>", PATH).is_err());
         assert!(serial_console_in("<domain></devices>").is_err());
+        assert!(graphics_on_socket("<domain><devices><graphics type='vnc'>", VNC_PATH).is_err());
+        assert!(graphics_on_socket("<domain a='1' a='2'></domain>", VNC_PATH).is_err());
+        assert!(vnc_console_in("<domain><graphics type='vnc'></domain>").is_err());
     }
 }
