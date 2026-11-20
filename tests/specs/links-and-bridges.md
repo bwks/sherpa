@@ -16,7 +16,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 001 | LLDP, STP, pause, LACP, 802.1X, GARP-range, CDP, 802.1Q and QinQ frames arrive at the other end, each way, tags intact, on a VM to VM, a VM to container and a container to container link (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
 | 002 | Two ends joined by two links see each other as LLDP neighbours on both and bundle both with LACP, between two VMs, a VM and a container, and two containers (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
 | 003 | Every host end, a VM's tap included, is MTU 9600, and unfragmented 8972-byte pings and 9000-byte frames pass each way (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
-| 004 | A VM or unikernel is told its link's MTU, so a virtio interface in the guest comes up at 9600 (no test at this level yet) | e2e |
+| 004 | A VM is told its link's MTU, so a virtio interface in the guest comes up at 9600 (no test at this level yet) | e2e |
 | 005 | A capture on a link's host end, `tpa<link>-<lab>` or `tpb<link>-<lab>`, sees every frame from both ends (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
 | 006 | A container's link interface is in the container under its name, up, promiscuous, with carrier and MTU 9600, also in an image with no `ip` command or no shell (no test with its ID yet; `tests/labs/p2p-containers` shows it) | e2e |
 | 007 | Network OS, application and OS containers reach each other across links, directly and routed through a third node (no test with its ID yet; `tests/labs/p2p-containers` shows it) | e2e |
@@ -186,7 +186,7 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 | 004 | An unused interface of a container on a link is in the container under its name with no carrier (no test with its ID yet; `tests/labs/p2p-containers` shows it) | e2e |
 | 005 | An unused interface of a VM is in the guest with its link down (no test at this level yet) | e2e |
 | 006 | An unused container interface is down at both ends, except on a model that needs its interfaces up, where it is up in the container with no carrier | integration |
-| 007 | An unused interface of a container on no link gets a Docker network of its own, named and down, and runs no command in the image | unit |
+| 007 | An unused interface of a container on no link gets a Docker network of its own, named and down | unit |
 | 008 | A node's data interfaces number as many as its manifest or image says, after its reserved ones, and a count past the model's range is an error | unit |
 | 009 | A VM's interfaces are named `eth0`, `eth1` and up in a guest that keeps kernel names (no test with its ID yet; `tests/labs/nixos-linux` shows it) | e2e |
 | 010 | A VM's reserved interfaces are on a network of the node's own with their link up, and its unused ones on another with ports kept apart | integration |
@@ -222,7 +222,7 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 |---|---|---|
 | 001 | A VM and a container of one lab reach each other and the server on their management addresses, and each reaches the internet through the server (no test yet) | e2e |
 | 002 | The management bridge runs no spanning tree (no test at this level yet) | integration |
-| 003 | A lab's management network is made in libvirt and Docker on one bridge, in IPv4 alone or with IPv6, and making it again changes nothing | integration |
+| 003 | A lab's management network is made in libvirt as an active NAT network, in IPv4 alone or with IPv6, and making a libvirt network that is already there succeeds | integration |
 | 004 | A node's management interface passes traffic from the moment it starts, with no four-second wait (no test yet) | e2e |
 | 005 | A management network Docker cannot make is reported, not passed over | integration |
 | 006 | Making a lab's Docker management network when it is already there succeeds | integration |
