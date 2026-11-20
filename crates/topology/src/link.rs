@@ -104,27 +104,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_manifest_impairment_converts_milliseconds_to_microseconds() {
-        let manifest = ManifestImpairment {
-            delay: Some(20),
-            jitter: Some(2),
-            loss_percent: Some(1.5),
-            reorder_percent: Some(10.0),
-            corrupt_percent: Some(0.5),
-        };
-        assert_eq!(
-            LinkImpairment::try_from(&manifest).unwrap(),
-            LinkImpairment {
-                delay_us: 20_000,
-                jitter_us: 2_000,
-                loss_percent: 1.5,
-                reorder_percent: 10.0,
-                corrupt_percent: 0.5,
-            }
-        );
-    }
-
-    #[test]
     fn test_manifest_impairment_too_long_for_microseconds_is_refused() {
         let manifest = ManifestImpairment {
             delay: Some(u32::MAX),

@@ -298,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn each_data_interface_takes_its_link_or_bridge_or_is_disabled() {
+    fn node_interfaces_003_a_vms_interfaces_are_management_reserved_then_each_data_one() {
         let mut image = data::NodeConfig::ubuntu_linux();
         image.interfaces.reserved_count = 1;
         let first = util::interface_from_idx(ModelKind::default_for(image.model), 2).unwrap();

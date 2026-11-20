@@ -330,7 +330,7 @@ mod tests {
     const MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS: RangeInclusive<u32> = 11..=20;
 
     #[test]
-    fn test_management_host_offset_blocks_are_ordered_and_disjoint() {
+    fn lab_addressing_007_infrastructure_addresses_are_apart_from_each_other_and_the_nodes() {
         assert_eq!(*MANAGEMENT_INFRA_HOST_OFFSETS.start(), 1);
         assert_eq!(
             *MANAGEMENT_INFRA_HOST_OFFSETS.end() + 1,
@@ -342,10 +342,7 @@ mod tests {
         );
         // .255 is the /24 broadcast address.
         assert_eq!(*MANAGEMENT_NODE_HOST_OFFSETS.end(), 254);
-    }
 
-    #[test]
-    fn test_infrastructure_addresses_are_distinct_and_in_the_infra_block() {
         let offsets = [
             MANAGEMENT_GATEWAY_HOST_OFFSET,
             SHERPA_MANAGEMENT_IP_INDEX,

@@ -145,7 +145,12 @@ mod tests {
 
     use super::super::fake::FakeHost;
     use super::super::host::EndDevice;
+    use super::super::reattach::tests::lab as reattach_lab;
+    use super::super::reattach::{RecreatedEnd, reattach_node_links, report_links};
     use super::super::repair::check_lab_links;
+    use super::super::started::follow_started_links;
+    use super::super::started::tests::{ids, lab as started_lab, runtimes};
+    use crate::daemon::link_states::LinkStates;
     use shared::data::{BridgeKind, DbNode, LinkImpairment, NodeKind, NodeState};
 
     fn id(name: &str) -> RecordId {
@@ -249,41 +254,91 @@ mod tests {
         host.take_carrier_writes()
     }
 
-    #[test]
-    fn each_state_wants_the_carrier_of_its_ends() {
-        let names = ["vm1", "ctr1"];
-        assert_eq!(wanted(&LinkState::Attached, names), [Some(true); 2]);
-        assert_eq!(wanted(&failed("x"), names), [Some(false); 2]);
-        assert_eq!(wanted(&peer_down("ctr1"), names), [Some(false), None]);
-        assert_eq!(wanted(&peer_down("vm1"), names), [None, Some(false)]);
-        // A link between two interfaces of one node has no surviving end.
-        assert_eq!(wanted(&peer_down("vm1"), ["vm1", "vm1"]), [None, None]);
-    }
+    #[tokio::test]
+    async fn link_carrier_004_each_state_wants_the_carrier_of_its_ends() {
+        {
+            let names = ["vm1", "ctr1"];
+            assert_eq!(wanted(&LinkState::Attached, names), [Some(true); 2]);
+            assert_eq!(wanted(&failed("x"), names), [Some(false); 2]);
+            assert_eq!(wanted(&peer_down("ctr1"), names), [Some(false), None]);
+            assert_eq!(wanted(&peer_down("vm1"), names), [None, Some(false)]);
+            // A link between two interfaces of one node has no surviving end.
+            assert_eq!(wanted(&peer_down("vm1"), ["vm1", "vm1"]), [None, None]);
+        }
 
-    #[test]
-    fn a_state_that_does_not_change_moves_no_carrier() {
-        let names = ["vm1", "ctr1"];
-        for state in [
-            LinkState::Attached,
-            peer_down("ctr1"),
-            peer_down("vm1"),
-            failed("x"),
-        ] {
+        {
+            let (host, lab) = lab();
+            let writes = follow_link_1(&host, &lab, Some(LinkState::Attached), failed("x")).await;
             assert_eq!(
-                carrier_moves(Some(&state), &state, names, [false; 2]),
-                [None, None],
-                "{state:?}"
+                writes,
+                vec![(vm_tap("vm1-lab", "tpa1"), false), (veth("tpb1"), false)]
+            );
+            let writes = follow_link_1(&host, &lab, Some(failed("x")), LinkState::Attached).await;
+            assert_eq!(
+                writes,
+                vec![(vm_tap("vm1-lab", "tpa1"), true), (veth("tpb1"), true)]
             );
         }
-        // A failure whose reason changed wants the same carrier.
-        assert_eq!(
-            carrier_moves(Some(&failed("a")), &failed("b"), names, [false; 2]),
-            [None, None]
-        );
+    }
+
+    #[tokio::test]
+    async fn link_carrier_005_an_unchanged_state_moves_no_carrier_so_an_end_taken_down_stays() {
+        {
+            let names = ["vm1", "ctr1"];
+            for state in [
+                LinkState::Attached,
+                peer_down("ctr1"),
+                peer_down("vm1"),
+                failed("x"),
+            ] {
+                assert_eq!(
+                    carrier_moves(Some(&state), &state, names, [false; 2]),
+                    [None, None],
+                    "{state:?}"
+                );
+            }
+            // A failure whose reason changed wants the same carrier.
+            assert_eq!(
+                carrier_moves(Some(&failed("a")), &failed("b"), names, [false; 2]),
+                [None, None]
+            );
+        }
+
+        {
+            // `ip link set tpb1 down` to simulate a failure: the scans that follow find the link
+            // attached, as it was, and leave the end down.
+            let (host, lab) = lab();
+            host.set_carrier_by_hand("tpb1", false);
+            for _ in 0..3 {
+                let writes =
+                    follow_link_1(&host, &lab, Some(LinkState::Attached), LinkState::Attached)
+                        .await;
+                assert_eq!(writes, vec![]);
+            }
+            assert!(!host.has_carrier("tpb1"));
+        }
+
+        {
+            // A resume of a node that was already running finds the link attached, as recorded.
+            let (host, lab) = started_lab();
+            let link_states = LinkStates::default();
+            link_states.record("lab", 0, LinkState::Attached);
+            host.set_carrier_by_hand("tpb0", false);
+            follow_started_links(
+                &host,
+                &lab,
+                &ids(&["ctr1"]),
+                &runtimes(&["vm1", "ctr1", "vm2", "ctr2"]),
+                &link_states,
+            )
+            .await;
+            assert_eq!(host.take_carrier_writes(), vec![]);
+            assert!(!host.has_carrier("tpb0"));
+        }
     }
 
     #[test]
-    fn only_the_ends_whose_wanted_carrier_changed_move() {
+    fn link_carrier_006_only_the_ends_whose_wanted_carrier_changed_move() {
         let names = ["vm1", "ctr1"];
         assert_eq!(
             carrier_moves(
@@ -319,30 +374,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn an_end_made_again_or_a_link_with_no_state_gets_what_its_state_wants() {
-        let names = ["vm1", "vm2"];
-        assert_eq!(
-            carrier_moves(
-                Some(&peer_down("vm1")),
-                &peer_down("vm1"),
-                names,
-                [false, true]
-            ),
-            [None, Some(false)]
-        );
-        assert_eq!(
-            carrier_moves(None, &LinkState::Attached, names, [false; 2]),
-            [Some(true), Some(true)]
-        );
-        assert_eq!(
-            carrier_moves(None, &peer_down("vm2"), names, [false; 2]),
-            [Some(false), None]
-        );
-    }
-
     #[tokio::test]
-    async fn a_container_that_stops_takes_its_vm_peers_link_down_through_libvirt() {
+    async fn link_carrier_018_a_stopped_container_takes_its_vm_peers_link_down_through_libvirt() {
         let (host, lab) = lab();
         host.remove(&["tpb1"]);
         let writes = follow_link_1(&host, &lab, Some(LinkState::Attached), peer_down("ctr1")).await;
@@ -357,7 +390,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_vm_that_stops_takes_its_container_peers_host_veth_down() {
+    async fn link_carrier_019_a_stopped_vm_takes_its_container_peers_host_end_down() {
         let (host, lab) = lab();
         host.remove(&["tpa1"]);
         let writes = follow_link_1(&host, &lab, Some(LinkState::Attached), peer_down("vm1")).await;
@@ -374,36 +407,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_failed_link_takes_both_ends_down_and_an_attach_brings_them_up() {
-        let (host, lab) = lab();
-        let writes = follow_link_1(&host, &lab, Some(LinkState::Attached), failed("x")).await;
-        assert_eq!(
-            writes,
-            vec![(vm_tap("vm1-lab", "tpa1"), false), (veth("tpb1"), false)]
-        );
-        let writes = follow_link_1(&host, &lab, Some(failed("x")), LinkState::Attached).await;
-        assert_eq!(
-            writes,
-            vec![(vm_tap("vm1-lab", "tpa1"), true), (veth("tpb1"), true)]
-        );
-    }
-
-    #[tokio::test]
-    async fn an_unchanged_state_keeps_an_end_a_user_took_down() {
-        // `ip link set tpb1 down` to simulate a failure: the scans that follow find the link
-        // attached, as it was, and leave the end down.
-        let (host, lab) = lab();
-        host.set_carrier_by_hand("tpb1", false);
-        for _ in 0..3 {
-            let writes =
-                follow_link_1(&host, &lab, Some(LinkState::Attached), LinkState::Attached).await;
-            assert_eq!(writes, vec![]);
-        }
-        assert!(!host.has_carrier("tpb1"));
-    }
-
-    #[tokio::test]
-    async fn a_paused_peer_counts_as_down() {
+    async fn link_carrier_007_a_paused_peer_counts_as_down() {
         // `sherpa down` or `docker pause`: the container's veth is still there, but the node is
         // not running, so the scan finds its link's peer down and the VM's link goes down. The
         // paused container's own end is left alone.
@@ -435,7 +439,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn both_peers_down_take_the_end_of_the_second_down() {
+    async fn link_carrier_008_with_both_nodes_down_the_node_back_first_has_no_carrier() {
         // `sherpa down` shuts vm1 off and pauses ctr1: the state names vm1, and ctr1's paused
         // end is taken down, so it has no carrier when ctr1 is unpaused before vm1 is back.
         let (host, lab) = lab();
@@ -449,64 +453,125 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_first_scan_after_a_restart_sets_only_the_carrier_that_is_wrong() {
-        // sherpad restarted: nothing is recorded. Link 0's peer vm2 stopped while sherpad was
-        // down; link 1 was taken down before the restart and is still down.
-        let (host, lab) = lab();
-        host.remove(&["tpb0", "tpb1"]);
-        host.set_carrier_by_hand("tpa1", false);
-        let running = HashSet::from([id("vm1")]);
-        let check = check_lab_links(&host, &lab, &running).await;
-        let fresh = check.fresh_ends();
-        let states = check.into_states();
-        follow_carrier(&host, &lab, &HashMap::new(), &states, &fresh).await;
-        assert_eq!(
-            host.take_carrier_writes(),
-            vec![(vm_tap("vm1-lab", "tpa0"), false)],
-            "tpa1 already has no carrier: it is not set again"
-        );
+    async fn link_carrier_009_the_first_scan_after_a_restart_sets_only_the_carrier_that_is_wrong() {
+        {
+            // sherpad restarted: nothing is recorded. Link 0's peer vm2 stopped while sherpad was
+            // down; link 1 was taken down before the restart and is still down.
+            let (host, lab) = lab();
+            host.remove(&["tpb0", "tpb1"]);
+            host.set_carrier_by_hand("tpa1", false);
+            let running = HashSet::from([id("vm1")]);
+            let check = check_lab_links(&host, &lab, &running).await;
+            let fresh = check.fresh_ends();
+            let states = check.into_states();
+            follow_carrier(&host, &lab, &HashMap::new(), &states, &fresh).await;
+            assert_eq!(
+                host.take_carrier_writes(),
+                vec![(vm_tap("vm1-lab", "tpa0"), false)],
+                "tpa1 already has no carrier: it is not set again"
+            );
 
-        // The second scan has the first's states: nothing changed, nothing is set.
-        let check = check_lab_links(&host, &lab, &running).await;
-        let fresh = check.fresh_ends();
-        let next = check.into_states();
-        follow_carrier(&host, &lab, &states, &next, &fresh).await;
-        assert_eq!(host.take_carrier_writes(), vec![]);
+            // The second scan has the first's states: nothing changed, nothing is set.
+            let check = check_lab_links(&host, &lab, &running).await;
+            let fresh = check.fresh_ends();
+            let next = check.into_states();
+            follow_carrier(&host, &lab, &states, &next, &fresh).await;
+            assert_eq!(host.take_carrier_writes(), vec![]);
+        }
+
+        {
+            let (host, lab) = lab();
+            let running = HashSet::from([id("vm1"), id("vm2"), id("ctr1")]);
+            let check = check_lab_links(&host, &lab, &running).await;
+            let fresh = check.fresh_ends();
+            let states = check.into_states();
+            follow_carrier(&host, &lab, &HashMap::new(), &states, &fresh).await;
+            assert_eq!(host.take_carrier_writes(), vec![]);
+        }
+
+        {
+            let names = ["vm1", "vm2"];
+            assert_eq!(
+                carrier_moves(None, &LinkState::Attached, names, [false; 2]),
+                [Some(true), Some(true)]
+            );
+            assert_eq!(
+                carrier_moves(None, &peer_down("vm2"), names, [false; 2]),
+                [Some(false), None]
+            );
+        }
     }
 
     #[tokio::test]
-    async fn the_first_scan_after_a_restart_does_not_flap_a_working_lab() {
-        let (host, lab) = lab();
-        let running = HashSet::from([id("vm1"), id("vm2"), id("ctr1")]);
-        let check = check_lab_links(&host, &lab, &running).await;
-        let fresh = check.fresh_ends();
-        let states = check.into_states();
-        follow_carrier(&host, &lab, &HashMap::new(), &states, &fresh).await;
-        assert_eq!(host.take_carrier_writes(), vec![]);
+    async fn link_carrier_010_a_vm_cold_booted_while_its_peer_is_down_has_its_end_taken_down() {
+        {
+            // vm1 and vm2 were both off; vm2 is started outside Sherpa. Its new tap is bare, and the
+            // link's state names vm1 as before, but the new tap starts with carrier.
+            let (host, lab) = lab();
+            host.remove(&["tpa0", "tpa1"]);
+            host.make(&["tpb0"]);
+            let previous = HashMap::from([(0, peer_down("vm1"))]);
+            let running = HashSet::from([id("vm2"), id("ctr1")]);
+            let check = check_lab_links(&host, &lab, &running).await;
+            let fresh = check.fresh_ends();
+            let states = check.into_states();
+            assert_eq!(states[&0], peer_down("vm1"));
+            follow_carrier(&host, &lab, &previous, &states, &fresh).await;
+            assert!(
+                host.take_carrier_writes()
+                    .contains(&(vm_tap("vm2-lab", "tpb0"), false))
+            );
+        }
+
+        {
+            let names = ["vm1", "vm2"];
+            assert_eq!(
+                carrier_moves(
+                    Some(&peer_down("vm1")),
+                    &peer_down("vm1"),
+                    names,
+                    [false, true]
+                ),
+                [None, Some(false)]
+            );
+        }
+
+        {
+            // vm2 is off: a scan took vm1's end down and recorded the link waiting for vm2.
+            let (host, lab) = reattach_lab();
+            let link_states = LinkStates::default();
+            host.remove(&["tpb0"]);
+            host.set_carrier_by_hand("tpa0", false);
+            link_states.record("lab", 0, peer_down("vm2"));
+
+            // vm1 is cold-booted: its new taps have carrier. Link 0's state is the one recorded,
+            // but its new end is taken down; the attached links' ends already have carrier.
+            host.make(&["tpa0", "tpa1", "tpa2"]);
+            let outcomes = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
+            report_links(&host, &lab, &id("vm1"), None, &link_states, outcomes).await;
+            assert_eq!(
+                host.take_carrier_writes(),
+                vec![(
+                    EndDevice::Tap {
+                        domain: "vm1-lab".to_string(),
+                        tap: "tpa0".to_string()
+                    },
+                    false
+                )]
+            );
+            assert_eq!(link_states.of_lab("lab")[&0], peer_down("vm2"));
+
+            // vm2 is resumed: the link is attached, and vm1's end has its carrier back.
+            host.make(&["tpb0"]);
+            let outcomes = reattach_node_links(&host, &lab, &id("vm2"), RecreatedEnd::Domain).await;
+            report_links(&host, &lab, &id("vm2"), None, &link_states, outcomes).await;
+            assert!(host.has_carrier("tpa0") && host.has_carrier("tpb0"));
+            assert_eq!(link_states.of_lab("lab")[&0], LinkState::Attached);
+        }
     }
 
     #[tokio::test]
-    async fn a_vm_started_while_its_peer_is_down_has_its_new_end_taken_down() {
-        // vm1 and vm2 were both off; vm2 is started outside Sherpa. Its new tap is bare, and the
-        // link's state names vm1 as before, but the new tap starts with carrier.
-        let (host, lab) = lab();
-        host.remove(&["tpa0", "tpa1"]);
-        host.make(&["tpb0"]);
-        let previous = HashMap::from([(0, peer_down("vm1"))]);
-        let running = HashSet::from([id("vm2"), id("ctr1")]);
-        let check = check_lab_links(&host, &lab, &running).await;
-        let fresh = check.fresh_ends();
-        let states = check.into_states();
-        assert_eq!(states[&0], peer_down("vm1"));
-        follow_carrier(&host, &lab, &previous, &states, &fresh).await;
-        assert!(
-            host.take_carrier_writes()
-                .contains(&(vm_tap("vm2-lab", "tpb0"), false))
-        );
-    }
-
-    #[tokio::test]
-    async fn an_end_that_does_not_exist_or_fails_does_not_stop_the_others() {
+    async fn link_carrier_011_an_end_that_is_missing_or_fails_does_not_stop_the_others() {
         let (mut host, lab) = lab();
         host.remove(&["tpa0"]);
         host.failing_carrier.insert("tpa1".to_string());

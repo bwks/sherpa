@@ -28,6 +28,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 013 | A container interface with the name of an interface on the server, such as `eth1`, is still made | integration |
 | 014 | A container interface whose host end's name is held by an interface that is not a removed container's is refused, and that interface is left | integration |
 | 015 | A container interface asked for a container that is gone fails, and leaves no host end behind | integration |
+| 016 | A unikernel's link interface is the link's host end with the link's MTU | unit |
 
 ## `link_reattach`: a link works again after one of its ends is made again
 
@@ -191,6 +192,8 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 | 010 | A VM's reserved interfaces are on a network of the node's own with their link up, and its unused ones on another with ports kept apart | integration |
 | 011 | An interface name reaches the command that renames it in a container as an argument, never as script | unit |
 | 012 | Only a model that waits for its interfaces at boot (cJunosEvolved) has its unused interfaces up in the container, and a linked interface is up on every model | unit |
+| 013 | A container interface on a Docker network that its model renames is given that name in the container, with its address, and one its model does not rename keeps the name Docker gives it | unit |
+| 014 | Only an active container interface that its model renames runs a command in the container, which sets it promiscuous and up; one that is down or not renamed runs none, so an image with no `ip` starts | unit |
 
 ## `veth_checksums`: a node that reads raw packets gets finished checksums
 
@@ -222,6 +225,8 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 | 003 | A lab's management network is made in libvirt and Docker on one bridge, in IPv4 alone or with IPv6, and making it again changes nothing | integration |
 | 004 | A node's management interface passes traffic from the moment it starts, with no four-second wait (no test yet) | e2e |
 | 005 | A management network Docker cannot make is reported, not passed over | integration |
+| 006 | Making a lab's Docker management network when it is already there succeeds | integration |
+| 007 | A unikernel's management interface is on its lab's management network, with the MAC address Sherpa gave it | unit |
 
 Which ranges a lab's management network takes, and which addresses its nodes get in them, are `lab_addressing` in [lab lifecycle](lab-lifecycle.md).
 

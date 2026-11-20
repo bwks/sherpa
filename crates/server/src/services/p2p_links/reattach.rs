@@ -370,7 +370,7 @@ pub(crate) async fn report_links(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use shared::data::{ModelKind, ReadyCheck};
 
@@ -381,6 +381,9 @@ mod tests {
     use bollard::secret::ContainerStateStatusEnum;
     use libvirt::Qemu;
 
+    use super::super::plan::tests::{ctr1_host_veths, definition, end_of};
+    use super::super::veths::tests::{bridge, link as veths_link};
+    use super::super::veths::{ContainerNode, container_veths, node_bridge_interfaces};
     use crate::services::p2p_links::KernelHost;
     use crate::services::p2p_links::fake::FakeHost;
     use shared::data::{BridgeKind, NodeKind, NodeModel, NodeState};
@@ -423,7 +426,7 @@ mod tests {
     }
 
     /// vm1 with a link to vm2 (0), ctr1 (1) and uk1 (2), every end made and attached.
-    fn lab() -> (FakeHost, LabLinks) {
+    pub(crate) fn lab() -> (FakeHost, LabLinks) {
         let nodes = ["vm1", "vm2", "ctr1", "uk1"].map(node);
         let links = vec![
             link(0, "vm1", "vm2"),
@@ -463,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn the_running_nodes_are_those_their_runtime_reports_running() {
+    fn link_state_010_the_running_nodes_are_those_libvirt_and_docker_report_running() {
         let (_, lab) = lab();
         let runtimes = Runtimes {
             domains: Some(HashMap::from([
@@ -492,23 +495,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_cold_booted_node_has_every_link_attached_to_its_new_ends() {
-        let (host, lab) = lab();
-        // A cold boot gives vm1 new taps: each peer's redirect is stale.
-        host.make(&["tpa0", "tpa1", "tpa2"]);
-        let reports = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
-        let reports = reports_of(reports);
-        assert!(
-            reports.iter().all(|r| r.state == LinkState::Attached),
-            "{reports:?}"
-        );
-        for (a, b) in [("tpa0", "tpb0"), ("tpa1", "tpb1"), ("tpa2", "tpb2")] {
-            assert!(host.wired(a, b), "{a} <-> {b}");
+    async fn link_reattach_006_a_cold_booted_vm_or_unikernel_has_its_links_attached_to_its_ends() {
+        {
+            let (host, lab) = lab();
+            // A cold boot gives vm1 new taps: each peer's redirect is stale.
+            host.make(&["tpa0", "tpa1", "tpa2"]);
+            let reports = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
+            let reports = reports_of(reports);
+            assert!(
+                reports.iter().all(|r| r.state == LinkState::Attached),
+                "{reports:?}"
+            );
+            for (a, b) in [("tpa0", "tpb0"), ("tpa1", "tpb1"), ("tpa2", "tpb2")] {
+                assert!(host.wired(a, b), "{a} <-> {b}");
+            }
+        }
+
+        {
+            let definition = definition().await;
+            // M8.1: only cold-booted VMs used to be re-attached; a unikernel's new tap was left
+            // without a redirect, and its peer's pointed at the old one.
+            assert!(matches!(
+                end_of("uk1", NodeKind::Unikernel, None, definition.as_ref()),
+                Some(RecreatedEnd::Domain)
+            ));
+            assert!(matches!(
+                end_of("vm1", NodeKind::VirtualMachine, None, definition.as_ref()),
+                Some(RecreatedEnd::Domain)
+            ));
         }
     }
 
     #[tokio::test]
-    async fn a_peer_that_is_down_does_not_stop_the_other_links() {
+    async fn link_reattach_010_a_link_whose_peer_is_down_waits_and_the_others_are_attached() {
         // M25.1: vm2, the first link's peer, is shut off; vm1 alone is resumed.
         let (host, lab) = lab();
         host.remove(&["tpb0"]);
@@ -528,22 +547,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_link_that_fails_does_not_stop_the_other_links() {
-        // M25.1: the first link fails in the kernel; the later ones are still attached.
-        let (mut host, lab) = lab();
-        host.failing_redirects.insert("tpb0".to_string());
-        host.failing_lookups.insert("tpb1".to_string());
-        host.make(&["tpa0", "tpa1", "tpa2"]);
-        let reports = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
-        let reports = reports_of(reports);
-        assert!(reports[0].failed(), "{reports:?}");
-        assert!(reports[1].failed(), "{reports:?}");
-        assert_eq!(reports[2].state, LinkState::Attached);
-        assert!(host.wired("tpa2", "tpb2"));
+    async fn link_reattach_012_a_link_that_fails_stops_neither_the_other_links_nor_the_node() {
+        {
+            // M25.1: the first link fails in the kernel; the later ones are still attached.
+            let (mut host, lab) = lab();
+            host.failing_redirects.insert("tpb0".to_string());
+            host.failing_lookups.insert("tpb1".to_string());
+            host.make(&["tpa0", "tpa1", "tpa2"]);
+            let reports = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
+            let reports = reports_of(reports);
+            assert!(reports[0].failed(), "{reports:?}");
+            assert!(reports[1].failed(), "{reports:?}");
+            assert_eq!(reports[2].state, LinkState::Attached);
+            assert!(host.wired("tpa2", "tpb2"));
+        }
+
+        {
+            let (host, lab) = lab();
+            host.remove(&["tpa2"]);
+            let reports = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
+            let reports = reports_of(reports);
+            assert_eq!(
+                reports[2].state,
+                LinkState::Failed {
+                    reason: "its end tpa2 does not exist".to_string()
+                }
+            );
+            assert!(host.wired("tpa0", "tpb0"));
+            assert!(host.wired("tpa1", "tpb1"));
+        }
     }
 
     #[tokio::test]
-    async fn a_peer_that_comes_back_attaches_both_directions() {
+    async fn link_reattach_011_a_peer_that_comes_back_attaches_both_directions() {
         // M9.2: vm1 is rebuilt while vm2 is shut off, then vm2 is resumed.
         let (host, lab) = lab();
         host.remove(&["tpb0"]);
@@ -566,22 +602,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn a_node_whose_own_end_is_missing_fails_the_link_not_the_node() {
-        let (host, lab) = lab();
-        host.remove(&["tpa2"]);
-        let reports = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
-        let reports = reports_of(reports);
-        assert_eq!(
-            reports[2].state,
-            LinkState::Failed {
-                reason: "its end tpa2 does not exist".to_string()
-            }
-        );
-        assert!(host.wired("tpa0", "tpb0"));
-        assert!(host.wired("tpa1", "tpb1"));
-    }
-
     fn ctr1_veths() -> Vec<ContainerVeth> {
         let veth = |host_veth: &str, idx: u8, admin_down: bool| ContainerVeth {
             host_veth: host_veth.to_string(),
@@ -595,98 +615,170 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_started_container_gets_its_veths_again_before_its_links_attach() {
-        // M25.2: the container exited, so its namespace and its veths are gone.
-        let (host, lab) = lab();
-        host.remove(&["tpb1"]);
-        let reports = reattach_node_links(
-            &host,
-            &lab,
-            &id("ctr1"),
-            RecreatedEnd::Container {
-                container: "ctr1-lab".to_string(),
-                veths: ctr1_veths(),
-            },
-        )
-        .await;
-        let reports = reports_of(reports);
-        assert_eq!(
-            states(&reports),
-            vec![("vm1::eth2 <-> ctr1::eth1", &LinkState::Attached)]
-        );
-        assert!(host.wired("tpa1", "tpb1"));
-        assert!(
-            host.index("cd1i2-lab").is_some(),
-            "disabled interfaces are made too"
-        );
-        assert_eq!(
-            host.redirect("cd1i2-lab"),
-            None,
-            "a disabled interface has no redirect"
-        );
+    async fn link_reattach_007_a_started_container_gets_every_interface_again_before_its_links() {
+        {
+            // M25.2: the container exited, so its namespace and its veths are gone.
+            let (host, lab) = lab();
+            host.remove(&["tpb1"]);
+            let reports = reattach_node_links(
+                &host,
+                &lab,
+                &id("ctr1"),
+                RecreatedEnd::Container {
+                    container: "ctr1-lab".to_string(),
+                    veths: ctr1_veths(),
+                },
+            )
+            .await;
+            let reports = reports_of(reports);
+            assert_eq!(
+                states(&reports),
+                vec![("vm1::eth2 <-> ctr1::eth1", &LinkState::Attached)]
+            );
+            assert!(host.wired("tpa1", "tpb1"));
+            assert!(
+                host.index("cd1i2-lab").is_some(),
+                "disabled interfaces are made too"
+            );
+            assert_eq!(
+                host.redirect("cd1i2-lab"),
+                None,
+                "a disabled interface has no redirect"
+            );
+        }
+
+        {
+            // M25.2: a container started from exited has a new network namespace without its
+            // veths; resume used to leave it so.
+            let definition = definition().await;
+            // Its link's end, and its other data interface, disabled, from the stored definition's
+            // count.
+            assert_eq!(
+                ctr1_host_veths(definition.as_ref()),
+                vec!["tpb1-lab1", "cd3i2-lab1"]
+            );
+        }
+
+        {
+            // M25.2: a restarted container needs all of these again, not only its links.
+            let record = RecordId::new("node", "ctr1");
+            let node = ContainerNode {
+                lab_id: "lab1",
+                name: "ctr1",
+                index: 3,
+                model_kind: ModelKind::default_for(NodeModel::FrrLinux),
+                record: &record,
+            };
+            let links = [veths_link(0, "vm1", "ctr1")];
+            let link_refs: Vec<&DbLink> = links.iter().collect();
+            let bridges = HashMap::from([("eth2".to_string(), "brs0-lab1".to_string())]);
+            let veths = container_veths(&node, &link_refs, &bridges, 1..=3).unwrap();
+            let summary: Vec<(&str, u8, bool, Option<&str>)> = veths
+                .iter()
+                .map(|v| {
+                    (
+                        v.host_veth.as_str(),
+                        v.interface_idx,
+                        v.admin_down,
+                        v.bridge.as_deref(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                summary,
+                vec![
+                    ("tap0b", 1, false, None),
+                    ("cb3i2-lab1", 2, false, Some("brs0-lab1")),
+                    ("cd3i3-lab1", 3, true, None),
+                ]
+            );
+        }
+
+        {
+            // Redeploy used to put every unlinked interface of a bridge's node on that bridge.
+            let bridges = vec![
+                bridge(0, &[("dev01", "eth1"), ("fr01", "eth1")]),
+                bridge(1, &[("dev01", "eth3"), ("fr02", "eth1")]),
+            ];
+            let interfaces = node_bridge_interfaces(&bridges, &RecordId::new("node", "dev01"));
+            assert_eq!(
+                interfaces,
+                HashMap::from([
+                    ("eth1".to_string(), "brs0-lab".to_string()),
+                    ("eth3".to_string(), "brs1-lab".to_string()),
+                ])
+            );
+        }
     }
 
     #[tokio::test]
-    async fn a_veth_that_cannot_be_made_fails_its_link() {
-        let (mut host, lab) = lab();
-        host.remove(&["tpb1"]);
-        host.failing_veths.insert("tpb1".to_string());
-        let reports = reattach_node_links(
-            &host,
-            &lab,
-            &id("ctr1"),
-            RecreatedEnd::Container {
-                container: "ctr1-lab".to_string(),
-                veths: ctr1_veths(),
-            },
-        )
-        .await;
-        let reports = reports_of(reports);
-        assert_eq!(reports.len(), 1);
-        assert!(reports[0].failed(), "{reports:?}");
-        assert!(
-            host.index("cd1i2-lab").is_some(),
-            "the other veths are still made"
-        );
+    async fn link_reattach_013_an_end_that_cannot_be_made_fails_the_nodes_links_with_the_reason() {
+        {
+            let (mut host, lab) = lab();
+            host.remove(&["tpb1"]);
+            host.failing_veths.insert("tpb1".to_string());
+            let reports = reattach_node_links(
+                &host,
+                &lab,
+                &id("ctr1"),
+                RecreatedEnd::Container {
+                    container: "ctr1-lab".to_string(),
+                    veths: ctr1_veths(),
+                },
+            )
+            .await;
+            let reports = reports_of(reports);
+            assert_eq!(reports.len(), 1);
+            assert!(reports[0].failed(), "{reports:?}");
+            assert!(
+                host.index("cd1i2-lab").is_some(),
+                "the other veths are still made"
+            );
+        }
+
+        {
+            let (mut host, lab) = lab();
+            host.remove(&["tpb1"]);
+            host.no_container = true;
+            let reports = reattach_node_links(
+                &host,
+                &lab,
+                &id("ctr1"),
+                RecreatedEnd::Container {
+                    container: "ctr1-lab".to_string(),
+                    veths: ctr1_veths(),
+                },
+            )
+            .await;
+            let reports = reports_of(reports);
+            assert_eq!(reports.len(), 1);
+            assert!(reports[0].failed(), "{reports:?}");
+        }
+
+        {
+            let (host, lab) = lab();
+            let reports = reattach_node_links(
+                &host,
+                &lab,
+                &id("vm1"),
+                RecreatedEnd::Unplanned("no manifest".to_string()),
+            )
+            .await;
+            let reports = reports_of(reports);
+            assert_eq!(reports.len(), 3);
+            assert!(reports.iter().all(LinkReport::failed), "{reports:?}");
+        }
+
+        {
+            assert!(matches!(
+                end_of("ctr1", NodeKind::Container, None, None),
+                Some(RecreatedEnd::Unplanned(_))
+            ));
+        }
     }
 
     #[tokio::test]
-    async fn a_container_whose_namespace_cannot_be_found_fails_its_links() {
-        let (mut host, lab) = lab();
-        host.remove(&["tpb1"]);
-        host.no_container = true;
-        let reports = reattach_node_links(
-            &host,
-            &lab,
-            &id("ctr1"),
-            RecreatedEnd::Container {
-                container: "ctr1-lab".to_string(),
-                veths: ctr1_veths(),
-            },
-        )
-        .await;
-        let reports = reports_of(reports);
-        assert_eq!(reports.len(), 1);
-        assert!(reports[0].failed(), "{reports:?}");
-    }
-
-    #[tokio::test]
-    async fn a_node_whose_ends_could_not_be_planned_fails_each_link() {
-        let (host, lab) = lab();
-        let reports = reattach_node_links(
-            &host,
-            &lab,
-            &id("vm1"),
-            RecreatedEnd::Unplanned("no manifest".to_string()),
-        )
-        .await;
-        let reports = reports_of(reports);
-        assert_eq!(reports.len(), 3);
-        assert!(reports.iter().all(LinkReport::failed), "{reports:?}");
-    }
-
-    #[tokio::test]
-    async fn re_attach_sets_each_direction_on_the_end_it_leaves_through() {
+    async fn link_reattach_014_each_directions_impairment_is_set_again_on_the_end_it_leaves() {
         let (host, mut lab) = lab();
         let delay = LinkImpairment {
             delay_us: 5000,
@@ -704,40 +796,6 @@ mod tests {
         assert_eq!(netem.get(&ifindex_a), None);
     }
 
-    #[tokio::test]
-    async fn a_resume_makes_the_carrier_follow_the_states_it_records() {
-        // vm2 is off: a scan took vm1's end down and recorded the link waiting for vm2.
-        let (host, lab) = lab();
-        let link_states = LinkStates::default();
-        host.remove(&["tpb0"]);
-        host.set_carrier_by_hand("tpa0", false);
-        link_states.record("lab", 0, peer_down("vm2"));
-
-        // vm1 is cold-booted: its new taps have carrier. Link 0's state is the one recorded,
-        // but its new end is taken down; the attached links' ends already have carrier.
-        host.make(&["tpa0", "tpa1", "tpa2"]);
-        let outcomes = reattach_node_links(&host, &lab, &id("vm1"), RecreatedEnd::Domain).await;
-        report_links(&host, &lab, &id("vm1"), None, &link_states, outcomes).await;
-        assert_eq!(
-            host.take_carrier_writes(),
-            vec![(
-                EndDevice::Tap {
-                    domain: "vm1-lab".to_string(),
-                    tap: "tpa0".to_string()
-                },
-                false
-            )]
-        );
-        assert_eq!(link_states.of_lab("lab")[&0], peer_down("vm2"));
-
-        // vm2 is resumed: the link is attached, and vm1's end has its carrier back.
-        host.make(&["tpb0"]);
-        let outcomes = reattach_node_links(&host, &lab, &id("vm2"), RecreatedEnd::Domain).await;
-        report_links(&host, &lab, &id("vm2"), None, &link_states, outcomes).await;
-        assert!(host.has_carrier("tpa0") && host.has_carrier("tpb0"));
-        assert_eq!(link_states.of_lab("lab")[&0], LinkState::Attached);
-    }
-
     /// Whether `iface` has a TC filter on its ingress running the redirect program.
     fn has_redirect(iface: &str) -> bool {
         let output = Command::new("tc")
@@ -749,7 +807,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires root: makes veths and attaches eBPF programs"]
-    async fn the_kernel_re_attaches_a_link_and_waits_for_a_peer_that_is_down() {
+    async fn link_reattach_015_the_kernel_re_attaches_a_link_and_waits_for_a_peer_that_is_down() {
         let (a, b) = ("it-reatt-a", "it-reatt-b");
         let make_end = |name: &'static str| async move {
             let _ = network::delete_interface(name).await;

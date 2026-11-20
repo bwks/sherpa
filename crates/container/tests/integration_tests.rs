@@ -130,33 +130,6 @@ async fn container_listed(docker: &Docker, name: &str) -> Result<bool> {
 }
 
 // ============================================================================
-// Networks
-// ============================================================================
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn test_create_and_delete_bridge_network() -> Result<()> {
-    let docker = docker_connection()?;
-    let net = TestNet::new("bridge", 7);
-
-    let result: Result<()> = async {
-        let _ = delete_network(&docker, &net.name).await;
-        create_test_network(&docker, &net).await?;
-
-        delete_network(&docker, &net.name).await?;
-        let networks = list_networks(&docker).await?;
-        let found = networks
-            .iter()
-            .any(|n| n.name.as_deref() == Some(net.name.as_str()));
-        ensure!(!found, "Network should be gone after deletion");
-        Ok(())
-    }
-    .await;
-    let _ = delete_network(&docker, &net.name).await;
-    result
-}
-
-// ============================================================================
 // Container with env vars and volumes
 // ============================================================================
 
@@ -257,7 +230,8 @@ async fn container_run_004_a_privileged_container_runs_privileged() -> Result<()
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon"]
-async fn test_create_bridge_network_reports_failure() -> Result<()> {
+async fn management_network_005_a_management_network_docker_cannot_make_is_reported() -> Result<()>
+{
     let docker = docker_connection()?;
     let result = create_docker_bridge_network(
         &docker,
@@ -274,7 +248,7 @@ async fn test_create_bridge_network_reports_failure() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon"]
-async fn test_create_existing_bridge_network_succeeds() -> Result<()> {
+async fn management_network_006_making_a_docker_management_network_again_succeeds() -> Result<()> {
     let docker = docker_connection()?;
     let net = TestNet::new("again", 51);
     let _ = delete_network(&docker, &net.name).await;
@@ -293,7 +267,8 @@ async fn test_create_existing_bridge_network_succeeds() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon"]
-async fn test_delete_network_in_use_fails_and_missing_succeeds() -> Result<()> {
+async fn link_cleanup_006_a_network_in_use_is_not_removed_and_one_gone_counts_as_removed()
+-> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-net-in-use";
     let net = TestNet::new("in-use", 52);

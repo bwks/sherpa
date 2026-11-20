@@ -287,7 +287,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unikernel_template_renders_management_interface() {
+    fn management_network_007_a_unikernels_management_interface_is_on_the_management_network() {
         let mut tmpl = base_unikernel_template(UnikernelBootMode::DirectKernel);
         tmpl.interfaces = vec![Interface {
             name: "mgmt0".to_string(),
@@ -303,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unikernel_p2p_interface_sets_its_mtu() {
+    fn p2p_link_016_a_unikernels_link_interface_has_the_links_mtu() {
         let mut tmpl = base_unikernel_template(UnikernelBootMode::DirectKernel);
         tmpl.interfaces = vec![Interface {
             name: "tpa0-lab1".to_string(),

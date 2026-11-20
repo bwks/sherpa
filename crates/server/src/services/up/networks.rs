@@ -577,7 +577,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_management_network_spans_its_subnets() {
+    fn lab_addressing_009_the_management_network_spans_the_labs_subnets_from_the_gateway() {
         let subnets = LabSubnets {
             management_subnet: "172.31.4.0/24".parse().unwrap(),
             gateway_ipv4: "172.31.4.1".parse().unwrap(),

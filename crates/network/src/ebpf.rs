@@ -241,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_bpf_filter_running_the_redirect_program_is_the_redirect() {
+    fn link_reattach_028_only_a_filter_running_sherpas_redirect_counts_as_the_redirect() {
         assert!(is_p2p_redirect(&filter("bpf", "p2p_redirect")));
         assert!(!is_p2p_redirect(&filter("bpf", "other_prog")));
         assert!(!is_p2p_redirect(&filter("bpf", "p2p_redirect_v2")));
@@ -251,7 +251,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires root: makes a veth and attaches an eBPF program"]
-    async fn a_new_interface_has_no_redirect_until_one_is_attached() {
+    async fn link_reattach_029_a_new_interface_has_no_redirect_until_a_link_is_attached() {
         let (a, b) = ("it-hasred-a", "it-hasred-b");
         let _ = delete_interface(a).await;
         create_veth_pair(a, b, a, b).await.unwrap();

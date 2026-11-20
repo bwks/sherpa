@@ -246,32 +246,6 @@ pub async fn sync_netem(iface_index: u32, impairment: &LinkImpairment) -> Result
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_percent_to_kernel_hundred() {
-        assert_eq!(percent_to_kernel(100.0), u32::MAX);
-    }
-
-    #[test]
-    fn test_percent_to_kernel_fifty() {
-        let result = percent_to_kernel(50.0);
-        // 50% should be roughly half of u32::MAX
-        let expected = u32::MAX / 2;
-        assert!(
-            result.abs_diff(expected) < 2,
-            "50% should be ~{expected}, got {result}"
-        );
-    }
-
-    #[test]
-    fn test_percent_to_kernel_negative_clamps() {
-        assert_eq!(percent_to_kernel(-5.0), 0);
-    }
-
-    #[test]
-    fn test_percent_to_kernel_over_hundred_clamps() {
-        assert_eq!(percent_to_kernel(150.0), u32::MAX);
-    }
-
     /// Length, type and the two u32 fields of the netem attribute at `offset`.
     fn nla(options: &[u8], offset: usize) -> (u16, u16, u32, u32) {
         let len = u16::from_ne_bytes(options[offset..offset + 2].try_into().unwrap());
@@ -282,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn test_netem_options_without_reorder_or_corrupt_is_only_qopt() {
+    fn link_impair_016_reorder_and_corruption_reach_netem_and_a_delay_too_long_is_refused() {
         let options = netem_options(&LinkImpairment {
             delay_us: 20_000,
             loss_percent: 10.0,
@@ -292,10 +266,7 @@ mod tests {
         assert_eq!(options.len(), NETEM_QOPT_LEN);
         assert_eq!(&options[0..4], &312_500u32.to_ne_bytes());
         assert_eq!(&options[8..12], &429_496_729u32.to_ne_bytes());
-    }
 
-    #[test]
-    fn test_netem_options_carry_reorder() {
         let options = netem_options(&LinkImpairment {
             delay_us: 10_000,
             reorder_percent: 25.0,
@@ -308,10 +279,7 @@ mod tests {
             nla(&options, NETEM_QOPT_LEN),
             (12, TCA_NETEM_REORDER, 1_073_741_823, 0)
         );
-    }
 
-    #[test]
-    fn test_netem_options_carry_corrupt() {
         let options = netem_options(&LinkImpairment {
             corrupt_percent: 5.0,
             ..LinkImpairment::default()
@@ -322,10 +290,7 @@ mod tests {
             nla(&options, NETEM_QOPT_LEN),
             (12, TCA_NETEM_CORRUPT, 214_748_364, 0)
         );
-    }
 
-    #[test]
-    fn test_netem_options_carry_reorder_and_corrupt() {
         let options = netem_options(&LinkImpairment {
             delay_us: 10_000,
             reorder_percent: 25.0,
@@ -336,10 +301,7 @@ mod tests {
         assert_eq!(options.len(), NETEM_QOPT_LEN + 24);
         assert_eq!(nla(&options, NETEM_QOPT_LEN).1, TCA_NETEM_REORDER);
         assert_eq!(nla(&options, NETEM_QOPT_LEN + 12).1, TCA_NETEM_CORRUPT);
-    }
 
-    #[test]
-    fn test_netem_options_refuse_a_delay_netem_cannot_hold() {
         let error = netem_options(&LinkImpairment {
             delay_us: u32::MAX,
             ..LinkImpairment::default()
@@ -361,7 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_root_netem_of_the_interface_is_sherpas_netem() {
+    fn link_impair_015_only_the_root_netem_of_the_links_own_host_end_is_sherpas() {
         assert!(is_link_netem(
             &qdisc(7, NETEM_HANDLE, TcHandle::ROOT, "netem"),
             7

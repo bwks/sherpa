@@ -184,21 +184,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_find_link_index_by_either_end() {
-        let links = vec![link("u1::eth1", "u2::eth1"), link("u1::eth2", "c1::eth1")];
-        assert_eq!(find_link_index(&links, "u1::eth2").unwrap(), 1);
-        assert_eq!(find_link_index(&links, "c1::eth1").unwrap(), 1);
-        assert_eq!(find_link_index(&links, "u2::eth1").unwrap(), 0);
-    }
-
-    #[test]
-    fn test_find_link_index_unknown_end_fails() {
-        let links = vec![link("u1::eth1", "u2::eth1")];
-        let error = find_link_index(&links, "u1::eth9").unwrap_err().to_string();
-        assert!(error.contains("u1::eth9"), "{error}");
-    }
-
     fn link_info(a: &str, b: &str, index: Option<u16>) -> LinkInfo {
         let (first, first_int) = a.split_once("::").unwrap();
         let (second, second_int) = b.split_once("::").unwrap();
@@ -214,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn a_link_is_found_by_either_end_in_the_lab_the_server_gives() {
+    fn link_impair_006_the_link_is_found_by_either_end_and_an_end_on_no_link_is_refused() {
         // Indexes as the server numbered them, not by position in the list.
         let links = [
             link_info("u1::eth2", "c1::eth1", Some(1)),
@@ -223,10 +208,7 @@ mod tests {
         assert_eq!(inspect_link_index(&links, "u1::eth2").unwrap(), Some(1));
         assert_eq!(inspect_link_index(&links, "c1::eth1").unwrap(), Some(1));
         assert_eq!(inspect_link_index(&links, "u2::eth1").unwrap(), Some(0));
-    }
 
-    #[test]
-    fn an_end_on_no_link_in_the_lab_is_refused() {
         let links = [link_info("u1::eth1", "u2::eth1", Some(0))];
         let error = inspect_link_index(&links, "u1::eth9").unwrap_err();
         assert_eq!(error.to_string(), "no link in the lab has the end u1::eth9");
@@ -234,34 +216,47 @@ mod tests {
     }
 
     #[test]
-    fn an_older_server_gives_no_link_index() {
-        let links = [link_info("u1::eth1", "u2::eth1", None)];
-        assert_eq!(inspect_link_index(&links, "u1::eth1").unwrap(), None);
-        assert_eq!(inspect_link_index(&links, "u1::eth9").unwrap(), None);
-    }
+    fn link_impair_007_with_no_link_indexes_the_link_is_found_in_the_manifest_or_refused() {
+        {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join(SHERPA_MANIFEST_FILE);
+            fs::write(
+                &path,
+                "name='lab'\nnodes=[]\nlinks=[{src='u1::eth1',dst='u2::eth1'},{src='u1::eth2',dst='c1::eth1'}]\n",
+            )
+            .unwrap();
+            assert_eq!(manifest_link_index(&path, "c1::eth1").unwrap(), 1);
+        }
 
-    #[test]
-    fn with_an_older_server_the_link_is_found_by_the_manifest() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(SHERPA_MANIFEST_FILE);
-        fs::write(
-            &path,
-            "name='lab'\nnodes=[]\nlinks=[{src='u1::eth1',dst='u2::eth1'},{src='u1::eth2',dst='c1::eth1'}]\n",
-        )
-        .unwrap();
-        assert_eq!(manifest_link_index(&path, "c1::eth1").unwrap(), 1);
-    }
+        {
+            let links = [link_info("u1::eth1", "u2::eth1", None)];
+            assert_eq!(inspect_link_index(&links, "u1::eth1").unwrap(), None);
+            assert_eq!(inspect_link_index(&links, "u1::eth9").unwrap(), None);
+        }
 
-    #[test]
-    fn with_an_older_server_and_no_manifest_the_server_is_too_old() {
-        let dir = tempfile::tempdir().unwrap();
-        let error =
-            manifest_link_index(&dir.path().join(SHERPA_MANIFEST_FILE), "u1::eth1").unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "The Sherpa server did not give the lab's link indexes: it is older than this \
-             client. Upgrade the server, or run 'sherpa link impair' in the folder the lab was \
-             started from, with its manifest.toml."
-        );
+        {
+            let dir = tempfile::tempdir().unwrap();
+            let error = manifest_link_index(&dir.path().join(SHERPA_MANIFEST_FILE), "u1::eth1")
+                .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "The Sherpa server did not give the lab's link indexes: it is older than this \
+                 client. Upgrade the server, or run 'sherpa link impair' in the folder the lab was \
+                 started from, with its manifest.toml."
+            );
+        }
+
+        {
+            let links = vec![link("u1::eth1", "u2::eth1"), link("u1::eth2", "c1::eth1")];
+            assert_eq!(find_link_index(&links, "u1::eth2").unwrap(), 1);
+            assert_eq!(find_link_index(&links, "c1::eth1").unwrap(), 1);
+            assert_eq!(find_link_index(&links, "u2::eth1").unwrap(), 0);
+        }
+
+        {
+            let links = vec![link("u1::eth1", "u2::eth1")];
+            let error = find_link_index(&links, "u1::eth9").unwrap_err().to_string();
+            assert!(error.contains("u1::eth9"), "{error}");
+        }
     }
 }

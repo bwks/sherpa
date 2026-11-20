@@ -8,7 +8,8 @@ use shared::data::{BridgeKind, DbLink, LinkImpairment, ModelKind, NodeModel, Rec
 use crate::helper::{ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-async fn impairments_are_set_and_the_rest_of_the_link_is_kept() -> Result<()> {
+async fn link_impair_020_recording_impairments_keeps_the_rest_and_refuses_a_gone_link() -> Result<()>
+{
     let db = setup_db().await?;
     let user = create_user(&db, "gina".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -69,11 +70,7 @@ async fn impairments_are_set_and_the_rest_of_the_link_is_kept() -> Result<()> {
     let stored = &list_links_by_lab(&db, lab_rid).await?[0];
     assert_eq!(stored.impairment_a_to_b, a_to_b);
     assert_eq!(stored.impairment_b_to_a, b_to_a);
-    Ok(())
-}
 
-#[tokio::test]
-async fn impairments_of_a_missing_link_are_refused() -> Result<()> {
     let db = setup_db().await?;
     let missing = RecordId::new("link", "missing");
     let error = update_link_impairments(

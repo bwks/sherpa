@@ -4779,7 +4779,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn disabled_veths_stay_down_unless_the_model_keeps_them_up() {
+    fn node_interfaces_012_only_a_model_that_waits_for_its_interfaces_has_unused_ones_up() {
         assert_eq!(
             netns_veth_state(
                 ModelKind::new(

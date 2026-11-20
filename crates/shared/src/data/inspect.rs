@@ -91,7 +91,7 @@ mod tests {
     }
 
     #[test]
-    fn a_link_carries_its_state_and_none_before_it_is_checked() {
+    fn link_state_007_a_link_from_a_server_with_no_state_or_index_still_reads() {
         let checked = serde_json::to_value(link(Some(LinkState::PeerDown {
             peer: "ctr1".to_string(),
         })))
@@ -106,10 +106,7 @@ mod tests {
         let mut old = unchecked;
         let back: LinkInfo = serde_json::from_value(old.take()).unwrap();
         assert_eq!(back.state, None);
-    }
 
-    #[test]
-    fn a_link_carries_its_index_and_none_from_an_older_server() {
         let mut indexed = link(None);
         indexed.index = Some(3);
         let value = serde_json::to_value(&indexed).unwrap();

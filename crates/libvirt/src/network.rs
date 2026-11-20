@@ -188,7 +188,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_nat_network_bridge_has_no_stp() {
+    fn management_network_002_the_management_bridge_runs_no_spanning_tree() {
         // With STP on, the kernel holds each new port for twice its 2 second minimum forward
         // delay, so a container's first network traffic is lost.
         let xml = NatNetwork {

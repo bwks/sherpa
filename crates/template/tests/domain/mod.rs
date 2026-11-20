@@ -197,22 +197,7 @@ fn test_domain_has_the_watchdog_its_node_sets() {
 }
 
 #[test]
-fn test_domain_renders_without_isolated_network() {
-    // Reproduces the bug where a VM with no disabled interfaces has no
-    // isolated network, causing `sherpa up` to fail with:
-    //   "Isolated network not found for VM node: dev01"
-    let domain = base_domain_template();
-    let output = domain
-        .render()
-        .expect("domain template should render with empty isolated_network");
-    assert!(output.contains("<name>dev01-a10736e8</name>"));
-    assert!(output.contains("sherpa-management-a10736e8"));
-    // isolated_network should NOT appear in output since there are no disabled interfaces
-    assert!(!output.contains("disabled"));
-}
-
-#[test]
-fn test_domain_renders_with_disabled_interface() {
+fn node_interfaces_005_an_unused_interface_of_a_vm_has_its_link_down() {
     let mut domain = base_domain_template();
     domain.isolated_network = "sherpa-isolated-dev01-a10736e8".to_string();
     domain.interfaces.push(Interface {
@@ -228,10 +213,22 @@ fn test_domain_renders_with_disabled_interface() {
         .expect("domain template should render with disabled interface");
     assert!(output.contains("sherpa-isolated-dev01-a10736e8"));
     assert!(output.contains("link state='down'"));
+
+    // Reproduces the bug where a VM with no disabled interfaces has no
+    // isolated network, causing `sherpa up` to fail with:
+    //   "Isolated network not found for VM node: dev01"
+    let domain = base_domain_template();
+    let output = domain
+        .render()
+        .expect("domain template should render with empty isolated_network");
+    assert!(output.contains("<name>dev01-a10736e8</name>"));
+    assert!(output.contains("sherpa-management-a10736e8"));
+    // isolated_network should NOT appear in output since there are no disabled interfaces
+    assert!(!output.contains("disabled"));
 }
 
 #[test]
-fn test_domain_p2p_interface_sets_its_mtu() {
+fn p2p_link_004_a_vm_is_told_its_links_mtu() {
     let mut domain = base_domain_template();
     domain.interfaces.push(Interface {
         name: "tpa0-a10736e8".to_string(),

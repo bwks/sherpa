@@ -147,12 +147,13 @@ pub(crate) fn container_veths(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    use shared::data::{BridgeKind, BridgeMember, LinkImpairment, ModelKind, NodeModel};
+    use shared::data::{BridgeKind, BridgeMember, LinkImpairment};
+    use shared::validators::effective_data_interface_count;
 
-    fn bridge(index: u16, members: &[(&str, &str)]) -> DbBridge {
+    pub(crate) fn bridge(index: u16, members: &[(&str, &str)]) -> DbBridge {
         DbBridge {
             id: None,
             index,
@@ -169,7 +170,7 @@ mod tests {
         }
     }
 
-    fn link(index: u16, node_a: &str, node_b: &str) -> DbLink {
+    pub(crate) fn link(index: u16, node_a: &str, node_b: &str) -> DbLink {
         DbLink {
             id: None,
             index,
@@ -187,90 +188,25 @@ mod tests {
     }
 
     #[test]
-    fn test_only_member_interfaces_map_to_their_bridge() {
-        // Redeploy used to put every unlinked interface of a bridge's node on that bridge.
-        let bridges = vec![
-            bridge(0, &[("dev01", "eth1"), ("fr01", "eth1")]),
-            bridge(1, &[("dev01", "eth3"), ("fr02", "eth1")]),
-        ];
-        let interfaces = node_bridge_interfaces(&bridges, &RecordId::new("node", "dev01"));
-        assert_eq!(
-            interfaces,
-            HashMap::from([
-                ("eth1".to_string(), "brs0-lab".to_string()),
-                ("eth3".to_string(), "brs1-lab".to_string()),
-            ])
-        );
-    }
-
-    #[test]
-    fn a_node_has_the_links_with_an_end_on_it() {
-        let links = vec![
-            link(0, "dev01", "fr01"),
-            link(1, "fr01", "fr02"),
-            link(2, "fr02", "dev01"),
-        ];
-        let indices: Vec<u16> = node_links(&links, &RecordId::new("node", "dev01"))
-            .iter()
-            .map(|link| link.index)
-            .collect();
-        assert_eq!(indices, vec![0, 2]);
-    }
-
-    #[test]
-    fn data_interfaces_follow_the_reserved_ones() {
+    fn node_interfaces_008_data_interfaces_number_as_the_manifest_or_image_says_after_reserved() {
         let mut image = data::NodeConfig::ubuntu_linux();
         image.interfaces.reserved_count = 2;
         assert_eq!(data_interface_indices(&image, 3, "n1").unwrap(), 3..=5);
-    }
 
-    #[test]
-    fn a_node_without_data_interfaces_has_none() {
         let mut image = data::NodeConfig::ubuntu_linux();
         image.interfaces.reserved_count = 0;
         assert!(data_interface_indices(&image, 0, "n1").unwrap().is_empty());
-    }
 
-    #[test]
-    fn an_interface_count_past_the_index_range_is_an_error() {
         let mut image = data::NodeConfig::ubuntu_linux();
         image.interfaces.reserved_count = u8::MAX;
         assert!(data_interface_indices(&image, 1, "n1").is_err());
-    }
 
-    #[test]
-    fn a_container_has_a_veth_for_every_data_interface() {
-        // M25.2: a restarted container needs all of these again, not only its links.
-        let record = RecordId::new("node", "ctr1");
-        let node = ContainerNode {
-            lab_id: "lab1",
-            name: "ctr1",
-            index: 3,
-            model_kind: ModelKind::default_for(NodeModel::FrrLinux),
-            record: &record,
-        };
-        let links = [link(0, "vm1", "ctr1")];
-        let link_refs: Vec<&DbLink> = links.iter().collect();
-        let bridges = HashMap::from([("eth2".to_string(), "brs0-lab1".to_string())]);
-        let veths = container_veths(&node, &link_refs, &bridges, 1..=3).unwrap();
-        let summary: Vec<(&str, u8, bool, Option<&str>)> = veths
-            .iter()
-            .map(|v| {
-                (
-                    v.host_veth.as_str(),
-                    v.interface_idx,
-                    v.admin_down,
-                    v.bridge.as_deref(),
-                )
-            })
-            .collect();
-        assert_eq!(
-            summary,
-            vec![
-                ("tap0b", 1, false, None),
-                ("cb3i2-lab1", 2, false, Some("brs0-lab1")),
-                ("cd3i3-lab1", 3, true, None),
-            ]
-        );
+        let node_image = data::NodeConfig::ubuntu_linux();
+        let count = effective_data_interface_count("dev01", None, &node_image).unwrap();
+        assert_eq!(count, 1);
+
+        let node_image = data::NodeConfig::ubuntu_linux();
+        let count = effective_data_interface_count("dev01", Some(4), &node_image).unwrap();
+        assert_eq!(count, 4);
     }
 }

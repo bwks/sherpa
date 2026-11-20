@@ -85,7 +85,7 @@ fn container_end(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::services::lab_definition::stored_definition;
     use crate::services::lab_definition::tests::{lab_with, store};
@@ -141,7 +141,7 @@ mod tests {
     }
 
     /// The lab's stored definition: `ctr1` with two data interfaces.
-    async fn definition() -> Option<Manifest> {
+    pub(crate) async fn definition() -> Option<Manifest> {
         let (db, lab) = lab_with(&[("ctr1", NodeModel::FrrLinux)]).await;
         store(
             &db,
@@ -158,7 +158,7 @@ data_count = 2
         stored_definition(&db, lab.id.as_ref().unwrap(), "lab1").await
     }
 
-    fn end_of(
+    pub(crate) fn end_of(
         name: &str,
         kind: NodeKind,
         image: Option<&NodeConfig>,
@@ -181,23 +181,8 @@ data_count = 2
         )
     }
 
-    #[tokio::test]
-    async fn a_cold_booted_unikernel_has_its_links_reattached() {
-        let definition = definition().await;
-        // M8.1: only cold-booted VMs used to be re-attached; a unikernel's new tap was left
-        // without a redirect, and its peer's pointed at the old one.
-        assert!(matches!(
-            end_of("uk1", NodeKind::Unikernel, None, definition.as_ref()),
-            Some(RecreatedEnd::Domain)
-        ));
-        assert!(matches!(
-            end_of("vm1", NodeKind::VirtualMachine, None, definition.as_ref()),
-            Some(RecreatedEnd::Domain)
-        ));
-    }
-
     /// The host veths planned for a started `ctr1`.
-    fn ctr1_host_veths(definition: Option<&Manifest>) -> Vec<String> {
+    pub(crate) fn ctr1_host_veths(definition: Option<&Manifest>) -> Vec<String> {
         let image = ModelKind::default_for(NodeModel::FrrLinux).node_config();
         let Some(RecreatedEnd::Container { container, veths }) =
             end_of("ctr1", NodeKind::Container, Some(&image), definition)
@@ -209,20 +194,7 @@ data_count = 2
     }
 
     #[tokio::test]
-    async fn a_started_container_has_its_veths_made_again() {
-        // M25.2: a container started from exited has a new network namespace without its
-        // veths; resume used to leave it so.
-        let definition = definition().await;
-        // Its link's end, and its other data interface, disabled, from the stored definition's
-        // count.
-        assert_eq!(
-            ctr1_host_veths(definition.as_ref()),
-            vec!["tpb1-lab1", "cd3i2-lab1"]
-        );
-    }
-
-    #[tokio::test]
-    async fn a_container_of_a_lab_without_a_stored_definition_takes_its_image_count() {
+    async fn link_reattach_008_a_container_of_a_lab_with_no_stored_manifest_has_its_image_count() {
         let (db, lab) = lab_with(&[("ctr1", NodeModel::FrrLinux)]).await;
         let definition = stored_definition(&db, lab.id.as_ref().unwrap(), "lab1").await;
         assert_eq!(definition, None);
@@ -233,7 +205,7 @@ data_count = 2
     }
 
     #[tokio::test]
-    async fn a_started_container_on_no_link_keeps_its_docker_networks() {
+    async fn link_reattach_009_a_started_container_on_no_link_keeps_its_docker_networks() {
         let definition = definition().await;
         let image = ModelKind::default_for(NodeModel::FrrLinux).node_config();
         assert!(
@@ -245,13 +217,5 @@ data_count = 2
             )
             .is_none()
         );
-    }
-
-    #[test]
-    fn a_started_container_that_cannot_be_planned_fails_its_links() {
-        assert!(matches!(
-            end_of("ctr1", NodeKind::Container, None, None),
-            Some(RecreatedEnd::Unplanned(_))
-        ));
     }
 }

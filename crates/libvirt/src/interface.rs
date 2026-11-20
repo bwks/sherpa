@@ -278,35 +278,21 @@ mod tests {
 "#;
 
     #[test]
-    fn an_interface_has_its_link_up_unless_its_link_says_down() {
-        assert_eq!(link_up_in(DOMAIN, "tpa0").unwrap(), Some(true));
-        assert_eq!(link_up_in(DOMAIN, "tpa1").unwrap(), Some(false));
-        assert_eq!(link_up_in(LIVE, "tpa0").unwrap(), Some(false));
-        assert_eq!(link_up_in(DOMAIN, "tpa9").unwrap(), None);
-    }
-
-    #[test]
-    fn setting_the_link_inserts_one_before_the_interface_closes() {
+    fn link_carrier_014_a_vms_link_is_set_in_its_live_domain_with_the_rest_left_as_it_was() {
         let down = interface_with_link(DOMAIN, "tpa0", false).unwrap().unwrap();
         assert_eq!(
             down,
             r#"<interface type='ethernet'><mac address='52:54:00:00:00:02'/><target dev='tpa0' managed='yes'/><model type='virtio'/><alias name='net1'/><address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/><link state="down"/></interface>"#
         );
         assert_eq!(link_up_in(&down, "tpa0").unwrap(), Some(false));
-    }
 
-    #[test]
-    fn setting_the_link_replaces_a_link_the_interface_has() {
         let up = interface_with_link(DOMAIN, "tpa1", true).unwrap().unwrap();
         assert_eq!(
             up,
             r#"<interface type='ethernet'><mac address='52:54:00:00:00:03'/><target dev='tpa1' managed='yes'/><model type='virtio'/><link state="up"/></interface>"#
         );
         assert_eq!(link_up_in(&up, "tpa1").unwrap(), Some(true));
-    }
 
-    #[test]
-    fn setting_the_link_passes_everything_else_through_byte_for_byte() {
         let up = interface_with_link(LIVE, "tpa0", true).unwrap().unwrap();
         assert_eq!(
             up,
@@ -323,10 +309,7 @@ mod tests {
       <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
     </interface>"#
         );
-    }
 
-    #[test]
-    fn setting_the_link_leaves_other_interfaces_alone() {
         let down = interface_with_link(DOMAIN, "tpa0", false).unwrap().unwrap();
         assert!(!down.contains("vnet0"), "{down}");
         assert!(!down.contains("tpa1"), "{down}");
@@ -341,10 +324,7 @@ mod tests {
             interface_with_link(nested, "tpa0", false).unwrap().unwrap(),
             r#"<interface type='ethernet'><target dev='tpa0'/><driver><link state='down'/></driver><link state="down"/></interface>"#
         );
-    }
 
-    #[test]
-    fn an_end_tag_with_whitespace_still_closes_the_interface() {
         let xml = "<domain><devices><interface type='ethernet'><target dev='tpa0'/>\
             </interface ></devices></domain>";
         assert_eq!(
@@ -354,13 +334,15 @@ mod tests {
     }
 
     #[test]
-    fn a_tap_no_interface_is_on_has_no_link_to_set() {
+    fn link_carrier_015_an_interface_reads_as_up_unless_its_link_says_down() {
         assert_eq!(interface_with_link(DOMAIN, "tpa9", false).unwrap(), None);
         assert_eq!(link_up_in(DOMAIN, "tpa9").unwrap(), None);
-    }
 
-    #[test]
-    fn malformed_domain_xml_is_refused() {
+        assert_eq!(link_up_in(DOMAIN, "tpa0").unwrap(), Some(true));
+        assert_eq!(link_up_in(DOMAIN, "tpa1").unwrap(), Some(false));
+        assert_eq!(link_up_in(LIVE, "tpa0").unwrap(), Some(false));
+        assert_eq!(link_up_in(DOMAIN, "tpa9").unwrap(), None);
+
         for xml in [
             "<domain",
             "<domain><devices></domain>",

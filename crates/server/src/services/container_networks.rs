@@ -165,28 +165,8 @@ mod tests {
         )
     }
 
-    fn peer(name: &str, index: u8) -> data::InterfaceData {
-        interface(
-            name,
-            index,
-            data::NodeInterface::Peer(data::PeerInterface {
-                link_index: 0,
-                this_node: "fr01".to_string(),
-                this_node_index: 2,
-                this_interface: name.to_string(),
-                this_interface_index: index,
-                this_side: data::PeerSide::A,
-                peer_node: "fr02".to_string(),
-                peer_node_index: 3,
-                peer_interface: name.to_string(),
-                peer_interface_index: index,
-                peer_side: data::PeerSide::B,
-            }),
-        )
-    }
-
     #[test]
-    fn a_nodes_networks_are_matched_by_whole_name() {
+    fn link_cleanup_004_a_redeploy_takes_only_its_own_nodes_docker_networks() {
         assert!(is_node_network("r1-brs1-fe4edfdc", "r1", "fe4edfdc"));
         assert!(is_node_network("r1-iso12-fe4edfdc", "r1", "fe4edfdc"));
         // Node r1-x's networks, and other names that only share the ends.
@@ -202,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bridge_member_gets_an_active_attachment() {
+    fn private_bridge_007_a_member_on_no_link_gets_an_active_bridge_network_in_order() {
         let attachment = data_attachment(
             "fr01",
             ModelKind::default_for(data::NodeModel::FrrLinux),
@@ -215,10 +195,7 @@ mod tests {
         assert_eq!(attachment.name, "fr01-brs1-fe4edfdc");
         assert!(!attachment.admin_down);
         assert_eq!(attachment.linux_interface_name, None);
-    }
 
-    #[test]
-    fn test_srlinux_bridge_member_is_named() {
         let attachment = data_attachment(
             "srl01",
             ModelKind::default_for(data::NodeModel::NokiaSrlinux),
@@ -229,93 +206,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(attachment.linux_interface_name.as_deref(), Some("e1-1"));
-    }
 
-    #[test]
-    fn iol_interfaces_are_eth_by_index_bridged_or_disabled() {
-        for model in [data::NodeModel::CiscoIol, data::NodeModel::CiscoIoll2] {
-            let bridged = data_attachment(
-                "r1",
-                ModelKind::default_for(model),
-                "Ethernet1/2",
-                6,
-                ContainerDataInterface::Bridged,
-                LAB_ID,
-            )
-            .unwrap();
-            assert_eq!(bridged.linux_interface_name.as_deref(), Some("eth6"));
-            let disabled = data_attachment(
-                "r1",
-                ModelKind::default_for(model),
-                "Ethernet0/3",
-                3,
-                ContainerDataInterface::Disabled,
-                LAB_ID,
-            )
-            .unwrap();
-            assert_eq!(disabled.linux_interface_name.as_deref(), Some("eth3"));
-            assert!(disabled.admin_down);
-        }
-    }
-
-    #[test]
-    fn cevolved_interfaces_start_at_eth4() {
-        let attachment = data_attachment(
-            "cevo01",
-            ModelKind::new(
-                data::NodeModel::JuniperEvolved,
-                Some(data::NodeKind::Container),
-            )
-            .unwrap(),
-            "et-0/0/0",
-            1,
-            ContainerDataInterface::Bridged,
-            LAB_ID,
-        )
-        .unwrap();
-        assert_eq!(attachment.linux_interface_name.as_deref(), Some("eth4"));
-        assert!(!attachment.admin_down);
-    }
-
-    #[test]
-    fn cevolved_disabled_interfaces_stay_up() {
-        // cJunosEvolved waits at boot until every data interface is up.
-        let attachment = data_attachment(
-            "cevo01",
-            ModelKind::new(
-                data::NodeModel::JuniperEvolved,
-                Some(data::NodeKind::Container),
-            )
-            .unwrap(),
-            "et-0/0/2",
-            3,
-            ContainerDataInterface::Disabled,
-            LAB_ID,
-        )
-        .unwrap();
-        assert_eq!(attachment.name, "cevo01-iso3-fe4edfdc");
-        assert_eq!(attachment.linux_interface_name.as_deref(), Some("eth6"));
-        assert!(!attachment.admin_down);
-    }
-
-    #[test]
-    fn test_disabled_interface_is_named_and_admin_down() {
-        let attachment = data_attachment(
-            "fr01",
-            ModelKind::default_for(data::NodeModel::FrrLinux),
-            "eth3",
-            3,
-            ContainerDataInterface::Disabled,
-            LAB_ID,
-        )
-        .unwrap();
-        assert_eq!(attachment.name, "fr01-iso3-fe4edfdc");
-        assert!(attachment.admin_down);
-        assert_eq!(attachment.linux_interface_name.as_deref(), Some("eth3"));
-    }
-
-    #[test]
-    fn test_bridge_member_keeps_later_interfaces_in_order() {
         // A bridge member on eth1 used to be dropped, so later interfaces came up one name early.
         let interfaces = vec![
             interface("eth0", 0, data::NodeInterface::Management),
@@ -342,19 +233,76 @@ mod tests {
     }
 
     #[test]
-    fn test_link_interface_is_an_error() {
-        let interfaces = vec![peer("eth2", 2)];
-        let error = data_attachments(
+    fn node_interfaces_007_an_unused_interface_of_a_container_on_no_link_is_named_and_down() {
+        let attachment = data_attachment(
             "fr01",
             ModelKind::default_for(data::NodeModel::FrrLinux),
-            &interfaces,
+            "eth3",
+            3,
+            ContainerDataInterface::Disabled,
             LAB_ID,
         )
-        .unwrap_err()
-        .to_string();
-        assert!(
-            error.contains("takes its data interfaces as veths"),
-            "{error}"
-        );
+        .unwrap();
+        assert_eq!(attachment.name, "fr01-iso3-fe4edfdc");
+        assert!(attachment.admin_down);
+        assert_eq!(attachment.linux_interface_name.as_deref(), Some("eth3"));
+
+        for model in [data::NodeModel::CiscoIol, data::NodeModel::CiscoIoll2] {
+            let bridged = data_attachment(
+                "r1",
+                ModelKind::default_for(model),
+                "Ethernet1/2",
+                6,
+                ContainerDataInterface::Bridged,
+                LAB_ID,
+            )
+            .unwrap();
+            assert_eq!(bridged.linux_interface_name.as_deref(), Some("eth6"));
+            let disabled = data_attachment(
+                "r1",
+                ModelKind::default_for(model),
+                "Ethernet0/3",
+                3,
+                ContainerDataInterface::Disabled,
+                LAB_ID,
+            )
+            .unwrap();
+            assert_eq!(disabled.linux_interface_name.as_deref(), Some("eth3"));
+            assert!(disabled.admin_down);
+        }
+
+        let attachment = data_attachment(
+            "cevo01",
+            ModelKind::new(
+                data::NodeModel::JuniperEvolved,
+                Some(data::NodeKind::Container),
+            )
+            .unwrap(),
+            "et-0/0/0",
+            1,
+            ContainerDataInterface::Bridged,
+            LAB_ID,
+        )
+        .unwrap();
+        assert_eq!(attachment.linux_interface_name.as_deref(), Some("eth4"));
+        assert!(!attachment.admin_down);
+
+        // cJunosEvolved waits at boot until every data interface is up.
+        let attachment = data_attachment(
+            "cevo01",
+            ModelKind::new(
+                data::NodeModel::JuniperEvolved,
+                Some(data::NodeKind::Container),
+            )
+            .unwrap(),
+            "et-0/0/2",
+            3,
+            ContainerDataInterface::Disabled,
+            LAB_ID,
+        )
+        .unwrap();
+        assert_eq!(attachment.name, "cevo01-iso3-fe4edfdc");
+        assert_eq!(attachment.linux_interface_name.as_deref(), Some("eth6"));
+        assert!(!attachment.admin_down);
     }
 }

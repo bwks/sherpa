@@ -450,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn each_link_is_shown_with_its_last_state_and_none_before_it_is_checked() {
+    fn link_state_006_inspect_gives_each_link_its_index_and_last_state_or_none() {
         let nodes = [
             DbNode {
                 id: Some(RecordId::new("node", "dev01")),
