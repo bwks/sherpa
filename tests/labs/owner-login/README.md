@@ -91,14 +91,14 @@ comes last.
 | `access_control_005` | The admin's `sherpa download <lab id>` in an empty folder is refused with `Only the owner of lab '<id>' can perform this operation`, and writes nothing |
 | `access_control_006` | The admin's `sherpa ssh` on each node is refused with `Only the owner of lab '<id>' can connect to its nodes`, before anything connects |
 | `access_control_007` | The admin's `sherpa console ubu01` is refused by the server with `only the owner of lab '<id>' can open its consoles` |
-| `access_control_008` | `POST /api/v1/admin/users/<owner>/ssh-keys` with the admin's token gets HTTP 403 with `only user '<owner>' can do this for their own account`, and the owner's keys are unchanged |
+| `account_keys_001` | `POST /api/v1/admin/users/<owner>/ssh-keys` with the admin's token gets HTTP 403 with `only user '<owner>' can do this for their own account`, and the owner's keys are unchanged |
 | `lab_down_resume_002` | `sherpa down`, then `sherpa resume` streams `Node ubu01 - Ready` before its result `ubu01: Started and ready`, and the owner's first login right after it returns succeeds |
 | `lab_down_resume_003` | Down and resume again: `ubu01`'s host keys (`ssh-keyscan`) are unchanged and the owner logs in with the lab's SSH config, which checks them strictly |
 | `owner_login_006` | A new key is added to the owner's account and the old one removed; after down and resume both nodes still take the key they were built with and refuse the new one |
 | `owner_login_007` | With every key removed from the owner's account, `sherpa redeploy --node ubu01` is refused with `has no SSH public key registered`; the keys are put back |
 | `lab_redeploy_001` | `sherpa redeploy --node ubu01` rebuilds the VM (its boot id changes) and the owner logs in with the key now on their account |
 | `lab_redeploy_002` | A redeploy refused for want of a key leaves `ubu01` running untouched: its boot id is unchanged; the keys are put back |
-| `access_control_009` | The admin's `sherpa destroy --yes` destroys the lab. The owner's cleanup then removes the lab's stale Include from their `~/.ssh/sherpa_lab_hosts` with `sherpa ssh-config clean` |
+| `access_control_008` | The admin's `sherpa destroy --yes` destroys the lab. The owner's cleanup then removes the lab's stale Include from their `~/.ssh/sherpa_lab_hosts` with `sherpa ssh-config clean` |
 
 The specs are in [`tests/specs/accounts-and-auth.md`](../../specs/accounts-and-auth.md) and
 [`tests/specs/lab-lifecycle.md`](../../specs/lab-lifecycle.md).

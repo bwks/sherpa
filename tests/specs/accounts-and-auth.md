@@ -1,6 +1,6 @@
 # Accounts and auth
 
-Users, login, sessions, device passwords, owner logins on nodes, and who may do what to a lab. Only the `owner_login` and `access_control` behaviours are written so far; the area's other behaviours are not written yet.
+Users, login, sessions, device passwords, owner logins on nodes, and who may do what to a lab. Only the `owner_login`, `access_control` and `account_keys` behaviours are written so far; the area's other behaviours are not written yet.
 
 Each behaviour lists its cases. A case is one test, whose name is its ID: `<behaviour>_<NNN>_<description>`, such as `access_control_001_an_unauthenticated_up_is_refused`. The level is the highest that can show the case: e2e through the `sherpa` CLI, integration against real libvirt, Docker and the database, unit only for logic with too many branches to cover above.
 
@@ -33,5 +33,13 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 005 | An admin who does not own a lab is refused its download, and nothing is written | e2e |
 | 006 | An admin who does not own a lab is refused `sherpa ssh` to its nodes, before anything connects | e2e |
 | 007 | An admin who does not own a lab is refused its consoles by the server | e2e |
-| 008 | An admin cannot add an SSH key to another user's account, and the account's keys are unchanged | e2e |
-| 009 | An admin can destroy a lab they do not own | e2e |
+| 008 | An admin can destroy a lab they do not own | e2e |
+
+## `account_keys`: a user's SSH keys are changed only by that user
+
+**Statement:** the SSH keys on a user's account are added and removed only by that user, not by any other user, an admin included.
+**Relied on by:** the user. **Priority:** P0.
+
+| Case | What it shows | Level |
+|---|---|---|
+| 001 | An admin cannot add an SSH key to another user's account, and the account's keys are unchanged | e2e |

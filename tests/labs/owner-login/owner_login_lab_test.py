@@ -1158,7 +1158,7 @@ def test_access_control_007_an_admin_is_refused_the_console_of_a_lab_they_do_not
     require("Connected to" not in outcome.output, f"{command} connected for the admin")
 
 
-def test_access_control_008_an_admin_cannot_add_a_key_to_another_users_account(lab):
+def test_account_keys_001_an_admin_cannot_add_a_key_to_another_users_account(lab):
     session = lab.session
     before = session.owner_keys("owner's keys before")
     home = session.admin_home / ".sherpa"
@@ -1269,7 +1269,7 @@ def test_lab_redeploy_002_a_refused_redeploy_leaves_the_running_node_untouched(l
             f"{VM} restarted or was rebuilt by a refused redeploy")
 
 
-def test_access_control_009_an_admin_can_destroy_a_lab_they_do_not_own(lab):
+def test_access_control_008_an_admin_can_destroy_a_lab_they_do_not_own(lab):
     lab.admin("sherpa destroy", ["destroy", "--yes"], UP_TIMEOUT)
     lab.admin_destroyed = True
     inspect = lab.sherpa("lab gone (owner)", ["inspect"], check=False)
