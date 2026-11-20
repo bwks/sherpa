@@ -104,5 +104,6 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 005 | A lab's status changes with the operation's write to its node, without waiting for a scan | integration |
 | 006 | The labs list shows each lab's status from its nodes' states as they are now | unit |
 | 007 | A lab status this version does not know reads as `unknown` | unit |
+| 008 | A lab with no nodes is `empty` | unit |
 
 The node states themselves are `node_state` in [nodes](nodes.md).

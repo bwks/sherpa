@@ -23,6 +23,7 @@ One file per area a user sees, flat in this folder.
 | Talos | not yet written | Talos clusters, Cilium, OIDC, Vault |
 | Install and update | not yet written | install, update and uninstall scripts |
 | Manifests | not yet written | manifest parsing and validation, which kinds a model takes and which settings a kind takes |
+| Inspect and web UI | not yet written | what Sherpa shows about labs and nodes |
 
 The folders here named after crates (`client/`, `server/`, `integration/` and the rest) are the old specs, written by crate. Each is deleted once the area specs that replace it are written. Until then they describe what exists, not how to write a new test.
 

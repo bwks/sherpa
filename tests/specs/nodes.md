@@ -20,6 +20,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 007 | A base image that cannot back an overlay (encrypted, an external data file, itself an overlay, or a damaged header) is refused, not booted | unit |
 | 008 | A VM runs with the manifest's `memory` and `cpu.count`, else its image's (no test at this level yet) | integration |
 | 009 | A lab whose VM image cannot back an overlay is refused by up before anything is created, and comes up with `clone_method = "copy"` (no test yet) | integration |
+| 010 | A node's disks and config media are private, mode 0600 (no test at this level yet) | integration |
 
 ## `unikernel_start`: a unikernel boots its own copy of its image
 
@@ -52,6 +53,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 010 | A `juniper_evolved` container's limit is its router's memory plus 2048 MB, with no CPU quota | unit |
 | 011 | A `cisco_iol` or `cisco_ioll2` container's limit is its router's memory plus 128 MB, with the manifest's CPU quota | unit |
 | 012 | A container that cannot be attached to one of its networks is removed, and the error is reported | integration |
+| 013 | A `cisco_iol` container runs unprivileged, holds its management address and relays its interfaces | integration |
 
 ## `node_ready`: a node is running only once its ready check passes
 
@@ -121,6 +123,9 @@ Cases 001 to 020 are up, 021 to 026 resume, 027 and 028 redeploy, 029 to 035 the
 | 014 | What the scanner saw before an operation moved a node does not overwrite the operation's state | integration |
 | 015 | A node state this version does not know reads as `unknown`, and the states it knows (`building`, `starting`, `running`, `stopped`, `failed`, `missing`) read back as written | unit |
 | 016 | A VM shut down or started outside Sherpa is recorded `stopped`, then `running` once its ready port answers (no test yet) | integration |
+| 017 | A node between states is left as recorded by what the scanner sees (no test yet) | integration |
+| 018 | A paused node is recorded `stopped` (no test yet) | integration |
+| 019 | A `missing` node found again is recorded `stopped` (no test yet) | integration |
 
 ## `node_stop_start`: down and resume act on each node as its kind and state allow
 
