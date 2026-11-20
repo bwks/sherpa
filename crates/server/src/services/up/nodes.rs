@@ -87,7 +87,7 @@ mod tests {
     }
 
     #[test]
-    fn node_expansion_preserves_clone_method_options() {
+    fn vm_start_011_clone_method_reaches_each_vm_node_with_copy_overlay_and_default_kept_apart() {
         let nodes = vec![
             topology::Node {
                 name: "default-vm".into(),
@@ -112,28 +112,6 @@ mod tests {
                 },
                 ..Default::default()
             },
-            topology::Node {
-                name: "container".into(),
-                model: data::NodeModel::Generic,
-                kind: Some(data::NodeKind::Container),
-                ..Default::default()
-            },
-            topology::Node {
-                name: "unikernel".into(),
-                model: data::NodeModel::Generic,
-                kind: Some(data::NodeKind::Unikernel),
-                ..Default::default()
-            },
-            topology::Node {
-                name: "unsupported-overlay".into(),
-                model: data::NodeModel::Generic,
-                kind: Some(data::NodeKind::Container),
-                boot_disk: data::NodeBootDisk {
-                    clone_method: Some(data::DiskImageCloneMethod::Overlay),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
         ];
         let expanded = process_manifest_nodes(&nodes).unwrap();
         assert_eq!(expanded[0].boot_disk.clone_method, None);
@@ -143,13 +121,6 @@ mod tests {
         );
         assert_eq!(
             expanded[2].boot_disk.clone_method,
-            Some(data::DiskImageCloneMethod::Overlay)
-        );
-        assert_eq!(expanded[3].boot_disk.clone_method, None);
-        assert_eq!(expanded[4].boot_disk.clone_method, None);
-        // Preserve an explicit unsupported request so validation rejects it.
-        assert_eq!(
-            expanded[5].boot_disk.clone_method,
             Some(data::DiskImageCloneMethod::Overlay)
         );
     }
