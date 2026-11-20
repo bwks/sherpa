@@ -1,6 +1,6 @@
 # Lab lifecycle
 
-Bringing a lab up, taking it down and resuming it, destroying it, redeploying one of its nodes, an admin's clean of a lost lab, and operations on labs at the same time. Nodes, links, images, accounts and ZTP have their own specs.
+Bringing a lab up, taking it down and resuming it, destroying it, redeploying one of its nodes, an admin's clean of a lost lab, operations on labs at the same time, and the status a lab reports. Nodes, links, images, accounts and ZTP have their own specs.
 
 Each behaviour lists its cases. A case is one test, whose name is its ID: `<behaviour>_<NNN>_<description>`, such as `lab_up_001_a_container_lab_comes_up_with_every_node_running`. The level is the highest that can show the case: e2e through the `sherpa` CLI, integration against real libvirt, Docker and the database, unit only for logic with too many branches to cover above.
 
@@ -89,3 +89,21 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 |---|---|---|
 | 001 | Clean removes a running lab | integration |
 | 002 | Clean removes a lab folder with no record | integration |
+
+## `lab_status`: a lab's status follows its nodes
+
+**Statement:** a lab's status follows the states of its nodes.
+**Relied on by:** the user, the web UI, scripts reading `sherpa inspect`. **Priority:** P0.
+
+| Case | What it shows | Level |
+|---|---|---|
+| 001 | A lab is `running` when all its nodes are, and `stopped` when all are | unit |
+| 002 | A lab is `failed` when any node is `failed` or `missing` | unit |
+| 003 | A lab is `starting` when any node is `building` or `starting`, also beside stopped nodes | unit |
+| 004 | A lab with some nodes running and some stopped is `partial` | unit |
+| 005 | A lab's status changes with the operation's write to its node, without waiting for a scan | integration |
+| 006 | The labs list shows each lab's status from its nodes' states as they are now | unit |
+| 007 | A lab status this version does not know reads as `unknown` | unit |
+| 008 | A lab with no nodes is `empty` | unit |
+
+The node states themselves are `node_state` in [nodes](nodes.md).
