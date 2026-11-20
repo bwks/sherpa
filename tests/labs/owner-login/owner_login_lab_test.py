@@ -1,18 +1,23 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.15"
-# dependencies = []
+# dependencies = ["pytest==9.2.0"]
 # ///
-"""End-to-end test of the lab owner's login, and of what an admin may not do, through the sherpa CLI
-(Python 3.15+, stdlib only).
+"""End-to-end test of the lab owner's login on a lab's nodes, of what an admin who does not own the
+lab may do to it, and of down, resume and redeploy with the owner's keys (Python 3.15+, pytest).
 
-Brings up a lab started by the owner (the CLI's current login) with an Ubuntu VM and an SR Linux
-container. Checks the owner reaches each node with `sherpa ssh` by key and with ssh by the device
-password, has administrator rights on each, is refused as the old shared `sherpa` user, and has no
-key file in the lab folder. Then checks a second account, an admin who does not own the lab, which
-works with its own HOME: it can inspect the lab, is refused `sherpa download`,
-`sherpa ssh` and `sherpa console`, cannot reach the nodes with ssh and its own key, and cannot add a
-key to the owner's account; the admin then destroys the lab. Always destroys the lab. See README.md.
+Logged in as an admin, which works with a HOME of its own, the run creates a throwaway owner: a
+normal Sherpa user with a unique name, login password, device password and SSH key, all made for
+the run. The owner's CLI works with a HOME of its own too. As the owner it brings up a lab with an
+Ubuntu VM and an SR Linux container, and checks the `owner_login` and `access_control` cases of
+tests/specs/accounts-and-auth.md and the `lab_down_resume` and `lab_redeploy` cases of
+tests/specs/lab-lifecycle.md. The lab's SSH config reaches the nodes directly, so the runner must
+have a route to the lab's management network, such as the Sherpa server itself. At the end, even
+when a case fails, the lab is destroyed and the owner deleted. See README.md.
+
+A pytest module: the `owner` fixture makes the account and the `lab` fixture brings the lab up once
+for the module; the cases are the test functions taking them, in case order. Run as a script, it
+runs pytest on itself; `--self-test` runs the runner's own unit tests instead.
 """
 
 import argparse
@@ -23,11 +28,13 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import select
 import shlex
 import shutil
 import signal
 import ssl
+import string
 import struct
 import subprocess
 import sys
@@ -44,24 +51,26 @@ import urllib.parse
 import urllib.request
 import uuid
 
+import pytest
+
 
 LAB = Path(__file__).resolve().parent
 ROOT = LAB.parent.parent.parent
 RUNS = ROOT / ".tmp" / "lab-tests"
 
-# The admin's name, the admin's Sherpa password and the owner's device password.
+# The admin's name and Sherpa password.
 ENV_ADMIN_USER = "SHERPA_LAB_TEST_ADMIN_USER"
 ENV_ADMIN_PASSWORD = "SHERPA_LAB_TEST_ADMIN_PASSWORD"
-ENV_DEVICE_PASSWORD = "SHERPA_LAB_TEST_DEVICE_PASSWORD"
-# What `sherpa login` reads, and what a client run reads for its server.
+# What `sherpa login` reads, and what a client run reads for its server. The runner's own login
+# variables are never passed on to a child.
 LOGIN_USER_ENV = "SHERPA_USER_NAME"
 LOGIN_PASSWORD_ENV = "SHERPA_USER_PASSWORD"
 SERVER_URL_ENV = "SHERPA_SERVER_URL"
+PRIVATE_ENV = (LOGIN_USER_ENV, LOGIN_PASSWORD_ENV, "SHERPA_ADMIN_PASSWORD", "SHERPA_USER_SSH_KEY",
+               "SHERPA_USER_IS_ADMIN", ENV_ADMIN_PASSWORD, "SSH_AUTH_SOCK")
 
 VM = "ubu01"
 CONTAINER = "srl01"
-# The shared account earlier releases gave every node. It is not made now.
-OLD_SHARED_USER = "sherpa"
 BUILT_IN_ADMIN = "admin"
 
 # What Sherpa says when it refuses, matched as text contained in the output. `{lab}` is the lab's ID
@@ -71,6 +80,16 @@ OWNER_ONLY_CONNECT = "Only the owner of lab '{lab}' can connect to its nodes"
 # The server's refusal of a console, serial or VNC, to anyone but the lab's owner.
 OWNER_ONLY_CONSOLE = "only the owner of lab '{lab}' can open its consoles"
 OWN_ACCOUNT_ONLY = "only user '{owner}' can do this for their own account"
+NO_SSH_KEY = "has no SSH public key registered"
+
+# The prompts of the commands that take a password, which read it from the terminal.
+CREATE_PROMPTS = ("Password for {owner}: ", "Confirm password: ")
+DEVICE_PASSWORD_PROMPTS = ("Sherpa login password for {owner}: ", "New device password: ",
+                           "Confirm device password: ")
+# A generated password: a letter or digit, then letters, digits and punctuation both the login
+# password and the device password rules take.
+PASSWORD_LENGTH = 16
+PASSWORD_PUNCTUATION = "_-"
 
 COMMAND_TIMEOUT = 180
 UP_TIMEOUT = 1800
@@ -91,20 +110,20 @@ PERMISSION_DENIED = "Permission denied"
 
 # A command that succeeds once the owner's login works, by node.
 READY_COMMANDS = {VM: "true", CONTAINER: "show version"}
-# Prints who is logged in (the typed command shows `%s`, never the name) and succeeds if sudo needs
-# no password: the owner's administrator rights on a Linux node.
-LINUX_COMMAND = "printf 'who:%s:\\n' \"$(id -un)\"; sudo -n true && echo sudo-ok-$((40+2))"
+BOOT_ID_COMMAND = "cat /proc/sys/kernel/random/boot_id"
+# Prints who is logged in, their home and login shell (the typed command shows `%s`, never the
+# values), and succeeds if the home is theirs and sudo needs no password: the owner's account and
+# administrator rights on a Linux node.
+LINUX_COMMAND = ("printf 'who:%s:home:%s:shell:%s:\\n' \"$(id -un)\" \"$HOME\" "
+                 "\"$(getent passwd \"$(id -un)\" | cut -d: -f7)\"; "
+                 "test -d \"$HOME\" -a -O \"$HOME\" && echo home-ok-$((40+2)); "
+                 "sudo -n true && echo sudo-ok-$((40+2))")
 # SR Linux's state of the owner's account (`{owner}` filled in): its roles, and its last successful
 # login, which the session running the command has just made. The owner's role is `srl-admin`,
 # whose `superuser` flag the generated config sets. (SR Linux 26.7's session list needs a session
 # id, so it cannot be listed whole.)
 SRLINUX_COMMAND = "info from state /system aaa authentication user {owner}"
 PROBE_COMMANDS = {VM: LINUX_COMMAND, CONTAINER: SRLINUX_COMMAND}
-
-
-def probe_command(node, owner):
-    """The command that shows `owner`'s login and administrator rights on `node`."""
-    return PROBE_COMMANDS[node].format(owner=owner)
 # What leaves each node's shell: the shell's own `exit`, and SR Linux's `quit`.
 LEAVE_COMMANDS = {VM: b"exit\r", CONTAINER: b"quit\r"}
 ESCAPE = b"\r~."
@@ -117,13 +136,14 @@ INFO_USERNAME = re.compile(r"^\s*Username:\s*(\S+)\s*$", re.MULTILINE)
 INFO_ADMIN = re.compile(r"^\s*Admin:\s*(Yes|No)\s*$", re.MULTILINE)
 # A terminal control sequence, such as the colours and cursor moves of SR Linux's CLI.
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-PRIVATE_KEY = re.compile(rb"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|openssh-key-v1")
 CELL_SEPARATOR = "│"
 SECRETS = []
 
 
 class TestFailure(Exception):
     """A check failed; the message says which and why."""
+
+    __test__ = False
 
 
 class Outcome(NamedTuple):
@@ -136,16 +156,6 @@ class Outcome(NamedTuple):
     @property
     def output(self):
         return self.stdout + self.stderr
-
-
-class Accounts(NamedTuple):
-    """The two Sherpa accounts, as found by the preflight."""
-
-    owner: str
-    admin: str
-    admin_home: Path
-    admin_env: dict
-    device_password: str
 
 
 class SshHost(NamedTuple):
@@ -168,9 +178,15 @@ class RestReply(NamedTuple):
     body: str
 
 
+class UserInfo(NamedTuple):
+    username: str
+    admin: bool
+    device_password_set: bool
+
+
 def require(condition, message):
     if not condition:
-        raise TestFailure(message)
+        raise TestFailure(mask(message))
 
 
 def add_secret(secret):
@@ -233,13 +249,36 @@ def render_manifest(manifest, name):
     return "\n".join([*lines, "]"]) + "\n"
 
 
+def child_env(home):
+    """The environment of a `sherpa` or `ssh` run with `home` as its HOME: the runner's, without its
+    own Sherpa login, its passwords or its SSH agent."""
+    env = {key: value for key, value in os.environ.items() if key not in PRIVATE_ENV}
+    env["HOME"] = str(home)
+    return env
+
+
+def password_fits(password, username):
+    """Whether a generated password meets both the login and the device password rules."""
+    return (PASSWORD_LENGTH == len(password) and password[0].isalnum()
+            and all(c.isascii() and (c.isalnum() or c in PASSWORD_PUNCTUATION) for c in password)
+            and any(c.islower() for c in password) and any(c.isupper() for c in password)
+            and any(c.isdigit() for c in password) and any(c in PASSWORD_PUNCTUATION for c in password)
+            and username.lower() not in password.lower() and "cisco" not in password.lower()
+            and not any(a == b == c for a, b, c in zip(password, password[1:], password[2:])))
+
+
+def generate_password(username):
+    """A random password for the run that meets both the login and the device password rules."""
+    first = string.ascii_letters + string.digits
+    rest = first + PASSWORD_PUNCTUATION
+    while True:
+        password = secrets.choice(first) + "".join(secrets.choice(rest) for _ in range(PASSWORD_LENGTH - 1))
+        if password_fits(password, username):
+            add_secret(password)
+            return password
+
+
 # -- parsing -------------------------------------------------------------------------------------
-
-
-class UserInfo(NamedTuple):
-    username: str
-    admin: bool
-    device_password_set: bool
 
 
 def parse_user_info(text):
@@ -296,6 +335,31 @@ def parse_devices_table(text):
     return rows
 
 
+def parse_key_list(stdout):
+    """The keys in `sherpa server --output json user ssh-key list`'s output."""
+    try:
+        return json.loads(stdout[stdout.index("{"):])["ssh_keys"]
+    except (ValueError, KeyError) as error:
+        raise TestFailure(f"the key list printed no keys: {stdout.strip()}") from error
+
+
+def key_blob(public_key):
+    """The base64 body of an OpenSSH public key line, which identifies the key whatever its comment."""
+    parts = public_key.split()
+    require(len(parts) >= 2, f"not an OpenSSH public key: {public_key!r}")
+    return parts[1]
+
+
+def scanned_host_keys(text):
+    """The `(type, key)` pairs in `ssh-keyscan` output."""
+    keys = set()
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and not line.startswith("#"):
+            keys.add((parts[1], parts[2]))
+    return keys
+
+
 def password_prompts(text):
     """Every password prompt OpenSSH printed: for `user@host's password: `, and for a
     keyboard-interactive `(user@host) Password: `."""
@@ -306,27 +370,25 @@ def password_prompts(text):
     return prompts
 
 
+def probe_command(node, owner):
+    """The command that shows `owner`'s login and administrator rights on `node`."""
+    return PROBE_COMMANDS[node].format(owner=owner)
+
+
 def probe_problems(node, owner, text):
     """What the output of the node's probe command lacks, or an empty list when it shows the owner's
-    administrator rights."""
+    account and administrator rights."""
     if node == VM:
-        wanted = {f"the login `{owner}`": rf"who:{re.escape(owner)}:", "passwordless sudo": r"sudo-ok-42"}
+        wanted = {f"the login `{owner}`": rf"who:{re.escape(owner)}:",
+                  f"the home /home/{owner}": rf":home:/home/{re.escape(owner)}:",
+                  "bash as the login shell": r":shell:(?:/usr)?/bin/bash:",
+                  "a home of the owner's own": r"home-ok-42",
+                  "passwordless sudo": r"sudo-ok-42"}
     else:
-        wanted = {f"a login of `{owner}`": r'last-successful-login\s+"[^"]*\(\d+ (?:seconds?|minutes?) ago\)"',
+        wanted = {f"a login of `{owner}`": r'last-successful-login\s+"[^"]*\((?:\d+|an?) (?:seconds?|minutes?) ago\)"',
                   "the `srl-admin` role": r"role\s*\[\s*srl-admin\s*\]"}
     text = ANSI_ESCAPE.sub("", text)
     return [what for what, pattern in wanted.items() if not re.search(pattern, text)]
-
-
-def private_key_files(folder):
-    """The files under `folder` that hold a private key."""
-    found = []
-    for path in sorted(folder.rglob("*")):
-        if path.is_file() and not path.is_symlink():
-            with path.open("rb") as handle:
-                if PRIVATE_KEY.search(handle.read(1 << 20)):
-                    found.append(path)
-    return found
 
 
 def password_ssh_config(lab_config, aliases):
@@ -341,13 +403,26 @@ def admin_ssh_config(key):
     return (f"Host *\n    IdentityFile {key}\n    IdentitiesOnly yes\n    IdentityAgent none\n"
             "    BatchMode yes\n    PreferredAuthentications publickey\n    PasswordAuthentication no\n"
             "    KbdInteractiveAuthentication no\n    StrictHostKeyChecking no\n"
-            "    UserKnownHostsFile /dev/null\n    LogLevel ERROR\n    ConnectTimeout 15\n")
+            "    UserKnownHostsFile /dev/null\n    ConnectTimeout 15\n")
 
 
 def direct_ssh_arguments(config, key, host, login, command):
-    """`ssh` straight to a node's management address, as `login`, with the admin's key."""
-    return ["ssh", "-F", str(config), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-i", str(key),
+    """`ssh` straight to a node's management address, as `login`, with the admin's key, verbose so
+    the output shows which host answered and refused."""
+    return ["ssh", "-v", "-F", str(config), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-i", str(key),
             "-p", str(host.port), "-l", login, host.hostname, command]
+
+
+def refused_at_node(output, host):
+    """Why `ssh -v` output does not show the node at `host` itself refusing the login, or None: the
+    connection went to its address, the key exchange with it finished, and it denied the login."""
+    if f"Connecting to {host.hostname} [{host.hostname}] port {host.port}" not in output:
+        return f"ssh did not connect to the node's address {host.hostname}:{host.port}"
+    if "Server host key:" not in output:
+        return "ssh did not finish a key exchange with the node"
+    if not re.search(r"Permission denied \(publickey", output):
+        return f"the node did not refuse the key with {PERMISSION_DENIED!r}"
+    return None
 
 
 # -- REST ----------------------------------------------------------------------------------------
@@ -425,7 +500,7 @@ CURSOR_POSITION_REPORT = b"\x1b[1;1R"
 
 class Terminal:
     """A command in a pseudo-terminal of its own, as a user's terminal runs it: it is the command's
-    controlling terminal, so `ssh` and `sherpa ssh` ask for passwords on it."""
+    controlling terminal, so `ssh`, `sherpa ssh` and the password prompts of `sherpa` read from it."""
 
     def __init__(self, log, label, arguments, cwd, env):
         self.log = log
@@ -484,6 +559,10 @@ class Terminal:
             self.read(0.5)
         return not self.running()
 
+    def kill(self):
+        if self.running():
+            self.process.kill()
+
     def finish(self, timeout=CONNECT_TIMEOUT):
         """Wait for the command to end and return its exit code, keeping what it printed."""
         ended = self.wait_for_end(timeout)
@@ -498,6 +577,24 @@ class Terminal:
         self.log.flush()
         require(ended, f"{self.label} did not end within {timeout}s; see {log_name(self.log)}")
         return code
+
+
+def answer_prompts(terminal, answers, timeout=CONNECT_TIMEOUT):
+    """Type each `(prompt, answer)` of `answers`, in order, once its prompt shows, then wait for the
+    command to end and return its exit code and what it printed."""
+    try:
+        seen = 0
+        for prompt, answer in answers:
+            text = terminal.wait_for(lambda text, prompt=prompt: prompt in text[seen:], timeout,
+                                     f"the prompt {prompt!r}")
+            seen = text.index(prompt, seen) + len(prompt)
+            terminal.send(answer.encode() + b"\r")
+    except BaseException:
+        terminal.kill()
+        terminal.finish()
+        raise
+    code = terminal.finish(timeout)
+    return code, terminal.text()
 
 
 def answer_passwords(terminal, address, password, timeout):
@@ -519,7 +616,7 @@ def answer_passwords(terminal, address, password, timeout):
             answered_to = prompt.end
             answered += 1
         if "(yes/no" in text:
-            terminal.process.kill()
+            terminal.kill()
             terminal.finish()
             raise TestFailure(f"{terminal.label}: ssh asked about a host key; see {log_name(terminal.log)}")
         if not terminal.running():
@@ -528,46 +625,197 @@ def answer_passwords(terminal, address, password, timeout):
         terminal.read(0.5)
 
 
+# -- accounts ------------------------------------------------------------------------------------
+
+
+def prepare_home(home):
+    """A HOME for one account's CLI: the runner's client config and trusted server certificates, and
+    no token."""
+    (home / ".sherpa").mkdir(parents=True, mode=0o700)
+    source = Path.home() / ".sherpa"
+    for part in ("config", "trusted_certs"):
+        if (source / part).is_dir():
+            shutil.copytree(source / part, home / ".sherpa" / part)
+    return child_env(home)
+
+
+def make_key(log, path, cwd):
+    """A new ed25519 key pair at `path`, with no passphrase; returns the public key line."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    outcome = run_logged(log, f"ssh-keygen {path.name}", ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C",
+                                                          "owner-login-lab-test", "-f", str(path)], cwd)
+    require(outcome.code == 0, f"ssh-keygen failed: {outcome.output.strip()}")
+    return path.with_name(f"{path.name}.pub").read_text().strip()
+
+
+class Session:
+    """The run's two accounts: the admin, from the inputs, and the throwaway owner it creates. Each
+    works with its own HOME; their passwords live only in this object and in the environment of the
+    child that needs one."""
+
+    def __init__(self, run_root, private_root, admin_user, admin_password):
+        self.run_root = run_root
+        self.private = private_root
+        self.log = (run_root / "commands.log").open("w")
+        self.admin_user = admin_user
+        self.admin_password = admin_password
+        add_secret(admin_password)
+        self.owner = f"owner{uuid.uuid4().hex[:8]}"
+        self.owner_password = generate_password(self.owner)
+        self.device_password = generate_password(self.owner)
+        self.admin_home = private_root / "admin-home"
+        self.owner_home = private_root / "owner-home"
+        self.admin_env = None
+        self.owner_env = None
+        self.owner_created = False
+        # The owner's key that `sherpa ssh` uses, in the owner's HOME, and their keys by name.
+        self.keys = {}
+        self.sherpa_path = shutil.which("sherpa") or "sherpa"
+
+    def __repr__(self):
+        return f"Session(admin={self.admin_user!r}, owner={self.owner!r})"
+
+    def key_path(self, name):
+        return self.private / "keys" / name
+
+    def admin(self, label, arguments, cwd=None, timeout=COMMAND_TIMEOUT, check=True):
+        """A `sherpa` command as the admin, with the admin's own HOME."""
+        return self.command(f"{label} (admin)", [self.sherpa_path, *arguments], cwd, timeout, check, self.admin_env)
+
+    def as_owner(self, label, arguments, cwd=None, timeout=COMMAND_TIMEOUT, check=True):
+        """A `sherpa` command as the owner, with the owner's own HOME."""
+        return self.command(label, [self.sherpa_path, *arguments], cwd, timeout, check, self.owner_env)
+
+    def command(self, label, arguments, cwd=None, timeout=COMMAND_TIMEOUT, check=True, env=None):
+        outcome = run_logged(self.log, label, arguments, cwd or self.run_root, timeout, env)
+        if check and outcome.code != 0:
+            raise TestFailure(mask(f"{label} failed (exit {outcome.code}): {outcome.output.strip()[-600:]}"))
+        return outcome
+
+    def login(self, label, home_env, username, password):
+        login_env = {**home_env, LOGIN_USER_ENV: username, LOGIN_PASSWORD_ENV: password}
+        outcome = run_logged(self.log, label, [self.sherpa_path, "login"], self.run_root, env=login_env)
+        require(outcome.code == 0, f"could not log in as {username}; see {self.log.name}")
+
+    def user_info(self, label, env, username=None):
+        arguments = [self.sherpa_path, "server", "user", "info", *([username] if username else [])]
+        info = run_logged(self.log, label, arguments, self.run_root, env=env)
+        require(info.code == 0, f"could not read the user's details ({label})")
+        return parse_user_info(info.stdout)
+
+    def preflight(self, models):
+        """Check the tools, log the admin in and check them, and check the lab's images."""
+        for tool in ("sherpa", "ssh", "ssh-keygen", "ssh-keyscan"):
+            require(shutil.which(tool), f"{tool} is not on PATH")
+        require(self.admin_user != BUILT_IN_ADMIN,
+                f"--admin-user must be an admin other than the built-in `{BUILT_IN_ADMIN}`")
+        self.admin_env = prepare_home(self.admin_home)
+        self.login("sherpa login (admin)", self.admin_env, self.admin_user, self.admin_password)
+        token = self.admin_home / ".sherpa" / "token"
+        if token.exists():
+            add_secret(token.read_text().strip())
+        admin = self.user_info("sherpa server user info (admin)", self.admin_env, self.admin_user)
+        require(admin.admin, f"{self.admin_user} is not an admin")
+        for model, version in models:
+            image = self.admin(f"{model} {version} image present", ["image", "show", model, "--version", version],
+                               check=False)
+            require(image.code == 0, f"the server has no {model} {version} image")
+
+    def create_owner(self):
+        """Create the owner, a normal user with a login and a device password and no SSH key, and
+        log their CLI in."""
+        label = f"sherpa server user create {self.owner} (admin)"
+        terminal = Terminal(self.log, label, [self.sherpa_path, "server", "user", "create", self.owner],
+                            self.run_root, self.admin_env)
+        self.owner_created = True
+        prompts = [prompt.format(owner=self.owner) for prompt in CREATE_PROMPTS]
+        code, text = answer_prompts(terminal, [(prompts[0], self.owner_password), (prompts[1], self.owner_password)])
+        require(code == 0, f"{label} failed (exit {code}): {text.strip()[-600:]}")
+        self.owner_env = prepare_home(self.owner_home)
+        self.login("sherpa login (owner)", self.owner_env, self.owner, self.owner_password)
+        token = self.owner_home / ".sherpa" / "token"
+        if token.exists():
+            add_secret(token.read_text().strip())
+        label = "sherpa server user device-password"
+        terminal = Terminal(self.log, label, [self.sherpa_path, "server", "user", "device-password"],
+                            self.run_root, self.owner_env)
+        prompts = [prompt.format(owner=self.owner) for prompt in DEVICE_PASSWORD_PROMPTS]
+        code, text = answer_prompts(terminal, [(prompts[0], self.owner_password), (prompts[1], self.device_password),
+                                               (prompts[2], self.device_password)])
+        require(code == 0, f"{label} failed (exit {code}): {text.strip()[-600:]}")
+        info = self.user_info("sherpa server user info (owner)", self.owner_env)
+        require(info == UserInfo(self.owner, False, True),
+                f"the new owner is not a normal user with a device password: {info}")
+        require(not self.owner_keys("owner's keys at creation"), "the new owner has SSH keys")
+
+    def owner_keys(self, label):
+        return parse_key_list(self.as_owner(label, ["server", "--output", "json", "user", "ssh-key", "list"]).stdout)
+
+    def new_key(self, name):
+        """A new key pair for the owner, kept by `name`; returns its public key file."""
+        public = make_key(self.log, self.key_path(name), self.run_root)
+        self.keys[name] = self.key_path(name)
+        return self.key_path(name).with_name(f"{name}.pub"), public
+
+    def add_key(self, name):
+        public_file = self.key_path(name).with_name(f"{name}.pub")
+        self.as_owner(f"ssh-key add {name}", ["server", "user", "ssh-key", "add", str(public_file)])
+
+    def remove_key(self, name):
+        public_file = self.key_path(name).with_name(f"{name}.pub")
+        self.as_owner(f"ssh-key remove {name}", ["server", "user", "ssh-key", "remove", str(public_file)])
+
+    def profile_key_names(self):
+        """The names of the run's keys now on the owner's account."""
+        on_account = {key_blob(key) for key in self.owner_keys("owner's keys")}
+        return [name for name, path in self.keys.items()
+                if key_blob(path.with_name(f"{name}.pub").read_text()) in on_account]
+
+    def delete_owner(self):
+        """Delete the owner and check they are gone. Returns a failure, or None."""
+        if not self.owner_created:
+            return None
+        try:
+            self.admin(f"sherpa server user delete {self.owner}", ["server", "user", "delete", self.owner, "--force"])
+            listing = self.admin("sherpa server user list", ["server", "user", "list"])
+            require(not re.search(rf"\b{re.escape(self.owner)}\b", listing.stdout),
+                    f"user {self.owner} still exists after delete")
+        except TestFailure as error:
+            return error
+        return None
+
+
 # -- lab -----------------------------------------------------------------------------------------
 
 
-class LabRun:
-    def __init__(self, run_root, keep_failed, accounts):
-        self.accounts = accounts
-        self.owner = accounts.owner
+class Lab:
+    """The lab every case uses, brought up by the owner once by `up` and destroyed by `destroy`."""
+
+    def __init__(self, session):
+        self.session = session
+        self.owner = session.owner
         self.manifest = tomllib.loads((LAB / "manifest.toml").read_text())
-        self.name = f"{self.manifest['name']}-{run_root.name[-6:]}"
-        self.run_root = run_root
-        self.directory = run_root / "lab"
+        self.name = f"{self.manifest['name']}-{session.run_root.name[-6:]}"
+        self.directory = session.run_root / "lab"
         # The admin's folder holds a copy of the owner's lab-info.toml and nothing else; it is how
         # an admin names a lab they do not own. `sherpa download` needs a folder with no lab files.
-        self.admin_directory = run_root / "admin"
-        self.download_directory = run_root / "admin-download"
-        self.admin_key = run_root / "admin-key" / "id_ed25519"
-        self.keep_failed = keep_failed
+        self.admin_directory = session.run_root / "admin"
+        self.download_directory = session.run_root / "admin-download"
         self.started = False
         self.admin_destroyed = False
         self.lab_id = None
         self.hosts = []
-        self.log = None
-        self.sherpa_path = shutil.which("sherpa") or "sherpa"
-
-    # -- commands ----------------------------------------------------------------------------
-
-    def command(self, label, arguments, timeout=COMMAND_TIMEOUT, check=True, cwd=None, env=None):
-        outcome = run_logged(self.log, label, arguments, cwd or self.directory, timeout, env)
-        if check and outcome.code != 0:
-            raise TestFailure(f"{label} failed (exit {outcome.code}); see {self.log.name}")
-        return outcome
+        # The run's key each node was built with, by node.
+        self.node_keys = {}
+        self.log = session.log
 
     def sherpa(self, label, arguments, timeout=COMMAND_TIMEOUT, check=True):
         """A `sherpa` command as the owner, in the lab folder."""
-        return self.command(label, [self.sherpa_path, *arguments], timeout, check)
+        return self.session.as_owner(label, arguments, self.directory, timeout, check)
 
     def admin(self, label, arguments, timeout=COMMAND_TIMEOUT, check=True, cwd=None):
-        """A `sherpa` command as the admin, with the admin's own HOME, in the admin's folder."""
-        return self.command(f"{label} (admin)", [self.sherpa_path, *arguments], timeout, check,
-                            cwd or self.admin_directory, self.accounts.admin_env)
+        """A `sherpa` command as the admin, in the admin's folder."""
+        return self.session.admin(label, arguments, cwd or self.admin_directory, timeout, check)
 
     def alias(self, node):
         return f"{node}.{self.lab_id}"
@@ -575,38 +823,24 @@ class LabRun:
     def host(self, node):
         return find_host(self.hosts, self.alias(node))
 
-    def ssh(self, label, node, remote_command, config=None, login=None, check=False):
-        """`ssh` to a node as the lab's SSH config does (the owner, by key), or as `login`."""
+    def ssh(self, label, node, remote_command, key, login=None):
+        """`ssh` to a node as the lab's SSH config does, with the owner's key `key` and no other."""
         user = ["-l", login] if login else []
-        return self.command(label, ["ssh", "-F", str(config or ".sherpa/ssh/config"), *SSH_OPTIONS, *user,
-                                    self.alias(node), remote_command], check=check)
+        return self.session.command(label, ["ssh", "-F", ".sherpa/ssh/config", *SSH_OPTIONS, "-i", str(key),
+                                            "-o", "IdentitiesOnly=yes", "-o", "IdentityAgent=none", *user,
+                                            self.alias(node), remote_command],
+                                    self.directory, check=False, env=self.session.owner_env)
 
-    # -- run ---------------------------------------------------------------------------------
+    def read_lab_files(self):
+        config = (self.directory / ".sherpa" / "ssh" / "config").read_text()
+        self.hosts = parse_ssh_hosts(config)
+        for node in (VM, CONTAINER):
+            require(self.host(node).user == self.owner,
+                    f"the lab's SSH config does not log in to {node} as {self.owner}")
 
-    def run(self):
+    def up(self, key_name):
         self.directory.mkdir(parents=True)
-        with (self.directory / "commands.log").open("w") as self.log:
-            (self.directory / "manifest.toml").write_text(render_manifest(self.manifest, self.name))
-            failure = None
-            try:
-                self.up()
-                self.owner_checks()
-                self.admin_checks()
-            except (TestFailure, OSError, KeyError, ValueError) as error:
-                failure = error
-            except BaseException:
-                # Interrupted: never leave the lab behind, then stop.
-                self.destroy()
-                raise
-            if failure and self.keep_failed:
-                print(f"keeping failed lab {self.name} ({self.lab_id}) in {self.directory}")
-            else:
-                cleanup = self.destroy()
-                failure = failure or cleanup
-        if failure:
-            raise TestFailure(str(failure))
-
-    def up(self):
+        (self.directory / "manifest.toml").write_text(render_manifest(self.manifest, self.name))
         self.started = True
         outcome = self.sherpa("sherpa up", ["up"], UP_TIMEOUT, check=False)
         # A partly created lab exits non-zero after writing lab-info.toml: record its ID first, so
@@ -618,229 +852,42 @@ class LabRun:
             self.lab_id = info["id"]
         require(outcome.code == 0, f"sherpa up failed (exit {outcome.code}); see {self.log.name}")
         require(self.lab_id is not None, "sherpa up wrote no .sherpa/lab-info.toml")
-        config = (self.directory / ".sherpa" / "ssh" / "config").read_text()
-        require("IdentityFile" not in config, "the lab's SSH config names an identity file")
-        self.hosts = parse_ssh_hosts(config)
+        self.read_lab_files()
         for node in (VM, CONTAINER):
-            require(self.host(node).user == self.owner,
-                    f"the lab's SSH config does not log in to {node} as {self.owner}")
-
-    # -- owner -------------------------------------------------------------------------------
-
-    def owner_checks(self):
-        for node in (VM, CONTAINER):
+            self.node_keys[node] = self.session.keys[key_name]
             self.wait_for_login(node)
-        self.check_no_key_in_lab_folder()
-        self.check_owner_inspect()
-        for node in (VM, CONTAINER):
-            self.check_key_login(node)
-        password_config = self.run_root / "password_ssh_config"
-        password_config.write_text(password_ssh_config((self.directory / ".sherpa" / "ssh" / "config").read_text(),
-                                             [self.alias(VM), self.alias(CONTAINER)]))
-        for node in (VM, CONTAINER):
-            self.check_password_login(node, password_config)
-        for node in (VM, CONTAINER):
-            self.check_old_shared_login_refused(node, password_config)
+        self.admin_directory.mkdir()
+        (self.admin_directory / ".sherpa").mkdir(mode=0o700)
+        shutil.copy(info_path, self.admin_directory / ".sherpa" / "lab-info.toml")
+        self.download_directory.mkdir()
 
     def wait_for_login(self, node, timeout=READY_TIMEOUT):
-        """The node takes the owner's SSH login by key, retrying while it boots."""
+        """The node takes the owner's SSH login with the key it was built with, retrying while it boots."""
         deadline = time.monotonic() + timeout
-        while self.ssh(f"{node} reachable", node, READY_COMMANDS[node]).code != 0:
+        while self.ssh(f"{node} reachable", node, READY_COMMANDS[node], self.node_keys[node]).code != 0:
             require(time.monotonic() < deadline, f"no SSH login as {self.owner} on {node} within {timeout}s")
             time.sleep(POLL_INTERVAL)
 
-    def check_no_key_in_lab_folder(self):
-        """`sherpa up` leaves no SSH key in the lab folder: nodes take the owner's own keys."""
-        key = self.directory / ".sherpa" / "ssh" / "key"
-        require(not key.exists(), f"the lab folder has a key file, {key}")
-        found = private_key_files(self.directory / ".sherpa")
-        require(not found, f"the lab folder has private key files: {[str(path) for path in found]}")
+    def boot_id(self, label):
+        outcome = self.ssh(label, VM, BOOT_ID_COMMAND, self.node_keys[VM])
+        require(outcome.code == 0, f"{label}: no login to {VM}: {outcome.output.strip()}")
+        return outcome.stdout.strip()
 
-    def check_owner_inspect(self):
-        """The owner's inspect lists both nodes, with no VNC port: VNC goes through `sherpa vnc`."""
-        rows = {row["Device"]: row for row in parse_devices_table(self.sherpa("sherpa inspect", ["inspect"]).stdout)}
-        require(self.alias(VM) in rows and self.alias(CONTAINER) in rows,
-                f"sherpa inspect does not list both nodes: {sorted(rows)}")
-        require("VNC Port" not in rows[self.alias(VM)], "the owner's inspect has a VNC Port column")
+    def host_keys(self, label, node):
+        host = self.host(node)
+        outcome = self.session.command(label, ["ssh-keyscan", "-T", "15", "-p", str(host.port), host.hostname],
+                                       self.directory, check=False)
+        keys = scanned_host_keys(outcome.stdout)
+        require(keys, f"{label}: {node} offered no host key: {outcome.output.strip()}")
+        return keys
 
-    def check_key_login(self, node):
-        """`sherpa ssh` logs in by key, runs the node's probe command and leaves."""
-        label = f"sherpa ssh {node} (key)"
-        terminal = Terminal(self.log, label, [self.sherpa_path, "ssh", node], self.directory, os.environ.copy())
-        try:
-            terminal.wait_for(lambda text: f"Connected to {self.alias(node)}." in text, CONNECT_TIMEOUT,
-                              "the connect line")
-            deadline = time.monotonic() + SESSION_TIMEOUT
-            while True:
-                terminal.send(probe_command(node, self.owner).encode() + b"\r")
-                resend = time.monotonic() + RESEND_SECONDS
-                while time.monotonic() < resend:
-                    text = terminal.text()
-                    require(not password_prompts(text),
-                            f"{label} asked for a password, so the key login failed; see {self.log.name}")
-                    if not probe_problems(node, self.owner, text):
-                        break
-                    require(terminal.running(), f"{label} ended early; see {self.log.name}")
-                    terminal.read(0.5)
-                else:
-                    require(time.monotonic() < deadline, f"{label}: no output of the probe command within "
-                            f"{SESSION_TIMEOUT}s; see {self.log.name}")
-                    continue
-                break
-            text = terminal.text()
-            terminal.send(LEAVE_COMMANDS[node])
-            if not terminal.wait_for_end(LEAVE_TIMEOUT):
-                terminal.send(ESCAPE)
-        except BaseException:
-            terminal.process.kill()
-            terminal.finish()
-            raise
-        terminal.finish()
-        problems = probe_problems(node, self.owner, text)
-        require(not problems, f"{label}: the session lacks {', '.join(problems)}; see {self.log.name}")
-        require(f"Connection to {self.alias(node)} closed." in terminal.text(),
-                f"{label} did not end with its close line; see {self.log.name}")
-
-    def password_login(self, label, node, config, login, password):
-        """`ssh` as `login` to a node with no key offered, answering its password prompts from here.
-        Returns the exit code, the number of prompts answered and the text printed."""
-        address = self.host(node).hostname
-        user = ["-l", login] if login else []
-        arguments = ["ssh", "-F", str(config), "-o", "LogLevel=ERROR", "-o", "ConnectTimeout=15", *user,
-                     self.alias(node), probe_command(node, self.owner)]
-        terminal = Terminal(self.log, label, arguments, self.directory, os.environ.copy())
-        try:
-            answered = answer_passwords(terminal, address, password, PASSWORD_TIMEOUT)
-        except BaseException:
-            terminal.process.kill()
-            terminal.finish()
-            raise
-        code = terminal.finish()
-        return code, answered, terminal.text()
-
-    def check_password_login(self, node, config):
-        """The node takes the owner's device password, with no key offered, and gives the same rights."""
-        label = f"ssh {node} (device password)"
-        code, answered, text = self.password_login(label, node, config, None, self.accounts.device_password)
-        require(code == 0, f"{label} failed (exit {code}): {text.strip()}")
-        require(answered >= 1, f"{label} was never asked for a password; see {self.log.name}")
-        problems = probe_problems(node, self.owner, text)
-        require(not problems, f"{label}: the session lacks {', '.join(problems)}; see {self.log.name}")
-
-    def check_old_shared_login_refused(self, node, config):
-        """The shared `sherpa` account is not on the node: neither the owner's key nor the
-        owner's device password, the one password the node has, logs in as it."""
-        by_key = self.ssh(f"ssh {OLD_SHARED_USER}@{node} (key)", node, "true", login=OLD_SHARED_USER)
-        require(by_key.code != 0, f"{node} took an SSH login as {OLD_SHARED_USER} with the owner's key")
-        require(PERMISSION_DENIED in by_key.output,
-                f"the key login as {OLD_SHARED_USER} to {node} was not refused: {by_key.output.strip()}")
-        label = f"ssh {OLD_SHARED_USER}@{node} (device password)"
-        code, _, text = self.password_login(label, node, config, OLD_SHARED_USER, self.accounts.device_password)
-        require(code != 0, f"{node} took an SSH login as {OLD_SHARED_USER} with the device password")
-        require(PERMISSION_DENIED in text, f"{label} was not refused: {text.strip()}")
-
-    # -- admin -------------------------------------------------------------------------------
-
-    def admin_checks(self):
-        self.admin_directory.mkdir()
-        (self.admin_directory / ".sherpa").mkdir(mode=0o700)
-        shutil.copy(self.directory / ".sherpa" / "lab-info.toml", self.admin_directory / ".sherpa" / "lab-info.toml")
-        self.download_directory.mkdir()
-        self.check_admin_inspect()
-        self.check_admin_download_refused()
-        self.check_admin_connect_refused()
-        self.make_admin_key()
-        for login in (self.accounts.admin, self.owner):
-            for node in (VM, CONTAINER):
-                self.check_admin_direct_ssh_refused(node, login)
-        self.check_admin_key_add_refused()
-        self.admin_destroy()
-
-    def check_admin_inspect(self):
-        """An admin sees the lab and its nodes."""
-        outcome = self.admin("sherpa inspect", ["inspect"])
-        rows = {row["Device"]: row for row in parse_devices_table(outcome.stdout)}
-        for node in (VM, CONTAINER):
-            require(self.alias(node) in rows, f"the admin's inspect does not list {node}: {sorted(rows)}")
-
-    def check_admin_download_refused(self):
-        outcome = self.admin("sherpa download", ["download", self.lab_id], cwd=self.download_directory,
-                             check=False)
-        require(outcome.code != 0, "the admin downloaded a lab they do not own")
-        require(OWNER_ONLY_SERVER.format(lab=self.lab_id) in outcome.output,
-                f"sherpa download was not refused for the owner only: {outcome.output.strip()}")
-        files = [str(path) for path in (self.download_directory / ".sherpa").rglob("*") if path.is_file()] \
-            if (self.download_directory / ".sherpa").exists() else []
-        require(not files, f"the refused download wrote files: {files}")
-
-    def check_admin_connect_refused(self):
-        for arguments, refusal in ((["ssh", VM], OWNER_ONLY_CONNECT), (["ssh", CONTAINER], OWNER_ONLY_CONNECT),
-                                   (["console", VM], OWNER_ONLY_CONSOLE)):
-            outcome = self.admin(f"sherpa {' '.join(arguments)}", arguments, REFUSAL_TIMEOUT, check=False)
-            command = f"sherpa {' '.join(arguments)}"
-            require(outcome.code not in (0, None), f"{command} did not fail for the admin")
-            require(refusal.format(lab=self.lab_id) in outcome.output,
-                    f"{command} was not refused for the owner only: {outcome.output.strip()}")
-            require("Connected to" not in outcome.output, f"{command} connected for the admin")
-
-    def make_admin_key(self):
-        self.admin_key.parent.mkdir(mode=0o700)
-        self.command("ssh-keygen (admin key)", ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C",
-                                                "owner-login-lab-test", "-f", str(self.admin_key)])
-        (self.admin_key.parent / "ssh_config").write_text(admin_ssh_config(self.admin_key))
-
-    def check_admin_direct_ssh_refused(self, node, login):
-        """The admin's own key does not log in to the node, as the admin or as the owner."""
-        marker = f"reached-{uuid.uuid4().hex[:8]}"
-        label = f"ssh {login}@{node} with the admin's key"
-        outcome = self.command(label, direct_ssh_arguments(self.admin_key.parent / "ssh_config", self.admin_key,
-                                                           self.host(node), login, f"echo {marker}"),
-                               REFUSAL_TIMEOUT, check=False)
-        require(marker not in outcome.stdout and outcome.code != 0,
-                f"{label} logged in: exit {outcome.code}, {outcome.output.strip()}")
-        require(PERMISSION_DENIED in outcome.output,
-                f"{label} was not refused with {PERMISSION_DENIED!r}: {outcome.output.strip()}")
-
-    def owner_keys(self, label):
-        outcome = self.sherpa(label, ["server", "--output", "json", "user", "ssh-key", "list"])
-        try:
-            return json.loads(outcome.stdout[outcome.stdout.index("{"):])["ssh_keys"]
-        except (ValueError, KeyError) as error:
-            raise TestFailure(f"{label} printed no list of keys: {outcome.stdout.strip()}") from error
-
-    def check_admin_key_add_refused(self):
-        """No admin can add a key to the owner's account: the server refuses with 403, and the
-        owner's keys are as they were."""
-        before = self.owner_keys("owner's keys before")
-        home = self.accounts.admin_home / ".sherpa"
-        config_file = home / "config" / "sherpa.toml"
-        config = tomllib.loads(config_file.read_text()) if config_file.exists() else {}
-        base_url = server_base_url(config, os.environ.get(SERVER_URL_ENV))
-        context = tls_context(config, base_url, home / "trusted_certs")
-        token = (home / "token").read_text().strip()
-        add_secret(token)
-        public_key = self.admin_key.with_name("id_ed25519.pub").read_text().strip()
-        url = f"{base_url}/api/v1/admin/users/{self.owner}/ssh-keys"
-        reply = rest_post(url, token, {"username": self.owner, "ssh_key": public_key, "token": ""}, context)
-        self.log.write(mask(f"=== POST {url}\n--- status {reply.status}\n--- body\n{reply.body}\n"))
-        self.log.flush()
-        require(reply.status == 403, f"adding a key to {self.owner}'s account as the admin gave "
-                f"HTTP {reply.status}, not 403: {reply.body.strip()}")
-        require(OWN_ACCOUNT_ONLY.format(owner=self.owner) in reply.body,
-                f"the refusal does not say the account's own user only may: {reply.body.strip()}")
-        after = self.owner_keys("owner's keys after")
-        require(after == before, f"the owner's keys changed: {before} -> {after}")
-        require(public_key.split()[1] not in " ".join(after), "the admin's key is on the owner's account")
-
-    def admin_destroy(self):
-        """An admin may destroy a lab they do not own."""
-        self.admin("sherpa destroy", ["destroy", "--yes"], UP_TIMEOUT)
-        self.admin_destroyed = True
-
-    # -- destroy -----------------------------------------------------------------------------
+    def down_and_resume(self):
+        """Take the lab down and resume it; returns the resume's Outcome."""
+        self.sherpa("sherpa down", ["down"], UP_TIMEOUT)
+        return self.sherpa("sherpa resume", ["resume"], UP_TIMEOUT)
 
     def destroy(self):
-        """Destroy the lab and check nothing is left. Returns a failure, or None."""
+        """Destroy the lab, unless the admin did, and check nothing is left. Returns a failure, or None."""
         if not self.started:
             return None
         if not (self.directory / ".sherpa" / "lab-info.toml").exists():
@@ -876,111 +923,380 @@ class LabRun:
             if not shutil.which(arguments[0]):
                 self.log.write(f"=== {kind} leftover check skipped: {arguments[0]} not found\n")
                 continue
-            listing = self.command(f"no leftover {kind}", arguments, check=False)
+            listing = self.session.command(f"no leftover {kind}", arguments, check=False)
             if listing.code != 0:
                 self.log.write(f"=== {kind} leftover check skipped: exit {listing.code}\n")
                 continue
             leftovers = [line.split()[0] for line in listing.stdout.splitlines() if self.lab_id in line]
             require(not leftovers, f"{kind} left after destroy: {leftovers}")
 
+    # -- checks the cases share --------------------------------------------------------------
 
-# -- preflight -----------------------------------------------------------------------------------
+    def key_login(self, node):
+        """`sherpa ssh` logs in by the owner's key, runs the node's probe command and leaves; returns
+        the session's text."""
+        label = f"sherpa ssh {node} (key)"
+        terminal = Terminal(self.log, label, [self.session.sherpa_path, "ssh", node], self.directory,
+                            self.session.owner_env)
+        try:
+            terminal.wait_for(lambda text: f"Connected to {self.alias(node)}." in text, CONNECT_TIMEOUT,
+                              "the connect line")
+            deadline = time.monotonic() + SESSION_TIMEOUT
+            while True:
+                terminal.send(probe_command(node, self.owner).encode() + b"\r")
+                resend = time.monotonic() + RESEND_SECONDS
+                while time.monotonic() < resend:
+                    text = terminal.text()
+                    require(not password_prompts(text),
+                            f"{label} asked for a password, so the key login failed; see {self.log.name}")
+                    if not probe_problems(node, self.owner, text):
+                        break
+                    require(terminal.running(), f"{label} ended early; see {self.log.name}")
+                    terminal.read(0.5)
+                else:
+                    require(time.monotonic() < deadline, f"{label}: no output of the probe command within "
+                            f"{SESSION_TIMEOUT}s; see {self.log.name}")
+                    continue
+                break
+            text = terminal.text()
+            terminal.send(LEAVE_COMMANDS[node])
+            if not terminal.wait_for_end(LEAVE_TIMEOUT):
+                terminal.send(ESCAPE)
+        except BaseException:
+            terminal.kill()
+            terminal.finish()
+            raise
+        terminal.finish()
+        problems = probe_problems(node, self.owner, text)
+        require(not problems, f"{label}: the session lacks {', '.join(problems)}; see {self.log.name}")
+        require(f"Connection to {self.alias(node)} closed." in terminal.text(),
+                f"{label} did not end with its close line; see {self.log.name}")
+
+    def password_login(self, label, node, config):
+        """`ssh` to a node with no key offered, answering its password prompts with the owner's device
+        password. Returns the exit code, the number of prompts answered and the text printed."""
+        address = self.host(node).hostname
+        arguments = ["ssh", "-F", str(config), "-o", "LogLevel=ERROR", "-o", "ConnectTimeout=15",
+                     "-o", "IdentityAgent=none", self.alias(node), probe_command(node, self.owner)]
+        terminal = Terminal(self.log, label, arguments, self.directory, self.session.owner_env)
+        try:
+            answered = answer_passwords(terminal, address, self.session.device_password, PASSWORD_TIMEOUT)
+        except BaseException:
+            terminal.kill()
+            terminal.finish()
+            raise
+        code = terminal.finish()
+        return code, answered, terminal.text()
+
+    def redeploy(self, label, node, check=True):
+        return self.sherpa(label, ["redeploy", "--node", node], UP_TIMEOUT, check)
 
 
-def user_info(log, label, run_root, env, username=None):
-    arguments = ["sherpa", "server", "user", "info", *([username] if username else [])]
-    info = run_logged(log, label, arguments, run_root, env=env)
-    require(info.code == 0, f"could not read the user's details ({label})")
-    return parse_user_info(info.stdout)
+# -- fixtures ------------------------------------------------------------------------------------
 
 
-def prepare_admin_home(run_root):
-    """A HOME for the admin: the owner's client config and trusted server certificate, and no token."""
-    home = run_root / "admin-home"
-    (home / ".sherpa").mkdir(parents=True, mode=0o700)
-    source = Path.home() / ".sherpa"
-    if (source / "config").is_dir():
-        shutil.copytree(source / "config", home / ".sherpa" / "config")
-    if (source / "trusted_certs").is_dir():
-        shutil.copytree(source / "trusted_certs", home / ".sherpa" / "trusted_certs")
-    env = {key: value for key, value in os.environ.items() if key not in (LOGIN_USER_ENV, LOGIN_PASSWORD_ENV)}
-    env["HOME"] = str(home)
-    return home, env
-
-
-def preflight(run_root, admin_user, admin_password, device_password):
-    for tool in ("sherpa", "ssh", "ssh-keygen"):
-        require(shutil.which(tool), f"{tool} is not on PATH")
+@pytest.fixture(scope="module")
+def session(request):
+    """The admin, logged in, and the throwaway owner it creates, with a login and a device password and
+    no SSH key yet. The owner is deleted at the end, even when a case fails, unless `--keep-failed`
+    is given and something failed."""
+    admin_user = request.config.getoption("admin_user") or os.environ.get(ENV_ADMIN_USER)
+    admin_password = os.environ.get(ENV_ADMIN_PASSWORD)
+    missing = [name for name, value in ((f"--admin-user or ${ENV_ADMIN_USER}", admin_user),
+                                        (f"${ENV_ADMIN_PASSWORD}", admin_password)) if not value]
+    if missing:
+        pytest.fail(f"missing {', '.join(missing)}", pytrace=False)
+    signal.signal(signal.SIGTERM, stop_on_sigterm)
+    keep_failed = request.config.getoption("keep_failed")
+    run_root = RUNS / f"owner-login-{uuid.uuid4().hex[:12]}"
+    run_root.mkdir(parents=True)
+    # The accounts' HOMEs, holding their tokens, and the owner's private keys.
+    private_root = Path(tempfile.mkdtemp(prefix="owner-login-"))
+    print(f"Logs: {run_root}", flush=True)
     manifest = tomllib.loads((LAB / "manifest.toml").read_text())
-    for secret in (admin_password, device_password):
-        add_secret(secret)
-    with (run_root / "preflight.log").open("w") as log:
-        whoami = run_logged(log, "sherpa whoami", ["sherpa", "whoami"], run_root)
-        require(whoami.code == 0, "the sherpa CLI is not logged in (run `sherpa login`)")
-        owner = user_info(log, "sherpa server user info (owner)", run_root, None)
-        require(owner.username != BUILT_IN_ADMIN, "the CLI is logged in as the built-in `admin`, which cannot start labs")
-        require(not owner.admin, f"the CLI's user {owner.username} is an admin: the owner must be a normal user")
-        require(owner.device_password_set,
-                f"{owner.username} has no device password, which `sherpa up` needs: "
-                "run `sherpa server user device-password`")
-        require(admin_user != BUILT_IN_ADMIN, f"--admin-user must be an admin other than the built-in `{BUILT_IN_ADMIN}`")
-        require(admin_user != owner.username, "the admin and the owner must be different accounts")
+    models = sorted({(node["model"], node["version"]) for node in manifest["nodes"]})
+    session = Session(run_root, private_root, admin_user, admin_password)
+    keep = False
+    try:
+        try:
+            session.preflight(models)
+            session.create_owner()
+        except Exception:
+            keep = keep_failed
+            raise
+        yield session
+        keep = keep_failed and request.session.testsfailed > 0
+    finally:
+        if keep:
+            print(f"keeping the owner {session.owner} and their HOME and keys in {private_root}", flush=True)
+            session.log.close()
+        else:
+            failure = session.delete_owner()
+            session.log.close()
+            shutil.rmtree(private_root, ignore_errors=True)
+            if failure:
+                raise failure
 
-        home, env = prepare_admin_home(run_root)
-        login_env = {**env, LOGIN_USER_ENV: admin_user, LOGIN_PASSWORD_ENV: admin_password}
-        login = run_logged(log, "sherpa login (admin)", ["sherpa", "login"], run_root, env=login_env)
-        require(login.code == 0, f"could not log in as {admin_user}; see {log.name}")
-        admin = user_info(log, "sherpa server user info (admin)", run_root, env, admin_user)
-        require(admin.admin, f"{admin_user} is not an admin")
-        require(admin.device_password_set,
-                f"{admin_user} has no device password: log in as them and run `sherpa server user device-password`")
 
-        for model, version in sorted({(node["model"], node["version"]) for node in manifest["nodes"]}):
-            image = run_logged(log, f"{model} {version} image present",
-                               ["sherpa", "image", "show", model, "--version", version], run_root)
-            require(image.code == 0, f"the server has no {model} {version} image")
-    return Accounts(owner.username, admin_user, home, env, device_password)
+@pytest.fixture(scope="module")
+def lab(session, request):
+    """The lab every case uses: the owner's first key added, then brought up once as the owner and
+    destroyed at the end, even when a case fails, unless `--keep-failed` is given and something
+    failed."""
+    keep_failed = request.config.getoption("keep_failed")
+    lab = Lab(session)
+    keep = False
+    try:
+        try:
+            _, public = session.new_key("first")
+            home_key = session.owner_home / ".ssh" / "id_ed25519"
+            home_key.parent.mkdir(mode=0o700, exist_ok=True)
+            shutil.copy(session.keys["first"], home_key)
+            home_key.with_name("id_ed25519.pub").write_text(public + "\n")
+            session.add_key("first")
+            lab.up("first")
+        except Exception:
+            keep = keep_failed
+            raise
+        yield lab
+        keep = keep_failed and request.session.testsfailed > 0
+    finally:
+        if keep:
+            print(f"keeping failed lab {lab.name} ({lab.lab_id}) in {lab.directory}", flush=True)
+        else:
+            failure = lab.destroy()
+            if failure:
+                raise failure
+
+
+# -- cases ---------------------------------------------------------------------------------------
+
+
+def test_owner_login_001_an_owner_with_no_ssh_keys_is_refused_at_up(session):
+    require(not session.owner_keys("owner's keys before up"), "the owner already has SSH keys")
+    folder = session.run_root / "refused-up"
+    folder.mkdir()
+    manifest = tomllib.loads((LAB / "manifest.toml").read_text())
+    (folder / "manifest.toml").write_text(render_manifest(manifest, f"{manifest['name']}-refused"))
+    outcome = session.as_owner("sherpa up (no SSH key)", ["up"], folder, UP_TIMEOUT, check=False)
+    require(outcome.code not in (0, None), f"sherpa up with no SSH key did not fail (exit {outcome.code})")
+    require(NO_SSH_KEY in outcome.output, f"sherpa up was not refused for the missing key: {outcome.output.strip()}")
+    require(not (folder / ".sherpa" / "lab-info.toml").exists(), "the refused up wrote .sherpa/lab-info.toml")
+
+
+def test_owner_login_002_the_owner_logs_in_to_a_vm_by_key_with_a_home_bash_and_passwordless_sudo(lab):
+    lab.key_login(VM)
+
+
+def test_owner_login_003_the_owner_logs_in_to_sr_linux_by_key_with_the_superuser_role(lab):
+    lab.key_login(CONTAINER)
+
+
+def test_owner_login_004_the_owner_logs_in_to_each_node_with_their_device_password(lab):
+    config = lab.session.run_root / "password_ssh_config"
+    config.write_text(password_ssh_config((lab.directory / ".sherpa" / "ssh" / "config").read_text(),
+                                          [lab.alias(VM), lab.alias(CONTAINER)]))
+    for node in (VM, CONTAINER):
+        label = f"ssh {node} (device password)"
+        code, answered, text = lab.password_login(label, node, config)
+        require(code == 0, f"{label} failed (exit {code}): {text.strip()}")
+        require(answered >= 1, f"{label} was never asked for a password; see {lab.log.name}")
+        problems = probe_problems(node, lab.owner, text)
+        require(not problems, f"{label}: the session lacks {', '.join(problems)}; see {lab.log.name}")
+
+
+def test_owner_login_005_a_key_not_on_the_owners_account_is_refused_at_the_node(lab):
+    key = lab.session.private / "admin-key" / "id_ed25519"
+    make_key(lab.log, key, lab.session.run_root)
+    config = key.parent / "ssh_config"
+    config.write_text(admin_ssh_config(key))
+    for login in (lab.session.admin_user, lab.owner):
+        for node in (VM, CONTAINER):
+            marker = f"reached-{uuid.uuid4().hex[:8]}"
+            label = f"ssh {login}@{node} with the admin's key"
+            outcome = lab.session.command(label, direct_ssh_arguments(config, key, lab.host(node), login,
+                                                                      f"echo {marker}"),
+                                          lab.directory, REFUSAL_TIMEOUT, check=False, env=lab.session.admin_env)
+            require(marker not in outcome.stdout and outcome.code != 0,
+                    f"{label} logged in: exit {outcome.code}, {outcome.output.strip()}")
+            why = refused_at_node(outcome.stderr, lab.host(node))
+            require(why is None, f"{label}: {why}; see {lab.log.name}")
+
+
+def test_access_control_004_an_admin_can_inspect_a_lab_they_do_not_own(lab):
+    rows = {row["Device"]: row for row in parse_devices_table(lab.admin("sherpa inspect", ["inspect"]).stdout)}
+    for node in (VM, CONTAINER):
+        require(lab.alias(node) in rows, f"the admin's inspect does not list {node}: {sorted(rows)}")
+
+
+def test_access_control_005_an_admin_is_refused_the_download_of_a_lab_they_do_not_own(lab):
+    outcome = lab.admin("sherpa download", ["download", lab.lab_id], cwd=lab.download_directory, check=False)
+    require(outcome.code != 0, "the admin downloaded a lab they do not own")
+    require(OWNER_ONLY_SERVER.format(lab=lab.lab_id) in outcome.output,
+            f"sherpa download was not refused for the owner only: {outcome.output.strip()}")
+    files = [str(path) for path in (lab.download_directory / ".sherpa").rglob("*") if path.is_file()] \
+        if (lab.download_directory / ".sherpa").exists() else []
+    require(not files, f"the refused download wrote files: {files}")
+
+
+def test_access_control_006_an_admin_is_refused_sherpa_ssh_to_the_nodes_of_a_lab_they_do_not_own(lab):
+    for node in (VM, CONTAINER):
+        command = f"sherpa ssh {node}"
+        outcome = lab.admin(command, ["ssh", node], REFUSAL_TIMEOUT, check=False)
+        require(outcome.code not in (0, None), f"{command} did not fail for the admin")
+        require(OWNER_ONLY_CONNECT.format(lab=lab.lab_id) in outcome.output,
+                f"{command} was not refused for the owner only: {outcome.output.strip()}")
+        require("Connected to" not in outcome.output, f"{command} connected for the admin")
+
+
+def test_access_control_007_an_admin_is_refused_the_console_of_a_lab_they_do_not_own(lab):
+    command = f"sherpa console {VM}"
+    outcome = lab.admin(command, ["console", VM], REFUSAL_TIMEOUT, check=False)
+    require(outcome.code not in (0, None), f"{command} did not fail for the admin")
+    require(OWNER_ONLY_CONSOLE.format(lab=lab.lab_id) in outcome.output,
+            f"{command} was not refused for the owner only: {outcome.output.strip()}")
+    require("Connected to" not in outcome.output, f"{command} connected for the admin")
+
+
+def test_account_keys_001_an_admin_cannot_add_a_key_to_another_users_account(lab):
+    session = lab.session
+    before = session.owner_keys("owner's keys before")
+    home = session.admin_home / ".sherpa"
+    config_file = home / "config" / "sherpa.toml"
+    config = tomllib.loads(config_file.read_text()) if config_file.exists() else {}
+    base_url = server_base_url(config, os.environ.get(SERVER_URL_ENV))
+    context = tls_context(config, base_url, home / "trusted_certs")
+    token = (home / "token").read_text().strip()
+    add_secret(token)
+    _, public_key = session.new_key("admin-offered")
+    url = f"{base_url}/api/v1/admin/users/{session.owner}/ssh-keys"
+    reply = rest_post(url, token, {"username": session.owner, "ssh_key": public_key, "token": ""}, context)
+    lab.log.write(mask(f"=== POST {url}\n--- status {reply.status}\n--- body\n{reply.body}\n"))
+    lab.log.flush()
+    require(reply.status == 403, f"adding a key to {session.owner}'s account as the admin gave "
+            f"HTTP {reply.status}, not 403: {reply.body.strip()}")
+    require(OWN_ACCOUNT_ONLY.format(owner=session.owner) in reply.body,
+            f"the refusal does not say the account's own user only may: {reply.body.strip()}")
+    after = session.owner_keys("owner's keys after")
+    require(after == before, f"the owner's keys changed: {before} -> {after}")
+
+
+def test_lab_down_resume_002_resume_waits_for_a_vm_to_be_ready_and_streams_its_progress(lab):
+    resume = lab.down_and_resume()
+    output = resume.stdout
+    progress = f"Node {VM} - Ready"
+    result = f"{VM}: Started and ready"
+    require(progress in output, f"sherpa resume streamed no {progress!r}: {output.strip()}")
+    require(result in output, f"sherpa resume did not report {result!r}: {output.strip()}")
+    require(output.index(progress) < output.index(result),
+            "sherpa resume printed the VM's readiness only with its result, not while it waited")
+    first = lab.ssh(f"{VM} login right after resume", VM, READY_COMMANDS[VM], lab.node_keys[VM])
+    require(first.code == 0, f"{VM} refused the owner's login right after resume returned: {first.output.strip()}")
+
+
+def test_lab_down_resume_003_a_resumed_vm_keeps_its_host_keys_and_the_owner_can_still_log_in(lab):
+    before = lab.host_keys("host keys before down", VM)
+    lab.down_and_resume()
+    after = lab.host_keys("host keys after resume", VM)
+    require(after == before, f"{VM}'s host keys changed across down and resume: {sorted(before)} -> {sorted(after)}")
+    # The lab's SSH config checks the host key strictly against the lab's known_hosts file.
+    login = lab.ssh(f"{VM} login after resume", VM, READY_COMMANDS[VM], lab.node_keys[VM])
+    require(login.code == 0, f"the owner could not log in to {VM} after resume: {login.output.strip()}")
+
+
+def test_owner_login_006_a_key_rotated_in_the_profile_is_not_pushed_to_a_running_labs_nodes_on_resume(lab):
+    session = lab.session
+    old = session.profile_key_names()
+    require(old, "the owner has none of the run's keys on their account")
+    name = f"rotated-{len(session.keys)}"
+    session.new_key(name)
+    session.add_key(name)
+    for key in old:
+        session.remove_key(key)
+    require(session.profile_key_names() == [name], f"the owner's account does not hold only the key {name}")
+    lab.down_and_resume()
+    for node in (VM, CONTAINER):
+        built = lab.ssh(f"{node} login with the key it was built with", node, READY_COMMANDS[node],
+                        lab.node_keys[node])
+        require(built.code == 0, f"{node} refused the key it was built with after resume: {built.output.strip()}")
+        rotated = lab.ssh(f"{node} login with the rotated key", node, READY_COMMANDS[node], session.keys[name])
+        require(rotated.code != 0, f"{node} took the key added to the profile after it was built")
+        require(PERMISSION_DENIED in rotated.output, f"the rotated key was not refused: {rotated.output.strip()}")
+
+
+def test_owner_login_007_an_owner_with_no_ssh_keys_is_refused_at_redeploy(lab):
+    session = lab.session
+    keys = session.profile_key_names()
+    require(keys, "the owner has none of the run's keys on their account")
+    for key in keys:
+        session.remove_key(key)
+    try:
+        require(not session.owner_keys("owner's keys before redeploy"), "the owner still has SSH keys")
+        outcome = lab.redeploy(f"sherpa redeploy {VM} (no SSH key)", VM, check=False)
+        require(outcome.code not in (0, None), f"redeploy with no SSH key did not fail (exit {outcome.code})")
+        require(NO_SSH_KEY in outcome.output, f"redeploy was not refused for the missing key: {outcome.output.strip()}")
+    finally:
+        for key in keys:
+            session.add_key(key)
+
+
+def test_lab_redeploy_001_a_redeployed_vm_comes_back_and_the_owner_can_log_in(lab):
+    session = lab.session
+    keys = session.profile_key_names()
+    require(keys, "the owner has none of the run's keys on their account")
+    before = lab.boot_id("boot id before redeploy")
+    lab.redeploy(f"sherpa redeploy {VM}", VM)
+    lab.read_lab_files()
+    lab.node_keys[VM] = session.keys[keys[0]]
+    lab.wait_for_login(VM)
+    require(lab.boot_id("boot id after redeploy") != before, f"{VM} was not rebuilt: its boot id is unchanged")
+
+
+def test_lab_redeploy_002_a_refused_redeploy_leaves_the_running_node_untouched(lab):
+    session = lab.session
+    keys = session.profile_key_names()
+    require(keys, "the owner has none of the run's keys on their account")
+    before = lab.boot_id("boot id before the refused redeploy")
+    for key in keys:
+        session.remove_key(key)
+    try:
+        outcome = lab.redeploy(f"sherpa redeploy {VM} (refused)", VM, check=False)
+        require(outcome.code not in (0, None), f"redeploy with no SSH key did not fail (exit {outcome.code})")
+    finally:
+        for key in keys:
+            session.add_key(key)
+    require(lab.boot_id("boot id after the refused redeploy") == before,
+            f"{VM} restarted or was rebuilt by a refused redeploy")
+
+
+def test_access_control_008_an_admin_can_destroy_a_lab_they_do_not_own(lab):
+    lab.admin("sherpa destroy", ["destroy", "--yes"], UP_TIMEOUT)
+    lab.admin_destroyed = True
+    inspect = lab.sherpa("lab gone (owner)", ["inspect"], check=False)
+    require(inspect.code != 0, f"lab {lab.lab_id} still exists after the admin's destroy")
+
+
+# -- running -------------------------------------------------------------------------------------
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--admin-user", default=os.environ.get(ENV_ADMIN_USER),
-                        help=f"An admin account other than `admin` (default: ${ENV_ADMIN_USER}). Its password "
-                             f"is read from ${ENV_ADMIN_PASSWORD}")
-    parser.add_argument("--keep-failed", action="store_true", help="Leave a failed lab running for debugging")
+                                     formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     epilog="Other arguments, such as --admin-user, --keep-failed or -k, are "
+                                            "passed to pytest.")
     parser.add_argument("--self-test", action="store_true", help="Run the runner's own unit tests")
-    args = parser.parse_args()
+    args, pytest_args = parser.parse_known_args()
     if args.self_test:
         sys.argv = sys.argv[:1]
         unittest.main()
         return 0
-    admin_password = os.environ.get(ENV_ADMIN_PASSWORD)
-    device_password = os.environ.get(ENV_DEVICE_PASSWORD)
-    missing = [name for name, value in ((f"--admin-user or ${ENV_ADMIN_USER}", args.admin_user),
-                                        (f"${ENV_ADMIN_PASSWORD}", admin_password),
-                                        (f"${ENV_DEVICE_PASSWORD}", device_password)) if not value]
-    if missing:
-        print(f"FAIL: missing {', '.join(missing)}", file=sys.stderr)
-        return 2
-    signal.signal(signal.SIGTERM, stop_on_sigterm)
-    run_root = RUNS / f"owner-login-{uuid.uuid4().hex[:12]}"
-    run_root.mkdir(parents=True)
-    print(f"Logs: {run_root}", flush=True)
-    try:
-        accounts = preflight(run_root, args.admin_user, admin_password, device_password)
-        LabRun(run_root, args.keep_failed, accounts).run()
-    except TestFailure as error:
-        print(f"FAIL {error}. Logs: {run_root}", file=sys.stderr)
-        return 1
-    except KeyboardInterrupt:
-        print("interrupted", file=sys.stderr)
-        return 130
-    print(f"PASS. Logs: {run_root}")
-    return 0
+    return pytest.main(["-v", "--tb=short", "-p", "no:cacheprovider", __file__, *pytest_args])
 
 
 class SelfTest(unittest.TestCase):
+    # The runner's own checks, run with --self-test; pytest must not collect them as lab cases.
+    __test__ = False
+
     def manifest(self):
         return tomllib.loads((LAB / "manifest.toml").read_text())
 
@@ -992,27 +1308,14 @@ class SelfTest(unittest.TestCase):
         with self.assertRaises(TestFailure):
             parse_user_info("  Device password: set\n")
 
-    def test_preflight_stops_for_an_owner_who_is_an_admin_or_the_built_in_admin_or_has_no_device_password(self):
-        info = "  Username: {}\n  Admin: {}\n  Device password: {}\n"
-        for owner in (info.format("alice", "Yes", "set"), info.format("admin", "No", "set"),
-                      info.format("alice", "No", "not set")):
-            with tempfile.TemporaryDirectory() as temp:
-                run_root = Path(temp)
-
-                def fake(log, label, arguments, *rest, owner=owner, **kwargs):
-                    return Outcome(0, owner if arguments[:2] == ["sherpa", "server"] else "ok", "")
-
-                with (mock.patch(f"{__name__}.run_logged", fake),
-                      mock.patch("shutil.which", return_value="/usr/bin/true"),
-                      self.assertRaises(TestFailure)):
-                    preflight(run_root, "bob", "pw", "dp")
-
-    def test_a_secret_is_masked_in_the_log(self):
+    def test_a_secret_is_masked_in_the_log_and_in_failures(self):
         SECRETS.clear()
         add_secret("hunter2")
         add_secret("")
         self.addCleanup(SECRETS.clear)
         self.assertEqual(mask("pw hunter2, again hunter2"), "pw ********, again ********")
+        with self.assertRaisesRegex(TestFailure, r"^said \*+$"):
+            require(False, "said hunter2")
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)
             with (path / "log").open("w+") as log:
@@ -1021,6 +1324,42 @@ class SelfTest(unittest.TestCase):
                 text = log.read()
         self.assertNotIn("hunter2", text)
         self.assertIn("********", text)
+
+    def test_a_generated_password_meets_both_rules_and_is_masked(self):
+        SECRETS.clear()
+        self.addCleanup(SECRETS.clear)
+        passwords = {generate_password("owner1a2b3c4d") for _ in range(50)}
+        self.assertEqual(len(passwords), 50)
+        for password in passwords:
+            self.assertTrue(password_fits(password, "owner1a2b3c4d"))
+            self.assertEqual(mask(password), "********")
+        self.assertFalse(password_fits("aaab-Cdefghij1kl", "x"))
+        self.assertFalse(password_fits("-Abcdefghij1klmn", "x"))
+        self.assertFalse(password_fits("Abcdefghij1klmno", "x"))
+        self.assertFalse(password_fits("Abc-ciscoj1klmno", "x"))
+
+    def test_a_childs_environment_has_its_own_home_and_none_of_the_runners_secrets(self):
+        with mock.patch.dict(os.environ, {LOGIN_PASSWORD_ENV: "pw", "SSH_AUTH_SOCK": "/s", "PATH": "/bin"}):
+            env = child_env(Path("/h"))
+        self.assertEqual(env["HOME"], "/h")
+        self.assertEqual(env["PATH"], "/bin")
+        self.assertNotIn(LOGIN_PASSWORD_ENV, env)
+        self.assertNotIn("SSH_AUTH_SOCK", env)
+
+    def test_prompts_are_answered_in_order_and_not_echoed_to_the_log(self):
+        script = ("import getpass\na = getpass.getpass('Password for bob: ')\n"
+                  "b = getpass.getpass('Confirm password: ')\nprint('same' if a == b == 's3cret' else 'differ')\n")
+        SECRETS.clear()
+        add_secret("s3cret")
+        self.addCleanup(SECRETS.clear)
+        with tempfile.TemporaryDirectory() as temp:
+            log = io.StringIO()
+            terminal = Terminal(log, "prompts", [sys.executable, "-I", "-c", script], Path(temp), os.environ.copy())
+            code, text = answer_prompts(terminal, [("Password for bob: ", "s3cret"), ("Confirm password: ", "s3cret")],
+                                        20)
+        self.assertEqual(code, 0)
+        self.assertIn("same", text)
+        self.assertNotIn("s3cret", log.getvalue())
 
     def test_the_lab_ssh_config_is_read_into_hosts(self):
         config = ("\nHost 172.31.0.21 ubu01.abcd1234 ubu01.abcd1234.sherpa.lab.local\n    HostName 172.31.0.21\n"
@@ -1053,6 +1392,15 @@ class SelfTest(unittest.TestCase):
         self.assertEqual([row["Memory (MB)"] for row in rows], ["-", "2048"])
         self.assertEqual(parse_devices_table("nothing here"), [])
 
+    def test_keys_are_compared_by_their_body(self):
+        self.assertEqual(parse_key_list('note\n{"username": "a", "ssh_keys": ["ssh-ed25519 AAAA x"]}'),
+                         ["ssh-ed25519 AAAA x"])
+        with self.assertRaises(TestFailure):
+            parse_key_list("no keys")
+        self.assertEqual(key_blob("ssh-ed25519 AAAA comment here"), "AAAA")
+        scan = "# 10.0.0.1:22 SSH-2.0-OpenSSH\n10.0.0.1 ssh-ed25519 AAAA\n10.0.0.1 ssh-rsa BBBB\n"
+        self.assertEqual(scanned_host_keys(scan), {("ssh-ed25519", "AAAA"), ("ssh-rsa", "BBBB")})
+
     def test_password_prompts_name_the_host_that_asks(self):
         text = ("alice@172.31.0.21's password: \nPermission denied, please try again.\n"
                 "(alice@172.31.0.22) Password: ")
@@ -1061,33 +1409,24 @@ class SelfTest(unittest.TestCase):
                          [("alice", "172.31.0.21"), ("alice", "172.31.0.22")])
         self.assertEqual(password_prompts("Connected to ubu01.abcd1234. Escape: ~. at the start of a line."), [])
 
-    def test_the_probe_output_must_show_the_owner_and_admin_rights(self):
-        linux = "alice@ubu01:~$ printf 'who:%s:\\n'\nwho:alice:\nsudo-ok-42\n"
+    def test_the_probe_output_must_show_the_owners_account_and_admin_rights(self):
+        linux = ("alice@ubu01:~$ printf 'who:%s:home:%s:shell:%s:\\n'\nwho:alice:home:/home/alice:shell:/bin/bash:\n"
+                 "home-ok-42\nsudo-ok-42\n")
         self.assertEqual(probe_problems(VM, "alice", linux), [])
-        self.assertEqual(len(probe_problems(VM, "alice", "who:alice:\n")), 1)
-        self.assertEqual(len(probe_problems(VM, "alice", "who:bob:\nsudo-ok-42\n")), 1)
-        # Typing the command shows its text, which holds neither the name nor the result.
-        self.assertEqual(len(probe_problems(VM, "alice", "printf 'who:%s:\\n'; echo sudo-ok-$((40+2))")), 2)
+        self.assertEqual(len(probe_problems(VM, "alice", linux.replace("sudo-ok-42", ""))), 1)
+        self.assertEqual(len(probe_problems(VM, "alice", linux.replace("/bin/bash", "/bin/sh"))), 1)
+        self.assertEqual(len(probe_problems(VM, "alice", linux.replace("/home/alice", "/"))), 1)
+        self.assertEqual(len(probe_problems(VM, "alice", linux.replace("who:alice", "who:bob"))), 1)
+        # Typing the command shows its text, which holds none of the values or results.
+        self.assertEqual(len(probe_problems(VM, "alice", LINUX_COMMAND)), 5)
         srlinux = ('    superuser false\n    last-successful-login "2026-11-17T07:29:15.326Z (8 seconds ago)"\n'
                    '    role [\n        \x1b[0msrl-admin\n    ]\n')
         self.assertEqual(probe_problems(CONTAINER, "alice", srlinux), [])
         self.assertEqual(len(probe_problems(CONTAINER, "alice", srlinux.replace("srl-admin", "srl-viewer"))), 1)
         self.assertEqual(len(probe_problems(CONTAINER, "alice", srlinux.replace("8 seconds ago", "never"))), 1)
+        self.assertEqual(probe_problems(CONTAINER, "alice", srlinux.replace("8 seconds ago", "a second ago")), [])
         self.assertEqual(probe_command(CONTAINER, "alice"),
                          "info from state /system aaa authentication user alice")
-
-    def test_private_keys_are_found_in_the_lab_folder(self):
-        with tempfile.TemporaryDirectory() as temp:
-            folder = Path(temp)
-            (folder / "ssh").mkdir()
-            (folder / "ssh" / "config").write_text("Host a\n")
-            (folder / "lab-info.toml").write_text("id = 'x'\n")
-            (folder / "ca").mkdir()
-            (folder / "ca" / "lab-ca.crt").write_text("-----BEGIN CERTIFICATE-----\nabc\n")
-            self.assertEqual(private_key_files(folder), [])
-            (folder / "ssh" / "other").write_text("-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n")
-            (folder / "k.pem").write_text("-----BEGIN RSA PRIVATE KEY-----\nabc\n")
-            self.assertEqual([path.name for path in private_key_files(folder)], ["k.pem", "other"])
 
     def test_the_password_config_takes_keys_away_from_the_nodes_only(self):
         text = password_ssh_config("Host x.1\n    User alice\n", ["a.1", "b.1"])
@@ -1097,10 +1436,10 @@ class SelfTest(unittest.TestCase):
         self.assertTrue(text.endswith("Host x.1\n    User alice\n"))
         self.assertNotIn("Host *", text)
 
-    def test_the_admin_ssh_uses_only_the_admins_key(self):
+    def test_the_admin_ssh_uses_only_the_admins_key_and_is_refused_at_the_node(self):
         host = SshHost(("172.31.0.21",), "172.31.0.21", 22, "alice")
         arguments = direct_ssh_arguments(Path("/run/ssh_config"), Path("/run/key"), host, "dana", "true")
-        self.assertEqual(arguments[:2], ["ssh", "-F"])
+        self.assertEqual(arguments[:3], ["ssh", "-v", "-F"])
         for option in ("BatchMode=yes", "IdentitiesOnly=yes"):
             self.assertIn(option, arguments)
         self.assertEqual(arguments[arguments.index("-i") + 1], "/run/key")
@@ -1109,6 +1448,14 @@ class SelfTest(unittest.TestCase):
         config = admin_ssh_config(Path("/run/key"))
         for line in ("IdentityFile /run/key", "IdentitiesOnly yes", "IdentityAgent none", "BatchMode yes"):
             self.assertIn(line, config)
+        at_node = ("debug1: Connecting to 172.31.0.21 [172.31.0.21] port 22.\n"
+                   "debug1: Server host key: ssh-ed25519 SHA256:x\n"
+                   "dana@172.31.0.21: Permission denied (publickey,password).\n")
+        self.assertIsNone(refused_at_node(at_node, host))
+        jumped = at_node.replace("172.31.0.21 [172.31.0.21]", "172.31.1.21 [172.31.1.21]")
+        self.assertIsNotNone(refused_at_node(jumped, host))
+        self.assertIsNotNone(refused_at_node(at_node.replace("Server host key", "Connection closed"), host))
+        self.assertIsNotNone(refused_at_node(at_node.replace("Permission denied", "Timeout"), host))
 
     def test_the_rest_address_comes_from_the_environment_the_config_or_its_defaults(self):
         config = {"server_connection": {"url": "wss://10.0.0.1:3030/ws"}}
@@ -1165,20 +1512,6 @@ class SelfTest(unittest.TestCase):
         with self.assertRaises(TestFailure):
             rest_post("http://127.0.0.1:1/x", "tok", {}, None)
 
-    def test_a_terminal_is_the_commands_controlling_terminal_and_takes_typed_input(self):
-        script = ("import sys\nopen('/dev/tty', 'w').write('tty-ok\\n')\n"
-                  "sys.stdout.write('pw: '); sys.stdout.flush()\n"
-                  "print('got-' + sys.stdin.readline().strip())\n")
-        with tempfile.TemporaryDirectory() as temp:
-            log = io.StringIO()
-            terminal = Terminal(log, "tty check", [sys.executable, "-I", "-c", script], Path(temp), os.environ.copy())
-            terminal.wait_for(lambda text: "pw: " in text, 20, "the prompt")
-            terminal.send(b"secret\r")
-            self.assertEqual(terminal.finish(), 0)
-        self.assertIn("tty-ok", terminal.text())
-        self.assertIn("got-secret", terminal.text())
-        self.assertIn("=== tty check", log.getvalue())
-
     def test_a_password_is_typed_at_the_nodes_prompt_and_not_at_another_hosts(self):
         script = ("import sys\nfor _ in range(2):\n    sys.stdout.write(\"{}@{}'s password: \")\n"
                   "    sys.stdout.flush()\n    sys.stdin.readline()\n    print('Permission denied, please try again.')\n")
@@ -1193,7 +1526,7 @@ class SelfTest(unittest.TestCase):
                 else:
                     with self.assertRaises(TestFailure):
                         answer_passwords(terminal, "10.0.0.5", "pw", 20)
-                    terminal.process.kill()
+                    terminal.kill()
                     terminal.finish()
 
     def test_the_manifest_has_a_pinned_linux_vm_and_a_network_os_container(self):
@@ -1210,44 +1543,6 @@ class SelfTest(unittest.TestCase):
         rendered = tomllib.loads(render_manifest(manifest, "renamed"))
         self.assertEqual(rendered["name"], "renamed")
         self.assertEqual(rendered["nodes"], manifest["nodes"])
-
-    def test_a_partly_created_lab_keeps_its_id_for_cleanup(self):
-        # `sherpa up` exits 1 on a partly created lab after writing lab-info.toml; the run must
-        # still know the lab's ID, so destroy checks for leftovers instead of crashing.
-        with tempfile.TemporaryDirectory() as temp:
-            accounts = Accounts("alice", "dana", Path(temp) / "home", {}, "dp")
-            run = LabRun(Path(temp) / "owner-login-000000abcdef", keep_failed=False, accounts=accounts)
-            (run.directory / ".sherpa").mkdir(parents=True)
-            (run.directory / ".sherpa" / "lab-info.toml").write_text(f'id = "4ed6360e"\nname = "{run.name}"\n')
-            run.log = (run.directory / "commands.log").open("w")
-            self.addCleanup(run.log.close)
-
-            def failing_up(log, label, arguments, *rest, **kwargs):
-                return Outcome(1 if arguments[1:2] == ["up"] else 0, "", "")
-
-            with mock.patch(f"{__name__}.run_logged", failing_up), self.assertRaises(TestFailure):
-                run.up()
-            self.assertEqual(run.lab_id, "4ed6360e")
-
-            def leftover(log, label, arguments, *rest, **kwargs):
-                return Outcome(1 if "inspect" in arguments and "ssh-config" not in arguments else 0,
-                               "node-4ed6360e-x\n", "")
-
-            with (mock.patch(f"{__name__}.run_logged", leftover),
-                  mock.patch("shutil.which", return_value="/usr/bin/true")):
-                self.assertIsInstance(run.destroy(), TestFailure)
-                # After the admin destroyed the lab, the owner's destroy is not run again.
-                calls = []
-
-                def recording(log, label, arguments, *rest, **kwargs):
-                    calls.append(arguments[1:3])
-                    return Outcome(1 if arguments[1:2] == ["inspect"] else 0, "", "")
-
-                run.admin_destroyed = True
-                with mock.patch(f"{__name__}.run_logged", recording):
-                    self.assertIsNone(run.destroy())
-                self.assertNotIn(["destroy", "--yes"], calls)
-                self.assertIn(["ssh-config", "clean"], calls)
 
 
 if __name__ == "__main__":
