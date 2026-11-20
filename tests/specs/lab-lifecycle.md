@@ -1,6 +1,6 @@
 # Lab lifecycle
 
-Bringing a lab up, taking it down and resuming it, destroying it, redeploying one of its nodes, an admin's clean of a lost lab, operations on labs at the same time, and the status a lab reports. Nodes, links, images, accounts and ZTP have their own specs.
+Bringing a lab up, taking it down and resuming it, destroying it, redeploying one of its nodes, an admin's clean of a lost lab, operations on labs at the same time, the address ranges a lab gets, and the status a lab reports. Nodes, links, images, accounts and ZTP have their own specs.
 
 Each behaviour lists its cases. A case is one test, whose name is its ID: `<behaviour>_<NNN>_<description>`, such as `lab_up_001_a_container_lab_comes_up_with_every_node_running`. The level is the highest that can show the case: e2e through the `sherpa` CLI, integration against real libvirt, Docker and the database, unit only for logic with too many branches to cover above.
 
@@ -42,6 +42,24 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 001 | A second up of a lab that is coming up is refused and leaves the first alone | integration |
 | 002 | Two destroys of one lab both succeed | integration |
 | 003 | Labs brought up at once get distinct management subnets | integration |
+
+## `lab_addressing`: each lab gets address ranges of its own
+
+**Statement:** each lab gets address ranges of its own, which no other lab and no other network on the server uses, and its nodes get addresses at fixed offsets in them.
+**Relied on by:** the user, SSH and provisioners, ZTP, the Tailscale gateway. **Priority:** P0.
+
+| Case | What it shows | Level |
+|---|---|---|
+| 001 | A new lab takes the first free /24 and /64 of the server's ranges, after the first of each, which is never given out | unit |
+| 002 | A range a lab holds, or one that overlaps a network on one of the server's interfaces, is passed over | unit |
+| 003 | With no range free, up is refused | unit |
+| 004 | A range held by one lab is reported as used and cannot be recorded for a second, in IPv4 and IPv6, and labs with no IPv6 range do not collide | integration |
+| 005 | The ranges a lab holds are free again once it is destroyed (no test yet) | integration |
+| 006 | Nodes take addresses in manifest order from offset 21, in IPv4 and IPv6, and an index past the node block is refused | unit |
+| 007 | The gateway, the lab router and the other infrastructure addresses are apart from each other and from the node block | unit |
+| 008 | A configured management range too small for one lab is refused, in IPv4 and IPv6 | unit |
+
+Labs brought up at once getting distinct ranges is `lab_concurrency_003`. Whether nodes reach each other on the management network is `management_network` in [links and bridges](links-and-bridges.md).
 
 ## `lab_down_resume`: down stops a lab and resume brings it back as it was
 

@@ -236,7 +236,20 @@ must use MTU 1500 on that interface, or it advertises a larger TCP MSS and its T
 
 ### Teardown
 
-Host-side veths are cleaned up during lab destroy by matching the `tpa*`, `tpb*`, `cb*` and `cd*` prefixes via fuzzy interface search. Deleting a host end deletes its container end, and a container's ends go when its namespace does.
+Lab destroy deletes every host interface named `<prefix>...-<lab_id>` whose prefix is one of
+(`destroy::is_lab_interface`):
+
+- `tpa`, `tpb`: the host ends of links.
+- `cb`: the host ends of bridge member veths.
+- `cd`: the host ends of disabled-interface veths.
+- `brs`: the lab's private bridges (`[[bridges]]`).
+- `bri`: the nodes' isolated network bridges.
+
+The name must end with `-<lab_id>` exactly (`shared::util::is_lab_resource`), so another lab's
+interface is never matched. Deleting a host end deletes its container end, and a container's
+ends go when its namespace does. The management bridge (`brm`) and the reserved network bridges
+(`brr`) are not in the list: they are left to libvirt, which removes a network's bridge with
+the network.
 
 ### Naming Convention
 
