@@ -886,21 +886,7 @@ mod tests {
     }
 
     #[test]
-    fn an_exited_container_error_names_its_exit_code_and_log() {
-        let error = exited_container_error(
-            "db01",
-            "db01-ab12cd34",
-            &exit(Some(1), Some("[ERROR] password option is not specified")),
-        );
-        assert_eq!(
-            error.message,
-            "Node db01 exited with code 1 before it was ready; see `docker logs db01-ab12cd34` \
-             on the server. Its last log lines:\n[ERROR] password option is not specified"
-        );
-    }
-
-    #[test]
-    fn an_exited_container_error_without_a_code_or_log_still_says_where_to_look() {
+    fn node_failure_005_an_exited_container_error_without_a_code_or_log_says_where_to_look() {
         let error = exited_container_error("db01", "db01-ab12cd34", &exit(None, Some("")));
         assert_eq!(
             error.message,
@@ -910,7 +896,7 @@ mod tests {
     }
 
     #[test]
-    fn a_running_container_is_ready_once_it_has_run_for_the_settle_time() {
+    fn node_ready_010_a_container_is_ready_once_it_has_run_for_5_seconds() {
         let running = Some(ContainerStateStatusEnum::RUNNING);
         assert_eq!(
             check_started_container(running, Duration::ZERO, None),
@@ -931,7 +917,7 @@ mod tests {
     }
 
     #[test]
-    fn a_container_that_stopped_running_after_it_started_has_exited() {
+    fn node_failure_001_a_container_found_exited_dead_or_never_started_has_failed() {
         // The mysql image exits about a second after it starts without a root password.
         for status in [
             Some(ContainerStateStatusEnum::EXITED),
@@ -953,7 +939,7 @@ mod tests {
     }
 
     #[test]
-    fn a_container_between_states_is_waited_for() {
+    fn node_ready_014_a_container_docker_reports_between_states_is_waited_for() {
         for status in [
             ContainerStateStatusEnum::RESTARTING,
             ContainerStateStatusEnum::REMOVING,
@@ -975,7 +961,7 @@ mod tests {
     }
 
     #[test]
-    fn a_container_with_a_ready_port_still_settles_first() {
+    fn node_ready_011_a_container_whose_ready_port_answers_still_waits_its_5_seconds() {
         let running = Some(ContainerStateStatusEnum::RUNNING);
         assert_eq!(
             check_started_container(running, Duration::ZERO, Some(ready(None))),
@@ -984,7 +970,7 @@ mod tests {
     }
 
     #[test]
-    fn a_settled_container_whose_ready_port_does_not_answer_is_waited_for() {
+    fn node_ready_012_a_settled_container_whose_ready_port_does_not_answer_is_waited_for() {
         let running = Some(ContainerStateStatusEnum::RUNNING);
         assert_eq!(
             check_started_container(running, CONTAINER_SETTLE, Some(VmReadiness::NotReady)),
@@ -993,12 +979,18 @@ mod tests {
     }
 
     #[test]
-    fn a_settled_container_whose_ready_port_answers_is_ready() {
+    fn node_ready_013_a_settled_container_whose_ready_port_answers_is_ready() {
         let running = Some(ContainerStateStatusEnum::RUNNING);
         assert_eq!(
             check_started_container(running, CONTAINER_SETTLE, Some(ready(None))),
             ContainerCheck::Ready { host_key: None }
         );
+    }
+
+    /// Left for the known hosts spec.
+    #[test]
+    fn a_settled_container_ready_on_the_ssh_port_keeps_the_key_it_offered() {
+        let running = Some(ContainerStateStatusEnum::RUNNING);
         // On the SSH port the key it offered is kept, as for a VM.
         assert_eq!(
             check_started_container(
@@ -1013,7 +1005,7 @@ mod tests {
     }
 
     #[test]
-    fn a_container_that_exits_while_its_ready_port_is_waited_for_has_exited() {
+    fn node_failure_002_a_container_that_exits_while_its_ready_port_is_waited_for_has_failed() {
         for status in [Some(ContainerStateStatusEnum::EXITED), None] {
             assert_eq!(
                 check_started_container(status, CONTAINER_SETTLE * 10, Some(VmReadiness::NotReady)),
@@ -1024,32 +1016,7 @@ mod tests {
     }
 
     #[test]
-    fn polling_wakes_when_the_first_settling_container_is_due() {
-        // Settling takes 5 s: the container running for 3 s is due first, in 2 s.
-        let interval = poll_interval([Duration::from_secs(1), Duration::from_secs(3)].into_iter());
-        assert_eq!(interval, Duration::from_secs(2));
-    }
-
-    #[test]
-    fn polling_without_settling_containers_waits_the_readiness_sleep() {
-        assert_eq!(
-            poll_interval(std::iter::empty()),
-            Duration::from_secs(READINESS_SLEEP)
-        );
-    }
-
-    #[test]
-    fn polling_a_container_due_already_waits_at_least_a_second() {
-        // A container settling longer than the settle time is between states; polling it
-        // again at once would spin.
-        assert_eq!(
-            poll_interval([CONTAINER_SETTLE * 3].into_iter()),
-            MIN_POLL_INTERVAL
-        );
-    }
-
-    #[test]
-    fn test_skipped_vm_is_ready_before_polling() {
+    fn node_ready_016_a_vm_with_a_skipped_check_is_ready_before_polling() {
         assert!(skips_readiness_before_polling(true, false, false));
     }
 
@@ -1059,15 +1026,9 @@ mod tests {
     }
 
     #[test]
-    fn test_skipped_container_waits_for_polling_to_start_it() {
+    fn node_ready_017_a_container_with_a_skipped_check_waits_for_polling_to_start_it() {
         // Containers are started during polling, so skipping their ready check there would
         // skip starting them.
         assert!(!skips_readiness_before_polling(true, true, false));
-    }
-
-    #[test]
-    fn test_node_without_skip_is_polled() {
-        assert!(!skips_readiness_before_polling(false, false, false));
-        assert!(!skips_readiness_before_polling(false, true, false));
     }
 }

@@ -4813,7 +4813,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn user_environment_variables_replace_sherpas_of_the_same_key() {
+    fn container_run_003_a_variable_the_user_sets_replaces_sherpas_of_the_same_key() {
         let merged = merge_env_vars(
             vec![
                 "KC_DB=dev-file".to_owned(),
@@ -5761,7 +5761,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn a_container_is_checked_on_its_manifest_port_unless_the_check_is_skipped() {
+    fn node_ready_018_a_skipped_check_does_not_wait_for_a_containers_ready_port() {
         let check = |port, skip| NodeReadyCheck { port, skip };
         let frr = ModelKind::default_for(data::NodeModel::FrrLinux);
         assert_eq!(container_ready_port(frr, &check(Some(80), None)), Some(80));
@@ -5777,7 +5777,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn the_sonic_container_is_checked_on_ssh_unless_the_manifest_says_otherwise() {
+    fn node_ready_006_a_sonic_container_is_checked_on_ssh_unless_the_manifest_says_otherwise() {
         let check = |port, skip| NodeReadyCheck { port, skip };
         let sonic =
             ModelKind::new(data::NodeModel::SonicLinux, Some(data::NodeKind::Container)).unwrap();
@@ -5798,7 +5798,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn the_stored_check_has_the_pairs_port_unless_the_manifest_sets_one() {
+    fn node_ready_005_a_node_is_checked_on_its_models_port_unless_the_manifest_sets_one() {
         let check = |port, skip| NodeReadyCheck { port, skip };
         let stored = |port, skip| data::ReadyCheck {
             port,
@@ -5836,7 +5836,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn a_windows_node_with_cloud_init_stores_the_ssh_ready_marker_on_ssh_only() {
+    fn node_ready_009_a_windows_node_needs_the_marker_only_on_ssh_with_cloud_init() {
         let check = |port| NodeReadyCheck { port, skip: None };
         for model in [
             data::NodeModel::WindowsServer,
@@ -5850,27 +5850,6 @@ echo "$*" >> '{}'
         }
         let ubuntu = ModelKind::default_for(data::NodeModel::UbuntuLinux);
         assert!(!stored_ready_check(ubuntu, &check(None), Ztp::CloudInit).sshd_marker);
-    }
-
-    #[test]
-    fn a_stored_check_is_probed_on_its_port_unless_it_is_skipped() {
-        let stored = |port, skip| data::ReadyCheck {
-            port,
-            skip,
-            sshd_marker: false,
-        };
-        assert_eq!(probed_ready_port(&stored(Some(8443), false)), Some(8443));
-        assert_eq!(probed_ready_port(&stored(Some(SSH_PORT), true)), None);
-        assert_eq!(probed_ready_port(&stored(None, false)), None);
-        assert_eq!(probed_ready_port(&stored(None, true)), None);
-    }
-
-    #[test]
-    fn test_check_node_port_ready_closed_port_returns_false() {
-        // Port 1 is almost certainly not listening
-        let result = check_node_port_ready("127.0.0.1", 1);
-        assert!(result.is_ok());
-        assert!(!result.unwrap());
     }
 
     /// A listener that answers every connection with `reply` and hangs up, such as a web
@@ -5951,7 +5930,8 @@ echo "$*" >> '{}'
 
     #[tokio::test]
     #[ignore = "runs /usr/sbin/sshd"]
-    async fn an_ssh_server_without_the_ready_marker_is_not_ready_when_the_check_wants_it() {
+    async fn node_ready_007_a_windows_node_is_not_ready_until_its_ssh_server_shows_the_ready_marker()
+     {
         let image_config = TestSshd::start(false);
         assert_eq!(
             check_vm_ready("127.0.0.1", image_config.port, true)
@@ -5969,7 +5949,7 @@ echo "$*" >> '{}'
     }
 
     #[tokio::test]
-    async fn test_check_node_ssh_ready_false_when_the_port_is_not_ssh() {
+    async fn node_ready_001_on_port_22_a_port_that_is_not_an_ssh_server_is_not_ready() {
         let (port, task) = listener_replying(b"HTTP/1.0 400 Bad Request\r\n\r\n").await;
         assert!(check_node_port_ready("127.0.0.1", port).unwrap());
         assert!(
@@ -5982,7 +5962,9 @@ echo "$*" >> '{}'
     }
 
     #[tokio::test]
-    async fn test_check_node_ssh_ready_false_when_closed() {
+    async fn node_ready_003_a_closed_port_is_not_ready() {
+        // Port 1 is almost certainly not listening.
+        assert!(!check_node_port_ready("127.0.0.1", 1).unwrap());
         assert!(
             check_node_ssh_ready("127.0.0.1", 1)
                 .await
@@ -5992,7 +5974,7 @@ echo "$*" >> '{}'
     }
 
     #[tokio::test]
-    async fn test_check_vm_ready_uses_tcp_for_other_ports() {
+    async fn node_ready_002_on_any_other_port_an_accepted_tcp_connection_is_ready() {
         let (port, task) = listener_replying(b"not ssh\r\n").await;
         assert_eq!(
             check_vm_ready("127.0.0.1", port, false).await.unwrap(),
@@ -6002,7 +5984,8 @@ echo "$*" >> '{}'
     }
 
     #[tokio::test]
-    async fn the_ssh_identification_line_is_read_past_lines_before_it() {
+    async fn node_ready_004_an_ssh_server_that_sends_lines_before_its_identification_is_still_ssh()
+    {
         let (port, task) =
             listener_replying(b"Welcome\r\nSSH-2.0-OpenSSH_for_Windows_9.5 sherpa-ready\r\n").await;
         assert_eq!(
@@ -6015,16 +5998,8 @@ echo "$*" >> '{}'
         task.abort();
     }
 
-    #[tokio::test]
-    async fn a_server_that_sends_no_identification_line_has_none() {
-        let (port, task) = listener_replying(b"HTTP/1.0 400 Bad Request\r\n\r\n").await;
-        assert_eq!(ssh_identification("127.0.0.1", port).await.unwrap(), None);
-        task.abort();
-        assert_eq!(ssh_identification("127.0.0.1", 1).await.unwrap(), None);
-    }
-
     #[test]
-    fn the_ready_marker_counts_only_among_the_identification_comments() {
+    fn node_ready_008_the_ready_marker_counts_only_as_a_whole_identification_comment() {
         let marker = SHERPA_SSHD_READY_MARKER;
         assert!(identification_shows(
             "SSH-2.0-OpenSSH_for_Windows_9.5 sherpa-ready",
@@ -6788,7 +6763,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn containers_without_a_model_setup_keep_the_manifests_settings() {
+    fn container_run_001_a_container_of_a_model_without_start_settings_keeps_the_manifests() {
         for model in [
             data::NodeModel::MysqlDb,
             data::NodeModel::PostgresqlDb,

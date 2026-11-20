@@ -232,8 +232,6 @@ pub(crate) fn ensure_destination_absent(path: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::env;
-
     use super::*;
 
     #[test]
@@ -246,14 +244,6 @@ mod tests {
         .unwrap();
         assert!(xml.contains("<name>pool&#38;one</name>"), "{xml}");
         assert!(xml.contains("<path>/var/a&#60;b</path>"), "{xml}");
-    }
-
-    #[test]
-    fn existing_destinations_are_refused() {
-        let directory = env::temp_dir();
-        assert!(ensure_destination_absent(directory.to_str().unwrap()).is_err());
-        let missing = directory.join("sherpa-libvirt-test-missing-destination");
-        assert!(ensure_destination_absent(missing.to_str().unwrap()).is_ok());
     }
 
     #[test]

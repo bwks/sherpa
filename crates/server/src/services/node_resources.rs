@@ -446,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn vms_and_unikernels_get_the_manifest_values_else_the_images() {
+    fn vm_start_008_a_vm_runs_with_the_manifests_memory_and_cpus_else_its_images() {
         let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         assert_eq!(
             planned_resources(&node(Some(16), Some(32768)), &image),
@@ -467,7 +467,7 @@ mod tests {
     }
 
     #[test]
-    fn containers_get_the_manifest_limits_only() {
+    fn container_run_009_a_container_that_sets_no_limits_runs_without_them() {
         let image = ModelKind::default_for(NodeModel::MongoDb).node_config();
         assert_eq!(
             planned_resources(&node(Some(4), Some(4096)), &image),
@@ -484,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn cevolved_gets_its_evo_vm_memory_and_overhead_and_no_cpu_quota() {
+    fn container_run_010_a_juniper_evolved_containers_limit_is_its_memory_plus_2048_mb() {
         let image = ModelKind::new(NodeModel::JuniperEvolved, Some(NodeKind::Container))
             .unwrap()
             .node_config();
@@ -497,7 +497,7 @@ mod tests {
     }
 
     #[test]
-    fn iol_gets_its_memory_and_overhead_as_its_limit_and_the_manifest_cpus() {
+    fn container_run_011_a_cisco_iol_containers_limit_is_its_memory_plus_128_mb() {
         for model in [NodeModel::CiscoIol, NodeModel::CiscoIoll2] {
             let image = ModelKind::default_for(model).node_config();
             let defaults = planned_resources(&node(None, None), &image);

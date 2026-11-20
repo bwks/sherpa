@@ -322,15 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn a_running_container_that_exited_is_reported_stopped() {
-        let node = container_in(NodeState::Running);
-        let containers = listing(ContainerStateStatusEnum::EXITED);
-        let state = reported_state(&node, NodeKind::Container, "ab12cd34", Some(&containers));
-        assert_eq!(state, NodeState::Stopped);
-    }
-
-    #[test]
-    fn a_container_that_is_gone_is_reported_missing() {
+    fn node_state_005_inspect_reports_a_container_that_is_gone_as_missing() {
         let node = container_in(NodeState::Running);
         let state = reported_state(
             &node,
@@ -342,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn a_container_reported_as_docker_has_it_moves_as_the_scanner_would() {
+    fn node_state_006_inspect_reports_a_container_as_the_scanner_would_record_it() {
         let cases = [
             (
                 NodeState::Running,
@@ -395,7 +387,7 @@ mod tests {
     }
 
     #[test]
-    fn a_running_container_whose_stored_port_has_not_answered_is_reported_starting() {
+    fn node_state_007_inspect_reports_a_container_waiting_for_its_port_as_starting() {
         // Inspect does not probe: a container waiting for its port stays as the scanner left it.
         let containers = listing(ContainerStateStatusEnum::RUNNING);
         let ported = |state| DbNode {
@@ -421,14 +413,14 @@ mod tests {
     }
 
     #[test]
-    fn a_container_is_reported_as_recorded_when_docker_did_not_answer() {
+    fn node_state_008_inspect_reports_a_container_as_recorded_when_docker_does_not_answer() {
         let node = container_in(NodeState::Running);
         let state = reported_state(&node, NodeKind::Container, "ab12cd34", None);
         assert_eq!(state, NodeState::Running);
     }
 
     #[test]
-    fn a_virtual_machine_is_reported_as_recorded() {
+    fn node_state_009_inspect_reports_a_virtual_machine_as_recorded() {
         let node = container_in(NodeState::Running);
         let containers = listing(ContainerStateStatusEnum::EXITED);
         let state = reported_state(

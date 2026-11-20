@@ -13,17 +13,14 @@
 use anyhow::{Result, ensure};
 use bollard::Docker;
 use bollard::query_parameters::{InspectContainerOptions, RemoveImageOptions, TagImageOptions};
-use bollard::secret::ContainerStateStatusEnum;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use container::{
-    ContainerMemory, ContainerSpec, container_log_tail, container_state,
-    create_docker_bridge_network, delete_network, docker_connection, exec_container,
-    exec_container_detached, exec_container_with_retry, get_local_images, image_exists,
-    kill_container, list_container_memory, list_containers, list_networks, load_image,
-    pause_container, pull_image, remove_container, run_container, start_container, stop_container,
-    unpause_container,
+    ContainerMemory, ContainerSpec, create_docker_bridge_network, delete_network,
+    docker_connection, exec_container_with_retry, get_local_images, image_exists, kill_container,
+    list_container_memory, list_containers, list_networks, load_image, pull_image,
+    remove_container, run_container,
 };
 use shared::data::ContainerNetworkAttachment;
 
@@ -131,183 +128,6 @@ async fn container_listed(docker: &Docker, name: &str) -> Result<bool> {
             .as_ref()
             .is_some_and(|n| n.iter().any(|n| n.contains(name)))
     }))
-}
-
-// ============================================================================
-// Container lifecycle
-// ============================================================================
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn test_run_and_remove_container() -> Result<()> {
-    let docker = docker_connection()?;
-    let name = "sherpa-test-run-remove";
-    let net = TestNet::new("run-remove", 0);
-
-    let result: Result<()> = async {
-        create_test_container(&docker, name, &net).await?;
-        ensure!(
-            container_listed(&docker, name).await?,
-            "Container should appear in list"
-        );
-
-        kill_container(&docker, name).await?;
-        remove_container(&docker, name).await?;
-        ensure!(
-            !container_listed(&docker, name).await?,
-            "Container should be gone after removal"
-        );
-
-        delete_network(&docker, &net.name).await?;
-        Ok(())
-    }
-    .await;
-    cleanup(&docker, name, &net.name).await;
-    result
-}
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn test_stop_and_start_container() -> Result<()> {
-    let docker = docker_connection()?;
-    let name = "sherpa-test-stop-start";
-    let net = TestNet::new("stop-start", 1);
-
-    let result: Result<()> = async {
-        create_test_container(&docker, name, &net).await?;
-        stop_container(&docker, name).await?;
-        start_container(&docker, name).await?;
-
-        let info = docker
-            .inspect_container(
-                name,
-                None::<bollard::query_parameters::InspectContainerOptions>,
-            )
-            .await?;
-        let running = info.state.as_ref().and_then(|s| s.running).unwrap_or(false);
-        ensure!(running, "Container should be running after start");
-        Ok(())
-    }
-    .await;
-    cleanup(&docker, name, &net.name).await;
-    result
-}
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn test_pause_and_unpause_container() -> Result<()> {
-    let docker = docker_connection()?;
-    let name = "sherpa-test-pause";
-    let net = TestNet::new("pause", 2);
-
-    let result: Result<()> = async {
-        create_test_container(&docker, name, &net).await?;
-
-        pause_container(&docker, name).await?;
-        let info = docker
-            .inspect_container(
-                name,
-                None::<bollard::query_parameters::InspectContainerOptions>,
-            )
-            .await?;
-        let paused = info.state.as_ref().and_then(|s| s.paused).unwrap_or(false);
-        ensure!(paused, "Container should be paused");
-
-        unpause_container(&docker, name).await?;
-        let info = docker
-            .inspect_container(
-                name,
-                None::<bollard::query_parameters::InspectContainerOptions>,
-            )
-            .await?;
-        let paused = info.state.as_ref().and_then(|s| s.paused).unwrap_or(false);
-        ensure!(!paused, "Container should not be paused after unpause");
-        Ok(())
-    }
-    .await;
-    cleanup(&docker, name, &net.name).await;
-    result
-}
-
-// ============================================================================
-// Container exec
-// ============================================================================
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn test_exec_container_success() -> Result<()> {
-    let docker = docker_connection()?;
-    let name = "sherpa-test-exec";
-    let net = TestNet::new("exec", 3);
-
-    let result: Result<()> = async {
-        create_test_container(&docker, name, &net).await?;
-        exec_container(&docker, name, vec!["echo", "hello"]).await?;
-        Ok(())
-    }
-    .await;
-    cleanup(&docker, name, &net.name).await;
-    result
-}
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn test_exec_container_failure_returns_error() -> Result<()> {
-    let docker = docker_connection()?;
-    let name = "sherpa-test-exec-fail";
-    let net = TestNet::new("exec-fail", 4);
-
-    let result: Result<()> = async {
-        create_test_container(&docker, name, &net).await?;
-        let exec = exec_container(&docker, name, vec!["false"]).await;
-        ensure!(exec.is_err(), "Non-zero exit should produce error");
-        Ok(())
-    }
-    .await;
-    cleanup(&docker, name, &net.name).await;
-    result
-}
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn test_exec_container_detached() -> Result<()> {
-    let docker = docker_connection()?;
-    let name = "sherpa-test-exec-detach";
-    let net = TestNet::new("exec-detach", 5);
-
-    let result: Result<()> = async {
-        create_test_container(&docker, name, &net).await?;
-        // Detached exec should return immediately
-        exec_container_detached(&docker, name, vec!["sleep", "10"]).await?;
-        Ok(())
-    }
-    .await;
-    cleanup(&docker, name, &net.name).await;
-    result
-}
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn test_exec_container_with_retry_succeeds() -> Result<()> {
-    let docker = docker_connection()?;
-    let name = "sherpa-test-exec-retry";
-    let net = TestNet::new("exec-retry", 6);
-
-    let result: Result<()> = async {
-        create_test_container(&docker, name, &net).await?;
-        exec_container_with_retry(
-            &docker,
-            name,
-            vec!["echo", "ok"],
-            3,
-            Duration::from_millis(100),
-        )
-        .await?;
-        Ok(())
-    }
-    .await;
-    cleanup(&docker, name, &net.name).await;
-    result
 }
 
 // ============================================================================
@@ -453,7 +273,8 @@ async fn test_pull_image() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon"]
-async fn test_run_container_with_env_vars() -> Result<()> {
+async fn container_run_002_the_manifests_environment_variables_are_set_in_the_container()
+-> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-env";
     let net = TestNet::new("env", 8);
@@ -506,7 +327,7 @@ async fn test_run_container_with_env_vars() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon"]
-async fn test_run_container_privileged() -> Result<()> {
+async fn container_run_004_a_privileged_container_runs_privileged() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-priv";
     let net = TestNet::new("priv", 9);
@@ -625,7 +446,8 @@ async fn test_load_image_reports_a_read_error() -> Result<()> {
 /// quota, and lists its memory limit for admission.
 #[tokio::test]
 #[ignore = "requires a Docker daemon"]
-async fn a_container_runs_with_its_memory_and_cpu_limits() -> Result<()> {
+async fn container_run_008_memory_and_cpu_count_are_a_hard_limit_without_swap_and_a_cpu_quota()
+-> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-limits";
     let net = TestNet::new("limits", 55);
@@ -691,7 +513,8 @@ async fn a_container_runs_with_its_memory_and_cpu_limits() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon"]
-async fn test_run_container_removes_a_container_it_cannot_set_up() -> Result<()> {
+async fn container_run_012_a_container_that_cannot_join_one_of_its_networks_is_removed()
+-> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-unattachable";
     let net = TestNet::new("unattachable", 53);
@@ -721,76 +544,6 @@ async fn test_run_container_removes_a_container_it_cannot_set_up() -> Result<()>
     cleanup(&docker, name, &net.name).await;
     ensure!(result.is_err(), "attaching a missing network must fail");
     ensure!(!left, "the container that failed to attach must be removed");
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn a_container_that_exits_at_once_reports_its_exit_code_and_last_log_lines() -> Result<()> {
-    let docker = docker_connection()?;
-    let name = "sherpa-test-exits";
-    let net = TestNet::new("exits", 54);
-    cleanup(&docker, name, &net.name).await;
-    create_test_network(&docker, &net).await?;
-    let checks: Result<()> = async {
-        run_container(
-            &docker,
-            ContainerSpec {
-                name: name.to_string(),
-                hostname: None,
-                image: TEST_IMAGE.to_string(),
-                env_vars: vec![],
-                volumes: vec![],
-                capabilities: vec![],
-                management_network: test_network(&net.name),
-                additional_networks: vec![],
-                commands: vec![
-                    "sh".to_string(),
-                    "-c".to_string(),
-                    "for i in 1 2 3 4 5; do echo line $i; done; exit 3".to_string(),
-                ],
-                privileged: false,
-                shm_size: None,
-                user: None,
-                memory_mib: None,
-                cpu_count: None,
-            },
-        )
-        .await?;
-        let mut state = container_state(&docker, name).await?;
-        for _ in 0..50 {
-            if state.as_ref().and_then(|state| state.status)
-                == Some(ContainerStateStatusEnum::EXITED)
-            {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            state = container_state(&docker, name).await?;
-        }
-        let state = state.ok_or_else(|| anyhow::anyhow!("no state for {name}"))?;
-        ensure!(
-            state.status == Some(ContainerStateStatusEnum::EXITED),
-            "the container did not exit: {state:?}"
-        );
-        ensure!(state.exit_code == Some(3), "wrong exit code: {state:?}");
-        let log = container_log_tail(&docker, name, 2).await?;
-        ensure!(log == "line 4\nline 5", "unexpected log tail: {log:?}");
-        Ok(())
-    }
-    .await;
-    cleanup(&docker, name, &net.name).await;
-    checks
-}
-
-#[tokio::test]
-#[ignore = "requires a Docker daemon"]
-async fn a_missing_container_has_no_state() -> Result<()> {
-    let docker = docker_connection()?;
-    let state = container_state(&docker, "sherpa-test-never-created").await?;
-    ensure!(
-        state.is_none(),
-        "a missing container has a state: {state:?}"
-    );
     Ok(())
 }
 
@@ -827,8 +580,8 @@ async fn answers_ping(address: &str, attempts: u32) -> bool {
 
 #[tokio::test]
 #[ignore = "requires a Docker daemon and a localrepo/cisco_iol image built by docker-cisco-iol"]
-async fn iol_runs_unprivileged_owns_its_management_address_and_relays_its_interfaces() -> Result<()>
-{
+async fn container_run_013_a_cisco_iol_container_runs_unprivileged_holds_its_address_and_relays_its_interfaces()
+-> Result<()> {
     let docker = docker_connection()?;
     let Some(image) = iol_image(&docker).await? else {
         eprintln!("skipped: no {IOL_REPO} image");

@@ -251,7 +251,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn recovery_leaves_no_lab_or_node_without_an_owner() {
+    async fn recovery_leaves_no_lab_without_an_owner() {
         // M6.3: the daemon stopped during `up`, during a destroy, and during a redeploy.
         let (db, creating, _) = lab_of("ll-rec01", 2).await;
         // `lab_of` makes one lab per database; add the others to the same one.
@@ -320,22 +320,69 @@ mod tests {
         assert_eq!(phase(&db, "ll-rec02").await, Some(LabPhase::DestroyFailed));
         assert_eq!(phase(&db, "ll-rec03").await, Some(LabPhase::Ready));
         assert_eq!(phase(&db, "ll-rec04").await, Some(LabPhase::DestroyFailed));
-        let mut ready_states = node_states(&db, &ready).await;
-        ready_states.sort_by_key(ToString::to_string);
-        assert_eq!(ready_states, [NodeState::Failed, NodeState::Running]);
-        for (lab_id, lab, _) in &labs {
+        for (lab_id, _, _) in &labs {
             let phase = phase(&db, lab_id).await.unwrap();
             assert!(
                 !matches!(phase, LabPhase::Creating | LabPhase::Destroying),
                 "{lab_id} {phase:?}"
             );
-            assert!(
-                !node_states(&db, lab).await.contains(&NodeState::Building),
-                "{lab_id}"
-            );
         }
 
         // Recovering again finds nothing left to mark.
         assert_eq!(recover(&db).await.unwrap(), Recovery::default());
+    }
+
+    #[tokio::test]
+    async fn node_failure_010_a_node_up_or_redeploy_was_building_is_failed_when_the_server_starts()
+    {
+        // The daemon stopped during `up` of one lab and during a redeploy of a node of another.
+        let (db, creating, _) = lab_of("ll-nf001", 2).await;
+        let user = db::get_user(&db, "alice").await.unwrap();
+        let ready = db::create_lab(
+            &db,
+            "ll-nf002",
+            "ll-nf002",
+            &user,
+            &db::LabNetworks {
+                management_network: "172.31.2.0/24".to_string(),
+                gateway_ipv4: "172.31.2.1".to_string(),
+                router_ipv4: "172.31.2.2".to_string(),
+                management_network_v6: None,
+                loopback_network_v6: None,
+                gateway_ipv6: None,
+                router_ipv6: None,
+            },
+            &db::LabDetails::default(),
+        )
+        .await
+        .unwrap()
+        .id
+        .unwrap();
+        put_in(&db, "ll-nf002", LabPhase::Ready).await;
+        let image = db::list_node_images(&db).await.unwrap().remove(0);
+        let running = db::create_node(&db, "r1", 1, image.id.clone().unwrap(), ready.clone())
+            .await
+            .unwrap();
+        db::update_node_state_from(
+            &db,
+            running.id.unwrap(),
+            NodeState::Building,
+            NodeState::Running,
+        )
+        .await
+        .unwrap();
+        db::create_node(&db, "r2", 2, image.id.unwrap(), ready.clone())
+            .await
+            .unwrap();
+
+        recover(&db).await.unwrap();
+
+        assert_eq!(
+            node_states(&db, &creating).await,
+            [NodeState::Failed, NodeState::Failed]
+        );
+        let mut ready_states = node_states(&db, &ready).await;
+        ready_states.sort_by_key(ToString::to_string);
+        assert_eq!(ready_states, [NodeState::Failed, NodeState::Running]);
     }
 }

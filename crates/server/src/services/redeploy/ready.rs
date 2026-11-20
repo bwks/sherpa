@@ -139,7 +139,7 @@ mod tests {
     }
 
     #[test]
-    fn a_redeployed_node_waits_on_its_stored_check() {
+    fn node_ready_027_a_redeployed_node_waits_on_its_recorded_check() {
         assert_eq!(
             ready_wait(&stored(Some(8443), false)),
             ReadyWait::Port(8443)
@@ -153,7 +153,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_new_manifests_check_replaces_the_stored_one_before_the_wait() {
+    async fn node_ready_028_a_redeploy_records_the_new_manifests_check_before_it_waits() {
         // Stored by `up`: the container had no port.
         let (db, _, nodes) = lab_of("rd-redy1", 1).await;
         let node = db::get_node(&db, nodes[0].clone()).await.unwrap();

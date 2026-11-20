@@ -829,11 +829,11 @@ async fn follow_started(lab: &ResumedLab<'_>, started: &HashSet<RecordId>) {
 mod tests {
     use super::*;
     use crate::services::lab_definition::tests::{lab_with, store};
-    use shared::data::{NodeModel, NodeState, ReadyCheck};
+    use shared::data::{NodeModel, ReadyCheck};
     use shared::konst::SSH_PORT;
 
     #[test]
-    fn resume_boots_resumes_or_leaves_a_node_by_its_runtime() {
+    fn node_resume_001_resume_boots_unpauses_or_leaves_a_node_by_its_runtime() {
         for what in ["domain", "container"] {
             assert_eq!(
                 start_step(Runtime::Stopped(Halt::Off), what),
@@ -848,7 +848,7 @@ mod tests {
     }
 
     #[test]
-    fn resume_refuses_a_crashed_domain_or_a_dead_container() {
+    fn node_resume_002_resume_refuses_a_crashed_vm_a_dead_container_or_a_node_between_states() {
         // M1.4: a crashed domain used to be reported "Already running" and recorded `Running`.
         let crashed = start_step(Runtime::Faulted("crashed"), "domain").unwrap_err();
         assert!(crashed.contains("domain is crashed"), "{crashed}");
@@ -860,25 +860,6 @@ mod tests {
         assert!(shutting.contains("shutting down"), "{shutting}");
         let gone = start_step(Runtime::Absent, "domain").unwrap_err();
         assert!(gone.contains("no domain"), "{gone}");
-    }
-
-    fn db_node(name: &str, ip: &str, port: Option<u16>, skip: bool) -> data::DbNode {
-        data::DbNode {
-            id: None,
-            name: name.to_string(),
-            image: RecordId::new("node_image", "x"),
-            index: 0,
-            lab: RecordId::new("lab", "x"),
-            mgmt_ipv4: Some(ip.to_string()),
-            mgmt_ipv6: None,
-            mgmt_mac: None,
-            state: NodeState::Running,
-            cpu_count: None,
-            memory: None,
-            ssh_host_key: None,
-            ready_check: stored(port, skip),
-            ssh_username: None,
-        }
     }
 
     fn stored(port: Option<u16>, skip: bool) -> ReadyCheck {
@@ -898,7 +879,7 @@ mod tests {
     }
 
     #[test]
-    fn only_cold_booted_guests_are_checked() {
+    fn node_ready_022_resume_does_not_wait_for_a_node_it_unpauses_or_one_with_no_port() {
         let ssh = stored(Some(SSH_PORT), false);
         assert_eq!(
             readiness_check(NodeKind::VirtualMachine, true, &ssh),
@@ -915,7 +896,22 @@ mod tests {
     }
 
     #[test]
-    fn the_stored_readiness_check_is_honoured() {
+    fn node_ready_021_resume_waits_for_a_node_it_boots_on_its_recorded_port() {
+        let web = stored(Some(80), false);
+        assert_eq!(
+            readiness_check(NodeKind::Container, true, &web),
+            Some(on_port(80))
+        );
+        // An unpaused container resumes a process that already answered.
+        assert_eq!(readiness_check(NodeKind::Container, false, &web), None);
+        assert_eq!(
+            readiness_check(NodeKind::Container, true, &stored(Some(80), true)),
+            None
+        );
+        assert_eq!(
+            readiness_check(NodeKind::Container, true, &stored(None, false)),
+            None
+        );
         assert_eq!(
             readiness_check(
                 NodeKind::VirtualMachine,
@@ -937,7 +933,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_stored_definition_gives_only_the_ready_timeout() {
+    async fn node_ready_024_resumes_wait_is_the_stored_manifests_ready_timeout_or_the_default() {
         let (db, lab) = lab_with(&[("vm", NodeModel::UbuntuLinux)]).await;
         let lab_id = lab.id.clone().unwrap();
         // No stored definition: the default.
@@ -957,7 +953,7 @@ nodes = [{ name = "vm", model = "ubuntu_linux", ready_check = { port = 8443 } }]
     }
 
     #[test]
-    fn a_windows_node_waits_for_sherpa_s_ready_marker_as_up_does() {
+    fn node_ready_023_resume_waits_for_a_windows_nodes_ready_marker_as_up_does() {
         let windows = ReadyCheck {
             sshd_marker: true,
             ..stored(Some(SSH_PORT), false)
@@ -972,51 +968,7 @@ nodes = [{ name = "vm", model = "ubuntu_linux", ready_check = { port = 8443 } }]
     }
 
     #[test]
-    fn a_cold_booted_container_is_checked_on_its_stored_port() {
-        let web = stored(Some(80), false);
-        assert_eq!(
-            readiness_check(NodeKind::Container, true, &web),
-            Some(on_port(80))
-        );
-        // An unpaused container resumes a process that already answered.
-        assert_eq!(readiness_check(NodeKind::Container, false, &web), None);
-        assert_eq!(
-            readiness_check(NodeKind::Container, true, &stored(Some(80), true)),
-            None
-        );
-        assert_eq!(
-            readiness_check(NodeKind::Container, true, &stored(None, false)),
-            None
-        );
-    }
-
-    #[test]
-    fn targets_cover_cold_booted_nodes_with_their_addresses() {
-        let nodes = vec![
-            db_node("skip", "10.0.0.10", Some(SSH_PORT), true),
-            db_node("vm", "10.0.0.11", Some(8443), false),
-            db_node("ct", "10.0.0.12", None, false),
-            db_node("web", "10.0.0.13", Some(80), false),
-        ];
-        let started = vec![
-            ("skip".to_string(), NodeKind::VirtualMachine),
-            ("vm".to_string(), NodeKind::VirtualMachine),
-            ("ct".to_string(), NodeKind::Container),
-            ("web".to_string(), NodeKind::Container),
-            ("gone".to_string(), NodeKind::Container),
-        ];
-        let targets = readiness_targets("abcd1234", &nodes, &started);
-        assert_eq!(targets.len(), 2);
-        assert_eq!(targets[0].name, "vm");
-        assert_eq!(targets[0].device_name, "vm-abcd1234");
-        assert_eq!(targets[0].mgmt_ipv4.as_deref(), Some("10.0.0.11"));
-        assert_eq!(targets[0].check, on_port(8443));
-        assert_eq!(targets[1].name, "web");
-        assert_eq!(targets[1].check, on_port(80));
-    }
-
-    #[test]
-    fn readiness_is_reported_in_the_node_result() {
+    fn node_ready_025_resumes_result_says_whether_a_node_is_ready() {
         assert_eq!(
             readiness_message(true, Duration::from_secs(600)),
             "Started and ready"

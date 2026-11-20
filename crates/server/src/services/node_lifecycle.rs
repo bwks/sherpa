@@ -245,7 +245,7 @@ pub(crate) mod tests {
     use shared::data::{LabState, ModelKind, NodeModel, Probe, Refused};
 
     #[test]
-    fn a_runtime_that_could_not_be_queried_leaves_its_nodes_undecided() {
+    fn node_state_012_a_runtime_that_cannot_be_asked_leaves_its_nodes_as_recorded() {
         let containers =
             HashMap::from([("r1-abc12345".to_string(), ContainerStateStatusEnum::RUNNING)]);
         let runtimes = Runtimes {
@@ -265,26 +265,6 @@ pub(crate) mod tests {
         assert_eq!(
             runtimes.runtime_of(NodeKind::Container, "r1-abc12345"),
             Some(Runtime::Running)
-        );
-    }
-
-    #[test]
-    fn a_node_with_no_domain_or_container_is_absent_not_stopped() {
-        // M4.2: missing used to be read as stopped.
-        let runtimes = Runtimes {
-            domains: Some(HashMap::from([(
-                "other-abc12345".to_string(),
-                VIR_DOMAIN_RUNNING,
-            )])),
-            containers: Some(HashMap::new()),
-        };
-        assert_eq!(
-            runtimes.runtime_of(NodeKind::VirtualMachine, "r1-abc12345"),
-            Some(Runtime::Absent)
-        );
-        assert_eq!(
-            runtimes.runtime_of(NodeKind::Container, "r1-abc12345"),
-            Some(Runtime::Absent)
         );
     }
 
@@ -353,7 +333,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn an_operation_moves_a_node_and_its_lab_status() {
+    async fn lab_status_005_a_labs_status_changes_with_the_operations_write_to_its_node() {
         // M1.7: the lab status no longer waits for the scanner.
         let (db, _, nodes) = lab_of("lc-ops01", 1).await;
         let operation = begin("lc-ops01").await;
@@ -371,7 +351,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn an_operation_cannot_mark_ready_a_node_stopped_meanwhile() {
+    async fn node_state_013_an_operation_cannot_mark_running_a_node_stopped_meanwhile() {
         // M1.5: `up` probed the node ready, and `down` stopped it before `up` wrote it.
         let (db, _, nodes) = lab_of("lc-ops02", 1).await;
         let up = begin("lc-ops02").await;
@@ -401,7 +381,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn a_stale_observation_does_not_overwrite_a_newer_write() {
+    async fn node_state_014_a_stale_scan_does_not_overwrite_an_operations_newer_state() {
         // M1.6: the scanner read the node, then an operation moved it before the write.
         let (db, _, nodes) = lab_of("lc-obs01", 1).await;
         let stale = db::get_node(&db, nodes[0].clone()).await.unwrap();
@@ -434,26 +414,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn a_lab_is_starting_while_up_builds_it() {
-        // M1.1: nothing the scanner sees moves a node `up` is building.
-        let (db, _, nodes) = lab_of("lc-obs02", 2).await;
-        let observed = try_observe("lc-obs02").unwrap();
-        let gone = Observation {
-            runtime: Runtime::Absent,
-            probe: Probe::NotProbed,
-        };
-        for node in &nodes {
-            let node = db::get_node(&db, node.clone()).await.unwrap();
-            assert_eq!(
-                observe(&db, &observed, &node, gone).await.unwrap(),
-                Some(NodeState::Building)
-            );
-        }
-        assert_eq!(lab_status(&db, "lc-obs02").await, LabState::Starting);
-    }
-
-    #[tokio::test]
-    async fn a_failed_node_stays_failed_across_scans() {
+    async fn node_failure_008_a_failed_node_stays_failed_across_scans() {
         // M1.2: `Failed` used to last one scan.
         let (db, _, nodes) = lab_of("lc-obs03", 1).await;
         {

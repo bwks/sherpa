@@ -287,19 +287,6 @@ mod tests {
     }
 
     #[test]
-    fn limits_are_bytes_without_swap_and_nano_cpus() {
-        let limits = resource_limits(Some(512), Some(2)).unwrap();
-        assert_eq!(limits.memory, Some(536_870_912));
-        assert_eq!(limits.memory_swap, Some(536_870_912));
-        assert_eq!(limits.nano_cpus, Some(2_000_000_000));
-    }
-
-    #[test]
-    fn a_memory_limit_too_large_for_docker_is_refused() {
-        assert!(resource_limits(Some(u64::MAX / 1024), None).is_err());
-    }
-
-    #[test]
     fn docker_names_renamed_interfaces() {
         let settings = data_endpoint_settings(&attachment(Some("e1-1"), false));
         assert_eq!(

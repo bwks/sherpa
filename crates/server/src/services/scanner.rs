@@ -463,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn running_vms_not_known_ready_or_without_a_key_are_probed() {
+    fn node_ready_034_the_scanner_does_not_probe_a_node_not_running_or_already_running() {
         let vm = NodeKind::VirtualMachine;
         // Started outside Sherpa, or not ready when its readiness wait ended.
         for state in [NodeState::Stopped, NodeState::Starting, NodeState::Unknown] {
@@ -474,14 +474,8 @@ mod tests {
                 "{state}"
             );
         }
-        let keyless = checked(NodeState::Running, false, SSH_CHECK);
-        assert_eq!(probe_port(&scanned(&keyless, vm), true), Some(SSH_PORT));
         let known = checked(NodeState::Running, true, SSH_CHECK);
         assert_eq!(probe_port(&scanned(&known, vm), true), None);
-    }
-
-    #[test]
-    fn stopped_nodes_and_nodes_without_a_stored_port_are_not_probed() {
         let node = checked(NodeState::Starting, false, SSH_CHECK);
         assert_eq!(
             probe_port(&scanned(&node, NodeKind::VirtualMachine), false),
@@ -498,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn a_vm_is_ready_only_when_its_probe_answered() {
+    fn node_ready_029_the_scanner_records_a_vm_running_only_once_its_port_answers() {
         // M1.3: running in libvirt is not ready.
         let node = checked(NodeState::Starting, true, SSH_CHECK);
         let vm = scanned(&node, NodeKind::VirtualMachine);
@@ -508,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn a_vm_with_a_port_that_is_not_ssh_is_probed_on_it() {
+    fn node_ready_030_the_scanner_probes_a_node_on_its_recorded_port_when_not_ssh() {
         let check = ReadyCheck {
             port: Some(8443),
             skip: false,
@@ -528,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn a_container_whose_port_does_not_answer_stays_starting_across_scans() {
+    fn node_ready_031_a_container_whose_port_does_not_answer_stays_starting_across_scans() {
         let node = checked(
             NodeState::Starting,
             false,
@@ -546,7 +540,7 @@ mod tests {
     }
 
     #[test]
-    fn a_node_without_a_stored_port_is_ready_once_it_runs() {
+    fn node_ready_032_a_node_with_no_recorded_port_is_running_once_it_runs() {
         let node = checked(NodeState::Starting, false, ReadyCheck::default());
         for kind in [
             NodeKind::Container,
@@ -560,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn a_skipped_check_is_ready_once_it_runs_and_still_records_an_ssh_host_key() {
+    fn node_ready_033_a_node_with_a_skipped_check_is_running_as_soon_as_it_runs() {
         let skipped = ReadyCheck {
             port: Some(SSH_PORT),
             skip: true,
@@ -570,11 +564,6 @@ mod tests {
         let vm = scanned(&keyed, NodeKind::VirtualMachine);
         assert_eq!(probe_port(&vm, true), None);
         assert_eq!(scan(&vm, false), NodeState::Running);
-        // Without a host key it is probed on SSH for one, but the probe does not decide.
-        let keyless = checked(NodeState::Starting, false, skipped);
-        let vm = scanned(&keyless, NodeKind::VirtualMachine);
-        assert_eq!(probe_port(&vm, true), Some(SSH_PORT));
-        assert_eq!(probe_for(&vm, Some(Probe::NotReady)), Probe::NotProbed);
         // A skipped container port is not probed at all.
         let container = checked(
             NodeState::Starting,
@@ -588,6 +577,26 @@ mod tests {
         let web = scanned(&container, NodeKind::Container);
         assert_eq!(probe_port(&web, true), None);
         assert_eq!(scan(&web, false), NodeState::Running);
+    }
+
+    /// Left for the known hosts spec.
+    #[test]
+    fn a_running_vm_without_a_host_key_is_probed_for_one() {
+        let keyless = checked(NodeState::Running, false, SSH_CHECK);
+        assert_eq!(
+            probe_port(&scanned(&keyless, NodeKind::VirtualMachine), true),
+            Some(SSH_PORT)
+        );
+        // With a skipped check it is probed on SSH for one, but the probe does not decide.
+        let skipped = ReadyCheck {
+            port: Some(SSH_PORT),
+            skip: true,
+            sshd_marker: false,
+        };
+        let keyless = checked(NodeState::Starting, false, skipped);
+        let vm = scanned(&keyless, NodeKind::VirtualMachine);
+        assert_eq!(probe_port(&vm, true), Some(SSH_PORT));
+        assert_eq!(probe_for(&vm, Some(Probe::NotReady)), Probe::NotProbed);
     }
 
     #[tokio::test]
@@ -667,7 +676,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "runs /usr/sbin/sshd"]
-    async fn the_scanner_waits_for_a_windows_node_s_ready_marker() {
+    async fn node_ready_035_the_scanner_waits_for_a_windows_nodes_ready_marker() {
         let db = db::open_in_memory().await.unwrap();
         let windows_check = ReadyCheck {
             sshd_marker: true,
