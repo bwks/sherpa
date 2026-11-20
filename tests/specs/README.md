@@ -10,7 +10,7 @@ One file per area a user sees, flat in this folder.
 
 | Area | Spec | Covers |
 |---|---|---|
-| Lab lifecycle | [lab-lifecycle.md](lab-lifecycle.md) | up, down, resume, destroy, redeploy, clean, operations on labs at the same time |
+| Lab lifecycle | [lab-lifecycle.md](lab-lifecycle.md) | up, down, resume, destroy, redeploy, clean, operations on labs at the same time, lab status |
 | Nodes | [nodes.md](nodes.md) | VM, container and unikernel nodes: boot, ready checks, state, stop and start, failures |
 | Links and bridges | not yet written | P2p links, private bridges, impairment |
 | Images | not yet written | import, scan, defaults, versions, container pulls |
@@ -22,6 +22,7 @@ One file per area a user sees, flat in this folder.
 | Tailnet | not yet written | Tailscale gateway, enrollment, routes |
 | Talos | not yet written | Talos clusters, Cilium, OIDC, Vault |
 | Install and update | not yet written | install, update and uninstall scripts |
+| Manifests | not yet written | manifest parsing and validation, which kinds a model takes and which settings a kind takes |
 
 The folders here named after crates (`client/`, `server/`, `integration/` and the rest) are the old specs, written by crate. Each is deleted once the area specs that replace it are written. Until then they describe what exists, not how to write a new test.
 

@@ -1,12 +1,12 @@
 # Nodes
 
-What a node does and reports inside the lab operations: how a virtual machine, a container and a unikernel boot, when each counts as ready, the state each reports, how each is stopped and started, and how a node failure shows. The lab-level outcome of up, down, resume, destroy and redeploy is in [lab lifecycle](lab-lifecycle.md); links, images, owner logins, consoles, ZTP, provisioning and Talos have their own specs.
+What a node does and reports inside the lab operations: how a virtual machine, a container and a unikernel boot, when each counts as ready, the state each reports, how each is stopped and started, and how a node failure shows. The lab-level outcome of up, down, resume, destroy and redeploy, and the status a lab reports, are in [lab lifecycle](lab-lifecycle.md); manifests (which kinds a model takes, which settings a kind takes), links, images, owner logins, consoles, ZTP, provisioning and Talos have their own specs.
 
 Each behaviour lists its cases. A case is one test, whose name is its ID: `<behaviour>_<NNN>_<description>`, such as `node_state_003_a_container_removed_outside_sherpa_is_recorded_missing_and_its_lab_failed`. The level is the highest that can show the case: e2e through the `sherpa` CLI, integration against real libvirt, Docker and the database, unit only for logic with too many branches to cover above.
 
-## `vm_start`: a virtual machine boots from its own disk, with its manifest's resources
+## `vm_start`: a virtual machine boots from its own disk
 
-**Statement:** a virtual machine node boots from its own boot disk, an overlay on the base image or a full copy of it, with the CPUs, memory and disk size its manifest sets, else its image's, and the base image and other nodes' disks are never changed.
+**Statement:** a virtual machine node boots from its own disk, with the resources its manifest sets.
 **Relied on by:** the user, every other node booted from the same image. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -23,7 +23,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `unikernel_start`: a unikernel boots its own copy of its image
 
-**Statement:** a unikernel node boots its own copy of its image, a kernel loaded directly with the manifest's command line or a boot disk, leaves the image as it was, and cannot be redeployed.
+**Statement:** a unikernel node boots its own copy of its image.
 **Relied on by:** the user. **Priority:** P2.
 
 | Case | What it shows | Level |
@@ -33,9 +33,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 003 | A disk-boot unikernel boots from a copy of its disk, at `boot_disk.size` when set (no test yet) | integration |
 | 004 | A redeploy of a unikernel is refused, and the node is left running (no test yet) | integration |
 
-## `container_run`: a container starts as its manifest and model say
+## `container_run`: a container runs as its manifest and model say
 
-**Statement:** a container node runs its image with the hostname, command, user, environment, privileges, mounts and limits its manifest and its model give it, and a container that cannot be set up is removed, not left half made.
+**Statement:** a container node runs as its manifest and its model say.
 **Relied on by:** the user, the host's capacity. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -55,7 +55,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `node_ready`: a node is running only once its ready check passes
 
-**Statement:** a node that up starts is `running` only once its ready check passes: a virtual machine's port answers (an SSH server on port 22), a container has kept running for 5 seconds and its `ready_check.port`, if set, answers, a unikernel's domain runs and its port, if set, answers; `ready_check.skip` skips the wait, and a node not ready within `ready_timeout` is reported, stays `starting`, and does not fail the command.
+**Statement:** a node is reported `running` only once its ready check passes.
 **Relied on by:** the user, provisioners and scripts that run once up returns. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -77,38 +77,30 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 015 | A container with `ready_check.port` is `starting`, with `Waiting for port <port>` shown, until the port answers, then `running` (no test yet) | integration |
 | 016 | With `ready_check.skip` a VM is `running` when up returns, before its port answers (no test at this level yet) | integration |
 | 017 | With `ready_check.skip` a container is still started, and is `running` at once (no test at this level yet) | integration |
-| 018 | A node not ready within `ready_timeout` is reported as not ready, stays `starting`, and up still succeeds (no test yet) | integration |
-| 019 | A unikernel with `ready_check.port` is ready only once its domain runs and the port answers (no test yet) | integration |
-| 020 | With `ready_check.skip` a container's `ready_check.port` is not waited for | unit |
+| 018 | With `ready_check.skip` a container's `ready_check.port` is not waited for | unit |
+| 019 | A node not ready within `ready_timeout` is reported as not ready, stays `starting`, and up still succeeds (no test yet) | integration |
+| 020 | A unikernel with `ready_check.port` is ready only once its domain runs and the port answers (no test yet) | integration |
+| 021 | Resume waits for a node it boots on the port recorded for it at up, and for a unikernel on its domain and its port | unit |
+| 022 | Resume does not wait for a node it unpauses, one with a skipped check, or a container with no recorded port | unit |
+| 023 | Resume waits for a Windows node's ready marker, as up does | unit |
+| 024 | Resume's wait is the `ready_timeout` of the manifest the lab was created with, or the default when none is stored | integration |
+| 025 | Resume's result for a node says it started and is ready, or that it was not ready within the timeout | unit |
+| 026 | A node resume boots is `starting` until its recorded check passes, then `running`; one not ready in time stays `starting` and resume still succeeds (no test with its ID yet; `lab_down_resume_002` waits on a VM) | e2e |
+| 027 | A redeployed node waits on its recorded port, at once on a skipped check, and otherwise until it runs | unit |
+| 028 | A redeploy records the ready check of the manifest it is given before it waits, so a changed port or skip is the one waited on from then on | integration |
+| 029 | The scanner records a running VM `running` only once its recorded port answers; until then it is `starting` | unit |
+| 030 | The scanner probes a node on its recorded port when that is not SSH | unit |
+| 031 | A container whose recorded port does not answer stays `starting` scan after scan | unit |
+| 032 | A node with no recorded port is `running` as soon as the scanner sees it run | unit |
+| 033 | A node with a skipped check is `running` as soon as the scanner sees it run, whatever its port | unit |
+| 034 | The scanner does not probe a node that is not running, or one already recorded `running` | unit |
+| 035 | The scanner waits for a Windows node's ready marker, as up does | integration |
 
-## `stored_ready_check`: resume, redeploy and the scanner wait on the check recorded for the node
+Cases 001 to 020 are up, 021 to 026 resume, 027 and 028 redeploy, 029 to 035 the server's scanner.
 
-**Statement:** the ready check a node was built with is recorded with it, and resume, redeploy and the server's scanner wait on that record: a node left `starting` becomes `running` once its recorded port answers, or as soon as it runs when it has no port or the check is skipped, and a redeploy replaces the record from the manifest it is given.
-**Relied on by:** the user. **Priority:** P1.
+## `node_state`: a node's state follows its VM or container
 
-| Case | What it shows | Level |
-|---|---|---|
-| 001 | The scanner records a running VM `running` only once its recorded port answers; until then it is `starting` | unit |
-| 002 | The scanner probes a node on its recorded port when that is not SSH | unit |
-| 003 | A container whose recorded port does not answer stays `starting` scan after scan | unit |
-| 004 | A node with no recorded port is `running` as soon as the scanner sees it run | unit |
-| 005 | A node with a skipped check is `running` as soon as the scanner sees it run, whatever its port | unit |
-| 006 | The scanner does not probe a node that is not running, or one already recorded `running` | unit |
-| 007 | The scanner waits for a Windows node's ready marker, as up does | integration |
-| 008 | Resume waits for a node it boots on its recorded port, and for a unikernel on its domain and its port | unit |
-| 009 | Resume does not wait for a node it unpauses, one with a skipped check, or a container with no recorded port | unit |
-| 010 | Resume waits for a Windows node's ready marker, as up does | unit |
-| 011 | Resume's wait is the `ready_timeout` of the manifest the lab was created with, or the default when none is stored | integration |
-| 012 | Resume's result for a node says it started and is ready, or that it was not ready within the timeout | unit |
-| 013 | A node resume boots is `starting` until its recorded check passes, then `running`; one not ready in time stays `starting` and resume still succeeds (no test with its ID yet; `lab_down_resume_002` waits on a VM) | e2e |
-| 014 | A redeployed node waits on its recorded port, at once on a skipped check, and otherwise until it runs | unit |
-| 015 | A redeploy records the ready check of the manifest it is given before it waits, so a changed port or skip is the one waited on from then on | integration |
-| 016 | A redeployed container that runs Vault or Keycloak is not `running` until they are restored | integration |
-| 017 | A redeployed container whose Vault or Keycloak is restored is `running` | integration |
-
-## `node_state`: a node's reported state follows what its VM or container is doing
-
-**Statement:** each node reports one state (`building`, `starting`, `running`, `stopped`, `failed`, `missing`) that follows what its virtual machine or container is doing, also when that changes outside Sherpa, never contradicts an operation in progress, and the lab's status follows its nodes' states.
+**Statement:** a node's reported state follows what its virtual machine or container is doing.
 **Relied on by:** the user, the web UI, scripts reading `sherpa inspect`. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -127,19 +119,12 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 012 | When libvirt or Docker cannot be asked, that runtime's nodes keep their recorded state | unit |
 | 013 | A node an operation stopped while another waited on it is not recorded `running` by the waiting one | integration |
 | 014 | What the scanner saw before an operation moved a node does not overwrite the operation's state | integration |
-| 015 | A lab's status changes with the operation's write to its node, without waiting for a scan | integration |
-| 016 | A lab is `running` when all its nodes are, and `stopped` when all are | unit |
-| 017 | A lab is `failed` when any node is `failed` or `missing` | unit |
-| 018 | A lab is `starting` when any node is `building` or `starting`, also beside stopped nodes | unit |
-| 019 | A lab with some nodes running and some stopped is `partial` | unit |
-| 020 | The labs list shows each lab's status from its nodes' states as they are now | unit |
-| 021 | A node state this version does not know reads as `unknown`, and the states it knows read back as written | unit |
-| 022 | A lab status this version does not know reads as `unknown` | unit |
-| 023 | A VM shut down or started outside Sherpa is recorded `stopped`, then `running` once its ready port answers (no test yet) | integration |
+| 015 | A node state this version does not know reads as `unknown`, and the states it knows (`building`, `starting`, `running`, `stopped`, `failed`, `missing`) read back as written | unit |
+| 016 | A VM shut down or started outside Sherpa is recorded `stopped`, then `running` once its ready port answers (no test yet) | integration |
 
-## `node_stop_start`: down and resume act on each node as its kind and its state allow
+## `node_stop_start`: down and resume act on each node as its kind and state allow
 
-**Statement:** down stops each node the way its kind allows and resume starts it from where its virtual machine or container was left, each reports per node what it did, and each refuses a node it cannot act on, with the reason and the way out, without touching it.
+**Statement:** down and resume act on each node as its kind and its state allow.
 **Relied on by:** the user. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -156,9 +141,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 010 | `--node` stops and resumes that node alone (no test with its ID yet; `tests/labs/talos-linux` uses it) | e2e |
 | 011 | The web UI offers a node only the actions its state allows: stop when it runs, start when it is stopped or failed, only redeploy when missing, none while building | unit |
 
-## `node_failure`: a failed node is reported failed with the reason, and stays failed
+## `node_failure`: a failed node stays failed, with the reason
 
-**Statement:** a node that fails is reported `failed` with the reason, and stays `failed`, whatever its virtual machine or container then does, until the user stops, resumes or redeploys it.
+**Statement:** a node that fails is reported `failed` with the reason, and stays `failed` until the user acts on it.
 **Relied on by:** the user. **Priority:** P0.
 
 | Case | What it shows | Level |
