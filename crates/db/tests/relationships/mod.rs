@@ -25,7 +25,7 @@ use crate::{create_test_node_with_model, ipv4_lab_networks, setup_db};
 /// remain. A cascade would delete the records but leave the lab's VMs, containers and
 /// networks running with nothing left to manage them.
 #[tokio::test]
-async fn test_delete_user_is_rejected_while_they_own_labs() -> Result<()> {
+async fn user_accounts_016_the_database_refuses_to_delete_a_user_who_owns_labs() -> Result<()> {
     let db = setup_db().await?;
 
     let user = create_user(

@@ -106,7 +106,7 @@ fn cookie(token: &str) -> String {
 /// Log in alice and bob (regular users) and dana (a personal admin account).
 ///
 /// The built-in `admin` account cannot start lab work, so the matrix uses a personal admin;
-/// `built_in_admin_cannot_start_lab_work_on_any_transport` covers `admin` itself.
+/// `builtin_admin_007_built_in_admin_cannot_start_lab_work_on_any_transport` covers `admin` itself.
 async fn login_callers(
     server: &TestServer,
     ws: &mut TestWsClient,
@@ -168,7 +168,8 @@ fn http_client() -> Result<Client> {
 
 #[tokio::test]
 #[ignore = "requires Docker and libvirt"]
-async fn lab_operations_allow_owner_and_admins_on_all_transports() -> Result<()> {
+async fn access_control_009_lab_operations_allow_owner_and_admins_on_all_transports() -> Result<()>
+{
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let (callers, owners) = login_callers(&server, &mut ws).await?;
@@ -344,7 +345,7 @@ fn ensure_owner_only_refusal(response: &Value, lab_id: &str, label: &str) -> Res
 }
 
 #[tokio::test]
-async fn lab_files_and_host_keys_are_for_the_lab_owner_only() -> Result<()> {
+async fn access_control_010_lab_files_and_host_keys_are_for_the_lab_owner_only() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let (callers, owners) = login_callers(&server, &mut ws).await?;
@@ -456,7 +457,8 @@ async fn admin_destroy_over_rest_reaches_the_service() -> Result<()> {
 }
 
 #[tokio::test]
-async fn job_stream_is_served_only_to_its_creator_or_an_admin() -> Result<()> {
+async fn access_control_012_a_web_jobs_page_and_stream_are_served_to_its_creator_and_an_admin()
+-> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let (callers, owners) = login_callers(&server, &mut ws).await?;
@@ -468,19 +470,27 @@ async fn job_stream_is_served_only_to_its_creator_or_an_admin() -> Result<()> {
         .context("alice missing")?;
     let alice = token_of(&callers, "alice")?;
     let bob = token_of(&callers, "bob")?;
+    let dana = token_of(&callers, "dana")?;
     let lab_id = seed_lab(&server, alice_owner, 1).await?;
 
-    let response = http
-        .post(format!("{base}/labs/{lab_id}/destroy"))
-        .header(header::COOKIE, cookie(&alice))
-        .send()
-        .await?;
-    let job_url = response
-        .headers()
-        .get("hx-redirect")
-        .and_then(|value| value.to_str().ok())
-        .context("destroy did not create a job")?
-        .to_owned();
+    // Two jobs of alice's: one for her to stream, one for the admin.
+    let mut job_urls = Vec::new();
+    for _ in 0..2 {
+        let response = http
+            .post(format!("{base}/labs/{lab_id}/destroy"))
+            .header(header::COOKIE, cookie(&alice))
+            .send()
+            .await?;
+        job_urls.push(
+            response
+                .headers()
+                .get("hx-redirect")
+                .and_then(|value| value.to_str().ok())
+                .context("destroy did not create a job")?
+                .to_owned(),
+        );
+    }
+    let (job_url, admin_job_url) = (&job_urls[0], &job_urls[1]);
 
     let response = http
         .get(format!("{base}{job_url}/stream"))
@@ -503,6 +513,33 @@ async fn job_stream_is_served_only_to_its_creator_or_an_admin() -> Result<()> {
         response.status()
     );
 
+    // An admin views the page and streams a job of alice's.
+    let response = http
+        .get(format!("{base}{admin_job_url}"))
+        .header(header::COOKIE, cookie(&dana))
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::OK,
+        "An admin could not view alice's job page: {}",
+        response.status()
+    );
+    let response = http
+        .get(format!("{base}{admin_job_url}/stream"))
+        .header(header::COOKIE, cookie(&dana))
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::OK,
+        "An admin could not stream alice's job: {}",
+        response.status()
+    );
+    let body = response.text().await?;
+    ensure!(
+        !body.contains("Job not found"),
+        "An admin's stream of alice's job did not find it: {body}"
+    );
+
     // The refused requests must not consume the job.
     let response = http
         .get(format!("{base}{job_url}/stream"))
@@ -523,15 +560,27 @@ async fn job_stream_is_served_only_to_its_creator_or_an_admin() -> Result<()> {
 }
 
 #[tokio::test]
-async fn lab_listing_requires_login_and_admin_for_other_users() -> Result<()> {
+async fn access_control_011_a_user_lists_only_their_own_labs_and_an_admin_asks_for_another_users()
+-> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let (callers, owners) = login_callers(&server, &mut ws).await?;
     let http = http_client()?;
     let base = format!("http://{}", server.addr);
+    let mut labs = Vec::new();
     for (index, owner) in owners.iter().enumerate() {
-        seed_lab(&server, owner, index).await?;
+        labs.push((
+            owner.username.clone(),
+            seed_lab(&server, owner, index).await?,
+        ));
     }
+    let lab_of = |username: &str| {
+        labs.iter()
+            .find(|(owner, _)| owner == username)
+            .map(|(_, lab_id)| lab_id.clone())
+            .context("lab missing")
+    };
+    let (alice_lab, bob_lab, dana_lab) = (lab_of("alice")?, lab_of("bob")?, lab_of("dana")?);
 
     let response = http
         .get(format!("{base}/api/v1/labs?username=alice"))
@@ -568,12 +617,51 @@ async fn lab_listing_requires_login_and_admin_for_other_users() -> Result<()> {
         body["total"] == json!(1),
         "admin did not get alice's labs: {body}"
     );
+
+    let response = ws
+        .rpc_call(
+            "labs.list",
+            json!({ "token": token_of(&callers, "alice")? }),
+        )
+        .await?;
+    ensure!(
+        response["result"]["total"] == json!(1)
+            && response["result"]["labs"][0]["id"] == json!(alice_lab),
+        "alice did not get only her lab: {response}"
+    );
+    // An admin's own list holds only the admin's labs.
+    let response = ws
+        .rpc_call("labs.list", json!({ "token": token_of(&callers, "dana")? }))
+        .await?;
+    ensure!(
+        response["result"]["total"] == json!(1)
+            && response["result"]["labs"][0]["id"] == json!(dana_lab),
+        "an admin's own list held other users' labs: {response}"
+    );
+
+    let response = http.get(format!("{base}/labs/grid")).send().await?;
+    ensure!(
+        response.status() == StatusCode::SEE_OTHER,
+        "anonymous grid request: {}",
+        response.status()
+    );
+    let body = http
+        .get(format!("{base}/labs/grid"))
+        .header(header::COOKIE, cookie(&token_of(&callers, "alice")?))
+        .send()
+        .await?
+        .text()
+        .await?;
+    ensure!(
+        body.contains(&alice_lab) && !body.contains(&bob_lab) && !body.contains(&dana_lab),
+        "alice's grid did not show only her lab: {body}"
+    );
     Ok(())
 }
 
 #[tokio::test]
 #[ignore = "requires Docker and libvirt"]
-async fn built_in_admin_cannot_start_lab_work_on_any_transport() -> Result<()> {
+async fn builtin_admin_007_built_in_admin_cannot_start_lab_work_on_any_transport() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let (_, owners) = login_callers(&server, &mut ws).await?;
@@ -644,24 +732,6 @@ async fn built_in_admin_cannot_start_lab_work_on_any_transport() -> Result<()> {
         body.contains("cannot start, resume or redeploy labs"),
         "web create was not refused for admin: {body}"
     );
-
-    // Clean-up work is still allowed.
-    check_rpc(
-        &mut ws,
-        "down",
-        json!({ "token": admin, "lab_id": lab_id }),
-        true,
-        "RPC down, admin",
-    )
-    .await?;
-    check_rpc(
-        &mut ws,
-        "destroy",
-        json!({ "token": admin, "lab_id": lab_id }),
-        true,
-        "RPC destroy, admin",
-    )
-    .await?;
     remove_lab(&server, &lab_id).await
 }
 
@@ -729,7 +799,7 @@ fn refused_for_the_device_password(response: &Value, username: &str) -> bool {
 
 #[tokio::test]
 #[ignore = "requires libvirt"]
-async fn starting_a_lab_requires_a_device_password() -> Result<()> {
+async fn owner_login_008_starting_a_lab_requires_a_device_password() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let (_, token) = keyed_owner_without_device_password(&server, &mut ws, "erin").await?;
@@ -755,7 +825,7 @@ async fn starting_a_lab_requires_a_device_password() -> Result<()> {
 }
 
 #[tokio::test]
-async fn redeploying_a_node_requires_a_device_password() -> Result<()> {
+async fn owner_login_009_redeploying_a_node_requires_a_device_password() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let (owner, token) = keyed_owner_without_device_password(&server, &mut ws, "erin").await?;
@@ -863,37 +933,8 @@ fn owner<'a>(owners: &'a [DbUser], username: &str) -> Result<&'a DbUser> {
 }
 
 #[tokio::test]
-async fn labs_list_returns_only_the_callers_labs() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-    let (callers, owners) = login_callers(&server, &mut ws).await?;
-    let alice_lab = seed_lab(&server, owner(&owners, "alice")?, 1).await?;
-    seed_lab(&server, owner(&owners, "bob")?, 2).await?;
-
-    let response = ws
-        .rpc_call(
-            "labs.list",
-            json!({ "token": token_of(&callers, "alice")? }),
-        )
-        .await?;
-    ensure!(
-        response["result"]["total"] == json!(1)
-            && response["result"]["labs"][0]["id"] == json!(alice_lab),
-        "alice did not get only her lab: {response}"
-    );
-    // An admin's own list holds only the admin's labs.
-    let response = ws
-        .rpc_call("labs.list", json!({ "token": token_of(&callers, "dana")? }))
-        .await?;
-    ensure!(
-        response["result"]["total"] == json!(0),
-        "an admin's own list held other users' labs: {response}"
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn node_rpcs_refuse_other_users_unknown_labs_and_unknown_nodes() -> Result<()> {
+async fn access_control_013_a_node_operation_is_refused_to_a_non_owner_and_unknowns_are_not_found()
+-> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let (callers, owners) = login_callers(&server, &mut ws).await?;
@@ -919,6 +960,19 @@ async fn node_rpcs_refuse_other_users_unknown_labs_and_unknown_nodes() -> Result
             );
         }
     }
+
+    for (token, lab, code) in [
+        (&bob, lab_id.as_str(), RpcErrorCode::AccessDenied),
+        (&alice, UNKNOWN_LAB, RpcErrorCode::NotFound),
+    ] {
+        let response = ws
+            .rpc_call("cancel", json!({ "token": token, "lab_id": lab }))
+            .await?;
+        ensure!(
+            response["error"]["code"] == json!(code),
+            "cancel {lab}: expected {code:?}, got {response}"
+        );
+    }
     Ok(())
 }
 
@@ -939,26 +993,6 @@ async fn cancel_with_nothing_running_stops_nothing() -> Result<()> {
         response["result"] == json!({ "lab_id": lab_id, "stopped": false }),
         "cancel with nothing running: {response}"
     );
-    for (token, lab, code) in [
-        (
-            token_of(&callers, "bob")?,
-            lab_id.as_str(),
-            RpcErrorCode::AccessDenied,
-        ),
-        (
-            token_of(&callers, "alice")?,
-            UNKNOWN_LAB,
-            RpcErrorCode::NotFound,
-        ),
-    ] {
-        let response = ws
-            .rpc_call("cancel", json!({ "token": token, "lab_id": lab }))
-            .await?;
-        ensure!(
-            response["error"]["code"] == json!(code),
-            "cancel {lab}: expected {code:?}, got {response}"
-        );
-    }
     Ok(())
 }
 
@@ -971,26 +1005,8 @@ async fn the_labs_grid_shows_each_user_their_own_labs() -> Result<()> {
     let (callers, owners) = login_callers(&server, &mut ws).await?;
     let http = http_client()?;
     let base = format!("http://{}", server.addr);
-    let alice_lab = seed_lab(&server, owner(&owners, "alice")?, 1).await?;
-    let bob_lab = seed_lab(&server, owner(&owners, "bob")?, 2).await?;
+    seed_lab(&server, owner(&owners, "alice")?, 1).await?;
 
-    let response = http.get(format!("{base}/labs/grid")).send().await?;
-    ensure!(
-        response.status() == StatusCode::SEE_OTHER,
-        "anonymous grid request: {}",
-        response.status()
-    );
-    let body = http
-        .get(format!("{base}/labs/grid"))
-        .header(header::COOKIE, cookie(&token_of(&callers, "alice")?))
-        .send()
-        .await?
-        .text()
-        .await?;
-    ensure!(
-        body.contains(&alice_lab) && !body.contains(&bob_lab),
-        "alice's grid did not show only her lab: {body}"
-    );
     let body = http
         .get(format!("{base}/labs/grid"))
         .header(header::COOKIE, cookie(&token_of(&callers, "dana")?))

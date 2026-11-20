@@ -74,14 +74,4 @@ impl TestHttpClient {
         }
         req.send().await.context("HTTP POST JSON failed")
     }
-
-    /// DELETE request
-    pub async fn delete(&self, path: &str) -> Result<Response> {
-        let url = format!("{}{}", self.base_url, path);
-        let mut req = self.client.delete(&url);
-        if let Some(ref token) = self.token {
-            req = req.bearer_auth(token);
-        }
-        req.send().await.context("HTTP DELETE failed")
-    }
 }

@@ -153,7 +153,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn users_set_their_own_device_password_with_their_login_password() {
+    async fn device_password_001_users_set_their_own_device_password_with_their_login_password() {
         let db = database_with_users(&[("alice", false)]).await;
         let alice = caller("alice", false);
 
@@ -198,7 +198,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_built_in_admin_has_no_device_password() {
+    async fn builtin_admin_008_the_built_in_admin_has_no_device_password() {
         let db = database_with_users(&[]).await;
         db::create_admin_user(&db, LOGIN_PASSWORD)
             .await
@@ -254,7 +254,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_device_password_breaking_the_rule_is_refused() {
+    async fn device_password_005_a_device_password_has_12_to_20_characters() {
+        let username = "alice";
+        for (password, count) in [("Granite-Ow1", 11), ("Granite-Owl42-Lynx9xy", 21)] {
+            let message = validate_device_password(password, username)
+                .expect_err(password)
+                .to_string();
+            let expected = format!("12 to 20 characters; this one has {count}");
+            assert!(message.contains(&expected), "{password}: {message}");
+            assert!(!message.contains(password), "{password}: {message}");
+        }
+        validate_device_password("Granite-Ow1x", username).expect("12 characters");
+        validate_device_password("Granite-Owl42-Lynx9x", username).expect("20 characters");
+
         let db = database_with_users(&[("alice", false)]).await;
         let error = set_device_password(
             &caller("alice", false),

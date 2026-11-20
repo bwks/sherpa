@@ -54,8 +54,10 @@ pub fn validate_password_strength(password: &str) -> Result<()> {
 mod tests {
     use super::*;
 
+    use crate::auth::password::hash_password;
+
     #[test]
-    fn test_validate_password_strength_valid() {
+    fn user_passwords_008_a_password_needs_the_four_parts_and_a_refusal_lists_what_is_lacking() {
         let valid_passwords = vec![
             "Password123!",
             "SecureP@ss1",
@@ -69,25 +71,11 @@ mod tests {
                 "Password '{password}' should be valid"
             );
         }
-    }
 
-    #[test]
-    fn test_validate_password_strength_no_uppercase() {
         assert!(validate_password_strength("password123!").is_err());
-    }
-
-    #[test]
-    fn test_validate_password_strength_no_lowercase() {
         assert!(validate_password_strength("PASSWORD123!").is_err());
-    }
-
-    #[test]
-    fn test_validate_password_strength_no_special() {
         assert!(validate_password_strength("Password123").is_err());
-    }
 
-    #[test]
-    fn test_validate_password_strength_error_lists_all_failures() {
         // "a" fails: too short, no uppercase, no special
         let err = validate_password_strength("a").unwrap_err().to_string();
         assert!(err.contains("Minimum 8 characters"));
@@ -95,13 +83,12 @@ mod tests {
         assert!(err.contains("special character"));
         // Should NOT complain about lowercase since "a" has lowercase
         assert!(!err.contains("lowercase"));
-    }
 
-    #[test]
-    fn test_validate_password_strength_boundary_length() {
         // Exactly 8 characters with all requirements met
         assert!(validate_password_strength("Abcdef1!").is_ok());
         // 7 characters — one too short
         assert!(validate_password_strength("Abcde1!").is_err());
+
+        assert!(hash_password("weak").is_err());
     }
 }

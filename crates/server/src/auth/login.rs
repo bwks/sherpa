@@ -95,7 +95,7 @@ mod tests {
     }
 
     #[test]
-    fn the_dummy_hash_is_a_real_hash() {
+    fn user_login_009_an_unknown_users_password_is_checked_against_a_real_hash() {
         let hash = DUMMY_HASH.as_deref().expect("dummy hash");
         assert!(password::verify_password(DUMMY_PASSWORD, hash).expect("verify"));
     }

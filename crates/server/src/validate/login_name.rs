@@ -80,6 +80,12 @@ mod tests {
     use super::*;
     use shared::data::NodeKind;
 
+    use crate::services::guest_account::node_account;
+    use crate::services::guest_account::tests::test_account;
+
+    const KEY: &str =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh";
+
     /// A name of `length` characters, starting with `first`.
     fn name(first: char, length: usize) -> String {
         let mut name = String::from(first);
@@ -87,8 +93,7 @@ mod tests {
         name
     }
 
-    #[test]
-    fn each_model_takes_names_up_to_its_limit_and_refuses_longer_ones() {
+    fn models_take_names_up_to_their_limit_and_refuse_longer_ones() {
         for (model, limit) in [
             (NodeModel::WindowsServer, 20),
             (NodeModel::CiscoNexus9300, 28),
@@ -113,7 +118,6 @@ mod tests {
         }
     }
 
-    #[test]
     fn nx_os_and_eos_refuse_a_leading_underscore() {
         for model in [NodeModel::CiscoNexus9300, NodeModel::AristaEos] {
             let error = validate_login_name(ModelKind::default_for(model), "sw1", "_svc")
@@ -125,7 +129,6 @@ mod tests {
         }
     }
 
-    #[test]
     fn both_kinds_of_eos_take_its_rule_and_the_message_names_the_kind() {
         for kind in [NodeKind::VirtualMachine, NodeKind::Container] {
             let model_kind = ModelKind::new(NodeModel::AristaEos, Some(kind)).unwrap();
@@ -141,7 +144,6 @@ mod tests {
         }
     }
 
-    #[test]
     fn other_models_take_every_sherpa_username() {
         for model in [
             NodeModel::UbuntuLinux,
@@ -159,5 +161,28 @@ mod tests {
                 validate_login_name(ModelKind::default_for(model), "n1", &name('a', 32)).is_ok()
             );
         }
+    }
+
+    /// A model that cannot take the owner's name is refused when its account is made, naming the
+    /// node and the limit.
+    fn the_account_of_a_node_is_refused_a_name_its_model_cannot_take() {
+        let long = test_account(&"a".repeat(21), &[KEY]);
+        let image = ModelKind::default_for(NodeModel::WindowsServer).node_config();
+        let error = node_account(&long, "win1", &image).unwrap_err().to_string();
+        assert!(
+            error.contains("Node 'win1' (windows_server) takes login names of at most 20"),
+            "{error}"
+        );
+        let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
+        assert!(node_account(&long, "vm1", &image).is_ok());
+    }
+
+    #[test]
+    fn owner_login_010_a_model_that_cannot_take_the_owners_name_is_refused_others_take_all() {
+        models_take_names_up_to_their_limit_and_refuse_longer_ones();
+        nx_os_and_eos_refuse_a_leading_underscore();
+        both_kinds_of_eos_take_its_rule_and_the_message_names_the_kind();
+        other_models_take_every_sherpa_username();
+        the_account_of_a_node_is_refused_a_name_its_model_cannot_take();
     }
 }

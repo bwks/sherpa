@@ -298,52 +298,48 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_job_runs_as_its_requester_when_the_session_is_active() {
-        let (db, _, job) = job_queued_by_carol(false).await;
-        match job.resolve_requester(&db).await.expect("resolve") {
-            SessionLookup::Active(ctx) => assert_eq!(ctx.username, "carol"),
-            other @ SessionLookup::Rejected(_) => {
-                panic!("expected an active requester, got {other:?}")
+    async fn user_sessions_022_a_job_runs_as_its_requester_only_while_their_session_lasts() {
+        {
+            let (db, _, job) = job_queued_by_carol(false).await;
+            match job.resolve_requester(&db).await.expect("resolve") {
+                SessionLookup::Active(ctx) => assert_eq!(ctx.username, "carol"),
+                other @ SessionLookup::Rejected(_) => {
+                    panic!("expected an active requester, got {other:?}")
+                }
             }
         }
-    }
+        {
+            let (db, _, job) = job_queued_by_carol(false).await;
+            session::logout(&db, &job.requester.session_id)
+                .await
+                .expect("logout");
+            assert!(matches!(
+                job.resolve_requester(&db).await.expect("resolve"),
+                SessionLookup::Rejected(SessionRejection::Ended)
+            ));
+        }
+        {
+            let (db, carol, job) = job_queued_by_carol(false).await;
+            db::delete_user(&db, db::get_user_id(&carol).expect("id"))
+                .await
+                .expect("delete");
+            assert!(matches!(
+                job.resolve_requester(&db).await.expect("resolve"),
+                SessionLookup::Rejected(SessionRejection::Ended)
+            ));
+        }
+        {
+            let (db, carol, job) = job_queued_by_carol(true).await;
+            assert!(job.requester.is_admin);
+            let mut demoted = carol.clone();
+            demoted.is_admin = false;
+            db::update_user(&db, demoted).await.expect("demote");
 
-    #[tokio::test]
-    async fn a_job_does_not_start_after_its_requester_logged_out() {
-        let (db, _, job) = job_queued_by_carol(false).await;
-        session::logout(&db, &job.requester.session_id)
-            .await
-            .expect("logout");
-        assert!(matches!(
-            job.resolve_requester(&db).await.expect("resolve"),
-            SessionLookup::Rejected(SessionRejection::Ended)
-        ));
-    }
-
-    #[tokio::test]
-    async fn a_job_does_not_start_after_its_requester_was_deleted() {
-        let (db, carol, job) = job_queued_by_carol(false).await;
-        db::delete_user(&db, db::get_user_id(&carol).expect("id"))
-            .await
-            .expect("delete");
-        assert!(matches!(
-            job.resolve_requester(&db).await.expect("resolve"),
-            SessionLookup::Rejected(SessionRejection::Ended)
-        ));
-    }
-
-    #[tokio::test]
-    async fn a_job_runs_with_the_requesters_current_rights() {
-        let (db, carol, job) = job_queued_by_carol(true).await;
-        assert!(job.requester.is_admin);
-        let mut demoted = carol.clone();
-        demoted.is_admin = false;
-        db::update_user(&db, demoted).await.expect("demote");
-
-        match job.resolve_requester(&db).await.expect("resolve") {
-            SessionLookup::Active(ctx) => assert!(!ctx.is_admin, "the job kept admin rights"),
-            other @ SessionLookup::Rejected(_) => {
-                panic!("expected an active requester, got {other:?}")
+            match job.resolve_requester(&db).await.expect("resolve") {
+                SessionLookup::Active(ctx) => assert!(!ctx.is_admin, "the job kept admin rights"),
+                other @ SessionLookup::Rejected(_) => {
+                    panic!("expected an active requester, got {other:?}")
+                }
             }
         }
     }

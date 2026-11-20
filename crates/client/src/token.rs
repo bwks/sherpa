@@ -120,13 +120,11 @@ mod tests {
     }
 
     #[test]
-    fn a_saved_token_loads_and_deletes() {
+    fn user_login_012_a_token_is_saved_private_and_a_missing_one_says_to_log_in() {
         let dir = tempfile::tempdir().unwrap();
         let file = token_file(dir.path());
-        let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.token";
-
-        file.save(token).unwrap();
-        assert_eq!(file.load().unwrap(), token);
+        file.save("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.token")
+            .unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -134,13 +132,6 @@ mod tests {
             assert_eq!(mode & 0o777, 0o600);
         }
 
-        file.delete().unwrap();
-        assert!(!file.path.exists());
-        file.delete().unwrap();
-    }
-
-    #[test]
-    fn a_missing_token_says_to_log_in() {
         let dir = tempfile::tempdir().unwrap();
         let error = token_file(dir.path()).load().unwrap_err();
         assert_eq!(
@@ -150,16 +141,13 @@ mod tests {
     }
 
     #[test]
-    fn the_username_is_read_from_a_base64url_token() {
+    fn user_login_015_the_username_is_read_from_the_token_and_a_non_jwt_is_refused() {
         let claims = br#"{"sub":"dev","sid":"s","exp":1,"iat":1,"is_admin":false,"x":"??>>~~"}"#;
         let payload = general_purpose::URL_SAFE_NO_PAD.encode(claims);
         assert!(payload.contains(['-', '_']), "{payload}");
         let token = format!("header.{payload}.signature");
         assert_eq!(username_from_token(&token).unwrap(), "dev");
-    }
 
-    #[test]
-    fn a_token_that_is_not_a_jwt_is_refused() {
         assert_eq!(
             username_from_token("not-a-jwt").unwrap_err().to_string(),
             "The login token is not a JWT; run: sherpa login"

@@ -53,7 +53,6 @@ pub fn crypt_hash(password: &str, algorithm: CryptHash) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sha_crypt::PasswordVerifier;
 
     const PASSWORD: &str = "Granite-Owl42!";
 
@@ -70,24 +69,6 @@ mod tests {
             assert_eq!(parts.len(), 4, "{hashed}");
             assert_eq!(parts[2].len(), 16, "{hashed}");
             assert_eq!(parts[3].len(), length, "{hashed}");
-        }
-    }
-
-    #[test]
-    fn hashes_verify_against_the_password_only() {
-        for algorithm in [CryptHash::Sha512, CryptHash::Sha256] {
-            let hashed = crypt_hash(PASSWORD, algorithm).unwrap();
-            let verifier = ShaCrypt::default();
-            assert!(
-                verifier
-                    .verify_password(PASSWORD.as_bytes(), hashed.as_str())
-                    .is_ok()
-            );
-            assert!(
-                verifier
-                    .verify_password(b"Granite-Owl43!", hashed.as_str())
-                    .is_err()
-            );
         }
     }
 

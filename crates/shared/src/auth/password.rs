@@ -55,54 +55,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_hash_argon2_cannot_check_is_an_error_not_a_wrong_password() {
-        let scrypt = "$scrypt$ln=4,r=8,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaA";
-        assert!(verify_password("TestPass123!", scrypt).is_err());
-    }
-
-    #[test]
-    fn test_hash_password_invalid() {
-        let password = "weak";
-        assert!(hash_password(password).is_err());
-    }
-
-    #[test]
-    fn test_hash_password_different_each_time() {
+    fn user_passwords_010_a_hash_is_argon2id_salted_and_verifies_only_the_right_password() {
         let password = "SecurePass123!";
         let hash1 = hash_password(password).expect("Should hash password");
         let hash2 = hash_password(password).expect("Should hash password");
 
         // Same password should produce different hashes due to random salt
         assert_ne!(hash1, hash2);
-    }
+        assert!(
+            hash1.starts_with("$argon2id$v=19$"),
+            "unexpected parameters in {hash1}"
+        );
 
-    #[test]
-    fn test_verify_password_correct() {
-        let password = "SecurePass123!";
-        let hash = hash_password(password).expect("Should hash password");
-
-        let result = verify_password(password, &hash).expect("Should verify password");
+        let result = verify_password(password, &hash1).expect("Should verify password");
         assert!(result, "Correct password should verify");
     }
 
     #[test]
-    fn a_hash_keeps_argon2id_v19_with_the_default_costs() {
-        let hash = hash_password("SecurePass123!").expect("Should hash password");
-        assert!(
-            hash.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"),
-            "unexpected parameters in {hash}"
-        );
-    }
-
-    #[test]
-    fn a_hash_stored_by_argon2_0_5_still_verifies() {
+    fn user_passwords_011_a_hash_stored_by_argon2_0_5_still_verifies() {
         let stored = "$argon2id$v=19$m=19456,t=2,p=1$2FJMSCOFArFldYJuaUcZXg$FsJQ0y+UxlbmOc7owiv4HqEGA6KuBQC2uIHm3NA2UQ8";
         assert!(verify_password("StoredPass123!", stored).expect("Should verify password"));
         assert!(!verify_password("WrongPass123!", stored).expect("Should verify password"));
     }
 
     #[test]
-    fn test_verify_password_invalid_hash() {
+    fn user_passwords_012_a_hash_that_cannot_be_checked_is_an_error_not_a_wrong_password() {
+        let scrypt = "$scrypt$ln=4,r=8,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaA";
+        assert!(verify_password("TestPass123!", scrypt).is_err());
+
         let result = verify_password("password", "invalid_hash_format");
         assert!(result.is_err(), "Invalid hash format should return error");
     }

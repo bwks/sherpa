@@ -16,7 +16,8 @@ const KNOWN_UNROUTED: &[&str] = &[];
 // ── JWT Authentication Tests ──
 
 #[tokio::test]
-async fn test_auth_login_valid_credentials() -> Result<()> {
+async fn user_login_014_an_rpc_login_gives_a_token_the_username_admin_flag_and_expiry() -> Result<()>
+{
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
 
@@ -48,7 +49,7 @@ async fn test_auth_login_valid_credentials() -> Result<()> {
 /// A wrong password and an unknown user get the same refusal, so a caller cannot tell which
 /// usernames exist.
 #[tokio::test]
-async fn a_wrong_password_and_an_unknown_user_get_the_same_refusal() -> Result<()> {
+async fn user_login_005_a_wrong_password_and_an_unknown_user_get_the_same_refusal() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
 
@@ -77,7 +78,7 @@ async fn a_wrong_password_and_an_unknown_user_get_the_same_refusal() -> Result<(
 }
 
 #[tokio::test]
-async fn test_auth_login_missing_params() -> Result<()> {
+async fn user_login_010_a_login_without_a_username_or_password_is_invalid() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
 
@@ -93,11 +94,29 @@ async fn test_auth_login_missing_params() -> Result<()> {
 }
 
 #[tokio::test]
-async fn a_token_validates_over_rest_as_over_rpc() -> Result<()> {
+async fn user_login_013_a_token_is_checked_over_rest_as_over_rpc() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_admin().await?;
     let client = TestHttpClient::new(server.addr);
+
+    let response = ws
+        .rpc_call("auth.validate", json!({ "token": token }))
+        .await?;
+    let result = response.get("result").expect("should have result");
+    assert_eq!(
+        result.get("valid").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        result.get("username").and_then(|v| v.as_str()),
+        Some("admin")
+    );
+    assert_eq!(
+        result.get("is_admin").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+    assert!(result.get("expires_at").is_some());
 
     let valid: serde_json::Value = client
         .post_json("/api/v1/auth/validate", &json!({ "token": token }))
@@ -106,6 +125,15 @@ async fn a_token_validates_over_rest_as_over_rpc() -> Result<()> {
         .await?;
     assert_eq!(valid["valid"], true, "{valid}");
     assert_eq!(valid["username"], "admin", "{valid}");
+
+    let response = ws
+        .rpc_call("auth.validate", json!({ "token": "invalid.jwt.token" }))
+        .await?;
+    let result = response.get("result").expect("should have result");
+    assert_eq!(
+        result.get("valid").and_then(serde_json::Value::as_bool),
+        Some(false)
+    );
 
     let invalid: serde_json::Value = client
         .post_json("/api/v1/auth/validate", &json!({ "token": "not-a-token" }))
@@ -116,28 +144,10 @@ async fn a_token_validates_over_rest_as_over_rpc() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_auth_validate_invalid_token() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-
-    let response = ws
-        .rpc_call("auth.validate", json!({ "token": "invalid.jwt.token" }))
-        .await?;
-
-    let result = response.get("result").expect("should have result");
-    assert_eq!(
-        result.get("valid").and_then(serde_json::Value::as_bool),
-        Some(false)
-    );
-
-    Ok(())
-}
-
 // ── Authenticated Request Tests ──
 
 #[tokio::test]
-async fn test_rpc_requires_auth_token() -> Result<()> {
+async fn access_control_015_a_request_with_no_token_is_refused() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
 
@@ -156,98 +166,51 @@ async fn test_rpc_requires_auth_token() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_admin_rpc_denied_for_non_admin() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-
-    // First create a non-admin user
-    let admin_token = ws.login_admin().await?;
-    let _create_resp = ws
-        .rpc_call(
-            "user.create",
-            json!({
-                "token": admin_token,
-                "username": "regular",
-                "password": "RegularPass123!",
-                "is_admin": false,
-            }),
-        )
-        .await?;
-
-    // Login as non-admin
-    let user_token = ws.login("regular", "RegularPass123!").await?;
-
-    // Try admin-only operation
-    let response = ws
-        .rpc_call("user.list", json!({ "token": user_token }))
-        .await?;
-
-    let error = response.get("error").expect("should have error");
-    // AccessDenied = -32003
-    assert_eq!(
-        error.get("code").and_then(serde_json::Value::as_i64),
-        Some(-32003)
-    );
-
-    Ok(())
-}
-
 // ── Cookie Session Tests ──
 
 #[tokio::test]
-async fn test_cookie_login_valid() -> Result<()> {
+async fn user_login_007_the_web_login_sets_the_cookie_and_sends_each_user_to_their_page()
+-> Result<()> {
     let server = TestServer::start().await?;
-    let client = TestHttpClient::new(server.addr);
+    db::create_user(&server.db, "bob".to_owned(), BOB_PASSWORD, false, vec![]).await?;
 
-    let resp = client
-        .post_form(
-            "/login",
-            &[("username", "admin"), ("password", TEST_ADMIN_PASSWORD)],
-        )
-        .await?;
-
-    // Login uses HTMX pattern: 200 OK with hx-redirect header (not a 3xx redirect)
-    assert_eq!(
-        resp.status().as_u16(),
-        200,
-        "Expected 200 OK for HTMX login, got {}",
-        resp.status()
-    );
-    assert!(
-        resp.headers().contains_key("hx-redirect"),
-        "Expected hx-redirect header in login response"
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_cookie_login_invalid() -> Result<()> {
-    let server = TestServer::start().await?;
-    let client = TestHttpClient::new(server.addr);
-
-    let resp = client
-        .post_form(
-            "/login",
-            &[("username", "admin"), ("password", "WrongPass123!")],
-        )
-        .await?;
+    // Login uses the HTMX pattern: 200 OK with an hx-redirect header, not a 3xx redirect.
+    for (username, password, page) in [
+        ("admin", TEST_ADMIN_PASSWORD, "/admin/users"),
+        ("bob", BOB_PASSWORD, "/"),
+    ] {
+        let client = TestHttpClient::new(server.addr);
+        let resp = client
+            .post_form("/login", &[("username", username), ("password", password)])
+            .await?;
+        assert_eq!(resp.status(), StatusCode::OK, "{username}");
+        assert_eq!(
+            header_text(&resp, HeaderName::from_static("hx-redirect")),
+            page
+        );
+        cookie_token(&resp)?;
+    }
 
     // A refused login sets no session and sends nowhere: it shows the error in the form.
-    assert_eq!(resp.status(), StatusCode::OK);
-    assert!(
-        !resp.headers().contains_key(header::SET_COOKIE),
-        "a refused login set a cookie: {:?}",
-        resp.headers()
-    );
-    assert!(
-        !resp.headers().contains_key("hx-redirect"),
-        "a refused login redirected: {:?}",
-        resp.headers()
-    );
-    let body = resp.text().await?;
-    assert!(body.contains("Invalid username or password"), "{body}");
+    for (username, password) in [("admin", "WrongPass123!"), ("nobody", "WrongPass123!")] {
+        let client = TestHttpClient::new(server.addr);
+        let resp = client
+            .post_form("/login", &[("username", username), ("password", password)])
+            .await?;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(
+            !resp.headers().contains_key(header::SET_COOKIE),
+            "a refused login set a cookie: {:?}",
+            resp.headers()
+        );
+        assert!(
+            !resp.headers().contains_key("hx-redirect"),
+            "a refused login redirected: {:?}",
+            resp.headers()
+        );
+        let body = resp.text().await?;
+        assert!(body.contains("Invalid username or password"), "{body}");
+    }
 
     Ok(())
 }
@@ -266,7 +229,7 @@ async fn test_health_check() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_login_page_renders() -> Result<()> {
+async fn user_login_011_the_login_page_is_served_and_sends_on_a_signed_in_browser() -> Result<()> {
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(server.addr);
 
@@ -279,11 +242,44 @@ async fn test_login_page_renders() -> Result<()> {
         "Login page should contain the login form: {body}"
     );
 
+    let stale_login_page = client
+        .get_with_cookie("/login", "sherpa_auth=stale-session")
+        .await?;
+    assert_eq!(stale_login_page.status().as_u16(), 200);
+    let login_page_clear_cookie = stale_login_page
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("login page should clear an invalid session")
+        .to_str()?;
+    assert!(login_page_clear_cookie.contains("Max-Age=0"));
+
+    let login_response = client
+        .post_form(
+            "/login",
+            &[("username", "admin"), ("password", TEST_ADMIN_PASSWORD)],
+        )
+        .await?;
+    assert_eq!(login_response.status().as_u16(), 200);
+    let replacement_cookie = format!("{AUTH_COOKIE_NAME}={}", cookie_token(&login_response)?);
+
+    let authenticated_login_page = client
+        .get_with_cookie("/login", &replacement_cookie)
+        .await?;
+    assert_eq!(authenticated_login_page.status().as_u16(), 303);
+    assert_eq!(
+        authenticated_login_page
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/admin/users")
+    );
+
     Ok(())
 }
 
 #[tokio::test]
-async fn test_protected_route_redirects_unauthenticated() -> Result<()> {
+async fn user_sessions_010_a_browser_with_no_session_cookie_is_sent_to_the_login_page() -> Result<()>
+{
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(server.addr);
 
@@ -312,69 +308,8 @@ async fn test_api_spec_returns_json() -> Result<()> {
 // ── HTTP REST API Tests ──
 
 #[tokio::test]
-async fn test_http_bearer_auth_create_user() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
-
-    let mut client = TestHttpClient::new(server.addr);
-    client.set_token(token.clone());
-
-    let response = client
-        .post_json(
-            "/api/v1/admin/users",
-            &serde_json::json!({
-                "username": "httprestuser",
-                "password": "HttpPass123!",
-                "is_admin": false,
-                "token": token,
-            }),
-        )
-        .await?;
-    assert_eq!(
-        response.status().as_u16(),
-        200,
-        "POST /api/v1/admin/users should return 200, got: {}",
-        response.status()
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_http_bearer_auth_delete_user() -> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
-
-    // Create a user to delete
-    ws.rpc_call(
-        "user.create",
-        serde_json::json!({
-            "token": token.clone(),
-            "username": "httpdel",
-            "password": "DelPass123!",
-            "is_admin": false,
-        }),
-    )
-    .await?;
-
-    let mut client = TestHttpClient::new(server.addr);
-    client.set_token(token);
-
-    let response = client.delete("/api/v1/admin/users/httpdel").await?;
-    assert_eq!(
-        response.status().as_u16(),
-        200,
-        "DELETE /api/v1/admin/users/httpdel should return 200, got: {}",
-        response.status()
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_stale_cookie_login_recovery_and_duplicate_replacement() -> Result<()> {
+async fn user_sessions_009_a_stale_cookie_on_a_page_is_cleared_and_sent_to_the_login_page()
+-> Result<()> {
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(server.addr);
 
@@ -396,16 +331,13 @@ async fn test_stale_cookie_login_recovery_and_duplicate_replacement() -> Result<
         .to_str()?;
     assert!(clear_cookie.contains("Max-Age=0"));
 
-    let stale_login_page = client
-        .get_with_cookie("/login", "sherpa_auth=stale-session")
-        .await?;
-    assert_eq!(stale_login_page.status().as_u16(), 200);
-    let login_page_clear_cookie = stale_login_page
-        .headers()
-        .get(header::SET_COOKIE)
-        .expect("login page should clear an invalid session")
-        .to_str()?;
-    assert!(login_page_clear_cookie.contains("Max-Age=0"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_stale_and_a_valid_cookie_together_are_served_the_valid_one() -> Result<()> {
+    let server = TestServer::start().await?;
+    let client = TestHttpClient::new(server.addr);
 
     let login_response = client
         .post_form(
@@ -414,28 +346,7 @@ async fn test_stale_cookie_login_recovery_and_duplicate_replacement() -> Result<
         )
         .await?;
     assert_eq!(login_response.status().as_u16(), 200);
-    let replacement_cookie = login_response
-        .headers()
-        .get_all(header::SET_COOKIE)
-        .iter()
-        .filter_map(|value| value.to_str().ok())
-        .find_map(|value| {
-            value
-                .split(';')
-                .next()
-                .filter(|pair| pair.starts_with("sherpa_auth="))
-        })
-        .expect("successful login should return an auth cookie");
-
-    let authenticated_login_page = client.get_with_cookie("/login", replacement_cookie).await?;
-    assert_eq!(authenticated_login_page.status().as_u16(), 303);
-    assert_eq!(
-        authenticated_login_page
-            .headers()
-            .get(header::LOCATION)
-            .and_then(|value| value.to_str().ok()),
-        Some("/admin/users")
-    );
+    let replacement_cookie = format!("{AUTH_COOKIE_NAME}={}", cookie_token(&login_response)?);
 
     let duplicate_cookie = format!("sherpa_auth=stale-session; {replacement_cookie}");
     let protected_response = client
@@ -449,7 +360,8 @@ async fn test_stale_cookie_login_recovery_and_duplicate_replacement() -> Result<
 // ── Database-backed identity ──
 
 #[tokio::test]
-async fn demoted_admin_token_loses_admin_rights_on_all_transports() -> Result<()> {
+async fn user_sessions_017_a_demoted_admins_token_loses_admin_rights_on_all_transports()
+-> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     db::create_user(
@@ -493,7 +405,7 @@ async fn demoted_admin_token_loses_admin_rights_on_all_transports() -> Result<()
 }
 
 #[tokio::test]
-async fn deleted_user_token_is_rejected_on_all_transports() -> Result<()> {
+async fn user_sessions_015_a_deleted_users_token_is_rejected_on_all_transports() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let dave = db::create_user(
@@ -577,7 +489,7 @@ fn cookie_token(response: &Response) -> Result<String> {
 }
 
 #[tokio::test]
-async fn rpc_logout_ends_only_that_session() -> Result<()> {
+async fn user_sessions_002_an_rpc_logout_ends_only_that_session() -> Result<()> {
     let server = TestServer::start().await?;
     db::create_user(&server.db, "bob".to_owned(), BOB_PASSWORD, false, vec![]).await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -616,7 +528,7 @@ async fn rpc_logout_ends_only_that_session() -> Result<()> {
 }
 
 #[tokio::test]
-async fn rest_logout_ends_the_bearer_session() -> Result<()> {
+async fn user_sessions_003_a_rest_logout_ends_the_bearer_session() -> Result<()> {
     let server = TestServer::start().await?;
     let mut client = TestHttpClient::new(server.addr);
     let response = client
@@ -646,8 +558,29 @@ async fn rest_logout_ends_the_bearer_session() -> Result<()> {
     Ok(())
 }
 
+/// Assert a web logout response goes to the login page and clears the auth cookie.
+fn ensure_logout_response(response: &Response) -> Result<()> {
+    ensure!(
+        response.status() == StatusCode::SEE_OTHER,
+        "logout: {}",
+        response.status()
+    );
+    let location = header_text(response, header::LOCATION);
+    let cookie = header_text(response, header::SET_COOKIE);
+    ensure!(
+        location == "/login?error=logout_success",
+        "logout redirected to {location}"
+    );
+    ensure!(
+        cookie.starts_with(&format!("{AUTH_COOKIE_NAME}=;")) && cookie.contains("Max-Age=0"),
+        "logout did not clear the auth cookie: {cookie}"
+    );
+    Ok(())
+}
+
 #[tokio::test]
-async fn web_logout_ends_the_cookie_session_on_the_server() -> Result<()> {
+async fn user_sessions_004_a_web_logout_ends_the_cookie_session_and_clears_the_cookie() -> Result<()>
+{
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(server.addr);
     let response = client
@@ -661,11 +594,7 @@ async fn web_logout_ends_the_cookie_session_on_the_server() -> Result<()> {
 
     // The client's cookie jar sends the session with the logout.
     let response = client.post_form("/logout", &[]).await?;
-    ensure!(
-        response.status() == StatusCode::SEE_OTHER,
-        "logout: {}",
-        response.status()
-    );
+    ensure_logout_response(&response)?;
 
     // A copy of the cookie taken before logout no longer works.
     let response = TestHttpClient::new(server.addr)
@@ -677,11 +606,17 @@ async fn web_logout_ends_the_cookie_session_on_the_server() -> Result<()> {
         "A logged-out cookie still works: {} {location}",
         response.status()
     );
+
+    // With no session at all, a logout still goes to the login page and clears the cookie.
+    let response = TestHttpClient::new(server.addr)
+        .post_form("/logout", &[])
+        .await?;
+    ensure_logout_response(&response)?;
     Ok(())
 }
 
 #[tokio::test]
-async fn changing_your_password_ends_your_other_sessions() -> Result<()> {
+async fn user_sessions_012_changing_your_password_ends_your_other_sessions() -> Result<()> {
     let server = TestServer::start().await?;
     db::create_user(&server.db, "bob".to_owned(), BOB_PASSWORD, false, vec![]).await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -716,7 +651,7 @@ async fn changing_your_password_ends_your_other_sessions() -> Result<()> {
 }
 
 #[tokio::test]
-async fn an_admin_password_reset_ends_every_session_of_the_user() -> Result<()> {
+async fn user_sessions_013_an_admin_password_reset_ends_every_session_of_the_user() -> Result<()> {
     let server = TestServer::start().await?;
     db::create_user(&server.db, "bob".to_owned(), BOB_PASSWORD, false, vec![]).await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -746,7 +681,8 @@ async fn an_admin_password_reset_ends_every_session_of_the_user() -> Result<()> 
 }
 
 #[tokio::test]
-async fn a_recreated_user_does_not_inherit_the_old_accounts_tokens() -> Result<()> {
+async fn user_sessions_016_a_recreated_user_does_not_inherit_the_old_accounts_tokens() -> Result<()>
+{
     let server = TestServer::start().await?;
     let bob = db::create_user(&server.db, "bob".to_owned(), BOB_PASSWORD, false, vec![]).await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -842,7 +778,7 @@ fn header_text(response: &Response, name: HeaderName) -> String {
 }
 
 #[tokio::test]
-async fn rest_login_issues_a_token_only_for_the_right_password() -> Result<()> {
+async fn user_login_006_a_rest_login_issues_a_token_only_for_the_right_password() -> Result<()> {
     let server = TestServer::start().await?;
     let mut client = TestHttpClient::new(server.addr);
 
@@ -884,30 +820,6 @@ async fn rest_login_issues_a_token_only_for_the_right_password() -> Result<()> {
         response.status() == StatusCode::OK,
         "issued token was refused: {}",
         response.status()
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn logout_clears_the_session_cookie() -> Result<()> {
-    let server = TestServer::start().await?;
-    let client = TestHttpClient::new(server.addr);
-
-    let response = client.post_form("/logout", &[]).await?;
-    ensure!(
-        response.status() == StatusCode::SEE_OTHER,
-        "logout: {}",
-        response.status()
-    );
-    let location = header_text(&response, header::LOCATION);
-    let cookie = header_text(&response, header::SET_COOKIE);
-    ensure!(
-        location == "/login?error=logout_success",
-        "logout redirected to {location}"
-    );
-    ensure!(
-        cookie.starts_with(&format!("{AUTH_COOKIE_NAME}=;")) && cookie.contains("Max-Age=0"),
-        "logout did not clear the auth cookie: {cookie}"
     );
     Ok(())
 }

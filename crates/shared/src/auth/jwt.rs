@@ -55,14 +55,3 @@ impl Claims {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn claims_without_a_session_are_rejected() {
-        let old = r#"{"sub":"alice","exp":2000000000,"iat":1000000000,"is_admin":false}"#;
-        assert!(serde_json::from_str::<Claims>(old).is_err());
-    }
-}

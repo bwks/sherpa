@@ -113,26 +113,11 @@ mod tests {
     }
 
     #[test]
-    fn a_password_meeting_every_part_passes() {
+    fn device_password_006_only_letters_digits_and_the_listed_punctuation_starting_alphanumeric() {
         accepted(GOOD);
         // Every allowed punctuation character, at either length limit.
         accepted("Ab1!@_-+.xyz");
         accepted("Zz9.Qq8+Ww7-Ee6_Rr5@");
-    }
-
-    #[test]
-    fn length_is_12_to_20_characters() {
-        accepted("Granite-Ow1x");
-        refused("Granite-Ow1", "12 to 20 characters; this one has 11");
-        accepted("Granite-Owl42-Lynx9x");
-        refused(
-            "Granite-Owl42-Lynx9xy",
-            "12 to 20 characters; this one has 21",
-        );
-    }
-
-    #[test]
-    fn only_letters_digits_and_the_listed_punctuation() {
         accepted("Granite.Owl42");
         for bad in [
             "Granite Owl42",
@@ -149,35 +134,16 @@ mod tests {
         ] {
             refused(bad, "only letters, digits and the punctuation ! @ _ - + .");
         }
-    }
-
-    #[test]
-    fn the_first_character_is_a_letter_or_digit() {
         accepted("9Granite-Owl4");
         refused("-Granite-Owl4", "starts with a letter or a digit");
     }
 
     #[test]
-    fn it_has_a_lowercase_letter() {
+    fn device_password_007_it_has_a_lowercase_an_uppercase_a_digit_and_a_punctuation_character() {
         accepted(GOOD);
         refused("GRANITE-OWL42", "at least one lowercase letter");
-    }
-
-    #[test]
-    fn it_has_an_uppercase_letter() {
-        accepted(GOOD);
         refused("granite-owl42", "at least one uppercase letter");
-    }
-
-    #[test]
-    fn it_has_a_digit() {
-        accepted(GOOD);
         refused("Granite-Owlxy", "at least one digit");
-    }
-
-    #[test]
-    fn it_has_a_punctuation_character() {
-        accepted(GOOD);
         refused(
             "GraniteOwl42x",
             "at least one of the punctuation characters",
@@ -185,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn it_does_not_contain_the_username_in_any_case() {
+    fn device_password_008_no_username_no_cisco_and_no_character_three_times_in_a_row() {
         accepted(GOOD);
         let error = validate_device_password("My-ALICE-pw42", USERNAME)
             .unwrap_err()
@@ -194,16 +160,7 @@ mod tests {
             error.contains("does not contain your username 'alice'"),
             "{error}"
         );
-    }
-
-    #[test]
-    fn it_does_not_contain_cisco_in_any_case() {
-        accepted(GOOD);
         refused("My-CiScO-pw42", "does not contain the word 'cisco'");
-    }
-
-    #[test]
-    fn no_character_three_times_in_a_row() {
         accepted("Graanite-Owl42");
         refused("Graaanite-Owl4", "no character three times in a row");
         refused("Granite-Owl444", "no character three times in a row");

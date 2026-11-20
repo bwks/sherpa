@@ -324,14 +324,24 @@ mod tests {
 
     // ── The machine ──
 
-    #[test]
-    fn state_follows_the_row_and_the_clock() {
+    #[tokio::test]
+    async fn user_sessions_007_a_session_past_its_expiry_is_refused_before_the_sweep() {
         let now = Timestamp::from_second(1_000).expect("time");
         let later = Timestamp::from_second(1_001).expect("time");
         assert_eq!(state_of(None, now), SessionState::Ended);
         assert_eq!(state_of(Some(&row(later)), now), SessionState::Active);
         assert_eq!(state_of(Some(&row(now)), now), SessionState::Expired);
         assert_eq!(state_of(Some(&row(now)), later), SessionState::Expired);
+
+        let db = database().await;
+        let alice = user(&db, "alice").await;
+        let issued = start(&db, SECRET, &alice, SessionChannel::Web, -1)
+            .await
+            .expect("start");
+        assert!(matches!(
+            lookup(&db, &issued.ctx.session_id).await.expect("lookup"),
+            SessionLookup::Rejected(SessionRejection::Expired)
+        ));
     }
 
     // ── Login and use ──
@@ -358,28 +368,6 @@ mod tests {
                 panic!("expected an active session, got {other:?}")
             }
         }
-    }
-
-    #[tokio::test]
-    async fn an_unknown_session_is_ended() {
-        let db = database().await;
-        assert!(matches!(
-            lookup(&db, "no-such-session").await.expect("lookup"),
-            SessionLookup::Rejected(SessionRejection::Ended)
-        ));
-    }
-
-    #[tokio::test]
-    async fn an_expired_session_is_refused_before_it_is_swept() {
-        let db = database().await;
-        let alice = user(&db, "alice").await;
-        let issued = start(&db, SECRET, &alice, SessionChannel::Web, -1)
-            .await
-            .expect("start");
-        assert!(matches!(
-            lookup(&db, &issued.ctx.session_id).await.expect("lookup"),
-            SessionLookup::Rejected(SessionRejection::Expired)
-        ));
     }
 
     #[tokio::test]
@@ -507,7 +495,7 @@ mod tests {
     // ── The sweep ──
 
     #[tokio::test]
-    async fn the_sweep_ends_the_expired_sessions_only() {
+    async fn user_sessions_018_the_sweep_ends_the_expired_sessions_only_and_stops_on_cancel() {
         let db = database().await;
         let alice = user(&db, "alice").await;
         let expired = start(&db, SECRET, &alice, SessionChannel::Web, -1)
@@ -536,10 +524,7 @@ mod tests {
             state_now(&db, &live.ctx.session_id).await,
             SessionState::Active
         );
-    }
 
-    #[tokio::test]
-    async fn the_sweeper_sweeps_at_start_and_stops_when_cancelled() {
         let db = database().await;
         let alice = user(&db, "alice").await;
         let expired = start(&db, SECRET, &alice, SessionChannel::Web, -1)

@@ -656,7 +656,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn admins_and_the_holding_labs_owner_see_the_holder_and_others_see_another_lab() {
+    async fn access_control_017_admins_and_the_owner_see_the_holder_others_see_another_lab() {
         let db = server().await;
         let request = [pins("n2", &[2], &[])];
         let other =

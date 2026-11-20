@@ -606,6 +606,7 @@ fn confirmed_password(password: String, confirm: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use clap::Parser;
+    use shared::util::ssh_key_fingerprint;
 
     use super::*;
 
@@ -624,8 +625,17 @@ mod tests {
         }
     }
 
+    const KEY: &str =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh me@host";
+
+    #[derive(Debug, Parser)]
+    struct TestCli {
+        #[command(subcommand)]
+        command: UserCommands,
+    }
+
     #[test]
-    fn device_password_asks_for_the_login_password_then_the_new_one_twice() {
+    fn device_password_013_the_cli_asks_for_both_passwords_and_takes_no_flag_for_them() {
         let mut asked = Vec::new();
         let request = device_password_request(
             "alice".to_owned(),
@@ -646,10 +656,7 @@ mod tests {
         assert_eq!(request.username, "alice");
         assert_eq!(request.login_password, "Login-Pass-1!");
         assert_eq!(request.device_password, "Granite-Owl42");
-    }
 
-    #[test]
-    fn device_password_must_be_typed_the_same_twice_and_not_be_empty() {
         let mut asked = Vec::new();
         let error = device_password_request(
             "alice".to_owned(),
@@ -667,20 +674,14 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.to_string(), "The password cannot be empty");
-    }
 
-    #[test]
-    fn device_password_stops_when_input_cannot_be_read() {
         let mut asked = Vec::new();
         let error =
             device_password_request("alice".to_owned(), scripted(&["Login-Pass-1!"], &mut asked))
                 .unwrap_err();
         assert_eq!(error.to_string(), "Failed to read password");
         assert_eq!(asked.len(), 2, "it asked on after a failed read: {asked:?}");
-    }
 
-    #[test]
-    fn device_password_takes_no_username_or_password_flags() {
         let cli = TestCli::try_parse_from(["user", "device-password"]).unwrap();
         assert!(matches!(cli.command, UserCommands::DevicePassword));
         for extra in [["alice"], ["--password"], ["--device-password"]] {
@@ -690,29 +691,34 @@ mod tests {
         }
     }
 
-    const KEY: &str =
-        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh me@host";
-
-    #[derive(Debug, Parser)]
-    struct TestCli {
-        #[command(subcommand)]
-        command: UserCommands,
-    }
-
     #[test]
-    fn key_argument_reads_a_public_key_file() {
+    fn account_keys_002_a_key_file_or_fingerprint_is_read_and_the_keys_are_listed() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("id_ed25519.pub");
         fs::write(&path, format!("{KEY}\n")).unwrap();
         assert_eq!(read_key_argument(path.to_str().unwrap()).unwrap(), KEY);
-    }
 
-    #[test]
-    fn key_argument_passes_keys_and_fingerprints_through() {
         assert_eq!(read_key_argument(&format!(" {KEY} ")).unwrap(), KEY);
         assert_eq!(
             read_key_argument("SHA256:/UpBoWzMiq6/+/wzQIGDT2VxOLzg/LUTfKhc0x+ktEs").unwrap(),
             "SHA256:/UpBoWzMiq6/+/wzQIGDT2VxOLzg/LUTfKhc0x+ktEs"
         );
+
+        let keys = vec![
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh brad@laptop"
+                .to_string(),
+            "ssh-rsa broken".to_string(),
+        ];
+        let table = render_ssh_keys_table("brad", &keys);
+        assert!(table.contains("SSH Keys for brad"));
+        assert!(table.contains("SHA256:/UpBoWzMiq6/+/wzQIGDT2VxOLzg/LUTfKhc0x+ktEs"));
+        assert!(table.contains("brad@laptop"));
+        assert!(table.contains("invalid key"));
+
+        assert_eq!(
+            ssh_key_fingerprint(&keys[0]).unwrap(),
+            "SHA256:/UpBoWzMiq6/+/wzQIGDT2VxOLzg/LUTfKhc0x+ktEs"
+        );
+        assert!(ssh_key_fingerprint("not a key").is_err());
     }
 }

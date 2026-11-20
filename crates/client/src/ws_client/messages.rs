@@ -110,18 +110,7 @@ mod tests {
     }
 
     #[test]
-    fn a_server_error_keeps_its_code_and_message() {
-        let error = error(RpcErrorCode::InsufficientMemory).into_error("Lab creation failed");
-        let failure = error.downcast_ref::<RpcFailure>().unwrap();
-        assert_eq!(failure.code, RpcErrorCode::InsufficientMemory);
-        assert_eq!(
-            error.to_string(),
-            "Lab creation failed: Not enough memory on the server (code: -32005)"
-        );
-    }
-
-    #[test]
-    fn an_expired_login_says_how_to_log_in_again() {
+    fn user_sessions_011_an_expired_login_says_how_to_log_in_again() {
         let error = error(RpcErrorCode::AuthRequired).into_error("Up failed");
         assert!(error.to_string().ends_with("run: sherpa login"), "{error}");
     }

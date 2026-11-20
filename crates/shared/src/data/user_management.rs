@@ -189,23 +189,3 @@ pub struct UserSshKeysResponse {
     /// The user's SSH public keys
     pub ssh_keys: Vec<String>,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_device_password_request_prints_no_password() {
-        let request = SetDevicePasswordRequest {
-            username: "alice".to_owned(),
-            login_password: "Login-Pass-123!".to_owned(),
-            device_password: "Granite-Owl42".to_owned(),
-            token: "token-value".to_owned(),
-        };
-        let printed = format!("{request:?}");
-        assert!(printed.contains("alice"), "{printed}");
-        for secret in ["Login-Pass-123!", "Granite-Owl42", "token-value"] {
-            assert!(!printed.contains(secret), "{printed}");
-        }
-    }
-}

@@ -456,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    fn every_node_with_a_generated_login_records_the_owner_and_ftdv_admin() {
+    fn owner_login_019_every_node_with_a_generated_login_records_the_owner_and_ftdv_admin() {
         let mut custom = node("eos2", NodeModel::AristaEos);
         custom.ztp.config = Some("hostname eos2\n".to_owned());
         let nodes = [

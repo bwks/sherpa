@@ -232,7 +232,7 @@ async fn clean_refuses_a_lab_id_that_is_not_a_lab_id() -> Result<()> {
 // ── CORS ──
 
 #[tokio::test]
-async fn another_origin_is_never_granted_cross_origin_access() -> Result<()> {
+async fn user_sessions_025_another_origin_is_never_granted_cross_origin_access() -> Result<()> {
     let server = TestServer::start().await?;
     let client = Client::new();
 
@@ -262,7 +262,7 @@ async fn another_origin_is_never_granted_cross_origin_access() -> Result<()> {
 // ── Signup ──
 
 #[tokio::test]
-async fn signup_is_closed_unless_the_server_allows_it() -> Result<()> {
+async fn user_accounts_018_signup_is_closed_unless_the_server_allows_it() -> Result<()> {
     let server = TestServer::start().await?;
     let client = Client::new();
 
@@ -294,7 +294,7 @@ async fn signup_is_closed_unless_the_server_allows_it() -> Result<()> {
 }
 
 #[tokio::test]
-async fn signup_opens_when_the_server_allows_it() -> Result<()> {
+async fn user_accounts_019_signup_opens_when_the_server_allows_it() -> Result<()> {
     let mut config = test_config()?;
     config.allow_signup = true;
     let server = TestServer::start_with_config(config).await?;
@@ -315,10 +315,12 @@ async fn signup_opens_when_the_server_allows_it() -> Result<()> {
 // ── Password changes ──
 
 #[tokio::test]
-async fn changing_your_own_password_over_rpc_needs_the_current_one() -> Result<()> {
+async fn user_passwords_002_changing_your_own_password_needs_the_current_one_over_rpc() -> Result<()>
+{
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = user_token(&server, &mut ws, "alice", false).await?;
+    let dana = user_token(&server, &mut ws, "dana", true).await?;
 
     for current in [None, Some("Wrong-Pass-789!")] {
         let mut params =
@@ -333,6 +335,26 @@ async fn changing_your_own_password_over_rpc_needs_the_current_one() -> Result<(
         );
         ensure!(can_log_in(&mut ws, "alice", TEST_ADMIN_PASSWORD).await?);
     }
+
+    let own = ws
+        .rpc_call(
+            "user.passwd",
+            json!({ "token": dana, "username": "dana", "new_password": NEW_PASSWORD }),
+        )
+        .await?;
+    ensure!(
+        own.get("error").is_some(),
+        "an admin changed their own password without the current one: {own}"
+    );
+    ensure!(can_log_in(&mut ws, "dana", TEST_ADMIN_PASSWORD).await?);
+    Ok(())
+}
+
+#[tokio::test]
+async fn user_passwords_001_changing_your_own_password_with_the_current_one_works() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = user_token(&server, &mut ws, "alice", false).await?;
 
     let response = ws
         .rpc_call(
@@ -355,7 +377,8 @@ async fn changing_your_own_password_over_rpc_needs_the_current_one() -> Result<(
 }
 
 #[tokio::test]
-async fn changing_your_own_password_over_rest_needs_the_current_one() -> Result<()> {
+async fn user_passwords_003_changing_your_own_password_over_rest_needs_the_current_one()
+-> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = user_token(&server, &mut ws, "alice", false).await?;
@@ -391,7 +414,7 @@ async fn changing_your_own_password_over_rest_needs_the_current_one() -> Result<
 }
 
 #[tokio::test]
-async fn an_admin_resets_another_users_password_without_theirs() -> Result<()> {
+async fn user_passwords_005_an_admin_resets_another_users_password_without_theirs() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     user_token(&server, &mut ws, "alice", false).await?;
@@ -405,24 +428,13 @@ async fn an_admin_resets_another_users_password_without_theirs() -> Result<()> {
         .await?;
     ensure!(reset.get("error").is_none(), "{reset}");
     ensure!(can_log_in(&mut ws, "alice", NEW_PASSWORD).await?);
-
-    let own = ws
-        .rpc_call(
-            "user.passwd",
-            json!({ "token": dana, "username": "dana", "new_password": NEW_PASSWORD }),
-        )
-        .await?;
-    ensure!(
-        own.get("error").is_some(),
-        "an admin changed their own password without the current one: {own}"
-    );
     Ok(())
 }
 
 // ── Host access from manifests ──
 
 #[tokio::test]
-async fn only_admins_may_give_a_container_host_access() -> Result<()> {
+async fn access_control_014_only_admins_may_give_a_container_host_access() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = user_token(&server, &mut ws, "alice", false).await?;
@@ -444,7 +456,7 @@ async fn only_admins_may_give_a_container_host_access() -> Result<()> {
 // ── Manifest file paths ──
 
 #[tokio::test]
-async fn the_server_never_reads_a_file_a_manifest_names() -> Result<()> {
+async fn access_control_018_the_server_never_reads_a_file_a_manifest_names() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = user_token(&server, &mut ws, "alice", false).await?;
@@ -489,7 +501,7 @@ async fn link_impair_010_a_number_too_large_for_its_field_is_refused_not_wrapped
 // ── Admin route access matrix ──
 
 #[tokio::test]
-async fn admin_pages_are_refused_to_others_and_served_to_admins() -> Result<()> {
+async fn admin_only_004_admin_pages_are_refused_to_others_and_served_to_admins() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     seed_matrix_image(&server).await?;
@@ -527,7 +539,7 @@ async fn admin_pages_are_refused_to_others_and_served_to_admins() -> Result<()> 
 }
 
 #[tokio::test]
-async fn admin_api_operations_are_refused_to_others() -> Result<()> {
+async fn admin_only_003_admin_api_operations_are_refused_to_others() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     seed_matrix_image(&server).await?;

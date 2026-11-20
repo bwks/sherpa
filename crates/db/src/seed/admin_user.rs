@@ -96,7 +96,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_seed_admin_user_validates_password() -> Result<()> {
+    async fn builtin_admin_003_a_weak_admin_password_creates_no_admin() -> Result<()> {
         let db = crate::open_in_memory().await?;
         crate::schema::apply_schema(&db).await?;
 

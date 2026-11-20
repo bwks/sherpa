@@ -4712,7 +4712,6 @@ pub(crate) mod tests {
     use crate::log_capture::capture_log;
     use crate::services::guest_account::tests::test_account;
     use nix::sys::stat::{Mode, umask};
-    use sha_crypt::{PasswordVerifier, ShaCrypt};
     use shared::data::{ModelKind, Ztp};
     use std::env;
     use std::os::unix::fs::PermissionsExt;
@@ -5418,21 +5417,8 @@ echo "$*" >> '{}'
     const OWNER_KEY: &str =
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh";
 
-    /// Whether `hash` is a crypt hash of the test owner's device password.
-    fn verifies_device_password(hash: &str) -> bool {
-        ShaCrypt::default()
-            .verify_password(
-                test_account("alice", &[])
-                    .device_password
-                    .expose()
-                    .as_bytes(),
-                hash,
-            )
-            .is_ok()
-    }
-
     /// The rule in an Ignition sudoers file's base64 data URL.
-    fn ignition_file_text(file: &serde_json::Value) -> String {
+    pub(crate) fn ignition_file_text(file: &serde_json::Value) -> String {
         util::base64_decode(
             file["contents"]["source"]
                 .as_str()
@@ -5443,8 +5429,12 @@ echo "$*" >> '{}'
         .unwrap()
     }
 
-    #[test]
-    fn flatcar_has_one_login_the_owner_with_sudo_docker_and_exactly_the_account_keys() {
+    /// The owner's second key on the Flatcar node.
+    pub(crate) const FLATCAR_SECOND_KEY: &str = "ssh-rsa AAAAB3NzaC1yc2E second-owner-key";
+
+    /// The Ignition config generated for a Flatcar node whose owner has two keys, as JSON and as
+    /// text.
+    pub(crate) fn flatcar_ignition_config() -> (serde_json::Value, String) {
         let dir = tempdir().unwrap();
         let root = dir.path().to_str().unwrap();
         let blank_dir = dir.path().join(SHERPA_BLANK_DISK_DIR);
@@ -5461,8 +5451,7 @@ echo "$*" >> '{}'
             ..Default::default()
         };
         let image = data::ModelKind::default_for(data::NodeModel::FlatcarLinux).node_config();
-        let second_key = "ssh-rsa AAAAB3NzaC1yc2E second-owner-key";
-        let account = test_account("alice", &[OWNER_KEY, second_key]);
+        let account = test_account("alice", &[OWNER_KEY, FLATCAR_SECOND_KEY]);
         let network = nocloud_test_network();
         let (tx, _rx) = mpsc::unbounded_channel();
         let progress = ProgressSender::new(tx);
@@ -5486,48 +5475,15 @@ echo "$*" >> '{}'
         let config = fs::read_to_string(config_path).unwrap();
         let json: serde_json::Value = serde_json::from_str(&config).unwrap();
 
-        let users = json["passwd"]["users"].as_array().unwrap();
-        assert_eq!(users.len(), 1, "{config}");
-        let owner = &users[0];
-        assert_eq!(owner["name"], "alice");
-        assert_eq!(owner["groups"], serde_json::json!(["wheel", "docker"]));
-        assert_eq!(
-            owner["sshAuthorizedKeys"],
-            serde_json::json!([OWNER_KEY, second_key])
-        );
-        assert!(verifies_device_password(
-            owner["passwordHash"].as_str().unwrap()
-        ));
-        let files = json["storage"]["files"].as_array().unwrap();
-        let sudoers: Vec<&serde_json::Value> = files
-            .iter()
-            .filter(|file| {
-                file["path"]
-                    .as_str()
-                    .unwrap()
-                    .starts_with("/etc/sudoers.d/")
-            })
-            .collect();
-        assert_eq!(sudoers.len(), 1, "{config}");
-        assert_eq!(sudoers[0]["path"], "/etc/sudoers.d/alice");
-        assert_eq!(sudoers[0]["mode"], 0o440);
-        assert_eq!(
-            ignition_file_text(sudoers[0]),
-            "alice ALL=(ALL) NOPASSWD: ALL\n"
-        );
-        assert!(!config.contains("sherpa ALL"), "{config}");
-        assert!(
-            !config.contains(test_account("alice", &[]).device_password.expose()),
-            "{config}"
-        );
+        (json, config)
     }
 
-    #[test]
-    fn cloud_init_has_one_login_the_owner_with_the_device_password() {
+    /// The cloud-init user data generated for the owner on each of a few models, as text and as
+    /// parsed JSON, with the model it is for.
+    pub(crate) fn owner_cloud_init_configs() -> Vec<(data::NodeModel, String, serde_json::Value)> {
         let dir = tempdir().unwrap();
         let root = dir.path().to_str().unwrap();
         let account = test_account("alice", &[OWNER_KEY]);
-        let password = account.device_password.expose().to_owned();
         let network = nocloud_test_network();
         let (tx, _rx) = mpsc::unbounded_channel();
         let progress = ProgressSender::new(tx);
@@ -5547,6 +5503,7 @@ echo "$*" >> '{}'
             cert_paths: None,
             guest_account: Some(&account),
         };
+        let mut configs = Vec::new();
         for model in [
             data::NodeModel::UbuntuLinux,
             data::NodeModel::AlpineLinux,
@@ -5571,28 +5528,13 @@ echo "$*" >> '{}'
                 fs::read_to_string(format!("{node_dir}/{CLOUD_INIT_USER_DATA}")).unwrap();
             let parsed: serde_json::Value =
                 serde_json::from_str(user_data.strip_prefix("#cloud-config\n").unwrap()).unwrap();
-            let users = parsed["users"].as_array().unwrap();
-            assert_eq!(users.len(), 1, "{model}: {user_data}");
-            assert_eq!(users[0]["name"], "alice", "{model}");
-            assert!(user_data.contains(OWNER_KEY), "{model}: {user_data}");
-            assert!(!user_data.contains("name: sherpa"), "{model}: {user_data}");
-            if model == data::NodeModel::WindowsServer {
-                // cloudbase-init takes the password itself.
-                assert_eq!(users[0]["passwd"], password.as_str(), "{model}");
-                assert!(user_data.contains(r"authorized_keys\\alice"), "{model}");
-                assert!(!user_data.contains(r"authorized_keys\\sherpa"), "{model}");
-            } else {
-                assert!(!user_data.contains(&password), "{model}: {user_data}");
-                assert!(
-                    verifies_device_password(users[0]["hashed_passwd"].as_str().unwrap()),
-                    "{model}"
-                );
-            }
+            configs.push((model, user_data, parsed));
         }
+        configs
     }
 
     #[test]
-    fn windows_disables_every_account_but_the_owner_before_its_startup_scripts() {
+    fn owner_login_024_windows_disables_every_account_but_the_owner_before_its_startup_scripts() {
         let dir = tempdir().unwrap();
         let root = dir.path().to_str().unwrap();
         let account = test_account("alice", &[OWNER_KEY]);
@@ -5660,6 +5602,40 @@ echo "$*" >> '{}'
                 .unwrap_or_else(|| panic!("{model}: {runcmd:?}"));
             assert!(lockdown < startup, "{model}: {runcmd:?}");
         }
+        assert_owner_only_login_script_disables_the_rest();
+    }
+
+    /// The rendered Windows script keeps the owner enabled and disables every other account.
+    fn assert_owner_only_login_script_disables_the_rest() {
+        let output = template::WindowsOwnerOnlyLoginTemplate {
+            owner: "alice".to_string(),
+        }
+        .render()
+        .unwrap();
+        let commands: Vec<&str> = output
+            .lines()
+            .filter(|line| !line.trim_start().starts_with('#'))
+            .collect();
+        assert_eq!(
+            commands,
+            [
+                "$ErrorActionPreference = 'Stop'",
+                "$owner = Get-LocalUser -Name 'alice'",
+                "if (-not $owner.Enabled) {",
+                r#"    throw "The lab owner's account 'alice' is disabled, so no other account was disabled""#,
+                "}",
+                "Get-LocalUser |",
+                "    Where-Object { $_.Enabled -and $_.SID -ne $owner.SID } |",
+                "    Disable-LocalUser",
+            ]
+        );
+        // Administrator and Admin are among the accounts disabled, never enabled or given a
+        // password.
+        for account in ["Administrator", "Admin"] {
+            assert!(!output.contains(&format!("-Name '{account}'")), "{output}");
+        }
+        assert!(!output.contains("Enable-LocalUser"));
+        assert!(!output.contains("Set-LocalUser"));
     }
 
     fn nocloud_test_network() -> data::SherpaNetwork {
@@ -6534,8 +6510,8 @@ echo "$*" >> '{}'
         assert!(!init.contains("sonic-cfggen -j"));
     }
 
-    #[test]
-    fn sonic_container_with_a_custom_config_mounts_it_and_still_adds_the_owner() {
+    /// A `SONiC` container node with a custom `config_db.json` mounts it and still adds the owner.
+    pub(crate) fn assert_sonic_container_with_a_custom_config_adds_the_owner() {
         let lab = ZtpLab::new();
         let mut node = named_container("sonic01", data::NodeModel::SonicLinux);
         node.ztp.config = Some(r#"{"DEVICE_METADATA": {}}"#.to_owned());

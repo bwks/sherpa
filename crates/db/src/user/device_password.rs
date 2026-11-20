@@ -129,8 +129,10 @@ pub async fn open_device_password(db: &Database, id: &RecordId) -> Result<Option
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::secret::{SEALED_TEXT_PREFIX, SecretKey};
-    use crate::{apply_schema, create_user, get_user, open_in_memory};
+    use crate::secret::{SEALED_TEXT_PREFIX, SecretKey, open, seal, seal_text};
+    use crate::{apply_schema, create_user, open_in_memory};
+    use shared::data::SetDevicePasswordRequest;
+    use turso::Value;
 
     const DEVICE_PASSWORD: &str = "Granite-Owl42";
 
@@ -164,24 +166,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_device_password_is_sealed_on_write_and_opened_on_read() {
+    async fn device_password_009_setting_it_again_replaces_it() {
         let (db, ids) = database_with(&["alice"]).await;
         let alice = &ids[0];
-        assert!(!device_password_set(&db, alice).await.unwrap());
-        assert_eq!(open_device_password(&db, alice).await.unwrap(), None);
-        assert_eq!(stored(&db, alice).await, None);
-
         set_device_password(&db, alice, DEVICE_PASSWORD)
             .await
             .unwrap();
-        assert!(device_password_set(&db, alice).await.unwrap());
         let first = stored(&db, alice).await.unwrap();
-        assert!(first.starts_with(SEALED_TEXT_PREFIX), "{first}");
-        assert!(!first.contains(DEVICE_PASSWORD));
-        let opened = open_device_password(&db, alice).await.unwrap().unwrap();
-        assert_eq!(opened.expose(), DEVICE_PASSWORD);
 
-        // A new password replaces it, sealed afresh.
         set_device_password(&db, alice, "Second-Kite77")
             .await
             .unwrap();
@@ -192,38 +184,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_user_record_does_not_carry_the_device_password() {
-        let (db, ids) = database_with(&["alice"]).await;
-        set_device_password(&db, &ids[0], DEVICE_PASSWORD)
-            .await
-            .unwrap();
-        let user = get_user(&db, "alice").await.unwrap();
-        let printed = format!("{user:?}");
-        assert!(!printed.contains(DEVICE_PASSWORD), "{printed}");
-        assert!(!printed.contains(SEALED_TEXT_PREFIX), "{printed}");
-    }
-
-    #[tokio::test]
-    async fn an_opened_device_password_prints_redacted() {
-        let (db, ids) = database_with(&["alice"]).await;
-        set_device_password(&db, &ids[0], DEVICE_PASSWORD)
-            .await
-            .unwrap();
-        let opened = open_device_password(&db, &ids[0]).await.unwrap().unwrap();
-        let printed = format!("{opened:?} {:?}", Some(&opened));
-        assert!(!printed.contains(DEVICE_PASSWORD), "{printed}");
-        assert_eq!(format!("{opened:?}"), "DevicePassword([REDACTED])");
-    }
-
-    #[tokio::test]
-    async fn a_sealed_device_password_opens_only_for_its_own_row_and_key() {
+    async fn device_password_011_it_is_sealed_for_its_row_and_key_and_a_plain_value_is_refused() {
         let (db, ids) = database_with(&["alice", "bob"]).await;
         let (alice, bob) = (&ids[0], &ids[1]);
+        assert!(!device_password_set(&db, alice).await.unwrap());
+        assert_eq!(open_device_password(&db, alice).await.unwrap(), None);
+        assert_eq!(stored(&db, alice).await, None);
+
         set_device_password(&db, alice, DEVICE_PASSWORD)
             .await
             .unwrap();
-        // Alice's sealed value copied to Bob's row passes the triggers but does not open there.
+        assert!(device_password_set(&db, alice).await.unwrap());
         let sealed = stored(&db, alice).await.unwrap();
+        assert!(sealed.starts_with(SEALED_TEXT_PREFIX), "{sealed}");
+        assert!(!sealed.contains(DEVICE_PASSWORD));
+        let opened = open_device_password(&db, alice).await.unwrap().unwrap();
+        assert_eq!(opened.expose(), DEVICE_PASSWORD);
+
+        // Alice's sealed value copied to Bob's row passes the triggers but does not open there.
         {
             let writer = db.writer().await.unwrap();
             writer
@@ -240,12 +218,40 @@ mod tests {
         // Under another database key, Alice's does not open either.
         let other = db.clone().with_secret_key(SecretKey::generate());
         assert!(open_device_password(&other, alice).await.is_err());
-    }
 
-    #[tokio::test]
-    async fn the_database_refuses_a_plain_device_password() {
-        let (db, ids) = database_with(&["alice"]).await;
-        let key = key_of(&ids[0], USER_TABLE).unwrap();
+        // The sealing itself: a value opens only with its key and place, and a text is sealed
+        // as prefixed lower-case hex.
+        {
+            let key = SecretKey::generate();
+            let place = "user.device_password:abc";
+            let sealed = seal(&key, b"hunter2", place).unwrap();
+            assert!(!sealed.windows(7).any(|window| window == b"hunter2"));
+            assert_eq!(open(&key, &sealed, place).unwrap(), b"hunter2");
+            assert!(open(&key, &sealed, "user.device_password:xyz").is_err());
+            let error = open(&SecretKey::generate(), &sealed, place).unwrap_err();
+            assert!(
+                error.to_string().contains("different database key"),
+                "{error}"
+            );
+
+            let sealed = seal_text(&key, "cisco", place).unwrap();
+            let Value::Text(text) = Value::from(sealed) else {
+                panic!("sealed text is not text");
+            };
+            let hex = text.strip_prefix(SEALED_TEXT_PREFIX).unwrap();
+            assert!(hex::decode(hex).is_ok(), "{text}");
+            assert_eq!(hex, hex.to_lowercase(), "{text}");
+            assert!(!text.contains("cisco"));
+            assert_eq!(open_text(&key, &text, place).unwrap(), "cisco");
+            for stored in ["cisco", "sealed:zz", "sealed:abc", "sealed:00"] {
+                assert!(open_text(&key, stored, "place").is_err(), "{stored}");
+            }
+            let error = open_text(&key, "cisco", "place").unwrap_err();
+            assert!(error.to_string().contains("not sealed"), "{error}");
+            assert!(open_text(&key, &text, "user.device_password:other").is_err());
+        }
+
+        let key = key_of(alice, USER_TABLE).unwrap();
         let writer = db.writer().await.unwrap();
         for plain in [
             DEVICE_PASSWORD,
@@ -283,5 +289,29 @@ mod tests {
                 "{plain}: {error}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn device_password_014_a_device_password_shows_nothing_of_itself_when_printed() {
+        let request = SetDevicePasswordRequest {
+            username: "alice".to_owned(),
+            login_password: "Login-Pass-123!".to_owned(),
+            device_password: DEVICE_PASSWORD.to_owned(),
+            token: "token-value".to_owned(),
+        };
+        let printed = format!("{request:?}");
+        assert!(printed.contains("alice"), "{printed}");
+        for secret in ["Login-Pass-123!", DEVICE_PASSWORD, "token-value"] {
+            assert!(!printed.contains(secret), "{printed}");
+        }
+
+        let (db, ids) = database_with(&["alice"]).await;
+        set_device_password(&db, &ids[0], DEVICE_PASSWORD)
+            .await
+            .unwrap();
+        let opened = open_device_password(&db, &ids[0]).await.unwrap().unwrap();
+        let printed = format!("{opened:?} {:?}", Some(&opened));
+        assert!(!printed.contains(DEVICE_PASSWORD), "{printed}");
+        assert_eq!(format!("{opened:?}"), "DevicePassword([REDACTED])");
     }
 }

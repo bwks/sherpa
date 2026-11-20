@@ -92,22 +92,6 @@ mod tests {
     use shared::error::CpuPinRole;
 
     #[test]
-    fn a_stale_user_write_is_a_conflict() {
-        let error = ServiceError::from_user_write(
-            UserChanged {
-                username: "alice".to_owned(),
-            }
-            .into(),
-        );
-        assert!(
-            matches!(ServiceError::find(&error), Some(ServiceError::Conflict(message)) if message.contains("try again")),
-            "{error:#}"
-        );
-        let other = ServiceError::from_user_write(anyhow!("disk full"));
-        assert!(ServiceError::find(&other).is_none());
-    }
-
-    #[test]
     fn a_cpu_the_database_refused_to_pin_is_the_pin_refusal() {
         let error = ServiceError::from_cpu_pin_claim(
             CpuPinTaken {

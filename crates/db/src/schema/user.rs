@@ -11,10 +11,13 @@ pub(crate) const TABLES: &str = include_str!("../../sql/schema/user.sql");
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
-    use shared::konst::ADMIN_PROTECTED_MESSAGE;
+    use shared::konst::{ADMIN_PROTECTED_MESSAGE, ADMIN_USERNAME};
 
     use crate::sql::{Query, query_count};
-    use crate::{Database, apply_schema, create_admin_user, create_user, open_in_memory};
+    use crate::{
+        Database, apply_schema, create_admin_user, create_user, delete_user, get_user, list_users,
+        open_in_memory, update_user,
+    };
 
     async fn setup() -> Result<Database> {
         let db = open_in_memory().await?;
@@ -47,9 +50,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bulk_delete_is_refused_while_admin_exists() -> Result<()> {
+    async fn builtin_admin_005_the_database_refuses_to_delete_rename_or_demote_admin() -> Result<()>
+    {
+        // A statement that covers every user, and single writes, are refused for `admin`.
         let db = setup().await?;
-        create_admin_user(&db, "AdminPass123!").await?;
+        let admin = create_admin_user(&db, "AdminPass123!").await?;
         create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
 
         let error = execute_raw(&db, "DELETE FROM user").await.unwrap_err();
@@ -58,13 +63,6 @@ mod tests {
             "{error}"
         );
         assert_eq!(user_count(&db).await?, 2, "No user may be deleted");
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn raw_updates_cannot_rename_or_demote_admin() -> Result<()> {
-        let db = setup().await?;
-        create_admin_user(&db, "AdminPass123!").await?;
 
         for statement in [
             "UPDATE user SET is_admin = 0 WHERE username = 'admin'",
@@ -84,13 +82,27 @@ mod tests {
         )
         .await?;
         assert_eq!(admins, 1);
-        Ok(())
-    }
 
-    #[tokio::test]
-    async fn admin_row_without_admin_flag_is_refused() -> Result<()> {
+        let error = delete_user(&db, admin.id.clone().expect("admin id"))
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{error:#}").contains(ADMIN_PROTECTED_MESSAGE),
+            "{error:#}"
+        );
+        assert!(get_user(&db, ADMIN_USERNAME).await.is_ok());
+
+        let mut demoted = admin.clone();
+        demoted.is_admin = false;
+        assert!(update_user(&db, demoted).await.is_err());
+        let mut renamed = admin.clone();
+        renamed.username = "former_admin".to_string();
+        assert!(update_user(&db, renamed).await.is_err());
+        let stored = get_user(&db, ADMIN_USERNAME).await?;
+        assert!(stored.is_admin);
+
+        // The row cannot be created without the admin flag.
         let db = setup().await?;
-
         let error = insert_raw(&db, "admin", false).await.unwrap_err();
         assert!(
             error.to_string().contains(ADMIN_PROTECTED_MESSAGE),
@@ -100,11 +112,22 @@ mod tests {
 
         insert_raw(&db, "admin", true).await?;
         assert_eq!(user_count(&db).await?, 1);
+
+        // Any other admin is left alone.
+        let db = setup().await?;
+        create_admin_user(&db, "AdminPass123!").await?;
+        let mut dana = create_user(&db, "dana".to_string(), "TestPass123!", true, vec![]).await?;
+        dana.is_admin = false;
+        let demoted = update_user(&db, dana).await?;
+        assert!(!demoted.is_admin);
+        delete_user(&db, demoted.id.clone().unwrap()).await?;
+        assert_eq!(list_users(&db).await?.len(), 1);
         Ok(())
     }
 
     #[tokio::test]
-    async fn schema_rejects_username_written_directly() -> Result<()> {
+    async fn user_accounts_007_the_database_refuses_a_username_that_breaks_the_rule_or_is_taken()
+    -> Result<()> {
         let db = setup().await?;
 
         for username in ["Brad", "brad.searle", "ab", "1brad", "brad searle"] {
@@ -118,13 +141,7 @@ mod tests {
             insert_raw(&db, username, false).await?;
         }
         assert_eq!(user_count(&db).await?, 3);
-        Ok(())
-    }
 
-    #[tokio::test]
-    async fn usernames_are_unique() -> Result<()> {
-        let db = setup().await?;
-        insert_raw(&db, "brad", false).await?;
         let error = execute_raw(
             &db,
             "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys, created_at, \

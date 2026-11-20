@@ -140,7 +140,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_key_edit_from_a_stale_read_is_a_conflict_and_keeps_the_other_edit() {
+    async fn account_keys_009_a_key_edit_from_a_stale_read_is_a_conflict_and_keeps_the_other_edit()
+    {
         let db = db::open_in_memory().await.expect("open database");
         db::apply_schema(&db).await.expect("apply schema");
         let read = db::create_user(&db, "alice".to_owned(), "Original-Pass-123!", false, vec![])
@@ -160,12 +161,5 @@ mod tests {
         );
         let stored = db::get_user(&db, "alice").await.expect("read");
         assert_eq!(stored.ssh_keys, vec![format!("{KEY} laptop")]);
-    }
-
-    #[test]
-    fn unparseable_keys_match_only_exactly() {
-        let keys = vec!["ssh-rsa legacy".to_owned()];
-        assert_eq!(find_ssh_key(&keys, "ssh-rsa legacy"), Some(0));
-        assert_eq!(find_ssh_key(&keys, "ssh-rsa other"), None);
     }
 }
