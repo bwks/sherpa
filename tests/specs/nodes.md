@@ -126,10 +126,11 @@ Cases 001 to 020 are up, 021 to 026 resume, 027 and 028 redeploy, 029 to 035 the
 | 017 | A node between states is left as recorded by what the scanner sees (no test yet) | integration |
 | 018 | A paused node is recorded `stopped` (no test yet) | integration |
 | 019 | A `missing` node found again is recorded `stopped` (no test yet) | integration |
+| 020 | The web UI offers a node only the actions its state allows: stop when it runs, start when it is stopped or failed, only redeploy when missing, none while building | unit |
 
-## `node_stop_start`: down and resume act on each node as its kind and state allow
+## `node_down`: down stops each node as its kind and state allow
 
-**Statement:** down and resume act on each node as its kind and its state allow.
+**Statement:** down stops each node as its kind and its state allow.
 **Relied on by:** the user. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -138,13 +139,21 @@ Cases 001 to 020 are up, 021 to 026 resume, 027 and 028 redeploy, 029 to 035 the
 | 002 | A VM's result says it shut down, or that it was forced off and why: still running after 60 seconds, or the request refused | unit |
 | 003 | Down pauses only a running container; one already paused or not running is reported as such and is not an error | unit |
 | 004 | A second down of a lab that is down succeeds, each node reported already stopped or paused (no test yet) | integration |
-| 005 | Resume boots a node that is shut off or exited, unpauses a paused one and leaves a running one alone | unit |
-| 006 | Resume refuses a crashed VM and a dead container, saying to redeploy it, and a node between states, saying which | unit |
-| 007 | Resume of a `missing` node is refused, saying to redeploy it | integration |
-| 008 | Down leaves a node an operation is building alone, saying to wait | unit |
-| 009 | A container stopped outside Sherpa is started by resume and reachable again (no test with its ID yet; `tests/labs/cisco-iol` shows it) | e2e |
-| 010 | `--node` stops and resumes that node alone (no test with its ID yet; `tests/labs/talos-linux` uses it) | e2e |
-| 011 | The web UI offers a node only the actions its state allows: stop when it runs, start when it is stopped or failed, only redeploy when missing, none while building | unit |
+| 005 | Down leaves a node an operation is building alone, saying to wait | unit |
+| 006 | `--node` downs that node alone (no test with its ID yet; `tests/labs/talos-linux` uses it) | e2e |
+
+## `node_resume`: resume brings each node back as its kind and state allow
+
+**Statement:** resume brings each node back as its kind and its state allow.
+**Relied on by:** the user. **Priority:** P0.
+
+| Case | What it shows | Level |
+|---|---|---|
+| 001 | Resume boots a node that is shut off or exited, unpauses a paused one and leaves a running one alone | unit |
+| 002 | Resume refuses a crashed VM and a dead container, saying to redeploy it, and a node between states, saying which | unit |
+| 003 | Resume of a `missing` node is refused, saying to redeploy it | integration |
+| 004 | A container stopped outside Sherpa is started by resume and reachable again (no test with its ID yet; `tests/labs/cisco-iol` shows it) | e2e |
+| 005 | `--node` resumes that node alone (no test with its ID yet; `tests/labs/talos-linux` uses it) | e2e |
 
 ## `node_failure`: a failed node stays failed, with the reason
 
