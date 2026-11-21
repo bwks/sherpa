@@ -112,7 +112,7 @@ is a member of; a Vault `redeploy` grants access to every loaded cluster that us
 
 Releases up to 0.6.4 saved the plan as `cluster.toml` in the cluster's folder; 0.6.5 moved it
 into the database at startup and deleted the file. 0.7.0 does not read it, and `ClusterPlan` has
-no serde form (see [`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders)).
+no serde form.
 
 ### Cilium
 

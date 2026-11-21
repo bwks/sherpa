@@ -66,7 +66,7 @@ flowchart LR
    `bootstrap` label and its folder layout.
 
 The files in the lab directory, while they are there, and the ISO in the pool are readable by
-`sherpa`, the `sherpa` group and QEMU; see "Lab storage permissions" in [`SERVER.md`](SERVER.md). They are not for
+`sherpa`, the `sherpa` group and QEMU; see [`SERVER.md`](SERVER.md#lab-and-database-storage-permissions). They are not for
 secrets.
 
 ## Callers
