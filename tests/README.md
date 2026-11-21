@@ -74,6 +74,8 @@ workspace commands below once before a commit. Times after a one-line edit in `s
 The first `-p` build of a crate resolves features for that crate alone and builds its own copy
 of some dependencies: 160–270 s, once.
 
+Add `-- --nocapture` to see what the tests print.
+
 ## Before a commit
 
 Once before each commit, not after each edit, run format, lint and the
@@ -161,12 +163,56 @@ Opt-in live tests read these environment variables:
 |---|---|
 | `SHERPA_OVERLAY_LIVE=1` | Runs the libvirt overlay isolation test (disposable volumes in `sherpa-pool`), as root: it checks the guest-visible blocks with `qemu-io` on the volume files, which only QEMU can read. The VM code suite sets it and runs the integration tests as root |
 | `SHERPA_TEST_KEEP_FAILED_LABS=1` | A failed lab test keeps its lab for debugging |
-| `SHERPA_TEST_TAILSCALE_*` | The live tailnet enrollment test, which joins a real tailnet; see [the Tailscale spec](specs/integration/tailscale.md). The VM code suite sets them itself when it has a key |
+| `SHERPA_TEST_TAILSCALE_*` | The live tailnet enrollment test, which joins a real tailnet; see [Live tailnet tests](#live-tailnet-tests). The VM code suite sets them itself when it has a key |
 
 Run the overlay test from the built libvirt test binary:
 
 ```sh
 sudo -n env SHERPA_OVERLAY_LIVE=1 <binary> --ignored --test-threads=1 live_overlay
+```
+
+### Live tailnet tests
+
+The gateway daemon tests need Docker with TUN and nftables, and no tailnet. Each creates and
+removes its own network, gateway and volume, and pulls the gateway image if it is absent:
+
+```sh
+cargo test -p container -- --ignored tailnet_routes_002 tailnet_key_009 tailnet_suspend_010
+```
+
+The enrollment tests join a real tailnet. Use a disposable test tailnet and a disposable Docker
+network, and set in the shell that runs them:
+
+| Variable | Value |
+|---|---|
+| `SHERPA_TEST_TAILSCALE_AUTH_KEY` | Auth key for the test tailnet, from a secret manager |
+| `SHERPA_TEST_TAILSCALE_NETWORK` | The existing Docker network the gateway joins |
+| `SHERPA_TEST_TAILSCALE_IPV4` | An unused gateway IPv4 address in that network |
+| `SHERPA_TEST_TAILSCALE_IPV6` | Optional: an unused gateway IPv6 address in that network |
+| `SHERPA_TEST_TAILSCALE_ROUTES` | Comma-separated management prefixes to advertise |
+| `SHERPA_TEST_SERVER_CONFIG` | Optional, for these and the daemon tests: a complete server `sherpa.toml` whose `[tailscale]` settings replace the defaults |
+
+```sh
+cargo test -p container -- --ignored tailnet_join_003 tailnet_suspend_003
+```
+
+They take turns on the one gateway address and each removes its gateway and identity volume;
+the Docker network is left. The VM code suite creates the network and sets these itself (see
+[VM code suite](#vm-code-suite)). What the other tailnet cases need is in
+[the tailnet spec](specs/tailnet.md#cases-that-need-a-real-tailnet).
+
+### After a crashed run
+
+The tests remove their own leftovers before each run, but a crash can leave resources behind.
+Their names start with `sherpa-test-` (Docker containers and networks, libvirt networks and
+pools) or `st-` (network interfaces). On the disposable host, list them and remove each:
+
+```sh
+docker ps -a --format '{{.Names}}' | grep '^sherpa-test-' | xargs -r docker rm -f
+docker network ls --format '{{.Name}}' | grep '^sherpa-test-' | xargs -r docker network rm
+virsh -c qemu:///system net-list --all --name | grep '^sherpa-test-'   # net-destroy, then net-undefine
+virsh -c qemu:///system pool-list --all --name | grep '^sherpa-test-'  # pool-destroy, then pool-undefine
+ip -br link show | grep '^st-'                                         # sudo ip link del <name>
 ```
 
 
@@ -284,16 +330,113 @@ Tests the checkout's installer and uninstaller with published release binaries:
 ./tests/harness/test_install.sh --config tests/environments/ubuntu-2604/release-test.toml
 ```
 
-Scenarios (`--scenario`): `lifecycle` (default), `preflight`, `upgrade` and
-`failure-checks`. See the [harness guide](specs/install/vm-release-harness.md) for each
-scenario, local candidate archives and result verification.
+It needs curl, OpenSSH with scp and an authenticated `sherpa` CLI on the machine that runs it.
+Its SSH account on the Sherpa host must be able to read the base image's checksum and query
+domains with `virsh`. The guest needs internet access for Ubuntu packages, Docker, container
+registries and the pinned uv release the harness installs.
+
+The runner creates and destroys its own uniquely named lab from the environment's manifest,
+never one brought up by hand, with a generated guest name and credentials for each run.
+Without `--config` it uses `tests/environments/ubuntu-2604/release-test.toml`, which holds the
+connection settings (an empty `server_url` uses the CLI's server), the base image's identity,
+the candidate, timeouts, output and retention; the guest's resources and Ubuntu release are in
+the environment's `manifest.toml`.
 
 The harness creates its lab as the logged-in CLI's user, so that user needs a device password
 (`sherpa server user device-password`) like every lab owner; the runner stops with that message
 when it is not set. The upgrade scenario also checks the refusal and the fix on the guest.
 
 The guest helper reports each case a step shows by its ID, with `PASS` or `FAIL`, and the step
-fails naming every case that failed.
+fails naming every case that failed. A failed or timed-out required check fails the run with a
+nonzero exit, and no required check is skipped silently.
+
+### Candidates
+
+By default a run tests the checkout's installer, update and uninstall scripts with the published
+release named in `[candidate] version`. That proves the scripts, not unpublished source in the
+binaries. To test locally built archives:
+
+```sh
+./tests/harness/test_install.sh --version v0.6.0 --artifact-dir /path/to/release-artifacts
+```
+
+The directory holds `sherpad-x86_64-unknown-linux-gnu.tar.gz` and
+`sherpa-x86_64-unknown-linux-gnu.tar.gz`, each with its binary at the archive's root. The
+installer reads them from `SHERPA_ARTIFACT_DIR` instead of downloading them, and the runner
+checks the installed bytes against the archives and the installed version. Each run records
+the checkout's commit and whether it is dirty, the script, archive and binary hashes, the base
+image's checksum and the VM's identity. `--result-file <path>` also writes a nonsecret TOML
+reference to the run's receipt, naming that run when the output directory holds earlier ones.
+
+### Scenarios
+
+Select one with `--scenario`:
+
+- `lifecycle` (default): preflight errors, a fresh install, ownership and permissions, Docker,
+  libvirt and the database, `sherpad init`, API and CLI access with TLS checked, reboot
+  recovery, a repeat install, uninstall with `--keep-data` and reinstall, `--remove-data`,
+  `--remove-all` and a repeat uninstall. Each uninstall compares packages, users and groups,
+  Docker images, volumes and unrelated containers, and libvirt domains, networks and pools
+  before and after, and keeps those inventories with the result; the server's journal and
+  database logs are captured before it. `--keep-data` keeps the database, configuration, SSH
+  identity and CLI; `--remove-data` empties the database and keeps the rest; `--remove-all`
+  removes `/opt/sherpa` and the binary symlinks. Every mode keeps the Docker and libvirt
+  packages, images, users, groups and libvirt definitions; only a fresh guest is a fresh
+  baseline.
+- `preflight`: only the baseline and the argument and error checks.
+- `upgrade`: installs a baseline release with that release's own installer
+  (`git show <baseline>:scripts/sherpa_install.sh`), initializes it and adds a non-admin user
+  through the API, then upgrades the same installation with the checkout's `sherpa_update.sh`
+  and the candidate archives, without reinitializing. It checks the binaries, API and CLI
+  logins, both users' records, credentials and privileges, the configuration, the environment
+  file's assignments, the SSH identity and the TLS certificate's fingerprint, again after a
+  reboot, and records them in `upgrade-state.toml`. A last `device-password` step checks that
+  the upgraded user, who never set one, is refused by `sherpa up` and is not once the harness
+  sets a generated device password through the API.
+- `failure-checks`: a timed-out command, a SIGTERM while a guest command runs and incomplete
+  provisioning after a readiness timeout, each in its own fresh guest. Each must give a failed
+  receipt and a nonzero exit, keep the resource identity and diagnostics, stop its guest
+  command and pass targeted cleanup. These expected faults pass the failure suite, never a
+  lifecycle run.
+
+```sh
+./tests/harness/test_install.sh --scenario upgrade --baseline-version v0.5.35 --version v0.6.0 --artifact-dir /path/to/release-artifacts
+./tests/harness/test_install.sh --scenario failure-checks --version v0.6.0 --artifact-dir /path/to/release-artifacts
+```
+
+The upgrade scenario downloads the baseline release on this machine, or takes it from
+`--baseline-artifact-dir`; the optional `[baseline]` table of `release-test.toml` has
+`version` and `artifact_directory`, and the flags override it. The candidate must be local
+archives (`--artifact-dir`), both releases 0.5.0 or later, and they must differ in version and
+in bytes; anything else is refused before a guest is made. A server on a release before 0.5.0
+updates to 0.5.x first.
+
+### Results and cleanup
+
+Each run writes `result.toml`, its inputs and numbered logs to a private directory under
+`.tmp/vm-release-tests/`, with generated credentials redacted, and prints its path. A passing
+run destroys its own lab after checking the lab's and the domain's identity; a failed run is
+kept, and `--keep-vm` keeps a passing one too. To look at a kept run, use `sherpa inspect` in
+its result directory and `sherpa ssh` with the receipt's `node_name`. Remove it with
+`--cleanup-run`, which checks its identity, also works on a partly provisioned run and records
+the removal in the receipt without changing its status:
+
+```sh
+./tests/harness/test_install.sh --cleanup-run /absolute/path/to/run-directory
+```
+
+After a passing lifecycle run, check the receipt against the archives and the checkout:
+
+```sh
+uv run tests/harness/verify_release_test.py --receipt /path/to/run/result.toml --artifact-dir /path/to/release-artifacts --version v0.6.0
+```
+
+`--result-file` takes the reference instead of `--receipt`. The verifier refuses changed
+installer or harness scripts, changed archive or binary hashes, missing required steps,
+incomplete resource evidence, failed cleanup and a dirty checkout; it compares the recorded
+commit with `HEAD`, or with `--commit`. `--allow-dirty` allows a dirty checkout for local
+development, and `--stage-evidence <dir>` copies only the receipt and the guest's resource
+inventories, without connection settings, credentials or keys.
 
 The BATS tests run one function of a script with its commands stubbed, as a user that is not root:
 
