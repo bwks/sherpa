@@ -28,6 +28,10 @@ const CLSACT_INGRESS: TcHandle = TcHandle {
 };
 
 /// Pre-built eBPF redirect program ELF, embedded with 8-byte alignment.
+///
+/// It is the checked-in file, not a local build of `ebpf-redirect`, so the crate needs no build
+/// script: rustc records the file in the crate's dep-info, and Cargo rebuilds the crate only when
+/// that file changes.
 static EBPF_REDIRECT_ELF: &AlignedElf<
     { include_bytes!("../../ebpf-redirect/ebpf-redirect.elf").len() },
 > = &AlignedElf(*include_bytes!("../../ebpf-redirect/ebpf-redirect.elf"));

@@ -168,7 +168,8 @@ pub struct CloudInitConfig {
 }
 impl CloudInitResolvConf {
     /// Points `/etc/resolv.conf` at the lab DNS, for distros whose network renderer does not
-    /// write it.
+    /// write it. Alpine is one: its ENI renderer leaves `dns-nameservers` to a `resolvconf` tool
+    /// the image lacks. cloud-init applies this in its init stage, before the user data runs.
     #[must_use]
     pub fn lab_dns(nameserver: Ipv4Addr) -> Self {
         Self {

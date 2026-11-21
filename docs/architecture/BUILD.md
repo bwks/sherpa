@@ -1,90 +1,16 @@
 # Build profiles and build speed
 
-How the workspace is compiled: the Cargo profiles in the root `Cargo.toml`, the linker, and
-the build scripts. The measurements behind these settings are in issue #583.
-
-## Profiles
-
-| Profile | Used by | Workspace crates | Dependencies |
-|---|---|---|---|
-| `dev` | `cargo build`, `cargo clippy`, `cargo run` | `opt-level = 0`, incremental, `debug = "line-tables-only"` | `opt-level = 0`, no debug info; the hashing and bignum crates listed below at `opt-level = 3` |
-| `test` | `cargo test`, `cargo nextest run` | inherits `dev` | inherits `dev` |
-| `release` | `cargo build --release` | `opt-level = 3`, no debug info | same |
-| `dist` | `cargo build --profile dist`, the Release workflow | inherits `release`, plus `lto = true`, `codegen-units = 1`, `strip = true` | same |
-
-The `[profile.dev.package.*]` overrides apply to `dev` and to `test`, which inherits it.
-`release` and `dist` do not inherit `dev`, so nothing in this section changes a released
-binary.
-
-### Debug info
-
-`dev` keeps line tables for workspace crates (`debug = "line-tables-only"`), so panic messages
-and backtraces show function, file and line. A debugger shows no local variables or types.
-Dependencies get no debug info (`[profile.dev.package."*"] debug = false`). Full debug info
-made up most of `target/`: a `dev` tree of the workspace went from 17 GB to 6.2 GB, and
-rebuilding all targets after an edit to `shared` from about 2.5 min to 21 s.
-
-For a debugging session that needs local variables in workspace code, set
-`CARGO_PROFILE_DEV_DEBUG=true`. It replaces the `[profile.dev]` value only; dependencies keep
-no debug info unless the `"*"` override is changed locally.
-
-### Optimised dependencies
-
-Argon2 password hashing and RSA key generation are very slow at `opt-level = 0`, and the
-tests that seed users or generate SSH keys spend most of their time there. These crates
-are built at `opt-level = 3` in `dev`: `argon2`, `blake2`, `password-hash`, `rsa`,
-`num-bigint`, `num-bigint-dig`, `num-integer`, `num-traits`, `crypto-bigint`, `sha2`,
-`digest`, `block-buffer`, `rand`, `rand_core`, `rand_chacha`, `ppv-lite86`, `subtle` and
-`zeroize`. An override names a crate, not a version, so it covers every version in
-`Cargo.lock`. The crates are small, so this costs no measurable build time. Optimising every
-dependency (`opt-level = 1`) gave the same test time but doubled the cold build.
-
-Cargo applies `[profile.dev.package."*"]` and then the crate's own override; the crate
-overrides set only `opt-level`, so these crates are optimised and have no debug info.
+The profiles are in the root `Cargo.toml`, whose comments say why each setting is there; the
+measurements behind them, the linker's included, are in issue #583. Nothing in `[profile.dev*]`
+reaches a released binary: `release` and `dist` do not inherit `dev`.
 
 ## Crypto dependencies
 
-The workspace builds one TLS crypto provider, aws-lc-rs; `ring` is not built.
-`cargo tree -i ring --workspace --target all` prints nothing, and should stay that way. Three
-dependencies would bring `ring` back with their defaults:
+The workspace builds one TLS crypto provider, aws-lc-rs, and never `ring`: `cargo tree -i ring
+--workspace --target all` must print nothing, and nothing automated checks it. `async-nats` and
+`rcgen` bring `ring` back with their default features, so both turn them off, and `x509-parser`
+checks signatures with `verify-aws`, not `verify`. Every binary installs the aws-lc-rs provider in
+`main`, so a crate that enabled `ring` again would still build; `cargo tree` is the only check.
 
-- `async-nats` (agent-bus): default features are off in the root `Cargo.toml`, and
-  `crates/agent-bus/Cargo.toml` turns on only what the bus uses: `aws-lc-rs`, `jetstream`,
-  `kv`, `nkeys`, `nuid` and the `server_2_*` JetStream fields.
-- `rcgen` (server and agent-bus): `default-features = false` with `aws_lc_rs` and `pem`.
-- `x509-parser` (server tests): signature checks use `verify-aws`, not `verify`.
-
-`ring` still has an entry in `Cargo.lock`, because `rustls-webpki` and `quinn-proto` list it as
-an optional dependency. Every binary installs the aws-lc-rs `CryptoProvider` in `main` and does
-not rely on rustls picking one, so a crate that enabled `ring` again would build without error.
-`cargo tree -i ring` is the check.
-
-Two generations of the RustCrypto stack are still built: `shared` uses `ssh-key` 0.6 (with
-`rsa` 0.9), and `jato` → `russh` uses `ssh-key` 0.7 (with `rsa` 0.10). `shared` moves to
-`ssh-key` 0.7 when it has a stable release. `argon2` is already on the generation `russh`
-uses (0.6).
-
-## Linker
-
-rustc 1.90 and later links `x86_64-unknown-linux-gnu` with its bundled `rust-lld` by default,
-so the workspace needs no `.cargo/config.toml` or linker setting. GNU ld was much slower and
-wild no faster in #583.
-
-## Build scripts
-
-- `crates/db/build.rs` applies the schema and migrations to a database and prepares every SQL
-  statement against it, so a statement that does not fit the schema fails the build (see
-  `DATABASE.md`). It makes Cargo build Turso twice, once for the build script and once for the
-  crate; that cost is accepted.
-- `crates/network` has no build script. It embeds the eBPF program with
-  `include_bytes!("../../ebpf-redirect/ebpf-redirect.elf")`, and rustc records that file in the
-  crate's dep-info, so Cargo rebuilds `network` when the checked-in ELF changes. An earlier
-  build script watched `crates/ebpf-redirect/target/.../ebpf-redirect`, a file that exists only
-  after building the eBPF program locally; where it did not exist, every Cargo command rebuilt
-  `network` and `sherpad`.
-
-## Tests
-
-`cargo nextest run --workspace` runs the same tests as `cargo test --workspace`, each in its own
-process. It is pinned in `mise.toml`; CI runs it through `cargo llvm-cov nextest`. See
-`tests/README.md`.
+`crates/db/build.rs` makes Cargo build Turso twice, for the build script and for the crate: the
+price of a build that fails on any SQL statement that does not fit the schema (see `DATABASE.md`).
