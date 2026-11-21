@@ -797,7 +797,7 @@ mod tests {
     #[tokio::test]
     async fn link_pr_makes_the_pull_request_the_task_s_home() {
         let mut bench = Bench::new().await;
-        // t1 of issue 1 named no pull request: it is brought forward to t2's.
+        // t1 of the first issue named no pull request: it is brought forward to t2's.
         bench.record(&task("t1", &[(RefKind::Issue, 1)])).await;
         bench.record(&task("t2", &[(RefKind::Issue, 1)])).await;
         bench
@@ -809,7 +809,7 @@ mod tests {
             .await;
         assert!(bench.placement("t1").await.brought_forward);
 
-        // Named: #8 names no item, so it names t1's, and is t1's.
+        // Named: a pull request that names no item names t1's, and is t1's.
         let one = bench.item(&issue(1)).await.id;
         assert_eq!(bench.link_pr("t1", 8).await, Linked::Named { item: one });
         assert_eq!(bench.placement("t1").await, home(8));
@@ -829,7 +829,7 @@ mod tests {
         assert_eq!(bench.placement("t3").await, home(20));
         assert_eq!(bench.placement("t4").await, home(20));
 
-        // Merged: t5's item goes into #9's, and #9 is t5's.
+        // Merged: t5's item goes into the item of t2's pull request, which is t5's.
         bench.record(&task("t5", &[(RefKind::Issue, 5)])).await;
         assert!(matches!(
             bench.link_pr("t5", 9).await,
@@ -861,7 +861,7 @@ mod tests {
                 .await;
         }
         let one = bench.item(&issue(1)).await.id;
-        // t1 is brought forward to #9, the next task's.
+        // t1 is brought forward to t2's pull request, the next task's.
         assert_eq!(
             bench.placement("t1").await.pull_request,
             home(9).pull_request
@@ -878,7 +878,8 @@ mod tests {
     #[tokio::test]
     async fn the_last_link_pr_wins_over_earlier_links_and_every_other_source() {
         let mut bench = Bench::new().await;
-        // Tagged --pr 9 at send (`brief`), and reported #10 (`guest`): #10 is its home.
+        // Tagged with one pull request at send (`brief`), and reported another (`guest`): the
+        // reported one is its home.
         bench
             .record(&task("t1", &[(RefKind::PullRequest, 9)]))
             .await;

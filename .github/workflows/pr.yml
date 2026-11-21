@@ -118,6 +118,9 @@ jobs:
       - name: Check comments name no issue or pull request numbers
         run: dev/check-comment-issue-numbers.sh
 
+      - name: Check ebpf-redirect calls no unwrap or expect
+        run: dev/check-ebpf-unwrap.sh
+
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings
 

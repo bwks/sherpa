@@ -1097,7 +1097,7 @@ duration_api_ms = 0
         body = body.replace("version = 3", "version = 2");
         let range = section_range(&body).unwrap().unwrap();
         assert_eq!(read(&body[range]).unwrap(), old);
-        // The record counts the first task here and the second on #666.
+        // The record counts the first task here and the second on the pointer's pull request.
         let ours = Rows {
             tasks: vec![first()],
             host: vec![host("claude-opus-5-5", 1.0, time(MINUTE, 0, 0))],

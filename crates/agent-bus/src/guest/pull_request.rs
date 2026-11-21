@@ -480,7 +480,7 @@ esac
 
     #[tokio::test]
     async fn other_checkouts_report_the_pull_requests_of_their_own_branch() {
-        // #57: the run ended with sherpa on its own branch, the docs on another, and a third
+        // The run ended with sherpa on its own branch, the docs on another, and a third
         // repository it cloned and worked in on a third.
         let dir = fs::canonicalize(scratch("ended-own-branch")).unwrap();
         let gh = fake_gh(&dir);

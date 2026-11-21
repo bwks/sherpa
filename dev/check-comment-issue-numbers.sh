@@ -4,16 +4,15 @@
 #
 # A comment says why the code is as it is; it does not point at the tracker, whose numbers say
 # nothing to a reader of the code and outlive what they named. This script scans the comments
-# of every tracked Rust file, including `crates/ebpf-redirect`, and fails on a reference: `#123`, `issue 123`, `PR 123`, `pull request 123` (each also with `#`
-# before the number), and a `github.com/<owner>/<repo>/issues/123` or `.../pull/123` link.
+# of every tracked Rust file, including `crates/ebpf-redirect`, and fails on a reference:
+# `#123`, `issue 123`, `PR 123`, `pull request 123` (each also with `#` before the number), and
+# a `github.com/<owner>/<repo>/issues/123` or `.../pull/123` link. A reference fails even when
+# the code holds the same number: a comment that describes fixture data names it in words.
 #
 # What is not a reference:
 # - Text in a string, a raw string or a char literal, followed across lines, so a string that
 #   holds `//` is not read as a comment.
 # - Text in a code span (`` `#12` ``) in a comment: it shows a value, such as an input format.
-# - A number that the file's code also holds, in a literal, a string or a name: it is data the
-#   comment describes, such as the pull request numbers of a test fixture (the agent bus
-#   counts work by issue and pull request, so its tests are full of them).
 #
 # Before it scans, the script checks itself on a sample that holds each kind of reference it
 # must find and each kind of text it must not. `--self-test` runs that check alone.
@@ -30,14 +29,11 @@ function reset_file() {
     in_str = 0
     in_raw = 0
     raw_end = ""
-    ncomments = 0
-    split("", numbers)
 }
 
-# Splits one line into its code (strings included) and its comment text, carrying the state
-# of a string, a raw string or a block comment to the next line.
+# Sets `comment` to the comment text of one line, skipping its code and strings and carrying
+# the state of a string, a raw string or a block comment to the next line.
 function lex(rest,   p, tok) {
-    code = ""
     comment = ""
     while (rest != "") {
         if (in_block) {
@@ -52,27 +48,21 @@ function lex(rest,   p, tok) {
         } else if (in_raw) {
             p = index(rest, raw_end)
             if (p == 0) {
-                code = code rest
                 return
             }
-            code = code substr(rest, 1, p - 1)
             rest = substr(rest, p + length(raw_end))
             in_raw = 0
         } else if (in_str) {
             if (!match(rest, /^([^"\\]|\\.)*"/)) {
-                code = code rest
                 return
             }
-            code = code substr(rest, 1, RLENGTH - 1)
             rest = substr(rest, RLENGTH + 1)
             in_str = 0
         } else {
             if (!match(rest, /\/\/|\/\*|r#*"|"|'(\\.|[^\\'])'/)) {
-                code = code rest
                 return
             }
             tok = substr(rest, RSTART, RLENGTH)
-            code = code substr(rest, 1, RSTART - 1)
             rest = substr(rest, RSTART + RLENGTH)
             if (tok == "//") {
                 comment = comment " " rest
@@ -84,62 +74,30 @@ function lex(rest,   p, tok) {
                 raw_end = "\"" substr(tok, 2, length(tok) - 2)
             } else if (tok == "\"") {
                 in_str = 1
-            } else {
-                code = code tok
             }
         }
     }
 }
 
-function collect_numbers(s) {
-    while (match(s, /[0-9]+/)) {
-        numbers[substr(s, RSTART, RLENGTH) + 0] = 1
-        s = substr(s, RSTART + RLENGTH)
-    }
-}
-
-# Prints each reference in comment `text` at `line` whose number the file's code does not hold.
-function report(file, line, text,   found, number) {
+# Prints each reference in comment `text` at `line`.
+function report(file, line, text,   found) {
     gsub(/`[^`]*`/, "", text)
     while (match(text, /(^|[^A-Za-z0-9_&#\/])#[0-9]+|(^|[^A-Za-z0-9_])([Ii]ssues?|PRs?|[Pp]ull[ \t]+[Rr]equests?)[ \t]+#?[0-9]+|github\.com\/[^\/ \t]+\/[^\/ \t]+\/(issues|pull)\/[0-9]+/)) {
         found = substr(text, RSTART, RLENGTH)
         text = substr(text, RSTART + RLENGTH)
         sub(/^[^#A-Za-z]+/, "", found)
-        number = found
-        sub(/^.*[^0-9]/, "", number)
-        if (!((number + 0) in numbers)) {
-            print file ":" line ": " found
-        }
-    }
-}
-
-function finish(file,   i) {
-    for (i = 1; i <= ncomments; i++) {
-        report(file, comment_line[i], comment_text[i])
+        print file ":" line ": " found
     }
 }
 
 FNR == 1 {
-    if (NR != 1) {
-        finish(previous)
-    }
     reset_file()
-    previous = FILENAME
 }
 
 {
     lex($0)
-    collect_numbers(code)
     if (comment != "") {
-        ncomments++
-        comment_line[ncomments] = FNR
-        comment_text[ncomments] = comment
-    }
-}
-
-END {
-    if (NR > 0) {
-        finish(previous)
+        report(FILENAME, FNR, comment)
     }
 }
 EOF
@@ -175,6 +133,9 @@ EOF
 ${sample}:2: issue 102
 ${sample}:2: PR #103
 ${sample}:2: pull request 104
+${sample}:3: #7
+${sample}:3: Issue 8
+${sample}:3: PR 9
 ${sample}:5: github.com/owner/repo/pull/105
 ${sample}:5: github.com/o/r/issues/106
 ${sample}:10: #61

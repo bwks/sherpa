@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn the_host_repositorys_pull_request_is_home_and_the_docs_one_points_to_it() {
-        // 1d6ad1ad of #648: one outcome named both.
+        // One task outcome named both pull requests.
         let tasks = [vec![
             named(DOCS, 142, "guest", 20),
             named(SHERPA, 666, "guest", 20),
@@ -310,7 +310,8 @@ mod tests {
 
     #[test]
     fn tasks_without_a_pull_request_are_brought_forward_to_the_next_tasks() {
-        // #648: two design tasks, then PR 0, PR 1 with its docs PR, and PR 2 with its own.
+        // Two design tasks, then the plan's first pull request, its second with a docs pull
+        // request, and its third with another.
         let tasks = [
             vec![],
             vec![],
@@ -349,8 +350,8 @@ mod tests {
         );
     }
 
-    /// #648's plan: design tasks at 0 and 10, PR 0 (#665) at 20-30, PR 1 (#666) at 40-50, PR 2
-    /// (#667) at 60-70.
+    /// A plan of five tasks: design tasks at 0 and 10, then one task for each of the plan's three
+    /// pull requests, at 20-30, 40-50 and 60-70.
     fn plan_648() -> Placements {
         let tasks = [
             vec![],
@@ -402,13 +403,14 @@ mod tests {
     #[test]
     fn host_work_after_a_final_write_goes_on_to_the_items_next_pull_request() {
         let mut placements = plan_648();
-        // #665 had its final write at 32, #666 at 55.
+        // The first pull request had its final write at 32, the second at 55.
         placements.frozen.insert(pr(SHERPA, 665), 32);
         placements.frozen.insert(pr(SHERPA, 666), 55);
         assert_eq!(placements.host(1, None, 31), Some(pr(SHERPA, 665)));
-        // The last event is #665's task, but its section is frozen: on to #666.
+        // The last event is the first pull request's task, but its section is frozen: on to the
+        // second.
         assert_eq!(placements.host(1, None, 35), Some(pr(SHERPA, 666)));
-        // Past both: on to #667, even when the focus named #665.
+        // Past both: on to the third, even when the focus named the first.
         assert_eq!(placements.host(1, None, 56), Some(pr(SHERPA, 667)));
         assert_eq!(
             placements.host(1, Some(&pr(SHERPA, 665)), 56),
