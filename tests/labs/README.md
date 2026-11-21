@@ -9,6 +9,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 | [private-bridge](private-bridge/README.md) | `[[bridges]]` with a VM and containers, through up, redeploy and destroy | about 5–10 min |
 | [p2p-containers](p2p-containers/README.md) | P2p links on network OS, application and OS containers, some without `ip` or a shell, through up, redeploy and destroy. A pytest module | about 2–5 min |
 | [container-ztp](container-ztp/README.md) | The `ztp` setting on cEOS, SR Linux and FRR containers: config mounts and the lab owner's login with ZTP on, neither with it off, after up and after a redeploy | about 5–15 min |
+| [manifest-commands](manifest-commands/README.md) | What `sherpa validate`, `sherpa new` and a refused `sherpa up` print and exit with: no manifest, an unknown key, a failing check, no login or server, an existing manifest and `--force`. Brings no lab up. A pytest module | seconds |
 | [cisco-iol](cisco-iol/README.md) | `cisco_iol` routers built from your own CML image: generated config and SSH, P2p links, TCP into IOL, `write memory` across a cold boot. Needs the IOL image | about 3–5 min |
 | [p2p-links](p2p-links/README.md) | P2p (eBPF) link requirements on VM ⟷ VM, VM ⟷ container and container ⟷ container: L2 protocols, LLDP and LACP bundles, capture, per-direction impairment, jumbo frames, lifecycle | about 15–20 min |
 | [nixos-linux](nixos-linux/README.md) | `nixos_linux` VMs built from [bwks/nixos-image](https://github.com/bwks/nixos-image): lab owner login, sudo, text files, cloud-init, a P2p link | about 5 min |
@@ -34,6 +35,8 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 - Every runner's preflight stops unless the CLI is logged in and the user has a device password
   (`sherpa server user info` shows `Device password: set`): `sherpa up` is refused without one.
   Set it once with `sherpa server user device-password`.
+  The manifest-commands runner brings no lab up and checks the login only for its one case that
+  sends a manifest to the server.
   The owner-login lab instead has the runner's admin login create a throwaway admin, which creates
   a throwaway owner with a device password; their passwords are generated for the run, typed at
   the CLI's prompts and never printed, and both accounts are deleted at the end.
@@ -42,7 +45,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 - What the runners share lives in [`labkit.py`](labkit.py): the failure and outcome types,
   running and logging a command, masking the run's secrets, the manifest TOML, the device
   password preflight, generated passwords and a command in a pseudo-terminal whose prompts
-  the runner answers. The console, owner-login and p2p-containers runners import it; its own
+  the runner answers. The console, owner-login, p2p-containers and manifest-commands runners import it; its own
   unit tests run with `uv run tests/labs/labkit.py`.
 
 Lab tests are started by hand. How and when end-to-end tests run is being planned in

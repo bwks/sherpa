@@ -2448,16 +2448,31 @@ mod tests {
         }
     }
 
-    #[test]
-    fn every_model_name_round_trips_through_display_fromstr_serde_and_the_command_line() {
-        let command = clap::Command::new("test").arg(
+    #[derive(serde_derive::Deserialize)]
+    struct ManifestNode {
+        model: NodeModel,
+    }
+
+    fn model_option() -> clap::Command {
+        clap::Command::new("test").arg(
             clap::Arg::new("model")
                 .long("model")
                 .value_parser(NodeModel::value_parser()),
-        );
+        )
+    }
+
+    fn from_manifest(name: &str) -> Result<NodeModel, String> {
+        toml::from_str::<ManifestNode>(&format!(r#"model = "{name}""#))
+            .map(|node| node.model)
+            .map_err(|error| error.to_string())
+    }
+
+    #[test]
+    fn node_kind_007_every_model_is_taken_by_the_name_it_is_shown_as() {
         for model in NodeModel::iter() {
             let name = model.to_string();
             assert_eq!(name.parse::<NodeModel>().unwrap(), model);
+            assert_eq!(from_manifest(&name).unwrap(), model);
             assert_eq!(
                 serde_json::to_value(model).unwrap(),
                 serde_json::json!(name)
@@ -2466,8 +2481,7 @@ mod tests {
                 serde_json::from_value::<NodeModel>(serde_json::json!(name)).unwrap(),
                 model
             );
-            let matches = command
-                .clone()
+            let matches = model_option()
                 .try_get_matches_from(["test", "--model", &name])
                 .unwrap();
             assert_eq!(matches.get_one::<NodeModel>("model"), Some(&model));
@@ -2475,24 +2489,28 @@ mod tests {
     }
 
     #[test]
-    fn every_removed_model_name_is_refused_naming_its_model_and_kind() {
-        let command = clap::Command::new("test").arg(
-            clap::Arg::new("model")
-                .long("model")
-                .value_parser(NodeModel::value_parser()),
-        );
-        for (name, model, kind) in REMOVED_MODELS {
-            assert!(model.kinds().contains(&kind), "{name}");
-            let expected = format!(
-                r#"Unknown node model '{name}': it was renamed in 0.7.0. Use model = "{model}" with kind = "{kind}"."#
-            );
+    fn node_kind_008_an_unknown_model_name_is_refused_and_a_renamed_one_names_its_replacement() {
+        let renamed = REMOVED_MODELS.iter().map(|(name, model, kind)| {
+            (
+                *name,
+                format!(
+                    r#"Unknown node model '{name}': it was renamed in 0.7.0. Use model = "{model}" with kind = "{kind}"."#
+                ),
+            )
+        });
+        let unknown = [(
+            "nosuch_model",
+            "Unknown node model: nosuch_model".to_string(),
+        )];
+        for (name, expected) in renamed.chain(unknown) {
             assert_eq!(name.parse::<NodeModel>().unwrap_err(), expected);
+            let error = from_manifest(name).unwrap_err();
+            assert!(error.contains(&expected), "{error}");
             let error = serde_json::from_value::<NodeModel>(serde_json::json!(name))
                 .unwrap_err()
                 .to_string();
             assert_eq!(error, expected);
-            let error = command
-                .clone()
+            let error = model_option()
                 .try_get_matches_from(["test", "--model", name])
                 .unwrap_err()
                 .to_string();
@@ -2506,24 +2524,10 @@ mod tests {
             "cisco_iosv".parse::<NodeModel>().unwrap_err(),
             r#"Unknown node model 'cisco_iosv': it was renamed in 0.7.0. Use model = "cisco_ios" with kind = "virtual_machine"."#
         );
-        assert_eq!(
-            "nosuch_model".parse::<NodeModel>().unwrap_err(),
-            "Unknown node model: nosuch_model"
-        );
     }
 
     #[test]
-    fn no_removed_model_name_is_a_model() {
-        for (name, _, _) in REMOVED_MODELS {
-            assert!(
-                NodeModel::iter().all(|model| model.to_string() != name),
-                "{name}"
-            );
-        }
-    }
-
-    #[test]
-    fn the_command_line_lists_every_model_as_a_possible_value() {
+    fn node_kind_009_the_command_line_lists_every_model_as_a_possible_value() {
         let values: Vec<String> = NodeModelParser
             .possible_values()
             .unwrap()

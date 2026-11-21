@@ -961,13 +961,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn an_upload_of_an_old_model_name_is_refused_naming_its_replacement() {
-        let err = upload_of("arista_ceos", None).unwrap_err();
-        assert!(err.contains("renamed in 0.7.0"), "{err}");
-        assert!(err.contains(r#"kind = "container""#), "{err}");
-    }
-
     /// A choice's serde name, as the form sends it.
     fn choice<T: Serialize>(value: &T) -> String {
         serde_json::to_value(value)

@@ -201,7 +201,7 @@ nodes = [
     }
 
     #[test]
-    fn cluster_names_must_be_unique_dns_labels() {
+    fn manifest_clusters_002_a_cluster_name_that_is_not_a_lowercase_dns_label_is_refused() {
         for name in ["K8s", "-k8s", "k8s-", "k_8s", ""] {
             let toml = with_cluster(&format!(r#"{{ name = "{name}", controllers = ["cp1"] }}"#));
             assert!(
@@ -209,14 +209,20 @@ nodes = [
                 "{name:?}"
             );
         }
-        let toml = with_cluster(
-            r#"{ name = "k8s", controllers = ["cp1"] }, { name = "k8s", controllers = ["cp2"] }"#,
-        );
-        assert!(error(&toml).contains("defined more than once"));
     }
 
     #[test]
-    fn clusters_have_one_or_three_controllers() {
+    fn manifest_clusters_003_two_clusters_with_one_name_are_refused_naming_it() {
+        let toml = with_cluster(
+            r#"{ name = "k8s", controllers = ["cp1"] }, { name = "k8s", controllers = ["cp2"] }"#,
+        );
+        let message = error(&toml);
+        assert!(message.contains("'k8s'"), "{message}");
+        assert!(message.contains("defined more than once"), "{message}");
+    }
+
+    #[test]
+    fn manifest_clusters_004_a_cluster_with_other_than_one_or_three_controllers_is_refused() {
         let toml = with_cluster(r#"{ name = "k8s", controllers = ["cp1", "cp2", "cp3"] }"#);
         validate_talos_clusters(&manifest(&toml)).unwrap();
         for controllers in ["[]", r#"["cp1", "cp2"]"#, r#"["cp1", "cp2", "cp3", "cp4"]"#] {
@@ -230,15 +236,17 @@ nodes = [
     }
 
     #[test]
-    fn members_must_be_defined_nodes() {
+    fn manifest_clusters_005_a_member_that_is_not_a_node_of_the_manifest_is_refused() {
         let toml = with_cluster(r#"{ name = "k8s", controllers = ["cp1"], workers = ["ghost"] }"#);
-        assert!(error(&toml).contains("lists node 'ghost', which is not defined"));
+        assert!(error(&toml).contains("cluster 'k8s' lists node 'ghost', which is not defined"));
     }
 
     #[test]
-    fn only_talos_nodes_join_clusters() {
+    fn manifest_clusters_006_a_member_that_is_not_a_talos_linux_node_is_refused() {
         let toml = with_cluster(r#"{ name = "k8s", controllers = ["cp1"], workers = ["dev"] }"#);
-        assert!(error(&toml).contains("only talos_linux nodes"));
+        let message = error(&toml);
+        assert!(message.contains("'dev', a ubuntu_linux node"), "{message}");
+        assert!(message.contains("only talos_linux nodes"), "{message}");
     }
 
     #[test]
@@ -253,19 +261,31 @@ nodes = [
     }
 
     #[test]
-    fn a_node_joins_one_cluster_once() {
-        for cluster in [
-            r#"{ name = "k8s", controllers = ["cp1"], workers = ["w1", "w1"] }"#,
-            r#"{ name = "k8s", controllers = ["cp1"], workers = ["cp1"] }"#,
-            r#"{ name = "a", controllers = ["cp1"] }, { name = "b", controllers = ["cp1"] }"#,
+    fn manifest_clusters_007_a_node_listed_twice_is_refused_naming_it() {
+        for (cluster, node) in [
+            (
+                r#"{ name = "k8s", controllers = ["cp1"], workers = ["w1", "w1"] }"#,
+                "w1",
+            ),
+            (
+                r#"{ name = "k8s", controllers = ["cp1"], workers = ["cp1"] }"#,
+                "cp1",
+            ),
+            (
+                r#"{ name = "a", controllers = ["cp1"] }, { name = "b", controllers = ["cp1"] }"#,
+                "cp1",
+            ),
         ] {
             let message = error(&with_cluster(cluster));
-            assert!(message.contains("listed more than once"), "{message}");
+            assert!(
+                message.contains(&format!("node '{node}' is listed more than once")),
+                "{message}"
+            );
         }
     }
 
     #[test]
-    fn highly_available_clusters_are_limited_by_shared_addresses() {
+    fn manifest_clusters_008_a_third_cluster_with_three_controllers_is_refused() {
         let count = TALOS_VIP_HOST_OFFSETS.clone().count();
         let mut clusters = vec![];
         let mut nodes = vec![];
@@ -318,7 +338,7 @@ nodes = [
     }
 
     #[test]
-    fn cilium_clusters_are_limited_by_load_balancer_addresses() {
+    fn manifest_clusters_009_two_cilium_clusters_are_taken_and_a_third_is_refused() {
         let blocks = TALOS_LOAD_BALANCER_HOST_OFFSETS.clone().count()
             / TALOS_LOAD_BALANCER_BLOCK_SIZE as usize;
         validate_talos_clusters(&manifest(&cilium_clusters(blocks))).unwrap();
@@ -326,7 +346,7 @@ nodes = [
     }
 
     #[test]
-    fn oidc_and_vault_name_keycloak_and_vault_nodes() {
+    fn manifest_clusters_010_oidc_and_vault_name_a_keycloak_server_and_a_hashicorp_vault_node() {
         let toml = with_cluster(
             r#"{ name = "k8s", controllers = ["cp1"], oidc = "kc01", vault = "vault01" }"#,
         );

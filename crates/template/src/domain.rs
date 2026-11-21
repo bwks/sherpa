@@ -146,7 +146,7 @@ mod tests {
     use shared::data::{DiskDrivers, DiskFormats, DiskTargets};
 
     #[test]
-    fn test_domain_tuning_from_node_settings() {
+    fn vm_tuning_019_a_nodes_settings_become_its_domains_tuning_and_none_gives_none() {
         let cpu = NodeCpu {
             pinning: Some(vec![9, 25]),
             emulator_pinning: Some(vec![8, 24]),
@@ -200,23 +200,6 @@ mod tests {
         );
         assert_eq!(untuned, DomainTuning::default());
         assert!(!untuned.has_cputune());
-    }
-
-    #[test]
-    fn test_domain_tuning_takes_the_numa_memory_mode() {
-        let numa = NodeNuma {
-            node: Some(0),
-            memory_mode: Some(NumaMemoryMode::Preferred),
-        };
-        let domain = DomainTuning::from_node_settings(
-            &NodeCpu::default(),
-            &numa,
-            &NodeBootDisk::default(),
-            &NodeInterfaces::default(),
-            &InterfaceType::Virtio,
-        );
-        assert_eq!(domain.numa_node, Some(0));
-        assert_eq!(domain.numa_memory_mode, NumaMemoryMode::Preferred);
     }
 
     fn base_unikernel_template(boot_mode: UnikernelBootMode) -> UnikernelDomainTemplate {

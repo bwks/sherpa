@@ -46,7 +46,7 @@ A redeploy reads one node of the manifest it is sent. The lab's name, descriptio
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | `sherpa validate` in a folder with no `manifest.toml` exits 1 and says the file was not found (no test yet) | e2e |
+| 001 | `sherpa validate` in a folder with no `manifest.toml` exits 1 and says the file was not found | e2e |
 | 002 | A file that is not TOML is refused, naming the file | unit |
 | 003 | A manifest without `name`, or without `nodes`, is refused, naming the missing key | unit |
 | 004 | An unknown key is refused in every table of a manifest, naming the key: the top level, a node, each group of a node, a link, an impairment, a bridge, a text file, a binary file, a systemd unit, a volume, a Talos cluster, `[tailscale]`, a provisioner and a provisioner's file | unit |
@@ -54,9 +54,9 @@ A redeploy reads one node of the manifest it is sent. The lab's name, descriptio
 | 006 | A key left out stays unset and is not given a value: a node's `kind`, its `ztp.method` and its groups; a manifest without `[tailscale]` has no tailnet and `enabled` left out is off; a provisioner file's `mode` is 600 and a secret file's 444; a cluster's `cni` is `flannel` and it has no workers | unit |
 | 007 | A manifest written out as TOML has a table only for the groups a node sets, and reads back the same | unit |
 | 008 | A value of the wrong type, a number outside its key's range (a `memory` over 65535, a `cpu.count` over 255, a negative count) or a word the key does not take (`kind`, `cpu.mode`, `numa.memory_mode`, `boot_disk.clone_method`, `cache` and `io`, `ztp.method`, `vm.watchdog`, `container.platform`, `cni`, a provisioner's `type`) is refused, saying what the key takes (no test yet) | unit |
-| 009 | `sherpa validate` on a manifest with an unknown key exits 1 and prints the file, the line and column, the key and the keys that table takes (no test yet) | e2e |
-| 010 | `sherpa new` writes a `manifest.toml` of two Linux nodes and a link between them under a generated name, and `sherpa validate` passes it (no test yet) | e2e |
-| 011 | `sherpa new` leaves an existing `manifest.toml` as it is and says so, and with `--force` writes over it (no test yet) | e2e |
+| 009 | `sherpa validate` on a manifest with an unknown key exits 1 and prints the file, the line and column, the key and the keys that table takes | e2e |
+| 010 | `sherpa new` writes a `manifest.toml` of two Linux nodes and a link between them under a generated name, and `sherpa validate` passes it | e2e |
+| 011 | `sherpa new` leaves an existing `manifest.toml` as it is and says so, and with `--force` writes over it | e2e |
 | 012 | A manifest sent to the server with an unknown key or a value of the wrong type is refused as the file is, and nothing is created (no test yet) | integration |
 
 A folder with no `manifest.toml` at `sherpa up`, `redeploy` and `provision`, and a manifest that does not load beside a `lab-info.toml`, are lab identity: lab lifecycle and `saved_lab_files`. The lab's `[ztp_server]` table is read and nothing uses it (#766); no case is written for it.
@@ -68,11 +68,11 @@ A folder with no `manifest.toml` at `sherpa up`, `redeploy` and `provision`, and
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | A valid manifest passes with every check ticked, `Manifest validation passed!` and exit status 0, on a machine with no login and no server configured (no test yet) | e2e |
-| 002 | A manifest that fails a check exits 1 with that check's message, and no later check is printed (no test yet) | e2e |
+| 001 | A valid manifest passes with every check ticked, `Manifest validation passed!` and exit status 0, on a machine with no login and no server configured | e2e |
+| 002 | A manifest that fails a check exits 1 with that check's message, and no later check is printed | e2e |
 | 003 | A node is checked against its model and kind's built-in settings: a link on an interface past the built-in data interface count is refused, and taken once the node sets `interfaces.data_count` | unit |
 | 004 | A `ztp.config` on a node whose ZTP setting takes none passes `sherpa validate`, and up refuses it (#772) (no test yet) | unit |
-| 005 | `sherpa up` of a manifest the server refuses exits 1 with the server's message, which names the check that failed and the node (no test yet) | e2e |
+| 005 | `sherpa up` of a manifest the server refuses exits 1 with the server's message, which names the check that failed and the node | e2e |
 
 What `sherpa validate` does not check, because only the server knows it: whether a node's image and version are there, the settings of an image an admin has edited, the memory and CPUs free on the server, and whether the user may ask for host access.
 
@@ -99,7 +99,7 @@ The server runs these at up before anything is created (`lab_preflight_002`). Th
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | A node without `kind` is its model's default kind: a virtual machine for `arista_eos`, `juniper_evolved` and `sonic_linux` (no test yet) | unit |
+| 001 | A node without `kind` is its model's default kind: a virtual machine for `arista_eos`, `juniper_evolved` and `sonic_linux` | unit |
 | 002 | A `generic` node without `kind` is refused, naming the node and the three kinds, and with each kind is a node of that kind | unit |
 | 003 | A `kind` the model does not take is refused, naming the node, the kind, the model and the kinds it comes as | unit |
 | 004 | A model and kind read from JSON, as a stored record or a request holds them, are refused when the model does not take the kind | unit |
@@ -163,7 +163,7 @@ The server runs these at up before anything is created (`lab_preflight_002`). Th
 | 013 | Two nodes of a manifest that pin a vCPU to the same host CPU are refused, naming the CPU and both nodes | unit |
 | 014 | A node's QEMU or I/O threads on a host CPU pinned to another node's vCPU are refused, naming the CPU and both nodes | unit |
 | 015 | The QEMU and I/O threads of two nodes may share host CPUs | unit |
-| 016 | `interfaces.queues = 0` is refused (no test yet) | unit |
+| 016 | `interfaces.queues = 0` is refused | unit |
 | 017 | A domain defined with no tuning has no pinning, NUMA, I/O thread, topology, queue, cache or I/O element | unit |
 | 018 | `cpu.pinning`, `cpu.emulator_pinning` and `boot_disk.io_thread_cpus` are the domain's vCPU pins, emulator pin and one pinned I/O thread | unit |
 | 019 | A node's settings become its domain's tuning: the pins, the NUMA node held strictly unless told otherwise, and the queues, on the management interface only when it is virtio; a node with none gives none | unit |

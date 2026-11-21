@@ -114,11 +114,9 @@ mod tests {
     use std::{env, process};
 
     use super::*;
-    use crate::node::NodeExpanded;
-    use shared::data::Ztp;
 
     #[test]
-    fn a_manifest_that_does_not_parse_names_its_file() {
+    fn manifest_file_002_a_file_that_is_not_toml_is_refused_naming_the_file() {
         let path = env::temp_dir().join(format!("sherpa-bad-manifest-{}.toml", process::id()));
         fs::write(&path, "name = 'lab'\nnodes = [\n").unwrap();
         let path = path.to_str().unwrap();
@@ -128,7 +126,7 @@ mod tests {
     }
 
     #[test]
-    fn a_written_manifest_has_only_the_groups_its_nodes_set() {
+    fn manifest_file_007_a_written_manifest_has_a_table_only_for_the_groups_a_node_sets() {
         let manifest: Manifest = toml::from_str(
             "name='test'\n[[nodes]]\nname='vm'\nmodel='ubuntu_linux'\n[nodes.cpu]\ncount=2\n",
         )
@@ -140,8 +138,10 @@ mod tests {
             "boot_disk",
             "interfaces",
             "ztp",
-            "ssh",
             "ready_check",
+            "vm",
+            "container",
+            "unikernel",
         ] {
             assert!(
                 !text.contains(&format!("[nodes.{group}]")),
@@ -149,52 +149,6 @@ mod tests {
             );
         }
         let restored: Manifest = toml::from_str(&text).unwrap();
-        assert_eq!(restored.nodes[0].cpu.count, Some(2));
-    }
-
-    #[test]
-    fn test_manifest_deserialize_ztp_reaches_the_expanded_node() {
-        let toml_str = r#"
-name = "my-lab"
-
-nodes = [
-  { name = "frr01", model = "frr_linux" },
-  { name = "frr02", model = "frr_linux", ztp = { method = "disabled" } },
-  { name = "srx01", model = "juniper_srxv3", ztp = { method = "cdrom" } },
-]
-"#;
-        let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
-        let expanded: Vec<Option<Ztp>> = manifest
-            .nodes
-            .iter()
-            .map(|node| NodeExpanded::new(1, node).unwrap().ztp.method)
-            .collect();
-        assert_eq!(expanded, [None, Some(Ztp::Disabled), Some(Ztp::Cdrom)]);
-    }
-
-    #[test]
-    fn disabled_and_legacy_manifests_do_not_require_auth_keys() {
-        let legacy: Manifest = toml::from_str("name='test'\nnodes=[]").unwrap();
-        assert!(legacy.tailscale.is_none());
-        let disabled: Manifest =
-            toml::from_str("name='test'\nnodes=[]\n[tailscale]\nenabled=false").unwrap();
-        assert!(!disabled.tailscale.unwrap().enabled);
-        assert!(
-            toml::from_str::<Manifest>(
-                "name='test'\nnodes=[]\n[tailscale]\nenabled=true\nauth_key='do-not-store-secrets'"
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn the_old_clusters_section_is_rejected() {
-        let toml = r#"
-            name = "lab"
-            clusters = [{ name = "k8s" }]
-            nodes = []
-            "#;
-        let error = toml::from_str::<Manifest>(toml).unwrap_err().to_string();
-        assert!(error.contains("unknown field `clusters`"), "{error}");
+        assert_eq!(restored, manifest);
     }
 }

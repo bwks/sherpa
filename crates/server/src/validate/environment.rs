@@ -39,80 +39,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_valid_literal_entries() {
+    fn boot_settings_002_an_entry_with_a_name_as_its_key_is_taken() {
         let entries = vec![
             "EDITOR=vim".to_string(),
-            "PATH=/usr/bin".to_string(),
             "MY_VAR_123=hello world".to_string(),
-        ];
-        assert!(validate_environment_variables(&entries, "node1").is_ok());
-    }
-
-    #[test]
-    fn test_valid_env_ref_entries() {
-        let entries = vec![
             "GH_TOKEN=$GH_TOKEN".to_string(),
-            "API_KEY=$ANTHROPIC_API_KEY".to_string(),
+            "MY_VAR=".to_string(),
+            "MY_VAR=key=value".to_string(),
         ];
         assert!(validate_environment_variables(&entries, "node1").is_ok());
     }
 
     #[test]
-    fn test_empty_value_is_valid() {
-        let entries = vec!["MY_VAR=".to_string()];
-        assert!(validate_environment_variables(&entries, "node1").is_ok());
-    }
-
-    #[test]
-    fn test_missing_equals_sign() {
-        let entries = vec!["NO_EQUALS".to_string()];
-        let result = validate_environment_variables(&entries, "node1");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("KEY=VALUE"));
-    }
-
-    #[test]
-    fn test_empty_key() {
-        let entries = vec!["=value".to_string()];
-        let result = validate_environment_variables(&entries, "node1");
-        assert!(result.is_err());
-        assert!(
-            result
+    fn boot_settings_003_an_entry_with_no_equals_an_empty_key_or_a_key_not_a_name_is_refused() {
+        for (entry, named) in [
+            ("NO_EQUALS", "variable 'NO_EQUALS'"),
+            ("=value", "variable '=value'"),
+            ("1BAD_KEY=value", "key '1BAD_KEY'"),
+            ("BAD-KEY=value", "key 'BAD-KEY'"),
+        ] {
+            let message = validate_environment_variables(&[entry.to_string()], "node1")
                 .unwrap_err()
-                .to_string()
-                .contains("must not be empty")
-        );
-    }
-
-    #[test]
-    fn test_key_starts_with_digit() {
-        let entries = vec!["1BAD_KEY=value".to_string()];
-        let result = validate_environment_variables(&entries, "node1");
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("must not start with a digit")
-        );
-    }
-
-    #[test]
-    fn test_key_with_invalid_characters() {
-        let entries = vec!["BAD-KEY=value".to_string()];
-        let result = validate_environment_variables(&entries, "node1");
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("alphanumeric characters and underscores")
-        );
-    }
-
-    #[test]
-    fn test_value_with_equals_sign() {
-        let entries = vec!["MY_VAR=key=value".to_string()];
-        assert!(validate_environment_variables(&entries, "node1").is_ok());
+                .to_string();
+            assert!(
+                message.contains(&format!("{named} for node 'node1'")),
+                "{message}"
+            );
+        }
     }
 }

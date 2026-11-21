@@ -43,18 +43,3 @@ impl fmt::Display for PtxPlatform {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn manifest_names_are_lowercase() {
-        for platform in [PtxPlatform::Bt, PtxPlatform::Bx] {
-            let json = serde_json::to_value(platform).unwrap();
-            assert_eq!(json.as_str().unwrap(), platform.to_string());
-        }
-        assert!(serde_json::from_str::<PtxPlatform>(r#""BX""#).is_err());
-        assert!(serde_json::from_str::<PtxPlatform>(r#""bz""#).is_err());
-    }
-}

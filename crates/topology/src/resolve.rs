@@ -140,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn a_link_resolves_both_ends() {
+    fn manifest_links_001_a_links_two_ends_resolve_to_their_nodes_and_interfaces() {
         let result = process_manifest_links(
             &[link("dev01::eth1", "dev02::eth3")],
             &nodes(&["dev01", "dev02"]),
@@ -159,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn links_are_numbered_in_order() {
+    fn manifest_links_002_links_are_numbered_from_0_in_manifest_order() {
         let links = [
             link("dev01::eth1", "dev02::eth1"),
             link("dev02::eth2", "dev03::eth1"),
@@ -172,7 +172,7 @@ mod tests {
     }
 
     #[test]
-    fn a_link_naming_an_unknown_node_is_refused() {
+    fn manifest_links_003_an_end_naming_an_unknown_node_is_refused_at_either_end() {
         for (src, dst, unknown) in [
             ("dev0l::eth1", "dev02::eth1", "dev0l"),
             ("dev01::eth1", "dev0x::eth1", "dev0x"),
@@ -188,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn a_bridge_is_named_on_the_host_and_resolves_its_links() {
+    fn manifest_links_010_a_bridge_resolves_its_links_and_is_named_by_its_place_and_the_lab_id() {
         let result = process_manifest_bridges(
             &[bridge("mgmt", &["dev01::eth1", "dev02::eth2"])],
             &nodes(&["dev01", "dev02"]),
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn a_bridge_naming_an_unknown_node_is_refused() {
+    fn manifest_links_011_a_bridge_link_naming_an_unknown_node_is_refused() {
         let error = process_manifest_bridges(
             &[bridge("lan", &["dev01::eth1", "dev0l::eth1"])],
             &nodes(&["dev01", "dev02"]),

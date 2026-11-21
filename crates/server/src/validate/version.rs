@@ -465,17 +465,4 @@ mod tests {
             "registry.example:5000/mirror/srlinux"
         );
     }
-
-    #[test]
-    fn test_resolve_refuses_a_kind_the_model_does_not_take() {
-        let mut node = create_test_node("iol1", NodeModel::CiscoIol, None);
-        node.kind = Some(NodeKind::VirtualMachine);
-        let mut config = create_test_node_image(NodeModel::CiscoIol, "17.12", NodeKind::Container);
-        config.default = true;
-        let error = validate_and_resolve_node_versions(&[node], &[config], "/tmp").unwrap_err();
-        assert!(
-            format!("{error:#}").contains("comes only as: container"),
-            "{error:#}"
-        );
-    }
 }

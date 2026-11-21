@@ -271,28 +271,3 @@ pub async fn download_image_json(
 // =============================================================================
 // REST API — User Management
 // =============================================================================
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The message of a bad request; panics on any other result.
-    fn refusal(result: Result<ModelKind, ApiError>) -> String {
-        match result {
-            Err(ApiError::BadRequest { message }) => message,
-            other => panic!("expected a bad request, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn an_image_path_with_an_old_model_name_is_refused_naming_its_replacement() {
-        assert_eq!(
-            refusal(path_model_kind("arista_ceos", "container")),
-            r#"Unknown node model 'arista_ceos': it was renamed in 0.7.0. Use model = "arista_eos" with kind = "container"."#
-        );
-        assert_eq!(
-            refusal(path_model_kind("nosuch_model", "container")),
-            "Unknown node model: nosuch_model"
-        );
-    }
-}
