@@ -231,14 +231,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_status_message_is_a_progress_line() {
+    fn web_jobs_001_a_status_message_is_a_progress_line_with_its_text() {
         let text = r#"{"type":"status","message":"Creating VM: r1","timestamp":"2026-11-07T00:00:00Z","kind":"progress"}"#;
         let event = progress_event(text).unwrap();
         assert!(format!("{event:?}").contains("Creating VM: r1"));
     }
 
     #[test]
-    fn a_message_that_is_not_a_status_is_not_shown() {
+    fn web_jobs_002_a_message_that_is_not_a_status_is_not_shown() {
         let text = r#"{"type":"rpc_response","id":"1","result":{}}"#;
         assert!(progress_event(text).is_none());
     }

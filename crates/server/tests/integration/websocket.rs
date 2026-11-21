@@ -7,7 +7,7 @@ use crate::helpers::ws_client::TestWsClient;
 // ── RPC Dispatch Tests ──
 
 #[tokio::test]
-async fn test_rpc_unknown_method() -> Result<()> {
+async fn api_errors_001_an_unknown_rpc_method_is_answered_method_not_found() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
 

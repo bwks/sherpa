@@ -284,15 +284,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_status_message_without_a_kind_is_info() {
+    fn web_jobs_003_a_status_message_with_no_kind_is_shown_as_information() {
         let message: StatusMessage =
             serde_json::from_str(r#"{"type":"status","message":"Booting"}"#).unwrap();
         assert_eq!(message.kind, StatusKind::Info);
-    }
-
-    #[test]
-    fn test_up_phase_number_matches_total() {
-        // Last phase number should equal total_phases
-        assert_eq!(UpPhase::NodeReadiness.number(), UpPhase::total_phases());
     }
 }

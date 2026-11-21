@@ -147,6 +147,7 @@ Validators ensure user supplied data is accurate, usable and secure. They live w
 ## HTML Templates
 - Use Askama for HTML templates. Do not manually render HTML as strings.
 - Do not use inline templates, all templates must use files.
+- A template decides nothing from an enum's text: no `to_string()` call and no comparison with a string literal in a `{% %}` tag. Rust gives it typed values to decide from. `dev/check-template-text-decisions.sh` enforces this; it runs in the pre-commit hook and in the CI Lint job.
 
 ## CSS Code Style
 - Use tailwind css utility classes for styling.

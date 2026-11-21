@@ -96,7 +96,7 @@ mod tests {
     }
 
     #[test]
-    fn a_titled_table_has_a_centred_title_above_its_headers() {
+    fn cli_tables_001_a_titled_table_has_its_title_centred_above_the_headers() {
         let expected = "\
 ┌───────────────┐
 │     Fruit     │
@@ -115,7 +115,7 @@ mod tests {
     }
 
     #[test]
-    fn an_untitled_table_right_aligns_the_columns_it_is_given() {
+    fn cli_tables_002_the_columns_named_right_aligned_are_and_the_others_are_left_aligned() {
         let expected = "\
 ┌───────┬───────┐
 │ Name  │ Count │
@@ -132,7 +132,7 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_table_still_shows_its_headers() {
+    fn cli_tables_003_a_table_with_no_rows_still_shows_its_headers() {
         let expected = "\
 ┌──────┬───────┐
 │ Name │ Count │
@@ -144,7 +144,7 @@ mod tests {
     }
 
     #[test]
-    fn a_table_without_a_header_row_shows_only_its_rows() {
+    fn cli_tables_004_a_table_with_no_header_row_shows_its_title_and_rows_only() {
         let expected = "\
 ┌────────────┐
 │    Lab     │
@@ -169,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn a_wrapped_table_wraps_its_widest_column_between_words() {
+    fn cli_tables_005_a_table_given_a_width_wraps_its_widest_column_between_words() {
         let expected = "\
 ┌──────────┬─────────────────┐
 │ Item     │ Details         │
@@ -191,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn title_wrapping_and_right_alignment_compose() {
+    fn cli_tables_006_a_title_wrapping_and_right_alignment_work_together() {
         let expected = "\
 ┌────────────────────────────┐
 │           Status           │

@@ -106,6 +106,9 @@ jobs:
       - name: Check lint exceptions
         run: dev/check-lint-exceptions.sh
 
+      - name: Check templates decide nothing from an enum's text
+        run: dev/check-template-text-decisions.sh
+
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings
 

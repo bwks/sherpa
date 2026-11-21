@@ -28,7 +28,7 @@ async fn test_get_lab_by_lab_id() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_list_labs_returns_all_fields() -> Result<()> {
+async fn labs_list_008_the_admins_list_holds_each_labs_record_with_its_owner() -> Result<()> {
     let db = setup_db().await?;
 
     let user = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
@@ -57,7 +57,7 @@ async fn test_list_labs_returns_all_fields() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_count_labs_by_user() -> Result<()> {
+async fn web_layout_006_the_dashboards_lab_count_is_the_users_own_labs() -> Result<()> {
     let db = setup_db().await?;
 
     let user1 = create_user(&db, "judy".to_string(), "TestPass123!", false, vec![]).await?;

@@ -61,7 +61,7 @@ mod tests {
     }
 
     #[test]
-    fn other_server_errors_exit_1() {
+    fn api_errors_008_a_command_the_server_refuses_or_fails_exits_1() {
         for code in [
             RpcErrorCode::ServerError,
             RpcErrorCode::AccessDenied,

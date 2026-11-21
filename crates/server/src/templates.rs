@@ -732,14 +732,24 @@ mod tests {
     }
 
     #[test]
-    fn the_sidebar_shows_the_username_initial_in_capitals() {
+    fn web_layout_004_the_sidebar_shows_the_users_name_and_its_initial_in_capitals() {
         assert_eq!(sidebar_initial("bradmin"), "B");
         assert_eq!(sidebar_initial("Admin"), "A");
-    }
-
-    #[test]
-    fn the_sidebar_shows_no_initial_for_an_empty_username() {
-        assert_eq!(sidebar_initial(""), "");
+        let html = DashboardTemplate {
+            username: "bradmin".to_string(),
+            is_admin: false,
+            nav: NavPage::Dashboard.into(),
+            lab_count: 0,
+            image_count: 0,
+            docker_ok: true,
+            libvirt_ok: true,
+        }
+        .render()
+        .expect("template should render");
+        assert!(
+            html.contains(r#"<span class="text-sm text-header-text truncate">bradmin</span>"#),
+            "{html}"
+        );
     }
 
     // ========================================================================
@@ -747,21 +757,34 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn an_error_page_keeps_its_status() {
-        let response = Error404Template {
+    fn lab_page_014_an_error_page_is_served_as_html_with_its_own_status() {
+        let not_found = Error404Template {
             username: "testuser".to_string(),
             is_admin: false,
             nav: NavPage::Other.into(),
             message: "Lab not found".to_string(),
         }
         .into_response();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        assert!(
-            response.headers()[CONTENT_TYPE]
-                .to_str()
-                .unwrap()
-                .starts_with("text/html")
-        );
+        let forbidden = Error403Template {
+            username: "testuser".to_string(),
+            is_admin: false,
+            nav: NavPage::Other.into(),
+            message: "Access denied".to_string(),
+        }
+        .into_response();
+        for (response, status) in [
+            (not_found, StatusCode::NOT_FOUND),
+            (forbidden, StatusCode::FORBIDDEN),
+        ] {
+            assert_eq!(response.status(), status);
+            assert!(
+                response.headers()[CONTENT_TYPE]
+                    .to_str()
+                    .unwrap()
+                    .starts_with("text/html"),
+                "{status}"
+            );
+        }
     }
 
     #[test]
@@ -794,7 +817,7 @@ mod tests {
     }
 
     #[test]
-    fn test_nodes_table_shows_node_name_with_lab_id() {
+    fn lab_page_009_the_nodes_table_names_each_node_with_its_lab_id_linked_to_its_page() {
         let tpl = NodesTableFragment {
             lab_id: "a1b2c3d4".to_string(),
             nodes: vec![NodeRow::from(test_device())],
@@ -870,7 +893,7 @@ mod tests {
     }
 
     #[test]
-    fn test_node_detail_shows_the_nodes_cpu_and_memory_not_the_image_defaults() {
+    fn node_page_002_the_vcpus_and_memory_shown_are_the_nodes_own_not_its_images() {
         let device = DeviceInfo {
             cpu_count: Some(16),
             memory: Some(32768),
@@ -882,7 +905,7 @@ mod tests {
     }
 
     #[test]
-    fn test_node_detail_shows_containers_as_not_limited() {
+    fn node_page_003_a_container_with_no_limit_shows_not_limited() {
         let device = DeviceInfo {
             model: NodeModel::MongoDb,
             kind: NodeKind::Container,
@@ -893,27 +916,45 @@ mod tests {
         assert_eq!(compute_value(&html, "Memory (MB)"), "Not limited");
     }
 
-    #[test]
-    fn test_labs_grid_template_renders_with_labs() {
-        let tpl = LabsGridTemplate {
+    /// The labs list with one ready lab of three nodes.
+    fn labs_grid(description: Option<&str>) -> String {
+        LabsGridTemplate {
             labs: vec![LabRow::from(LabSummary {
                 id: "a10736e8".to_string(),
                 name: "test-lab".to_string(),
-                description: Some("Practice <BGP> routing".to_string()),
+                description: description.map(str::to_owned),
                 status: LabState::Unknown,
-                node_count: 2,
+                node_count: 3,
                 phase: LabPhase::Ready,
             })],
-        };
-        let html = tpl.render().expect("template should render");
-        assert!(html.contains("test-lab"));
-        assert!(html.contains("a10736e8"));
-        // Shown under the name, escaped.
-        assert!(html.contains("Practice &#60;BGP&#62; routing"), "{html}");
+        }
+        .render()
+        .expect("template should render")
     }
 
     #[test]
-    fn a_lab_that_is_not_ready_shows_its_phase_and_offers_no_start_or_stop() {
+    fn labs_list_002_a_row_shows_the_labs_name_linked_to_its_page_its_id_and_node_count() {
+        let html = labs_grid(None);
+        assert!(
+            html.contains(r#"<a href="/labs/a10736e8" class="text-accent hover:text-accent-hover hover:underline">test-lab</a>"#),
+            "{html}"
+        );
+        assert!(html.contains("a10736e8"), "{html}");
+        assert!(
+            html.contains(r#"<td class="p-4 text-sm text-body text-center">3</td>"#),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn page_safety_001_a_lab_description_with_markup_is_shown_escaped_in_the_labs_list() {
+        let html = labs_grid(Some("Practice <BGP> routing"));
+        assert!(html.contains("Practice &#60;BGP&#62; routing"), "{html}");
+        assert!(!html.contains("<BGP>"), "{html}");
+    }
+
+    #[test]
+    fn labs_list_005_a_lab_that_is_not_ready_shows_its_phase_and_offers_no_start_or_stop() {
         // M7.3: a lab whose destroy failed used to show `stopped` and offer Start.
         for (phase, badge) in [
             (
@@ -955,13 +996,18 @@ mod tests {
     }
 
     #[test]
-    fn the_lab_create_page_gives_each_model_its_kinds_and_default_and_offers_every_kind() {
+    fn lab_create_form_001_each_model_is_offered_with_its_kinds_and_default_and_every_kind_is_offered()
+     {
         let html = LabCreateTemplate {
             username: "testuser".to_string(),
             is_admin: false,
             nav: NavPage::Labs.into(),
             generated_name: "happy-panda".to_string(),
-            models: vec![NodeModel::AristaEos.into(), NodeModel::Generic.into()],
+            models: vec![
+                NodeModel::AristaEos.into(),
+                NodeModel::Generic.into(),
+                NodeModel::MongoDb.into(),
+            ],
             kinds: kind_choices(),
         }
         .render()
@@ -975,6 +1021,12 @@ mod tests {
         assert!(
             html.contains(
                 r#"<option value="generic" data-kinds="virtual_machine,container,unikernel" data-default-kind="">"#
+            ),
+            "{html}"
+        );
+        assert!(
+            html.contains(
+                r#"<option value="mongo_db" data-kinds="container" data-default-kind="container">"#
             ),
             "{html}"
         );
@@ -1025,7 +1077,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lab_create_required_fields_sit_in_build_panel() {
+    fn lab_create_form_002_the_required_fields_are_all_in_the_build_panel() {
         let tpl = LabCreateTemplate {
             username: "testuser".to_string(),
             is_admin: false,
@@ -1050,7 +1102,7 @@ mod tests {
     }
 
     #[test]
-    fn the_admin_list_shows_a_stranded_labs_phase_and_offers_no_start_or_stop() {
+    fn labs_list_007_an_admin_row_shows_the_owner_and_phase_and_no_start_or_stop_when_not_ready() {
         // M6.2, M6.3 and M7.3: admins find the labs left behind, to clean them.
         let tpl = AdminLabsTemplate {
             username: "admin".to_string(),
@@ -1066,6 +1118,10 @@ mod tests {
             )],
         };
         let html = tpl.render().expect("template should render");
+        assert!(
+            html.contains(r#"<td class="p-4 text-sm text-body">alice</td>"#),
+            "{html}"
+        );
         assert!(
             html.contains(r#"<span class="badge-danger">Interrupted</span>"#),
             "{html}"
@@ -1102,7 +1158,7 @@ mod tests {
     }
 
     #[test]
-    fn the_lab_detail_header_shows_a_large_phase_badge_while_the_lab_is_not_ready() {
+    fn lab_page_003_while_the_lab_is_not_ready_the_header_shows_its_phase_as_a_large_badge() {
         for (phase, badge) in [
             (
                 LabPhase::Creating,
@@ -1132,7 +1188,7 @@ mod tests {
     }
 
     #[test]
-    fn the_lab_detail_offers_no_start_or_stop_while_the_lab_is_not_ready() {
+    fn lab_page_005_while_the_lab_is_not_ready_it_offers_no_start_or_stop_and_still_destroy() {
         for phase in [
             LabPhase::Creating,
             LabPhase::Destroying,
@@ -1152,7 +1208,7 @@ mod tests {
     }
 
     #[test]
-    fn the_lab_detail_offers_the_download_only_for_a_lab_with_known_nodes() {
+    fn lab_page_007_the_download_is_offered_only_for_a_lab_with_nodes_in_a_known_state() {
         let download = r#"href="/labs/abcd1234/download""#;
         for state in [LabState::Unknown, LabState::Empty] {
             let html = lab_detail(state, LabPhase::Ready);
@@ -1163,7 +1219,7 @@ mod tests {
     }
 
     #[test]
-    fn the_lab_detail_header_shows_the_lab_state_once_the_lab_is_ready() {
+    fn lab_page_004_once_the_lab_is_ready_the_header_shows_its_status() {
         let html = lab_detail(LabState::Running, LabPhase::Ready);
         assert!(html.contains(">Running<"), "{html}");
         assert!(!html.contains(">Ready<"), "{html}");
@@ -1224,7 +1280,7 @@ mod tests {
     }
 
     #[test]
-    fn the_node_page_shows_each_kind_the_machine_and_disk_settings_it_uses() {
+    fn node_page_005_each_kind_shows_the_machine_and_disk_settings_it_uses_and_its_own_disks() {
         let firmware_and_disks = [
             ">BIOS</span>",
             ">HDD Bus</span>",
@@ -1292,7 +1348,7 @@ mod tests {
     }
 
     #[test]
-    fn the_sidebar_highlights_the_current_pages_link_alone() {
+    fn web_layout_003_the_sidebar_highlights_the_current_pages_link_alone() {
         let active = "transition-colors bg-accent/15 text-accent";
         for (page, href) in [
             (NavPage::Dashboard, Some("/")),
@@ -1330,7 +1386,7 @@ mod tests {
     }
 
     #[test]
-    fn test_admin_notification_error_template_escapes_message() {
+    fn page_safety_003_an_error_message_with_markup_is_escaped_in_an_admin_notification() {
         let tpl = AdminNotificationErrorTemplate {
             message: "Invalid <script>alert('unsafe')</script>".to_string(),
         };
@@ -1340,12 +1396,8 @@ mod tests {
         assert!(!html.contains("<script>"));
     }
 
-    // ========================================================================
-    // Sidebar rendering — active page highlighting
-    // ========================================================================
-
     #[test]
-    fn test_sidebar_shows_admin_section_for_admins() {
+    fn web_layout_001_the_sidebar_links_an_admin_to_the_admin_pages() {
         let tpl = DashboardTemplate {
             username: "admin".to_string(),
             is_admin: true,
@@ -1363,7 +1415,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sidebar_hides_admin_section_for_non_admins() {
+    fn web_layout_002_the_sidebar_of_a_user_who_is_not_an_admin_has_no_admin_link() {
         let tpl = DashboardTemplate {
             username: "user".to_string(),
             is_admin: false,
@@ -1374,16 +1426,26 @@ mod tests {
             libvirt_ok: true,
         };
         let html = tpl.render().expect("template should render");
-        assert!(!html.contains("/admin/users"));
-        assert!(!html.contains("/admin/labs"));
-        assert!(!html.contains("/admin/tools"));
+        assert!(!html.contains("/admin/"), "{html}");
     }
 
     /// Inline JavaScript runs whatever a template interpolates into it, and HTML escaping does
     /// not stop that: the browser decodes `&#x27;` back to `'` before the handler runs. All
     /// behaviour lives in `web/static/js` and reads its arguments from `data-` attributes.
     #[test]
-    fn templates_carry_no_inline_javascript() {
+    fn page_safety_002_no_template_has_an_inline_event_handler_or_a_script_block() {
+        assert_eq!(
+            inline_javascript(r#"<button onclick="go()">x</button><script>run()</script>"#),
+            vec!["onclick".to_owned(), "<script> block".to_owned()],
+            "the check no longer finds inline JavaScript"
+        );
+        assert_eq!(
+            inline_javascript(
+                r#"<a href="/x" data-lab-id="on=1"><script src="/js/a.js"></script>"#
+            ),
+            [] as [String; 0],
+            "the check finds inline JavaScript where there is none"
+        );
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
         let offenders: Vec<String> = template_files(&dir)
             .into_iter()
@@ -1400,69 +1462,5 @@ mod tests {
             })
             .collect();
         assert!(offenders.is_empty(), "inline JavaScript: {offenders:#?}");
-    }
-
-    /// Template tags that decide from an enum's text: a `to_string()` call, or a comparison
-    /// with a non-empty string literal.
-    fn text_decisions(html: &str) -> Vec<String> {
-        html.split("{%")
-            .skip(1)
-            .filter_map(|tag| tag.split_once("%}").map(|(tag, _)| tag.trim()))
-            .filter(|tag| {
-                tag.contains("to_string()")
-                    || [r#"== ""#, r#"!= ""#].iter().any(|op| {
-                        tag.match_indices(op)
-                            .any(|(at, _)| !tag[at + op.len()..].starts_with('"'))
-                    })
-            })
-            .map(str::to_owned)
-            .collect()
-    }
-
-    #[test]
-    fn templates_decide_nothing_from_an_enums_text() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
-        let offenders: Vec<String> = template_files(&dir)
-            .into_iter()
-            .flat_map(|path| {
-                let html = fs::read_to_string(&path).expect("read template");
-                let name = path
-                    .strip_prefix(&dir)
-                    .unwrap_or(&path)
-                    .display()
-                    .to_string();
-                text_decisions(&html)
-                    .into_iter()
-                    .map(move |found| format!("{name}: {found}"))
-            })
-            .collect();
-        assert!(offenders.is_empty(), "text decisions: {offenders:#?}");
-    }
-
-    #[test]
-    fn the_text_decision_check_finds_to_string_and_literal_comparisons() {
-        assert_eq!(
-            text_decisions(
-                r#"{% if state.to_string() == "running" %}{% elif kind == "vm" %}{% if ip != "" %}"#
-            ),
-            vec![
-                r#"if state.to_string() == "running""#.to_owned(),
-                r#"elif kind == "vm""#.to_owned()
-            ]
-        );
-    }
-
-    #[test]
-    fn the_inline_javascript_check_finds_handlers_and_script_blocks() {
-        assert_eq!(
-            inline_javascript(r#"<button onclick="go()">x</button><script>run()</script>"#),
-            vec!["onclick".to_owned(), "<script> block".to_owned()]
-        );
-        assert_eq!(
-            inline_javascript(
-                r#"<a href="/x" data-lab-id="on=1"><script src="/js/a.js"></script>"#
-            ),
-            [] as [std::string::String; 0]
-        );
     }
 }

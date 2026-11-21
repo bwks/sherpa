@@ -46,7 +46,8 @@ A case is one test. The test's name is its ID: the behaviour ID, a three-digit c
 - Behaviour `lab_up`, case 001: `lab_up_001_a_container_lab_comes_up_with_every_node_running`.
 - Rust: `fn lab_up_001_a_container_lab_comes_up_with_every_node_running()`.
 - Python (pytest): `def test_lab_up_001_a_container_lab_comes_up_with_every_node_running()`.
-- `grep lab_up_` finds every test of the behaviour in any language; `cargo test lab_up_` or `pytest -k lab_up_` runs them. `lab_up_001_` finds the one case.
+- JavaScript (`node:test`, in `tests/web/`): the test's name is the ID, `test("web_layout_008_a_new_visitor_gets_the_light_or_dark_theme_of_their_system", ...)`.
+- `grep lab_up_` finds every test of the behaviour in any language; `cargo test lab_up_`, `pytest -k lab_up_` or `node --test --test-name-pattern lab_up_ tests/web/*.cjs` runs them. `lab_up_001_` finds the one case.
 
 Case numbers are never reused. A case that is dropped is marked retired in the table, and its number stays taken.
 
@@ -57,8 +58,9 @@ One test proves one case. A test that checks two cases is split.
 Each case is tested at the highest level that can show it:
 
 1. **e2e:** the `sherpa` CLI against an installed server: the lab tests (`tests/labs/`) and the VM suite.
+   - **e2e (browser):** a browser driving the web UI's pages and their scripts against an installed server. Nothing runs one yet, so these cases have no test.
 2. **integration:** real libvirt, Docker, the database or a running sherpad: the server integration tests (`crates/server/tests/integration/`) and the `#[ignore]` crate tests.
-3. **unit:** only for logic with too many branches to cover above: parsing, validation, allocation, template rendering. Still a case of a behaviour, with its ID.
+3. **unit:** only for logic with too many branches to cover above: parsing, validation, allocation, template rendering. Still a case of a behaviour, with its ID. The web UI's scripts are unit tested in JavaScript (`tests/web/`), marked unit (JavaScript).
 
 ### e2e lab tests
 

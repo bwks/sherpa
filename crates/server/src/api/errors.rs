@@ -262,16 +262,21 @@ mod tests {
     use shared::error::{CpuPinConflict, CpuPinRole, MemoryShortfall};
 
     #[tokio::test]
-    async fn test_internal_error_hides_details() {
-        let err = ApiError::internal("secret db password leaked");
-        let response = err.into_response();
+    async fn api_errors_002_an_internal_error_over_rest_has_a_general_message_and_no_detail() {
+        let err = anyhow::anyhow!("permission denied on /var/lib/sherpa/secret.key")
+            .context("Failed to read lab key");
+        let response = ApiError::from(err).into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["error"]["code"], "INTERNAL_ERROR");
-        // Details should be None (not exposed to client)
-        assert!(json["error"]["details"].is_null());
+        assert_eq!(json["error"]["message"], "An internal error occurred");
+        assert!(json["error"]["details"].is_null(), "{json}");
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(!text.contains("secret.key"), "{text}");
+        assert!(!text.contains("Failed to read lab key"), "{text}");
     }
 
     #[test]

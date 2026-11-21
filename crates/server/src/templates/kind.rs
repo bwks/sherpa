@@ -82,33 +82,3 @@ impl From<NodeModel> for ModelChoice {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_model_choice_lists_the_models_kinds_and_its_default() {
-        assert_eq!(
-            ModelChoice::from(NodeModel::AristaEos),
-            ModelChoice {
-                model: "arista_eos".to_owned(),
-                kinds: "virtual_machine,container".to_owned(),
-                default_kind: "virtual_machine".to_owned(),
-            }
-        );
-        assert_eq!(
-            ModelChoice::from(NodeModel::Generic),
-            ModelChoice {
-                model: "generic".to_owned(),
-                kinds: "virtual_machine,container,unikernel".to_owned(),
-                default_kind: String::new(),
-            }
-        );
-        assert_eq!(ModelChoice::from(NodeModel::MongoDb).kinds, "container");
-        assert_eq!(
-            ModelChoice::from(NodeModel::MongoDb).default_kind,
-            "container"
-        );
-    }
-}

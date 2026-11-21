@@ -304,7 +304,8 @@ through one: `ssh -F .sherpa/ssh/direct_config dev01 'bash -lc "cargo --version"
   is already logged in as `dev`.
 - **Pre-commit hook:** enable it once in each checkout with
   `git config core.hooksPath .githooks`. It runs `dev/check-lint-exceptions.sh`, which refuses
-  new `allow`/`expect` lint exceptions; CI runs the same check.
+  new `allow`/`expect` lint exceptions, and `dev/check-template-text-decisions.sh`, which refuses
+  web UI template tags that decide from an enum's text; CI runs the same checks.
 
 Nested lab VMs run slower in the guest than on the host, so run the final check on the host
 before a release.

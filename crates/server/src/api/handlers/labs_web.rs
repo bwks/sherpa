@@ -998,7 +998,7 @@ mod tests {
     use crate::services::lab_definition::tests::{lab_with, store};
 
     #[tokio::test]
-    async fn the_stored_definition_gives_a_node_its_ztp_only_when_it_sets_one() {
+    async fn node_page_006_the_ztp_shown_is_the_stored_definitions_or_else_the_images() {
         let (db, lab) = lab_with(&[
             ("frr01", NodeModel::FrrLinux),
             ("frr02", NodeModel::FrrLinux),

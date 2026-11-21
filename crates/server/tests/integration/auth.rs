@@ -218,12 +218,24 @@ async fn user_login_007_the_web_login_sets_the_cookie_and_sends_each_user_to_the
 // ── HTTP Route Tests ──
 
 #[tokio::test]
-async fn test_health_check() -> Result<()> {
+async fn server_status_001_health_answers_ok_with_the_service_version_and_tls_without_a_login()
+-> Result<()> {
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(server.addr);
 
     let response = client.get("/health").await?;
     assert_eq!(response.status().as_u16(), 200);
+    let body: serde_json::Value = response.json().await?;
+    // The test server's config has TLS on, as `TlsConfig::default()` does.
+    assert_eq!(
+        body,
+        json!({
+            "status": "ok",
+            "service": "sherpad",
+            "version": env!("CARGO_PKG_VERSION"),
+            "tls": "enabled",
+        })
+    );
 
     Ok(())
 }
@@ -295,12 +307,14 @@ async fn user_sessions_010_a_browser_with_no_session_cookie_is_sent_to_the_login
 }
 
 #[tokio::test]
-async fn test_api_spec_returns_json() -> Result<()> {
+async fn api_documents_001_the_spec_is_answered_without_a_login() -> Result<()> {
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(server.addr);
 
     let response = client.get("/api/v1/spec").await?;
     assert_eq!(response.status().as_u16(), 200);
+    let spec: serde_json::Value = response.json().await?;
+    assert!(spec["operations"].is_array(), "{spec}");
 
     Ok(())
 }
@@ -727,7 +741,7 @@ async fn user_sessions_016_a_recreated_user_does_not_inherit_the_old_accounts_to
 /// Every REST binding in the published spec is a route the server serves. The request is sent
 /// without a token: a route that exists answers 401 or 400, one that does not answers 404 or 405.
 #[tokio::test]
-async fn every_rest_operation_in_the_spec_is_routed() -> Result<()> {
+async fn api_documents_002_every_rest_operation_in_the_spec_is_routed() -> Result<()> {
     let server = TestServer::start().await?;
     let client = reqwest::Client::new();
     let mut unrouted = Vec::new();
@@ -825,7 +839,7 @@ async fn user_login_006_a_rest_login_issues_a_token_only_for_the_right_password(
 }
 
 #[tokio::test]
-async fn the_openapi_document_and_docs_page_are_public() -> Result<()> {
+async fn api_documents_003_the_openapi_document_and_the_swagger_page_are_public() -> Result<()> {
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(server.addr);
 

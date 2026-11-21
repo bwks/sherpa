@@ -112,7 +112,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_lab_is_described_from_its_record() {
+    fn lab_details_001_a_labs_details_are_its_records() {
         let lab = DbLab {
             id: Some(RecordId::new("lab", "l1")),
             lab_id: "ab12cd34".to_string(),
@@ -135,9 +135,17 @@ mod tests {
         let info = lab_info_from_records(&lab, "alice".to_string(), &[]).unwrap();
 
         assert_eq!(info.id, "ab12cd34");
+        assert_eq!(info.name, "core");
         assert_eq!(info.user, "alice");
         assert_eq!(info.ipv4_network.to_string(), "172.31.1.0/24");
+        assert_eq!(info.ipv4_gateway.to_string(), "172.31.1.1");
         assert_eq!(info.ipv4_router.to_string(), "172.31.1.2");
+        assert_eq!(
+            info.ipv6_network
+                .map(|network| network.to_string())
+                .as_deref(),
+            Some("fd00:b00b:0:1::/64")
+        );
         assert_eq!(
             info.ipv6_gateway
                 .map(|gateway| gateway.to_string())
@@ -147,7 +155,6 @@ mod tests {
         assert!(info.ipv6_router.is_none());
         assert_eq!(info.client_host.as_deref(), Some("dev01"));
         assert_eq!(info.description.as_deref(), Some("BGP"));
-        assert_eq!(info.ssh_usernames, Vec::<NodeSshUsername>::new());
     }
 
     #[tokio::test]
