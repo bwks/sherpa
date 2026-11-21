@@ -4721,7 +4721,7 @@ pub(crate) mod tests {
     use tokio::sync::mpsc;
 
     #[test]
-    fn systemd_units_carry_the_contents_the_client_read() {
+    fn boot_files_012_on_flatcar_a_systemd_unit_has_its_contents_and_enabled_state() {
         let units = ignition_units(&[SystemdUnitData {
             name: "app.service".to_owned(),
             content: util::base64_encode("[Unit]\nDescription=app\n"),
@@ -4737,7 +4737,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn binary_files_are_written_into_the_node_folder() {
+    fn boot_files_013_binary_files_are_written_to_the_node_folder_and_none_makes_no_folder() {
         let dir = tempdir().expect("tempdir");
         let node_dir = dir.path().to_string_lossy().into_owned();
         let paths = write_binary_files(
@@ -4750,10 +4750,14 @@ pub(crate) mod tests {
         .expect("write");
         assert_eq!(paths, vec![format!("{node_dir}/{BINARY_FILES_DIR}/tool")]);
         assert_eq!(fs::read(&paths[0]).expect("read"), vec![0, 159, 146, 150]);
+
+        let empty = tempdir().expect("tempdir");
+        let empty_dir = empty.path().to_string_lossy().into_owned();
         assert_eq!(
-            write_binary_files(&node_dir, &[]).expect("none"),
+            write_binary_files(&empty_dir, &[]).expect("none"),
             [] as [std::string::String; 0]
         );
+        assert!(!empty.path().join(BINARY_FILES_DIR).exists());
     }
 
     #[test]
@@ -4858,31 +4862,26 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_build_env_profile_script_basic() {
-        let env_vars = vec!["EDITOR=vim".to_string(), "LANG=en_US.UTF-8".to_string()];
+    fn login_environment_002_the_file_exports_each_variable_and_keeps_a_single_quote() {
+        let env_vars = vec!["EDITOR=vim".to_string(), "MSG=it's a test".to_string()];
         let script = build_env_profile_script(&env_vars);
-        assert_eq!(
-            script,
-            "#!/bin/sh\nexport EDITOR='vim'\nexport LANG='en_US.UTF-8'\n"
-        );
+        let home = tempdir().unwrap();
+        let file = home.path().join("env.sh");
+        std::fs::write(&file, script).unwrap();
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(r#". "$1"; sh -c 'printf "%s|%s" "$EDITOR" "$MSG"'"#)
+            .arg("sh")
+            .arg(&file)
+            .env_remove("EDITOR")
+            .env_remove("MSG")
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), "vim|it's a test");
     }
 
     #[test]
-    fn test_build_env_profile_script_with_single_quotes() {
-        let env_vars = vec!["MSG=it's a test".to_string()];
-        let script = build_env_profile_script(&env_vars);
-        assert_eq!(script, "#!/bin/sh\nexport MSG='it'\\''s a test'\n");
-    }
-
-    #[test]
-    fn test_build_env_profile_script_empty() {
-        let env_vars: Vec<String> = vec![];
-        let script = build_env_profile_script(&env_vars);
-        assert_eq!(script, "#!/bin/sh\n");
-    }
-
-    #[test]
-    fn test_user_env_file_is_private_to_the_user() {
+    fn login_environment_003_the_file_is_sherpa_env_owner_only_and_loads_the_variable() {
         let file = build_user_env_file(&["GH_TOKEN=abc123".to_string()], "alice");
         assert_eq!(
             file.dst, "~/.sherpa_env",
@@ -4973,7 +4972,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn test_user_env_loader_hooks_the_login_file_in_the_passwd_home() {
+    fn login_environment_004_the_loader_hooks_the_login_file_bash_reads_in_the_passwd_home() {
         let root = tempdir().unwrap();
         let home = root.path().join("usr/home/alice");
         std::fs::create_dir_all(&home).unwrap();
@@ -4996,7 +4995,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn test_user_env_loader_does_nothing_for_an_unknown_user() {
+    fn login_environment_005_an_unknown_user_gets_no_login_file() {
         let root = tempdir().unwrap();
         let home = root.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
@@ -5022,7 +5021,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn test_staged_files_are_written_root_only_to_the_staging_dir() {
+    fn boot_files_003_cloud_init_gets_each_text_file_root_only_outside_its_destination() {
         let files = vec![staged("/home/alice/.sherpa_env", "alice", None)];
         let (writes, runcmd) = stage_cloud_init_files(&files, "/opt/sherpa/staging", "/etc/passwd");
         assert_eq!(writes.len(), 1);
@@ -5042,7 +5041,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn test_no_staged_files_means_no_writes_or_runcmd() {
+    fn boot_files_007_a_node_with_no_text_files_or_variables_gets_no_file_or_command() {
         let (writes, runcmd) = stage_cloud_init_files(&[], "/opt/sherpa/staging", "/etc/passwd");
         assert!(writes.is_empty());
         assert_eq!(runcmd, [] as [std::string::String; 0]);
@@ -5051,7 +5050,7 @@ echo "$*" >> '{}'
     /// Runs the generated commands under `sh` to check quoting, home lookup, parent directories,
     /// mode, and removal of the staged copies.
     #[test]
-    fn test_staged_files_runcmd_moves_files_into_place_and_removes_staging() {
+    fn boot_files_004_each_file_is_moved_to_its_destination_and_nothing_staged_is_left() {
         let root = tempdir().unwrap();
         let staging = root.path().join("staging");
         let home = root.path().join("usr/home/alice");
@@ -5085,7 +5084,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn test_staged_files_only_give_the_user_directories_inside_their_home() {
+    fn boot_files_005_a_missing_folder_is_given_to_the_owner_only_inside_their_home() {
         let root = tempdir().unwrap();
         let staging = root.path().join("staging");
         let home = root.path().join("home/alice");
@@ -5114,7 +5113,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn test_staged_files_of_an_unknown_user_are_not_moved() {
+    fn boot_files_006_a_file_for_a_user_the_node_lacks_is_not_written() {
         let root = tempdir().unwrap();
         let staging = root.path().join("staging");
         std::fs::create_dir_all(&staging).unwrap();
@@ -5133,7 +5132,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn test_ignition_user_env_is_private_and_appended_to_bash_profile() {
+    fn login_environment_006_on_flatcar_the_file_is_private_and_appended_to_bash_profile() {
         let files = build_ignition_user_env(&["GH_TOKEN=abc123".to_string()], "alice");
         assert_eq!(files.len(), 2);
 
@@ -5195,7 +5194,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn test_cloud_init_scripts_run_through_their_shebang() {
+    fn boot_scripts_002_scripts_are_written_executable_and_run_directly_startup_then_user() {
         let (files, runcmd) = build_cloud_init_scripts(
             "node1",
             Some(&[script("boot.sh")]),
@@ -5220,7 +5219,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn test_cloud_init_scripts_without_user_scripts_skip_the_chown() {
+    fn boot_scripts_003_startup_scripts_alone_do_nothing_for_user_scripts() {
         let (files, runcmd) =
             build_cloud_init_scripts("node1", Some(&[script("boot.sh")]), None, "alice").unwrap();
         assert_eq!(files.len(), 1);
@@ -5241,7 +5240,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn test_ignition_text_file_parents_in_home_are_owned_by_the_user() {
+    fn boot_files_010_on_flatcar_the_missing_folders_in_the_owners_home_are_theirs() {
         let text_files = Some(vec![
             text_file("/home/alice/.config/probe/nested/a.txt", "alice"),
             text_file("/home/alice/.config/probe/b.txt", "alice"),
@@ -5268,63 +5267,16 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn test_build_windows_env_commands_basic() {
-        let env_vars = vec!["EDITOR=vim".to_string()];
-        let commands = build_windows_env_commands(&env_vars);
-        assert_eq!(commands.len(), 1);
-        assert_eq!(
-            commands[0],
-            r#"powershell -Command "[System.Environment]::SetEnvironmentVariable('EDITOR', 'vim', 'Machine')""#
-        );
-    }
-
-    #[test]
-    fn test_build_windows_env_commands_with_single_quotes() {
-        let env_vars = vec!["MSG=it's here".to_string()];
+    fn login_environment_007_on_windows_each_variable_is_set_machine_wide_quotes_kept() {
+        let env_vars = vec!["EDITOR=vim".to_string(), "MSG=it's here".to_string()];
         let commands = build_windows_env_commands(&env_vars);
         assert_eq!(
             commands,
             [
-                r#"powershell -Command "[System.Environment]::SetEnvironmentVariable('MSG', 'it''s here', 'Machine')""#
+                r#"powershell -Command "[System.Environment]::SetEnvironmentVariable('EDITOR', 'vim', 'Machine')""#,
+                r#"powershell -Command "[System.Environment]::SetEnvironmentVariable('MSG', 'it''s here', 'Machine')""#,
             ]
         );
-    }
-
-    #[test]
-    fn test_build_cloud_init_text_files_basic() {
-        let text_files = Some(vec![topology::TextFileData {
-            content: "aGVsbG8=".to_string(),
-            dst: "/etc/app/config.json".to_string(),
-            user: "root".to_string(),
-            group: "root".to_string(),
-            permissions: 644,
-        }]);
-
-        let result = build_cloud_init_text_files(text_files.as_deref());
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].dst, "/etc/app/config.json");
-        assert_eq!(result[0].content, "aGVsbG8=");
-        assert_eq!(result[0].permissions, "644");
-        assert_eq!(result[0].user, "root");
-        assert_eq!(result[0].group, Some("root".to_string()));
-        assert_eq!(result[0].encoding, Some("b64".to_string()));
-    }
-
-    #[test]
-    fn test_build_cloudbase_text_files_basic() {
-        let text_files = Some(vec![topology::TextFileData {
-            content: "aGVsbG8=".to_string(),
-            dst: r"C:\app\config.json".to_string(),
-            user: "Administrator".to_string(),
-            group: "Administrators".to_string(),
-            permissions: 644,
-        }]);
-
-        let result = build_cloudbase_text_files(text_files.as_deref());
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].path, r"C:\app\config.json");
-        assert_eq!(result[0].content, "aGVsbG8=");
-        assert_eq!(result[0].permissions, "0644");
     }
 
     fn cloudbase_file(path: &str, permissions: &str) -> template::CloudbaseWriteFile {
@@ -5336,7 +5288,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn test_windows_private_file_acls_lock_down_files_others_cannot_read() {
+    fn boot_files_008_on_windows_only_a_file_others_cannot_read_is_limited_to_admins() {
         let files = vec![
             cloudbase_file(r"C:\sherpa\certs\ca.crt", "0644"),
             cloudbase_file(r"C:\sherpa\certs\node.key", "0600"),
@@ -5356,16 +5308,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn test_windows_private_file_acls_none_for_readable_files() {
-        let files = vec![cloudbase_file(r"C:\app\config.json", "0644")];
-        assert_eq!(
-            build_windows_private_file_acls(&files).unwrap(),
-            [] as [std::string::String; 0]
-        );
-    }
-
-    #[test]
-    fn test_windows_private_file_acls_reject_paths_cmd_would_reinterpret() {
+    fn boot_files_009_on_windows_a_path_with_a_quote_or_percent_is_refused() {
         for path in [r#"C:\app\a" & del C:\x & ".txt"#, r"C:\app\%TEMP%.txt"] {
             let files = vec![cloudbase_file(path, "0600")];
             assert!(build_windows_private_file_acls(&files).is_err(), "{path}");

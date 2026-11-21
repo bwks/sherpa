@@ -23,7 +23,7 @@ pub mod server;
 mod ssh;
 mod ssh_config;
 mod tailscale_key;
-mod up;
+pub(crate) mod up;
 mod validate;
 mod vnc;
 

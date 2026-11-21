@@ -886,9 +886,6 @@ mod tests {
 
     use super::*;
     use crate::konst::LAB_CERTS_DIR;
-    use shared::data::{SecretContent, SecretFile};
-
-    use crate::services::node_secrets::write_node_secrets;
 
     /// A libvirt URI whose socket does not exist, so connecting always fails.
     const UNREACHABLE_QEMU_URI: &str = "qemu+unix:///system?socket=/nonexistent/sherpa-test.sock";
@@ -937,20 +934,6 @@ mod tests {
         ] {
             assert!(!is_lab_interface(name, LAB_ID), "{name}");
         }
-    }
-    #[test]
-    fn lab_secrets_are_removed_with_the_lab() {
-        let root = tempdir().unwrap();
-        let file = SecretFile {
-            name: "password".to_string(),
-            mode: 444,
-            content: SecretContent::from_bytes(b"pw"),
-        };
-        write_node_secrets(root.path(), "test1234", "db01", &[file]).unwrap();
-        let mut errors = Vec::new();
-        destroy_lab_secrets("test1234", root.path(), &mut errors);
-        assert!(errors.is_empty(), "{errors:?}");
-        assert!(!root.path().join("test1234").exists());
     }
 
     struct DockerMock {

@@ -237,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn a_node_in_the_lab_ssh_config_is_found_by_its_alias() {
+    fn provision_run_008_a_node_is_reached_at_its_lab_ssh_config_entry_or_fails_at_once() {
         let target = SshTarget::new(
             &lab_ssh_config(),
             "web01",
@@ -248,10 +248,7 @@ mod tests {
         .unwrap();
         assert_eq!(target.host(), "web01.ab12cd34");
         assert_eq!(target.node().host(), "172.31.0.11");
-    }
 
-    #[test]
-    fn a_node_missing_from_the_lab_ssh_config_fails_at_once() {
         let error = SshTarget::new(
             &lab_ssh_config(),
             "web02",

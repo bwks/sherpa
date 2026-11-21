@@ -329,7 +329,7 @@ mod tests {
     }
 
     #[test]
-    fn provision_table_shows_each_node_with_its_status() {
+    fn provision_report_003_the_table_shows_each_node_with_its_status_and_failure_detail() {
         let results = vec![
             ProvisionResult {
                 node: "dev01".to_string(),

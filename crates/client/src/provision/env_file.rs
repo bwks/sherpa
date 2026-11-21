@@ -133,13 +133,13 @@ mod tests {
     }
 
     #[test]
-    fn a_whole_value_reference_is_resolved_and_quoted() {
+    fn provisioner_env_002_a_whole_value_reference_becomes_the_client_value_quoted_whole() {
         let resolved = resolve_env_file("GH_TOKEN=$GH_TOKEN\n", variables).unwrap();
         assert_eq!(resolved, "GH_TOKEN='ghp_it'\\''s $ecret value'\n");
     }
 
     #[test]
-    fn braced_and_exported_references_are_resolved() {
+    fn provisioner_env_003_braced_exported_and_indented_references_are_resolved() {
         let text = "TOKEN=${GH_TOKEN}\nexport OTHER=$GH_TOKEN\n  SPACED=$GH_TOKEN  \n";
         let resolved = resolve_env_file(text, variables).unwrap();
         let quoted = "'ghp_it'\\''s $ecret value'";
@@ -150,34 +150,25 @@ mod tests {
     }
 
     #[test]
-    fn a_set_but_empty_variable_resolves_to_an_empty_value() {
+    fn provisioner_env_004_a_set_but_empty_variable_resolves_to_an_empty_value() {
         assert_eq!(resolve_env_file("E=$EMPTY", variables).unwrap(), "E=''");
     }
 
     #[test]
-    fn other_lines_are_kept_as_written() {
+    fn provisioner_env_005_other_lines_are_kept_as_written() {
         let text = "# token for gh\n\nPLAIN=value\nQUOTED='a b'\nPATH=$HOME/bin:$PATH\n\
                     MIXED=pre$GH_TOKEN\nNOT_A_NAME=$1\nDOLLAR=$\nCRLF=x\r\n";
         assert_eq!(resolve_env_file(text, variables).unwrap(), text);
     }
 
     #[test]
-    fn line_endings_are_kept() {
+    fn provisioner_env_006_line_endings_are_kept() {
         let resolved = resolve_env_file("A=$GH_TOKEN\r\nB=2", variables).unwrap();
         assert_eq!(resolved, "A='ghp_it'\\''s $ecret value'\r\nB=2");
     }
 
     #[test]
-    fn an_unset_variable_fails_naming_it_and_the_line() {
-        let error = resolve_env_file("A=1\nTOKEN=$MISSING_TOKEN\n", variables)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("MISSING_TOKEN"), "{error}");
-        assert!(error.contains("line 2"), "{error}");
-    }
-
-    #[test]
-    fn errors_never_show_values() {
+    fn provisioner_env_008_an_error_never_shows_a_value() {
         let error = resolve_env_file("A=$GH_TOKEN\nB=$MISSING\n", variables)
             .unwrap_err()
             .to_string();

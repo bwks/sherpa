@@ -183,7 +183,8 @@ mod tests {
     use crate::ssh_client::{HostKeyRefresh, SshAccess};
 
     #[test]
-    fn client_files_are_read_with_their_node_destinations() {
+    fn provisioner_files_002_every_client_file_is_read_with_where_it_goes_before_the_node_is_changed()
+     {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("token"), "t").unwrap();
         fs::write(dir.path().join("dev.env"), "A=1\n").unwrap();
@@ -208,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn env_files_are_copied_with_their_references_resolved() {
+    fn provisioner_env_009_the_value_is_read_from_the_environment_sherpa_runs_in() {
         let dir = tempdir().unwrap();
         fs::write(
             dir.path().join("dev.env"),
@@ -230,11 +231,12 @@ mod tests {
     }
 
     #[test]
-    fn an_unset_env_file_variable_fails_before_the_node_is_changed() {
+    fn provisioner_env_007_an_unset_variable_fails_before_the_node_is_changed_naming_file_line_and_variable()
+     {
         let dir = tempdir().unwrap();
         fs::write(
             dir.path().join("dev.env"),
-            "TOKEN=$SHERPA_TEST_UNSET_TOKEN\n",
+            "A=1\nTOKEN=$SHERPA_TEST_UNSET_TOKEN\n",
         )
         .unwrap();
         let provisioner = SshProvisioner {
@@ -246,11 +248,12 @@ mod tests {
         };
         let error = format!("{error:#}");
         assert!(error.contains("dev.env"), "{error}");
+        assert!(error.contains("line 2"), "{error}");
         assert!(error.contains("SHERPA_TEST_UNSET_TOKEN"), "{error}");
     }
 
     #[test]
-    fn a_missing_client_file_is_reported_by_name() {
+    fn provisioner_files_003_a_missing_client_file_fails_the_node_naming_it() {
         let dir = tempdir().unwrap();
         let provisioner = SshProvisioner {
             env_files: vec!["missing.env".to_string()],

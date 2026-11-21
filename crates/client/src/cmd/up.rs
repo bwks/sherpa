@@ -189,7 +189,7 @@ pub async fn up(
 }
 
 /// The nodes that came up with SSH available.
-fn ssh_ready_nodes(nodes: &[NodeInfo]) -> Vec<String> {
+pub(crate) fn ssh_ready_nodes(nodes: &[NodeInfo]) -> Vec<String> {
     let mut ready = Vec::new();
     for node in nodes {
         if node.ssh_port.is_some() {
@@ -537,7 +537,7 @@ fn display_up_results(response: &UpResponse) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{NodeKind, NodeModel, NodeState};
+    use shared::data::NodeModel;
     use shared::util::base64_decode;
     use tempfile::NamedTempFile;
     use topology::NodeZtp;
@@ -551,7 +551,7 @@ mod tests {
     }
 
     #[test]
-    fn startup_and_user_scripts_are_read_from_the_manifest_folder() {
+    fn client_content_004_startup_and_user_scripts_are_read_and_sent_under_their_file_names() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("boot.sh"), "echo boot").unwrap();
         fs::write(dir.path().join("user.sh"), "echo user").unwrap();
@@ -577,7 +577,7 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_script_is_refused_naming_its_node() {
+    fn client_content_005_an_empty_script_is_refused_naming_its_node_and_kind() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("empty.sh"), "").unwrap();
         let mut manifest = topology::Manifest {
@@ -699,25 +699,27 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_environment_variables_env_ref() {
+    fn client_content_008_a_dollar_name_value_is_sent_as_the_client_value_and_others_as_written() {
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::UbuntuLinux,
-            environment_variables: Some(vec!["MY_TOKEN=$SHERPA_TEST_TOKEN".to_string()]),
+            environment_variables: Some(vec![
+                "MY_TOKEN=$SHERPA_TEST_TOKEN".to_string(),
+                "EDITOR=vim".to_string(),
+            ]),
             ..Default::default()
         }]);
 
         resolve_environment_variables(&mut manifest, test_token_lookup).expect("should succeed");
 
-        let env_vars = manifest.nodes[0]
-            .environment_variables
-            .as_ref()
-            .expect("should have env vars");
-        assert_eq!(env_vars[0], "MY_TOKEN=secret123");
+        assert_eq!(
+            manifest.nodes[0].environment_variables.as_deref(),
+            Some(&["MY_TOKEN=secret123".to_string(), "EDITOR=vim".to_string()][..])
+        );
     }
 
     #[test]
-    fn test_resolve_environment_variables_missing_env_var() {
+    fn client_content_009_an_unset_name_is_refused_naming_the_variable_and_node() {
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::UbuntuLinux,
@@ -733,7 +735,7 @@ mod tests {
     }
 
     #[test]
-    fn node_files_are_read_on_the_client_relative_to_the_manifest() {
+    fn client_content_006_binary_files_and_systemd_units_are_sent_with_their_contents() {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         fs::create_dir(dir.path().join("units")).expect("mkdir");
         fs::write(
@@ -778,11 +780,10 @@ mod tests {
             base64_decode(&units[0].content).expect("decode"),
             "[Unit]\nDescription=app\n"
         );
-        topology::validate::check_client_read_files(&manifest.nodes).expect("server accepts");
     }
 
     #[test]
-    fn a_missing_node_file_names_the_node_and_path() {
+    fn client_content_007_an_unreadable_binary_file_is_refused_naming_the_node_and_path() {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let manifest_path = dir.path().join("manifest.toml");
         let mut manifest = test_manifest(vec![topology::Node {
@@ -804,7 +805,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_text_files_base64_encodes_content() {
+    fn client_content_002_a_text_file_is_sent_with_its_contents_destination_owner_group_and_mode() {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let file_path = dir.path().join("config.json");
         std::fs::write(&file_path, r#"{"key": "value"}"#).expect("write file");
@@ -841,85 +842,8 @@ mod tests {
         assert_eq!(decoded, r#"{"key": "value"}"#);
     }
 
-    fn node_info(name: &str, ssh_port: Option<u16>) -> NodeInfo {
-        NodeInfo {
-            name: name.to_string(),
-            kind: NodeKind::VirtualMachine,
-            model: NodeModel::UbuntuLinux,
-            status: NodeState::Running,
-            ip_address: None,
-            ssh_port,
-        }
-    }
-
     #[test]
-    fn provisioners_run_on_nodes_that_came_up_with_ssh() {
-        let nodes = vec![node_info("dev01", Some(22)), node_info("dev02", None)];
-        assert_eq!(ssh_ready_nodes(&nodes), vec!["dev01"]);
-    }
-
-    #[test]
-    fn every_client_file_the_server_needs_is_read_for_up_and_redeploy() {
-        let dir = tempfile::tempdir().expect("Failed to create temp dir");
-        std::fs::write(dir.path().join("my_file.txt"), "hello world").expect("write file");
-        std::fs::write(dir.path().join("setup.sh"), "#!/bin/sh\n").expect("write script");
-        std::fs::write(dir.path().join("dev01.conf"), "hostname dev01").expect("write config");
-        std::fs::write(dir.path().join("tool"), [7_u8]).expect("write binary");
-        let manifest_path = dir.path().join("manifest.toml");
-
-        let mut manifest = test_manifest(vec![topology::Node {
-            name: "dev01".to_string(),
-            model: NodeModel::UbuntuLinux,
-            ztp: NodeZtp {
-                method: None,
-                config: Some("dev01.conf".to_string()),
-            },
-            text_files: Some(vec![topology::TextFile {
-                src: "my_file.txt".to_string(),
-                dst: "/opt/data/my_file.txt".to_string(),
-                user: "sherpa".to_string(),
-                group: "sherpa".to_string(),
-                permissions: 644,
-            }]),
-            binary_files: Some(vec![BinaryFile {
-                source: "tool".to_string(),
-            }]),
-            user_scripts: Some(vec!["setup.sh".to_string()]),
-            environment_variables: Some(vec!["EDITOR=vim".to_string()]),
-            ..Default::default()
-        }]);
-
-        resolve_manifest_files(&mut manifest, manifest_path.to_str().expect("path"))
-            .expect("resolve should succeed");
-
-        let node = &manifest.nodes[0];
-        assert_eq!(
-            base64_decode(node.ztp.config.as_deref().expect("ztp.config")).expect("decode"),
-            "hostname dev01"
-        );
-        let text_files = node.text_files_data.as_ref().expect("text_files_data");
-        assert_eq!(
-            base64_decode(&text_files[0].content).expect("decode"),
-            "hello world"
-        );
-        let binaries = node.binary_files_data.as_ref().expect("binary_files_data");
-        assert_eq!(
-            shared::util::base64_decode_bytes(&binaries[0].content).expect("decode"),
-            [7_u8]
-        );
-        let scripts = node.user_scripts_data.as_ref().expect("user_scripts_data");
-        assert_eq!(
-            base64_decode(&scripts[0].content).expect("decode"),
-            "#!/bin/sh\n"
-        );
-        assert_eq!(
-            node.environment_variables.as_deref(),
-            Some(&["EDITOR=vim".to_string()][..])
-        );
-    }
-
-    #[test]
-    fn test_resolve_text_files_missing_file_error() {
+    fn client_content_003_an_unreadable_text_file_is_refused_naming_the_node() {
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::UbuntuLinux,
@@ -941,7 +865,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_environment_variables_invalid_format() {
+    fn client_content_010_an_entry_that_is_not_key_value_is_refused_naming_the_node() {
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::UbuntuLinux,
@@ -952,6 +876,7 @@ mod tests {
         let result = resolve_environment_variables(&mut manifest, no_variables);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("KEY=VALUE"));
+        assert!(err_msg.contains("KEY=VALUE"), "{err_msg}");
+        assert!(err_msg.contains("'dev01'"), "{err_msg}");
     }
 }

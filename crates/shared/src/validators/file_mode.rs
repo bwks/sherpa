@@ -18,7 +18,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn octal_digits_convert_to_permission_bits() {
+    fn provisioner_files_007_octal_digits_are_the_permission_bits_the_file_gets() {
         assert_eq!(mode_from_octal_digits(644).unwrap(), 0o644);
         assert_eq!(mode_from_octal_digits(7).unwrap(), 0o7);
         assert_eq!(mode_from_octal_digits(0).unwrap(), 0);

@@ -43,23 +43,22 @@ mod tests {
     }
 
     #[test]
-    fn manifests_with_provisioners_are_refused() {
-        let manifest = manifest(SSH_PROVISIONER);
-        let error = reject_provisioners(&manifest).unwrap_err().to_string();
+    fn provisioner_secrecy_002_a_manifest_with_provisioners_is_refused_and_one_without_is_taken() {
+        let error = reject_provisioners(&manifest(SSH_PROVISIONER))
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("dev01"), "{error}");
         assert!(error.contains("sherpa up"), "{error}");
-    }
-
-    #[test]
-    fn manifests_without_provisioners_pass() {
         reject_provisioners(&manifest("")).unwrap();
     }
 
     #[test]
-    fn manifests_sent_by_the_client_never_carry_provisioners() {
+    fn provisioner_secrecy_001_the_manifest_the_cli_sends_has_no_provisioners_and_is_taken() {
         let manifest = manifest(SSH_PROVISIONER);
-        let sent: topology::Manifest =
-            serde_json::from_value(serde_json::to_value(&manifest).unwrap()).unwrap();
+        let sent_json = serde_json::to_string(&manifest).unwrap();
+        assert!(!sent_json.contains("provisioners"), "{sent_json}");
+        assert!(!sent_json.contains("a.sh"), "{sent_json}");
+        let sent: topology::Manifest = serde_json::from_str(&sent_json).unwrap();
         reject_provisioners(&sent).unwrap();
     }
 }

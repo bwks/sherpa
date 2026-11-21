@@ -265,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn files_are_written_with_their_modes_in_a_private_lab_dir() {
+    fn container_secrets_004_files_are_written_with_their_modes_in_a_private_lab_folder() {
         let root = tempdir().unwrap();
         let secrets = root.path().join("secrets");
         let dir = write_node_secrets(
@@ -289,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    fn rewriting_replaces_files_and_removes_stale_ones() {
+    fn container_secrets_005_writing_again_replaces_files_and_removes_stale_ones() {
         let root = tempdir().unwrap();
         let dir = write_node_secrets(
             root.path(),
@@ -314,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_files_change_nothing() {
+    fn container_secrets_006_a_set_with_a_bad_file_changes_nothing() {
         let root = tempdir().unwrap();
         let dir =
             write_node_secrets(root.path(), "abcd1234", "db01", &[secret("a", 444, b"1")]).unwrap();
@@ -337,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn redeploys_replace_remove_or_keep_secrets() {
+    fn container_secrets_007_a_redeploy_replaces_removes_or_keeps_the_files() {
         let root = tempdir().unwrap();
         let dir = node_secrets_dir(root.path(), "abcd1234", "db01");
 
@@ -370,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn secrets_are_rewritten_only_through_the_nodes_own_mount() {
+    fn container_secrets_008_provision_rewrites_files_only_through_the_nodes_own_mount() {
         let expected = Path::new("/run/sherpa/secrets/abcd1234/db01");
         check_secrets_mount(Some("/run/sherpa/secrets/abcd1234/db01"), expected, "db01").unwrap();
         let missing = check_secrets_mount(None, expected, "db01").unwrap_err();
@@ -391,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn removing_a_lab_removes_its_files_only() {
+    fn container_secrets_009_removing_a_labs_secret_files_removes_that_labs_alone() {
         let root = tempdir().unwrap();
         write_node_secrets(root.path(), "abcd1234", "db01", &[secret("a", 444, b"1")]).unwrap();
         let other =

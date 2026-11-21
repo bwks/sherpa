@@ -115,12 +115,12 @@ mod tests {
     }
 
     #[test]
-    fn output_that_cannot_be_shown_does_not_stop_the_provisioner() {
+    fn provision_report_008_output_that_cannot_be_written_does_not_stop_the_run() {
         write_whole(&mut ClosedTerminal, b"web | one\n");
     }
 
     #[test]
-    fn each_complete_line_gets_the_prefix() {
+    fn provision_report_005_every_line_is_shown_with_the_node_name_before_it() {
         let mut pending = Vec::new();
         assert_eq!(
             prefixed(&mut pending, "one\ntwo\n"),
@@ -130,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn a_line_split_across_reads_is_shown_once_it_ends() {
+    fn provision_report_006_a_line_that_arrives_in_pieces_is_shown_once_when_it_ends() {
         let mut pending = Vec::new();
         assert_eq!(prefixed(&mut pending, "one\ntw"), "web | one\n");
         assert_eq!(prefixed(&mut pending, "o"), "");
@@ -141,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unended_last_line_is_shown_at_the_end() {
+    fn provision_report_007_a_last_line_with_no_newline_is_shown_when_the_script_ends() {
         let mut pending = Vec::new();
         assert_eq!(prefixed(&mut pending, "done"), "");
         let mut out = Vec::new();

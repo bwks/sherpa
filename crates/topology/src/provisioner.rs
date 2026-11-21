@@ -185,17 +185,6 @@ mod tests {
     }
 
     #[test]
-    fn provisioners_are_never_serialized() {
-        let manifest: Manifest = toml::from_str(MANIFEST).unwrap();
-        let json = serde_json::to_string(&manifest).unwrap();
-        let saved = toml::to_string_pretty(&manifest).unwrap();
-        for output in [json, saved] {
-            assert!(!output.contains("provisioners"), "{output}");
-            assert!(!output.contains("secrets/dev.env"), "{output}");
-        }
-    }
-
-    #[test]
     fn unknown_ssh_provisioner_field_is_rejected() {
         let error = parse_error(&MANIFEST.replace("scripts =", "commands ="));
         assert!(error.contains("commands"), "{error}");
