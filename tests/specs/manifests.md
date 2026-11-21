@@ -59,7 +59,7 @@ A redeploy reads one node of the manifest it is sent. The lab's name, descriptio
 | 011 | `sherpa new` leaves an existing `manifest.toml` as it is and says so, and with `--force` writes over it | e2e |
 | 012 | A manifest sent to the server with an unknown key or a value of the wrong type is refused as the file is, and nothing is created (no test yet) | integration |
 
-A folder with no `manifest.toml` at `sherpa up`, `redeploy` and `provision`, and a manifest that does not load beside a `lab-info.toml`, are lab identity: lab lifecycle and `saved_lab_files`. The lab's `[ztp_server]` table is read and nothing uses it (#766); no case is written for it.
+A folder with no `manifest.toml` at `sherpa up`, `redeploy` and `provision`, and a manifest that does not load beside a `lab-info.toml`, are lab identity: `lab_identity_007` and `008` in [lab lifecycle](lab-lifecycle.md), and `saved_lab_files`. The lab's `[ztp_server]` table is read and nothing uses it (#766); no case is written for it.
 
 ## `validate_command`: `sherpa validate` checks a manifest with no server
 
