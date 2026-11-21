@@ -32,9 +32,8 @@ pub struct LabRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BusRecord {
     pub url: String,
-    /// The agents file, as an absolute path. A record written before enrollment has none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agents: Option<PathBuf>,
+    /// The agents file, as an absolute path.
+    pub agents: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lab: Option<LabRecord>,
 }
@@ -184,7 +183,7 @@ ipv4_router = "192.0.2.2"
     fn record(url: &str) -> BusRecord {
         BusRecord {
             url: url.to_owned(),
-            agents: Some(PathBuf::from("/home/u/agents.toml")),
+            agents: PathBuf::from("/home/u/agents.toml"),
             lab: Some(LabRecord {
                 id: "abc123".to_owned(),
                 name: "dev".to_owned(),
@@ -254,20 +253,12 @@ ipv4_router = "192.0.2.2"
         // A second write replaces the first and leaves no temporary file.
         let without_lab = BusRecord {
             url: "nats://192.0.2.9:4222".to_owned(),
-            agents: None,
+            agents: PathBuf::from("/home/u/agents.toml"),
             lab: None,
         };
         write(&path, &without_lab).unwrap();
         assert_eq!(read(&path).unwrap(), Some(without_lab));
         assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
-        // A record from before enrollment, with no agents file, still reads.
-        fs::write(
-            &path,
-            r#"url = "nats://192.0.2.9:4222"
-"#,
-        )
-        .unwrap();
-        assert_eq!(read(&path).unwrap().unwrap().agents, None);
         remove(&path).unwrap();
         remove(&path).unwrap();
         assert_eq!(read(&path).unwrap(), None);
@@ -281,7 +272,7 @@ ipv4_router = "192.0.2.2"
         let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
         write(&path, &record("nats://192.0.2.1:4222")).unwrap();
         assert_eq!(mode(&path), PRIVATE_FILE_MODE);
-        // A record left 0664 by an older version, as the umask made it, is replaced by a 0600 one.
+        // A record made 0664, as a umask makes it, is replaced by a 0600 one.
         fs::set_permissions(&path, fs::Permissions::from_mode(0o664)).unwrap();
         write(&path, &record("nats://192.0.2.9:4222")).unwrap();
         assert_eq!(mode(&path), PRIVATE_FILE_MODE);

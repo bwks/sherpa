@@ -31,7 +31,7 @@ tracked in issue #494.
 | Server config | `nats.conf`, rendered from the agents file and the registry of enrolled guests. Its directory is bind-mounted read-only at `/etc/agent-bus/` (`-c /etc/agent-bus/nats.conf`), and SIGHUP reloads it. | `src/config.rs` |
 | TLS | The bus's own private CA (not the Sherpa lab CA), made once by `bus start`, and the server certificate it signs for the listen address, in the same mounted directory as the config. The server takes TLS only, handshake first. See [TLS](#tls). | `src/tls.rs` |
 | Registry | `enrolled.toml`: the guests `enroll` added, with their public keys. Host-managed, never edited by hand. | `src/registry.rs` |
-| Stream | One JetStream stream, `AGENTS`, on `agents.>`, keeping messages for 30 days (`max_age`, `channel::STREAM_MAX_AGE`). `bus start` brings an existing stream's `max_age` to it in place. See [Retention](#retention). | `src/channel.rs` |
+| Stream | One JetStream stream, `AGENTS`, on `agents.>`, keeping messages for 30 days (`max_age`, `channel::STREAM_MAX_AGE`). See [Retention](#retention). | `src/channel.rs` |
 | Status bucket | A JetStream key-value bucket, `AGENT_STATUS` (stream `KV_AGENT_STATUS`), one key per guest, history 1, kept 7 days (`status::STATUS_MAX_AGE`). Each guest agent's heartbeat. See [Agent status](#agent-status). | `src/channel.rs`, `src/pull.rs`, `src/status.rs` |
 | Inboxes | One durable pull consumer per agent, named after it, filtered on `agents.<name>.>` (one subject per sender), with `max_waiting = 1`. A message waits until its agent reads and acknowledges it, and a restarted reader goes on where it stopped. | `src/channel.rs` |
 | Recorder consumer | `_record`, a durable pull consumer on `agents.>` (every message, both ways), deliver all, `max_waiting = 1`, `max_ack_pending = 1`. Created by `bus start`; read only by a host command catching the record up. See [The record](#the-record). | `src/channel.rs` |
@@ -108,34 +108,16 @@ Exactly one of `--lab` and `--listen <ipv4>` is required (`src/main.rs`, `src/st
    any existing `sherpa-agent-bus`, create it, start it. An existing container is never just
    restarted, because the config may have changed. The messages are in the volume, so replacing
    the container loses nothing.
-   A `nats.conf` left in the state directory by a version that mounted the file itself is
-   removed.
-5. Connect as the host over TLS (20 attempts, 500 ms apart), create the `AGENTS` stream or
-   bring an existing one's `max_age` to 30 days (`Channel::prepare_stream`), and bring each
-   agent's inbox, the host's and every enrolled guest's included, to the wanted consumer config.
+5. Connect as the host over TLS (20 attempts, 500 ms apart), create the `AGENTS` stream when
+   there is none (`Channel::prepare_stream`), and create each agent's inbox that is missing, the
+   host's and every enrolled guest's included.
 6. Record the URL, the agents file's absolute path (and the lab) in `bus.toml`, and print
    `Inbox stream ready: AGENTS (<change>)` and one `Inbox ready: <agent> (<change>)` line per
    agent.
 
-The stream is reported as `created`, `max_age <old> -> <new>` (such as `max_age 7 days -> 30
-days`) or `unchanged`. Only `max_age` is compared (`channel::stream_change`); an existing
-stream's other settings are sent back as the bus has them (`channel::updated_stream_config`), and
-NATS changes `max_age` in place, keeping the stream, its consumers and its messages. Raising it
-does not bring back messages the stream already dropped. `enroll` creates the stream only when
-there is none (`get_or_create_stream`) and leaves an existing one as it is.
-
-Each inbox is reported as `created`, `updated`, `recreated from sequence N` or `unchanged`
-(`Channel::ensure_inbox`). A missing consumer is created. A different filter subject is updated
-in place. NATS cannot change `max_waiting` on an existing consumer, so a consumer that differs in
-it is deleted and created again with `DeliverPolicy::ByStartSequence` at the old consumer's ack
-floor stream sequence + 1, read before the delete: acknowledged messages stay gone, delivered but
-unacknowledged and unread messages are delivered again. If the create fails after the delete,
-the error names the sequence to create it from.
-
-An inbox made before messages carried their sender in the subject is filtered on
-`agents.<name>`; `bus start` updates it to `agents.<name>.>` in place. Messages stored under the
-old subject are not delivered after that, so let the inboxes drain (and run `listen` once) before upgrading. Guests must run the same version as the
-host: an older guest publishes to `agents.<host>`, which it may no longer do.
+The stream and each inbox are reported as `created` or `unchanged` (`Channel::prepare_stream`,
+`Channel::ensure_inbox`). An existing stream or consumer is left as the bus has it. `enroll`
+creates the stream only when there is none (`get_or_create_stream`) as well.
 
 `bus stop` stops and removes the container and removes `bus.toml`; the volume and its messages
 stay. A container that is stopped already or gone is no error (`bus::remove`), so `bus stop`
@@ -150,8 +132,7 @@ Adding a guest means starting it: `start-agent.sh` enrolls it on the running bus
 ### Finding the bus
 
 `enroll` and `unenroll` use the whole record: the URL, and the agents file `bus start` was
-given. A record without the agents file, written before enrollment, makes them fail and say to
-run `bus start` again. With no record at all (the bus was stopped), `unenroll` still works: see
+given. With no record at all (the bus was stopped), `unenroll` still works: see
 [Enrollment](#enrollment).
 
 `send`, `cancel`, `listen`, `usage`, `show` and `history` take the first of: `--server <url>`, the
@@ -247,12 +228,10 @@ Code's own field names (`model`, `inputTokens`, `outputTokens`, `cacheCreationIn
 `task_usage` has `runs`, `cost_usd`, the four token counts, `num_turns`, `duration_ms` and
 `duration_api_ms`. Their meaning is in [Usage and cost](#usage-and-cost).
 
-`Message` does not deny unknown fields, and every optional field defaults when missing, so a
-peer of another version reads what it knows and ignores the rest, both ways: an older guest
-ignores `work`, an older host ignores `ended` (and records nothing of it), and a newer host
-parses an older guest's outcome without `ended` (see [Work items](#work-items)). Tests:
-`message::tests::an_older_peer_reads_a_new_message_as_before`,
-`an_old_message_parses_without_work_or_ended` and
+`Message` does not deny unknown fields, and every optional field defaults when missing, so the
+host reads the messages in the stream and the record that were sent before a field existed: an
+outcome without `ended` is parsed (see [Work items](#work-items)). Tests:
+`message::tests::an_old_message_parses_without_work_or_ended` and
 `a_message_with_fields_this_agent_bus_does_not_know_parses`.
 
 An outcome message from a guest:
@@ -543,7 +522,7 @@ log or the bus.
 
 The guest agent (`guest::github`) takes the second line on stdin: empty is no token; anything that
 is not a GitHub token (`github_pat_`, `ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_` followed by letters,
-digits and `_`) is refused, a seed with its own error, and no error quotes the line. It holds the
+digits and `_`) is refused, and no error quotes the line. It holds the
 token as a `WriteToken`, whose `Debug` is redacted and which has no `Display`. It refuses to start
 when its own `GH_TOKEN` is the write token, since every task would have it. A guest agent started
 without a write token runs; its `--github` tasks fail at once, saying it has none.
@@ -602,14 +581,7 @@ it. Every connection is TLS from its first byte, and every client trusts only th
   atomically) and starts the agent with `AGENT_BUS_CA` pointing at it. No file is copied with
   `scp`, and nothing goes on a command line.
 
-**Upgrading.** The host and the guests must be upgraded together, as with the change to
-per-sender subjects: an older client speaks plaintext, which the new bus refuses, and a new
-client refuses an older plaintext bus. Install the new `agent-bus` and
-`agent-bus-start-agent` on the host, run `bus start` again (it makes the CA and the server
-certificate, and replaces the container), then start every guest agent again with
-`agent-bus:agent`, which builds the new guest binary and gives it the CA. A `start-guest.sh`
-from this version refuses to start without the CA on stdin. Run `nats` CLI commands with
-`--tlsfirst --tlsca <state>/tls/ca.pem`.
+Run `nats` CLI commands with `--tlsfirst --tlsca <state>/tls/ca.pem`.
 
 ### The agents file
 
@@ -643,8 +615,8 @@ number and the parser's message with every word of 40 characters or more replace
 1. checks the name, loads the agents file and checks the host's seed, and refuses a name the
    agents file lists;
 2. checks that the bus container runs and mounts this state directory's `nats/` directory; a
-   container started by an older version, which mounted the file itself, would never see the new
-   config, so `enroll` says to run `bus start` again;
+   container started from another state directory would never see the new config, so `enroll`
+   says to run `bus start` again;
 3. takes the registry lock (`<state>/enroll.lock`, an exclusive `flock`, waited for);
 4. connects as the host and creates the guest's inbox, so a failure there changes no key;
 5. generates a user key pair, and records the name, role `guest` and public key in the registry,
@@ -820,7 +792,7 @@ run by `bus start` and `enroll`).
 
 | Column | Guest | Host |
 |---|---|---|
-| Online | `yes` while its last status says online and the bus stored it at most 35 s ago (`status::STALE`, three missed heartbeats and slack); `no` otherwise. `unreported` when there is no status but a reader holds its inbox: a guest agent from before the heartbeat, or another reader. | `yes` while a listener holds its inbox (`num_waiting`), `no` otherwise. The host has no agent process to report. |
+| Online | `yes` while its last status says online and the bus stored it at most 35 s ago (`status::STALE`, three missed heartbeats and slack); `no` otherwise. `unreported` when there is no status but a reader holds its inbox, such as `agent-bus listen` run as the guest. | `yes` while a listener holds its inbox (`num_waiting`), `no` otherwise. The host has no agent process to report. |
 | Running task, running for | the task in its status, only while online; a stale status's task is not running now, and a restarted guest reports it failed | `-` |
 | Queued | the inbox's unread and unacknowledged messages (`num_pending + num_ack_pending`) plus the guest's local queue from its last status | `-`: what waits in the host's inbox is guests' progress and outcomes for a listener, not tasks. Its count is in the JSON's `inbox_unread`. |
 | Last active | when the bus stored its last status | when a message was last delivered from its inbox |
@@ -831,8 +803,7 @@ since the bus stored the status, so a guest clock set wrong does not skew it. Ev
 JSON is in `status::Row`: `queued` is `inbox_unread` plus `local_queue` for a guest and `null`
 for the host, and `reader_attached`
 is the inbox's pull request, kept for diagnosis (a guest with a reader but a stale status is
-hung or cut off). A bus prepared by an older `agent-bus` has no bucket: `agents` says so and
-shows every guest without a status until `bus start` runs again.
+hung or cut off).
 
 ## Guest execution
 
@@ -1039,7 +1010,7 @@ cover the run, and some the whole session so far, across resumes:
   rounded down, shown as `89.9%`, or `n/a` with no input (`message::cache_hit_permille`).
 
 - **A run's time** (`work_ms`, `testing_ms` on the outcome's `usage`): see
-  [Time](#time). Both are optional: an older guest sends neither, and an older host ignores them.
+  [Time](#time). Both are optional: runs recorded before guests timed them have neither.
 
 The guest log has one line per finished run with the run's figures and the task's so far, and
 one line per priming run. Every `result` event line is also appended unchanged to
@@ -1542,7 +1513,7 @@ this, one process with several results counted its idle time between them as wor
 `f4a8861a` reported 52m 03s of work for 21m 56s of turns). The run's clock starts when Claude
 Code is started for it and covers every result of the process. At each `result` event the run's
 work and testing so far are worked out; the last are sent as `work_ms` and `testing_ms` on the
-outcome's `usage`, optional fields an older host ignores; the host keeps them on the `run` row. Priming runs are not timed. An
+outcome's `usage`; the host keeps them on the `run` row. Priming runs are not timed. An
 agent's waiting on the user is each `question` to the next `answer` of its task, from the
 messages' `at_ms` on the host, which the bus stamps (`timing::waiting_on_answers`).
 
@@ -1720,7 +1691,7 @@ the rows of tasks the record does not know (written by guests before the record 
 their order, replaces the rows of the tasks it counts here with the record's figures, adds its
 new ones after, and replaces the host's rows and the pointers whole (keeping pointers of tasks it
 does not know). A row of a task the record knows but does not count here is dropped: it is
-counted on another pull request of the item, or in another item (an older guest counted tasks by
+counted on another pull request of the item, or in another item (guests counted tasks by
 branch, the record by item). So a format 2 section, which listed every task of the item, keeps
 only this pull request's on its next write. `[[host]]` rows carry `unpriced`, the count of responses
 without a price, when there are any. Every task ID, agent name and
@@ -1730,12 +1701,9 @@ error.
 
 **Format versions.** Guests wrote format 1: no `version`, no host rows, no time. Format 2 added
 the version, the host's rows and time; format 3 the `brought_forward` mark and `[[counted]]`. The
-host reads 1 and 2 as they are (format 1 rows show `n/a` for time) and writes format 3. Data of a newer format than this
-agent-bus writes is refused. Guests read the comment with `deny_unknown_fields`, so a guest still
-running an older agent-bus refuses a host-written section (`unknown field version`), reports it
-not updated, and leaves the body alone: it cannot undo the host's section
-(`section::tests::an_old_guest_refuses_a_host_written_section_and_reads_its_own`). Upgrade the
-host and the guests together all the same.
+host reads 1 and 2 as they are (format 1 rows show `n/a` for time) and writes format 3: merged
+pull requests still hold sections in formats 1 and 2, and `sync --pr` reads them. Data of a newer
+format than this agent-bus writes is refused.
 
 **Rows written by hand.** Work outside the bus that is not measured is still written by hand,
 outside the markers, and never touched. Since the host's work is now measured, a hand-written
@@ -1812,8 +1780,7 @@ logged and the append goes on.
 
 The stream keeps messages longer than the files so that the record can catch up after weeks
 without a command that opens it. The files are local logs of a few days' work, and the record
-keeps the history. A bus started before the split has a 7-day stream; `bus start` raises it in
-place (see [Starting the bus](#starting-the-bus)).
+keeps the history.
 
 ### The guest state file
 

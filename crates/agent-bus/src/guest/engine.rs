@@ -14,9 +14,7 @@ use crate::model::model_id;
 pub(super) struct Session {
     pub(super) id: String,
     pub(super) github: bool,
-    /// `None` in a state file from before tasks chose their model: the guest's default then.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) model: Option<String>,
+    pub(super) model: String,
 }
 
 /// What a message arriving at the guest agent means, given what it is doing.
@@ -93,9 +91,9 @@ pub(super) fn task_model(
     default: &str,
 ) -> Result<String> {
     match (message.kind, &message.model) {
-        (Kind::Answer, _) => Ok(session
-            .and_then(|session| session.model.clone())
-            .unwrap_or_else(|| default.to_owned())),
+        (Kind::Answer, _) => {
+            Ok(session.map_or_else(|| default.to_owned(), |session| session.model.clone()))
+        }
         (_, Some(model)) => model_id(model),
         (_, None) => Ok(default.to_owned()),
     }
@@ -133,12 +131,12 @@ mod tests {
         let with = Session {
             id: "s".to_owned(),
             github: true,
-            model: None,
+            model: "m".to_owned(),
         };
         let without = Session {
             id: "s".to_owned(),
             github: false,
-            model: None,
+            model: "m".to_owned(),
         };
         assert!(task_github(&task_message(Kind::Task, true), None));
         assert!(!task_github(&task_message(Kind::Task, false), None));
@@ -173,7 +171,7 @@ mod tests {
         let session = Session {
             id: "s".to_owned(),
             github: false,
-            model: Some("claude-sonnet-5-5".to_owned()),
+            model: "claude-sonnet-5-5".to_owned(),
         };
         for asked in [None, Some("haiku"), Some("not a model")] {
             let answer = with_model(Kind::Answer, asked);
@@ -181,12 +179,6 @@ mod tests {
                 task_model(&answer, Some(&session), default).unwrap(),
                 "claude-sonnet-5-5"
             );
-            // A session from before tasks chose their model ran on the default.
-            let old = Session {
-                model: None,
-                ..session.clone()
-            };
-            assert_eq!(task_model(&answer, Some(&old), default).unwrap(), default);
         }
     }
 

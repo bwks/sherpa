@@ -152,7 +152,7 @@ pub struct Usage {
     pub models: Vec<ModelUsage>,
     /// The run's work time, in milliseconds: the model writing and the tool calls that are not
     /// testing, without the waits that are not counted (`timing`). The guest stamps the stream
-    /// events as it reads them. Absent from an older guest; an older host ignores it.
+    /// events as it reads them. Absent in runs recorded before guests timed them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work_ms: Option<u64>,
     /// The run's testing time, in milliseconds: tool calls that build or test.
@@ -281,22 +281,6 @@ pub fn check_repo(repo: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A run's usage as an agent-bus from before the time buckets reads it, in part.
-    #[derive(Deserialize)]
-    struct OldUsage {
-        input: u64,
-    }
-
-    /// A message as an agent-bus from before `work` and `ended` reads it.
-    #[derive(Deserialize)]
-    struct OldMessage {
-        task: String,
-        kind: Kind,
-        text: String,
-        #[serde(default)]
-        github: bool,
-    }
 
     #[test]
     fn messages_use_snake_case_kinds_on_the_wire() {
@@ -428,23 +412,14 @@ mod tests {
     }
 
     #[test]
-    fn a_runs_time_is_optional_both_ways() {
-        // From an older guest: no time.
+    fn a_run_without_time_reads_and_writes_without_it() {
+        // As recorded from a guest that sent no time.
         let old = r#"{"input":1,"output":2,"cache_creation":0,"cache_read":0,"num_turns":1,
             "duration_ms":5,"duration_api_ms":4,"cost_usd":0.1,"session_cost_usd":0.1}"#;
         let usage: Usage = serde_json::from_str(old).unwrap();
         assert_eq!((usage.work_ms, usage.testing_ms), (None, None));
         let json = serde_json::to_value(&usage).unwrap();
         assert!(json.get("work_ms").is_none());
-        // To an older host: a struct without the fields reads it and ignores them.
-        let new = Usage {
-            input: 3,
-            work_ms: Some(1),
-            testing_ms: Some(2),
-            ..Usage::default()
-        };
-        let read: OldUsage = serde_json::from_value(serde_json::to_value(&new).unwrap()).unwrap();
-        assert_eq!(read.input, 3);
     }
 
     fn tagged_task() -> Message {
@@ -535,17 +510,6 @@ mod tests {
         let message = serde_json::from_str::<Message>(newer).unwrap();
         assert_eq!(message.work.unwrap().refs[0].number, 1);
         assert_eq!(message.ended.unwrap().branch, None);
-    }
-
-    /// What an agent-bus from before `work` and `ended` reads of a message that has them: the
-    /// fields it knows, the same as before.
-    #[test]
-    fn an_older_peer_reads_a_new_message_as_before() {
-        let json = serde_json::to_string(&tagged_task()).unwrap();
-        let old: OldMessage = serde_json::from_str(&json).unwrap();
-        assert_eq!((old.task.as_str(), old.kind), ("1a2b3c4d", Kind::Task));
-        assert_eq!(old.text, "Fix it");
-        assert!(!old.github);
     }
 
     #[test]

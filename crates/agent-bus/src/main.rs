@@ -588,14 +588,7 @@ async fn agents(server: &Endpoint, seed: &str, json: bool) -> Result<()> {
     let agents = bus::agents(&bus, &agents_path, seed)?;
     let channel = Channel::connect(server, seed).await?;
     let names = || agents.all().map(|agent| agent.name.as_str());
-    let statuses = channel.statuses(names()).await?;
-    if statuses.is_none() {
-        eprintln!(
-            "The bus has no status bucket: it was prepared by an older agent-bus. Run \
-             `agent-bus bus start` again to create it"
-        );
-    }
-    let mut statuses = statuses.unwrap_or_default();
+    let mut statuses = channel.statuses(names()).await?;
     let record = channel.consumer_state(RECORDER).await?;
     let mut observed = Vec::new();
     for agent in agents.all() {

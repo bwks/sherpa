@@ -273,7 +273,7 @@ mod tests {
             session: Some(Session {
                 id: "s".to_owned(),
                 github: false,
-                model: None,
+                model: "m".to_owned(),
             }),
             ..TaskRecord::default()
         }
@@ -293,7 +293,7 @@ mod tests {
                 session: Some(Session {
                     id: "sess-1".to_owned(),
                     github: true,
-                    model: Some("claude-sonnet-5-5".to_owned()),
+                    model: "claude-sonnet-5-5".to_owned(),
                 }),
                 api: Some(ApiMark {
                     session: "sess-1".to_owned(),
