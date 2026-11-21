@@ -5,6 +5,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use clap::Parser;
+use rustls::crypto::aws_lc_rs;
 use shared::konst::SHERPA_DB_FILE_PATH;
 use sherpad::cli::{Cli, Commands};
 use sherpad::daemon::manager::{
@@ -15,7 +16,7 @@ use sherpad::daemon::manager::{
 async fn main() -> Result<()> {
     // Initialize rustls crypto provider (required for rustls 0.23+)
     // This must be done before any rustls operations
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let _ = aws_lc_rs::default_provider().install_default();
 
     // Check if we're being spawned as a background child
     let args: Vec<String> = std::env::args().collect();

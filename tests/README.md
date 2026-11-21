@@ -134,7 +134,6 @@ tests. Run the crates you need:
 
 | Crate | Command | Needs |
 |---|---|---|
-| db (importer) | `cargo test -p db --test mod import -- --ignored` | Test database |
 | container | `cargo test -p container -- --ignored --test-threads=1` | Docker, `alpine:latest`; the IOL test also needs a `localrepo/cisco_iol` image built with docker-cisco-iol, and passes without running when there is none |
 | network | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p network -- --ignored --test-threads=1` | root (rtnetlink) |
 | sherpa (client) | `cargo test -p sherpa -- --ignored` | No route to TEST-NET-1 (`192.0.2.0/24`) other than a default route; takes about 10 s |

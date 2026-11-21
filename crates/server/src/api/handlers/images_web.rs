@@ -14,6 +14,7 @@ use std::fmt::Display;
 use std::iter;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
+use tokio::sync::mpsc;
 
 use db::{DefaultRequest, LastDefaultImage};
 
@@ -814,7 +815,7 @@ pub async fn admin_image_upload_handler(
         default: fields.default,
     };
 
-    let (progress_tx, _progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (progress_tx, _progress_rx) = mpsc::unbounded_channel();
     let progress = ProgressSender::new(progress_tx);
 
     let result = import::import_image(request, &state, progress).await;

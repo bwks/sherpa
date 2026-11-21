@@ -8,6 +8,7 @@ has since changed, so check the code before relying on them.
 |---|---|
 | [`README-JUNIPER-VSRXV3.0.md`](README-JUNIPER-VSRXV3.0.md) | Juniper vSRX 3.0 boot failures on KVM: PML, SMBIOS entry point, CPU features. |
 | [`agent-bus-database.md`](agent-bus-database.md) | An embedded database for agent-bus history, costs and work items: Turso's one-process lock, why each command catches the record up itself rather than through a recorder daemon, the stream-retention option, schema and plan (#555). |
+| [`dylint.md`](dylint.md) | Dylint for Sherpa's own lint rules: fit per rule against Clippy settings, scripts and structural search, a two-lint prototype (on the branch `investigate/dylint`) with findings and timings, toolchain breakage. Not adopted (#845, decided in #850). |
 | [`host-memory-oom.md`](host-memory-oom.md) | Host OOM kills of lab VMs: memory admission, NUMA `strict` placement, harness reporting (#514). |
 | [`microvm.md`](microvm.md) | MicroVM sandboxes for agent workloads: QEMU `microvm` and a stripped q35 through libvirt against today's VMs (boot, restore, devices, virtiofs, vsock, limits), and a sandbox resource model and plan (#347). |
 | [`private-bridges.md`](private-bridges.md) | `[[bridges]]` defects: container members not attached, interface renaming, redeploy, destroy (#345). |

@@ -6,6 +6,7 @@ use axum::Json;
 use axum::extract::{Multipart, Path, Query, State};
 use axum::response::{IntoResponse, sse};
 use std::collections::HashMap;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::api::sse::json_progress_stream;
 use crate::daemon::state::AppState;
@@ -84,8 +85,8 @@ pub async fn import_image_json(
 ) -> Result<impl IntoResponse, ApiError> {
     require_admin_auth(&auth)?;
 
-    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let (progress_tx, progress_rx) = mpsc::unbounded_channel();
+    let (result_tx, result_rx) = oneshot::channel();
     let progress = ProgressSender::new(progress_tx);
 
     tokio::spawn(async move {
@@ -134,7 +135,7 @@ pub async fn upload_image_multipart(
         default: fields.default,
     };
 
-    let (progress_tx, _progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (progress_tx, _progress_rx) = mpsc::unbounded_channel();
     let progress = ProgressSender::new(progress_tx);
 
     let result = import::import_image(request, &state, progress).await;
@@ -234,8 +235,8 @@ pub async fn pull_image_json(
 ) -> Result<impl IntoResponse, ApiError> {
     require_admin_auth(&auth)?;
 
-    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let (progress_tx, progress_rx) = mpsc::unbounded_channel();
+    let (result_tx, result_rx) = oneshot::channel();
     let progress = ProgressSender::new(progress_tx);
 
     tokio::spawn(async move {
@@ -256,8 +257,8 @@ pub async fn download_image_json(
 ) -> Result<impl IntoResponse, ApiError> {
     require_admin_auth(&auth)?;
 
-    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let (progress_tx, progress_rx) = mpsc::unbounded_channel();
+    let (result_tx, result_rx) = oneshot::channel();
     let progress = ProgressSender::new(progress_tx);
 
     tokio::spawn(async move {

@@ -709,8 +709,8 @@ esac
             self.view(number, "Body", "OPEN");
         }
 
-        /// The pull request names `task`'s item and no task names it, as `link` left it
-        /// before #717.
+        /// The pull request names `task`'s item and no task names it, as an older `link`
+        /// left it: one that named the item but recorded no pull request for the task.
         async fn name_item(&self, task: &str, repo: &str, number: u64) {
             let opened = Record::open_recorded(&self.paths, LOCK_WAIT).await.unwrap();
             opened
@@ -1585,7 +1585,7 @@ duration_api_ms = 0
     #[tokio::test]
     async fn a_pull_request_no_task_named_names_the_pull_requests_that_count_its_item() {
         // t1 counted on #7 and t2 of the same branch on #9; a docs and a third repository's
-        // pull request that name the item, which no task named (`link` before #717).
+        // pull request that name the item, which no task named (an older `link`).
         let mut bench = Bench::new("linked").await;
         bench.message(&task("t2"), NOW + 9 * MINUTE).await;
         bench.outcome("t2", 1, 0.25, NOW + 10 * MINUTE, &[9]).await;

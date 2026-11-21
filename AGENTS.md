@@ -99,7 +99,6 @@ Validators ensure user supplied data is accurate, usable and secure. They live w
 #### Use
 - Always declare `use` statements at the top of files.
 - Never declare a `use` statement inside a function.
-- Don't call long imports inline, EG: `shared::data::NodeState::Action` Prefer: `use shared::data::NodeState` at top of file | then in code:  `NodeState::Action`
 
 #### Const
 - Always declare `const` after `use` statements
@@ -107,21 +106,13 @@ Validators ensure user supplied data is accurate, usable and secure. They live w
 #### Structs / Enums
 - Always declare `structs` and `enums` under `const` statements.
 
-#### Tests
-- Always declare unit tests at the end of file after production code.
-
 ### Clippy
-- Fix linting issues by following clippy rules. Do not add any code to ignore clippy linting.
-- `dev/check-lint-exceptions.sh` refuses any `allow` or `expect` attribute, including inside `cfg_attr`, in any tracked Rust file (`crates/ebpf-redirect` included) that is not on the allowlist at the top of the script, and any allowlist entry that no longer exists. It runs in he pre-commit hook (`git config core.hooksPath .githooks`) and in the CI Lint job. Adding to the allowlist needs the user's approval; remove an entry when its exception is removed.
+- Adding to the allowlist in `dev/check-lint-exceptions.sh` needs the user's approval.
 - Every workspace crate has `[lints] workspace = true` in its `Cargo.toml` and inherits the workspace lints in the root `Cargo.toml`, which include `clippy::pedantic`.
 
 ### Errors
 - Library crates return their own error enum, defined with `thiserror`.
 - Use `Anyhow` for handling errors of other libraries. Prefer adding context errors before they are returned.
-
-### Options
-- Never use `.unwrap()` and `.expect()` are banned in production code. Options must be handled.
-- `.unwrap()` and `.expect()` are allowed in test code (`#[test]` functions and `#[cfg(test)]` modules).
 
 ### Instrumentation
 - Public functions that perform I/O or lifecycle operations (database, libvirt, Docker, network, filesystem) must have `#[instrument]` attributes from `tracing`. Pure data and validation helpers do not need them.
@@ -129,12 +120,7 @@ Validators ensure user supplied data is accurate, usable and secure. They live w
 - Use `fields()` to capture key identifiers (e.g. `%lab_id`, `%node_name`, `%iface_name`).
 - Use default level (info) for top-level operations, `level = "debug"` for helpers/internals.
 
-### Mod files
-- Never add code in `mod.rs` files.
-- Only add module `docs`, mod `declarations` and `pub use re-exports`.
-
 ### Comments
-- Doc comments (`//!` and `///`) carry no code blocks: no fenced blocks of any language, Rust, text or TOML included, so there are no doctests.
 - Function doc must describe the purpose of the function.
 - Inline comments should only be used to explain something that is abiguous if the code cannot be rewritten to make it's purpose obvious.
 
@@ -147,7 +133,6 @@ Validators ensure user supplied data is accurate, usable and secure. They live w
 ## HTML Templates
 - Use Askama for HTML templates. Do not manually render HTML as strings.
 - Do not use inline templates, all templates must use files.
-- A template decides nothing from an enum's text: no `to_string()` call and no comparison with a string literal in a `{% %}` tag. Rust gives it typed values to decide from. `dev/check-template-text-decisions.sh` enforces this; it runs in the pre-commit hook and in the CI Lint job.
 
 ## CSS Code Style
 - Use tailwind css utility classes for styling.

@@ -6,7 +6,7 @@ use axum::response::sse::Event;
 use futures::stream::Stream;
 use serde::Serialize;
 use shared::data::{DestroyResponse, StatusKind, StatusMessage, UpResponse};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::api::errors::stream_error_event;
 use crate::templates::{
@@ -64,7 +64,7 @@ fn status_emoji(kind: StatusKind) -> &'static str {
 /// - A final `complete` event with a summary after the destroy operation finishes
 pub fn destroy_progress_stream(
     mut rx: mpsc::UnboundedReceiver<Message>,
-    result_rx: tokio::sync::oneshot::Receiver<anyhow::Result<DestroyResponse>>,
+    result_rx: oneshot::Receiver<anyhow::Result<DestroyResponse>>,
 ) -> impl Stream<Item = Result<Event, Infallible>> {
     async_stream::stream! {
         // Drain all progress messages from the channel
@@ -105,7 +105,7 @@ pub fn destroy_progress_stream(
 /// - `event: error` — JSON error message if the operation fails
 pub fn json_progress_stream<T: Serialize + Send + 'static>(
     mut rx: mpsc::UnboundedReceiver<Message>,
-    result_rx: tokio::sync::oneshot::Receiver<anyhow::Result<T>>,
+    result_rx: oneshot::Receiver<anyhow::Result<T>>,
 ) -> impl Stream<Item = Result<Event, Infallible>> {
     async_stream::stream! {
         while let Some(msg) = rx.recv().await {
@@ -144,7 +144,7 @@ pub fn json_progress_stream<T: Serialize + Send + 'static>(
 /// - A final `complete` event with a summary after the up operation finishes
 pub fn up_progress_stream(
     mut rx: mpsc::UnboundedReceiver<Message>,
-    result_rx: tokio::sync::oneshot::Receiver<anyhow::Result<UpResponse>>,
+    result_rx: oneshot::Receiver<anyhow::Result<UpResponse>>,
 ) -> impl Stream<Item = Result<Event, Infallible>> {
     async_stream::stream! {
         // Drain all progress messages from the channel

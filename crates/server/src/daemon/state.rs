@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::Arc;
 use tracing::instrument;
 
-use crate::api::websocket::connection::ConnectionRegistry;
+use crate::api::websocket::connection::{ConnectionRegistry, create_registry};
 use crate::auth::context::AuthContext;
 use crate::auth::jwt;
 use crate::auth::session::{self, SessionLookup};
@@ -174,7 +174,7 @@ impl AppState {
         tracing::info!("Connected to Docker daemon");
 
         Ok(Self {
-            connections: crate::api::websocket::connection::create_registry(),
+            connections: create_registry(),
             db,
             qemu: Arc::new(qemu),
             docker: Arc::new(docker),

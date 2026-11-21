@@ -5,8 +5,8 @@
 //!
 //! To run them:
 //! - All db tests: `cargo test --package db`
-//! - One group: `cargo test --package db --test mod lab::`
-//! - One test: `cargo test --package db --test mod test_get_node_image_by_id`
+//! - One group: `cargo test --package db --test db lab::`
+//! - One test: `cargo test --package db --test db test_get_node_image_by_id`
 mod helper;
 
 /// Node image CRUD operations

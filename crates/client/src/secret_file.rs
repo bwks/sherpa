@@ -131,7 +131,10 @@ mod tests {
     use std::path::Path;
 
     #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    #[cfg(windows)]
+    use crate::windows_acl::acl_inspection::is_restricted_to_current_user;
 
     use super::{ensure_private_dir, write_secret_file};
 
@@ -152,8 +155,7 @@ mod tests {
     /// and has one entry, the current user's.
     #[cfg(windows)]
     fn is_owner_only(path: &Path) -> bool {
-        crate::windows_acl::acl_inspection::is_restricted_to_current_user(path)
-            .expect("inspect secret file ACL")
+        is_restricted_to_current_user(path).expect("inspect secret file ACL")
     }
 
     /// Write `contents` to a file at `path` that other users can read: mode 0644 on Unix, the
@@ -231,7 +233,7 @@ mod tests {
         let elsewhere = temp_dir.path().join("elsewhere");
         fs::write(&elsewhere, "untouched").expect("write target");
         let path = temp_dir.path().join("kubeconfig-k8s");
-        std::os::unix::fs::symlink(&elsewhere, &path).expect("create symlink");
+        symlink(&elsewhere, &path).expect("create symlink");
 
         write_secret_file(&path, "config", LABEL).expect("write secret file");
 

@@ -332,6 +332,8 @@ pub fn image_filename(settings: &KindSettings) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
 
     use anyhow::Result;
     use tempfile::TempDir;
@@ -414,8 +416,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn server_file_modes_015_doctor_boxes_sets_folders_to_775_and_files_to_660() -> Result<()> {
-        use std::os::unix::fs::PermissionsExt;
-
         let dir = TempDir::new()?;
         let file = dir.path().join("perms.txt");
         fs::write(&file, "data")?;

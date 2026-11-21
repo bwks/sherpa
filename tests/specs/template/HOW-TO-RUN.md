@@ -38,7 +38,7 @@ cargo test -p template -- --nocapture
 ## Test Location
 
 - Inline tests: `crates/template/src/nokia_srlinux.rs` (2 tests)
-- Integration tests: `crates/template/tests/render_tests.rs` (40 tests)
+- Integration tests: `crates/template/tests/templates/`, one file per template family, run as the `templates` test target
 
 ## Linting
 

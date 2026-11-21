@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use rustls::client::WebPkiServerVerifier;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::crypto::aws_lc_rs;
 use rustls::pki_types::{CertificateDer, ServerName};
 use rustls::{CertificateError, ClientConfig, RootCertStore};
 use std::io::{self, IsTerminal};
@@ -220,7 +221,7 @@ impl PublicCaVerifier {
         roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         let webpki = WebPkiServerVerifier::builder_with_provider(
             Arc::new(roots),
-            Arc::new(rustls::crypto::aws_lc_rs::default_provider()),
+            Arc::new(aws_lc_rs::default_provider()),
         )
         .build()
         .context("Failed to build the public CA verifier")?;
@@ -314,7 +315,7 @@ impl ServerCertVerifier for NoCertificateVerification {
     /// Every scheme the crypto provider verifies, so any server key works, RSA-PSS included,
     /// which TLS 1.3 requires for RSA.
     fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        rustls::crypto::aws_lc_rs::default_provider()
+        aws_lc_rs::default_provider()
             .signature_verification_algorithms
             .supported_schemes()
     }
@@ -388,9 +389,7 @@ mod tests {
 
     #[tokio::test]
     async fn certificate_trust_005_insecure_connects_without_asking_fetching_or_saving() {
-        rustls::crypto::aws_lc_rs::default_provider()
-            .install_default()
-            .ok();
+        aws_lc_rs::default_provider().install_default().ok();
         let server_conn = ServerConnection {
             insecure: true,
             ..ServerConnection::default()
@@ -405,9 +404,7 @@ mod tests {
     #[tokio::test]
     async fn certificate_trust_007_a_certificate_from_the_configured_ca_is_trusted_without_a_question()
      {
-        rustls::crypto::aws_lc_rs::default_provider()
-            .install_default()
-            .ok();
+        aws_lc_rs::default_provider().install_default().ok();
         let ca = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(ca.path(), SELF_SIGNED).unwrap();
         let server_conn = ServerConnection {

@@ -15,7 +15,7 @@ const DOCKER_COMPOSE_VERSION: &str = "2.34.0";
 // Expected configs
 // ============================================================================
 
-const EXPECTED_FULL_CONFIG: &str = include_str!("fixtures/full_config.json");
+const EXPECTED_FULL_CONFIG: &str = include_str!("ignition/fixtures/full_config.json");
 
 const EXPECTED_ZTP_IPV4: &str = "[Match]
 Name=eth0

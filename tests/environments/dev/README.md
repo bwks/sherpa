@@ -303,9 +303,10 @@ through one: `ssh -F .sherpa/ssh/direct_config dev01 'bash -lc "cargo --version"
   run in the guest, as described in [running tests](../../README.md). The guest's `sherpa` CLI
   is already logged in as `dev`.
 - **Pre-commit hook:** enable it once in each checkout with
-  `git config core.hooksPath .githooks`. It runs `dev/check-lint-exceptions.sh`, which refuses
-  new `allow`/`expect` lint exceptions, and `dev/check-template-text-decisions.sh`, which refuses
-  web UI template tags that decide from an enum's text; CI runs the same checks.
+  `git config core.hooksPath .githooks`. It runs the `dev/check-*.sh` scripts, which refuse
+  lint exceptions, code in a `mod.rs`, code blocks in doc comments, issue and pull request
+  numbers in comments, and web UI template tags that decide from an enum's text; CI runs the
+  same checks. The list is in the [main README](../../../README.md#code-quality).
 
 Nested lab VMs run slower in the guest than on the host, so run the final check on the host
 before a release.

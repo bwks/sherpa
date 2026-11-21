@@ -660,6 +660,8 @@ pub fn clean_stale_lab_ssh_includes(
 mod tests {
     #[cfg(unix)]
     use std::fs::Permissions;
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
     use std::path::Path;
 
     use tempfile::TempDir;
@@ -833,7 +835,7 @@ ipv4_router = "172.31.1.254"
         let dotfiles = tmp.path().join("dotfiles_ssh_config");
         std::fs::write(&dotfiles, "Host myserver\n").unwrap();
         std::fs::set_permissions(&dotfiles, Permissions::from_mode(0o600)).unwrap();
-        std::os::unix::fs::symlink(&dotfiles, ssh_dir.join("config")).unwrap();
+        symlink(&dotfiles, ssh_dir.join("config")).unwrap();
 
         add_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/.sherpa/ssh/config").unwrap();
 

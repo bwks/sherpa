@@ -266,6 +266,8 @@ fn confirm_destroy(lab_name: &str, lab_id: &str, device_count: usize) -> Result<
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
 
     use super::*;
     use crate::lab_folder_migration::migrate_lab_folder;
@@ -387,7 +389,7 @@ mod tests {
         fs::write(elsewhere.path().join("precious"), "x").unwrap();
         let ssh_dir = home.path().join(".ssh");
         fs::write(lab.path().join("sherpa_known_hosts"), "h").unwrap();
-        std::os::unix::fs::symlink(elsewhere.path(), lab.path().join(".sherpa")).unwrap();
+        symlink(elsewhere.path(), lab.path().join(".sherpa")).unwrap();
         assert!(migrate_lab_folder(lab.path(), &ssh_dir).is_err());
 
         let warnings = remove_lab_files(lab.path(), &ssh_dir);
@@ -407,7 +409,7 @@ mod tests {
         let elsewhere = tempfile::tempdir().unwrap();
         fs::write(elsewhere.path().join("precious"), "x").unwrap();
         let link = dir.path().join(".sherpa");
-        std::os::unix::fs::symlink(elsewhere.path(), &link).unwrap();
+        symlink(elsewhere.path(), &link).unwrap();
 
         let error = remove_state_dir(&LabFolder::new(dir.path())).unwrap_err();
 

@@ -986,9 +986,10 @@ mod tests {
     use futures_util::stream;
     use libvirt::BackedVolume;
     use std::io;
+    use tokio::sync::mpsc;
 
     fn quiet_progress() -> ProgressSender {
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, _rx) = mpsc::unbounded_channel();
         ProgressSender::new(tx)
     }
 
@@ -1096,7 +1097,7 @@ mod tests {
 
     #[test]
     fn a_status_message_reaches_the_client_as_a_status_frame() {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::unbounded_channel();
         let progress = ProgressSender::new(tx);
 
         progress

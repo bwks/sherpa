@@ -70,7 +70,7 @@ impl TestServer {
         let jwt_secret: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
 
         let state = AppState {
-            connections: sherpad::api::websocket::connection::create_registry(),
+            connections: websocket::connection::create_registry(),
             db: db.clone(),
             qemu: Arc::new(qemu),
             docker: Arc::new(docker),

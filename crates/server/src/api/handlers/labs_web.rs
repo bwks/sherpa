@@ -8,6 +8,7 @@ use axum::{Form, Json};
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
 use strum::IntoEnumIterator;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::api::sse::{destroy_progress_stream, up_progress_stream};
 use crate::auth::policy::{
@@ -256,7 +257,7 @@ pub async fn node_redeploy_handler(
         as_written: None,
     };
 
-    let progress = ProgressSender::new(tokio::sync::mpsc::unbounded_channel().0);
+    let progress = ProgressSender::new(mpsc::unbounded_channel().0);
 
     let result =
         run_detached(
@@ -843,12 +844,12 @@ pub async fn job_stream_handler(
         }
     };
 
-    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (progress_tx, progress_rx) = mpsc::unbounded_channel();
     let progress = ProgressSender::new(progress_tx);
 
     match job.job_type {
         JobType::Destroy { lab_id } => {
-            let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+            let (result_tx, result_rx) = oneshot::channel();
             tokio::spawn(async move {
                 let result = destroy::destroy_lab(&requester, &lab_id, &state, progress).await;
                 let _ = result_tx.send(result);
@@ -856,7 +857,7 @@ pub async fn job_stream_handler(
             sse::Sse::new(destroy_progress_stream(progress_rx, result_rx)).into_response()
         }
         JobType::Create { request } => {
-            let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+            let (result_tx, result_rx) = oneshot::channel();
             tokio::spawn(async move {
                 let result = up::up_lab(&requester, request, &state, progress).await;
                 let _ = result_tx.send(result);
@@ -868,13 +869,9 @@ pub async fn job_stream_handler(
 
 /// An SSE stream that reports `error` as a job's result, for a job that never started.
 fn failed_job_stream(error: anyhow::Error) -> Response {
-    let (tx, rx) = tokio::sync::oneshot::channel();
+    let (tx, rx) = oneshot::channel();
     let _ = tx.send(Err(error));
-    sse::Sse::new(destroy_progress_stream(
-        tokio::sync::mpsc::unbounded_channel().1,
-        rx,
-    ))
-    .into_response()
+    sse::Sse::new(destroy_progress_stream(mpsc::unbounded_channel().1, rx)).into_response()
 }
 
 // ============================================================================

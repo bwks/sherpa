@@ -1,2 +1,5 @@
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
+# `clippy::absolute_paths` (root Cargo.toml) reports a path of more than three segments
+# written inline: import it with `use` at the top of the file instead.
+absolute-paths-max-segments = 3

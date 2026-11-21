@@ -47,10 +47,10 @@ cargo test -p db test_delete_lab_cascade_removes_nodes_links_bridges
 
 ## Test Location
 
-- `crates/db/tests/helper.rs` — shared setup and builders (`setup_db()` opens an in-memory database)
-- `crates/db/tests/{user,lab,node,link,node_image}/` — CRUD tests per entity
-- `crates/db/tests/schema/` — schema idempotency and table creation
-- `crates/db/tests/relationships/` — cascade deletes, query isolation, rollback, concurrency
+- `crates/db/tests/db/`: the `db` test target, rooted at `main.rs`
+- `crates/db/tests/db/helper.rs` — shared setup and builders (`setup_db()` opens an in-memory database)
+- `crates/db/tests/db/{user,lab,node,link,node_image,session}/` — CRUD tests per entity
+- `crates/db/tests/db/relationships.rs` — cascade deletes, query isolation, rollback, concurrency
 - `#[cfg(test)]` modules in `crates/db/src/` — tests that need raw SQL, such as the admin
   protection triggers in `schema/user.rs`
 
