@@ -84,8 +84,8 @@ pub struct Observed {
 pub enum Online {
     Yes,
     No,
-    /// No status, but a reader holds the inbox: a guest agent from before the heartbeat, or
-    /// some other reader. It may or may not be working.
+    /// No status, but a reader holds the inbox, such as `agent-bus listen` run as the guest. It
+    /// may or may not be working.
     Unreported,
 }
 

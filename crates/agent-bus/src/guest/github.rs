@@ -50,11 +50,6 @@ impl WriteToken {
         if line.is_empty() {
             return Ok(None);
         }
-        if line.starts_with("SU") {
-            bail!(
-                "The GitHub write token line holds an NKey seed: start the agent with an agent-bus-start-agent of this version"
-            );
-        }
         if !TOKEN_PREFIXES.iter().any(|prefix| line.starts_with(prefix))
             || !line
                 .bytes()
@@ -120,8 +115,6 @@ mod tests {
             let error = format!("{:#}", WriteToken::parse(line).unwrap_err());
             assert!(!error.contains(line), "{error}");
         }
-        let seed = WriteToken::parse("SUAMLK2ZNL35WSMW37E7UD4VZ7EL").unwrap_err();
-        assert!(seed.to_string().contains("NKey seed"));
     }
 
     #[test]

@@ -55,8 +55,6 @@ const DATA_DIR: &str = "/data";
 const CONFIG_DIR: &str = "nats";
 const CONFIG_DIR_TARGET: &str = config::MOUNT_DIR;
 const CONFIG_FILE: &str = "nats.conf";
-/// Where the server config used to be: a single bind-mounted file, which a rename never reached.
-const OLD_CONFIG_FILE: &str = "nats.conf";
 /// Where `start` records the bus.
 const RECORD_FILE: &str = "bus.toml";
 /// The registry of enrolled guests, and the lock taken while it or the config changes.
@@ -130,12 +128,6 @@ impl Bus {
         let Some(record) = state::read(&path)? else {
             return Ok(None);
         };
-        let Some(agents) = record.agents else {
-            bail!(
-                "{} does not name the agents file: the bus was started by an older agent-bus; run `agent-bus bus start` again",
-                path.display()
-            );
-        };
         let address: SocketAddrV4 = record
             .url
             .strip_prefix("nats://")
@@ -155,7 +147,7 @@ impl Bus {
             state_dir,
             lab: record.lab,
         };
-        Ok(Some((bus, agents)))
+        Ok(Some((bus, record.agents)))
     }
 
     /// Where `start` records the standard bus and the other commands look for it.
@@ -209,8 +201,7 @@ impl Bus {
 /// Start the bus for the agents in `agents_path` and the enrolled guests, and prepare it. This
 /// renders the server config, replaces any existing bus container (the config may have changed;
 /// the messages live in the volume), then connects as the host with `host_seed` and creates the
-/// inbox stream, every agent's inbox and the recorder's consumer. An existing stream whose
-/// `max_age` is not `channel::STREAM_MAX_AGE` is updated in place, and the change printed.
+/// inbox stream, every agent's inbox and the recorder's consumer.
 ///
 /// # Errors
 ///
@@ -266,7 +257,6 @@ pub async fn start(bus: &Bus, agents_path: &Path, host_seed: &str) -> Result<()>
         .context("Unable to create the bus container")?;
     println!("Created {}", bus.container);
     start_container(&docker, &bus.container).await?;
-    state::remove(&bus.state_dir.join(OLD_CONFIG_FILE))?;
 
     let channel = connect_when_ready(&bus.endpoint(), host_seed).await?;
     let stream = channel.prepare_stream().await?;
@@ -278,7 +268,7 @@ pub async fn start(bus: &Bus, agents_path: &Path, host_seed: &str) -> Result<()>
         &bus.record_path(),
         &BusRecord {
             url: bus.url(),
-            agents: Some(agents_path),
+            agents: agents_path,
             lab: bus.lab.clone(),
         },
     )?;
@@ -546,8 +536,8 @@ async fn apply(
 }
 
 /// Whether the bus container runs and reads the config this bus writes. `false` when it is not
-/// running; an error when it runs with another config, such as one started by an older
-/// agent-bus, which mounted the config file itself and would never see the new one.
+/// running; an error when it runs with another config, such as one started from another state
+/// directory, which would never see the new one.
 #[instrument(level = "debug", skip_all, fields(container = %bus.container))]
 async fn reloadable(docker: &Docker, bus: &Bus) -> Result<bool> {
     if !matches!(
@@ -572,7 +562,7 @@ async fn reloadable(docker: &Docker, bus: &Bus) -> Result<bool> {
         });
     ensure!(
         mounted,
-        "The running bus {} does not read {}: it was started by an older agent-bus or from another state directory; run `agent-bus bus start` again",
+        "The running bus {} does not read {}: it was started from another state directory; run `agent-bus bus start` again",
         bus.container,
         source
     );
@@ -738,8 +728,6 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use async_nats::connection::State;
-    use async_nats::jetstream::consumer::DeliverPolicy;
-    use async_nats::jetstream::stream;
     use async_nats::rustls::crypto::aws_lc_rs;
     use async_nats::{Client, ConnectOptions, Event, StatusCode};
     use bollard::query_parameters::RemoveVolumeOptions;
@@ -754,7 +742,7 @@ mod tests {
     use super::*;
 
     use crate::agents::Role;
-    use crate::channel::{Inbox, STREAM_MAX_AGE, StreamChange, inbox_prefix, tls_options};
+    use crate::channel::{Inbox, inbox_prefix, tls_options};
     use crate::files::{DIR_MODE, PRIVATE_FILE_MODE};
     use crate::files::{millis, now_ms};
     use crate::guest::run::heartbeat;
@@ -862,17 +850,9 @@ mod tests {
         assert!(format!("{error:#}").contains("bus start"), "{error:#}");
         let mut record = BusRecord {
             url: "nats://192.0.2.1:4300".to_owned(),
-            agents: None,
+            agents: PathBuf::from("/home/u/agents.toml"),
             lab: None,
         };
-        state::write(&state_dir.join(RECORD_FILE), &record).unwrap();
-        // A record from before enrollment does not name the agents file.
-        let error = Bus::from_record("c", "v", state_dir.clone()).err().unwrap();
-        assert!(
-            format!("{error:#}").contains("older agent-bus"),
-            "{error:#}"
-        );
-        record.agents = Some(PathBuf::from("/home/u/agents.toml"));
         state::write(&state_dir.join(RECORD_FILE), &record).unwrap();
         let (bus, agents) = Bus::from_record("c", "v", state_dir.clone()).unwrap();
         assert_eq!(bus.url(), "nats://192.0.2.1:4300");
@@ -1024,10 +1004,7 @@ mod tests {
         let names = ["host", "dev", "other"];
 
         // No status yet for dev (the earlier steps wrote none).
-        let none = host_channel
-            .statuses(names)
-            .await?
-            .context("bus start created no status bucket")?;
+        let none = host_channel.statuses(names).await?;
         ensure!(none.is_empty(), "statuses before any was written: {none:?}");
 
         let now = now_ms();
@@ -1042,7 +1019,7 @@ mod tests {
         };
         dev_channel.put_status("dev", &status).await?;
         host_channel.send(&message("host", "dev", "queued")).await?;
-        let found = host_channel.statuses(names).await?.unwrap_or_default();
+        let found = host_channel.statuses(names).await?;
         ensure!(
             found.len() == 1 && found[0].0 == "dev" && found[0].1.status == status,
             "the host read {found:?}"
@@ -1096,7 +1073,7 @@ mod tests {
                 },
             )
             .await?;
-        let found = host_channel.statuses(names).await?.unwrap_or_default();
+        let found = host_channel.statuses(names).await?;
         let last = row(
             &Observed {
                 name: "dev".to_owned(),
@@ -1225,7 +1202,7 @@ mod tests {
 
     /// dev's last status, as the host reads it.
     async fn dev_status(host_channel: &Channel) -> Result<Heartbeat> {
-        let found = host_channel.statuses(["dev"]).await?.unwrap_or_default();
+        let found = host_channel.statuses(["dev"]).await?;
         found
             .into_iter()
             .next()
@@ -1258,7 +1235,7 @@ mod tests {
             !matches!(forged, Ok(Ok(()))),
             "a guest wrote another agent's status"
         );
-        let found = host.statuses(names).await?.unwrap_or_default();
+        let found = host.statuses(names).await?;
         ensure!(found.len() == 1, "a forged status was stored: {found:?}");
         ensure!(
             timeout(wait, dev.statuses(names))
@@ -1442,144 +1419,6 @@ mod tests {
         Ok(())
     }
 
-    /// An inbox filtered on `agents.<name>` and started at a stream sequence (the shape a live
-    /// bus had after the `max_waiting` upgrade, before per-sender subjects) is updated in place
-    /// by `bus start`: the bus refuses to change where a consumer starts, so the update keeps
-    /// it. A message that was waiting, unread and unacknowledged, is delivered once; one from
-    /// before the start is not.
-    async fn upgrade_unsplit_inbox(
-        bus: &Bus,
-        agents_path: &Path,
-        host: &NewKey,
-        other: &NewKey,
-    ) -> Result<()> {
-        let wait = Duration::from_secs(15);
-        let host_channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
-        host_channel
-            .send(&message("host", "other", "before the start"))
-            .await?;
-        let start_sequence = host_channel.make_inbox_unsplit("other").await?;
-        host_channel
-            .send(&message("host", "other", "waiting"))
-            .await?;
-        drop(host_channel);
-
-        start(bus, agents_path, &host.seed).await?;
-
-        let host_channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
-        let config = host_channel.inbox_config("other").await?;
-        ensure!(
-            config.filter_subject == "agents.other.>",
-            "the filter was not updated: {}",
-            config.filter_subject
-        );
-        ensure!(
-            config.deliver_policy == DeliverPolicy::ByStartSequence { start_sequence },
-            "the start changed: {:?}",
-            config.deliver_policy
-        );
-        ensure!(config.max_waiting == 1, "max_waiting changed");
-        let other_channel = Channel::connect(&bus.endpoint(), &other.seed).await?;
-        let mut inbox = other_channel.inbox("other", stderr()).await?;
-        let delivery = timeout(wait, inbox.next())
-            .await
-            .context("the waiting message did not arrive after the upgrade")??
-            .context("the inbox closed")?;
-        ensure!(
-            delivery.message.text == "waiting",
-            "expected the waiting message, got {}",
-            delivery.message.text
-        );
-        delivery.ack().await?;
-        ensure!(
-            timeout(Duration::from_secs(3), inbox.next()).await.is_err(),
-            "a message was delivered again or from before the start"
-        );
-        drop(inbox);
-        ensure!(
-            host_channel.waiting("other").await? == 0,
-            "messages are left in the inbox"
-        );
-        Ok(())
-    }
-
-    /// An inbox made by an earlier version (no `max_waiting`) is upgraded by `bus start`: what
-    /// was acknowledged stays gone and what was not is delivered exactly once.
-    async fn upgrade_old_inbox(
-        bus: &Bus,
-        agents_path: &Path,
-        host: &NewKey,
-        other: &NewKey,
-    ) -> Result<()> {
-        let wait = Duration::from_secs(15);
-        let host_channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
-        let other_channel = Channel::connect(&bus.endpoint(), &other.seed).await?;
-        host_channel.make_inbox_old("other").await?;
-        for n in 1..=5 {
-            host_channel
-                .send(&message("host", "other", &format!("m{n}")))
-                .await?;
-        }
-        let mut inbox = other_channel.inbox("other", stderr()).await?;
-        for expected in ["m1", "m2"] {
-            let delivery = timeout(wait, inbox.next())
-                .await
-                .context("no message for other")??
-                .context("the inbox closed")?;
-            ensure!(delivery.message.text == expected, "wrong message");
-            delivery.ack().await?;
-        }
-        // m3 is delivered but never acknowledged; m4 and m5 are not read at all.
-        let unacked = timeout(wait, inbox.next())
-            .await
-            .context("no third message")??
-            .context("the inbox closed")?;
-        ensure!(unacked.message.text == "m3", "wrong message");
-        drop(unacked);
-        drop(inbox);
-        drop(other_channel);
-        drop(host_channel);
-
-        start(bus, agents_path, &host.seed).await?;
-
-        let other_channel = Channel::connect(&bus.endpoint(), &other.seed).await?;
-        let mut inbox = other_channel.inbox("other", stderr()).await?;
-        for expected in ["m3", "m4", "m5"] {
-            let delivery = timeout(wait, inbox.next())
-                .await
-                .with_context(|| format!("{expected} did not arrive after the upgrade"))??
-                .context("the inbox closed")?;
-            ensure!(
-                delivery.message.text == expected,
-                "expected {expected}, got {}",
-                delivery.message.text
-            );
-            delivery.ack().await?;
-        }
-        // Nothing else comes: not the acknowledged messages, not a second copy.
-        ensure!(
-            timeout(Duration::from_secs(3), inbox.next()).await.is_err(),
-            "a message was delivered again after the upgrade"
-        );
-        drop(inbox);
-        let host_channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
-        ensure!(
-            host_channel.waiting("other").await? == 0,
-            "messages are left in the inbox"
-        );
-        // The upgraded inbox has the new setting: a second reader is refused.
-        let mut first = other_channel.inbox("other", stderr()).await?;
-        // The reader asks the bus for messages only once it waits for one.
-        let _ = timeout(Duration::from_secs(1), first.next()).await;
-        let second = Channel::connect(&bus.endpoint(), &other.seed).await?;
-        ensure!(
-            second.inbox("other", stderr()).await.is_err(),
-            "the upgraded inbox accepts a second reader"
-        );
-        drop(first);
-        Ok(())
-    }
-
     /// The lab info of a lab whose gateway is the loopback address.
     const LOOPBACK_LAB_INFO: &str = r#"id = "abc123"
 name = "it"
@@ -1691,13 +1530,7 @@ role = "guest"
             delivery.ack().await?;
             drop(inbox);
             drop(dev_channel);
-
-            // An inbox made by an earlier version is upgraded without losing or replaying.
-            upgrade_old_inbox(&bus, &agents_path, &host, &other).await?;
-
-            // An inbox from before per-sender subjects, recreated by the `max_waiting` upgrade,
-            // gets the new filter and keeps where it starts.
-            upgrade_unsplit_inbox(&bus, &agents_path, &host, &other).await
+            Ok(())
         }
         .await;
 
@@ -2159,136 +1992,6 @@ role = "host"
             .await;
         let _ = std::fs::remove_dir_all(&dir);
         result.unwrap();
-    }
-
-    /// Needs Docker. A bus whose inbox stream was made by an older agent-bus, with a 7-day
-    /// `max_age`, is brought to `STREAM_MAX_AGE` in place by `bus start`: the stream and the
-    /// message waiting in it are kept, and the next start changes nothing. The recorder's lag
-    /// counts the waiting message.
-    /// Run with `cargo test -p agent-bus -- --ignored`.
-    #[tokio::test]
-    #[ignore = "needs Docker"]
-    async fn bus_start_updates_an_old_stream_s_max_age_in_place() {
-        install_crypto_provider();
-        let (host, dev) = (generate().unwrap(), generate().unwrap());
-        let id = std::process::id();
-        let dir = std::env::temp_dir().join(format!("agent-bus-max-age-it-{id}"));
-        std::fs::create_dir_all(&dir).unwrap();
-        let agents_path = dir.join("agents.toml");
-        std::fs::write(
-            &agents_path,
-            format!(
-                r#"[[agent]]
-name = "host"
-key = "{}"
-role = "host"
-[[agent]]
-name = "dev"
-key = "{}"
-role = "guest"
-"#,
-                host.public_key, dev.public_key
-            ),
-        )
-        .unwrap();
-        let port = TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
-        let bus = Bus {
-            container: format!("sherpa-agent-bus-max-age-test-{id}"),
-            volume: format!("sherpa-agent-bus-max-age-test-{id}-data"),
-            listen: Ipv4Addr::LOCALHOST,
-            port,
-            state_dir: dir.join("state"),
-            lab: None,
-        };
-
-        let result = async {
-            start(&bus, &agents_path, &host.seed).await?;
-            old_stream_is_updated(&bus, &agents_path, &host, &dev).await
-        }
-        .await;
-
-        let docker = docker_connection().unwrap();
-        let _ = remove_container(&docker, &bus.container).await;
-        let _ = docker
-            .remove_volume(&bus.volume, None::<RemoveVolumeOptions>)
-            .await;
-        let _ = std::fs::remove_dir_all(&dir);
-        result.unwrap();
-    }
-
-    /// Replace the inbox stream with one made as an older agent-bus made it, 7 days of
-    /// `max_age`, with a message waiting for dev; then start the bus again and find the stream
-    /// updated and the message kept.
-    async fn old_stream_is_updated(
-        bus: &Bus,
-        agents_path: &Path,
-        host: &NewKey,
-        dev: &NewKey,
-    ) -> Result<()> {
-        let old_max_age = Duration::from_hours(7 * 24);
-        let raw = async_nats::jetstream::new(
-            tls_options(
-                ConnectOptions::with_nkey(host.seed.clone()),
-                &bus.endpoint(),
-            )?
-            .custom_inbox_prefix(inbox_prefix(&host.public_key))
-            .connect(&bus.endpoint().url)
-            .await?,
-        );
-        raw.delete_stream(STREAM).await?;
-        raw.create_stream(stream::Config {
-            name: STREAM.to_owned(),
-            subjects: vec!["agents.>".to_owned()],
-            max_age: old_max_age,
-            ..Default::default()
-        })
-        .await?;
-        let host_channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
-        host_channel.send(&message("host", "dev", "kept")).await?;
-        drop(host_channel);
-
-        start(bus, agents_path, &host.seed).await?;
-
-        let mut updated = raw.get_stream(STREAM).await?;
-        let info = updated.info().await?;
-        ensure!(
-            info.config.max_age == STREAM_MAX_AGE,
-            "the stream's max_age is {:?}",
-            info.config.max_age
-        );
-        ensure!(
-            info.state.messages == 1,
-            "the stream holds {} messages",
-            info.state.messages
-        );
-        let host_channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
-        let change = host_channel.prepare_stream().await?;
-        ensure!(
-            change == StreamChange::Unchanged,
-            "a second start changed the stream: {change}"
-        );
-        let lag = host_channel
-            .consumer_state(RECORDER)
-            .await?
-            .context("no recorder's consumer")?;
-        ensure!(lag.unread == 1, "the recorder's lag is {}", lag.unread);
-        ensure!(
-            lag.last_delivered_ms.is_none(),
-            "the recorder delivered before anything read it"
-        );
-        let dev_channel = Channel::connect(&bus.endpoint(), &dev.seed).await?;
-        let mut inbox = dev_channel.inbox("dev", stderr()).await?;
-        let delivery = timeout(Duration::from_secs(15), inbox.next())
-            .await
-            .context("no message for dev after the update")??
-            .context("the inbox closed")?;
-        ensure!(delivery.message.text == "kept", "the message was lost");
-        delivery.ack().await?;
-        Ok(())
     }
 
     /// Needs Docker. A reader whose pulls the bus refuses (another pull holds the inbox's one

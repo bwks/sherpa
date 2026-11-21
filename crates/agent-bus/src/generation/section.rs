@@ -14,9 +14,8 @@
 //! item by `link`), the item's pull requests that count its work, or says that none counts any
 //! yet.
 //!
-//! Guests wrote format 1, with no version and no host rows, and read it with
-//! `deny_unknown_fields`: a guest still running an older agent-bus refuses a host-written
-//! section, so it cannot undo one.
+//! Guests wrote format 1, with no version and no host rows; merged pull requests still hold
+//! sections in formats 1 and 2, which are read as they are.
 
 use std::collections::BTreeSet;
 use std::ops::{Not, Range};
@@ -1152,60 +1151,6 @@ duration_api_ms = 0
         let body = format!("{START}\n{DATA_START}\nversion = 4\n-->\n{END}");
         let error = format!("{:#}", update_body(&body, &tasks(&[first()])).unwrap_err());
         assert!(error.contains("format 4"), "{error}");
-    }
-
-    /// The data comment as a guest of format 1 read it: no version, no host rows, unknown
-    /// fields refused.
-    #[derive(Debug, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct GuestData {
-        #[serde(default)]
-        task: Vec<GuestRow>,
-    }
-
-    #[derive(Debug, Deserialize)]
-    struct GuestRow {
-        task: String,
-        agent: String,
-        models: Vec<String>,
-        usage: TaskUsage,
-    }
-
-    #[test]
-    fn an_old_guest_refuses_a_host_written_section_and_reads_its_own() {
-        let ours = Rows {
-            tasks: vec![first()],
-            host: Vec::new(),
-            ..Rows::default()
-        };
-        for rows in [
-            ours.clone(),
-            Rows {
-                host: vec![host("claude-opus-5-5", 1.0, time(1, 1, 1))],
-                ..ours
-            },
-        ] {
-            let body = update_body("", &rows).unwrap();
-            let at = body.find(DATA_START).unwrap() + DATA_START.len();
-            let data = &body[at..at + body[at..].find(COMMENT_END).unwrap()];
-            let error = toml::from_str::<GuestData>(data).unwrap_err().to_string();
-            assert!(error.contains("unknown field `version`"), "{error}");
-        }
-        // What guests wrote, it reads.
-        let old = format_1(&[first()]);
-        let at = old.find(DATA_START).unwrap() + DATA_START.len();
-        let data = &old[at..at + old[at..].find(COMMENT_END).unwrap()];
-        let read: GuestData = toml::from_str(data).unwrap();
-        let guest = &read.task[0];
-        assert_eq!(
-            (
-                guest.task.as_str(),
-                guest.agent.as_str(),
-                guest.models.len(),
-                guest.usage.runs
-            ),
-            ("3f9a1c2e", "dev01", 2, 3)
-        );
     }
 
     #[test]

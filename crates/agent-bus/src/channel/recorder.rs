@@ -15,15 +15,14 @@ impl Channel {
     ///
     /// # Errors
     ///
-    /// Fails when there is no recorder consumer (the bus was started by an older agent-bus) or
-    /// another reader is attached.
+    /// Fails when there is no recorder consumer or another reader is attached.
     #[instrument(skip_all)]
     pub async fn recorder<W: Write>(&self, notices: W) -> Result<(Inbox<W>, u64)> {
         self.reader(
             RECORDER,
             &format!(
                 "Unable to open the recorder's consumer '{RECORDER}'. `agent-bus bus start` \
-                 creates it; run it again if the bus was started by an older agent-bus"
+                 creates it"
             ),
             notices,
         )

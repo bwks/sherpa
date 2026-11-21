@@ -745,7 +745,7 @@ impl<'a> Engine<'a> {
                 self.tasks.entry(message.task.clone()).or_default().session = Some(Session {
                     id: session,
                     github,
-                    model: Some(model.to_owned()),
+                    model: model.to_owned(),
                 });
                 self.save();
             }
@@ -784,7 +784,7 @@ impl<'a> Engine<'a> {
                 self.tasks.entry(message.task.clone()).or_default().session = Some(Session {
                     id: session,
                     github,
-                    model: Some(model.to_owned()),
+                    model: model.to_owned(),
                 });
                 self.save();
                 if let Some(last) = run.text.take()
@@ -1760,7 +1760,7 @@ esac
         bases.sort_unstable();
         assert_eq!(bases, ["claude-sonnet-5-5", "test-model"]);
         let session = saved.tasks["t2"].session.as_ref().unwrap();
-        assert_eq!(session.model.as_deref(), Some("claude-sonnet-5-5"));
+        assert_eq!(session.model, "claude-sonnet-5-5");
     }
 
     fn harness_runs(message: &Message) -> u64 {
