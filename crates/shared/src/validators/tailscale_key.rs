@@ -26,11 +26,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn invalid_key_errors_do_not_echo_secrets() {
+    fn tailnet_key_005_a_malformed_key_is_refused_and_the_error_does_not_repeat_it() {
         for key in [
             "",
             "tskey-auth-",
             "tskey-auth-secret\n",
+            "tskey-auth-sec ret",
             "tskey-client-secret",
             "secret",
         ] {

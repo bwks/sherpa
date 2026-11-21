@@ -280,7 +280,9 @@ pub fn render_tailnet_table(status: &TailnetStatus) -> String {
 mod tests {
 
     use super::*;
-    use shared::data::{BridgeKind, NodeKind, NodeModel, NodeState, ProvisionStatus};
+    use shared::data::{
+        BridgeKind, NodeKind, NodeModel, NodeState, ProvisionStatus, RouteApproval, TailnetState,
+    };
 
     #[test]
     fn links_table_shows_each_link_state() {
@@ -356,27 +358,30 @@ mod tests {
     }
 
     #[test]
-    fn tailnet_table_renders_approved_status_without_warnings() {
-        let status = TailnetStatus::from_daemon(
-            r#"{"BackendState":"Running","TailscaleIPs":["100.64.0.1"],"Self":{"AllowedIPs":["172.31.3.0/24"]}}"#,
-            vec!["172.31.3.0/24".into()],
-        )
-        .unwrap();
+    fn tailnet_status_007_the_tailscale_table_shows_state_approval_routes_addresses_and_warnings() {
+        let status = TailnetStatus {
+            state: TailnetState::Connected,
+            routes: vec!["172.31.3.0/24".into(), "fd00:3::/64".into()],
+            approval: RouteApproval::Pending,
+            tailscale_ips: vec!["100.64.0.1".into(), "fd7a:115c::1".into()],
+            warnings: vec!["Routes pending".into(), "Second warning".into()],
+        };
 
         let expected = "\
-┌─────────────────────┬───────────────┐
-│ Tailscale           │ Details       │
-├─────────────────────┼───────────────┤
-│ Gateway             │ Connected     │
-├─────────────────────┼───────────────┤
-│ Route approval      │ Approved      │
-├─────────────────────┼───────────────┤
-│ Management routes   │ 172.31.3.0/24 │
-├─────────────────────┼───────────────┤
-│ Tailscale addresses │ 100.64.0.1    │
-├─────────────────────┼───────────────┤
-│ Warnings            │               │
-└─────────────────────┴───────────────┘";
+┌─────────────────────┬────────────────────────────┐
+│ Tailscale           │ Details                    │
+├─────────────────────┼────────────────────────────┤
+│ Gateway             │ Connected                  │
+├─────────────────────┼────────────────────────────┤
+│ Route approval      │ Pending                    │
+├─────────────────────┼────────────────────────────┤
+│ Management routes   │ 172.31.3.0/24, fd00:3::/64 │
+├─────────────────────┼────────────────────────────┤
+│ Tailscale addresses │ 100.64.0.1, fd7a:115c::1   │
+├─────────────────────┼────────────────────────────┤
+│ Warnings            │ Routes pending             │
+│                     │ Second warning             │
+└─────────────────────┴────────────────────────────┘";
         assert_eq!(render_tailnet_table(&status), expected);
     }
 

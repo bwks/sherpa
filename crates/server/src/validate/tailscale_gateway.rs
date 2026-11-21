@@ -45,7 +45,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gateway_settings_reject_invalid_image_socket_and_timeouts() {
+    fn tailnet_settings_003_each_unusable_gateway_setting_is_refused_naming_it() {
         type SettingsEdit = fn(&mut TailscaleGatewaySettings);
         let defaults = TailscaleGatewaySettings::default();
         assert!(validate_tailscale_gateway_settings(&defaults).is_ok());

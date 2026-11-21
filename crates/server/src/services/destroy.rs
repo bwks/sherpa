@@ -1021,7 +1021,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cleanup_removes_ordinary_nodes_with_tailnet_names() {
+    async fn tailnet_removal_006_node_containers_named_like_a_gateway_are_removed_as_nodes() {
         let mock = DockerMock::new(
             json!([
                 {"Id":"node-id","Names":["/sherpa-tailnet-app-test1234"],"Labels":{}},
@@ -1053,7 +1053,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn generic_cleanup_preserves_gateways_identified_by_labels() {
+    async fn tailnet_removal_007_another_labs_gateway_named_with_this_lab_id_is_left_alone() {
         let mock = DockerMock::new(
             json!([{"Id":"foreign-id","Names":["/renamed-test1234-gateway"],"Labels":{
                 "sh.erpa.tailscale.lab":"another",
@@ -1164,12 +1164,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn failed_gateway_removal_retains_metadata_until_retry() {
+    async fn tailnet_removal_008_a_gateway_that_cannot_be_removed_keeps_the_lab_until_a_retry() {
         assert_gateway_cleanup_can_be_retried(true, false).await;
     }
 
     #[tokio::test]
-    async fn failed_identity_volume_removal_retains_metadata_until_retry() {
+    async fn tailnet_removal_009_an_identity_volume_that_cannot_be_removed_keeps_the_lab_until_a_retry()
+     {
         assert_gateway_cleanup_can_be_retried(false, true).await;
     }
     #[tokio::test]

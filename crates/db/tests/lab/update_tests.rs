@@ -8,7 +8,8 @@ use shared::data::LabPhase;
 use crate::helper::{ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-async fn tailnet_inventory_survives_lab_phase_updates() -> Result<()> {
+async fn tailnet_join_007_the_gateway_container_stays_recorded_through_phase_changes() -> Result<()>
+{
     let database = setup_db().await?;
     let user = create_user(
         &database,

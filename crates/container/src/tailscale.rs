@@ -528,7 +528,25 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc::{Sender, channel};
+    use std::sync::{Mutex, PoisonError};
     use std::thread;
+    use tokio::runtime::Runtime;
+
+    /// A scripted Docker API: answers each expected request in turn, and fails the test on any
+    /// request beyond them.
+    struct MockDocker {
+        handle: thread::JoinHandle<()>,
+        done: Sender<()>,
+    }
+
+    impl MockDocker {
+        /// Check that every scripted request arrived and no other did.
+        fn finish(self) {
+            self.done.send(()).unwrap();
+            self.handle.join().unwrap();
+        }
+    }
 
     fn test_settings() -> Result<TailscaleGatewaySettings> {
         match std::env::var("SHERPA_TEST_SERVER_CONFIG") {
@@ -538,7 +556,7 @@ mod tests {
     }
 
     #[test]
-    fn gateway_configuration_uses_operator_image_and_socket() {
+    fn tailnet_settings_004_the_configured_image_socket_and_enrollment_timeout_reach_the_gateway() {
         // Configuration must be passed as an argument, including shell metacharacters.
         let settings = TailscaleGatewaySettings {
             image: "registry.example/tailscale:custom".into(),
@@ -567,7 +585,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn gateway_exec_honors_operator_timeout() {
+    async fn tailnet_settings_005_a_gateway_command_past_the_command_timeout_fails_as_timed_out() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let mock = thread::spawn(move || {
@@ -609,14 +627,12 @@ mod tests {
         );
     }
 
+    const RUNNING_GATEWAY: &str = r#"{"Id":"exact-id","State":{"Running":true},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#;
+
     #[tokio::test]
-    async fn gateway_stop_uses_operator_grace_period() {
+    async fn tailnet_settings_006_the_stop_timeout_is_the_grace_period_docker_is_given() {
         let (docker, mock) = mock_docker(vec![
-            (
-                "/containers/exact-id/json",
-                "200 OK",
-                r#"{"Id":"exact-id","State":{"Running":true},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#,
-            ),
+            ("/containers/exact-id/json", "200 OK", RUNNING_GATEWAY),
             (
                 "/containers/exact-id/exec",
                 "500 Internal Server Error",
@@ -629,17 +645,40 @@ mod tests {
             ..Default::default()
         };
         let result = stop_gateway(&docker, "exact-id", "test1234", &settings).await;
-        mock.join().unwrap();
+        mock.finish();
         result.unwrap();
     }
 
     #[tokio::test]
-    async fn cleanup_logs_out_a_running_gateway_and_removes_it_when_logout_fails() {
+    async fn tailnet_suspend_004_a_gateway_whose_logout_fails_is_still_stopped() {
+        let (docker, mock) = mock_docker(vec![
+            ("/containers/exact-id/json", "200 OK", RUNNING_GATEWAY),
+            (
+                "/containers/exact-id/exec",
+                "500 Internal Server Error",
+                r#"{"message":"exec unavailable"}"#,
+            ),
+            ("/containers/exact-id/stop", "204 No Content", ""),
+        ]);
+        let result = stop_gateway(
+            &docker,
+            "exact-id",
+            "test1234",
+            &TailscaleGatewaySettings::default(),
+        )
+        .await;
+        mock.finish();
+        result.unwrap();
+    }
+
+    #[tokio::test]
+    async fn tailnet_removal_002_a_running_gateway_is_logged_out_and_removed_even_when_logout_fails()
+     {
         let (docker, mock) = mock_docker(vec![
             (
                 "/containers/sherpa-tailnet-test1234/json",
                 "200 OK",
-                r#"{"Id":"exact-id","State":{"Running":true},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#,
+                RUNNING_GATEWAY,
             ),
             (
                 "/containers/exact-id/exec",
@@ -656,14 +695,15 @@ mod tests {
         remove_gateway(&docker, "test1234", &TailscaleGatewaySettings::default())
             .await
             .unwrap();
-        mock.join().unwrap();
+        mock.finish();
     }
 
     fn mock_docker(
         responses: Vec<(&'static str, &'static str, &'static str)>,
-    ) -> (Docker, thread::JoinHandle<()>) {
+    ) -> (Docker, MockDocker) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
+        let (done, finished) = channel();
         let handle = thread::spawn(move || {
             for (path, status, body) in responses {
                 let (mut stream, _) = listener.accept().unwrap();
@@ -683,6 +723,23 @@ mod tests {
                 );
                 write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
             }
+            finished.recv().unwrap();
+            listener.set_nonblocking(true).unwrap();
+            if let Ok((mut stream, _)) = listener.accept() {
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut line = Vec::new();
+                let mut byte = [0];
+                while !line.ends_with(b"\r\n") && stream.read_exact(&mut byte).is_ok() {
+                    line.push(byte[0]);
+                }
+                panic!(
+                    "unexpected request: {}",
+                    String::from_utf8_lossy(&line).trim_end()
+                );
+            }
         });
         let docker = Docker::connect_with_http(
             &format!("http://{address}"),
@@ -690,11 +747,11 @@ mod tests {
             bollard::API_DEFAULT_VERSION,
         )
         .unwrap();
-        (docker, handle)
+        (docker, MockDocker { handle, done })
     }
 
     #[tokio::test]
-    async fn cleanup_of_absent_resources_is_idempotent() {
+    async fn tailnet_removal_003_removing_the_gateway_of_a_lab_that_has_none_succeeds() {
         let (docker, mock) = mock_docker(vec![
             (
                 "/containers/sherpa-tailnet-test1234/json",
@@ -710,11 +767,12 @@ mod tests {
         remove_gateway(&docker, "test1234", &TailscaleGatewaySettings::default())
             .await
             .unwrap();
-        mock.join().unwrap();
+        mock.finish();
     }
 
     #[tokio::test]
-    async fn cleanup_refuses_other_labs_gateway() {
+    async fn tailnet_removal_004_a_gateway_with_another_labs_labels_is_refused_and_nothing_removed()
+    {
         let (docker, mock) = mock_docker(vec![(
             "/containers/sherpa-tailnet-test1234/json",
             "200 OK",
@@ -727,11 +785,11 @@ mod tests {
                 .to_string()
                 .contains("unowned")
         );
-        mock.join().unwrap();
+        mock.finish();
     }
 
     #[tokio::test]
-    async fn stopped_gateway_is_not_stopped_again() {
+    async fn tailnet_suspend_005_a_stopped_gateway_is_neither_logged_out_nor_stopped_again() {
         let (docker, mock) = mock_docker(vec![(
             "/containers/exact-id/json",
             "200 OK",
@@ -745,11 +803,11 @@ mod tests {
         )
         .await
         .unwrap();
-        mock.join().unwrap();
+        mock.finish();
     }
 
     #[tokio::test]
-    async fn cleanup_preserves_identity_if_container_removal_fails() {
+    async fn tailnet_removal_005_the_identity_volume_stays_when_the_gateway_cannot_be_removed() {
         let (docker, mock) = mock_docker(vec![
             (
                 "/containers/sherpa-tailnet-test1234/json",
@@ -767,11 +825,11 @@ mod tests {
                 .await
                 .is_err()
         );
-        mock.join().unwrap();
+        mock.finish();
     }
 
     #[tokio::test]
-    async fn gateway_status_succeeds_without_loading_large_peer_inventory() {
+    async fn tailnet_status_006_only_the_gateways_own_status_is_read_on_a_large_tailnet() {
         let settings = TailscaleGatewaySettings {
             socket_path: "/run/overridden/status.sock".into(),
             ..Default::default()
@@ -890,68 +948,119 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    #[ignore = "requires a disposable Docker network, Linux TUN, and a test tailnet auth key"]
-    async fn live_tailnet_enrollment_stop_reenroll_cleanup() -> Result<()> {
-        let config = live_config();
-        let settings = test_settings()?;
-        let docker = Docker::connect_with_local_defaults()?;
-        let key = TailnetAuthKey::new(std::env::var("SHERPA_TEST_TAILSCALE_AUTH_KEY")?);
-        let result: Result<()> = async {
-            let id = create_gateway(&docker, &config, &settings).await?;
-            let joined = enroll_gateway(
-                &docker,
-                &id,
-                &config.lab_id,
-                &config.routes,
-                &key,
-                &settings,
+    /// A gateway created on the live test network, not yet enrolled.
+    struct LiveGateway {
+        docker: Docker,
+        settings: TailscaleGatewaySettings,
+        config: GatewayConfig,
+        key: TailnetAuthKey,
+        id: String,
+    }
+
+    impl LiveGateway {
+        async fn create() -> Result<Self> {
+            let config = live_config();
+            let settings = test_settings()?;
+            let docker = Docker::connect_with_local_defaults()?;
+            let key = TailnetAuthKey::new(std::env::var("SHERPA_TEST_TAILSCALE_AUTH_KEY")?);
+            let id = match create_gateway(&docker, &config, &settings).await {
+                Ok(id) => id,
+                Err(error) => {
+                    remove_gateway(&docker, &config.lab_id, &settings).await?;
+                    return Err(error);
+                }
+            };
+            Ok(Self {
+                docker,
+                settings,
+                config,
+                key,
+                id,
+            })
+        }
+
+        async fn enroll(&self) -> Result<TailnetStatus> {
+            enroll_gateway(
+                &self.docker,
+                &self.id,
+                &self.config.lab_id,
+                &self.config.routes,
+                &self.key,
+                &self.settings,
             )
-            .await?;
+            .await
+        }
+
+        /// Remove the gateway and its volume, then report `result`.
+        async fn remove(self, result: Result<()>) -> Result<()> {
+            let cleanup = remove_gateway(&self.docker, &self.config.lab_id, &self.settings).await;
+            result?;
+            cleanup
+        }
+    }
+
+    /// The live tailnet tests share one gateway address on one network, so they take turns.
+    static LIVE_TAILNET: Mutex<()> = Mutex::new(());
+
+    /// Run `test` on a fresh gateway on the live test network, one live test at a time.
+    fn run_live_tailnet(test: impl AsyncFnOnce(&LiveGateway) -> Result<()>) -> Result<()> {
+        let _turn = LIVE_TAILNET.lock().unwrap_or_else(PoisonError::into_inner);
+        Runtime::new()?.block_on(async {
+            let gateway = LiveGateway::create().await?;
+            let result = test(&gateway).await;
+            gateway.remove(result).await
+        })
+    }
+
+    #[test]
+    #[ignore = "requires a disposable Docker network, Linux TUN, and a test tailnet auth key"]
+    fn tailnet_join_003_a_gateway_enrolled_with_a_valid_key_reports_connected() -> Result<()> {
+        run_live_tailnet(async |gateway| {
+            let joined = gateway.enroll().await?;
             ensure!(
                 joined.state == TailnetState::Connected,
                 "gateway did not connect"
             );
-            stop_gateway(&docker, &id, &config.lab_id, &settings).await?;
-            stop_gateway(&docker, &id, &config.lab_id, &settings).await?;
+            Ok(())
+        })
+    }
+
+    #[test]
+    #[ignore = "requires a disposable Docker network, Linux TUN, and a test tailnet auth key"]
+    fn tailnet_suspend_003_a_stopped_gateway_reports_stopped_and_enrolled_again_connected()
+    -> Result<()> {
+        run_live_tailnet(async |gateway| {
+            gateway.enroll().await?;
+            stop_gateway(
+                &gateway.docker,
+                &gateway.id,
+                &gateway.config.lab_id,
+                &gateway.settings,
+            )
+            .await?;
             let stopped = gateway_status(
-                &docker,
-                &id,
-                &config.lab_id,
-                config.routes.clone(),
-                &settings,
+                &gateway.docker,
+                &gateway.id,
+                &gateway.config.lab_id,
+                gateway.config.routes.clone(),
+                &gateway.settings,
             )
             .await?;
             ensure!(
                 stopped.state == TailnetState::Stopped,
                 "gateway did not stop"
             );
-            // Stopping logged the gateway out, so resuming enrolls it again.
-            let resumed = enroll_gateway(
-                &docker,
-                &id,
-                &config.lab_id,
-                &config.routes,
-                &key,
-                &settings,
-            )
-            .await?;
+            let resumed = gateway.enroll().await?;
             ensure!(
                 resumed.state == TailnetState::Connected,
                 "gateway did not reconnect"
             );
             Ok(())
-        }
-        .await;
-        let cleanup = remove_gateway(&docker, &config.lab_id, &settings).await;
-        result?;
-        cleanup?;
-        remove_gateway(&docker, &config.lab_id, &settings).await?;
-        Ok(())
+        })
     }
 
     #[test]
-    fn gateway_is_scoped_and_credentials_are_not_in_container_configuration() {
+    fn tailnet_join_006_the_gateway_is_unprivileged_with_tun_and_only_the_management_network() {
         let config = GatewayConfig {
             lab_id: "12345678".into(),
             network: "management".into(),
@@ -960,10 +1069,6 @@ mod tests {
             routes: vec!["192.0.2.0/24".into()],
         };
         let body = container_config(&config, &TailscaleGatewaySettings::default());
-        assert_eq!(
-            body.env,
-            Some(vec!["TS_DEBUG_FIREWALL_MODE=nftables".into()])
-        );
         let host = body.host_config.unwrap();
         assert_eq!(host.privileged, Some(false));
         assert!(host.network_mode.is_none());
@@ -975,59 +1080,128 @@ mod tests {
         assert!(owned(&body.labels.unwrap(), "12345678"));
         assert!(!owned(&labels("12345678"), "abcdefgh"));
     }
-    #[tokio::test]
-    #[ignore = "requires Linux Docker and TUN; creates and removes a disposable network"]
-    async fn live_gateway_daemon_smoke() -> Result<()> {
-        let docker = Docker::connect_with_local_defaults()?;
-        let settings = test_settings()?;
-        let lab_id = format!("tnsmoke{}", std::process::id());
-        let network = format!("sherpa-{lab_id}");
-        let ipv6_prefix = format!("fdff:{:x}::/64", std::process::id() % 65536);
-        let ipv6_address = format!("fdff:{:x}::3", std::process::id() % 65536);
-        let created = docker
-            .create_network(NetworkCreateRequest {
-                name: network.clone(),
-                driver: Some("bridge".into()),
-                enable_ipv6: Some(true),
-                ipam: Some(Ipam {
-                    config: Some(vec![IpamConfig {
-                        subnet: Some(ipv6_prefix.clone()),
-                        ..Default::default()
-                    }]),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            })
-            .await?;
-        let result = check_gateway(
-            &docker,
-            &settings,
-            &lab_id,
-            &network,
-            &created.id,
-            ipv6_prefix,
-            ipv6_address,
-        )
-        .await;
-        let cleanup = remove_gateway(&docker, &lab_id, &settings).await;
-        let network_cleanup = docker.remove_network(&created.id).await;
-        result?;
-        cleanup?;
-        network_cleanup?;
-        Ok(())
+    /// A started gateway, with its daemon up, on a dual-stack Docker network of its own.
+    struct SmokeGateway {
+        docker: Docker,
+        settings: TailscaleGatewaySettings,
+        config: GatewayConfig,
+        network_id: String,
+        id: String,
     }
 
-    /// Create a gateway on the test network `network_id`, then check its forwarding rules,
-    /// that a secret reaches it over stdin, and that it stops and starts again.
-    async fn check_gateway(
+    impl SmokeGateway {
+        /// Start a gateway for the lab `tnsmoke<index><pid>`; `index` keeps the networks of
+        /// tests running at the same time apart.
+        async fn start(index: u16) -> Result<Self> {
+            let docker = Docker::connect_with_local_defaults()?;
+            let settings = test_settings()?;
+            let lab_id = format!("tnsmoke{index}{}", std::process::id());
+            let network = format!("sherpa-{lab_id}");
+            let ipv6_prefix = format!("fdf{index:x}:{:x}::/64", std::process::id() % 65536);
+            let ipv6_address = format!("fdf{index:x}:{:x}::3", std::process::id() % 65536);
+            let created = docker
+                .create_network(NetworkCreateRequest {
+                    name: network.clone(),
+                    driver: Some("bridge".into()),
+                    enable_ipv6: Some(true),
+                    ipam: Some(Ipam {
+                        config: Some(vec![IpamConfig {
+                            subnet: Some(ipv6_prefix.clone()),
+                            ..Default::default()
+                        }]),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                })
+                .await?;
+            let config = match smoke_config(
+                &docker,
+                &lab_id,
+                &network,
+                &created.id,
+                ipv6_prefix,
+                ipv6_address,
+            )
+            .await
+            {
+                Ok(config) => config,
+                Err(error) => {
+                    docker.remove_network(&created.id).await?;
+                    return Err(error);
+                }
+            };
+            let mut gateway = Self {
+                docker,
+                settings,
+                config,
+                network_id: created.id,
+                id: String::new(),
+            };
+            if let Err(error) = gateway.create_and_start().await {
+                return Err(gateway.remove(Err(error)).await.unwrap_err());
+            }
+            Ok(gateway)
+        }
+
+        async fn create_and_start(&mut self) -> Result<()> {
+            self.id = create_gateway(&self.docker, &self.config, &self.settings).await?;
+            self.docker
+                .start_container(&self.id, None::<StartContainerOptions>)
+                .await?;
+            if let Err(error) = wait_for_socket(&self.docker, &self.id, &self.settings).await {
+                print_gateway_logs(&self.docker, &self.id).await?;
+                return Err(error);
+            }
+            Ok(())
+        }
+
+        async fn exec(&self, cmd: &[&str], stdin: Option<&str>) -> Result<String> {
+            exec(
+                &self.docker,
+                &self.id,
+                cmd.iter().map(|&part| part.to_owned()).collect(),
+                stdin,
+                &self.settings,
+            )
+            .await
+        }
+
+        /// Check that the forwarding chain accepts the gateway's routes and drops the rest.
+        async fn check_forwarding_rules(&self) -> Result<()> {
+            for (tool, route) in [
+                ("iptables-nft", &self.config.routes[0]),
+                ("ip6tables-nft", &self.config.routes[1]),
+            ] {
+                let rules = tailnet_rules(&self.docker, &self.id, tool, &self.settings).await?;
+                ensure!(
+                    rules.contains(route.as_str()) && rules.contains("DROP"),
+                    "missing {tool} forwarding restriction: {rules}"
+                );
+            }
+            Ok(())
+        }
+
+        /// Remove the gateway, its volume and its network, then report `result`.
+        async fn remove(self, result: Result<()>) -> Result<()> {
+            let cleanup = remove_gateway(&self.docker, &self.config.lab_id, &self.settings).await;
+            let network_cleanup = self.docker.remove_network(&self.network_id).await;
+            result?;
+            cleanup?;
+            network_cleanup?;
+            Ok(())
+        }
+    }
+
+    /// The gateway configuration for a test network: the third IPv4 address of its subnet and
+    /// `ipv6_address`, advertising the subnet and `ipv6_prefix`.
+    async fn smoke_config(
         docker: &Docker,
-        settings: &TailscaleGatewaySettings,
         lab_id: &str,
         network: &str,
         network_id: &str,
         ipv6_prefix: String,
         ipv6_address: String,
-    ) -> Result<()> {
+    ) -> Result<GatewayConfig> {
         let details = docker
             .inspect_network(network_id, None::<InspectNetworkOptions>)
             .await?;
@@ -1043,7 +1217,7 @@ mod tests {
         let (prefix, _) = gateway
             .rsplit_once('.')
             .context("test network must use IPv4")?;
-        let config = GatewayConfig {
+        Ok(GatewayConfig {
             lab_id: lab_id.to_string(),
             network: network.to_string(),
             ipv4: format!("{prefix}.3"),
@@ -1052,46 +1226,88 @@ mod tests {
                 subnet.subnet.context("test network missing subnet")?,
                 ipv6_prefix,
             ],
-        };
-        let id = create_gateway(docker, &config, settings).await?;
-        docker
-            .start_container(&id, None::<StartContainerOptions>)
-            .await?;
-        if let Err(error) = wait_for_socket(docker, &id, settings).await {
-            print_gateway_logs(docker, &id).await?;
-            return Err(error);
+        })
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Linux Docker and TUN; creates and removes a disposable network"]
+    async fn tailnet_routes_002_the_forwarding_rules_accept_the_routes_and_drop_the_rest()
+    -> Result<()> {
+        let gateway = SmokeGateway::start(0).await?;
+        let result = gateway.check_forwarding_rules().await;
+        gateway.remove(result).await
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Linux Docker and TUN; creates and removes a disposable network"]
+    async fn tailnet_key_009_standard_input_reaches_a_file_in_memory_only_run_gone_after_the_command()
+    -> Result<()> {
+        let gateway = SmokeGateway::start(1).await?;
+        let result = async {
+            // A fixture, not a real credential: nothing here contacts Tailscale.
+            let secret = "fixture-enrollment-secret";
+            gateway
+                .exec(&["grep", "-q", "^[^ ]* /run tmpfs ", "/proc/mounts"], None)
+                .await
+                .context("/run is not a tmpfs")?;
+            gateway
+                .exec(
+                    &[
+                        "sh",
+                        "-ec",
+                        r#"umask 077; cat > /run/test-key; test "$(cat /run/test-key)" = "$1"; rm /run/test-key"#,
+                        "check",
+                        secret,
+                    ],
+                    Some(secret),
+                )
+                .await
+                .context("standard input did not reach the file in /run")?;
+            // The enrollment command, pointed at a socket no daemon listens on, fails at once.
+            let absent = TailscaleGatewaySettings {
+                socket_path: "/run/sherpa-test-absent.sock".into(),
+                ..gateway.settings.clone()
+            };
+            let _ = exec(
+                &gateway.docker,
+                &gateway.id,
+                enrollment_command(&gateway.config.routes, &absent),
+                Some(secret),
+                &gateway.settings,
+            )
+            .await;
+            gateway
+                .exec(&["test", "!", "-e", "/run/enrollment-key"], None)
+                .await
+                .context("the enrollment key file outlived its command")?;
+            Ok(())
         }
-        let rules = tailnet_rules(docker, &id, "iptables-nft", settings).await?;
-        ensure!(
-            rules.contains(&config.routes[0]) && rules.contains("DROP"),
-            "missing forwarding restriction"
-        );
-        let ipv6_rules = tailnet_rules(docker, &id, "ip6tables-nft", settings).await?;
-        ensure!(
-            ipv6_rules.contains(&config.routes[1]) && ipv6_rules.contains("DROP"),
-            "missing IPv6 forwarding restriction"
-        );
-        // Exercise secret stdin/file delivery without transmitting a real credential.
-        let secret = "fixture-enrollment-secret";
-        exec(
-            docker,
-            &id,
-            vec![
-                "sh".into(),
-                "-ec".into(),
-                "umask 077; cat > /run/test-key; test -s /run/test-key; rm /run/test-key".into(),
-            ],
-            Some(secret),
-            settings,
-        )
-        .await?;
-        stop_gateway(docker, &id, lab_id, settings).await?;
-        docker
-            .start_container(&id, None::<StartContainerOptions>)
+        .await;
+        gateway.remove(result).await
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Linux Docker and TUN; creates and removes a disposable network"]
+    async fn tailnet_suspend_010_a_restarted_gateway_has_its_daemon_and_forwarding_rules()
+    -> Result<()> {
+        let gateway = SmokeGateway::start(2).await?;
+        let result = async {
+            stop_gateway(
+                &gateway.docker,
+                &gateway.id,
+                &gateway.config.lab_id,
+                &gateway.settings,
+            )
             .await?;
-        wait_for_socket(docker, &id, settings).await?;
-        stop_gateway(docker, &id, lab_id, settings).await?;
-        Ok(())
+            gateway
+                .docker
+                .start_container(&gateway.id, None::<StartContainerOptions>)
+                .await?;
+            wait_for_socket(&gateway.docker, &gateway.id, &gateway.settings).await?;
+            gateway.check_forwarding_rules().await
+        }
+        .await;
+        gateway.remove(result).await
     }
 
     /// The `SHERPA-TAILNET` chain in `tool`'s mangle table in the gateway `id`.

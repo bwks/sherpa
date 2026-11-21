@@ -68,49 +68,82 @@ mod tests {
         "name='test'\nnodes=[]\n[tailscale]\nenabled=true\nauth_key_env='SHERPA_TEST_NEVER_SET'";
 
     #[test]
-    fn tailnet_key_resolution_requires_secure_transport_and_never_changes_manifest() {
-        let manifest: Manifest =
-            toml::from_str("name='test'\nnodes=[]\n[tailscale]\nenabled=true\nauth_key_env='KEY'")
-                .unwrap();
-        let mut config = ClientConfig::default();
+    fn tailnet_key_001_the_key_is_the_named_variable_and_the_manifest_does_not_hold_it() {
+        let manifest: Manifest = toml::from_str(TAILNET_MANIFEST).unwrap();
         let key = "tskey-auth-testfixture";
-        let resolved =
-            resolve_tailscale_key_using(&manifest, "wss://example.invalid", &config, |_| {
-                Some(key.into())
-            })
-            .unwrap()
-            .unwrap();
+        let resolved = resolve_tailscale_key_using(
+            &manifest,
+            "wss://example.invalid",
+            &ClientConfig::default(),
+            |name| (name == "SHERPA_TEST_NEVER_SET").then(|| key.into()),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(resolved.expose(), key);
         assert!(!serde_json::to_string(&manifest).unwrap().contains(key));
+    }
+
+    #[test]
+    fn tailnet_key_002_an_unset_variable_is_refused_naming_it() {
+        let manifest: Manifest = toml::from_str(TAILNET_MANIFEST).unwrap();
+        let error = resolve_tailscale_key_using(
+            &manifest,
+            "wss://example.invalid",
+            &ClientConfig::default(),
+            |_| None,
+        )
+        .unwrap_err();
         assert!(
-            resolve_tailscale_key_using(&manifest, "wss://example.invalid", &config, |_| None)
-                .is_err()
-        );
-        assert!(
-            resolve_tailscale_key_using(&manifest, "ws://example.invalid", &config, |_| Some(
-                key.into()
-            ))
-            .is_err()
-        );
-        config.server_connection.insecure = true;
-        assert!(
-            resolve_tailscale_key_using(&manifest, "wss://example.invalid", &config, |_| Some(
-                key.into()
-            ))
-            .is_err()
-        );
-        let disabled = Manifest::default();
-        assert!(
-            resolve_tailscale_key_using(&disabled, "ws://example.invalid", &config, |_| panic!(
-                "disabled tailnet must not resolve secrets"
-            ))
-            .unwrap()
-            .is_none()
+            error.to_string().contains("SHERPA_TEST_NEVER_SET"),
+            "{error}"
         );
     }
 
     #[test]
-    fn whole_lab_resume_of_a_tailnet_lab_needs_the_key() {
+    fn tailnet_key_003_a_plain_or_insecure_connection_is_refused_before_the_key_is_read() {
+        let manifest: Manifest = toml::from_str(TAILNET_MANIFEST).unwrap();
+        let mut insecure = ClientConfig::default();
+        insecure.server_connection.insecure = true;
+        for (url, config) in [
+            ("ws://example.invalid", ClientConfig::default()),
+            ("wss://example.invalid", insecure),
+        ] {
+            assert!(
+                resolve_tailscale_key_using(&manifest, url, &config, |_| panic!(
+                    "the key must not be read for {url}"
+                ))
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn tailnet_key_004_without_tailscale_enabled_no_variable_is_read() {
+        let disabled: Manifest = toml::from_str(
+            "name='test'\nnodes=[]\n[tailscale]\nenabled=false\nauth_key_env='SHERPA_TEST_NEVER_SET'",
+        )
+        .unwrap();
+        let mut insecure = ClientConfig::default();
+        insecure.server_connection.insecure = true;
+        for manifest in [Manifest::default(), disabled] {
+            for (url, config) in [
+                ("ws://example.invalid", ClientConfig::default()),
+                ("wss://example.invalid", ClientConfig::default()),
+                ("wss://example.invalid", insecure.clone()),
+            ] {
+                assert!(
+                    resolve_tailscale_key_using(&manifest, url, &config, |_| panic!(
+                        "a disabled tailnet must not read a key"
+                    ))
+                    .unwrap()
+                    .is_none()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tailnet_suspend_008_a_whole_lab_resume_reads_the_key_as_up_does() {
         let manifest: Manifest = toml::from_str(TAILNET_MANIFEST).unwrap();
         let config = ClientConfig::default();
         let error =
@@ -124,23 +157,20 @@ mod tests {
     }
 
     #[test]
-    fn single_node_resume_and_missing_manifest_send_no_key() {
+    fn tailnet_suspend_009_a_single_node_resume_or_no_manifest_sends_no_key() {
         let manifest: Manifest = toml::from_str(TAILNET_MANIFEST).unwrap();
         let config = ClientConfig::default();
-        assert!(
-            resolve_resume_tailscale_key(
-                Some("dev01"),
-                Some(&manifest),
-                "ws://example.invalid",
-                &config
-            )
-            .unwrap()
-            .is_none()
-        );
-        assert!(
-            resolve_resume_tailscale_key(None, None, "ws://example.invalid", &config)
-                .unwrap()
-                .is_none()
-        );
+        for url in ["ws://example.invalid", "wss://example.invalid"] {
+            assert!(
+                resolve_resume_tailscale_key(Some("dev01"), Some(&manifest), url, &config)
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(
+                resolve_resume_tailscale_key(None, None, url, &config)
+                    .unwrap()
+                    .is_none()
+            );
+        }
     }
 }

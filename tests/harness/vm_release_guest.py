@@ -82,9 +82,12 @@ SCCACHE_BINARY = "tools/sccache"
 # in every run: crates that generate code embed their output path, and a path that changes
 # with the run changes their cache keys and those of every crate depending on them.
 CARGO_TARGET_DIR = "/var/tmp/sherpa-release-test-target"
-# The live tailnet test joins a real tailnet, so it runs only when the host passed a key. Its
+# The live tailnet tests join a real tailnet, so they run only when the host passed a key. Their
 # gateway gets a disposable Docker network, created and removed around the integration tests.
-TAILNET_TEST = "tailscale::tests::live_tailnet_enrollment_stop_reenroll_cleanup"
+TAILNET_TESTS = [
+    "tailscale::tests::tailnet_join_003_a_gateway_enrolled_with_a_valid_key_reports_connected",
+    "tailscale::tests::tailnet_suspend_003_a_stopped_gateway_reports_stopped_and_enrolled_again_connected",
+]
 TAILNET_SUBNET = "172.31.250.0/24"
 TAILNET_GATEWAY_IPV4 = "172.31.250.10"
 THP_BOOT_RULE = Path("/etc/tmpfiles.d/sherpa-thp.conf")
@@ -1008,12 +1011,12 @@ class Guest:
         environment.update(assignment.split("=", 1) for assignment in tests["environment"])
         network = f"sherpa-test-tailnet-{self.config['identity']['nonce'][:8]}"
         tailnet = tailnet_test_environment(self.credentials, network)
-        skipped = tests["skip_tests"] if tailnet else [*tests["skip_tests"], TAILNET_TEST]
+        skipped = tests["skip_tests"] if tailnet else [*tests["skip_tests"], *TAILNET_TESTS]
         skips = [argument for name in skipped for argument in ("--skip", name)]
         self.record_results("configuration", {"skip_tests": skipped, "environment": tests["environment"],
                                               "tailnet": "live" if tailnet else "skipped: no tailnet key"})
         if not tailnet:
-            print("Live tailnet test skipped: the run has no tailnet key", flush=True)
+            print("Live tailnet tests skipped: the run has no tailnet key", flush=True)
         executables = tomllib.loads((self.workspace / TEST_EXECUTABLES_FILE).read_text())
         before = self.inventory()
         if tailnet:
