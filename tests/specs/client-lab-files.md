@@ -65,7 +65,7 @@ Cases 006 and 007 read the file's access list when they run on Windows, so they 
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | The host of each node logs in as the lab's owner and names no identity file (no test with its ID yet; `tests/labs/owner-login` checks the user of each host when it reads the config) | e2e |
+| 001 | The host of each node logs in as the lab's owner and names no identity file | e2e |
 | 002 | From another folder, `ssh -F <lab folder>/.sherpa/ssh/config` logs in to a node by `<node>.<lab-id>`, by `<node>.<lab-id>.sherpa.lab.local` and by its address (no test yet) | e2e |
 | 003 | Each node has one host, named by its address and its two names, at its address, logging in with its recorded login, or as the lab's owner when it has none, and no host names an identity file | unit |
 | 004 | A node whose model takes no SSH login, Talos Linux, has no host, a node with no management address has none, and a node whose image is no longer recorded keeps its host | unit |
@@ -104,7 +104,7 @@ The config has no jump host: `ssh_access_001`. Which nodes are given the owner's
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | After a lab is destroyed from somewhere other than its folder, `sherpa ssh-config clean` removes its line and `sherpa ssh-config inspect` no longer lists its folder (no test with its ID yet; `tests/labs/owner-login` does it when it ends, after the admin's destroy) | e2e |
+| 001 | After a lab is destroyed from somewhere other than its folder, `sherpa ssh-config clean` removes its line and `sherpa ssh-config inspect` no longer lists its folder | e2e |
 | 002 | A line whose lab the server lists for the user is valid, and shown with the lab's ID | unit |
 | 003 | A line whose lab the server does not list for the user is stale | unit |
 | 004 | A line whose SSH config no longer exists is stale | unit |

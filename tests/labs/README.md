@@ -14,7 +14,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 | [nixos-linux](nixos-linux/README.md) | `nixos_linux` VMs built from [bwks/nixos-image](https://github.com/bwks/nixos-image): lab owner login, sudo, text files, cloud-init, a P2p link | about 5 min |
 | [console](console/README.md) | `sherpa console` in a pseudo-terminal and `sherpa vnc` with a scripted viewer, through sherpad, with no system `telnet` or `ssh`: login prompt, `Ctrl+]` and `~.`, the RFB banner and Ctrl+C, a console in use naming its holder, `--force`, another user and an admin refused, a container refused. A pytest module | about 1–5 min |
 | [ssh-access](ssh-access/README.md) | How `sherpa ssh` and SSH provisioners reach a node: directly, or through the Sherpa server with `--ssh-jump`, told apart by which process holds the connection the node sees. Needs a route to the lab's management network | about 2 min |
-| [owner-login](owner-login/README.md) | A throwaway owner's login on a Linux VM and a network OS container, by key and by device password, with admin rights; no keys refused at up and redeploy; a rotated key not pushed on resume; down and resume, redeploy; what an admin who does not own the lab may and may not do. Needs an admin account and a route to the lab's management network | about 5 min |
+| [owner-login](owner-login/README.md) | A throwaway owner's login on a Linux VM and a network OS container, by key and by device password, with admin rights; no keys refused at up and redeploy; a rotated key not pushed on resume; down and resume, redeploy; what an admin who does not own the lab may and may not do. Needs a CLI logged in as an admin and a route to the lab's management network | about 5 min |
 | [talos-linux](talos-linux/README.md) | Sherpa-built Talos Kubernetes clusters | about 25–35 min |
 
 ## Rules
@@ -34,8 +34,9 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 - Every runner's preflight stops unless the CLI is logged in and the user has a device password
   (`sherpa server user info` shows `Device password: set`): `sherpa up` is refused without one.
   Set it once with `sherpa server user device-password`.
-  The owner-login lab instead creates its own throwaway owner, with a device password, as an admin
-  whose name and password it takes from an option and an environment variable, never printing them.
+  The owner-login lab instead has the runner's admin login create a throwaway admin, which creates
+  a throwaway owner with a device password; their passwords are generated for the run, typed at
+  the CLI's prompts and never printed, and both accounts are deleted at the end.
   The console lab likewise has an admin create the other user it needs, and deletes it at the end.
 - Each runner has a `--self-test` mode for its pure logic, which runs in seconds.
 - What the runners share lives in [`labkit.py`](labkit.py): the failure and outcome types,
