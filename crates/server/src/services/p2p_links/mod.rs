@@ -2,8 +2,7 @@
 //! function that re-attaches a node's links after any event that makes its ends again, the
 //! scanner's check and repair of ends made again outside Sherpa, the carrier of each end
 //! following its link's state, the links of the nodes an operation started, and the host
-//! operations they use. See
-//! `docs/architecture/STATE_MACHINES.md`, section 25.
+//! operations they use. See `docs/architecture/P2P-ARCHITECTURE.md`.
 
 mod carrier;
 #[cfg(test)]

@@ -127,6 +127,10 @@ pub(crate) fn supports_guest_account(model: NodeModel, ztp: Ztp) -> bool {
 /// ZTP config, which replaces the generated config the account is written into. FRR and the
 /// `sonic_linux` container are the exceptions: their custom config is `frr.conf` or `config_db.json`,
 /// and the account is in their start script, which is always generated.
+///
+/// The answer depends on when it is asked: `node.ztp.config` is `None` after the node's build has
+/// taken the custom config (`node_ops::take_custom_ztp_config`), so this must be called before
+/// that, as `node_owner` is.
 #[instrument(level = "debug", skip(node, image))]
 pub(crate) fn provisions_owner(node: &topology::NodeExpanded, image: &NodeConfig) -> bool {
     let account_outside_config = image.model == NodeModel::FrrLinux

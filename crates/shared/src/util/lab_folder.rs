@@ -1,7 +1,19 @@
 //! Where the Sherpa CLI keeps the files it generates for a lab: a `.sherpa` folder beside the
 //! lab's `manifest.toml`, holding `lab-info.toml` and one folder per kind of file.
 //!
-//! The paths and their modes are listed in `docs/architecture/LAB_FOLDER.md`.
+//! Nothing the CLI generates is left loose in the lab folder. `sherpa destroy` removes all of it
+//! by deleting one folder, and the user's own files beside the manifest are never taken for
+//! Sherpa's. Each kind of file has its own folder, closed to everyone but the owner, so secrets
+//! and the files that hold none are kept apart.
+//!
+//! `LabFolder` is the only place these paths are built. The client uses it to save and read a
+//! lab's files, and `shared` to find a lab's folder from an `Include` line in
+//! `~/.ssh/sherpa_lab_hosts`, so the layout changes in one place. The saved SSH config names
+//! `ssh/known_hosts` by its full path, so it works from any folder: through that `Include`, with
+//! `ssh -F`, for `sherpa ssh` and for the provisioners.
+//!
+//! What each file holds and who may read it is `saved_lab_files` and `lab_file_privacy` in
+//! `tests/specs/client-lab-files.md`.
 
 use std::path::{Path, PathBuf};
 

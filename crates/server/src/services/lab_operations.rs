@@ -71,7 +71,10 @@ struct LeaseEntry {
 pub struct LabOperation {
     cancel: Cancellation,
     // Fields drop in declaration order: the guard must be declared before the entry, so the lock
-    // is released before the entry can be removed and a later caller gets the same lock.
+    // is released before the entry can be removed and a later caller gets the same lock. Swapped,
+    // a new caller could make a fresh lock while the old guard is still held. No test can catch
+    // that: while a waiter exists its own count keeps the entry, and with no waiter the window
+    // lies inside one drop.
     _lease: OwnedRwLockReadGuard<()>,
     entry: LeaseEntry,
 }
@@ -218,9 +221,10 @@ fn pending_destroys() -> &'static DashMap<String, usize> {
 
 /// Start an operation on a lab. Waits while the lab is being destroyed.
 ///
-/// The lease it takes is a shared read lease, so operations on one lab can run at once: what
-/// keeps two `up`s of a lab apart is the lab's phase, not this lease, and `redeploy` serializes
-/// with the lab's other redeploys through its own lock.
+/// The lease it takes is a shared read lease, so operations on one lab can run at once, two
+/// `up`s or an `up` and a `resume` among them. What keeps them apart is the lab's phase, not this
+/// lease: the second `up` cannot reserve the lab, and `resume` refuses a lab that is not `Ready`.
+/// `REDEPLOY_LOCKS` serializes a lab's redeploys with each other only.
 #[instrument(level = "debug")]
 pub async fn begin(lab_id: &str) -> LabOperation {
     // The entry is taken before waiting, so a waiter cancelled mid-wait drops its count too.

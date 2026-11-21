@@ -82,6 +82,13 @@ pub struct NodeZtp {
     /// setting.
     pub method: Option<Ztp>,
     /// A file with the node's own startup configuration.
+    ///
+    /// The field holds a different thing at each stage, and nothing in the value says which: the
+    /// file's path in the manifest, its base64 contents once the client has read it
+    /// (`resolve_ztp_configs`), the text on the server once decoded, a generated machine config
+    /// for a Talos cluster member, and `None` once the node's build has taken it
+    /// (`take_custom_ztp_config`). A reader that takes `None` to mean "no custom config", such as
+    /// `guest_account::provisions_owner`, must read it before it is taken.
     pub config: Option<String>,
 }
 

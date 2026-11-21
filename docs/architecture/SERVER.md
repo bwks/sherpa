@@ -109,7 +109,7 @@ otherwise the folder goes before the record, so a stuck folder still has a recor
 Long operations run as their own tasks and outlive their client (`run_detached` for plain HTTP, as
 axum drops a handler's future on disconnect). `services::lab_operations` gives each lab a lease and
 a cancellation token: operations share the read lease, so the lab's phase, not the lease, keeps them
-apart; destroy, clean, a requested stop and the scanner take the write lease. The token is checked
+apart, and `REDEPLOY_LOCKS` serialises only a lab's redeploys with each other; destroy, clean, a requested stop and the scanner take the write lease. The token is checked
 only at safe points, as disk and VM steps run in `spawn_blocking` tasks that a dropped future would
 leave running. VM image leases end once every disk and domain exists, so a long readiness wait
 does not block image changes.

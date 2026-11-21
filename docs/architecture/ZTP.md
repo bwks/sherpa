@@ -4,8 +4,8 @@ How a node gets its first configuration: the one setting, where it is checked, w
 boot server, containers with ZTP off, and blank disks. The behaviour is in
 [`tests/specs/ztp.md`](../../tests/specs/ztp.md). How a config reaches a VM guest is in
 [`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md), the ISO it is written to in
-[`ZTP_ISO.md`](ZTP_ISO.md), and the modes of the rendered files in
-[`LAB_FOLDER.md`](LAB_FOLDER.md#node-config-modes).
+[`ZTP_ISO.md`](ZTP_ISO.md), and the modes of the rendered files, and why, on the mode constants
+in `server::konst` and in `config_privacy` in the spec.
 
 ## The setting
 

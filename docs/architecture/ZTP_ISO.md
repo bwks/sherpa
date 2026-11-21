@@ -22,8 +22,8 @@ is its only dependent, so the `sherpa` CLI does not compile it.
 4. The guest finds the medium by label: `cidata` for NoCloud and every config ISO, `bootstrap`
    for a generated PAN-OS bootstrap. Network operating systems then look for their own file name.
 
-The boot files are private to `sherpad` (`0600` in `0700` folders; see
-[`LAB_FOLDER.md`](LAB_FOLDER.md#node-config-modes)), and the pool copy is `0600`, handed to QEMU
+The boot files are private to `sherpad` (`0600` in `0700` folders; see `config_privacy` in
+[`tests/specs/ztp.md`](../../tests/specs/ztp.md)), and the pool copy is `0600`, handed to QEMU
 by libvirt while the VM runs. The ISO's own Rock Ridge modes are fixed read-only, owned by root,
 whatever the source files' modes.
 
