@@ -1283,7 +1283,7 @@ echo '{"type":"result","is_error":false,"result":"done","session_id":"sess-1"}'
 "#;
 
     /// A stand-in for `gh`: the checkout is `o/r`, default branch `main`, and every branch has
-    /// the open pull request 630.
+    /// the same open pull request.
     #[cfg(feature = "record")]
     const PULL_REQUEST_GH: &str = r#"#!/bin/bash
 case "$1 $2" in
@@ -1333,7 +1333,7 @@ role = "guest"
         dir
     }
 
-    /// Send `dev` a task tagged with issue 580 of `o/r` as the host, wait for its outcome, then
+    /// Send `dev` a task tagged with an issue of `o/r` as the host, wait for its outcome, then
     /// send, as `dev`, the outcome an older guest would have sent for another task: no `ended`,
     /// a Generation line. Returns the tagged task's ID and its outcome.
     #[cfg(feature = "record")]
@@ -1389,8 +1389,8 @@ role = "guest"
         Ok((task, outcome))
     }
 
-    /// The record after `tagged_task_and_an_old_outcome`: `task` alone in the item of issue 580,
-    /// named also by the guest's branch and pull request, and the old outcome's branch naming
+    /// The record after `tagged_task_and_an_old_outcome`: `task` alone in the item of the tagged
+    /// issue, named also by the guest's branch and pull request, and the old outcome's branch naming
     /// another item.
     #[cfg(feature = "record")]
     async fn check_work_items(record: &HostRecord, task: &str) -> Result<()> {

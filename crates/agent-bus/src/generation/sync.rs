@@ -505,8 +505,8 @@ case "$1 $2" in
 esac
 "#;
 
-    /// A record in a scratch state directory with one task on pull request 7 of `REPO`, and a
-    /// stand-in `gh`.
+    /// A record in a scratch state directory with one task, t1, on the bench's pull request of
+    /// `REPO`, and a stand-in `gh`.
     struct Bench {
         dir: PathBuf,
         paths: Paths,
@@ -610,7 +610,7 @@ esac
         }
 
         /// A response of the host at `at_ms` at `speed`, after a prompt of the user a minute
-        /// before, charged to the item of pull request 7.
+        /// before, charged to the item of the bench's pull request.
         async fn host(&self, id: &str, at_ms: u64, speed: &str) {
             let record = Record::open_recorded(&self.paths, LOCK_WAIT).await.unwrap();
             let conn = record.conn();
@@ -1083,8 +1083,8 @@ duration_api_ms = 0
     #[tokio::test]
     async fn a_pull_request_merged_before_the_first_sync_is_frozen_without_a_write() {
         let mut bench = Bench::new("merged-before").await;
-        // The item's branch also had pull request 8, of an earlier task, merged a day before
-        // the first sync.
+        // The item's branch also had an earlier task's pull request, merged a day before the
+        // first sync.
         bench.outcome("t0", 1, 0.5, NOW, &[8]).await;
         bench.outcome("t1", 1, 0.5, NOW, &[7]).await;
         let merged = json!({
@@ -1161,8 +1161,8 @@ duration_api_ms = 0
     #[tokio::test]
     async fn a_row_of_a_task_the_record_has_in_another_item_leaves_the_section() {
         let mut bench = Bench::new("moved").await;
-        // t2 was tagged with issue 999, so it stays in that item though it ended on the branch
-        // of pull request 7, whose item is t1's.
+        // t2 was tagged with another issue, so it stays in that item though it ended on the
+        // branch of the bench's pull request, whose item is t1's.
         let mut tagged = task("t2");
         tagged.work = Some(Work {
             refs: vec![WorkRef {
@@ -1174,7 +1174,8 @@ duration_api_ms = 0
         });
         bench.message(&tagged, NOW).await;
         bench.outcome("t2", 1, 0.25, NOW, &[7]).await;
-        // An older guest, counting by branch, wrote both into the section of pull request 7.
+        // An older guest, counting by branch, wrote both into the section of the bench's pull
+        // request.
         let guest = format!(
             r#"Body
 
@@ -1303,7 +1304,7 @@ duration_api_ms = 0
     /// A task of the worked example: its ID, cost, branch and pull requests.
     type Example<'a> = (&'a str, f64, Option<&'a str>, &'a [(&'a str, u64)]);
 
-    /// A task of the host tagged with issue 648.
+    /// A task of the host tagged with the worked example's issue.
     fn tagged(id: &str) -> Message {
         Message {
             work: Some(Work {
@@ -1380,8 +1381,9 @@ duration_api_ms = 0
 
     #[tokio::test]
     async fn each_pull_request_of_an_item_counts_its_own_tasks_and_the_sections_add_up() {
-        // #648 from the host's record: two design tasks that ended on main, then PR 0 (#665),
-        // PR 1 (#666 and docs #142) and PR 2 (#667 and docs #143), with their real costs.
+        // One item from the host's record: two design tasks that ended on main, then a task for
+        // each of the plan's three pull requests, the second and third each with a docs pull
+        // request, with their real costs.
         let mut bench = Bench::new("per-pr").await;
         let tasks: [Example<'_>; 5] = [
             ("ddf64ef9", 2.752_657_6, None, &[]),
@@ -1463,7 +1465,8 @@ duration_api_ms = 0
     #[tokio::test]
     async fn host_work_goes_to_the_pull_request_of_the_last_task_event_before_it() {
         let mut bench = Bench::new("host-split").await;
-        // t1 (#7) reported at NOW; t2 of the same branch, on #9, at NOW + 10 minutes.
+        // t1, on the bench's pull request, reported at NOW; t2 of the same branch, on a second
+        // pull request, at NOW + 10 minutes.
         bench.message(&task("t2"), NOW + 9 * MINUTE).await;
         bench.outcome("t2", 1, 0.25, NOW + 10 * MINUTE, &[9]).await;
         bench.view(9, "Body", "OPEN");
@@ -1584,8 +1587,9 @@ duration_api_ms = 0
 
     #[tokio::test]
     async fn a_pull_request_no_task_named_names_the_pull_requests_that_count_its_item() {
-        // t1 counted on #7 and t2 of the same branch on #9; a docs and a third repository's
-        // pull request that name the item, which no task named (an older `link`).
+        // t1 counted on the bench's pull request and t2 of the same branch on a second; a docs
+        // and a third repository's pull request that name the item, which no task named (an
+        // older `link`).
         let mut bench = Bench::new("linked").await;
         bench.message(&task("t2"), NOW + 9 * MINUTE).await;
         bench.outcome("t2", 1, 0.25, NOW + 10 * MINUTE, &[9]).await;
@@ -1611,8 +1615,8 @@ duration_api_ms = 0
 
     #[tokio::test]
     async fn an_item_with_only_pull_requests_no_task_named_says_none_counts_its_work_yet() {
-        // A task of issue 648 that ended on the default branch, with no pull request to count
-        // it on, and a pull request that names its item, which no task named.
+        // A task of the worked example's issue that ended on the default branch, with no pull
+        // request to count it on, and a pull request that names its item, which no task named.
         let mut bench = Bench::new("linked-only").await;
         bench.message(&tagged("d1"), NOW).await;
         bench
@@ -1634,8 +1638,9 @@ duration_api_ms = 0
 
     #[tokio::test]
     async fn a_pull_request_linked_by_hand_counts_the_task() {
-        // d1 ended on the default branch, with no pull request; `link d1 --pr 2` makes #2 its
-        // own, and t1, counted on #7, points from the docs pull request it is linked to.
+        // d1 ended on the default branch, with no pull request; `link d1 --pr 2` makes that pull
+        // request its own, and t1, counted on the bench's pull request, points from the docs pull
+        // request it is linked to.
         let mut bench = Bench::new("linked-counts").await;
         bench.message(&tagged("d1"), NOW).await;
         bench
