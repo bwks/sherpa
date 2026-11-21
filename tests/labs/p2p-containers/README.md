@@ -77,26 +77,47 @@ adds.
   node's network namespace; routers are configured with `docker exec` into their CLI.
 - The node images above, pulled with `sherpa server image pull` (for models without a built-in
   repo, with `--repo`), and `alpine:3.22` in Docker. The run fails early if any is missing.
+  `arista_eos` (`--kind container`) is not in a public registry, and sw01 is every host's
+  switch, so the lab does not run on a server without it.
 - The `sherpa` CLI logged in, with a device password set (`sherpa server user device-password`). The run stops early when it is not set.
 
 ## Running
 
+The runner is a pytest module; `uv run` installs the pytest version pinned in its script header
+and runs pytest on it, passing on any other arguments:
+
 ```sh
 uv run tests/labs/p2p-containers/p2p_containers_lab_test.py
 uv run tests/labs/p2p-containers/p2p_containers_lab_test.py --keep-failed
+uv run tests/labs/p2p-containers/p2p_containers_lab_test.py -k p2p_link_007
 uv run tests/labs/p2p-containers/p2p_containers_lab_test.py --self-test  # runner unit tests, seconds
 ```
+
+pytest runs it directly too, for example `uvx --python 3.15 pytest==9.2.0
+tests/labs/p2p-containers/p2p_containers_lab_test.py`. `--keep-failed` is defined in
+`conftest.py` next to the runner. What the lab runners share, such as running and logging a
+command, is in [`../labkit.py`](../labkit.py).
+
+The module-scoped `prepared` fixture checks the requirements and writes the run's manifest under a
+unique lab name; the `lab` fixture brings the lab up once and destroys it at the end, even when a
+case fails, unless `--keep-failed` is given and something failed; the `addressed` fixture
+configures the three routers and addresses every host, once for the module, for the cases that
+send traffic. The cases are the functions named `test_<case_id>_*`, in the order below; every case
+runs even when one fails. The last one destroys the lab itself; when it does not run, the `lab`
+fixture's teardown destroys it and checks only that `sherpa inspect` no longer finds it. The
+runner's own unit tests, under `--self-test`, are not collected by pytest.
 
 Each run logs every command and its output under
 `.tmp/lab-tests/p2p-containers-<id>/lab/commands.log`. A run takes about 2–5 minutes.
 
 ## What it checks
 
-- every host's eth1 is named, up, promiscuous, has carrier and MTU 9600, and an unused sw01
-  interface has no carrier;
-- every host pings the gateway, every other host, and srl01 and frr01 routed through sw01, and
-  each router pings its peer across each core link;
-- the same after redeploying surreal01 (no shell), mongo01 (no `ip`) and frr01 (a router; it
-  pings its link peers first, so they learn its new MAC addresses);
-- `sherpa destroy` cleans up everything: no container, Docker network or host interface of the
-  lab is left.
+It holds the P2p container cases of [`tests/specs/links-and-bridges.md`](../../specs/links-and-bridges.md):
+
+| Case | Check |
+|---|---|
+| `p2p_link_006` | After up, every host's eth1 is in its container under that name, up, promiscuous, with carrier and MTU 9600, mongo01 (no `ip`) and surreal01 (no shell) included |
+| `p2p_link_007` | Once the routers are configured and the hosts addressed, every host pings the gateway, every other host, and srl01 and frr01 routed through sw01, and each router pings its peer across each core link |
+| `link_reattach_005` | surreal01 (no shell), mongo01 (no `ip`) and frr01 (a router) are redeployed in turn. After each, a redeployed host's eth1 is checked as in `p2p_link_006` and addressed again, or the redeployed router configured again and made to ping its link peers first, so they learn its new MAC addresses; then every ping of `p2p_link_007` passes again |
+| `node_interfaces_004` | sw01's eth16, which has no link, is in its container with no carrier. Its admin state is the NOS's: cEOS brings every interface up |
+| `link_cleanup_008` | `sherpa destroy` succeeds, `sherpa inspect` no longer finds the lab, and no container, Docker network or host interface whose name holds the lab's ID is left. It is skipped when `--keep-failed` is given and an earlier case failed |
