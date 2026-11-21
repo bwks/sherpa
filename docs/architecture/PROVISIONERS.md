@@ -71,7 +71,7 @@ server ignores the field.
 | `transport.rs` | `SshTarget` (a node's route in `.sherpa/ssh/config`) and `NodeSession` (one Jato connection): run a command, run one with stdin and its output shown, copy a file over SFTP |
 
 `transport.rs` connects with the Jato library through `crate::ssh_client`, the same code as
-`sherpa ssh` (see [`SSH_CLIENT.md`](SSH_CLIENT.md)); no `ssh` or `scp` program is run.
+`sherpa ssh`; no `ssh` or `scp` program is run.
 
 - **One connection per node.** `wait_for_node` connects with a 15 s connection limit
   (`konst::PROVISIONER_SSH_CONNECT_TIMEOUT`) and retries every 5 s until the ready timeout,
@@ -80,8 +80,7 @@ server ignores the field.
   cloud-init has not created the account yet. A host key problem, the Sherpa server refusing
   the login, or a local file or SSH config that cannot be read fails at once. So does a node
   reached directly that has no route from the client: `ssh_client::connect` checks for one
-  first and fails with a hint to use `--ssh-jump` or the lab's tailnet (see "Unreachable nodes"
-  in [`SSH_CLIENT.md`](SSH_CLIENT.md)). All steps then share the connection.
+  first and fails with a hint to use `--ssh-jump` or the lab's tailnet. All steps then share the connection.
 - **Unknown nodes fail at once.** A `<node>.<lab-id>` alias with no `Host` block in
   `.sherpa/ssh/config`, such as a node added to the manifest after the lab was created, would
   resolve as in `ssh` to a direct connection to the alias as a hostname and fail its DNS

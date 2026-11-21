@@ -171,11 +171,11 @@ mod tests {
         Runtime::Faulted("dead"),
     ];
 
-    // One test per defect in the state-machines inventory that the machine itself rules out.
+    // Lifecycle defects the machine itself rules out, one test each.
 
     #[test]
     fn node_state_011_nothing_libvirt_or_docker_shows_moves_a_node_that_is_building() {
-        // M1.1: `up` has inserted the node and not yet created its domain or container.
+        // `up` has inserted the node and not yet created its domain or container.
         for runtime in RUNTIMES {
             let observation = Observation {
                 runtime,
@@ -197,7 +197,6 @@ mod tests {
     #[test]
     fn node_state_010_a_node_an_operation_starts_is_starting_and_only_its_ready_check_makes_it_running()
      {
-        // M1.3: a started node is `Starting`; only a readiness check makes it `Running`.
         assert_eq!(Stopped.on_operation(OperationEvent::Launched), Ok(Starting));
         let unprobed_start = Observation {
             runtime: Runtime::Running,
@@ -210,7 +209,7 @@ mod tests {
 
     #[test]
     fn node_failure_007_a_crashed_vm_or_a_dead_container_is_failed_not_stopped() {
-        // M1.4 and M4.1: a crashed domain or a dead container cannot be started.
+        // A crashed domain or a dead container cannot be started.
         for word in ["crashed", "dead"] {
             let observation = Observation {
                 runtime: Runtime::Faulted(word),
@@ -223,7 +222,7 @@ mod tests {
 
     #[test]
     fn node_down_005_down_leaves_a_node_an_operation_is_building_alone() {
-        // M1.5: `down` during `up` used to be overtaken by `up` starting the node afterwards.
+        // `down` during `up` must not be overtaken by `up` starting the node afterwards.
         let refusal = Building.on_operation(OperationEvent::Stopped);
         assert_eq!(refusal, refused(Building, OperationEvent::Stopped));
         assert!(

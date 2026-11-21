@@ -513,8 +513,8 @@ pub(crate) mod tests {
 
         {
             let definition = definition().await;
-            // M8.1: only cold-booted VMs used to be re-attached; a unikernel's new tap was left
-            // without a redirect, and its peer's pointed at the old one.
+            // A unikernel gets a new tap as a cold-booted VM does, so both are re-attached: the
+            // new tap needs a redirect, and its peer's must point at it.
             assert!(matches!(
                 end_of("uk1", NodeKind::Unikernel, None, definition.as_ref()),
                 Some(RecreatedEnd::Domain)
@@ -528,7 +528,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn link_reattach_010_a_link_whose_peer_is_down_waits_and_the_others_are_attached() {
-        // M25.1: vm2, the first link's peer, is shut off; vm1 alone is resumed.
+        // vm2, the first link's peer, is shut off; vm1 alone is resumed.
         let (host, lab) = lab();
         host.remove(&["tpb0"]);
         host.make(&["tpa0", "tpa1", "tpa2"]);
@@ -549,7 +549,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn link_reattach_012_a_link_that_fails_stops_neither_the_other_links_nor_the_node() {
         {
-            // M25.1: the first link fails in the kernel; the later ones are still attached.
+            // The first link fails in the kernel; the later ones are still attached.
             let (mut host, lab) = lab();
             host.failing_redirects.insert("tpb0".to_string());
             host.failing_lookups.insert("tpb1".to_string());
@@ -580,7 +580,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn link_reattach_011_a_peer_that_comes_back_attaches_both_directions() {
-        // M9.2: vm1 is rebuilt while vm2 is shut off, then vm2 is resumed.
+        // vm1 is rebuilt while vm2 is shut off, then vm2 is resumed.
         let (host, lab) = lab();
         host.remove(&["tpb0"]);
         host.make(&["tpa0"]);
@@ -617,7 +617,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn link_reattach_007_a_started_container_gets_every_interface_again_before_its_links() {
         {
-            // M25.2: the container exited, so its namespace and its veths are gone.
+            // The container exited, so its namespace and its veths are gone.
             let (host, lab) = lab();
             host.remove(&["tpb1"]);
             let reports = reattach_node_links(
@@ -648,8 +648,8 @@ pub(crate) mod tests {
         }
 
         {
-            // M25.2: a container started from exited has a new network namespace without its
-            // veths; resume used to leave it so.
+            // A container started from exited has a new network namespace without its
+            // veths, which resume puts back.
             let definition = definition().await;
             // Its link's end, and its other data interface, disabled, from the stored definition's
             // count.
@@ -660,7 +660,7 @@ pub(crate) mod tests {
         }
 
         {
-            // M25.2: a restarted container needs all of these again, not only its links.
+            // A restarted container needs all of these again, not only its links.
             let record = RecordId::new("node", "ctr1");
             let node = ContainerNode {
                 lab_id: "lab1",
@@ -785,7 +785,7 @@ pub(crate) mod tests {
             ..LinkImpairment::default()
         };
         lab.links[0].impairment_a_to_b = delay;
-        // A stale qdisc left on vm1's end, from a removal that failed (M25.3), is cleared.
+        // A stale qdisc left on vm1's end, from a removal that failed, is cleared.
         let ifindex_a = host.index("tpa0").unwrap();
         host.netem.borrow_mut().insert(ifindex_a, delay);
         let reports = reattach_node_links(&host, &lab, &id("vm2"), RecreatedEnd::Domain).await;

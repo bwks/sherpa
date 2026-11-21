@@ -11,8 +11,7 @@ its own file, the host's record (see [`AGENT_BUS.md`](AGENT_BUS.md), "The record
 only the workspace pin. Outside the crate, records are the `shared::data`
 types and ids are the database-neutral `shared::data::RecordId`.
 
-Releases before 0.5.0 used a SurrealDB container. The spike that chose Turso, and its measurements,
-are in [`../investigations/turso-migration.md`](../investigations/turso-migration.md).
+Releases before 0.5.0 used a SurrealDB container.
 
 ## The `Database` handle
 
@@ -528,8 +527,7 @@ No secret is stored in the database as plain text: secret values are sealed, so 
 or backup that leaves the server without its key holds only ciphertext. The sealed columns are
 `lab.ztp_server_password` and `user.device_password`. The credentials of the lab's services, the
 Vault tokens, Keycloak admins and realm users and SurrealDB root users, are not in the database
-at all: they are files only the server can read (0600) in the lab's folder on the server (see
-[`LAB_CA.md`](LAB_CA.md#keycloak)). `crates/db/src/secret.rs` has the cipher:
+at all: they are files only the server can read (0600) in the lab's folder on the server. `crates/db/src/secret.rs` has the cipher:
 
 - **Cipher.** AES-256-GCM, from `aes-gcm` 0.11 (no `getrandom` feature: `rand` makes the
   nonces). Sherpa's code adds no `unsafe`.

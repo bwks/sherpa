@@ -19,8 +19,7 @@ You are working on a Rust application that manages virtual machines, containers,
 - Change to user-facing functionality must be kept in sync with the current implementation together in the same piece of work.
   
 ### Investigations
-- Debugging and research notes go in `docs/investigations/`. They record what was tried and found, not settled behaviour. 
-- When an investigation produces a lasting fact, move it to `docs/architecture/` or to `../sherpa-docs` and add a pointer to the doc.
+- Research and debugging notes go in the GitHub issue, not the repository.
 
 ## Git
 - Prefer local branches rather than worktrees.
@@ -45,9 +44,7 @@ You are working on a Rust application that manages virtual machines, containers,
 
 ### Crates Purpose
 agent-bus:
-- Message bus 0between the host agent and agents in lab guests. See:
-  - Architecture: `docs/architecture/AGENT_BUS.md`.
-  - Supporting: `docs/investigations/agent-bus.md` and `docs/investigations/agent-bus-database.md`.
+- Message bus 0between the host agent and agents in lab guests. See `docs/architecture/AGENT_BUS.md`.
 
 client:
 - Client binary CLI tool for interacting with the Sherpa Server. This is installed on user machines.

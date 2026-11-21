@@ -2,7 +2,7 @@
 //! The server relays the node's console socket over a WebSocket on its API, opened with the
 //! login's bearer token and the client's TLS settings, and Jato's pass-through runs it in the
 //! terminal. There is no SSH hop and no telnet. The server decides who may open a console and
-//! says why it refuses one; see `docs/architecture/CONSOLE_CLIENT.md`.
+//! says why it refuses one; see "Node consoles" in `docs/architecture/SERVER.md`.
 
 use std::fmt;
 use std::io;

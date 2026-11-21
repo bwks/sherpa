@@ -1273,7 +1273,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_lab_folder_goes_before_the_lab_record() {
-        // M7.1: the record used to go first, and a folder that then could not be removed was
+        // Were the record to go first, a folder that then could not be removed would be
         // left with no record, which neither destroy nor clean could reach.
         let root = tempdir().unwrap();
         let lab_dir = root.path().join("lab");
@@ -1330,7 +1330,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_lab_folder_that_cannot_be_removed_keeps_the_lab_record() {
-        // M7.1: the owner can destroy the lab again only while its record exists.
+        // The owner can destroy the lab again only while its record exists.
         let root = tempdir().unwrap();
         let lab_dir = root.path().join("lab");
         fs::create_dir(&lab_dir).unwrap();

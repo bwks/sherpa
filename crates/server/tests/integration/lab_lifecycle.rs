@@ -335,7 +335,7 @@ async fn lab_up_004_a_node_that_fails_to_start_fails_the_node_not_the_lab_and_up
             errors.contains("dead1") && errors.contains("exited"),
             "the exited node was not reported: {response}"
         );
-        // M6.1: a lab with a node that will not recover is only partly created.
+        // A lab with a node that will not recover is only partly created.
         ensure!(
             response["result"]["success"] == json!(false),
             "up reported success with a failed node: {response}"
@@ -1051,7 +1051,7 @@ async fn node_state_001_while_up_builds_a_lab_nothing_is_recorded_stopped_or_mis
     let (server, mut ws, token, lab_name, manifest) = scanned_alpine_lab("sa", 2).await?;
 
     let checks: Result<()> = async {
-        // M1.1: while `up` runs, the scanner must not record the lab or its nodes stopped.
+        // While `up` runs, the scanner must not record the lab or its nodes stopped.
         let up_done = Arc::new(AtomicBool::new(false));
         let watcher = {
             let db = server.db.clone();
@@ -1146,7 +1146,7 @@ async fn node_state_003_a_container_removed_outside_sherpa_is_recorded_missing_a
         .await?;
         let wait = Duration::from_secs(20);
         wait_for_node_state(&server, &lab_name, "live1", NodeState::Running, wait).await?;
-        // M4.2: a container that is gone is missing, not stopped, and the lab shows it.
+        // A container that is gone is missing, not stopped, and the lab shows it.
         container::kill_container(&docker, &container).await?;
         container::remove_container(&docker, &container).await?;
         wait_for_node_state(&server, &lab_name, "live1", NodeState::Missing, wait).await?;
@@ -1391,8 +1391,8 @@ async fn sleeping_container_lab(server: &TestServer, lab_name: &str) -> Result<s
     }))
 }
 
-/// M3.1: a second `up` of the same lab used to fail in phase 3 and roll back the first one's
-/// lab. Now it is refused at the reservation and touches nothing.
+/// A second `up` of the same lab is refused at the reservation and touches nothing, rather
+/// than failing later and rolling back the first one's lab.
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
 async fn lab_concurrency_001_a_second_up_of_a_lab_that_is_coming_up_is_refused_and_leaves_the_first_alone()
@@ -1442,7 +1442,7 @@ async fn lab_concurrency_001_a_second_up_of_a_lab_that_is_coming_up_is_refused_a
     with_cleanup(checks, cleanup)
 }
 
-/// M7.2: the second of two destroys used to fail on the record the first had removed.
+/// The second of two destroys must not fail on the record the first removed.
 #[tokio::test]
 #[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
 async fn lab_concurrency_002_two_destroys_of_one_lab_both_succeed() -> Result<()> {
@@ -1485,7 +1485,6 @@ async fn lab_concurrency_002_two_destroys_of_one_lab_both_succeed() -> Result<()
     with_cleanup(checks, cleanup)
 }
 
-/// M7.1: a lab folder with no record could not be removed through the API.
 #[tokio::test]
 #[ignore = "requires root, to write the server's labs folder"]
 async fn lab_clean_002_clean_removes_a_lab_folder_with_no_record() -> Result<()> {
@@ -1803,7 +1802,7 @@ async fn lab_preflight_003_a_lab_id_already_in_use_is_refused() -> Result<()> {
         error_message.contains("already exists") || error_message.contains("already uses"),
         "Expected lab-already-exists error, got: {error_message}"
     );
-    // M3.1: the refused `up` must not roll back the lab that holds the ID.
+    // The refused `up` must not roll back the lab that holds the ID.
     assert!(
         db::find_lab(&server.db, lab_id).await?.is_some(),
         "the refused up removed the existing lab"

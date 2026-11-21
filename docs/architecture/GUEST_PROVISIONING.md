@@ -33,8 +33,7 @@ A node with a generated login has one: the lab owner's, named after their Sherpa
 their registered SSH keys the model accepts and their [device password](SERVER.md#device-passwords). There
 is no shared `sherpa` account and no published password on the nodes Sherpa builds. The
 application nodes that have an administrator of their own, Keycloak and SurrealDB, get one per
-node with a generated password, kept on the server and handed to the owner (see
-[`LAB_CA.md`](LAB_CA.md#keycloak)).
+node with a generated password, kept on the server and handed to the owner.
 `guest_account::from_user` makes the owner's `GuestAccount` from the user record and the opened
 device password. It refuses an owner whose name cannot be a login (a legacy account named `root`,
 `sherpa` or `admin`, say) with `User '<name>' cannot start labs`; before 0.7.0 such an owner fell
@@ -257,8 +256,7 @@ does not stop the others. The last command removes the staging directory. Values
 `runcmd`.
 
 Nodes with a lab certificate also get the lab CA in the system trust store through cloud-init's
-`ca_certs` module (`cloud_init_ca_certs`), so their clients trust lab services; see
-[`LAB_CA.md`](LAB_CA.md).
+`ca_certs` module (`cloud_init_ca_certs`), so their clients trust lab services.
 
 Root-owned `write_files` entries (certificates, scripts, staged files) leave `owner` unset, so
 cloud-init uses the distro default: `root:root`, or `root:wheel` on the BSDs, which have no `root`

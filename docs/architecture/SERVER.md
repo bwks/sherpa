@@ -987,7 +987,7 @@ and the two settings. `libvirt::host_memory` and `libvirt::list_domain_memory` r
 (`crates/libvirt/src/host.rs`). The capabilities XML is read with `quick-xml`'s serde
 deserialiser into private structs that hold only `<host><topology><cells>`: each cell's id,
 `<memory>` and `<pages>` pools, with every other element skipped. The numbers stay text in the
-structs and are parsed afterwards, so a missing or bad value is reported by name. See `docs/investigations/host-memory-oom.md` for why.
+structs and are parsed afterwards, so a missing or bad value is reported by name.
 
 ### CPU pins in admission
 
@@ -1024,7 +1024,7 @@ and leaves the same.
 
 A requested node's overlap with a holder is one of: its vCPU CPU on the holder's vCPUs or
 QEMU threads, or its QEMU thread CPU on the holder's vCPUs; QEMU threads may share. A new
-overlap is refused with `ServiceError::CpuPinsHeld` (see [`API.md`](API.md#typed-refusals)),
+overlap is refused with `ServiceError::CpuPinsHeld`,
 naming the CPUs and roles in its `data`. The message names the holding node and lab
 (`node 'n1' of lab 'name' (lab id)`, with ", which another operation is starting" for a lab
 being created) to admins and to the holding lab's owner, and says "a node of another lab" to
@@ -1416,7 +1416,7 @@ checked until a resume or redeploy re-attaches them, which sets their carrier to
 
 ## HTTP routing architecture
 
-`api/router.rs` builds a single Axum router. It attaches HTTP tracing, embedded static asset handling, and the route table. It has no CORS layer; see `API.md`. The WebSocket route is added in `daemon/server.rs` after `build_router()` returns.
+`api/router.rs` builds a single Axum router. It attaches HTTP tracing, embedded static asset handling, and the route table. It has no CORS layer; the doc comment on `build_router` says why. The WebSocket route is added in `daemon/server.rs` after `build_router()` returns.
 
 `build_router()` merges one router per area (`auth_page_routes`, `user_page_routes`, `admin_page_routes`, `public_api_routes`, `api_routes`), then adds the trace layer and, after it, the static asset route:
 
@@ -1588,7 +1588,7 @@ the name OpenSSH looks up: the address on port 22, else `[address]:port`. `up`'s
 download service and `node.host_keys` carry the known_hosts file, and the client saves it as
 `.sherpa/ssh/known_hosts` and rewrites the relative `UserKnownHostsFile` path to that absolute
 one (`client::lab_files`, see [`LAB_FOLDER.md`](LAB_FOLDER.md)). Each node's `User` is its recorded login, else the lab owner's name, and the config names no `IdentityFile`: the client's own keys and agent are used. When a node's key is unknown or changed, the client fetches the lab's
-keys with `node.host_keys`, warns about a changed key, and connects again (`SSH_CLIENT.md`).
+keys with `node.host_keys`, warns about a changed key, and connects again (`client::ssh_client`).
 
 ### No lab SSH key
 
@@ -1804,8 +1804,8 @@ sherpad reaches, relayed to the lab's owner over a WebSocket on the API (#674). 
 `services/console.rs` (`ConsoleKind`, paths, folders, the owner check, the startup rewrite),
 `api/handlers/console.rs` (the two routes and the relay), `daemon/console_sessions.rs` (one
 session per console) and the `libvirt` crate's `console` and `vnc` modules (reading and
-rewriting the domain's serial device and VNC graphics). The clients are in
-[`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md).
+rewriting the domain's serial device and VNC graphics). The clients are
+`crates/client/src/cmd/console.rs` and `vnc.rs`.
 
 ### The sockets
 
@@ -2001,11 +2001,12 @@ Important spans/metrics are created at these levels:
 - Database, Docker, libvirt, and network helper functions where instrumented in their crates.
 - Metrics for WebSocket connection count, RPC duration, service operation duration, and errors.
 
-See [`OTEL.md`](OTEL.md) for collector configuration and exported metric names.
+The `[otel]` settings are on the `sherpa.toml` page of the user docs; the metric names are in
+`daemon/metrics.rs`.
 
 ## Known architectural seams
 
-Open implementation seams (handler-driven auth, inconsistent service authorization, spec/streaming parity, in-memory jobs, name-based resource cleanup, blocking libvirt calls) each have a proposal in [`../prds/`](../prds/).
+Open implementation seams (handler-driven auth, inconsistent service authorization, spec/streaming parity, in-memory jobs, name-based resource cleanup, blocking libvirt calls) are tracked in issue #731.
 
 ## Source map
 

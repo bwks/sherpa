@@ -54,6 +54,9 @@ fn ca_common_name(lab_id: &str) -> String {
     format!("Sherpa Lab CA - {lab_id}")
 }
 
+/// The subject the lab CA is built and rebuilt with, common name before organization. The CA is
+/// rebuilt from its key to sign, so a different subject or order would issue certificates that no
+/// longer chain to the `ca.crt` an existing lab handed out.
 fn lab_ca_spec(common_name: &str) -> CaSpec<'_> {
     CaSpec {
         common_name: Some(common_name),
