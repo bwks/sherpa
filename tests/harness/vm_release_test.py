@@ -61,6 +61,8 @@ OLDEST_SUPPORTED_RELEASE = (0, 5, 0)
 TAILNET_KEY_VARIABLE = "SHERPA_TEST_TAILSCALE_AUTH_KEY"
 # Older host servers can give concurrent `sherpa up` requests the same subnet; serialize it.
 UP_LOCK = ROOT / ".tmp" / "sherpa-up.lock"
+# The checksum file a release publishes, which the scripts check archives against.
+RELEASE_CHECKSUMS = "SHA256SUMS"
 # The guest helpers run on Python from uv, never the guest's system Python. The harness installs
 # this uv release on each guest, checked against the sha256 in the release's published
 # uv-x86_64-unknown-linux-gnu.tar.gz.sha256 file.
@@ -194,6 +196,19 @@ def archive_binary_hash(path, binary):
             raise ValueError(f"Archive must contain exactly one {binary} at its root")
         with archive.extractfile(matches[0]) as stream:
             return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def write_release_checksums(source, directory, artifacts, target):
+    """Write the SHA256SUMS the install and update scripts check local archives against, beside
+    the archives in `directory`: the one in `source` when the archives came with it, as a release
+    publishes it, or else one made from the archives, which shows only that the scripts check."""
+    published = source / RELEASE_CHECKSUMS
+    if published.is_file():
+        (directory / RELEASE_CHECKSUMS).write_bytes(published.read_bytes())
+        return
+    lines = [f"{artifacts[binary + '_archive_sha256']}  {binary}-{target}.tar.gz"
+             for binary in ("sherpad", "sherpa")]
+    (directory / RELEASE_CHECKSUMS).write_text("\n".join(lines) + "\n")
 
 
 def guest_uv_setup():
@@ -543,6 +558,9 @@ class Runner:
                              self.config["timeouts"]["download"])
             artifacts[f"{binary}_archive_sha256"] = sha256(path)
             artifacts[f"{binary}_binary_sha256"] = archive_binary_hash(path, binary)
+        if candidate["artifact_directory"]:
+            write_release_checksums(ROOT / candidate["artifact_directory"], directory, artifacts,
+                                    candidate["target"])
         return artifacts
 
     def provision(self):
@@ -748,6 +766,7 @@ class Runner:
                  str(self.directory / "sherpa_uninstall.sh")]
         if self.config["candidate"]["artifact_directory"]:
             files.extend(str(path) for path in self.directory.glob("*.tar.gz"))
+            files.append(str(self.directory / RELEASE_CHECKSUMS))
         if "baseline" in payload:
             files.append(str(self.directory / "baseline"))
         if "tests" in payload:

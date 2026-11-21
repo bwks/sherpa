@@ -48,8 +48,12 @@ as the next bump starts from that release's tag. Keep the gap short: bump, merge
 runs queue. Every job checks out `GITHUB_SHA`, main's tip at the click. `check` fails off main,
 when `vX.Y.Z` is already tagged, or when `CHANGELOG.md` has no `## [X.Y.Z]` section, which is
 the release notes; so a run without a bump, or a second run at the same version, fails there.
-`build-app` builds the CLI for Linux, macOS and Windows and `sherpad` for Linux. `release` tags
-`GITHUB_SHA`, not main's tip, which may have moved on, and publishes the release. Nothing in CI
+`build-app` builds the CLI for Linux, macOS and Windows and `sherpad` for Linux. `release` adds
+the install, update and uninstall scripts of `GITHUB_SHA` and a `SHA256SUMS` of every file it
+publishes, tags `GITHUB_SHA`, not main's tip, which may have moved on, and publishes the release.
+The install and update scripts check each archive against `SHA256SUMS` before they extract it,
+and refuse a release without one. Nothing is signed: `SHA256SUMS` proves an archive is the one
+the release published, not who published it. Nothing in CI
 commits or generates the changelog.
 
 ## The Version check

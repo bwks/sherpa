@@ -17,11 +17,15 @@ sudo ./scripts/sherpa_install.sh
 ```
 
 **What it does:**
+- Installs Docker from Docker's apt repository, after checking Docker's signing key against the
+  SHA-256 the script pins
+- Checks each release archive against the release's `SHA256SUMS` before using it, and refuses a
+  release that publishes none
 - Creates sherpa user and groups
 - Sets up directory structure at `/opt/sherpa/`
 - Creates the blank disk templates in `/opt/sherpa/images/blank_disk/` that node ZTP disks are
   copied from, each only if it is missing (see "Blank disks" in `docs/architecture/ZTP.md`)
-- Pulls the Sherpa router container image
+- Pulls the Sherpa router container image by the digest the script pins, tagged `:latest`
 - Installs the binaries, the sherpad systemd service and its environment file
 - Refuses a server older than 0.5.0 (a `sherpa-db` SurrealDB container exists)
 
@@ -33,6 +37,9 @@ sudo ./scripts/sherpa_install.sh
 Replaces the Sherpa binaries with the latest, or a given, release and restarts sherpad. It
 refuses, before changing anything, a server older than 0.5.0 whose data is still in SurrealDB:
 such a server updates to 0.5.12 first with that release's update script, which moves the data.
+
+It checks each archive it downloads against the release's `SHA256SUMS`, like the install
+script.
 
 On every run, including one with nothing to install, it creates the blank disk templates that
 are missing, installing `qemu-utils`, `dosfstools` and `e2fsprogs` first if a tool is missing.

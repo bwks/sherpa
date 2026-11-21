@@ -179,6 +179,64 @@ _blank_disks_case_006() {
     rm -rf "${WORK_DIR}"
 }
 
+# A release's archives in WORK_DIR/artifacts: a sherpad archive, and a SHA256SUMS that lists the
+# checksum given for it ("right" for its own).
+_artifacts_with_checksum() {
+    mkdir -p "${WORK_DIR}/artifacts" "${WORK_DIR}/build"
+    printf 'new release\n' > "${WORK_DIR}/build/sherpad"
+    tar czf "${WORK_DIR}/artifacts/sherpad-x86_64-unknown-linux-gnu.tar.gz" -C "${WORK_DIR}/build" sherpad
+    local sum="$1"
+    if [ "${sum}" = "right" ]; then
+        sum="$(sha256sum "${WORK_DIR}/artifacts/sherpad-x86_64-unknown-linux-gnu.tar.gz" | awk '{ print $1 }')"
+    fi
+    if [ -n "${sum}" ]; then
+        printf '%s  sherpad-x86_64-unknown-linux-gnu.tar.gz\n' "${sum}" > "${WORK_DIR}/artifacts/SHA256SUMS"
+    else
+        printf '%s  sherpa-x86_64-unknown-linux-gnu.tar.gz\n' "$(printf '0%.0s' {1..64})" > "${WORK_DIR}/artifacts/SHA256SUMS"
+    fi
+}
+
+# Stubs for installing Docker on a host without it: PATH is MOCK_BIN and the few tools the
+# function uses, so there is no docker. curl records its arguments and writes WORK_DIR/key for
+# the key; apt-get records its arguments; dpkg prints amd64.
+_stub_docker_install() {
+    TOOLS="$(mktemp -d "${WORK_DIR}/tools.XXXXXX")"
+    local tool
+    for tool in bash cat mktemp rm sha256sum awk dirname chmod; do
+        ln -s "$(command -v "${tool}")" "${TOOLS}/${tool}"
+    done
+    cat > "${MOCK_BIN}/curl" << STUB
+#!/bin/bash
+echo "\$@" >> '${WORK_DIR}/curl.args'
+while [ \$# -gt 1 ]; do
+    [ "\$1" = "-o" ] && cp '${WORK_DIR}/key' "\$2"
+    shift
+done
+STUB
+    printf '#!/bin/bash\necho "$@" >> "%s/apt-get.args"\n' "${WORK_DIR}" > "${MOCK_BIN}/apt-get"
+    printf '#!/bin/bash\necho amd64\n' > "${MOCK_BIN}/dpkg"
+    printf '#!/bin/bash\nexit 0\n' > "${MOCK_BIN}/systemctl"
+    printf '#!/bin/bash\nexec %s "$@"\n' "$(command -v install)" > "${MOCK_BIN}/install"
+    printf '#!/bin/bash\nexec %s "$@"\n' "$(command -v cp)" > "${MOCK_BIN}/cp"
+    chmod +x "${MOCK_BIN}"/*
+    printf 'ID=ubuntu\nVERSION_ID="26.04"\nVERSION_CODENAME=resolute\nUBUNTU_CODENAME=resolute\n' > "${WORK_DIR}/os-release"
+    printf -- '-----BEGIN PGP PUBLIC KEY BLOCK-----\nkey\n' > "${WORK_DIR}/key"
+}
+
+# Run install_docker with the stubs, the apt files under WORK_DIR and the key pinned to $1.
+_run_install_docker() {
+    run bash -c "
+        set +e
+        PATH='${MOCK_BIN}:${TOOLS}'
+        source '${STRIPPED_SCRIPT}'
+        DOCKER_APT_KEY_SHA256='$1'
+        DOCKER_APT_KEYRING='${WORK_DIR}/keyrings/docker.asc'
+        DOCKER_APT_SOURCES='${WORK_DIR}/docker.sources'
+        OS_RELEASE_FILE='${WORK_DIR}/os-release'
+        install_docker
+    "
+}
+
 # ============================================================
 # install_preflight
 # ============================================================
@@ -428,4 +486,139 @@ _stub_docker_with_containers() {
     _blank_disks_case_004 "${UPDATE_SCRIPT}"
     _blank_disks_case_005 "${UPDATE_SCRIPT}"
     _blank_disks_case_006 "${UPDATE_SCRIPT}"
+}
+
+# ============================================================
+# Verified downloads
+# ============================================================
+
+@test "install_host_014_an_archive_that_does_not_match_the_releases_sha256sums_stops_the_install_before_it_is_used" {
+    WORK_DIR="$(mktemp -d)"
+    printf '#!/bin/bash\nexit 1\n' > "${MOCK_BIN}/pgrep"
+    printf '#!/bin/bash\nexit 3\n' > "${MOCK_BIN}/systemctl"
+    printf '#!/bin/bash\necho "$@" >> "%s/tar.args"\nexit 0\n' "${WORK_DIR}" > "${MOCK_BIN}/tar"
+    chmod +x "${MOCK_BIN}"/*
+    local sum
+    # Another checksum, and none for the archive.
+    for sum in "$(printf 'f%.0s' {1..64})" ""; do
+        rm -rf "${WORK_DIR}/artifacts"
+        _artifacts_with_checksum "${sum}"
+        run bash -c "
+            set +e
+            PATH='${MOCK_BIN}:${PATH}'
+            source '${STRIPPED_SCRIPT}'
+            SHERPA_BASE_DIR='${WORK_DIR}/opt'
+            SHERPA_VERSION=v0.7.2
+            SHERPA_ARTIFACT_DIR='${WORK_DIR}/artifacts'
+            install_binaries
+        "
+        [ "$status" -ne 0 ]
+        [[ "$output" == *"Nothing was installed from sherpad-x86_64-unknown-linux-gnu.tar.gz"* ]]
+        [ ! -e "${WORK_DIR}/tar.args" ]
+        [ ! -e "${WORK_DIR}/opt/bin/sherpad" ]
+    done
+    [[ "$output" == *"does not list one checksum for sherpad-x86_64-unknown-linux-gnu.tar.gz"* ]]
+
+    # The archive's own checksum passes.
+    rm -rf "${WORK_DIR}/artifacts"
+    _artifacts_with_checksum right
+    run bash -c "
+        set +e
+        source '${STRIPPED_SCRIPT}'
+        SHERPA_VERSION=v0.7.2
+        SHERPA_ARTIFACT_DIR='${WORK_DIR}/artifacts'
+        mkdir -p '${WORK_DIR}/download'
+        fetch_release_checksums '${WORK_DIR}/download' && verify_release_archive '${WORK_DIR}/artifacts/sherpad-x86_64-unknown-linux-gnu.tar.gz'
+    "
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"matches SHA256SUMS"* ]]
+}
+
+@test "install_host_015_a_release_without_sha256sums_is_refused_and_local_archives_without_one_are_used_with_a_warning" {
+    WORK_DIR="$(mktemp -d)"
+    printf '#!/bin/bash\necho "$@" >> "%s/curl.args"\nexit 22\n' "${WORK_DIR}" > "${MOCK_BIN}/curl"
+    chmod +x "${MOCK_BIN}/curl"
+    mkdir -p "${WORK_DIR}/download"
+    run bash -c "
+        set +e
+        PATH='${MOCK_BIN}:${PATH}'
+        source '${STRIPPED_SCRIPT}'
+        SHERPA_VERSION=v0.7.1
+        fetch_release_checksums '${WORK_DIR}/download'
+    "
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Could not fetch the checksums of v0.7.1: https://github.com/bwks/sherpa/releases/download/v0.7.1/SHA256SUMS"* ]]
+    [[ "$output" == *"not installed"* ]]
+
+    # Local archives with no SHA256SUMS: a warning, and the archive passes.
+    _artifacts_with_checksum right
+    rm "${WORK_DIR}/artifacts/SHA256SUMS"
+    run bash -c "
+        set +e
+        source '${STRIPPED_SCRIPT}'
+        SHERPA_VERSION=v0.7.2
+        SHERPA_ARTIFACT_DIR='${WORK_DIR}/artifacts'
+        fetch_release_checksums '${WORK_DIR}/download' && verify_release_archive '${WORK_DIR}/artifacts/sherpad-x86_64-unknown-linux-gnu.tar.gz'
+    "
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"No SHA256SUMS in ${WORK_DIR}/artifacts: the local archives are not checked"* ]]
+}
+
+@test "install_host_016_docker_comes_from_dockers_apt_repository_signed_by_its_key_checked_against_its_pin" {
+    WORK_DIR="$(mktemp -d)"
+    _stub_docker_install
+    _run_install_docker "$(sha256sum "${WORK_DIR}/key" | awk '{ print $1 }')"
+    echo "${output}"
+    [ "$status" -eq 0 ]
+    cmp "${WORK_DIR}/key" "${WORK_DIR}/keyrings/docker.asc"
+    [ "$(stat -c '%a' "${WORK_DIR}/keyrings/docker.asc")" = "644" ]
+    grep -qx "URIs: https://download.docker.com/linux/ubuntu" "${WORK_DIR}/docker.sources"
+    grep -qx "Suites: resolute" "${WORK_DIR}/docker.sources"
+    grep -qx "Architectures: amd64" "${WORK_DIR}/docker.sources"
+    grep -qx "Signed-By: ${WORK_DIR}/keyrings/docker.asc" "${WORK_DIR}/docker.sources"
+    grep -q "^install -y docker-ce docker-ce-cli containerd.io" "${WORK_DIR}/apt-get.args"
+    # The key is the only download, and no script is fetched to run.
+    [ "$(wc -l < "${WORK_DIR}/curl.args")" -eq 1 ]
+    grep -q "https://download.docker.com/linux/ubuntu/gpg$" "${WORK_DIR}/curl.args"
+}
+
+@test "install_host_017_a_docker_key_that_is_not_the_pinned_one_stops_the_install_before_apt_trusts_it" {
+    WORK_DIR="$(mktemp -d)"
+    _stub_docker_install
+    _run_install_docker "$(printf '0%.0s' {1..64})"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"is not the one this script trusts"* ]]
+    [ ! -e "${WORK_DIR}/keyrings/docker.asc" ]
+    [ ! -e "${WORK_DIR}/docker.sources" ]
+    [ ! -e "${WORK_DIR}/apt-get.args" ]
+}
+
+@test "install_host_018_the_router_image_is_pulled_by_its_digest_and_tagged_with_the_name_sherpad_runs" {
+    WORK_DIR="$(mktemp -d)"
+    printf '#!/bin/bash\necho "$@" >> "%s/docker.args"\nexit 0\n' "${WORK_DIR}" > "${MOCK_BIN}/docker"
+    chmod +x "${MOCK_BIN}/docker"
+    run bash -c "
+        set +e
+        PATH='${MOCK_BIN}:${PATH}'
+        source '${STRIPPED_SCRIPT}'
+        pull_sherpa_router_image
+    "
+    [ "$status" -eq 0 ]
+    local pinned
+    pinned="$(sed -n 's|^image pull \(ghcr.io/bwks/sherpa-router@sha256:[0-9a-f]\{64\}\)$|\1|p' "${WORK_DIR}/docker.args")"
+    [ -n "${pinned}" ]
+    grep -qx "image tag ${pinned} ghcr.io/bwks/sherpa-router:latest" "${WORK_DIR}/docker.args"
+
+    # A pull that fails stops the install, and nothing is tagged.
+    rm "${WORK_DIR}/docker.args"
+    printf '#!/bin/bash\necho "$@" >> "%s/docker.args"\nexit 1\n' "${WORK_DIR}" > "${MOCK_BIN}/docker"
+    run bash -c "
+        set +e
+        PATH='${MOCK_BIN}:${PATH}'
+        source '${STRIPPED_SCRIPT}'
+        pull_sherpa_router_image
+    "
+    [ "$status" -eq 1 ]
+    run grep -q "image tag" "${WORK_DIR}/docker.args"
+    [ "$status" -ne 0 ]
 }

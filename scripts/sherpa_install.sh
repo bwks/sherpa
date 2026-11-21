@@ -28,7 +28,18 @@ set -e  # Exit on error
 # The SurrealDB container of releases before 0.5.0, and the last release that moves its data.
 LEGACY_DB_CONTAINER="sherpa-db"
 LAST_MIGRATING_VERSION="v0.5.12"
-SHERPA_ROUTER_IMAGE="ghcr.io/bwks/sherpa-router:latest"
+# The lab router image, pulled by its digest and tagged with the name sherpad runs it by.
+SHERPA_ROUTER_REPO="ghcr.io/bwks/sherpa-router"
+SHERPA_ROUTER_DIGEST="sha256:c42a07c425de65e315ff8b92143d8a95c183677ffca859124c9476957bff992f"
+SHERPA_ROUTER_IMAGE="${SHERPA_ROUTER_REPO}:latest"
+# Docker's apt repository and its signing key. The key file must have this SHA-256; it is the key
+# with fingerprint 9DC8 5822 9FC7 DD38 854A  E2D8 8D81 803C 0EBF CD88.
+DOCKER_APT_URL="https://download.docker.com/linux/ubuntu"
+DOCKER_APT_KEY_SHA256="1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
+DOCKER_APT_KEYRING="/etc/apt/keyrings/docker.asc"
+DOCKER_APT_SOURCES="/etc/apt/sources.list.d/docker.sources"
+DOCKER_PACKAGES=(docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin)
+OS_RELEASE_FILE="/etc/os-release"
 SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
 SHERPA_DB_FILE="${SHERPA_DB_DIR}/sherpa.sqlite"
@@ -290,14 +301,51 @@ EOF
     print_success "Transparent hugepages set to madvise (boot rule: ${THP_TMPFILES_CONF})"
 }
 
+# Add Docker's apt repository, signed by its key, once the key's SHA-256 is the one pinned
+# above. A key that differs stops the install before apt trusts it.
+add_docker_apt_repository() {
+    local key suite
+    key="$(mktemp)"
+    if ! curl -fsSL --connect-timeout 15 --retry 3 --retry-all-errors -o "${key}" "${DOCKER_APT_URL}/gpg"; then
+        rm -f "${key}"
+        print_error "Could not fetch Docker's signing key: ${DOCKER_APT_URL}/gpg"
+        return 1
+    fi
+    if [ "$(sha256sum "${key}" | awk '{ print $1 }')" != "${DOCKER_APT_KEY_SHA256}" ]; then
+        rm -f "${key}"
+        print_error "Docker's signing key at ${DOCKER_APT_URL}/gpg is not the one this script trusts"
+        print_error "  expected SHA-256 ${DOCKER_APT_KEY_SHA256}"
+        return 1
+    fi
+    install -d -m 755 "$(dirname "${DOCKER_APT_KEYRING}")"
+    install -m 644 "${key}" "${DOCKER_APT_KEYRING}"
+    rm -f "${key}"
+
+    # shellcheck source=/dev/null
+    suite="$(. "${OS_RELEASE_FILE}" && echo "${UBUNTU_CODENAME:-${VERSION_CODENAME}}")"
+    cat > "${DOCKER_APT_SOURCES}" << EOF
+# Installed by Sherpa: Docker's apt repository.
+Types: deb
+URIs: ${DOCKER_APT_URL}
+Suites: ${suite}
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: ${DOCKER_APT_KEYRING}
+EOF
+    chmod 644 "${DOCKER_APT_SOURCES}"
+    print_success "Added Docker's apt repository for ${suite}"
+}
+
 install_docker() {
     print_header "Installing Docker"
 
     if check_command_exists docker; then
         print_info "Docker is already installed — skipping"
     else
-        print_info "Installing Docker via official convenience script..."
-        curl -fsSL https://get.docker.com | sh
+        print_info "Installing Docker from Docker's apt repository..."
+        add_docker_apt_repository
+        apt-get update -qq
+        DEBIAN_FRONTEND=noninteractive apt-get install -y "${DOCKER_PACKAGES[@]}"
         print_success "Docker installed"
     fi
 
@@ -513,6 +561,74 @@ setup_directories() {
 }
 
 ################################################################################
+# Release Checksums
+################################################################################
+# This section is the same in sherpa_install.sh and sherpa_update.sh, between the BEGIN and END
+# lines; tests/bats/install_tests.bats runs its cases against each copy.
+# BEGIN release checksums
+
+# The file of SHA-256 checksums each release publishes beside its archives and scripts.
+RELEASE_CHECKSUMS="SHA256SUMS"
+# The checksum file fetched for this run, or empty for local archives that came without one.
+RELEASE_CHECKSUMS_FILE=""
+
+# Fetch the release's checksum file into the folder $1. A download needs it: a release without
+# one is refused. Local archives (SHERPA_ARTIFACT_DIR) are checked against the one beside them,
+# and used with a warning when there is none.
+fetch_release_checksums() {
+    local dir="$1"
+    RELEASE_CHECKSUMS_FILE=""
+    if [ -n "${SHERPA_ARTIFACT_DIR}" ]; then
+        if [ -f "${SHERPA_ARTIFACT_DIR}/${RELEASE_CHECKSUMS}" ]; then
+            cp "${SHERPA_ARTIFACT_DIR}/${RELEASE_CHECKSUMS}" "${dir}/${RELEASE_CHECKSUMS}" || return 1
+            RELEASE_CHECKSUMS_FILE="${dir}/${RELEASE_CHECKSUMS}"
+        else
+            print_warning "No ${RELEASE_CHECKSUMS} in ${SHERPA_ARTIFACT_DIR}: the local archives are not checked"
+        fi
+        return 0
+    fi
+
+    local url="${GITHUB_DOWNLOAD_URL}/${SHERPA_VERSION}/${RELEASE_CHECKSUMS}"
+    if ! curl -fsSL --connect-timeout 15 --retry 3 --retry-all-errors -o "${dir}/${RELEASE_CHECKSUMS}" "${url}"; then
+        print_error "Could not fetch the checksums of ${SHERPA_VERSION}: ${url}"
+        print_error "A release that publishes no ${RELEASE_CHECKSUMS} cannot be checked, so it is not installed."
+        print_error "Install it with the script of its own release tag instead."
+        return 1
+    fi
+    RELEASE_CHECKSUMS_FILE="${dir}/${RELEASE_CHECKSUMS}"
+}
+
+# Succeed when the archive $1 has the SHA-256 that the fetched checksum file lists for its name,
+# and say so. Fail, naming both checksums, when it differs or the file lists none, or one twice.
+# Local archives that came without a checksum file pass unchecked.
+verify_release_archive() {
+    local archive="$1" name expected actual
+    name="$(basename "${archive}")"
+    if [ -z "${RELEASE_CHECKSUMS_FILE}" ]; then
+        if [ -n "${SHERPA_ARTIFACT_DIR}" ]; then
+            return 0
+        fi
+        print_error "No ${RELEASE_CHECKSUMS} to check ${name} against"
+        return 1
+    fi
+    expected="$(awk -v name="${name}" '$2 == name || $2 == "*" name { print $1 }' "${RELEASE_CHECKSUMS_FILE}")"
+    if [ -z "${expected}" ] || [ "$(printf '%s\n' "${expected}" | wc -l)" -ne 1 ]; then
+        print_error "${RELEASE_CHECKSUMS} of ${SHERPA_VERSION} does not list one checksum for ${name}"
+        return 1
+    fi
+    actual="$(sha256sum "${archive}" | awk '{ print $1 }')"
+    if [ "${actual}" != "${expected}" ]; then
+        print_error "${name} does not match ${RELEASE_CHECKSUMS} of ${SHERPA_VERSION}"
+        print_error "  expected ${expected}"
+        print_error "  got      ${actual}"
+        return 1
+    fi
+    print_success "${name} matches ${RELEASE_CHECKSUMS}"
+}
+
+# END release checksums
+
+################################################################################
 # Blank Disks
 ################################################################################
 # This section is the same in sherpa_install.sh and sherpa_update.sh, between the BEGIN and END
@@ -650,13 +766,16 @@ ensure_blank_disks() {
 # Container Images
 ################################################################################
 
+# Pull the router image by its digest, so the image is the one this release was made with, and
+# tag it with the name sherpad runs it by.
 pull_sherpa_router_image() {
     print_info "Pulling Sherpa Router image..."
 
-    if docker image pull "${SHERPA_ROUTER_IMAGE}"; then
-        print_success "Sherpa Router image pulled successfully"
+    local pinned="${SHERPA_ROUTER_REPO}@${SHERPA_ROUTER_DIGEST}"
+    if docker image pull "${pinned}" && docker image tag "${pinned}" "${SHERPA_ROUTER_IMAGE}"; then
+        print_success "Sherpa Router image pulled: ${pinned}, tagged ${SHERPA_ROUTER_IMAGE}"
     else
-        print_error "Failed to pull Sherpa Router image"
+        print_error "Failed to pull Sherpa Router image ${pinned}"
         exit 1
     fi
 }
@@ -716,6 +835,8 @@ install_binaries() {
     local binaries="sherpad sherpa"
     local required_binaries="sherpad"
 
+    fetch_release_checksums "${tmp_dir}" || exit 1
+
     for binary in $binaries; do
         local asset="${binary}-${TARGET}.tar.gz"
         local url="${GITHUB_DOWNLOAD_URL}/${SHERPA_VERSION}/${asset}"
@@ -740,6 +861,10 @@ install_binaries() {
 
         if [ "$downloaded" = true ]; then
             print_success "Downloaded ${asset}"
+            if ! verify_release_archive "${tmp_dir}/${asset}"; then
+                print_error "Nothing was installed from ${asset}"
+                exit 1
+            fi
 
             # Extract and install
             print_info "Installing ${binary}..."

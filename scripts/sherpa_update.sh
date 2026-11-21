@@ -285,6 +285,8 @@ update_binaries() {
     local binaries="sherpad sherpa"
     local required_binaries="sherpad"
 
+    fetch_release_checksums "${tmp_dir}" || exit 1
+
     for binary in $binaries; do
         # Check if this binary needs updating
         if [ "$FORCE" = false ] && ! check_binary_needs_update "$binary"; then
@@ -322,6 +324,10 @@ update_binaries() {
 
         if [ "$downloaded" = true ]; then
             print_success "Downloaded ${asset}"
+            if ! verify_release_archive "${tmp_dir}/${asset}"; then
+                print_error "Nothing was installed from ${asset}"
+                exit 1
+            fi
 
             # Extract and install
             print_info "Installing ${binary}..."
@@ -417,6 +423,74 @@ check_legacy_database() {
 
     print_success "No SurrealDB database from an older release"
 }
+
+################################################################################
+# Release Checksums
+################################################################################
+# This section is the same in sherpa_install.sh and sherpa_update.sh, between the BEGIN and END
+# lines; tests/bats/install_tests.bats runs its cases against each copy.
+# BEGIN release checksums
+
+# The file of SHA-256 checksums each release publishes beside its archives and scripts.
+RELEASE_CHECKSUMS="SHA256SUMS"
+# The checksum file fetched for this run, or empty for local archives that came without one.
+RELEASE_CHECKSUMS_FILE=""
+
+# Fetch the release's checksum file into the folder $1. A download needs it: a release without
+# one is refused. Local archives (SHERPA_ARTIFACT_DIR) are checked against the one beside them,
+# and used with a warning when there is none.
+fetch_release_checksums() {
+    local dir="$1"
+    RELEASE_CHECKSUMS_FILE=""
+    if [ -n "${SHERPA_ARTIFACT_DIR}" ]; then
+        if [ -f "${SHERPA_ARTIFACT_DIR}/${RELEASE_CHECKSUMS}" ]; then
+            cp "${SHERPA_ARTIFACT_DIR}/${RELEASE_CHECKSUMS}" "${dir}/${RELEASE_CHECKSUMS}" || return 1
+            RELEASE_CHECKSUMS_FILE="${dir}/${RELEASE_CHECKSUMS}"
+        else
+            print_warning "No ${RELEASE_CHECKSUMS} in ${SHERPA_ARTIFACT_DIR}: the local archives are not checked"
+        fi
+        return 0
+    fi
+
+    local url="${GITHUB_DOWNLOAD_URL}/${SHERPA_VERSION}/${RELEASE_CHECKSUMS}"
+    if ! curl -fsSL --connect-timeout 15 --retry 3 --retry-all-errors -o "${dir}/${RELEASE_CHECKSUMS}" "${url}"; then
+        print_error "Could not fetch the checksums of ${SHERPA_VERSION}: ${url}"
+        print_error "A release that publishes no ${RELEASE_CHECKSUMS} cannot be checked, so it is not installed."
+        print_error "Install it with the script of its own release tag instead."
+        return 1
+    fi
+    RELEASE_CHECKSUMS_FILE="${dir}/${RELEASE_CHECKSUMS}"
+}
+
+# Succeed when the archive $1 has the SHA-256 that the fetched checksum file lists for its name,
+# and say so. Fail, naming both checksums, when it differs or the file lists none, or one twice.
+# Local archives that came without a checksum file pass unchecked.
+verify_release_archive() {
+    local archive="$1" name expected actual
+    name="$(basename "${archive}")"
+    if [ -z "${RELEASE_CHECKSUMS_FILE}" ]; then
+        if [ -n "${SHERPA_ARTIFACT_DIR}" ]; then
+            return 0
+        fi
+        print_error "No ${RELEASE_CHECKSUMS} to check ${name} against"
+        return 1
+    fi
+    expected="$(awk -v name="${name}" '$2 == name || $2 == "*" name { print $1 }' "${RELEASE_CHECKSUMS_FILE}")"
+    if [ -z "${expected}" ] || [ "$(printf '%s\n' "${expected}" | wc -l)" -ne 1 ]; then
+        print_error "${RELEASE_CHECKSUMS} of ${SHERPA_VERSION} does not list one checksum for ${name}"
+        return 1
+    fi
+    actual="$(sha256sum "${archive}" | awk '{ print $1 }')"
+    if [ "${actual}" != "${expected}" ]; then
+        print_error "${name} does not match ${RELEASE_CHECKSUMS} of ${SHERPA_VERSION}"
+        print_error "  expected ${expected}"
+        print_error "  got      ${actual}"
+        return 1
+    fi
+    print_success "${name} matches ${RELEASE_CHECKSUMS}"
+}
+
+# END release checksums
 
 ################################################################################
 # Blank Disks

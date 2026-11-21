@@ -360,7 +360,11 @@ binaries. To test locally built archives:
 ```
 
 The directory holds `sherpad-x86_64-unknown-linux-gnu.tar.gz` and
-`sherpa-x86_64-unknown-linux-gnu.tar.gz`, each with its binary at the archive's root. The
+`sherpa-x86_64-unknown-linux-gnu.tar.gz`, each with its binary at the archive's root, and may
+hold the release's `SHA256SUMS`. The runner puts that `SHA256SUMS` beside the archives on the
+guest, or one it makes from them, so the scripts check the archives as they check a download. A
+run without `--artifact-dir` has the guest download the release, which must publish a
+`SHA256SUMS`: the scripts refuse a release without one. The
 installer reads them from `SHERPA_ARTIFACT_DIR` instead of downloading them, and the runner
 checks the installed bytes against the archives and the installed version. Each run records
 the checkout's commit and whether it is dirty, the script, archive and binary hashes, the base

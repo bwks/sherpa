@@ -365,3 +365,37 @@ _stub_apt_get() {
     [ "$status" -eq 0 ]
     grep -qx "install -y -qq qemu-utils dosfstools e2fsprogs" "${WORK_DIR}/apt-get.args"
 }
+
+# ============================================================
+# Verified downloads
+# ============================================================
+
+@test "update_script_026_an_archive_that_does_not_match_the_releases_sha256sums_is_not_installed" {
+    _stub_check_database 0 "This release can use the database"
+    touch "${WORK_DIR}/sherpa.sqlite"
+    mkdir -p "${WORK_DIR}/bin" "${WORK_DIR}/artifacts" "${WORK_DIR}/build"
+    echo running > "${WORK_DIR}/bin/sherpad"
+    echo new > "${WORK_DIR}/build/sherpad"
+    tar czf "${WORK_DIR}/artifacts/sherpad-x86_64-unknown-linux-gnu.tar.gz" -C "${WORK_DIR}/build" sherpad
+    printf '%s  sherpad-x86_64-unknown-linux-gnu.tar.gz\n' "$(printf 'f%.0s' {1..64})" > "${WORK_DIR}/artifacts/SHA256SUMS"
+    _run_function "SHERPA_BIN_DIR='${WORK_DIR}/bin'; SHERPA_VERSION=v0.7.2; FORCE=true; SHERPA_ARTIFACT_DIR='${WORK_DIR}/artifacts'; update_binaries"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"does not match SHA256SUMS of v0.7.2"* ]]
+    [[ "$output" == *"Nothing was installed from sherpad-x86_64-unknown-linux-gnu.tar.gz"* ]]
+    [ "$(cat "${WORK_DIR}/bin/sherpad")" = "running" ]
+    # The archive's sherpad was never run.
+    [ ! -e "${WORK_DIR}/runuser.args" ]
+}
+
+@test "update_script_027_a_release_without_sha256sums_is_refused_before_any_archive_is_fetched" {
+    printf '#!/bin/bash\necho "$@" >> "%s/curl.args"\nexit 22\n' "${WORK_DIR}" > "${MOCK_BIN}/curl"
+    chmod +x "${MOCK_BIN}/curl"
+    mkdir -p "${WORK_DIR}/bin"
+    echo running > "${WORK_DIR}/bin/sherpad"
+    _run_function "SHERPA_BIN_DIR='${WORK_DIR}/bin'; SHERPA_VERSION=v0.7.1; FORCE=true; update_binaries"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Could not fetch the checksums of v0.7.1"* ]]
+    [ "$(wc -l < "${WORK_DIR}/curl.args")" -eq 1 ]
+    grep -q "/v0.7.1/SHA256SUMS$" "${WORK_DIR}/curl.args"
+    [ "$(cat "${WORK_DIR}/bin/sherpad")" = "running" ]
+}
