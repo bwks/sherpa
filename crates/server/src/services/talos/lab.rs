@@ -199,8 +199,8 @@ fn cilium_config(plan: &ClusterPlan) -> Result<Option<CiliumConfig>> {
 /// Bootstrap each cluster once, wait for its nodes, and write the user's credentials.
 ///
 /// Returns the credentials of every cluster, and the names of clusters that did not become
-/// ready within `timeout`. A cluster that is not ready is reported, not treated as a failure,
-/// the same way node readiness is.
+/// ready within `timeout`. A cluster that is not ready does not fail this function: its
+/// credentials are still written, and the caller reports it as a critical error.
 #[instrument(skip(clusters, lab_ca_cert, progress, operation), fields(%lab_id, clusters = clusters.len()))]
 pub async fn bring_up_clusters(
     lab_id: &str,
