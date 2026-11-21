@@ -94,7 +94,7 @@ Exactly one of `--lab` and `--listen <ipv4>` is required (`src/main.rs`, `src/st
    file, or one without a gateway, is an error naming the path. A lab folder in the layout from
    before `.sherpa/` (a loose `lab-info.toml` and no `.sherpa/`) is refused, with a message to
    run any sherpa 0.5.15 command there, which moves its files; there is no fallback to the old
-   names (see `LAB_FOLDER.md`).
+   names (see `crates/client/src/lab_folder_migration.rs`).
 2. Load and validate the agents file, and check that the seed's public key is the host's key.
    Under the registry lock, load the registry and merge it with the agents file (see
    [Enrollment](#enrollment)).

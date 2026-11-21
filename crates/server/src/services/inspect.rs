@@ -231,6 +231,11 @@ fn device_info(
 /// taken as not having answered: one waiting for its port stays `Starting`, as the scanner left
 /// it. Other nodes, and containers when Docker did not answer (`None`), are reported as
 /// recorded.
+///
+/// Nothing is written. While the server runs, a node's state is written only by the operation
+/// holding the lab's lease (`node_lifecycle::record`) or by the scanner holding it
+/// (`node_lifecycle::observe`). Inspect holds neither and runs beside both, so a write here would
+/// be a third writer racing them for a state the scanner records on its next cycle anyway.
 fn reported_state(
     node: &DbNode,
     kind: NodeKind,

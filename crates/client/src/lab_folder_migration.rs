@@ -9,8 +9,18 @@
 //! The lab key, `sherpa_ssh_key`, is not moved: Sherpa has no lab key from 0.7.0, and the labs
 //! those clients started had to be destroyed before the update to 0.6.0.
 //!
-//! This module is temporary: remove it, and its calls, in a later release, once labs set up
-//! before `.sherpa` are gone.
+//! It runs from three places. `cmd::cli::run` migrates the current folder before every command
+//! that uses a lab folder (`uses_lab_folder`), and a failed migration stops the command, except
+//! for `destroy` (`tolerate_failed_migration`), which only warns. `destroy` then cleans either
+//! layout: it deletes the loose files by the exact names this module generates
+//! (`legacy_lab_files`), so a user's own `vault-notes.toml` or `kubeconfig-prod` stays.
+//! `sherpa ssh-config inspect` and `clean` migrate every lab folder an old `sherpa_ssh_config`
+//! `Include` in `~/.ssh/sherpa_lab_hosts` names (`migrate_registered_lab_folders`), warning on a
+//! failure.
+//!
+//! This is the only code that knows the old file names. It is temporary: once labs set up
+//! before `.sherpa` are gone, remove this module, its calls in `cmd::cli` and
+//! `cmd::ssh_config`, and the old-layout cleanup in `cmd::destroy`.
 
 use std::fs;
 use std::io::ErrorKind;
