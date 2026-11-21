@@ -848,7 +848,7 @@ mod tests {
 
     #[test]
     fn node_state_020_the_web_ui_offers_a_node_only_the_actions_its_state_allows() {
-        // M1.1 and M4.2: a node being built offers nothing, and a missing one only redeploy.
+        // A node being built offers nothing, and a missing one only redeploy.
         let cases = [
             (NodeState::Running, ["stop", "redeploy"].as_slice()),
             (NodeState::Starting, &["stop", "redeploy"]),
@@ -955,7 +955,6 @@ mod tests {
 
     #[test]
     fn labs_list_005_a_lab_that_is_not_ready_shows_its_phase_and_offers_no_start_or_stop() {
-        // M7.3: a lab whose destroy failed used to show `stopped` and offer Start.
         for (phase, badge) in [
             (
                 LabPhase::Creating,
@@ -1103,7 +1102,7 @@ mod tests {
 
     #[test]
     fn labs_list_007_an_admin_row_shows_the_owner_and_phase_and_no_start_or_stop_when_not_ready() {
-        // M6.2, M6.3 and M7.3: admins find the labs left behind, to clean them.
+        // Admins find the labs left behind, to clean them.
         let tpl = AdminLabsTemplate {
             username: "admin".to_string(),
             is_admin: true,

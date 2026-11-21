@@ -849,11 +849,11 @@ mod tests {
 
     #[test]
     fn node_resume_002_resume_refuses_a_crashed_vm_a_dead_container_or_a_node_between_states() {
-        // M1.4: a crashed domain used to be reported "Already running" and recorded `Running`.
+        // A crashed domain is not reported "Already running" or recorded `Running`.
         let crashed = start_step(Runtime::Faulted("crashed"), "domain").unwrap_err();
         assert!(crashed.contains("domain is crashed"), "{crashed}");
         assert!(crashed.contains("redeploy"), "{crashed}");
-        // M4.1: a dead container is refused, and the scanner shows it failed, not stopped.
+        // A dead container is refused, and the scanner shows it failed, not stopped.
         let dead = start_step(Runtime::Faulted("dead"), "container").unwrap_err();
         assert!(dead.contains("container is dead"), "{dead}");
         let shutting = start_step(Runtime::Transitional("shutting down"), "domain").unwrap_err();

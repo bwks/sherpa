@@ -14,8 +14,5 @@ Two kinds of documentation exist for Sherpa.
 | Path | Purpose |
 |---|---|
 | [`architecture/`](architecture/README.md) | Server internals, API transports, P2P networking, observability. |
-| [`prds/`](prds/) | Proposals for open server architecture work. |
-| [`investigations/`](investigations/README.md) | Debugging and research notes that are not yet settled facts. |
-| [`TAILNET.md`](TAILNET.md) | Redirect stub to the docs site. Released versions link here from warnings, do not delete. |
 
 How to run tests is in [`../tests/README.md`](../tests/README.md); test specs are in [`../tests/specs/`](../tests/specs/README.md).

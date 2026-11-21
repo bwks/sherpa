@@ -26,6 +26,9 @@ use std::process::ExitCode;
 
 use rustls::crypto::aws_lc_rs;
 
+/// Run the `sherpa` command line. Commands are polled on the main thread, whose stack is 1 MiB
+/// on Windows and usually 8 MiB on Linux. An SSH connection fits in 1 MiB, through a jump host
+/// and in a debug build too, because Jato boxes its connection futures.
 #[tokio::main]
 async fn main() -> ExitCode {
     // Initialize rustls crypto provider (required for rustls 0.23+)

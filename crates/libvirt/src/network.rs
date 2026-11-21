@@ -152,6 +152,11 @@ impl ReservedNetwork {
 }
 
 /// A NAT network with DNS, the management network.
+///
+/// Its bridge has STP off. With STP on, the kernel holds every new port for its two-second
+/// minimum forward delay twice, listening then learning, whatever the network XML asks, and a
+/// container's first DNS lookups are lost: the FRR image's boot `apk add` of openssh failed that
+/// way and the node was never reachable.
 #[derive(Debug, Template)]
 #[template(path = "network/nat.jinja", ext = "xml")]
 pub struct NatNetwork {

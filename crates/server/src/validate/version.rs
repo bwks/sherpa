@@ -16,6 +16,9 @@ use topology::Node;
 /// Whether Docker has a container node's image is asked of Docker by the caller, with the
 /// image and version resolved here.
 ///
+/// It fills in data, which validators otherwise never do, because resolution and validation
+/// share the lookup of each model's default image.
+///
 /// # Arguments
 /// * `nodes` - List of nodes from manifest
 /// * `node_images` - Pre-fetched list of all node configs from DB

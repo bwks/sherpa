@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn link_state_002_a_link_whose_peers_end_is_missing_is_peer_down() {
-        // M9.2 and M25.1: a peer that is shut off has no tap. That is expected, not a failure.
+        // A peer that is shut off has no tap. That is expected, not a failure.
         for side in [Side::A, Side::B] {
             let (a, b) = match side {
                 Side::A => (End::Present(10), End::Absent),

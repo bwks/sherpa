@@ -25,7 +25,7 @@ async fn lab_for(db: &Database, user: &DbUser, lab_id: &str, octet: u8) -> Resul
 
 #[tokio::test]
 async fn lab_phase_006_the_record_up_reserves_a_lab_with_is_creating() -> Result<()> {
-    // M3.1: the row `up` inserts is its reservation of the lab ID.
+    // The row `up` inserts is its reservation of the lab ID.
     let db = setup_db().await?;
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
 

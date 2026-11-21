@@ -301,8 +301,8 @@ mod tests {
 
     #[tokio::test]
     async fn link_impair_013_a_failed_clear_is_not_recorded_and_a_clear_of_nothing_succeeds() {
-        // M25.3: a failed removal used to count as "nothing to remove", and the database was
-        // set clear while the kernel kept the qdisc.
+        // A failed removal does not count as "nothing to remove", so the database is not
+        // set clear while the kernel keeps the qdisc.
         let mut host = host();
         host.failing_netem.insert("tpb0".to_string());
         let recorded = Cell::new(false);
@@ -338,7 +338,7 @@ mod tests {
 
     #[tokio::test]
     async fn link_impair_012_a_change_that_cannot_be_recorded_is_undone_in_the_kernel() {
-        // M25.4: the kernel used to keep the new value while the database kept the old one.
+        // The kernel must not keep the new value while the database keeps the old one.
         let host = host();
         let result = change_impairment(
             &host,

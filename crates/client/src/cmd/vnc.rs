@@ -4,7 +4,9 @@
 //! token and the client's TLS settings, until either side closes it. The listener runs until
 //! Ctrl+C. The server decides who may open the console and says why it refuses it: the command
 //! asks it first, with the route's `?check=true`, and ends with the refusal before it opens the
-//! port. See `docs/architecture/CONSOLE_CLIENT.md`.
+//! port. Other accounts on the user's machine can reach the loopback listener while it runs, and
+//! QEMU's VNC server asks for no password. The server side is "Node consoles" in
+//! `docs/architecture/SERVER.md`.
 
 use std::future::Future;
 use std::io;

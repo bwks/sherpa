@@ -182,6 +182,8 @@ const CONTAINER_KEYCLOAK_COMMANDS: &[&str] = &["start"];
 /// Keycloak runs as root, so it can read the lab certificate key mounted from the server.
 const CONTAINER_KEYCLOAK_USER: &str = "0:0";
 const VAULT_CLUSTER_PORT: u16 = 8201;
+/// Vault's start command. It replaces the image's entrypoint, which would drop to the `vault`
+/// user, so Vault runs as root and can read the lab certificate key mounted from the server.
 const CONTAINER_HASHICORP_VAULT_COMMANDS: &[&str] = &[
     "sh",
     "-c",
@@ -1775,7 +1777,8 @@ fn merge_env_vars(defaults: Vec<String>, user: &[String]) -> Vec<String> {
 
 /// The environment of a Keycloak node: production mode with its built-in file database, HTTPS
 /// only on the node's address with the lab certificate, and `admin`, the node's own, as the
-/// bootstrap admin of the `master` realm.
+/// bootstrap admin of the `master` realm. `docker inspect` shows the admin's password to the
+/// host's `docker` group, which is accepted: that group is root on the host.
 fn keycloak_env_vars(node_address: Ipv4Addr, admin: &data::AdminCredential) -> Vec<String> {
     vec![
         "KC_DB=dev-file".to_owned(),
@@ -1789,7 +1792,8 @@ fn keycloak_env_vars(node_address: Ipv4Addr, admin: &data::AdminCredential) -> V
     ]
 }
 
-/// The environment of a `SurrealDB` node: `admin`, the node's own, as its root user.
+/// The environment of a `SurrealDB` node: `admin`, the node's own, as its root user. As with
+/// Keycloak, `docker inspect` shows the password to the host's `docker` group.
 fn surreal_db_env_vars(admin: &data::AdminCredential) -> Vec<String> {
     vec![
         format!("SURREAL_USER={}", admin.username),

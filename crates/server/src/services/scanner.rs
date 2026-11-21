@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn node_ready_029_the_scanner_records_a_vm_running_only_once_its_port_answers() {
-        // M1.3: running in libvirt is not ready.
+        // Running in libvirt is not ready.
         let node = checked(NodeState::Starting, true, SSH_CHECK);
         let vm = scanned(&node, NodeKind::VirtualMachine);
         assert_eq!(probe_for(&vm, None), Probe::NotReady);

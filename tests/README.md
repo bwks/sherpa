@@ -259,8 +259,7 @@ tailnet as `tntest<pid>`, advertises `172.31.250.0/24` and logs out when the tes
 
 Each release's VM asks the server for its `memory` (30 GiB in both environments). The releases
 start together, and their `sherpa up` calls take turns. When the server refuses one for memory
-(the CLI exits 75 for the server's `InsufficientMemory` error, see "Typed refusals" in
-`docs/architecture/API.md`), nothing was created: the runner records
+(the CLI exits 75 for the server's `InsufficientMemory` error), nothing was created: the runner records
 `failure_kind = "memory-refused"` with the server's message, keeps nothing and exits 75 itself.
 `test_env.py` then waits for the other releases to finish and runs the refused one on its own,
 then the next refused one. A release refused while it runs alone fails. A failed release keeps

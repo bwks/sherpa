@@ -391,7 +391,7 @@ mod tests {
         }
     }
 
-    // ── M14.1: logout and password change end sessions ──
+    // ── Logout and password change end sessions ──
 
     #[tokio::test]
     async fn a_token_used_after_logout_is_refused() {
@@ -461,7 +461,7 @@ mod tests {
         );
     }
 
-    // ── M14.2: a deleted user's token ──
+    // ── A deleted user's token ──
 
     #[tokio::test]
     async fn a_token_of_a_deleted_user_does_not_work_for_a_new_user_of_the_same_name() {

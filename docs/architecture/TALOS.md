@@ -2,7 +2,6 @@
 
 How Sherpa runs Talos Linux nodes and builds Kubernetes clusters from them. User-facing
 behaviour is documented in `../sherpa-docs` (Talos Linux node page, manifest `clusters`).
-The research behind these choices is in `docs/investigations/talos-linux.md`.
 
 ## Node model
 
@@ -29,7 +28,8 @@ SATA CD-ROM, `host-model` CPU (Talos needs x86-64-v2).
 
 - `meta-data`: instance ID and hostname;
 - `network-config`: Sherpa's netplan v2 document (`CloudInitNetwork::ztp_interface`), a static
-  management address, gateway and DNS server — Talos applies it with no DHCP;
+  management address, gateway and DNS server — Talos applies it with no DHCP, and ignores its
+  `search` domain;
 - `user-data`: the node's machine config, written byte for byte, when there is one. Without
   it any earlier `user-data` is removed and Talos waits in maintenance mode.
 
@@ -112,7 +112,7 @@ is a member of; a Vault `redeploy` grants access to every loaded cluster that us
 
 Releases up to 0.6.4 saved the plan as `cluster.toml` in the cluster's folder; 0.6.5 moved it
 into the database at startup and deleted the file. 0.7.0 does not read it, and `ClusterPlan` has
-no serde form (see [`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders)).
+no serde form.
 
 ### Cilium
 
@@ -144,8 +144,8 @@ Workers' configs are the same for both CNIs.
 
 ### Keycloak login and Vault secrets
 
-A cluster with `oidc` accepts tokens from its Keycloak node's `sherpa` realm (see "Keycloak" in
-`LAB_CA.md` for the realm Sherpa makes). Its control planes carry:
+A cluster with `oidc` accepts tokens from its Keycloak node's `sherpa` realm (`keycloak::ensure_keycloak_realm`
+makes the realm). Its control planes carry:
 
 - a JWT authenticator in `KubeAuthenticationConfig`: issuer
   `https://<keycloak>:8443/realms/sherpa`, audience `kubernetes`, the lab CA as its
@@ -213,7 +213,8 @@ unknown key or a legacy `v1alpha1` field that a typed document now owns is fatal
 documents follow `talosctl gen config` for the pinned version exactly, except: no
 `UnattendedInstallConfig` (the NoCloud image is installed), no discovery documents, a static
 `HostnameConfig`, `KubeNodeConfig.nodeIP.validSubnets` set to the management subnet, and no
-control-plane taint when the cluster has no workers.
+control-plane taint when the cluster has no workers. The Talos API certificate holds `127.0.0.1`
+only if it is added to `machine.certSANs`, which Sherpa leaves empty.
 
 `TALOS_SUPPORTED_MINOR_VERSION` pins the generator to Talos 1.14; `ensure_supported_version`
 refuses cluster nodes on other minor versions. Supporting a new Talos minor release means
@@ -252,7 +253,7 @@ still probe workers' API port, which works because the VIP is up in an existing 
 | `resume` | Unchanged; Talos keeps its state on disk. |
 | `redeploy` worker | Config regenerated from the saved secrets and the stored plan; the node rejoins. |
 | `redeploy` Vault | A new, empty Vault: initialised and unsealed again, then `grant_vault_access` sets up every saved cluster that uses it. Secrets written to the old Vault are gone. |
-| `redeploy` Keycloak | A new, empty Keycloak, started with its saved admin: the realm is made again with the saved users and passwords (see [`LAB_CA.md`](LAB_CA.md#keycloak)). |
+| `redeploy` Keycloak | A new, empty Keycloak, started with its saved admin: the realm is made again with the saved users and passwords. |
 | `redeploy` controller | Refused (`talos::ensure_redeployable`): its etcd member would have to be removed first. |
 | `download` | Returns each cluster's talosconfig and kubeconfig, with its endpoint and load balancer addresses from the stored plan (`DownloadLabResponse::clusters`). |
 | `destroy` | Stops an `up` still bootstrapping or waiting for the cluster first (`lab_operations`), so credentials are never written after the cluster directory is removed with the lab directory. |

@@ -4,7 +4,7 @@ use db::{UserChanged, create_user, get_user, update_user};
 
 use crate::setup_db;
 
-/// Two edits read the same row; the second write must not overwrite the first (M14.5).
+/// Two edits read the same row; the second write must not overwrite the first.
 #[tokio::test]
 async fn test_update_from_a_stale_read_is_refused() -> Result<()> {
     let db = setup_db().await?;

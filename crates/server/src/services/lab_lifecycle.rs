@@ -191,7 +191,7 @@ mod tests {
 
     #[tokio::test]
     async fn lab_phase_008_a_refused_move_leaves_the_phase_as_it_was() {
-        // M3.1: a second `up` must never give back, or roll back, a lab it did not reserve.
+        // A second `up` must never give back, or roll back, a lab it did not reserve.
         let (db, _, _) = lab_of("ll-taken", 1).await;
         put_in(&db, "ll-taken", LabPhase::Ready).await;
         let second = begin("ll-taken").await;
@@ -210,7 +210,7 @@ mod tests {
 
     #[tokio::test]
     async fn lab_phase_009_a_failed_destroy_keeps_the_record_and_a_full_one_removes_it() {
-        // M6.2 and M7.3: a destroy that left something behind is visible and can be retried.
+        // A destroy that left something behind is visible and can be retried.
         let (db, _, _) = lab_of("ll-dfail", 1).await;
         let (_, destroy) =
             lab_operations::stop("ll-dfail", lab_operations::StopReason::Destroy).await;

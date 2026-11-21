@@ -5,8 +5,7 @@ one lab, `sherpa-dev`, built by the host's Sherpa from this directory. Each is a
 server, with `sherpad`, Docker and libvirt, toolchains and checkouts, and runs one guest agent on
 the [agent bus](../../../docs/architecture/AGENT_BUS.md), named as its node. Any task can go to
 either. Unlike the other environments they are not disposable: Sherpa is developed, installed and
-tested inside them with root, without `sudo` on the host. The original design and its decisions
-are in [the investigation note](../../../docs/investigations/sherpa-dev-server.md).
+tested inside them with root, without `sudo` on the host.
 
 | | dev01 | dev02 |
 |---|---|---|
@@ -61,8 +60,7 @@ the host agent. The two nodes never share a core, a cache or a memory controller
 Memory prefers the VM's own node (`numa.memory_mode = "preferred"`) and falls back to the other
 node when it is full, rather than the host OOM killer ending the VM (#514), at the cost of slower
 remote memory. `numactl -H` on the host shows each node's free memory. Other VMs on the host,
-such as the release test environments, are not pinned and can take memory on either node; see
-[the OOM investigation](../../../docs/investigations/host-memory-oom.md). On another host,
+such as the release test environments, are not pinned and can take memory on either node. On another host,
 change the `cpu`, `numa` and `boot_disk` pinning to match `lscpu -e`.
 
 ## Provisioning

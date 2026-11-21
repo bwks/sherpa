@@ -42,7 +42,8 @@ pub(crate) const TFTP_DIR_MODE: u32 = 0o705;
 pub(crate) const LAB_CERTS_DIR: &str = "certs";
 pub(crate) const LAB_CA_CERT_FILE: &str = "ca.crt";
 pub(crate) const LAB_CA_KEY_FILE: &str = "ca.key";
-/// Login shell on NixOS, which has no `/bin/bash`.
+/// Login shell on NixOS, which has no `/bin/bash`: its sshd refuses an account whose shell does
+/// not exist.
 pub(crate) const NODE_NIXOS_SHELL: &str = "/run/current-system/sw/bin/bash";
 /// RAM-backed server directory holding container secret files, under the daemon's
 /// systemd `RuntimeDirectory` (`/run/sherpa`, mode 0700).
