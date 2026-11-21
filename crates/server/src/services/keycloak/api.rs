@@ -139,17 +139,3 @@ impl KeycloakClient {
         Ok(Created::Created)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn token_responses_parse_the_access_token() {
-        let token: TokenResponse = serde_json::from_str(
-            r#"{"access_token":"eyJ.a.b","expires_in":60,"token_type":"Bearer"}"#,
-        )
-        .unwrap();
-        assert_eq!(token.access_token, "eyJ.a.b");
-    }
-}

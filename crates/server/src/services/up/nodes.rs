@@ -59,7 +59,7 @@ mod tests {
     use crate::validate::validate_and_resolve_node_versions;
 
     #[test]
-    fn talos_nodes_default_to_a_boot_disk_large_enough_for_talos() {
+    fn talos_node_001_talos_nodes_default_to_a_boot_disk_large_enough_for_talos() {
         let expanded = process_manifest_nodes(&[
             topology::Node {
                 name: "talos".into(),

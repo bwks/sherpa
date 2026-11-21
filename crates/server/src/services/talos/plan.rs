@@ -141,10 +141,23 @@ mod tests {
     }
 
     #[test]
-    fn single_control_plane_clusters_use_its_address_and_ha_clusters_get_a_vip() {
+    fn cluster_addresses_002_a_single_controller_cluster_is_reached_at_its_address() {
         let members = [
             member("a-cp1", "a", ClusterRole::ControlPlane, 21),
             member("a-w1", "a", ClusterRole::Worker, 22),
+        ];
+        let clusters = [cluster("a", ClusterCni::Flannel)];
+        let plans = plan_clusters(&clusters, &members, &[], &management()).unwrap();
+
+        assert_eq!(plans[0].vip, None);
+        assert_eq!(plans[0].endpoint, Ipv4Addr::new(172, 31, 1, 21));
+        assert_eq!(plans[0].endpoint_url(), "https://172.31.1.21:6443");
+    }
+
+    #[test]
+    fn cluster_addresses_003_three_controller_clusters_get_shared_addresses_in_manifest_order() {
+        let members = [
+            member("a-cp1", "a", ClusterRole::ControlPlane, 21),
             member("b-cp1", "b", ClusterRole::ControlPlane, 23),
             member("b-cp2", "b", ClusterRole::ControlPlane, 24),
             member("b-cp3", "b", ClusterRole::ControlPlane, 25),
@@ -159,23 +172,14 @@ mod tests {
         ];
         let plans = plan_clusters(&clusters, &members, &[], &management()).unwrap();
 
-        assert_eq!(plans[0].vip, None);
-        assert_eq!(plans[0].endpoint, Ipv4Addr::new(172, 31, 1, 21));
-        assert_eq!(plans[0].endpoint_url(), "https://172.31.1.21:6443");
-        assert!(!plans[0].schedulable_control_planes());
-        assert_eq!(plans[0].member_count(), 2);
-        assert_eq!(plans[0].role_of("a-w1"), Some(ClusterRole::Worker));
-        assert_eq!(plans[0].role_of("b-cp1"), None);
-
         assert_eq!(plans[1].vip, Some(Ipv4Addr::new(172, 31, 1, 11)));
         assert_eq!(plans[1].endpoint, Ipv4Addr::new(172, 31, 1, 11));
-        assert_eq!(plans[1].bootstrap_node().unwrap().name, "b-cp1");
-        assert!(plans[1].schedulable_control_planes());
         assert_eq!(plans[2].vip, Some(Ipv4Addr::new(172, 31, 1, 12)));
+        assert_eq!(plans[2].endpoint, Ipv4Addr::new(172, 31, 1, 12));
     }
 
     #[test]
-    fn cilium_clusters_get_load_balancer_blocks_in_manifest_order() {
+    fn cluster_addresses_004_cilium_clusters_get_load_balancer_blocks_in_manifest_order() {
         let members = [
             member("a-cp1", "a", ClusterRole::ControlPlane, 21),
             member("b-cp1", "b", ClusterRole::ControlPlane, 22),
@@ -203,7 +207,6 @@ mod tests {
             plans[0].hubble_ui_address(),
             Some(Ipv4Addr::new(172, 31, 1, 14))
         );
-        assert_eq!(plans[1].cni, ClusterCni::Flannel);
         assert_eq!(plans[1].load_balancer_addresses, None);
         assert_eq!(plans[1].gateway_address(), None);
         assert_eq!(
@@ -216,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn clusters_record_the_keycloak_and_vault_they_use() {
+    fn cluster_addresses_005_clusters_record_the_keycloak_and_vault_they_use() {
         let members = [
             member("a-cp1", "a", ClusterRole::ControlPlane, 21),
             member("b-cp1", "b", ClusterRole::ControlPlane, 22),

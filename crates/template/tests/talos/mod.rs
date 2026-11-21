@@ -159,7 +159,7 @@ fn find<'a>(documents: &'a [Value], kind: &str) -> &'a Value {
 }
 
 #[test]
-fn control_plane_config_matches_the_talos_document_set() {
+fn machine_config_001_control_plane_config_matches_the_talos_document_set() {
     let documents = render(ClusterRole::ControlPlane, None, false, None);
     let mut expected: Vec<String> = CONTROL_PLANE_KINDS
         .iter()
@@ -207,7 +207,7 @@ fn control_plane_config_matches_the_talos_document_set() {
 }
 
 #[test]
-fn worker_config_carries_no_cluster_private_keys() {
+fn machine_config_002_worker_config_carries_no_cluster_private_keys() {
     let documents = render(ClusterRole::Worker, None, false, None);
     assert_eq!(
         kinds(&documents),
@@ -248,12 +248,19 @@ fn worker_config_carries_no_cluster_private_keys() {
 }
 
 #[test]
-fn control_planes_share_a_vip_and_drop_the_taint_when_there_are_no_workers() {
-    let documents = render(ClusterRole::ControlPlane, Some("172.31.1.5"), true, None);
+fn machine_config_003_control_planes_announce_their_shared_address_on_the_management_link() {
+    let documents = render(ClusterRole::ControlPlane, Some("172.31.1.5"), false, None);
     let vip = find(&documents, "Layer2VIPConfig");
     assert_eq!(vip["name"], "172.31.1.5");
     assert_eq!(vip["link"], "eth0");
-    assert!(find(&documents, "KubeNodeConfig").get("taints").is_none());
+    let without = render(ClusterRole::ControlPlane, None, false, None);
+    assert!(!kinds(&without).iter().any(|kind| kind == "Layer2VIPConfig"));
+}
+
+#[test]
+fn machine_config_004_control_planes_are_tainted_only_when_the_cluster_has_workers() {
+    let untainted = render(ClusterRole::ControlPlane, None, true, None);
+    assert!(find(&untainted, "KubeNodeConfig").get("taints").is_none());
     let tainted = render(ClusterRole::ControlPlane, None, false, None);
     assert_eq!(
         find(&tainted, "KubeNodeConfig")["taints"]["node-role.kubernetes.io/control-plane"],
@@ -270,7 +277,7 @@ fn credentials() -> TalosClientCredentials<'static> {
 }
 
 #[test]
-fn talosconfig_targets_the_control_planes() {
+fn cluster_credentials_003_talosconfig_targets_the_control_planes() {
     let output = talosconfig(
         "k8s",
         &["172.31.1.10".to_owned(), "172.31.1.11".to_owned()],
@@ -284,6 +291,10 @@ fn talosconfig_targets_the_control_planes() {
     assert_eq!(context["endpoints"][1], "172.31.1.11");
     assert_eq!(context["nodes"][0], "172.31.1.10");
     assert_eq!(
+        shared::util::base64_decode(context["ca"].as_str().unwrap()).unwrap(),
+        "ca-pem"
+    );
+    assert_eq!(
         shared::util::base64_decode(context["crt"].as_str().unwrap()).unwrap(),
         "cert-pem"
     );
@@ -294,7 +305,7 @@ fn talosconfig_targets_the_control_planes() {
 }
 
 #[test]
-fn kubeconfig_uses_the_cluster_endpoint_and_admin_credentials() {
+fn cluster_credentials_004_kubeconfig_uses_the_cluster_endpoint_and_admin_credentials() {
     let output = kubeconfig("k8s", "https://172.31.1.5:6443", &credentials(), None).unwrap();
     let document: Value = serde_json::from_str(&output).unwrap();
     assert_eq!(document["current-context"], "admin@k8s");
@@ -310,7 +321,7 @@ fn kubeconfig_uses_the_cluster_endpoint_and_admin_credentials() {
 }
 
 #[test]
-fn cilium_control_planes_drop_flannel_and_kube_proxy() {
+fn cluster_cilium_005_cilium_control_planes_drop_flannel_and_kube_proxy() {
     let documents = render(ClusterRole::ControlPlane, None, false, Some(cilium()));
     let mut expected: Vec<String> = CONTROL_PLANE_KINDS
         .iter()
@@ -337,7 +348,7 @@ fn cilium_control_planes_drop_flannel_and_kube_proxy() {
 }
 
 #[test]
-fn flannel_control_planes_keep_kube_proxy_and_carry_no_manifests() {
+fn machine_config_005_flannel_control_planes_keep_kube_proxy_and_carry_no_manifests() {
     let documents = render(ClusterRole::ControlPlane, None, false, None);
     assert!(find(&documents, "KubeProxyConfig").get("enabled").is_none());
     assert!(documents[0]["cluster"].get("inlineManifests").is_none());
@@ -345,7 +356,7 @@ fn flannel_control_planes_keep_kube_proxy_and_carry_no_manifests() {
 }
 
 #[test]
-fn cilium_workers_are_unchanged() {
+fn cluster_cilium_006_cilium_workers_are_unchanged() {
     assert_eq!(
         render(ClusterRole::Worker, None, false, Some(cilium())),
         render(ClusterRole::Worker, None, false, None)
@@ -353,7 +364,7 @@ fn cilium_workers_are_unchanged() {
 }
 
 #[test]
-fn cilium_is_installed_by_a_job_on_a_control_plane_host_network() {
+fn cluster_cilium_007_cilium_is_installed_by_a_job_on_a_control_plane_host_network() {
     let documents = render(ClusterRole::ControlPlane, None, false, Some(cilium()));
     let resources = inline_manifest(&documents, "cilium-install");
     let kinds: Vec<&str> = resources
@@ -391,7 +402,7 @@ fn cilium_is_installed_by_a_job_on_a_control_plane_host_network() {
 }
 
 #[test]
-fn cilium_announces_its_load_balancer_block_on_the_management_link() {
+fn cluster_cilium_008_cilium_announces_its_load_balancer_block_on_the_management_link() {
     let documents = render(ClusterRole::ControlPlane, None, false, Some(cilium()));
     let resources = inline_manifest(&documents, "cilium-load-balancer");
     assert_eq!(resources[0]["kind"], "CiliumLoadBalancerIPPool");
@@ -403,7 +414,7 @@ fn cilium_announces_its_load_balancer_block_on_the_management_link() {
 }
 
 #[test]
-fn cilium_clusters_get_a_gateway_and_a_hubble_ui_address() {
+fn cluster_cilium_009_cilium_clusters_get_a_gateway_and_a_hubble_ui_address() {
     let documents = render(ClusterRole::ControlPlane, None, false, Some(cilium()));
     let resources = inline_manifest(&documents, "cilium-gateway");
     let gateway = &resources[0];
@@ -421,7 +432,7 @@ fn cilium_clusters_get_a_gateway_and_a_hubble_ui_address() {
 }
 
 #[test]
-fn clusters_without_keycloak_have_no_jwt_authenticator() {
+fn cluster_oidc_005_clusters_without_keycloak_have_no_jwt_authenticator() {
     let documents = render(ClusterRole::ControlPlane, None, false, None);
     assert_eq!(
         find(&documents, "KubeAuthenticationConfig")["configuration"]["jwt"],
@@ -430,7 +441,7 @@ fn clusters_without_keycloak_have_no_jwt_authenticator() {
 }
 
 #[test]
-fn keycloak_clusters_accept_realm_tokens_with_prefixed_names() {
+fn cluster_oidc_003_keycloak_clusters_accept_realm_tokens_with_prefixed_names() {
     let documents = render_with_keycloak_and_vault();
     let jwt = &find(&documents, "KubeAuthenticationConfig")["configuration"]["jwt"][0];
     assert_eq!(
@@ -452,7 +463,7 @@ fn keycloak_clusters_accept_realm_tokens_with_prefixed_names() {
 }
 
 #[test]
-fn keycloak_groups_are_bound_to_cluster_roles() {
+fn cluster_oidc_004_keycloak_groups_are_bound_to_cluster_roles() {
     let documents = render_with_keycloak_and_vault();
     let bindings: Vec<(String, String)> = inline_manifest(&documents, "sherpa-oidc-rbac")
         .iter()
@@ -473,7 +484,7 @@ fn keycloak_groups_are_bound_to_cluster_roles() {
 }
 
 #[test]
-fn vault_clusters_install_the_operator_connected_to_their_vault() {
+fn cluster_vault_002_vault_clusters_install_the_operator_connected_to_their_vault() {
     let documents = render_with_keycloak_and_vault();
     let resources = inline_manifest(&documents, "vault-secrets-operator-install");
     let secret = find(&resources, "Secret");
@@ -503,7 +514,7 @@ fn vault_clusters_install_the_operator_connected_to_their_vault() {
 }
 
 #[test]
-fn keycloak_and_vault_leave_flannel_clusters_without_extra_manifests() {
+fn machine_config_009_keycloak_and_vault_leave_flannel_clusters_without_extra_manifests() {
     let documents = render_with_keycloak_and_vault();
     assert!(documents[0]["cluster"].get("extraManifests").is_none());
     assert_eq!(
@@ -517,7 +528,7 @@ fn keycloak_and_vault_leave_flannel_clusters_without_extra_manifests() {
 }
 
 #[test]
-fn keycloak_clusters_get_an_oidc_login_context() {
+fn cluster_credentials_005_keycloak_clusters_get_an_oidc_login_context() {
     let output = kubeconfig(
         "k8s",
         "https://172.31.1.5:6443",

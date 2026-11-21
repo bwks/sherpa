@@ -355,13 +355,9 @@ mod tests {
     }
 
     #[test]
-    fn test_talos_vips_are_in_the_control_plane_block() {
+    fn cluster_addresses_006_cluster_addresses_lie_between_the_infrastructure_and_the_nodes() {
         assert!(MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS.contains(TALOS_VIP_HOST_OFFSETS.start()));
         assert!(MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS.contains(TALOS_VIP_HOST_OFFSETS.end()));
-    }
-
-    #[test]
-    fn test_talos_load_balancer_blocks_follow_the_vips_in_the_control_plane_block() {
         assert_eq!(
             *TALOS_VIP_HOST_OFFSETS.end() + 1,
             *TALOS_LOAD_BALANCER_HOST_OFFSETS.start()

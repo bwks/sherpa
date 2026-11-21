@@ -876,6 +876,8 @@ fn exited_container_error(
 
 #[cfg(test)]
 mod tests {
+    use topology::TalosCluster;
+
     use super::*;
 
     fn exit(exit_code: Option<i64>, log_tail: Option<&str>) -> ContainerExit {
@@ -1021,8 +1023,22 @@ mod tests {
     }
 
     #[test]
-    fn test_talos_worker_is_ready_before_polling() {
-        assert!(skips_readiness_before_polling(false, false, true));
+    fn cluster_bootstrap_006_only_a_cluster_worker_skips_the_talos_api_port_wait() {
+        let clusters = [TalosCluster {
+            name: "k8s".to_owned(),
+            controllers: vec!["cp1".to_owned(), "cp2".to_owned(), "cp3".to_owned()],
+            workers: vec!["w1".to_owned()],
+            ..TalosCluster::default()
+        }];
+        for (node, waits_for_kubernetes) in [("w1", true), ("cp1", false), ("standalone", false)] {
+            let cluster_worker = talos::readiness_waits_for_kubernetes(&clusters, node);
+            assert_eq!(cluster_worker, waits_for_kubernetes, "{node}");
+            assert_eq!(
+                skips_readiness_before_polling(false, false, cluster_worker),
+                waits_for_kubernetes,
+                "{node}"
+            );
+        }
     }
 
     #[test]

@@ -503,29 +503,52 @@ mod tests {
     }
 
     #[test]
-    fn talos_nodes_shut_down_through_the_api_of_their_loaded_cluster() {
+    fn cluster_shutdown_003_members_shut_down_through_the_talos_api_of_their_cluster() {
         let talos = ModelKind::default_for(NodeModel::TalosLinux).node_config();
         let clusters = Ok(clusters());
 
-        let (method, role) = shutdown_method(&clusters, "w1", &talos);
-        let ShutdownMethod::TalosApi { cluster, address } = method else {
-            panic!("w1 does not shut down through the Talos API");
-        };
-        assert_eq!(cluster.plan.name, "ha");
-        assert_eq!(address, Ipv4Addr::new(172, 31, 1, 24));
-        assert_eq!(role, Some(ClusterRole::Worker));
-
-        let (method, role) = shutdown_method(&clusters, "cp1", &talos);
-        assert!(matches!(method, ShutdownMethod::TalosApi { .. }));
-        assert_eq!(role, Some(ClusterRole::ControlPlane));
-
-        let (method, role) = shutdown_method(&clusters, "loose", &talos);
-        assert!(matches!(method, ShutdownMethod::PowerOff(TALOS_POWER_OFF)));
-        assert_eq!(role, None);
+        for (node, expected_role, expected_address) in [
+            ("w1", ClusterRole::Worker, Ipv4Addr::new(172, 31, 1, 24)),
+            (
+                "cp1",
+                ClusterRole::ControlPlane,
+                Ipv4Addr::new(172, 31, 1, 21),
+            ),
+        ] {
+            let (method, role) = shutdown_method(&clusters, node, &talos);
+            let ShutdownMethod::TalosApi { cluster, address } = method else {
+                panic!("{node} does not shut down through the Talos API");
+            };
+            assert_eq!(cluster.plan.name, "ha", "{node}");
+            assert_eq!(address, expected_address, "{node}");
+            assert_eq!(role, Some(expected_role), "{node}");
+            assert_eq!(
+                shutdown_route(NodeKind::VirtualMachine, NodeModel::TalosLinux, role),
+                Route::TalosApi,
+                "{node}"
+            );
+        }
     }
 
     #[test]
-    fn talos_nodes_power_off_when_the_clusters_cannot_be_loaded() {
+    fn talos_node_002_a_talos_node_in_no_cluster_is_powered_off_with_the_reason() {
+        let talos = ModelKind::default_for(NodeModel::TalosLinux).node_config();
+        let clusters = Ok(clusters());
+
+        let (method, role) = shutdown_method(&clusters, "loose", &talos);
+        let ShutdownMethod::PowerOff(reason) = method else {
+            panic!("a Talos node in no cluster is not powered off");
+        };
+        assert!(reason.contains("not in a Sherpa-built cluster"), "{reason}");
+        assert_eq!(role, None);
+        assert_eq!(
+            shutdown_route(NodeKind::VirtualMachine, NodeModel::TalosLinux, None),
+            Route::PowerOff(reason)
+        );
+    }
+
+    #[test]
+    fn cluster_shutdown_004_talos_nodes_power_off_when_the_clusters_cannot_be_loaded() {
         let talos = ModelKind::default_for(NodeModel::TalosLinux).node_config();
         let ubuntu = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         let clusters = Err("secrets are missing".to_owned());
@@ -570,24 +593,6 @@ mod tests {
         assert_eq!(
             shutdown_route(NodeKind::Container, NodeModel::Generic, None),
             Route::Pause
-        );
-    }
-
-    /// Left for the Talos spec.
-    #[test]
-    fn talos_nodes_are_routed_by_cluster_role() {
-        let vm = NodeKind::VirtualMachine;
-        assert_eq!(
-            shutdown_route(vm, NodeModel::TalosLinux, Some(ClusterRole::Worker)),
-            Route::TalosApi
-        );
-        assert_eq!(
-            shutdown_route(vm, NodeModel::TalosLinux, Some(ClusterRole::ControlPlane)),
-            Route::TalosApi
-        );
-        assert_eq!(
-            shutdown_route(vm, NodeModel::TalosLinux, None),
-            Route::PowerOff(TALOS_POWER_OFF)
         );
     }
 
