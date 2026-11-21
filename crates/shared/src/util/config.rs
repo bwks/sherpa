@@ -118,7 +118,7 @@ mod tests {
     }
 
     #[test]
-    fn tailscale_config_rejects_malformed_and_unknown_settings() {
+    fn tailnet_settings_002_a_wrong_type_unknown_setting_or_negative_timeout_is_refused_on_load() {
         for extra in [
             "[tailscale]\nexec_timeout_secs='slow'",
             "[tailscale]\nexec_timeout_sec=10",

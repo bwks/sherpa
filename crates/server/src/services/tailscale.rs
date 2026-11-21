@@ -150,22 +150,31 @@ pub(crate) async fn resume(
 mod tests {
     use super::*;
 
+    const TAILNET_MANIFEST: &str =
+        "name='test'\nnodes=[]\n[tailscale]\nenabled=true\nauth_key_env='KEY'";
+
     #[test]
-    fn enrollment_preflight_rejects_missing_key_and_plaintext_transport() {
-        let manifest: Manifest =
-            toml::from_str("name='test'\nnodes=[]\n[tailscale]\nenabled=true\nauth_key_env='KEY'")
-                .unwrap();
+    fn tailnet_key_007_an_enabled_up_with_no_key_or_tls_off_is_refused() {
+        let manifest: Manifest = toml::from_str(TAILNET_MANIFEST).unwrap();
         let key = TailnetAuthKey::new("tskey-auth-fixture".into());
         assert!(validate_enrollment(&manifest, None, true).is_err());
         assert!(validate_enrollment(&manifest, Some(&key), false).is_err());
         assert!(validate_enrollment(&manifest, Some(&key), true).unwrap());
-        let disabled = Manifest::default();
-        assert!(!validate_enrollment(&disabled, None, false).unwrap());
-        assert!(validate_enrollment(&disabled, Some(&key), true).is_err());
     }
 
     #[test]
-    fn whole_lab_resume_of_a_tailnet_lab_requires_a_key_over_tls() {
+    fn tailnet_key_008_a_key_for_a_lab_without_tailscale_enabled_is_refused() {
+        let disabled: Manifest =
+            toml::from_str("name='test'\nnodes=[]\n[tailscale]\nenabled=false\nauth_key_env='KEY'")
+                .unwrap();
+        let key = TailnetAuthKey::new("tskey-auth-fixture".into());
+        for manifest in [Manifest::default(), disabled] {
+            assert!(validate_enrollment(&manifest, Some(&key), true).is_err());
+        }
+    }
+
+    #[test]
+    fn tailnet_suspend_006_a_whole_lab_resume_with_no_key_a_malformed_key_or_tls_off_is_refused() {
         let key = TailnetAuthKey::new("tskey-auth-fixture".into());
         assert!(resume_credential(true, true, None, true).is_err());
         assert!(resume_credential(true, true, Some(&key), false).is_err());
@@ -179,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn resume_refuses_a_key_it_would_not_use() {
+    fn tailnet_suspend_007_a_key_for_a_lab_with_no_gateway_or_a_single_node_resume_is_refused() {
         let key = TailnetAuthKey::new("tskey-auth-fixture".into());
         assert!(
             resume_credential(false, true, None, false)

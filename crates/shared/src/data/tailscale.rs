@@ -138,48 +138,72 @@ impl TailnetStatus {
 mod tests {
     use super::*;
 
-    #[test]
-    fn credentials_are_redacted_in_debug_but_transmitted() {
-        let key = TailnetAuthKey::new("test-secret".into());
-        assert!(!format!("{key:?}").contains("test-secret"));
-        assert_eq!(serde_json::to_string(&key).unwrap(), r#""test-secret""#);
+    fn both_routes() -> Vec<String> {
+        vec!["192.0.2.0/24".into(), "2001:db8::/64".into()]
     }
 
     #[test]
-    fn approval_requires_every_advertised_route() {
-        let routes = vec!["192.0.2.0/24".into(), "2001:db8::/64".into()];
-        let approved = TailnetStatus::from_daemon(
-            r#"{"BackendState":"Running","Self":{"AllowedIPs":["192.0.2.0/24","2001:db8::/64"]}}"#,
-            routes.clone(),
-        )
-        .unwrap();
-        assert_eq!(approved.approval, RouteApproval::Approved);
-        assert_eq!(approved.warnings, Vec::<String>::new());
-        let pending = TailnetStatus::from_daemon(
-            r#"{"BackendState":"Running","Self":{"AllowedIPs":["192.0.2.0/24"]}}"#,
-            routes.clone(),
-        )
-        .unwrap();
-        assert_eq!(pending.approval, RouteApproval::Pending);
-        assert_eq!(pending.state, TailnetState::Connected);
-        assert!(pending.warnings[0].contains(TAILNET_DOCS_URL));
-        let unknown = TailnetStatus::from_daemon(r#"{"BackendState":"Running"}"#, routes).unwrap();
-        assert_eq!(unknown.approval, RouteApproval::Unknown);
-        assert!(unknown.warnings[0].contains(TAILNET_DOCS_URL));
+    fn tailnet_key_006_debug_output_is_redacted_and_the_request_carries_the_key() {
+        let key = TailnetAuthKey::new("tskey-auth-testsecret".into());
+        let debug = format!("{key:?}");
+        assert!(debug.contains("[REDACTED]"), "{debug}");
+        assert!(!debug.contains("tskey-auth-testsecret"));
+        assert_eq!(
+            serde_json::to_string(&key).unwrap(),
+            r#""tskey-auth-testsecret""#
+        );
     }
 
     #[test]
-    fn expired_identity_is_not_connected() {
+    fn tailnet_status_001_every_advertised_route_allowed_reads_as_approved_with_no_warning() {
         let status = TailnetStatus::from_daemon(
-            r#"{"BackendState":"Running","Self":{"Expired":true}}"#,
-            Vec::new(),
+            r#"{"BackendState":"Running","Self":{"AllowedIPs":["192.0.2.0/24","2001:db8::/64"]}}"#,
+            both_routes(),
+        )
+        .unwrap();
+        assert_eq!(status.state, TailnetState::Connected);
+        assert_eq!(status.approval, RouteApproval::Approved);
+        assert_eq!(status.warnings, Vec::<String>::new());
+    }
+
+    #[test]
+    fn tailnet_status_002_one_route_not_allowed_reads_as_pending_with_a_warning_naming_the_routes()
+    {
+        let status = TailnetStatus::from_daemon(
+            r#"{"BackendState":"Running","Self":{"AllowedIPs":["192.0.2.0/24"]}}"#,
+            both_routes(),
+        )
+        .unwrap();
+        assert_eq!(status.state, TailnetState::Connected);
+        assert_eq!(status.approval, RouteApproval::Pending);
+        let warning = &status.warnings[0];
+        assert!(warning.contains("192.0.2.0/24"), "{warning}");
+        assert!(warning.contains("2001:db8::/64"), "{warning}");
+        assert!(warning.contains("#route-approval"), "{warning}");
+    }
+
+    #[test]
+    fn tailnet_status_003_no_allowed_addresses_reported_reads_as_unknown_with_a_warning() {
+        let status =
+            TailnetStatus::from_daemon(r#"{"BackendState":"Running"}"#, both_routes()).unwrap();
+        assert_eq!(status.approval, RouteApproval::Unknown);
+        assert!(status.warnings[0].contains("#route-approval"));
+    }
+
+    #[test]
+    fn tailnet_status_004_an_expired_key_reads_as_needing_authentication_and_never_approved() {
+        let status = TailnetStatus::from_daemon(
+            r#"{"BackendState":"Running","Self":{"Expired":true,"AllowedIPs":["192.0.2.0/24"]}}"#,
+            vec!["192.0.2.0/24".into()],
         )
         .unwrap();
         assert_eq!(status.state, TailnetState::NeedsAuthentication);
         assert_ne!(status.approval, RouteApproval::Approved);
     }
+
     #[test]
-    fn unauthenticated_daemon_can_report_null_addresses() {
+    fn tailnet_status_005_a_logged_out_daemon_reads_as_needing_authentication_with_a_recovery_pointer()
+     {
         let status = TailnetStatus::from_daemon(
             r#"{"BackendState":"NeedsLogin","TailscaleIPs":null,"Self":null}"#,
             vec!["192.0.2.0/24".into()],

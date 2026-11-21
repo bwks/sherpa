@@ -200,9 +200,9 @@
 - Resolved manifests use TOML; redeploy can still read legacy JSON `[unit]` **P0**
 
 Container-local Docker API mock tests cover lifecycle failures without a real daemon.
-The ignored `live_gateway_daemon_smoke` exercises dual-stack gateway startup,
-forwarding restrictions, secret stdin delivery, restart, and cleanup. The ignored
-`live_tailnet_enrollment_stop_reenroll_cleanup` requires an explicitly supplied test
+The ignored `tailnet_routes_002`, `tailnet_key_009` and `tailnet_suspend_010` exercise
+dual-stack gateway startup, forwarding restrictions, secret stdin delivery and restart. The
+ignored `tailnet_join_003` and `tailnet_suspend_003` require an explicitly supplied test
 tailnet credential. See [Tailscale setup](../../../docs/TAILNET.md) for configuration
 and [Tailscale testing](../integration/tailscale.md) for commands, prerequisites,
 mixed VM/container acceptance, and cleanup-retry checks.

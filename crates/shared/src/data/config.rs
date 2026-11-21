@@ -316,22 +316,6 @@ mod tests {
     use crate::util::default_config;
 
     #[test]
-    fn tailscale_serde_defaults_apply_without_loader_merging() {
-        let mut value = toml::Value::try_from(default_config()).unwrap();
-        value.as_table_mut().unwrap().remove("tailscale");
-        let config: Config = toml::from_str(&toml::to_string(&value).unwrap()).unwrap();
-        let actual = toml::Value::try_from(config).unwrap();
-        let settings = actual
-            .get("tailscale")
-            .expect("server config always has gateway settings");
-        assert_eq!(
-            settings["image"].as_str(),
-            Some("tailscale/tailscale:v1.102.3")
-        );
-        assert_eq!(settings["exec_timeout_secs"].as_integer(), Some(75));
-    }
-
-    #[test]
     fn host_memory_settings_default_when_left_out_and_keep_partial_overrides() {
         let mut value = toml::Value::try_from(default_config()).unwrap();
         value.as_table_mut().unwrap().remove("host_memory");

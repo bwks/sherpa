@@ -26,8 +26,8 @@ and command/stop timeout overrides.
 ## Live enrollment in the test environments
 
 The code suite in [`tests/environments/`](../../environments/README.md) always runs
-`live_gateway_daemon_smoke`. It runs `live_tailnet_enrollment_stop_reenroll_cleanup` when the
-run starts with `SHERPA_TEST_TAILSCALE_AUTH_KEY` set on the host, and skips it otherwise. The
+the gateway daemon tests (`tailnet_routes_002`, `tailnet_key_009`, `tailnet_suspend_010`). It
+runs the live enrollment tests (`tailnet_join_003`, `tailnet_suspend_003`) when the run starts with `SHERPA_TEST_TAILSCALE_AUTH_KEY` set on the host, and skips it otherwise. The
 key travels in the run's settings file, never in TOML configuration or on a command line, and
 is redacted from the logs. The harness creates the disposable Docker network, sets
 `SHERPA_TEST_TAILSCALE_NETWORK`, `_IPV4` and `_ROUTES` for the container tests only, and
@@ -40,17 +40,17 @@ On a Linux host with Docker, TUN, and nftables support, run this from the Rust
 source repository after the formatting and linting checks above:
 
 ```bash
-cargo test -p container live_gateway_daemon_smoke -- --ignored --nocapture
+cargo test -p container -- --ignored --nocapture tailnet_routes_002 tailnet_key_009 tailnet_suspend_010
 ```
 
-No Tailscale credential is needed. The test creates and removes a disposable
-network, gateway, and volume, and checks IPv4/IPv6 forwarding restrictions,
-credential delivery, stop, restart, and cleanup. The configured image is pulled if absent.
+No Tailscale credential is needed. Each test creates and removes a disposable
+network, gateway, and volume; they check IPv4/IPv6 forwarding restrictions,
+credential delivery, and restart. The configured image is pulled if absent.
 
 Both Docker tests use the standard server configuration defaults unless
 `SHERPA_TEST_SERVER_CONFIG` names a complete server `sherpa.toml` file. To verify
 overrides, point it at a disposable configuration with a different `socket_path`
-and run the smoke test again. The test requires the chosen image to include
+and run the daemon tests again. They require the chosen image to include
 `tailscaled`, `tailscale`, and the existing nftables tools.
 
 ## Live Enrollment Test
@@ -70,12 +70,11 @@ Set these environment variables in the shell running the test:
 After formatting and linting pass, run:
 
 ```bash
-cargo test -p container live_tailnet_enrollment_stop_reenroll_cleanup -- --ignored --nocapture
+cargo test -p container -- --ignored --nocapture tailnet_join_003 tailnet_suspend_003
 ```
 
-The test checks enrollment, repeated stop, resume with unchanged Tailscale
-addresses, and repeated cleanup. It removes its gateway and identity volume;
-the supplied Docker network remains. Use this only with disposable test resources.
+The tests check enrollment, and stop and enrollment again. They take turns on the one gateway
+address, and each removes its gateway and identity volume; the supplied Docker network remains. Use this only with disposable test resources.
 
 ## Manual Lab Acceptance
 
