@@ -1,13 +1,14 @@
 use anyhow::{Context, Result, bail, ensure};
 use bollard::Docker;
 use bollard::query_parameters::{InspectContainerOptions, ListNetworksOptions};
+use bollard::secret::ContainerStateStatusEnum;
 use db::DefaultRequest;
 use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Secret, Session};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
 use shared::data::{
-    ContainerSettings, DbUser, KindSettings, LabNodeActionResponse, LabPhase, LabState, ModelKind,
-    NodeConfig, NodeKind, NodeModel, NodeState, ZtpSettings,
+    ContainerNetworkAttachment, ContainerSettings, DbUser, KindSettings, LabNodeActionResponse,
+    LabPhase, LabState, ModelKind, NodeConfig, NodeKind, NodeModel, NodeState, ZtpSettings,
 };
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
@@ -1972,4 +1973,338 @@ async fn access_control_002_only_the_labs_owner_can_redeploy_over_rpc_and_http()
         db::delete_lab_from(&server.db, &lab_id, LabPhase::Ready).await?;
     }
     Ok(())
+}
+
+// ── Stopping an operation ──
+
+/// A port nothing in an alpine container answers on.
+const UNANSWERED_PORT: u16 = 9;
+/// How long a test waits for a cancelled operation, and for its node to be started.
+const CANCEL_TIMEOUT: Duration = Duration::from_mins(5);
+
+/// A lab of one sleeping `generic` container, `box1`, with `ready_check` and a lab
+/// `ready_timeout` of `ready_timeout` seconds.
+fn waiting_container_lab(
+    lab_name: &str,
+    ready_check: &serde_json::Value,
+    ready_timeout: u64,
+) -> serde_json::Value {
+    json!({
+        "name": lab_name,
+        "ready_timeout": ready_timeout,
+        "nodes": [
+            { "name": "box1", "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] }, "interfaces": { "data_count": 0 }, "ready_check": ready_check },
+        ]
+    })
+}
+
+/// A server with the alpine `generic` image, a client logged in as the lab admin with its
+/// token, and a second client to cancel with.
+async fn cancel_server() -> Result<(TestServer, TestWsClient, TestWsClient, String)> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let second = TestWsClient::connect(&server).await?;
+    let token = ws.login_lab_admin(&server).await?;
+    bootstrap_images(&mut ws, &token).await?;
+    register_alpine(&server).await?;
+    Ok((server, ws, second, token))
+}
+
+/// Wait until node `name` of lab `lab_id` is recorded `Starting`: started, and its ready check
+/// waited for. The lab may not be recorded yet.
+async fn wait_until_starting(server: &TestServer, lab_id: &str, name: &str) -> Result<()> {
+    let start = Instant::now();
+    loop {
+        if let Ok(states) = node_states(server, lab_id).await
+            && states.get(name) == Some(&NodeState::Starting)
+        {
+            return Ok(());
+        }
+        if start.elapsed() > CANCEL_TIMEOUT {
+            bail!("node {name} was not recorded starting within {CANCEL_TIMEOUT:?}");
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+/// Wait until Docker reports container `name` in `status`.
+async fn wait_for_container(
+    docker: &Docker,
+    name: &str,
+    status: ContainerStateStatusEnum,
+) -> Result<()> {
+    let start = Instant::now();
+    while container::container_status(docker, name).await? != Some(status) {
+        if start.elapsed() > CANCEL_TIMEOUT {
+            bail!("container {name} was not {status} within {CANCEL_TIMEOUT:?}");
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    Ok(())
+}
+
+/// Send `cancel` for lab `lab_id` and return the answer, which comes once the stopped
+/// operation has ended.
+async fn cancel(ws: &mut TestWsClient, token: &str, lab_id: &str) -> Result<serde_json::Value> {
+    let (_, answer) = ws
+        .rpc_call_streaming(
+            "cancel",
+            json!({ "token": token, "lab_id": lab_id }),
+            CANCEL_TIMEOUT,
+        )
+        .await?;
+    Ok(answer)
+}
+
+/// The Docker containers and networks of lab `lab_id`, by name.
+async fn docker_leftovers(docker: &Docker, lab_id: &str) -> Result<Vec<String>> {
+    let suffix = format!("-{lab_id}");
+    let mut leftovers: Vec<String> = container::list_containers(docker)
+        .await?
+        .into_iter()
+        .flat_map(|container| container.names.unwrap_or_default())
+        .map(|name| name.trim_start_matches('/').to_owned())
+        .filter(|name| name.ends_with(&suffix))
+        .collect();
+    leftovers.extend(
+        docker
+            .list_networks(None::<ListNetworksOptions>)
+            .await?
+            .into_iter()
+            .filter_map(|network| network.name)
+            .filter(|name| name.ends_with(&suffix)),
+    );
+    Ok(leftovers)
+}
+
+/// Start a container that is not the lab's on a Docker network of lab `lab_id`, so that network
+/// cannot be removed while it runs. Returns the container's name.
+async fn block_a_lab_network(docker: &Docker, lab_id: &str) -> Result<String> {
+    let suffix = format!("-{lab_id}");
+    let network = docker
+        .list_networks(None::<ListNetworksOptions>)
+        .await?
+        .into_iter()
+        .filter_map(|network| network.name)
+        .find(|name| name.ends_with(&suffix))
+        .context("the lab has no Docker network")?;
+    let name = format!("sherpa-test-{lab_id}-blocker");
+    container::run_container(
+        docker,
+        container::ContainerSpec {
+            name: name.clone(),
+            hostname: None,
+            image: "alpine:latest".to_owned(),
+            env_vars: vec![],
+            volumes: vec![],
+            capabilities: vec![],
+            management_network: ContainerNetworkAttachment {
+                name: network,
+                ipv4_address: None,
+                ipv6_address: None,
+                linux_interface_name: None,
+                admin_down: false,
+            },
+            additional_networks: vec![],
+            commands: vec!["sleep".to_owned(), "600".to_owned()],
+            privileged: false,
+            shm_size: None,
+            user: None,
+            memory_mib: None,
+            cpu_count: None,
+        },
+    )
+    .await?;
+    Ok(name)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn lab_cancel_004_a_cancelled_up_leaves_nothing_of_the_lab_and_is_answered_once_it_is_gone()
+-> Result<()> {
+    let (server, mut ws, mut second, token) = cancel_server().await?;
+    let docker = Docker::connect_with_local_defaults()?;
+    let lab_name = format!("xa{:06}", std::process::id() % 1_000_000);
+    let manifest = waiting_container_lab(&lab_name, &json!({ "port": UNANSWERED_PORT }), 600);
+
+    let checks: Result<()> = async {
+        let up = ws.rpc_call_streaming(
+            "up",
+            json!({ "token": token, "lab_id": lab_name, "manifest": manifest }),
+            CANCEL_TIMEOUT,
+        );
+        let cancelled = async {
+            wait_until_starting(&server, &lab_name, "box1").await?;
+            let answer = cancel(&mut second, &token, &lab_name).await?;
+            // What is left the moment the answer comes.
+            let record = db::find_lab(&server.db, &lab_name).await?;
+            let leftovers = docker_leftovers(&docker, &lab_name).await?;
+            Ok::<_, anyhow::Error>((answer, record, leftovers))
+        };
+        let (up, cancelled) = tokio::join!(up, cancelled);
+        let (_, up) = up?;
+        let (answer, record, leftovers) = cancelled?;
+        ensure!(
+            up.get("error").is_some(),
+            "the cancelled up succeeded: {up}"
+        );
+        ensure!(
+            answer["result"] == json!({ "lab_id": lab_name, "stopped": true }),
+            "cancel answered {answer}"
+        );
+        ensure!(record.is_none(), "the cancelled up left the lab's record");
+        ensure!(
+            leftovers.is_empty(),
+            "the cancelled up left {leftovers:?} in Docker"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn lab_cancel_005_a_cancelled_up_whose_rollback_leaves_something_behind_is_destroy_failed()
+-> Result<()> {
+    let (server, mut ws, mut second, token) = cancel_server().await?;
+    let docker = Docker::connect_with_local_defaults()?;
+    let lab_name = format!("xb{:06}", std::process::id() % 1_000_000);
+    let manifest = waiting_container_lab(&lab_name, &json!({ "port": UNANSWERED_PORT }), 600);
+    let mut blocker = None;
+
+    let checks: Result<()> = async {
+        let up = ws.rpc_call_streaming(
+            "up",
+            json!({ "token": token, "lab_id": lab_name, "manifest": manifest }),
+            CANCEL_TIMEOUT,
+        );
+        let cancelled = async {
+            wait_until_starting(&server, &lab_name, "box1").await?;
+            blocker = Some(block_a_lab_network(&docker, &lab_name).await?);
+            cancel(&mut second, &token, &lab_name).await
+        };
+        let (up, answer) = tokio::join!(up, cancelled);
+        let (_, up) = up?;
+        let answer = answer?;
+        ensure!(
+            up.get("error").is_some(),
+            "the cancelled up succeeded: {up}"
+        );
+        ensure!(
+            answer["result"]["stopped"] == json!(true),
+            "cancel answered {answer}"
+        );
+        let phase = db::find_lab(&server.db, &lab_name)
+            .await?
+            .map(|lab| lab.phase);
+        ensure!(
+            phase == Some(LabPhase::DestroyFailed),
+            "the rollback that left a network behind left the lab {phase:?}"
+        );
+        Ok(())
+    }
+    .await;
+    if let Some(blocker) = &blocker {
+        container::kill_container(&docker, blocker).await.ok();
+        container::remove_container(&docker, blocker).await.ok();
+    }
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn lab_cancel_006_a_cancelled_resume_leaves_the_nodes_it_started_running_and_the_lab_ready()
+-> Result<()> {
+    let (server, mut ws, mut second, token) = cancel_server().await?;
+    let docker = Docker::connect_with_local_defaults()?;
+    let lab_name = format!("xc{:06}", std::process::id() % 1_000_000);
+    let container = format!("box1-{lab_name}");
+    // Up waits out the ready timeout and keeps the node; resume would wait as long.
+    let manifest = waiting_container_lab(&lab_name, &json!({ "port": UNANSWERED_PORT }), 30);
+
+    let checks: Result<()> = async {
+        lab_up(&mut ws, &token, &lab_name, &manifest, CANCEL_TIMEOUT).await?;
+        // Stopped outside Sherpa, so resume boots it and waits for its ready port.
+        container::kill_container(&docker, &container).await?;
+        wait_for_container(&docker, &container, ContainerStateStatusEnum::EXITED).await?;
+        let resume = ws.rpc_call_streaming(
+            "resume",
+            json!({ "token": token, "lab_id": lab_name }),
+            CANCEL_TIMEOUT,
+        );
+        let cancelled = async {
+            wait_for_container(&docker, &container, ContainerStateStatusEnum::RUNNING).await?;
+            cancel(&mut second, &token, &lab_name).await
+        };
+        let (resume, answer) = tokio::join!(resume, cancelled);
+        let (_, resume) = resume?;
+        let answer = answer?;
+        ensure!(
+            resume["error"].to_string().contains("stopped on request"),
+            "the resume was not stopped on request: {resume}"
+        );
+        ensure!(
+            answer["result"]["stopped"] == json!(true),
+            "cancel answered {answer}"
+        );
+        let status = container::container_status(&docker, &container).await?;
+        ensure!(
+            status == Some(ContainerStateStatusEnum::RUNNING),
+            "the started container is {status:?}"
+        );
+        let phase = db::get_lab(&server.db, &lab_name).await?.phase;
+        ensure!(phase == LabPhase::Ready, "the lab is left {phase}");
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn lab_cancel_007_a_cancelled_redeploy_says_so_fails_its_node_and_leaves_the_lab_ready()
+-> Result<()> {
+    let (server, mut ws, mut second, token) = cancel_server().await?;
+    let lab_name = format!("xd{:06}", std::process::id() % 1_000_000);
+    let manifest = waiting_container_lab(&lab_name, &json!({}), 600);
+    let waiting = waiting_container_lab(&lab_name, &json!({ "port": UNANSWERED_PORT }), 600);
+
+    let checks: Result<()> = async {
+        lab_up(&mut ws, &token, &lab_name, &manifest, CANCEL_TIMEOUT).await?;
+        let redeploy = ws.rpc_call_streaming(
+            "redeploy",
+            json!({ "token": token, "lab_id": lab_name, "node_name": "box1", "manifest": waiting }),
+            CANCEL_TIMEOUT,
+        );
+        let cancelled = async {
+            wait_until_starting(&server, &lab_name, "box1").await?;
+            cancel(&mut second, &token, &lab_name).await
+        };
+        let (redeploy, answer) = tokio::join!(redeploy, cancelled);
+        let (_, redeploy) = redeploy?;
+        let answer = answer?;
+        ensure!(
+            redeploy["error"].to_string().contains("stopped on request"),
+            "the redeploy was not stopped on request: {redeploy}"
+        );
+        ensure!(
+            answer["result"]["stopped"] == json!(true),
+            "cancel answered {answer}"
+        );
+        let states = node_states(&server, &lab_name).await?;
+        ensure!(
+            states.get("box1") == Some(&NodeState::Failed),
+            "the stopped redeploy left its node {states:?}"
+        );
+        let phase = db::get_lab(&server.db, &lab_name).await?.phase;
+        ensure!(phase == LabPhase::Ready, "the lab is left {phase}");
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
 }

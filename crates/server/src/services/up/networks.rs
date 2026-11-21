@@ -621,7 +621,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_second_up_of_a_lab_is_refused_before_it_creates_anything() {
+    async fn lab_concurrency_004_a_second_reservation_of_a_lab_being_created_is_refused() {
         // The record is the reservation, taken before anything is created, so a second `up`
         // cannot fail later and have its rollback remove the first `up`'s lab.
         let (db, alice) = database_with("alice").await;
@@ -649,11 +649,8 @@ mod tests {
         assert_eq!(lab.phase, LabPhase::Creating);
     }
 
-    #[test]
-    fn a_lab_id_another_lab_uses_is_reported_without_naming_it() {
-        let alice = RecordId::new("user", "alice".to_string());
-        let bob = RecordId::new("user", "bob".to_string());
-        let lab = |name: &str, user: &RecordId, phase: LabPhase| data::DbLab {
+    fn lab(name: &str, user: &RecordId, phase: LabPhase) -> data::DbLab {
+        data::DbLab {
             id: None,
             lab_id: "ab12cd34".to_string(),
             name: name.to_string(),
@@ -670,7 +667,32 @@ mod tests {
             client_host: None,
             client_folder: None,
             description: None,
-        };
+        }
+    }
+
+    #[test]
+    fn lab_phase_013_an_up_of_a_lab_that_is_not_ready_names_its_phase() {
+        let alice = RecordId::new("user", "alice".to_string());
+
+        let stranded = lab_id_taken(
+            "ab12cd34",
+            &lab("core", &alice, LabPhase::DestroyFailed),
+            "core",
+            Some(&alice),
+        )
+        .to_string();
+
+        assert_eq!(
+            stranded,
+            "Lab already exists and is destroy failed. Destroy the existing lab before starting \
+             it again.\n Lab name: core\n Lab id: ab12cd34"
+        );
+    }
+
+    #[test]
+    fn a_lab_id_another_lab_uses_is_reported_without_naming_it() {
+        let alice = RecordId::new("user", "alice".to_string());
+        let bob = RecordId::new("user", "bob".to_string());
 
         let redeployed = lab_id_taken(
             "ab12cd34",
@@ -682,18 +704,6 @@ mod tests {
         assert!(
             redeployed.contains("Lab already exists. Destroy the existing lab"),
             "{redeployed}"
-        );
-
-        let stranded = lab_id_taken(
-            "ab12cd34",
-            &lab("core", &alice, LabPhase::DestroyFailed),
-            "core",
-            Some(&alice),
-        )
-        .to_string();
-        assert!(
-            stranded.contains("already exists and is destroy failed"),
-            "{stranded}"
         );
 
         let collision = lab_id_taken(

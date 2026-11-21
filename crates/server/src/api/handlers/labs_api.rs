@@ -372,7 +372,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn a_dropped_handler_does_not_stop_its_operation() {
+    async fn lab_cancel_008_an_operation_whose_rest_client_disconnects_runs_to_its_end() {
         let (started_tx, started_rx) = oneshot::channel();
         let (release_tx, release_rx) = oneshot::channel::<()>();
         let (finished_tx, finished_rx) = oneshot::channel();
@@ -391,14 +391,5 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-    }
-
-    #[tokio::test]
-    async fn run_detached_returns_the_operation_result() {
-        assert_eq!(run_detached(async { Ok(7) }).await.unwrap(), 7);
-        let error = run_detached(async { Err::<(), _>(anyhow::anyhow!("boom")) })
-            .await
-            .unwrap_err();
-        assert!(error.to_string().contains("boom"));
     }
 }
