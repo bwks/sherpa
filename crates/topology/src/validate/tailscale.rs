@@ -35,19 +35,36 @@ fn valid_env_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TailscaleConfig;
+
+    fn enabled(auth_key_env: Option<&str>) -> Manifest {
+        Manifest {
+            tailscale: Some(TailscaleConfig {
+                enabled: true,
+                auth_key_env: auth_key_env.map(str::to_owned),
+            }),
+            ..Manifest::default()
+        }
+    }
 
     #[test]
-    fn environment_reference_is_a_name_not_a_secret_or_expression() {
-        for name in [
-            "",
-            "1KEY",
-            "$KEY",
-            "key-name",
-            "tskey-auth-secret",
-            "KEY=value",
-        ] {
-            assert!(!valid_env_name(name));
+    fn lab_settings_004_an_enabled_tailnet_names_the_variable_that_holds_its_key() {
+        let refused = [
+            None,
+            Some(""),
+            Some("1KEY"),
+            Some("$KEY"),
+            Some("key-name"),
+            Some("tskey-auth-secret"),
+            Some("KEY=value"),
+        ];
+        for name in refused {
+            let error = validate_tailscale(&enabled(name)).unwrap_err().to_string();
+            assert!(
+                error.contains("tailscale.auth_key_env must name an environment variable"),
+                "{name:?}: {error}"
+            );
         }
-        assert!(valid_env_name("SHERPA_TAILSCALE_KEY"));
+        validate_tailscale(&enabled(Some("SHERPA_TAILSCALE_KEY"))).unwrap();
     }
 }

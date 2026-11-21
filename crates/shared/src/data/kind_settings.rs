@@ -56,7 +56,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_first_setting_a_kind_does_not_take_is_named() {
+    fn node_settings_004_the_first_setting_the_kind_does_not_take_is_named_and_unset_ones_never() {
         let settings = [
             ("memory", true, ALL),
             ("vm", false, VM),
@@ -67,10 +67,7 @@ mod tests {
         assert_eq!(refused.map(|(key, ..)| *key), Some("container"));
         let refused = first_not_taken(NodeKind::Unikernel, &settings);
         assert_eq!(refused.map(|(key, ..)| *key), Some("container"));
-    }
 
-    #[test]
-    fn a_setting_left_unset_is_never_refused() {
         let settings = [("vm", false, VM), ("memory", true, ALL)];
         assert!(first_not_taken(NodeKind::Container, &settings).is_none());
     }

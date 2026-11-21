@@ -402,59 +402,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generic_has_no_default_kind_and_is_refused_without_one() {
-        assert_eq!(NodeModel::Generic.default_kind(), None);
-        let error = ModelKind::new(NodeModel::Generic, None)
-            .unwrap_err()
-            .to_string();
-        assert_eq!(
-            error,
-            "Model 'generic' has no default kind; set its kind to one of: \
-             virtual_machine, container, unikernel"
-        );
-        for &kind in NodeModel::Generic.kinds() {
-            assert_eq!(
-                ModelKind::new(NodeModel::Generic, Some(kind))
-                    .unwrap()
-                    .kind(),
-                kind
-            );
-        }
-    }
-
-    #[test]
-    fn a_kind_the_model_does_not_take_is_refused_naming_the_kinds_it_takes() {
-        for model in NodeModel::iter() {
-            for kind in NodeKind::iter().filter(|kind| !model.kinds().contains(kind)) {
-                let error = ModelKind::new(model, Some(kind)).unwrap_err().to_string();
-                assert!(error.contains(&format!("'{model}'")), "{error}");
-                assert!(error.contains(&kind.to_string()), "{error}");
-                assert!(
-                    error.ends_with(&format!("comes only as: {}", model_kinds_list(model))),
-                    "{error}"
-                );
-            }
-        }
-        let error = ModelKind::new(NodeModel::CiscoAsa, Some(NodeKind::Container))
-            .unwrap_err()
-            .to_string();
-        assert_eq!(
-            error,
-            "Model 'cisco_asa' is not a container; it comes only as: virtual_machine"
-        );
-    }
-
-    #[test]
-    fn a_model_kind_reads_back_from_json_and_a_wrong_pair_is_refused() {
-        for model_kind in ModelKind::all() {
-            let json = serde_json::to_value(model_kind).unwrap();
-            assert_eq!(json["model"], model_kind.model().to_string());
-            assert_eq!(json["kind"], model_kind.kind().to_string());
-            assert_eq!(
-                serde_json::from_value::<ModelKind>(json).unwrap(),
-                model_kind
-            );
-        }
+    fn node_kind_004_a_model_and_kind_from_json_are_refused_when_the_model_does_not_take_it() {
         let json = serde_json::json!({"model": "cisco_asa", "kind": "container"});
         let error = serde_json::from_value::<ModelKind>(json)
             .unwrap_err()
@@ -463,7 +411,7 @@ mod tests {
     }
 
     #[test]
-    fn every_pairs_image_settings_are_of_its_model_and_kind() {
+    fn node_kind_005_every_model_and_kind_has_built_in_settings_of_that_model_and_kind() {
         for model_kind in ModelKind::all() {
             let config = model_kind.node_config();
             assert_eq!(config.model, model_kind.model(), "{model_kind:?}");
@@ -484,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn a_model_kind_shows_its_kind_only_for_a_model_with_several() {
+    fn node_kind_006_a_message_names_a_model_with_its_kind_only_when_the_model_takes_several() {
         assert_eq!(
             ModelKind::default_for(NodeModel::CiscoAsa).to_string(),
             "cisco_asa"

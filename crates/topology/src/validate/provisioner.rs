@@ -222,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn container_provisioners_are_rejected_on_other_nodes() {
+    fn manifest_provisioners_001_a_container_provisioner_on_a_virtual_machine_is_refused() {
         for model in ["ubuntu_linux", "free_bsd", "cisco_ios"] {
             let error = format!(
                 "{:#}",
@@ -236,31 +236,14 @@ mod tests {
     }
 
     #[test]
-    fn container_secret_files_are_checked() {
-        for (files, expected) in [
-            (String::new(), "nothing to do"),
-            (secret("../token", 444), "../token"),
-            (secret("token", 448), "448"),
-            (
-                format!("{}{}", secret("token", 444), secret("token", 400)),
-                "two secret files",
-            ),
-            (
-                r#"
-                [[nodes.provisioners.files]]
-                src = " "
-                name = "token"
-                "#
-                .to_string(),
-                "empty src",
-            ),
-        ] {
-            let error = format!(
-                "{:#}",
-                validate_provisioners(&container("mongo_db", &files)).unwrap_err()
-            );
-            assert!(error.contains(expected), "{expected}: {error}");
-        }
+    fn manifest_provisioners_003_two_secret_files_with_one_name_are_refused_naming_it() {
+        let files = format!("{}{}", secret("token", 444), secret("token", 400));
+        let error = format!(
+            "{:#}",
+            validate_provisioners(&container("mongo_db", &files)).unwrap_err()
+        );
+        assert!(error.contains("two secret files"), "{error}");
+        assert!(error.contains("/run/secrets/token"), "{error}");
     }
 
     fn file(dst: &str, mode: u32) -> String {
@@ -275,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn linux_and_bsd_vms_accept_valid_provisioners() {
+    fn manifest_provisioners_005_an_ssh_provisioner_is_taken_on_linux_and_bsd_virtual_machines() {
         let provisioner = format!(
             r#"
             env_files = ["~/a.env", "b.env"]
@@ -297,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn other_nodes_are_rejected() {
+    fn manifest_provisioners_006_an_ssh_provisioner_on_any_other_node_is_refused() {
         for model in [
             "cisco_ios",
             "cisco_iol",
@@ -311,13 +294,18 @@ mod tests {
     }
 
     #[test]
-    fn a_provisioner_must_do_something() {
+    fn manifest_provisioners_002_a_provisioner_with_nothing_to_do_is_refused() {
         let error = rejection("ubuntu_linux", "");
+        assert!(error.contains("nothing to do"), "{error}");
+        let error = format!(
+            "{:#}",
+            validate_provisioners(&container("mongo_db", "")).unwrap_err()
+        );
         assert!(error.contains("nothing to do"), "{error}");
     }
 
     #[test]
-    fn file_destinations_must_be_absolute_or_home_relative() {
+    fn manifest_provisioners_008_a_dst_not_absolute_or_home_relative_of_plain_parts_is_refused() {
         for dst in [
             "token",
             "~",
@@ -338,15 +326,18 @@ mod tests {
     }
 
     #[test]
-    fn file_modes_must_be_octal_digits() {
+    fn manifest_provisioners_010_a_provisioner_file_mode_that_is_not_octal_digits_is_refused() {
         for mode in [800, 1777, 609] {
             let error = rejection("ubuntu_linux", &file("~/token", mode));
-            assert!(error.contains("mode"), "{mode}: {error}");
+            assert!(
+                error.contains("provisioner file '~/token' mode is invalid"),
+                "{mode}: {error}"
+            );
         }
     }
 
     #[test]
-    fn empty_sources_and_scripts_are_rejected() {
+    fn manifest_provisioners_004_an_empty_src_or_script_path_is_refused() {
         let error = rejection(
             "ubuntu_linux",
             r#"
@@ -356,12 +347,25 @@ mod tests {
             "#,
         );
         assert!(error.contains("src"), "{error}");
+        let error = format!(
+            "{:#}",
+            validate_provisioners(&container(
+                "mongo_db",
+                r#"
+                [[nodes.provisioners.files]]
+                src = " "
+                name = "token"
+                "#,
+            ))
+            .unwrap_err()
+        );
+        assert!(error.contains("empty src"), "{error}");
         let error = rejection("ubuntu_linux", r#"scripts = [" "]"#);
         assert!(error.contains("script"), "{error}");
     }
 
     #[test]
-    fn env_file_names_must_be_unique_on_a_node() {
+    fn manifest_provisioners_011_an_env_file_needs_a_plain_name_of_its_own_on_the_node() {
         let error = rejection(
             "ubuntu_linux",
             r#"env_files = ["~/one/dev.env", "~/two/dev.env"]"#,
@@ -374,7 +378,7 @@ mod tests {
     }
 
     #[test]
-    fn provision_concurrency_must_be_at_least_one() {
+    fn lab_settings_005_a_provision_concurrency_of_0_is_refused_and_1_is_taken() {
         let mut manifest = manifest("ubuntu_linux", r#"scripts = ["a.sh"]"#);
         manifest.provision_concurrency = Some(1);
         validate_provisioners(&manifest).unwrap();

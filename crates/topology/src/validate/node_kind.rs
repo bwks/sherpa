@@ -154,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    fn a_container_group_on_a_vm_is_refused() {
+    fn node_settings_001_a_container_group_on_a_virtual_machine_is_refused() {
         let mut vm = node(NodeModel::UbuntuLinux);
         vm.container = Some(NodeContainer::default());
         assert_eq!(
@@ -165,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    fn a_kind_the_model_does_not_take_is_refused_naming_the_kinds_it_takes() {
+    fn node_kind_003_a_kind_the_model_does_not_take_is_refused_naming_the_kinds_it_comes_as() {
         let node = manifest_node(
             r#"name = "fw1"
 model = "cisco_asa"
@@ -180,7 +180,7 @@ kind = "container""#,
     }
 
     #[test]
-    fn another_kinds_group_on_a_merged_model_says_which_kind_takes_it() {
+    fn node_settings_002_on_a_model_of_several_kinds_the_refusal_names_the_kind_that_takes_it() {
         let node = manifest_node(
             r#"name = "r1"
 model = "arista_eos"
@@ -195,7 +195,23 @@ privileged = true"#,
     }
 
     #[test]
-    fn generic_without_a_kind_is_refused() {
+    fn node_kind_001_a_node_without_kind_is_its_models_default_kind() {
+        for model in ["arista_eos", "juniper_evolved", "sonic_linux"] {
+            let node = manifest_node(&format!(
+                r#"name = "r1"
+model = "{model}""#
+            ));
+            check_node_model_kind(&node).unwrap();
+            assert_eq!(
+                NodeExpanded::new(1, &node).unwrap().model_kind.kind(),
+                NodeKind::VirtualMachine,
+                "{model}"
+            );
+        }
+    }
+
+    #[test]
+    fn node_kind_002_a_generic_node_without_a_kind_is_refused() {
         let node = manifest_node(
             r#"name = "g1"
 model = "generic""#,
@@ -215,23 +231,5 @@ kind = "{kind}""#
             check_node_model_kind(&node).unwrap();
             assert_eq!(NodeExpanded::new(1, &node).unwrap().model_kind.kind(), kind);
         }
-    }
-
-    #[test]
-    fn a_removed_model_name_is_refused_when_read_naming_its_model_and_kind() {
-        let manifest: Result<Manifest, _> = toml::from_str(
-            r#"name = "lab"
-
-[[nodes]]
-name = "r1"
-model = "arista_ceos""#,
-        );
-        let error = manifest.unwrap_err().to_string();
-        assert!(
-            error.contains(
-                r#"Unknown node model 'arista_ceos': it was renamed in 0.7.0. Use model = "arista_eos" with kind = "container"."#
-            ),
-            "{error}"
-        );
     }
 }

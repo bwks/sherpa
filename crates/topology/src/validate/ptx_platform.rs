@@ -96,31 +96,20 @@ mod tests {
     }
 
     #[test]
-    fn a_platform_on_another_model_is_refused() {
-        let image = ModelKind::default_for(NodeModel::NokiaSrlinux).node_config();
+    fn node_settings_006_a_platform_on_a_node_that_is_not_a_juniper_evolved_container_is_refused() {
+        let srlinux = ModelKind::default_for(NodeModel::NokiaSrlinux);
         let error = check_ptx_platform(
-            &node(
-                ModelKind::default_for(NodeModel::NokiaSrlinux),
-                Some(PtxPlatform::Bt),
-            ),
-            &image,
+            &node(srlinux, Some(PtxPlatform::Bt)),
+            &srlinux.node_config(),
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert!(
-            error
-                .to_string()
-                .contains("only for a juniper_evolved container"),
+            error.contains("only for a juniper_evolved container, not nokia_srlinux"),
             "{error}"
         );
-        check_ptx_platform(
-            &node(ModelKind::default_for(NodeModel::NokiaSrlinux), None),
-            &image,
-        )
-        .unwrap();
-    }
+        check_ptx_platform(&node(srlinux, None), &srlinux.node_config()).unwrap();
 
-    #[test]
-    fn a_platform_on_a_juniper_evolved_virtual_machine_is_refused() {
         let vm = ModelKind::default_for(NodeModel::JuniperEvolved);
         let error = check_ptx_platform(&node(vm, Some(PtxPlatform::Bt)), &vm.node_config())
             .unwrap_err()
@@ -134,23 +123,26 @@ mod tests {
     }
 
     #[test]
-    fn bt_takes_12_data_interfaces_and_bx_36() {
+    fn node_settings_007_a_juniper_evolved_container_takes_the_data_interfaces_of_its_platform() {
         let image = cevolved().node_config();
-        let mut bt = node(cevolved(), None);
-        bt.interfaces.data_count = Some(13);
-        let error = check_ptx_platform(&bt, &image).unwrap_err();
-        assert!(
-            error.to_string().contains("platform bt has at most 12"),
-            "{error}"
-        );
+        for (platform, most) in [
+            (None, 12),
+            (Some(PtxPlatform::Bt), 12),
+            (Some(PtxPlatform::Bx), 36),
+        ] {
+            let mut fits = node(cevolved(), platform);
+            fits.interfaces.data_count = Some(most);
+            check_ptx_platform(&fits, &image).unwrap();
 
-        let mut bx = node(cevolved(), Some(PtxPlatform::Bx));
-        bx.interfaces.data_count = Some(36);
-        check_ptx_platform(&bx, &image).unwrap();
+            let mut over = node(cevolved(), platform);
+            over.interfaces.data_count = Some(most + 1);
+            let error = check_ptx_platform(&over, &image).unwrap_err().to_string();
+            assert!(error.contains(&format!("has at most {most}")), "{error}");
+        }
     }
 
     #[test]
-    fn fewer_vcpus_or_less_memory_than_cevolved_needs_is_refused() {
+    fn node_settings_008_a_juniper_evolved_container_smaller_than_its_image_is_refused() {
         let image = cevolved().node_config();
         let mut small_cpu = node(cevolved(), None);
         small_cpu.cpu.count = Some(2);
@@ -173,16 +165,16 @@ mod tests {
     }
 
     #[test]
-    fn cevolved_memory_must_leave_room_for_the_container_overhead() {
+    fn node_settings_009_a_juniper_evolved_containers_memory_is_at_most_63487_mb() {
         let image = cevolved().node_config();
         let mut largest = node(cevolved(), None);
-        largest.memory = Some(u16::MAX - JUNIPER_EVOLVED_CONTAINER_OVERHEAD_MIB);
+        largest.memory = Some(63_487);
         check_ptx_platform(&largest, &image).unwrap();
         let mut too_large = node(cevolved(), None);
-        too_large.memory = Some(u16::MAX);
+        too_large.memory = Some(63_488);
         let error = check_ptx_platform(&too_large, &image)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("at most"), "{error}");
+        assert!(error.contains("at most 63487"), "{error}");
     }
 }

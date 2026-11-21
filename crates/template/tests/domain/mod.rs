@@ -3,7 +3,8 @@ use askama::Template;
 use shared::data::{
     BiosTypes, ConnectionTypes, CpuArchitecture, CpuModels, CpuTopology, DiskBuses, DiskCache,
     DiskDevices, DiskDrivers, DiskFormats, DiskIo, DiskTargets, Interface, InterfaceType,
-    MachineType, NodeDisk, QemuCommand, WatchdogAction,
+    MachineType, NodeBootDisk, NodeCpu, NodeDisk, NodeInterfaces, NodeNuma, NumaMemoryMode,
+    QemuCommand, WatchdogAction,
 };
 use template::{DomainTemplate, DomainTuning};
 
@@ -160,16 +161,13 @@ fn test_domain_keeps_the_qemu_arguments_of_other_models() {
 }
 
 #[test]
-fn test_domain_has_no_watchdog() {
+fn vm_tuning_024_a_domain_has_a_watchdog_only_when_its_node_sets_one() {
     // Cisco IOS images arm an i6300esb watchdog early in boot and feed it only after a long init
     // phase; when that phase outlasts the timeout, as it does on every boot under nested KVM, a
     // reset-action watchdog restarts the VM in a loop. So a VM has one only when its node asks.
     let xml = base_domain_template().render().unwrap();
     assert!(!xml.contains("<watchdog"), "{xml}");
-}
 
-#[test]
-fn test_domain_has_the_watchdog_its_node_sets() {
     let mut domain = base_domain_template();
     domain.watchdog = Some(WatchdogAction::InjectNmi);
     let xml = domain.render().unwrap();
@@ -275,7 +273,7 @@ fn test_domain_cpu_has_no_arch_element() {
 }
 
 #[test]
-fn test_domain_without_tuning_has_no_tuning_elements() {
+fn vm_tuning_017_a_domain_defined_with_no_tuning_has_no_tuning_element() {
     let xml = base_domain_template().render().expect("renders domain XML");
     for element in [
         "<cputune>",
@@ -292,7 +290,7 @@ fn test_domain_without_tuning_has_no_tuning_elements() {
 }
 
 #[test]
-fn test_domain_pins_vcpus_qemu_and_io_threads() {
+fn vm_tuning_018_pinning_gives_the_domains_vcpu_pins_emulator_pin_and_one_pinned_io_thread() {
     let mut domain = base_domain_template();
     domain.tuning = DomainTuning {
         cpu_pinning: vec![9, 25],
@@ -316,18 +314,37 @@ fn test_domain_pins_vcpus_qemu_and_io_threads() {
 }
 
 #[test]
-fn test_domain_holds_memory_on_a_numa_node() {
-    let mut domain = base_domain_template();
-    domain.tuning.numa_node = Some(1);
-    let xml = domain.render().expect("renders domain XML");
+fn vm_tuning_020_a_numa_node_holds_the_domains_memory_strictly_or_as_the_memory_mode_says() {
+    let held = |memory_mode| {
+        let numa = NodeNuma {
+            node: Some(1),
+            memory_mode,
+        };
+        let mut domain = base_domain_template();
+        domain.tuning = DomainTuning::from_node_settings(
+            &NodeCpu::default(),
+            &numa,
+            &NodeBootDisk::default(),
+            &NodeInterfaces::default(),
+            &InterfaceType::Virtio,
+        );
+        domain.render().expect("renders domain XML")
+    };
+
+    let xml = held(None);
     assert!(
         xml.contains("<numatune>\n    <memory mode='strict' nodeset='1'/>\n  </numatune>"),
+        "{xml}"
+    );
+    let xml = held(Some(NumaMemoryMode::Preferred));
+    assert!(
+        xml.contains("<numatune>\n    <memory mode='preferred' nodeset='1'/>\n  </numatune>"),
         "{xml}"
     );
 }
 
 #[test]
-fn test_domain_host_passthrough_cpu_with_topology() {
+fn vm_tuning_021_host_passthrough_and_topology_are_the_domains_cpu_mode_and_topology() {
     let mut domain = base_domain_template();
     domain.cpu_model = CpuModels::HostPassthrough;
     domain.tuning.cpu_topology = Some(CpuTopology {
@@ -344,7 +361,7 @@ fn test_domain_host_passthrough_cpu_with_topology() {
 }
 
 #[test]
-fn test_domain_disk_cache_and_io() {
+fn vm_tuning_022_boot_disk_cache_and_io_are_on_the_domains_disk_driver() {
     let mut domain = base_domain_template();
     domain.tuning.disk_cache = Some(DiskCache::None);
     domain.tuning.disk_io = Some(DiskIo::IoUring);
@@ -356,7 +373,7 @@ fn test_domain_disk_cache_and_io() {
 }
 
 #[test]
-fn test_domain_interface_queues() {
+fn vm_tuning_023_interface_queues_are_the_queue_count_of_each_virtio_interface() {
     let mut domain = base_domain_template();
     domain.interfaces.push(p2p_interface());
     domain.tuning.interface_queues = Some(4);
