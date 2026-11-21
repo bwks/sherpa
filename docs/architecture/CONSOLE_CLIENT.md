@@ -157,6 +157,8 @@ passed.
   viewer leaves, and the server's close reason ending the viewer's connection. `cli.rs` tests
   `--force` on both commands.
 - The server's side is tested where it lives; see [`SERVER.md`](SERVER.md#node-consoles).
-- The console lab test, `tests/labs/console/`, runs `sherpa console` in a pseudo-terminal
-  against an Alpine VM with no `telnet` or `ssh` on PATH, as the owner, another user and an
-  admin, and `sherpa vnc` with a scripted viewer that reads the RFB banner. See its README.
+- The console lab test, `tests/labs/console/`, a pytest module, runs `sherpa console` in a
+  pseudo-terminal against an Alpine VM with no `telnet` or `ssh` on PATH, as the owner and
+  another user, and `sherpa vnc` with a scripted viewer that reads the RFB banner, as the owner,
+  another user and an admin. An admin refused `sherpa console` is the owner login lab's. See its
+  README.

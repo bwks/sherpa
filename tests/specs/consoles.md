@@ -11,9 +11,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | With no `telnet` or `ssh` on `PATH`, the owner opens a VM's console: the connect line names the node, the lab and both escapes, the node's login prompt shows and typed text is echoed (no test with its ID yet; `tests/labs/console` shows it) | e2e |
-| 002 | `Ctrl+]` ends the console with exit code 0 and one close line, on a line of its own (no test with its ID yet; `tests/labs/console` shows it) | e2e |
-| 003 | `~.` at the start of a line ends it the same way (no test with its ID yet; `tests/labs/console` shows it) | e2e |
+| 001 | With no `telnet` or `ssh` on `PATH`, the owner opens a VM's console: the connect line names the node, the lab and both escapes, the node's login prompt shows and typed text is echoed | e2e |
+| 002 | `Ctrl+]` ends the console with exit code 0 and one close line, on a line of its own | e2e |
+| 003 | `~.` at the start of a line ends it the same way | e2e |
 | 004 | The owner opens a unikernel's serial console and reads what it prints (no test yet) | e2e |
 | 005 | The console opens in a folder made by `sherpa download`, which has no manifest (no test yet) | e2e |
 | 006 | Each console is asked for at the server the other commands use, with the same scheme, host and port, and with the lab and the node each one path segment whatever characters the name has | unit |
@@ -28,13 +28,13 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | `sherpa vnc` prints an address on `127.0.0.1`, and a viewer that connects to it gets the node's RFB banner (no test with its ID yet; `tests/labs/console` shows it) | e2e |
-| 002 | Ctrl+C stops the command with exit code 0 and its stop line (no test with its ID yet; `tests/labs/console` shows it) | e2e |
+| 001 | `sherpa vnc` prints an address on `127.0.0.1`, and a viewer that connects to it gets the node's RFB banner | e2e |
+| 002 | Ctrl+C stops the command with exit code 0 and its stop line | e2e |
 | 003 | Whatever the server refuses the console for as the command starts, not the owner, no VNC console, a node not running or not logged in, the command ends with the reason and exit code 1 | unit |
 | 004 | A server that cannot be reached as the command starts ends it, with the cause | unit |
-| 005 | Started while another session holds the console, it prints its address, says who holds it and how to take it over, and keeps listening (no test with its ID yet; `tests/labs/console` shows it) | e2e |
-| 006 | A viewer that connects while the console is held gets nothing; the command says who holds it and goes on listening (no test with its ID yet; `tests/labs/console` shows it) | e2e |
-| 007 | Once a viewer leaves, the next one gets the banner: a viewer can disconnect and connect again (no test with its ID yet; `tests/labs/console` shows it) | e2e |
+| 005 | Started while another session holds the console, it prints its address, says who holds it and how to take it over, and keeps listening | e2e |
+| 006 | A viewer that connects while the console is held gets nothing; the command says who holds it and goes on listening | e2e |
+| 007 | Once a viewer leaves, the next one gets the banner: a viewer can disconnect and connect again | e2e |
 | 008 | With `--force`, a viewer that connects takes the console over from the owner's other viewer, which is closed and told who took it (no test at this level yet) | e2e |
 | 009 | A viewer refused for a reason that asking again cannot change, the login, the owner or the node, ends the command with that reason | unit |
 | 010 | A Ctrl+C that comes just as a viewer's connection ends still stops the command | unit |
@@ -50,8 +50,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | Another user, in a folder holding a copy of the owner's lab info, is refused `sherpa console` by the server, as not the lab's owner (no test with its ID yet; `tests/labs/console` shows it) | e2e |
-| 002 | Another user and an admin are each refused `sherpa vnc` the same way, with exit code 1 and no address printed (no test with its ID yet; `tests/labs/console` shows it) | e2e |
+| 001 | Another user, in a folder holding a copy of the owner's lab info, is refused `sherpa console` by the server, as not the lab's owner | e2e |
+| 002 | Another user and an admin are each refused `sherpa vnc` the same way, with exit code 1 and no address printed | e2e |
 | 003 | A request with no token is refused with 401, for each console | integration |
 | 004 | The web UI's session cookie opens no console: a request with the owner's cookie and no bearer token is refused with 401 (no test yet) | integration |
 | 005 | A token whose session has ended opens no console (no test yet) | integration |
@@ -64,8 +64,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | A second `sherpa console` on a console in use fails at once, naming who holds it and offering `--force` (no test with its ID yet; `tests/labs/console` shows it) | e2e |
-| 002 | `--force` takes the console over, at the node's prompt, and the session taken over ends with exit code 0, saying who took it (no test with its ID yet; `tests/labs/console` shows it) | e2e |
+| 001 | A second `sherpa console` on a console in use fails at once, naming who holds it and offering `--force` | e2e |
+| 002 | `--force` takes the console over, at the node's prompt, and the session taken over ends with exit code 0, saying who took it | e2e |
 | 003 | A node's serial and VNC consoles are held apart: both are open at once (no test at this level yet) | e2e |
 | 004 | The consoles of two nodes, and of nodes of one name in two labs, are held apart | unit |
 | 005 | A session that was taken over, and ends after the new one holds the console, does not let go of the new one's | unit |
@@ -80,8 +80,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | `sherpa console` on a container fails, saying containers have no serial console and to use `sherpa ssh` (no test with its ID yet; `tests/labs/console` shows it) | e2e |
-| 002 | `sherpa vnc` on a container ends with exit code 1, saying containers have no VNC console, and prints no address (no test with its ID yet; `tests/labs/console` shows it) | e2e |
+| 001 | `sherpa console` on a container fails, saying containers have no serial console and to use `sherpa ssh` | e2e |
+| 002 | `sherpa vnc` on a container ends with exit code 1, saying containers have no VNC console, and prints no address | e2e |
 | 003 | A unikernel's VNC console is refused, pointing to `sherpa console` (no test at this level yet) | integration |
 | 004 | After down, both consoles of a node are refused as not running, saying to resume (no test at this level yet) | e2e |
 | 005 | A lab or a node that does not exist is answered not found, for each console | integration |

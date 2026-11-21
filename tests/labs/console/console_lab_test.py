@@ -1,21 +1,25 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.15"
-# dependencies = []
+# dependencies = ["pytest==9.2.0"]
 # ///
 """End-to-end test of `sherpa console` and `sherpa vnc` through the sherpa CLI (Python 3.15+,
-stdlib only).
+pytest).
 
-Brings up an Alpine VM and an Alpine container. Runs `sherpa console` on the VM in a
-pseudo-terminal, as a user does: the console is relayed by the Sherpa server over its API, with no
-system `telnet` or `ssh` on PATH. Checks the login prompt and typed input, leaving with Ctrl+] and
-with `~.`, that a second console on the same node names who holds it, that `--force` takes it over,
-that another Sherpa user and an admin are refused, and that the container is refused. Then runs
-`sherpa vnc` on the VM and connects to its local address as a VNC viewer does: the server's RFB
-banner comes back, a second `sherpa vnc` started then says who holds the console, a second viewer
-is refused while the first is connected, the console is free again once it leaves, and Ctrl+C
-stops the command; the other two accounts and the container are refused by `sherpa vnc` before it
-prints a local address. Always destroys the lab. See README.md.
+Brings up an Alpine VM and an Alpine container, and checks the e2e cases of
+tests/specs/consoles.md. `sherpa console` runs on the VM in a pseudo-terminal, as a user does: the
+console is relayed by the Sherpa server over its API, with no system `telnet` or `ssh` on PATH.
+`sherpa vnc` runs on the VM and is connected to as a VNC viewer does. The cases: the login prompt
+and typed input, leaving with Ctrl+] and with `~.`; the VNC banner, Ctrl+C, a second `sherpa vnc`
+and a second viewer while the console is held, and a viewer after the first left; another Sherpa
+user, and an admin, refused; a second console naming who holds it, and `--force`; the container
+refused both consoles. Always destroys the lab. See README.md.
+
+A pytest module: the `prepared` fixture checks the server and the accounts and writes the lab's
+manifest, the `lab` fixture brings the lab up once for the module and destroys it at the end, and
+the function fixtures `at_login`, `vnc` and `held_vnc` give a case the console it starts from and
+end it after. The cases are the `test_<case_id>_*` functions, in case order. Run as a script, it
+runs pytest on itself; `--self-test` runs the runner's own unit tests instead.
 """
 
 import argparse
@@ -36,18 +40,21 @@ from typing import NamedTuple
 import unittest
 import uuid
 
+import pytest
+
 
 LAB = Path(__file__).resolve().parent
 ROOT = LAB.parent.parent.parent
 RUNS = ROOT / ".tmp" / "lab-tests"
 VM = "alp01"
 CONTAINER = "ctr01"
-# The lab, as `render_manifest` writes it for each run under a unique name.
-NODES = (
-    {"name": VM, "model": "alpine_linux"},
-    {"name": CONTAINER, "model": "generic", "kind": "container", "image": "alpine", "version": "3.22"},
-)
-IMAGES = (("alpine_linux", None, None), ("generic", "container", "3.22"))
+# The lab, as `render_manifest` writes it for each run under a unique name. `--no-container`
+# leaves the container out.
+VM_NODE = {"name": VM, "model": "alpine_linux"}
+CONTAINER_NODE = {"name": CONTAINER, "model": "generic", "kind": "container", "image": "alpine",
+                  "version": "3.22"}
+VM_IMAGE = ("alpine_linux", None, None)
+CONTAINER_IMAGE = ("generic", "container", "3.22")
 
 # The other two accounts: a normal user and an admin, neither owning the lab. Their passwords are
 # only read from the environment.
@@ -71,16 +78,19 @@ POLL_INTERVAL = 5
 CTRL_RIGHT_BRACKET = b"\x1d"
 LOGIN_PROMPT = re.compile(rb"login: ")
 CONNECTED = f"Connected to the console of {VM} in lab "
-CLOSED_AFTER_ESCAPE = f"\nConnection to the console of {VM} closed."
+CLOSED = f"Connection to the console of {VM} closed."
+CLOSED_AFTER_ESCAPE = f"\n{CLOSED}"
 TAKEN_OVER = f"Connection to the console of {VM} closed: Taken over by "
 IN_USE = f"The console of {VM} is in use by "
 CONTAINER_REFUSED = f"{CONTAINER} is a container, and containers have no serial console."
 # `sherpa vnc`: the line with the local address, the banner of QEMU's VNC server, and the messages.
-VNC_LISTENING = re.compile(rf"VNC console of {VM} in lab .+: connect a VNC viewer to (127\.0\.0\.1:\d+)\. ")
+VNC_LISTENING = re.compile(rf"VNC console of {VM} in lab .+: connect a VNC viewer to (\S+:\d+)\. ")
+VNC_LOCAL_HOST = "127.0.0.1"
 # Any `sherpa vnc` listening line: a refused one must not print it.
 VNC_ADDRESS = "connect a VNC viewer to"
 RFB_BANNER = b"RFB 003.008\n"
 VNC_IN_USE = f"The VNC console of {VM} is in use by "
+VNC_VIEWER_LEFT = f"disconnected from the VNC console of {VM}."
 VNC_CONTAINER_REFUSED = f"{CONTAINER} is a container, and containers have no VNC console."
 VNC_STOPPED = f"Stopped relaying the VNC console of {VM}."
 # The exit code of a `sherpa vnc` the server refused.
@@ -91,10 +101,13 @@ VNC_TIMEOUT = 60
 DRAIN_SECONDS = 5
 # The text typed at the login prompt, checked for in the guest's echo. It is never submitted.
 TYPED = "sherpa-console-check"
+NO_CONTAINER = "--no-container: the lab has no container"
 
 
 class TestFailure(Exception):
     """A check failed; the message says which and why."""
+
+    __test__ = False
 
 
 class Outcome(NamedTuple):
@@ -125,6 +138,10 @@ def run_logged(log, label, arguments, cwd, timeout=COMMAND_TIMEOUT, env=None):
         partial = [part.decode(errors="replace") if isinstance(part, bytes) else part or ""
                    for part in (error.stdout, error.stderr)]
         outcome = Outcome(None, partial[0], f"{partial[1]}\ntimed out after {timeout}s")
+    except KeyboardInterrupt:
+        log.write(f"=== {label}: {shlex.join(arguments)}\n--- interrupted\n")
+        log.flush()
+        raise
     log.write(f"=== {label}: {shlex.join(arguments)}\n--- exit {outcome.code}\n"
               f"--- stdout\n{outcome.stdout}\n--- stderr\n{outcome.stderr}\n")
     log.flush()
@@ -143,10 +160,10 @@ def value_toml(value):
     raise TypeError(f"Unsupported TOML value: {value!r}")
 
 
-def render_manifest(name):
+def render_manifest(name, nodes):
     """The lab manifest for one run, under a unique lab name."""
     lines = [f"name = {value_toml(name)}", "", "nodes = ["]
-    lines += [f"  {value_toml(node)}," for node in NODES]
+    lines += [f"  {value_toml(node)}," for node in nodes]
     return "\n".join([*lines, "]"]) + "\n"
 
 
@@ -170,6 +187,12 @@ def drain(read, limit=DRAIN_SECONDS):
 def refused_to(lab_id):
     """What the server says to anyone but the owner of lab `lab_id` asking for a console."""
     return f"Access denied: only the owner of lab '{lab_id}' can open its consoles"
+
+
+def connected_line(lab_name):
+    """The line `sherpa console` prints once the console is open: the node, the lab and both
+    escapes."""
+    return f"{CONNECTED}{lab_name}. Escape: Ctrl+] or ~. at the start of a line."
 
 
 class Account(NamedTuple):
@@ -202,6 +225,7 @@ class Console:
         self.log = log
         self.label = label
         self.transcript = bytearray()
+        self.finished = False
         master, slave = os.openpty()
         self.master = master
         self.process = subprocess.Popen([sherpa, "console", node, *options], cwd=cwd, env=env, stdin=slave,
@@ -248,6 +272,7 @@ class Console:
             self.process.wait()
         drain(self.read)
         os.close(self.master)
+        self.finished = True
         self.log.write(f"=== {self.label}\n--- exit {code}\n--- terminal\n"
                        f"{self.text()}\n")
         self.log.flush()
@@ -265,10 +290,15 @@ class Vnc:
         self.log = log
         self.label = label
         self.output = bytearray()
+        self.finished = False
         self.process = subprocess.Popen([sherpa, "vnc", node], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         print(f"[{cwd.name}] {label}", flush=True)
-        found = self.expect(VNC_LISTENING, VNC_TIMEOUT)
+        try:
+            found = self.expect(VNC_LISTENING, VNC_TIMEOUT)
+        except TestFailure:
+            self.finish()
+            raise
         self.address = found.group(1).decode()
 
     def read(self, timeout):
@@ -329,6 +359,7 @@ class Vnc:
             self.process.wait()
         drain(self.read)
         self.process.stdout.close()
+        self.finished = True
         self.log.write(f"=== {self.label}\n--- exit {code}\n--- output\n{self.text()}\n")
         self.log.flush()
         require(code is not None, f"{self.label} did not end within {timeout}s; see {self.log.name}")
@@ -338,20 +369,31 @@ class Vnc:
         return self.output.decode(errors="replace")
 
 
-class LabRun:
-    def __init__(self, run_root, keep_failed, owner, others):
+
+# -- the lab -------------------------------------------------------------------------------------
+
+
+class Lab:
+    """The lab every case uses: its manifest written by `prepare`, brought up once by `up` and
+    always destroyed by `destroy`."""
+
+    def __init__(self, run_root, owner, user, admin, with_container):
         self.name = f"console-{run_root.name[-6:]}"
         self.directory = run_root / "lab"
         self.run_root = run_root
-        self.keep_failed = keep_failed
         self.owner = owner
-        self.others = others
+        self.user = user
+        self.admin = admin
+        self.nodes = (VM_NODE, CONTAINER_NODE) if with_container else (VM_NODE,)
+        self.with_container = with_container
         self.started = False
         self.lab_id = None
         self.log = None
         self.sherpa_path = shutil.which("sherpa")
         # Every console runs with no system `telnet` or `ssh` on PATH.
         self.console_env = {**os.environ, "PATH": path_without(*NOT_NEEDED)}
+
+    # -- commands ----------------------------------------------------------------------------
 
     def sherpa(self, label, arguments, timeout=COMMAND_TIMEOUT, check=True):
         outcome = run_logged(self.log, label, [self.sherpa_path, *arguments], self.directory, timeout,
@@ -366,89 +408,72 @@ class LabRun:
     def vnc(self, label):
         return Vnc(self.log, label, self.sherpa_path, VM, self.directory, self.console_env)
 
-    def run(self):
+    def folder_of(self, account):
+        """A folder of the account's own holding a copy of the owner's lab-info.toml, as if the
+        owner's lab folder had been copied to them."""
+        directory = self.run_root / account.role
+        (directory / ".sherpa").mkdir(parents=True, exist_ok=True)
+        shutil.copy(self.directory / ".sherpa" / "lab-info.toml", directory / ".sherpa" / "lab-info.toml")
+        return directory
+
+    def as_account(self, account, label, arguments, timeout):
+        """Run `sherpa` as another account, in its folder of the lab."""
+        return run_logged(self.log, label, [self.sherpa_path, *arguments], self.folder_of(account), timeout,
+                          account.env)
+
+    # -- lifecycle ---------------------------------------------------------------------------
+
+    def prepare(self):
         self.directory.mkdir(parents=True)
-        with (self.directory / "commands.log").open("w") as self.log:
-            (self.directory / "manifest.toml").write_text(render_manifest(self.name))
-            failure = None
-            try:
-                self.up()
-                self.checks()
-            except (TestFailure, OSError, KeyError, ValueError) as error:
-                failure = error
-            except BaseException:
-                # Interrupted: never leave the lab behind, then stop.
-                self.destroy()
-                raise
-            if failure and self.keep_failed:
-                print(f"keeping failed lab {self.name} ({self.lab_id}) in {self.directory}")
-            else:
-                cleanup = self.destroy()
-                failure = failure or cleanup
-        if failure:
-            raise TestFailure(str(failure))
+        self.log = (self.directory / "commands.log").open("w")
+        (self.directory / "manifest.toml").write_text(render_manifest(self.name, self.nodes))
 
     def up(self):
         self.started = True
         outcome = self.sherpa("sherpa up", ["up"], UP_TIMEOUT, check=False)
+        # A partly created lab exits non-zero after writing lab-info.toml: record its ID first, so
+        # destroy can check the lab is gone.
         info_path = self.directory / ".sherpa" / "lab-info.toml"
         if info_path.exists():
             self.lab_id = tomllib.loads(info_path.read_text())["id"]
         require(outcome.code == 0, f"sherpa up failed (exit {outcome.code}); see {self.log.name}")
         require(self.lab_id is not None, "sherpa up wrote no .sherpa/lab-info.toml")
 
-    def checks(self):
-        self.check_container_refused()
-        for account in self.others:
-            self.check_refused_to(account)
-        first = self.open_at_login("console, taken over with --force")
-        self.check_in_use()
-        taken = self.open_at_login("console taking it over, left with Ctrl+]", ("--force",))
-        self.check_taken_over(first)
-        taken.send(CTRL_RIGHT_BRACKET)
-        self.check_closed(taken)
+    def destroy(self):
+        """Destroy the lab and check it is gone. Returns a failure, or None."""
+        if not self.started:
+            return None
+        if self.lab_id is None:
+            # `sherpa up` failed early; destroy whatever it created, found by the manifest's lab name.
+            self.sherpa("sherpa destroy (after failed up)", ["destroy", "--yes"], UP_TIMEOUT, check=False)
+            return None
+        try:
+            self.sherpa("sherpa destroy", ["destroy", "--yes"], UP_TIMEOUT)
+            inspect = self.sherpa("lab gone", ["inspect"], check=False)
+            require(inspect.code != 0, f"lab {self.lab_id} still exists after destroy")
+        except TestFailure as error:
+            return error
+        return None
 
-        second = self.open_at_login("console, left with ~.")
-        second.send(b"\r~.")
-        self.check_closed(second)
 
-        self.check_vnc_container_refused()
-        for account in self.others:
-            self.check_vnc_refused_to(account)
-        self.check_vnc()
+# -- helpers of the cases ------------------------------------------------------------------------
 
-    def check_container_refused(self):
-        outcome = self.sherpa(f"console {CONTAINER}", ["console", CONTAINER], check=False)
-        require(outcome.code != 0, f"sherpa console {CONTAINER} succeeded")
-        require(CONTAINER_REFUSED in outcome.output,
-                f"sherpa console {CONTAINER} did not say containers have no console; see {self.log.name}")
 
-    def check_refused_to(self, account):
-        """Another Sherpa account, in a folder holding a copy of the owner's lab-info.toml, is
-        refused the console by the server, before anything connects."""
-        directory = self.run_root / account.role
-        (directory / ".sherpa").mkdir(parents=True, exist_ok=True)
-        shutil.copy(self.directory / ".sherpa" / "lab-info.toml", directory / ".sherpa" / "lab-info.toml")
-        label = f"console as the {account.role} {account.username}"
-        outcome = run_logged(self.log, label, [self.sherpa_path, "console", VM], directory, CONSOLE_TIMEOUT,
-                             account.env)
-        require(outcome.code not in (0, None), f"{label} succeeded")
-        require(refused_to(self.lab_id) in outcome.output,
-                f"{label} was not refused as not the owner; see {self.log.name}")
-
-    def open_at_login(self, label, options=()):
-        """A console on the VM at its login prompt, with typed text echoed back. Enter is pressed
-        until the prompt shows, as the VM may still be booting."""
-        deadline = time.monotonic() + LOGIN_TIMEOUT
-        while True:
-            console = self.console(label, options=options)
-            try:
-                console.expect(re.compile(re.escape(CONNECTED.encode())), CONSOLE_TIMEOUT)
-                break
-            except TestFailure:
-                console.finish()
-                require(time.monotonic() < deadline, f"{label}: the console never connected")
-                time.sleep(POLL_INTERVAL)
+def open_at_login(lab, label, options=()):
+    """A console on the VM at its login prompt, with typed text echoed back. It is opened again
+    until it connects, as the server may not yet have let go of a session that just ended, and
+    Enter is pressed until the prompt shows, as the VM may still be booting."""
+    deadline = time.monotonic() + LOGIN_TIMEOUT
+    while True:
+        console = lab.console(label, options=options)
+        try:
+            console.expect(re.compile(re.escape(CONNECTED.encode())), CONSOLE_TIMEOUT)
+            break
+        except TestFailure:
+            console.finish()
+            require(time.monotonic() < deadline, f"{label}: the console never connected")
+            time.sleep(POLL_INTERVAL)
+    try:
         start = len(console.transcript)
         while True:
             console.send(b"\r")
@@ -456,117 +481,79 @@ class LabRun:
                 start = console.expect(LOGIN_PROMPT, POLL_INTERVAL, start)
                 break
             except TestFailure:
-                require(console.process.poll() is None, f"{label} ended; see {self.log.name}")
+                require(console.process.poll() is None, f"{label} ended; see {lab.log.name}")
                 require(time.monotonic() < deadline,
-                        f"{label}: no login prompt within {LOGIN_TIMEOUT}s; see {self.log.name}")
+                        f"{label}: no login prompt within {LOGIN_TIMEOUT}s; see {lab.log.name}")
         console.send(TYPED.encode())
         console.expect(re.compile(re.escape(TYPED.encode())), CONSOLE_TIMEOUT, start)
         # Clear the line, so the text is never submitted as a user name.
         console.send(b"\x15")
-        return console
+    except BaseException:
+        leave(console)
+        raise
+    return console
 
-    def check_in_use(self):
-        other = self.console("second console while one is open")
-        code = other.finish()
-        require(code != 0, "a second console on the node succeeded")
-        require(f"{IN_USE}{self.owner} " in other.text(),
-                f"a second console did not name who holds it; see {self.log.name}")
-        require("--force" in other.text(), f"a second console did not offer --force; see {self.log.name}")
 
-    def check_taken_over(self, console):
-        """The console taken over ends, with code 0, saying who took it."""
-        code = console.finish()
-        require(code == 0, f"{console.label} exited {code}; see {self.log.name}")
-        require(f"{TAKEN_OVER}{self.owner} " in console.text(),
-                f"{console.label} did not say it was taken over; see {self.log.name}")
+def leave(console):
+    """End a console a case left open, with Ctrl+], so the next case finds the console free. What
+    it shows is not checked."""
+    if console.finished:
+        return
+    if console.process.poll() is None:
+        console.send(CTRL_RIGHT_BRACKET)
+    try:
+        console.finish()
+    except TestFailure:
+        pass
 
-    def check_closed(self, console):
-        code = console.finish()
-        require(code == 0, f"{console.label} exited {code}; see {self.log.name}")
-        require(console.text().count(f"Connection to the console of {VM} closed.") == 1,
-                f"{console.label} did not print one close line; see {self.log.name}")
-        require(CLOSED_AFTER_ESCAPE in console.text(),
-                f"{console.label}: the close line did not start on a new line; see {self.log.name}")
 
-    def check_vnc(self):
-        """The owner's viewer gets the server's RFB banner; a second viewer is refused while the
-        first is connected, naming who holds the console; the console is free again once the first
-        leaves; Ctrl+C stops the command with code 0."""
-        vnc = self.vnc("sherpa vnc as the owner")
-        try:
-            first, banner = vnc.viewer()
-            require(banner == RFB_BANNER, f"the first viewer got {banner!r}, not the RFB banner; see {self.log.name}")
-            self.check_vnc_held()
-            second, refused = vnc.viewer()
-            second.close()
-            require(refused == b"", f"a second viewer got {refused!r} while the first was connected")
-            vnc.expect(re.compile(re.escape(f"{VNC_IN_USE}{self.owner} ")), VNC_TIMEOUT)
-            require(vnc.process.poll() is None, f"sherpa vnc ended after a refused viewer; see {self.log.name}")
-            first.close()
-            vnc.expect(re.compile(re.escape("disconnected from the VNC console of ")), VNC_TIMEOUT)
-            # The server lets the console go once it has the first viewer's close, a moment later.
-            deadline = time.monotonic() + VNC_TIMEOUT
-            while True:
-                again, banner = vnc.viewer()
-                again.close()
-                if banner == RFB_BANNER or time.monotonic() > deadline:
-                    break
-                time.sleep(1)
-            require(banner == RFB_BANNER, f"a viewer after the first left got {banner!r}; see {self.log.name}")
-        finally:
-            vnc.interrupt()
-            code = vnc.finish()
-        require(code == 0, f"sherpa vnc exited {code} on Ctrl+C; see {self.log.name}")
-        require(VNC_STOPPED in vnc.text(), f"sherpa vnc did not say it stopped; see {self.log.name}")
+def require_closed(lab, console):
+    """The console, left with an escape, ends with code 0 and one close line, on a new line."""
+    code = console.finish()
+    require(code == 0, f"{console.label} exited {code}; see {lab.log.name}")
+    require(console.text().count(CLOSED) == 1, f"{console.label} did not print one close line; see {lab.log.name}")
+    require(CLOSED_AFTER_ESCAPE in console.text(),
+            f"{console.label}: the close line did not start on a new line; see {lab.log.name}")
 
-    def check_vnc_held(self):
-        """A second `sherpa vnc` while a viewer holds the console is not refused: it prints its
-        address, says the console is in use by the owner, and runs until Ctrl+C."""
-        held = self.vnc("sherpa vnc while the console is held")
-        try:
-            held.expect(re.compile(re.escape(f"{VNC_IN_USE}{self.owner} ")), VNC_TIMEOUT)
-            require(held.process.poll() is None, f"sherpa vnc ended on a held console; see {self.log.name}")
-        finally:
-            held.interrupt()
-            code = held.finish()
-        require(code == 0, f"sherpa vnc on a held console exited {code} on Ctrl+C; see {self.log.name}")
 
-    def check_vnc_refused(self, label, node, cwd, env, message):
-        """`sherpa vnc` asks the server before it opens a local port: refused, it ends with
-        `message` and the refusal's exit code, and prints no address, so no viewer is needed."""
-        outcome = run_logged(self.log, label, [self.sherpa_path, "vnc", node], cwd, VNC_TIMEOUT, env)
-        require(outcome.code == VNC_REFUSED_EXIT,
-                f"{label} exited {outcome.code}, not {VNC_REFUSED_EXIT}; see {self.log.name}")
-        require(message in outcome.output, f"{label} did not say {message!r}; see {self.log.name}")
-        require(VNC_ADDRESS not in outcome.output, f"{label} printed a local address; see {self.log.name}")
+def viewer_with_banner(vnc):
+    """A viewer of `vnc` and what it got: the RFB banner, or what the last viewer got when none
+    got it within the timeout. The server lets the console go a moment after a viewer leaves, so
+    a viewer is tried again until then."""
+    deadline = time.monotonic() + VNC_TIMEOUT
+    while True:
+        viewer, banner = vnc.viewer()
+        if banner == RFB_BANNER or time.monotonic() > deadline:
+            return viewer, banner
+        viewer.close()
+        time.sleep(1)
 
-    def check_vnc_container_refused(self):
-        self.check_vnc_refused(f"vnc {CONTAINER}", CONTAINER, self.directory, self.console_env,
-                               VNC_CONTAINER_REFUSED)
 
-    def check_vnc_refused_to(self, account):
-        """Another Sherpa account is refused the VNC console by the server, as for the console."""
-        self.check_vnc_refused(f"vnc as the {account.role} {account.username}", VM,
-                               self.run_root / account.role, account.env, refused_to(self.lab_id))
+def stop(vnc):
+    """Ctrl+C a `sherpa vnc` a case left running. What it shows is not checked."""
+    if vnc.finished:
+        return
+    vnc.interrupt()
+    try:
+        vnc.finish()
+    except TestFailure:
+        pass
 
-    def destroy(self):
-        """Destroy the lab and check it is gone. Returns a failure, or None."""
-        if not self.started:
-            return None
-        try:
-            self.sherpa("sherpa destroy", ["destroy", "--yes"], UP_TIMEOUT)
-            if self.lab_id is not None:
-                inspect = self.sherpa("lab gone", ["inspect"], check=False)
-                require(inspect.code != 0, f"lab {self.lab_id} still exists after destroy")
-        except TestFailure as error:
-            return error
-        return None
+
+def require_vnc_refused(lab, label, outcome, message):
+    """`sherpa vnc` asks the server before it opens a local port: refused, it ends with `message`
+    and the refusal's exit code, and prints no address, so no viewer is needed."""
+    require(outcome.code == VNC_REFUSED_EXIT,
+            f"{label} exited {outcome.code}, not {VNC_REFUSED_EXIT}; see {lab.log.name}")
+    require(message in outcome.output, f"{label} did not say {message!r}; see {lab.log.name}")
+    require(VNC_ADDRESS not in outcome.output, f"{label} printed a local address; see {lab.log.name}")
+
+
+# -- the fixtures --------------------------------------------------------------------------------
 
 
 DEVICE_PASSWORD_SET = re.compile(r"^\s*Device password:\s*set\s*$", re.MULTILINE)
 INFO_USERNAME = re.compile(r"^\s*Username:\s*(\S+)\s*$", re.MULTILINE)
-
-
 INFO_ADMIN = re.compile(r"^\s*Admin:\s*(Yes|No)\s*$", re.MULTILINE)
 
 
@@ -598,7 +585,7 @@ def log_in(log, run_root, role, username, password, owner, admin):
     return Account(role, username, env)
 
 
-def preflight(run_root, other_user, admin_user, passwords):
+def preflight(run_root, other_user, admin_user, passwords, with_container):
     """Check the server and the three accounts; return the owner and the other two accounts."""
     require(shutil.which("sherpa"), "sherpa is not on PATH")
     require(shutil.which("sherpa", path=path_without(*NOT_NEEDED)),
@@ -607,9 +594,10 @@ def preflight(run_root, other_user, admin_user, passwords):
         whoami = run_logged(log, "sherpa whoami", ["sherpa", "whoami"], run_root)
         require(whoami.code == 0, "the sherpa CLI is not logged in (run `sherpa login`)")
         owner = require_device_password(log, run_root)
-        others = (log_in(log, run_root, "user", other_user, passwords[0], owner, admin=False),
-                  log_in(log, run_root, "admin", admin_user, passwords[1], owner, admin=True))
-        for model, kind, version in IMAGES:
+        user = log_in(log, run_root, "user", other_user, passwords[0], owner, admin=False)
+        admin = log_in(log, run_root, "admin", admin_user, passwords[1], owner, admin=True)
+        images = (VM_IMAGE, CONTAINER_IMAGE) if with_container else (VM_IMAGE,)
+        for model, kind, version in images:
             arguments = ["sherpa", "server", "image", "show", model]
             if kind:
                 arguments += ["--kind", kind]
@@ -617,7 +605,220 @@ def preflight(run_root, other_user, admin_user, passwords):
                 arguments += ["--version", version]
             image = run_logged(log, f"{model} image present", arguments, run_root)
             require(image.code == 0, f"the server has no {model} {version or 'default'} image")
-    return owner, others
+    return owner, user, admin
+
+
+@pytest.fixture(scope="module")
+def prepared(request):
+    """The lab before it is up: the server and the three accounts checked and the run's manifest
+    written."""
+    signal.signal(signal.SIGTERM, stop_on_sigterm)
+    other_user = request.config.getoption("other_user")
+    admin_user = request.config.getoption("admin_user")
+    passwords = (os.environ.get(ENV_OTHER_PASSWORD), os.environ.get(ENV_ADMIN_PASSWORD))
+    missing = [name for name, value in ((f"--other-user or ${ENV_OTHER_USER}", other_user),
+                                        (f"${ENV_OTHER_PASSWORD}", passwords[0]),
+                                        (f"--admin-user or ${ENV_ADMIN_USER}", admin_user),
+                                        (f"${ENV_ADMIN_PASSWORD}", passwords[1])) if not value]
+    require(not missing, f"missing {', '.join(missing)}")
+    with_container = not request.config.getoption("no_container")
+    run_root = RUNS / f"console-{uuid.uuid4().hex[:12]}"
+    run_root.mkdir(parents=True)
+    print(f"Logs: {run_root}", flush=True)
+    owner, user, admin = preflight(run_root, other_user, admin_user, passwords, with_container)
+    lab = Lab(run_root, owner, user, admin, with_container)
+    lab.prepare()
+    try:
+        yield lab
+    finally:
+        lab.log.close()
+
+
+@pytest.fixture(scope="module")
+def lab(request, prepared):
+    """The lab every case uses: brought up once and destroyed at the end, even when a case fails,
+    unless `--keep-failed` is given and something failed."""
+    keep_failed = request.config.getoption("keep_failed")
+    keep = False
+    try:
+        try:
+            prepared.up()
+        except Exception:
+            keep = keep_failed
+            raise
+        yield prepared
+        keep = keep_failed and request.session.testsfailed > 0
+    finally:
+        if keep:
+            print(f"keeping failed lab {prepared.name} ({prepared.lab_id}) in {prepared.directory}", flush=True)
+        else:
+            cleanup = prepared.destroy()
+            if cleanup:
+                raise cleanup
+
+
+@pytest.fixture
+def at_login(lab):
+    """The owner's console on the VM, open at its login prompt; ended after the case if the case
+    left it open."""
+    console = open_at_login(lab, "console at the login prompt")
+    try:
+        yield console
+    finally:
+        leave(console)
+
+
+@pytest.fixture
+def vnc(lab):
+    """The owner's `sherpa vnc` on the VM, listening; stopped after the case if the case left it
+    running."""
+    command = lab.vnc("sherpa vnc as the owner")
+    try:
+        yield command
+    finally:
+        stop(command)
+
+
+@pytest.fixture
+def held_vnc(lab, vnc):
+    """`vnc` with a viewer connected that got the RFB banner, so the VNC console is held."""
+    viewer, banner = viewer_with_banner(vnc)
+    try:
+        require(banner == RFB_BANNER, f"the holding viewer got {banner!r}, not the RFB banner; see {lab.log.name}")
+        yield vnc
+    finally:
+        viewer.close()
+
+
+# -- cases ---------------------------------------------------------------------------------------
+
+
+def test_serial_console_001_the_owner_opens_a_vms_console_with_no_telnet_or_ssh(lab, at_login):
+    # `at_login` ran it with no `telnet` or `ssh` on PATH, saw the login prompt and the typed text
+    # echoed.
+    require(connected_line(lab.name) in at_login.text(),
+            f"the connect line does not name {VM}, lab {lab.name} and both escapes; see {lab.log.name}")
+
+
+def test_serial_console_002_ctrl_right_bracket_ends_the_console_with_exit_code_0(lab, at_login):
+    at_login.send(CTRL_RIGHT_BRACKET)
+    require_closed(lab, at_login)
+
+
+def test_serial_console_003_tilde_dot_at_the_start_of_a_line_ends_it_the_same_way(lab, at_login):
+    at_login.send(b"\r~.")
+    require_closed(lab, at_login)
+
+
+def test_vnc_console_001_a_viewer_of_the_local_address_gets_the_nodes_rfb_banner(lab, vnc):
+    host, _, _ = vnc.address.rpartition(":")
+    require(host == VNC_LOCAL_HOST, f"sherpa vnc listens on {vnc.address}, not on {VNC_LOCAL_HOST}")
+    viewer, banner = viewer_with_banner(vnc)
+    viewer.close()
+    require(banner == RFB_BANNER, f"the viewer got {banner!r}, not the RFB banner; see {lab.log.name}")
+
+
+def test_vnc_console_002_ctrl_c_stops_the_command_with_exit_code_0_and_its_stop_line(lab, vnc):
+    vnc.interrupt()
+    code = vnc.finish()
+    require(code == 0, f"sherpa vnc exited {code} on Ctrl+C; see {lab.log.name}")
+    require(VNC_STOPPED in vnc.text(), f"sherpa vnc did not say it stopped; see {lab.log.name}")
+
+
+def test_vnc_console_005_started_on_a_held_console_it_says_who_holds_it_and_keeps_listening(lab, held_vnc):
+    second = lab.vnc("sherpa vnc while the console is held")
+    try:
+        second.expect(re.compile(re.escape(f"{VNC_IN_USE}{lab.owner} ")), VNC_TIMEOUT)
+        require("--force" in second.text(), f"sherpa vnc on a held console did not offer --force; see {lab.log.name}")
+        require(second.process.poll() is None, f"sherpa vnc ended on a held console; see {lab.log.name}")
+    finally:
+        stop(second)
+
+
+def test_vnc_console_006_a_viewer_of_a_held_console_gets_nothing_and_the_command_goes_on(lab, held_vnc):
+    viewer, received = held_vnc.viewer()
+    viewer.close()
+    require(received == b"", f"a second viewer got {received!r} while the first was connected")
+    held_vnc.expect(re.compile(re.escape(f"{VNC_IN_USE}{lab.owner} ")), VNC_TIMEOUT)
+    require(held_vnc.process.poll() is None, f"sherpa vnc ended after a refused viewer; see {lab.log.name}")
+
+
+def test_vnc_console_007_once_a_viewer_leaves_the_next_one_gets_the_banner(lab, vnc):
+    first, banner = viewer_with_banner(vnc)
+    first.close()
+    require(banner == RFB_BANNER, f"the first viewer got {banner!r}, not the RFB banner; see {lab.log.name}")
+    vnc.expect(re.compile(re.escape(VNC_VIEWER_LEFT)), VNC_TIMEOUT)
+    again, banner = viewer_with_banner(vnc)
+    again.close()
+    require(banner == RFB_BANNER, f"a viewer after the first left got {banner!r}; see {lab.log.name}")
+
+
+def test_console_access_001_another_user_is_refused_the_console_as_not_the_owner(lab):
+    label = f"console as the user {lab.user.username}"
+    outcome = lab.as_account(lab.user, label, ["console", VM], CONSOLE_TIMEOUT)
+    require(outcome.code not in (0, None), f"{label} succeeded")
+    require(refused_to(lab.lab_id) in outcome.output, f"{label} was not refused as not the owner; see {lab.log.name}")
+
+
+def test_console_access_002_another_user_and_an_admin_are_refused_vnc_with_no_address(lab):
+    for account in (lab.user, lab.admin):
+        label = f"vnc as the {account.role} {account.username}"
+        outcome = lab.as_account(account, label, ["vnc", VM], VNC_TIMEOUT)
+        require_vnc_refused(lab, label, outcome, refused_to(lab.lab_id))
+
+
+def test_console_session_001_a_second_console_fails_naming_the_holder_and_offering_force(lab, at_login):
+    other = lab.console("second console while one is open")
+    code = other.finish()
+    require(code != 0, "a second console on the node succeeded")
+    require(f"{IN_USE}{lab.owner} " in other.text(), f"a second console did not name who holds it; see {lab.log.name}")
+    require("--force" in other.text(), f"a second console did not offer --force; see {lab.log.name}")
+
+
+def test_console_session_002_force_takes_the_console_over_and_the_old_session_says_who(lab, at_login):
+    taken = open_at_login(lab, "console taking it over with --force", ("--force",))
+    try:
+        code = at_login.finish()
+        require(code == 0, f"{at_login.label} exited {code} once taken over; see {lab.log.name}")
+        require(f"{TAKEN_OVER}{lab.owner} " in at_login.text(),
+                f"{at_login.label} did not say it was taken over by {lab.owner}; see {lab.log.name}")
+    finally:
+        leave(taken)
+
+
+def test_console_refusal_001_a_container_is_refused_the_console_pointing_to_ssh(lab):
+    if not lab.with_container:
+        pytest.skip(NO_CONTAINER)
+    outcome = lab.sherpa(f"console {CONTAINER}", ["console", CONTAINER], CONSOLE_TIMEOUT, check=False)
+    require(outcome.code not in (0, None), f"sherpa console {CONTAINER} succeeded")
+    require(CONTAINER_REFUSED in outcome.output,
+            f"sherpa console {CONTAINER} did not say containers have no console; see {lab.log.name}")
+    require("sherpa ssh" in outcome.output, f"sherpa console {CONTAINER} did not point to sherpa ssh; see {lab.log.name}")
+
+
+def test_console_refusal_002_a_container_is_refused_vnc_with_exit_code_1_and_no_address(lab):
+    if not lab.with_container:
+        pytest.skip(NO_CONTAINER)
+    label = f"vnc {CONTAINER}"
+    outcome = lab.sherpa(label, ["vnc", CONTAINER], VNC_TIMEOUT, check=False)
+    require_vnc_refused(lab, label, outcome, VNC_CONTAINER_REFUSED)
+
+
+# -- running -------------------------------------------------------------------------------------
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     epilog="Other arguments, such as --other-user, --admin-user, --keep-failed, "
+                                            "--no-container or -k, are passed to pytest.")
+    parser.add_argument("--self-test", action="store_true", help="Run the runner's own unit tests")
+    args, pytest_args = parser.parse_known_args()
+    if args.self_test:
+        sys.argv = sys.argv[:1]
+        unittest.main()
+        return 0
+    return pytest.main(["-v", "-p", "no:cacheprovider", __file__, *pytest_args])
 
 
 class SelfTest(unittest.TestCase):
@@ -637,47 +838,6 @@ class SelfTest(unittest.TestCase):
         finally:
             os.environ["PATH"] = original
             shutil.rmtree(directory)
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--other-user", default=os.environ.get(ENV_OTHER_USER),
-                        help=f"A normal user who does not own the lab (default: ${ENV_OTHER_USER}). Its "
-                             f"password is read from ${ENV_OTHER_PASSWORD}")
-    parser.add_argument("--admin-user", default=os.environ.get(ENV_ADMIN_USER),
-                        help=f"An admin who does not own the lab (default: ${ENV_ADMIN_USER}). Its "
-                             f"password is read from ${ENV_ADMIN_PASSWORD}")
-    parser.add_argument("--keep-failed", action="store_true", help="Leave a failed lab running for debugging")
-    parser.add_argument("--self-test", action="store_true", help="Run the runner's own unit tests")
-    args = parser.parse_args()
-    if args.self_test:
-        sys.argv = sys.argv[:1]
-        unittest.main()
-        return 0
-    passwords = (os.environ.get(ENV_OTHER_PASSWORD), os.environ.get(ENV_ADMIN_PASSWORD))
-    missing = [name for name, value in ((f"--other-user or ${ENV_OTHER_USER}", args.other_user),
-                                        (f"${ENV_OTHER_PASSWORD}", passwords[0]),
-                                        (f"--admin-user or ${ENV_ADMIN_USER}", args.admin_user),
-                                        (f"${ENV_ADMIN_PASSWORD}", passwords[1])) if not value]
-    if missing:
-        print(f"FAIL: missing {', '.join(missing)}", file=sys.stderr)
-        return 1
-    signal.signal(signal.SIGTERM, stop_on_sigterm)
-    run_root = RUNS / f"console-{uuid.uuid4().hex[:12]}"
-    run_root.mkdir(parents=True)
-    print(f"Logs: {run_root}", flush=True)
-    try:
-        owner, others = preflight(run_root, args.other_user, args.admin_user, passwords)
-        LabRun(run_root, args.keep_failed, owner, others).run()
-    except TestFailure as error:
-        print(f"FAIL: {error}", file=sys.stderr)
-        return 1
-    except KeyboardInterrupt:
-        print("interrupted", file=sys.stderr)
-        return 130
-    print("PASS")
-    return 0
 
 
 if __name__ == "__main__":
