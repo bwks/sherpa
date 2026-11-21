@@ -34,33 +34,56 @@ live.
 
 ## Running
 
+The runner is a pytest module; `uv run` installs the pytest version pinned in its script header
+and runs pytest on it, passing on any other arguments:
+
 ```sh
 uv run tests/labs/container-ztp/container_ztp_lab_test.py
 uv run tests/labs/container-ztp/container_ztp_lab_test.py --models frr_linux,nokia_srlinux,nats_bus
 uv run tests/labs/container-ztp/container_ztp_lab_test.py --keep-failed
+uv run tests/labs/container-ztp/container_ztp_lab_test.py -k ztp_disabled_002
 uv run tests/labs/container-ztp/container_ztp_lab_test.py --self-test  # runner unit tests, seconds
 ```
+
+pytest runs it directly too, for example `uvx --python 3.15 pytest==9.2.0
+tests/labs/container-ztp/container_ztp_lab_test.py`. `--keep-failed` and `--models` are defined in
+`conftest.py` next to the runner.
+
+The module-scoped `prepared` fixture checks the requirements and writes the run's manifest under a
+unique lab name; the `lab` fixture brings the lab up once and destroys it at the end, even when a
+case fails, unless `--keep-failed` is given and something failed; the `redeployed` fixture
+redeploys one node with ZTP on and one with it off, of the first model that has both, once for the
+module. The cases are the functions named `test_<case_id>_*`, in the order below; every case runs
+even when one fails. The runner's own unit tests, under `--self-test`, are not collected by pytest.
 
 Each run logs every command and its output under
 `.tmp/lab-tests/container-ztp-<id>/lab/commands.log`.
 
 ## What it checks
 
-- `sherpa validate` refuses `ztp.method = "cdrom"` on a container, naming the node and the settings its
-  model takes, and accepts the lab's manifest;
-- a node with ZTP on has every config mount of its model and takes the lab owner's SSH login
-  by key through the lab's SSH config, and refuses a login as `sherpa`;
-- a node with ZTP off is running, has none of those mounts, and does not take the lab owner's
-  SSH login, for the reason its model has once it has booted. The run waits for the booted state
-  and fails if a login ever succeeds:
-  - `srl02` and `ceos02` have no management address: SR Linux and cEOS as shipped never configure
-    the address their container was given, so the SSH connection finds no route and the address
-    does not answer a ping. While they boot the container still holds the address, and SR Linux's
-    SSH server refuses the login there for about a minute; on cEOS nothing listens yet;
-  - `frr02` answers a ping on its address and refuses the SSH connection, because nothing
-    installed an SSH server;
-- every node, the application container included, is still running, never restarted, after the
-  others have booted;
-- the same after redeploying one node with ZTP on and one with it off;
-- `sherpa destroy` cleans up everything: no container, Docker network or host interface of the
-  lab is left.
+It holds the container cases of [`tests/specs/ztp.md`](../../specs/ztp.md):
+
+| Case | Check |
+|---|---|
+| `ztp_setting_001` | `sherpa validate` refuses `ztp.method = "cdrom"` on a container, naming the node and the settings its model takes, and accepts the lab's manifest. It runs before the lab is up |
+| `ztp_disabled_001` | After up, each node with ZTP off is running and has none of its model's config mounts |
+| `ztp_disabled_002` | After up, each node with ZTP off does not take the lab owner's SSH login, for the reason its model has once it has booted (below). The case waits for the booted state and fails if a login ever succeeds or the container stops |
+| `config_delivery_001` | After up, each node with ZTP on is running, has every config mount of its model and takes the lab owner's SSH login by key through the lab's SSH config; then, once the `redeployed` fixture has redeployed one node of each setting, the redeployed node with ZTP on does the same |
+| `ztp_disabled_003` | The redeployed node with ZTP off is as it was after up: running, with no config mount and no owner login |
+| `ztp_disabled_004` | Once the nodes with ZTP on take the owner's login, and 20 s later, every node, the ones with ZTP off and the application container included, is running and was never restarted |
+
+`config_delivery_001` comes before `ztp_disabled_003` because it brings the redeploy in after its
+own after-up checks, and the `ztp_disabled` cases before it see every node as up left it.
+
+Why a node with ZTP off refuses the owner's login, once it has booted:
+
+- `srl02` and `ceos02` have no management address: SR Linux and cEOS as shipped never configure
+  the address their container was given, so the SSH connection finds no route and the address
+  does not answer a ping. While they boot the container still holds the address, and SR Linux's
+  SSH server refuses the login there for about a minute; on cEOS nothing listens yet;
+- `frr02` answers a ping on its address and refuses the SSH connection, because nothing
+  installed an SSH server.
+
+The fixture's teardown checks only that `sherpa destroy` succeeds and the lab is gone. That
+destroy leaves no container, Docker network or host interface of a container lab is
+`link_cleanup_008`, shown by [`p2p-containers`](../p2p-containers/README.md).
