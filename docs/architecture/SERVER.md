@@ -26,6 +26,24 @@ lab folders are left alone: dnsmasq runs as root and serves only world-readable 
 containers may read their bind-mounted configs as non-root. Pool volumes are `0600`, and libvirt
 hands them to QEMU while a VM runs. The modes are `install-and-update.md`, `server_file_modes`.
 
+### Who owns `/opt/sherpa`
+
+`/opt/sherpa`, `bin`, the binaries and `libvirt` are root's and `0755`: systemd runs
+`bin/sherpad` as `sherpa`, and the scripts run it as root, so neither `sherpa` nor its group may
+change it. `sherpa` owns only the folders sherpad writes (config, env, logs, `.secret`, `.certs`,
+db, labs, the storage pool, images, containers, bins, run). sherpad cannot create a folder in
+`/opt/sherpa`, so the install and update scripts make each of them (`secure_server_folders`, in
+the `# BEGIN server folders` section both scripts carry), changing the folders only, never what
+is in them. The `sherpa` group reads the lab folders and the log, and writes only the images
+folder, where admins stage node images; nothing there is run by systemd or written by root.
+
+Root changes nothing through a symlink: the scripts refuse a path with a symlink in any
+component, set owners with `chown -h`, install binaries and env files with `install`, which
+replaces a link, and write the blank disks and set file modes as `sherpa`. The update script
+runs an installed binary for its version only when the binary is root's and no other account
+can write it; any other is replaced without being run. The modes are `install-and-update.md`,
+`server_file_modes`.
+
 ### Config, env and log file permissions
 
 `sherpa.toml` and the env files can hold secrets, so only `sherpa` reads them, not its group.

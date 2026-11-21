@@ -270,10 +270,14 @@ EOF
 # Config, env and log files: owner and mode
 # ============================================================
 
-# A chown stub that records its arguments, so the owner can be checked without root.
+# A chown stub that records its arguments, so the owner can be checked without root, and a
+# runuser stub that runs its command as this user and records the account it was asked for.
 _stub_chown() {
     printf '#!/bin/bash\necho "$@" >> "%s/chown.args"\nexit 0\n' "${WORK_DIR}" > "${MOCK_BIN}/chown"
-    chmod +x "${MOCK_BIN}/chown"
+    # The stub's own variables: they expand when the stub runs, not here.
+    # shellcheck disable=SC2016
+    printf '#!/bin/bash\necho "$2 ${*:4}" >> "%s/runuser.args"\nshift 3\nexec "$@"\n' "${WORK_DIR}" > "${MOCK_BIN}/runuser"
+    chmod +x "${MOCK_BIN}/chown" "${MOCK_BIN}/runuser"
 }
 
 # An install made by an older release: sherpa.toml at the umask of 'sherpad init', the env files
@@ -304,31 +308,28 @@ _run_secure_config_files() {
     before="$(cd "${WORK_DIR}" && sha256sum config/sherpa.toml env/sherpa.env env/sherpa.env.example logs/sherpad.log*)"
     _run_secure_config_files
     [ "$status" -eq 0 ]
-    [ "$(stat -c '%a' "${WORK_DIR}/config")" = "750" ]
     [ "$(stat -c '%a' "${WORK_DIR}/config/sherpa.toml")" = "600" ]
-    [ "$(stat -c '%a' "${WORK_DIR}/env")" = "750" ]
     [ "$(stat -c '%a' "${WORK_DIR}/env/sherpa.env")" = "600" ]
     [ "$(stat -c '%a' "${WORK_DIR}/env/sherpa.env.example")" = "600" ]
-    [ "$(stat -c '%a' "${WORK_DIR}/logs")" = "750" ]
     [ "$(stat -c '%a' "${WORK_DIR}/logs/sherpad.log")" = "640" ]
     [ "$(stat -c '%a' "${WORK_DIR}/logs/sherpad.log.1")" = "640" ]
-    for path in config config/sherpa.toml env env/sherpa.env env/sherpa.env.example \
-        logs logs/sherpad.log logs/sherpad.log.1; do
-        grep -qx "sherpa:sherpa ${WORK_DIR}/${path}" "${WORK_DIR}/chown.args"
+    for path in config/sherpa.toml env/sherpa.env env/sherpa.env.example \
+        logs/sherpad.log logs/sherpad.log.1; do
+        grep -qx -- "-h sherpa:sherpa ${WORK_DIR}/${path}" "${WORK_DIR}/chown.args"
+        # The mode is set as sherpa, once the file is sherpa's.
+        grep -qx "sherpa chmod [0-9]* ${WORK_DIR}/${path}" "${WORK_DIR}/runuser.args"
     done
     after="$(cd "${WORK_DIR}" && sha256sum config/sherpa.toml env/sherpa.env env/sherpa.env.example logs/sherpad.log*)"
     [ "${before}" = "${after}" ]
 }
 
-@test "server_file_modes_011_the_update_skips_a_missing_file_or_folder_and_creates_none" {
+@test "server_file_modes_011_the_update_skips_a_missing_file_and_creates_none" {
     _stub_chown
-    mkdir -p "${WORK_DIR}/config"
+    mkdir -p "${WORK_DIR}/config" "${WORK_DIR}/env" "${WORK_DIR}/logs"
     _run_secure_config_files
     [ "$status" -eq 0 ]
-    [ "$(stat -c '%a' "${WORK_DIR}/config")" = "750" ]
-    [ ! -e "${WORK_DIR}/env" ]
-    [ ! -e "${WORK_DIR}/logs" ]
-    [ "$(cat "${WORK_DIR}/chown.args")" = "sherpa:sherpa ${WORK_DIR}/config" ]
+    [ -z "$(find "${WORK_DIR}/config" "${WORK_DIR}/env" "${WORK_DIR}/logs" -mindepth 1)" ]
+    [ ! -e "${WORK_DIR}/chown.args" ]
 }
 
 @test "server_file_modes_012_the_update_leaves_a_symlink_and_its_target_and_says_so" {
@@ -343,6 +344,58 @@ _run_secure_config_files() {
     [ "$(stat -c '%a' "${WORK_DIR}/target")" = "644" ]
     run grep -q "sherpa.toml" "${WORK_DIR}/chown.args"
     [ "$status" -ne 0 ]
+
+    # A link above it: the folder of the file.
+    rm "${WORK_DIR}/config/sherpa.toml"
+    mv "${WORK_DIR}/config" "${WORK_DIR}/real-config"
+    touch "${WORK_DIR}/real-config/sherpa.toml"
+    chmod 644 "${WORK_DIR}/real-config/sherpa.toml"
+    ln -s "${WORK_DIR}/real-config" "${WORK_DIR}/config"
+    _run_secure_config_files
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"${WORK_DIR}/config is a symlink"* ]]
+    [ "$(stat -c '%a' "${WORK_DIR}/real-config/sherpa.toml")" = "644" ]
+    run grep -q "sherpa.toml" "${WORK_DIR}/chown.args"
+    [ "$status" -ne 0 ]
+}
+
+# ============================================================
+# The installed binaries are run only when they are root's alone
+# ============================================================
+
+@test "update_script_019_an_installed_binary_is_run_for_its_version_only_when_only_root_can_have_written_it" {
+    # A binary of this account's, as sherpa's is on a server an older release installed.
+    mkdir -p "${WORK_DIR}/bin"
+    printf '#!/bin/bash\ntouch "%s/ran"\necho "sherpad 0.7.1"\n' "${WORK_DIR}" > "${WORK_DIR}/bin/sherpad"
+    chmod 755 "${WORK_DIR}/bin/sherpad"
+    _run_function "SHERPA_BIN_DIR='${WORK_DIR}/bin'; SHERPA_VERSION=v0.7.1; check_binary_needs_update sherpad"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"is not run, and will be replaced"* ]]
+    [ ! -e "${WORK_DIR}/ran" ]
+
+    # A link to a binary of root's.
+    rm "${WORK_DIR}/bin/sherpad"
+    ln -s "$(type -P true)" "${WORK_DIR}/bin/sherpad"
+    _run_function "trusted_binary_version '${WORK_DIR}/bin/sherpad'"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+
+    # A binary of root's that only root can write is run.
+    _run_function "trusted_binary_version '$(type -P true)'"
+    [ "$status" -eq 0 ]
+    [ -n "$output" ]
+}
+
+@test "update_script_020_a_link_at_or_above_the_servers_ssh_key_folder_removes_nothing" {
+    mkdir -p "${WORK_DIR}/elsewhere"
+    touch "${WORK_DIR}/elsewhere/sherpa_ssh_key" "${WORK_DIR}/elsewhere/sherpa_ssh_key.pub"
+    ln -s "${WORK_DIR}/elsewhere" "${WORK_DIR}/ssh"
+    _run_function "SERVER_SSH_KEY_DIR='${WORK_DIR}/ssh'; SHERPA_VERSION=v0.7.1; remove_server_ssh_key"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"${WORK_DIR}/ssh is a symlink"* ]]
+    [ -e "${WORK_DIR}/elsewhere/sherpa_ssh_key" ]
+    [ -e "${WORK_DIR}/elsewhere/sherpa_ssh_key.pub" ]
+    [ -L "${WORK_DIR}/ssh" ]
 }
 
 # ============================================================
