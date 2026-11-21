@@ -1,5 +1,5 @@
 use std::io;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use anyhow::{Context, Result};
 use bollard::Docker;
@@ -41,9 +41,7 @@ where
         future::ready(match chunk {
             Ok(bytes) => Some(bytes.freeze()),
             Err(error) => {
-                if let Ok(mut slot) = stream_error.lock() {
-                    *slot = Some(error);
-                }
+                *stream_error.lock().unwrap_or_else(PoisonError::into_inner) = Some(error);
                 None
             }
         })
@@ -76,7 +74,10 @@ where
 
 /// Fail with the error that ended reading `src`, if one did.
 fn check_read(read_error: &Mutex<Option<io::Error>>, src: &str) -> Result<()> {
-    let error = read_error.lock().map_or(None, |mut slot| slot.take());
+    let error = read_error
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
     match error {
         Some(error) => Err(error).with_context(|| format!("Failed to read image archive {src}")),
         None => Ok(()),
