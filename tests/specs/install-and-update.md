@@ -225,7 +225,7 @@ Each case builds a database at the schema version that stored the value, upgrade
 
 ## `update_script`: the update script installs a release over a running server, or leaves the installed one in place
 
-**Statement:** the update script replaces the binaries with the release asked for and starts sherpad again with the settings, accounts and data the server held, and when it cannot it says why and leaves the installed release's binaries in place.
+**Statement:** the update script fetches the release asked for while sherpad still runs, backs up the database and its key, replaces the binaries and starts sherpad again with the settings, accounts and data the server held, and when it cannot it says why and leaves, or puts back, the installed release's binaries, database and key, with sherpad running.
 **Relied on by:** the admin. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -247,7 +247,12 @@ Each case builds a database at the schema version that stored the value, upgrade
 | 015 | A service unit with no `RuntimeDirectory` gets a drop-in that adds `/run/sherpa`, `0700` and kept across restarts (no test yet) | unit (bats) |
 | 016 | With `SHERPA_ARTIFACT_DIR` set, no `--version`, or a folder without the sherpad archive, stops it before anything changes | unit (bats) |
 | 017 | `--help` prints the usage and exits 0; an unknown option is an error | unit (bats) |
-| 018 | A sherpad archive that cannot be fetched stops the update with the installed binaries in place, and sherpad stopped (no test yet) | unit (bats) |
+| 018 | A sherpad archive that cannot be fetched stops the update, naming the URL, before sherpad is stopped: the installed binaries are in place and sherpad keeps running | unit (bats) |
+| 021 | With sherpad stopped and before the new release runs, the database, its WAL and shared-memory files when there, and the key are copied, read as `sherpa`, to a new folder in `/var/backups/sherpa`, `0700` and root's, files `0600`, and the update names the folder | unit (bats) |
+| 022 | A failure after sherpad is stopped and before the binaries are replaced, a backup that cannot be written among them, stops the update with nothing installed, and starts the installed release again | unit (bats) |
+| 023 | A new release that does not start is undone: its binaries are replaced by the installed release's, the database and key are restored from the backup with the WAL and shared-memory files the new release left removed, the installed release is started, and the backup is named | unit (bats) |
+| 024 | sherpad counts as started only when it is active for ten seconds and systemd does not start it again in that time | unit (bats) |
+| 025 | After the update of a server set up by an earlier release, the folder it names holds the database, root's only, and the key, when the server had one, is the server's | e2e (fresh VM) |
 
 ## `uninstall_script`: the uninstall script removes the service and only the data it is told to
 

@@ -222,7 +222,7 @@ EOF
     echo running > "${WORK_DIR}/bin/sherpad"
     echo new > "${WORK_DIR}/build/sherpad"
     tar czf "${WORK_DIR}/artifacts/sherpad-x86_64-unknown-linux-gnu.tar.gz" -C "${WORK_DIR}/build" sherpad
-    _run_function "SHERPA_VERSION=v0.6.0; FORCE=true; SHERPA_ARTIFACT_DIR='${WORK_DIR}/artifacts'; update_binaries"
+    _run_function "SHERPA_BIN_DIR='${WORK_DIR}/bin'; SHERPA_VERSION=v0.6.0; FORCE=true; SHERPA_ARTIFACT_DIR='${WORK_DIR}/artifacts'; download_binaries; install_binaries"
     [ "$status" -eq 1 ]
     [ "$(cat "${WORK_DIR}/bin/sherpad")" = "running" ]
     [ ! -e "${WORK_DIR}/bin/sherpad.previous" ]
@@ -364,4 +364,184 @@ _stub_apt_get() {
     _run_function "BLANK_DISK_TOOLS=(bash no-such-mkfs); install_blank_disk_tools"
     [ "$status" -eq 0 ]
     grep -qx "install -y -qq qemu-utils dosfstools e2fsprogs" "${WORK_DIR}/apt-get.args"
+}
+
+# ============================================================
+# Download first, back up, and go back on a failure
+# ============================================================
+
+# Stubs for an update run as a user that is not root, recording in WORK_DIR: systemctl records
+# its arguments and, for `is-active`, fails while the installed sherpad is the new release (a
+# file with "# new" in it); runuser runs its command as this user and records the account;
+# install installs without the owner and group; chown, pgrep, pkill and sleep do nothing.
+_stub_update_commands() {
+    cat > "${MOCK_BIN}/systemctl" << EOF
+#!/bin/bash
+echo "\$@" >> '${WORK_DIR}/systemctl.args'
+if [ "\$1" = "is-active" ] && grep -q '# new' '${WORK_DIR}/bin/sherpad' 2>/dev/null; then
+    exit 3
+fi
+exit 0
+EOF
+    cat > "${MOCK_BIN}/runuser" << EOF
+#!/bin/bash
+echo "\$2 \${*:4}" >> '${WORK_DIR}/runuser.args'
+shift 3
+exec "\$@"
+EOF
+    cat > "${MOCK_BIN}/install" << EOF
+#!/bin/bash
+args=()
+while [ \$# -gt 0 ]; do
+    case "\$1" in
+        -o|-g) shift 2 ;;
+        *) args+=("\$1"); shift ;;
+    esac
+done
+exec $(command -v install) "\${args[@]}"
+EOF
+    printf '#!/bin/bash\nexit 1\n' > "${MOCK_BIN}/pgrep"
+    for tool in chown pkill sleep; do
+        printf '#!/bin/bash\nexit 0\n' > "${MOCK_BIN}/${tool}"
+    done
+    chmod +x "${MOCK_BIN}"/*
+}
+
+# A server with a database, its WAL file and its key under WORK_DIR, the installed release's
+# sherpad in WORK_DIR/bin and the new release's in WORK_DIR/new.
+_server_with_database() {
+    mkdir -p "${WORK_DIR}/bin" "${WORK_DIR}/new"
+    printf '#!/bin/bash\n# old\nexit 0\n' > "${WORK_DIR}/bin/sherpad"
+    printf '#!/bin/bash\n# new\nexit 0\n' > "${WORK_DIR}/new/sherpad"
+    chmod 755 "${WORK_DIR}/bin/sherpad" "${WORK_DIR}/new/sherpad"
+    printf 'records before the update\n' > "${WORK_DIR}/sherpa.sqlite"
+    printf 'wal before the update\n' > "${WORK_DIR}/sherpa.sqlite-wal"
+    printf 'thirty-two bytes of key material\n' > "${WORK_DIR}/db.key"
+    chmod 600 "${WORK_DIR}/sherpa.sqlite" "${WORK_DIR}/sherpa.sqlite-wal" "${WORK_DIR}/db.key"
+}
+
+# Run the commands $1 of the script under `set -e` with finish_update on exit, as main runs the
+# update, with the server of _server_with_database.
+_run_update_steps() {
+    run bash -c "
+        PATH='${MOCK_BIN}:${PATH}'
+        source '${STRIPPED_SCRIPT}'
+        set -e
+        SHERPA_BIN_DIR='${WORK_DIR}/bin'
+        SHERPA_DB_FILE='${WORK_DIR}/sherpa.sqlite'
+        SHERPA_DB_KEY_FILE='${WORK_DIR}/db.key'
+        SHERPA_UPDATE_BACKUP_ROOT='${WORK_DIR}/backups'
+        LEGACY_DB_DATA='${WORK_DIR}/sherpa.db'
+        SHERPA_VERSION=v0.7.1
+        DOWNLOAD_DIR='${WORK_DIR}/new'
+        DOWNLOADED_BINARIES=(sherpad)
+        trap finish_update EXIT
+        $1
+    "
+}
+
+@test "update_script_018_a_sherpad_archive_that_cannot_be_fetched_stops_the_update_with_sherpad_running" {
+    _stub_update_commands
+    printf '#!/bin/bash\nexit 22\n' > "${MOCK_BIN}/curl"
+    printf '#!/bin/bash\nexit 0\n' > "${MOCK_BIN}/docker"
+    for tool in qemu-img mkfs.fat mkfs.vfat mkfs.ext4; do
+        printf '#!/bin/bash\nexit 0\n' > "${MOCK_BIN}/${tool}"
+    done
+    chmod +x "${MOCK_BIN}"/*
+    mkdir -p "${WORK_DIR}/bin"
+    printf '#!/bin/bash\necho "sherpad 0.7.0"\n' > "${WORK_DIR}/bin/sherpad"
+    chmod +x "${WORK_DIR}/bin/sherpad"
+    sed -e "s|^SHERPA_BASE_DIR=.*|SHERPA_BASE_DIR='${WORK_DIR}'|" \
+        -e 's|^    check_root_privileges$|    :|' "${SCRIPT}" > "${WORK_DIR}/update.sh"
+    PATH="${MOCK_BIN}:${PATH}" run bash "${WORK_DIR}/update.sh" --version v0.7.1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Failed to download required binary: sherpad-x86_64-unknown-linux-gnu.tar.gz"* ]]
+    [[ "$output" == *"v0.7.1/sherpad-x86_64-unknown-linux-gnu.tar.gz"* ]]
+    # sherpad was never stopped, nor restarted, and its binary is the one that was there.
+    run grep -E "^(stop|restart) sherpad" "${WORK_DIR}/systemctl.args"
+    [ "$status" -ne 0 ]
+    [ "$(cat "${WORK_DIR}/bin/sherpad")" = "$(printf '#!/bin/bash\necho "sherpad 0.7.0"')" ]
+}
+
+@test "update_script_021_the_database_its_wal_and_its_key_are_backed_up_to_a_new_root_only_folder_and_named" {
+    _stub_update_commands
+    _server_with_database
+    _run_update_steps "backup_database"
+    [ "$status" -eq 0 ]
+    local backup
+    backup="$(find "${WORK_DIR}/backups" -mindepth 1 -maxdepth 1 -type d -name 'update-*')"
+    [ -n "${backup}" ]
+    [[ "$output" == *"Backup of the database and its key: ${backup}"* ]]
+    [ "$(stat -c '%a' "${backup}")" = "700" ]
+    for file in sherpa.sqlite sherpa.sqlite-wal db.key; do
+        cmp "${WORK_DIR}/${file}" "${backup}/${file}"
+        [ "$(stat -c '%a' "${backup}/${file}")" = "600" ]
+        # Read as sherpa.
+        grep -qx "sherpa cat ${WORK_DIR}/${file}" "${WORK_DIR}/runuser.args"
+    done
+    [ ! -e "${backup}/sherpa.sqlite-shm" ]
+}
+
+@test "update_script_022_a_failure_after_sherpad_stops_and_before_the_install_starts_the_installed_release_again" {
+    _stub_update_commands
+    _server_with_database
+    # The backup folder cannot be made: a file has its name.
+    touch "${WORK_DIR}/backups"
+    _run_update_steps "SHERPAD_STOPPED=true; backup_database; install_binaries"
+    [ "$status" -ne 0 ]
+    grep -qx "restart sherpad" "${WORK_DIR}/systemctl.args"
+    [[ "$output" == *"running again"* ]]
+    grep -q '# old' "${WORK_DIR}/bin/sherpad"
+    [ ! -e "${WORK_DIR}/bin/sherpad.previous" ]
+    [ "$(cat "${WORK_DIR}/sherpa.sqlite")" = "records before the update" ]
+}
+
+@test "update_script_023_a_new_release_that_does_not_start_is_undone_and_the_backup_restored" {
+    _stub_update_commands
+    _server_with_database
+    # The new release migrates the database and leaves a WAL file of its own, then does not start.
+    _run_update_steps "SHERPAD_STOPPED=true; backup_database; install_binaries
+        printf 'migrated records\n' > '${WORK_DIR}/sherpa.sqlite'
+        printf 'new wal\n' > '${WORK_DIR}/sherpa.sqlite-wal'
+        printf 'new shm\n' > '${WORK_DIR}/sherpa.sqlite-shm'
+        start_sherpad"
+    echo "${output}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Restored the database and its key from ${WORK_DIR}/backups/update-"* ]]
+    [[ "$output" == *"running again"* ]]
+    # The installed release is back and started, after the new one was started once.
+    grep -q '# old' "${WORK_DIR}/bin/sherpad"
+    [ ! -e "${WORK_DIR}/bin/sherpad.previous" ]
+    [ "$(grep -cx "restart sherpad" "${WORK_DIR}/systemctl.args")" -eq 2 ]
+    # The database is the one before the update, and nothing the new release left beside it.
+    [ "$(cat "${WORK_DIR}/sherpa.sqlite")" = "records before the update" ]
+    [ "$(cat "${WORK_DIR}/sherpa.sqlite-wal")" = "wal before the update" ]
+    [ ! -e "${WORK_DIR}/sherpa.sqlite-shm" ]
+    [ "$(cat "${WORK_DIR}/db.key")" = "thirty-two bytes of key material" ]
+    [ "$(stat -c '%a' "${WORK_DIR}/sherpa.sqlite")" = "600" ]
+}
+
+@test "update_script_024_sherpad_counts_as_started_only_when_systemd_does_not_restart_it_during_the_check" {
+    _stub_update_commands
+    # NRestarts goes up by one each time it is read: systemd keeps starting sherpad again.
+    cat > "${MOCK_BIN}/systemctl" << EOF
+#!/bin/bash
+if [ "\$1" = "show" ]; then
+    count=\$(cat '${WORK_DIR}/restarts' 2>/dev/null || echo 0)
+    echo \$((count + 1)) > '${WORK_DIR}/restarts'
+    echo "\${count}"
+fi
+exit 0
+EOF
+    chmod +x "${MOCK_BIN}/systemctl"
+    _run_function "set +e; SHERPAD_STOPPED=true; start_sherpad; echo \"started \$? stopped=\${SHERPAD_STOPPED}\""
+    [[ "$output" == *"sherpad service failed to start"* ]]
+    [[ "$output" == *"started 1 stopped=true"* ]]
+
+    # The same count on every read: started.
+    # The stub's own variables: they expand when the stub runs, not here.
+    # shellcheck disable=SC2016
+    printf '#!/bin/bash\n[ "$1" = "show" ] && echo 0\nexit 0\n' > "${MOCK_BIN}/systemctl"
+    _run_function "set +e; SHERPAD_STOPPED=true; start_sherpad; echo \"started \$? stopped=\${SHERPAD_STOPPED}\""
+    [[ "$output" == *"started 0 stopped=false"* ]]
 }
