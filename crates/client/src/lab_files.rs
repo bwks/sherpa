@@ -217,7 +217,7 @@ ipv4_router = "172.31.3.2"
     }
 
     #[test]
-    fn the_lab_files_are_saved_in_the_sherpa_folder() {
+    fn saved_lab_files_002_the_files_are_saved_at_their_paths_under_sherpa() {
         let dir = tempfile::tempdir().unwrap();
         let folder = LabFolder::new(dir.path());
         let lab_info: LabInfo = LAB_INFO.parse().unwrap();
@@ -225,14 +225,22 @@ ipv4_router = "172.31.3.2"
         let ssh_config = save_lab_files(&folder, &lab_files(&lab_info)).unwrap();
 
         assert_eq!(ssh_config, dir.path().join(".sherpa/ssh/config"));
-        for path in [folder.known_hosts(), folder.lab_ca(), folder.lab_info()] {
+        for path in [
+            ssh_config,
+            dir.path().join(".sherpa/ssh/known_hosts"),
+            dir.path().join(".sherpa/ca/lab-ca.crt"),
+            dir.path().join(".sherpa/lab-info.toml"),
+        ] {
             assert!(path.is_file(), "{}", path.display());
         }
-        let saved: LabInfo = fs::read_to_string(folder.lab_info())
+        let saved: LabInfo = fs::read_to_string(dir.path().join(".sherpa/lab-info.toml"))
             .unwrap()
             .parse()
             .unwrap();
-        assert_eq!(saved.id, "fecb1a12");
+        assert_eq!(
+            (saved.id.as_str(), saved.name.as_str(), saved.user.as_str()),
+            ("fecb1a12", "sherpa-dev", "dev")
+        );
         let names: Vec<_> = fs::read_dir(dir.path())
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
@@ -244,9 +252,21 @@ ipv4_router = "172.31.3.2"
         );
     }
 
+    #[test]
+    fn saved_lab_files_003_the_lab_ca_is_saved_only_when_the_server_sends_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = LabFolder::new(dir.path());
+        assert_eq!(write_lab_ca(&folder, "").unwrap(), None);
+        assert!(!folder.state_dir().exists());
+        let pem = "-----BEGIN CERTIFICATE-----\nlab\n-----END CERTIFICATE-----\n";
+        let path = write_lab_ca(&folder, pem).unwrap().unwrap();
+        assert_eq!(path, dir.path().join(".sherpa/ca/lab-ca.crt"));
+        assert_eq!(fs::read_to_string(path).unwrap(), pem);
+    }
+
     #[cfg(unix)]
     #[test]
-    fn the_sherpa_folders_are_owner_only_and_secrets_0600() {
+    fn lab_file_privacy_002_saving_leaves_the_folders_700_and_known_hosts_600() {
         use std::os::unix::fs::PermissionsExt;
         let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
         let dir = tempfile::tempdir().unwrap();
@@ -263,108 +283,72 @@ ipv4_router = "172.31.3.2"
 
     #[cfg(unix)]
     #[test]
-    fn a_symlinked_sherpa_folder_is_refused() {
-        let dir = tempfile::tempdir().unwrap();
-        let elsewhere = tempfile::tempdir().unwrap();
-        std::os::unix::fs::symlink(elsewhere.path(), dir.path().join(".sherpa")).unwrap();
+    fn lab_file_privacy_004_a_symlinked_sherpa_or_folder_of_it_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
         let lab_info: LabInfo = LAB_INFO.parse().unwrap();
+        let open_folder = || {
+            let elsewhere = tempfile::tempdir().unwrap();
+            fs::set_permissions(elsewhere.path(), fs::Permissions::from_mode(0o755)).unwrap();
+            elsewhere
+        };
 
+        let dir = tempfile::tempdir().unwrap();
+        let elsewhere = open_folder();
+        std::os::unix::fs::symlink(elsewhere.path(), dir.path().join(".sherpa")).unwrap();
         let error = save_lab_files(&LabFolder::new(dir.path()), &lab_files(&lab_info)).unwrap_err();
-
         assert!(format!("{error:#}").contains("symlink"), "{error:#}");
         assert_eq!(fs::read_dir(elsewhere.path()).unwrap().count(), 0);
-    }
+        assert_eq!(mode(elsewhere.path()), 0o755);
 
-    #[test]
-    fn the_saved_ssh_config_resolves_its_files_in_the_sherpa_folder() {
         let dir = tempfile::tempdir().unwrap();
-        let folder = LabFolder::new(dir.path());
-        let lab_info: LabInfo = LAB_INFO.parse().unwrap();
-
-        let ssh_config = save_lab_files(&folder, &lab_files(&lab_info)).unwrap();
-
-        let config = jato::SshConfig::load_file(&ssh_config).unwrap();
-        let target = config.route("dev.fecb1a12").unwrap().target;
-        assert_eq!(target.known_hosts, [folder.known_hosts()]);
+        let elsewhere = open_folder();
+        fs::create_dir(dir.path().join(".sherpa")).unwrap();
+        std::os::unix::fs::symlink(elsewhere.path(), dir.path().join(".sherpa/ssh")).unwrap();
+        let error = save_lab_files(&LabFolder::new(dir.path()), &lab_files(&lab_info)).unwrap_err();
+        assert!(format!("{error:#}").contains("symlink"), "{error:#}");
+        assert_eq!(fs::read_dir(elsewhere.path()).unwrap().count(), 0);
+        assert_eq!(mode(elsewhere.path()), 0o755);
     }
 
     #[test]
-    fn no_ssh_key_is_written() {
-        let dir = tempfile::tempdir().unwrap();
-        let folder = LabFolder::new(dir.path());
-        let lab_info: LabInfo = LAB_INFO.parse().unwrap();
-
-        let ssh_config = save_lab_files(&folder, &lab_files(&lab_info)).unwrap();
-
-        let mut names: Vec<_> = fs::read_dir(folder.ssh_dir())
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect();
-        names.sort();
-        assert_eq!(names, ["config", "known_hosts"]);
-        assert!(
-            !fs::read_to_string(ssh_config)
-                .unwrap()
-                .contains("IdentityFile")
-        );
-    }
-
-    #[test]
-    fn the_lab_ca_is_saved_only_when_the_server_sends_one() {
-        let dir = tempfile::tempdir().unwrap();
-        let folder = LabFolder::new(dir.path());
-        assert_eq!(write_lab_ca(&folder, "").unwrap(), None);
-        assert!(!folder.state_dir().exists());
-        let pem = "-----BEGIN CERTIFICATE-----\nlab\n-----END CERTIFICATE-----\n";
-        let path = write_lab_ca(&folder, pem).unwrap().unwrap();
-        assert_eq!(path, dir.path().join(".sherpa/ca/lab-ca.crt"));
-        assert_eq!(fs::read_to_string(path).unwrap(), pem);
-    }
-
-    #[test]
-    fn test_rewrite_ssh_config_preserves_other_content() {
+    fn ssh_config_hosts_007_the_known_hosts_file_is_named_by_its_full_path() {
         let server_config = "\
 Host 172.31.1.11 dev01.abc123
     HostName 172.31.1.11
     Port 22
     User alice
-    StrictHostKeyChecking no";
-
-        let result =
-            rewrite_ssh_config_for_client(server_config, &LabFolder::new(Path::new("/tmp/lab")));
-        assert!(result.contains("HostName 172.31.1.11"));
-        assert!(result.contains("Port 22"));
-        assert!(result.contains("User alice"));
-        assert!(result.contains("StrictHostKeyChecking no"));
-    }
-
-    #[test]
-    fn the_known_hosts_file_gets_an_absolute_path() {
-        let server_config = "\
-Host 172.31.1.11 dev01.abc123
     StrictHostKeyChecking yes
     UserKnownHostsFile sherpa_known_hosts
 Host 172.31.1.12 sw01.abc123
+    HostName 172.31.1.12
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null";
-        let folder = LabFolder::new(Path::new("/home/user/lab"));
+        let dir = tempfile::tempdir().unwrap();
+        let folder = LabFolder::new(dir.path());
 
         let result = rewrite_ssh_config_for_client(server_config, &folder);
 
-        assert!(
-            result.contains(&format!(
-                "UserKnownHostsFile {}\n",
-                folder.known_hosts().display()
-            )),
-            "{result}"
-        );
-        assert!(!result.contains("UserKnownHostsFile sherpa_known_hosts"));
+        let known_hosts = format!("    UserKnownHostsFile {}", folder.known_hosts().display());
+        let expected: Vec<&str> = server_config
+            .lines()
+            .map(|line| {
+                if line.ends_with("UserKnownHostsFile sherpa_known_hosts") {
+                    known_hosts.as_str()
+                } else {
+                    line
+                }
+            })
+            .collect();
+        let lines: Vec<&str> = result.lines().collect();
         #[cfg(unix)]
-        assert!(result.contains("UserKnownHostsFile /dev/null"));
+        assert_eq!(lines, expected);
+        #[cfg(not(unix))]
+        assert_eq!(lines[..lines.len() - 1], expected[..expected.len() - 1]);
     }
 
     #[test]
-    fn known_hosts_is_written_only_when_keys_were_recorded() {
+    fn node_host_keys_008_known_hosts_is_saved_only_when_keys_were_recorded() {
         let dir = tempfile::tempdir().unwrap();
         let folder = LabFolder::new(dir.path());
         assert_eq!(write_known_hosts(&folder, "").unwrap(), None);

@@ -13,12 +13,13 @@ SR Linux needs no internet. The runner adds a unique suffix to the lab name for 
 
 ## Accounts
 
-Two Sherpa accounts are involved, neither of them the CLI's own login, which the run never uses or
-changes:
+Two throwaway Sherpa accounts are involved. The CLI's own login, which must be an admin, only
+creates and deletes the first; the run never changes it:
 
-- **The admin**, named by the inputs below. It is logged in non-interactively to a `HOME` of its
-  own, holding a copy of the runner's client config and trusted server certificate, and creates
-  and deletes the owner.
+- **The admin**, a throwaway admin the CLI's own login creates with a unique name
+  (`labadmin<8 hex>`) and a login password generated for the run. It is logged in
+  non-interactively to a `HOME` of its own, holding a copy of the runner's client config and
+  trusted server certificate, and creates and deletes the owner.
 - **The owner**, a throwaway normal user the run creates with a unique name (`owner<8 hex>`), a
   login password and a device password generated for the run, and an SSH key pair generated for
   the run; a case rotates the key to a second one. The owner's CLI works with a `HOME` of its own
@@ -31,7 +32,8 @@ one (`sherpa login`), or are typed at the prompts of `sherpa server user create`
 are masked in every log and failure message. The `HOME`s and keys are in a temporary folder that is
 removed at the end.
 
-The `session` fixture creates the owner and deletes it at the end; the `lab` fixture adds the
+The `session` fixture creates the admin and the owner and deletes both at the end, the owner as
+the admin and then the admin as the CLI's own login; the `lab` fixture adds the
 owner's first key, brings the lab up and destroys it at the end. Both happen even when a case
 fails, unless `--keep-failed` is given and something failed.
 
@@ -43,29 +45,22 @@ fails, unless `--keep-failed` is given and something failed.
   machine on the lab's tailnet that accepts its routes.
 - `ssh`, `ssh-keygen` and `ssh-keyscan` on `PATH`, and the runner's `~/.sherpa/config` pointing at
   the server.
-- An admin account that is not the built-in `admin`, given by the inputs below. Its password is
-  only read from the environment, never from an option.
-
-| Input | Meaning |
-|---|---|
-| `--admin-user NAME` or `SHERPA_LAB_TEST_ADMIN_USER` | The admin account's name |
-| `SHERPA_LAB_TEST_ADMIN_PASSWORD` | The admin account's Sherpa password, for `sherpa login` |
+- The CLI logged in as an admin, which creates the run's admin. The run fails early otherwise.
 
 ## Running
 
 ```sh
-export SHERPA_LAB_TEST_ADMIN_PASSWORD=...
-uv run tests/labs/owner-login/owner_login_lab_test.py --admin-user dana
-uv run tests/labs/owner-login/owner_login_lab_test.py --admin-user dana --keep-failed
-uv run tests/labs/owner-login/owner_login_lab_test.py --admin-user dana -k owner_login_
+uv run tests/labs/owner-login/owner_login_lab_test.py
+uv run tests/labs/owner-login/owner_login_lab_test.py --keep-failed
+uv run tests/labs/owner-login/owner_login_lab_test.py -k owner_login_
 uv run tests/labs/owner-login/owner_login_lab_test.py --collect-only -q
 uv run tests/labs/owner-login/owner_login_lab_test.py --self-test   # runner unit tests, seconds
 ```
 
 The runner is a pytest module; `uv run` installs the pytest version pinned in its script header and
 runs pytest on it, passing on any other arguments. pytest runs it directly too, for example
-`uvx --python 3.15 pytest==9.2.0 tests/labs/owner-login/owner_login_lab_test.py --admin-user dana`.
-`--admin-user` and `--keep-failed` are defined in `conftest.py` next to the runner.
+`uvx --python 3.15 pytest==9.2.0 tests/labs/owner-login/owner_login_lab_test.py`.
+`--keep-failed` is defined in `conftest.py` next to the runner.
 
 Each run logs every command and its output, passwords and tokens masked, to
 `.tmp/lab-tests/owner-login-<id>/commands.log`, next to the owner's lab folder (`lab/`) and the
@@ -78,7 +73,7 @@ elsewhere it skips those checks.
 
 The cases are the test functions, in this order; every case runs even when one fails. A case that
 changes the lab or the account leaves them as the next case needs them, and the admin's destroy
-comes last.
+comes last but for the clean of the line it leaves stale.
 
 | Case | What it checks |
 |---|---|
@@ -87,6 +82,7 @@ comes last.
 | `owner_login_003` | `sherpa ssh srl01` logs in by key; `info from state /system aaa authentication user <owner>` shows the login just made and the `srl-admin` role |
 | `owner_login_004` | `ssh` with no key offered logs in to each node with the owner's device password, typed at the node's own prompt (a prompt from any other host fails), with the same account and rights |
 | `owner_login_005` | `ssh -v` straight to each node's management address with only a key not on the owner's account (the admin's own throwaway key), as the admin's name and as the owner's, connects to the node itself and is refused there (`Permission denied (publickey`) |
+| `ssh_config_hosts_001` | Each host of the lab's `.sherpa/ssh/config` logs in as the owner, and no host names an `IdentityFile` |
 | `access_control_004` | The admin's `sherpa inspect` lists both nodes |
 | `access_control_005` | The admin's `sherpa download <lab id>` in an empty folder is refused with `Only the owner of lab '<id>' can perform this operation`, and writes nothing |
 | `access_control_006` | The admin's `sherpa ssh` on each node is refused with `Only the owner of lab '<id>' can connect to its nodes`, before anything connects |
@@ -98,7 +94,9 @@ comes last.
 | `owner_login_007` | With every key removed from the owner's account, `sherpa redeploy --node ubu01` is refused with `has no SSH public key registered`; the keys are put back |
 | `lab_redeploy_001` | `sherpa redeploy --node ubu01` rebuilds the VM (its boot id changes) and the owner logs in with the key now on their account |
 | `lab_redeploy_002` | A redeploy refused for want of a key leaves `ubu01` running untouched: its boot id is unchanged; the keys are put back |
-| `access_control_008` | The admin's `sherpa destroy --yes` destroys the lab. The owner's cleanup then removes the lab's stale Include from their `~/.ssh/sherpa_lab_hosts` with `sherpa ssh-config clean` |
+| `access_control_008` | The admin's `sherpa destroy --yes` destroys the lab |
+| `stale_includes_001` | The owner's `sherpa ssh-config inspect` lists the lab folder of the lab the admin destroyed; after `sherpa ssh-config clean` it no longer does |
 
-The specs are in [`tests/specs/accounts-and-auth.md`](../../specs/accounts-and-auth.md) and
-[`tests/specs/lab-lifecycle.md`](../../specs/lab-lifecycle.md).
+The specs are in [`tests/specs/accounts-and-auth.md`](../../specs/accounts-and-auth.md),
+[`tests/specs/lab-lifecycle.md`](../../specs/lab-lifecycle.md) and
+[`tests/specs/client-lab-files.md`](../../specs/client-lab-files.md).

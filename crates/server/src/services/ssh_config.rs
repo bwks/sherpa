@@ -231,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn each_node_logs_in_with_its_recorded_login_else_as_the_owner() {
+    fn ssh_config_hosts_003_each_node_has_one_host_logging_in_with_its_login_or_as_the_owner() {
         let usernames = [NodeSshUsername {
             node_name: "router".to_owned(),
             username: "admin".to_owned(),
@@ -260,11 +260,10 @@ mod tests {
     }
 
     #[test]
-    fn known_hosts_lists_recorded_keys_by_ssh_address_and_port() {
+    fn node_host_keys_005_a_key_is_named_by_its_node_s_address_and_port() {
         let keys = [
             host_key("vm", "ssh-ed25519 AAAAC3"),
             host_key("router", "ssh-rsa AAAAB3"),
-            host_key("gone", "ssh-ed25519 AAAAC4"),
         ];
         let output = build_known_hosts(&records(), &keys).render().unwrap();
         assert_eq!(
@@ -274,10 +273,13 @@ mod tests {
     }
 
     #[test]
-    fn known_hosts_leaves_out_nodes_without_ssh() {
+    fn node_host_keys_006_keys_of_nodes_gone_or_without_ssh_are_left_out() {
         let mut lab = records();
         lab[1].ssh_port = None;
-        let keys = [host_key("router", "ssh-rsa AAAAB3")];
+        let keys = [
+            host_key("router", "ssh-rsa AAAAB3"),
+            host_key("gone", "ssh-ed25519 AAAAC4"),
+        ];
         assert_eq!(build_known_hosts(&lab, &keys).render().unwrap(), "");
     }
 
@@ -301,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn saved_nodes_have_ssh_unless_their_image_has_none() {
+    fn ssh_config_hosts_004_talos_and_nodes_without_an_address_have_no_host() {
         let mut ubuntu = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         ubuntu.id = Some(RecordId::new("node_image", "ubuntu"));
         let mut talos = ModelKind::default_for(NodeModel::TalosLinux).node_config();
@@ -310,7 +312,6 @@ mod tests {
         talos_node.image = RecordId::new("node_image", "talos");
         let mut vm = db_node("vm", Some("192.0.2.10"));
         vm.image = RecordId::new("node_image", "ubuntu");
-        vm.ssh_host_key = Some("ssh-ed25519 AAAAC3".to_owned());
         let nodes = vec![
             vm,
             talos_node,
@@ -329,10 +330,6 @@ mod tests {
                 ("talos", None),
                 ("unknown-image", Some(SSH_PORT))
             ]
-        );
-        assert_eq!(
-            node_host_keys(&nodes),
-            [host_key("vm", "ssh-ed25519 AAAAC3")]
         );
     }
 
@@ -355,7 +352,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_ssh_files_are_built_from_the_database() {
+    async fn ssh_config_hosts_005_the_ssh_files_are_built_from_the_lab_s_records() {
         let (db, lab) = lab_with(&[
             ("vm1", NodeModel::AlpineLinux),
             ("vm2", NodeModel::UbuntuLinux),

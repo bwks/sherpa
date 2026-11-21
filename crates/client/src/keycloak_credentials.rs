@@ -90,7 +90,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
-    fn each_keycloak_gets_an_owner_only_credentials_file_with_its_admin() {
+    fn lab_credentials_007_a_keycloak_file_has_its_addresses_and_users_and_is_owner_only() {
         let dir = tempfile::tempdir().unwrap();
         let keycloaks = [KeycloakInfo {
             name: "kc01".to_owned(),
@@ -117,6 +117,11 @@ mod tests {
         );
         let content: toml::Value =
             toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            content["address"].as_str(),
+            Some("https://172.31.1.23:8443")
+        );
+        assert_eq!(content["realm"].as_str(), Some("sherpa"));
         assert_eq!(
             content["issuer"].as_str(),
             Some("https://172.31.1.23:8443/realms/sherpa")

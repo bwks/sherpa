@@ -278,13 +278,11 @@ mod tests {
     }
 
     #[test]
-    fn destroy_removes_the_sherpa_folder_and_nothing_else() {
+    fn destroy_cleanup_002_sherpa_is_deleted_whole_and_nothing_else() {
         let dir = tempfile::tempdir().unwrap();
         let folder = LabFolder::new(dir.path());
         for path in [
             folder.ssh_config(),
-            // The lab key a client before 0.7.0 saved.
-            folder.ssh_dir().join("key"),
             folder.lab_info(),
             folder.lab_ca(),
             folder.vault("vault01"),
@@ -358,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn destroy_removes_the_new_include_too() {
+    fn destroy_cleanup_004_the_lab_s_line_is_removed_and_another_lab_s_kept() {
         let lab = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         let ssh_dir = home.path().join(".ssh");
@@ -403,7 +401,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn destroy_refuses_a_symlinked_sherpa_folder() {
+    fn destroy_cleanup_003_a_symlinked_sherpa_folder_is_not_deleted() {
         let dir = tempfile::tempdir().unwrap();
         let elsewhere = tempfile::tempdir().unwrap();
         fs::write(elsewhere.path().join("precious"), "x").unwrap();

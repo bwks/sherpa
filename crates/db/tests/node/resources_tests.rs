@@ -64,7 +64,8 @@ async fn test_node_resources_are_stored() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_node_host_key_is_stored_and_cleared() -> Result<()> {
+async fn node_host_keys_014_a_recorded_key_is_kept_through_state_changes_and_can_be_cleared()
+-> Result<()> {
     let db = setup_db().await?;
     let nodes = lab_with_nodes(&db, 2).await?;
     let id = nodes[0].id.clone().unwrap();

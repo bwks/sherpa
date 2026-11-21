@@ -188,16 +188,75 @@ mod tests {
         assert!(error.to_string().contains(LABEL));
     }
 
+    #[test]
+    fn lab_file_privacy_003_a_missing_folder_is_made_and_an_open_one_closed() {
+        let temp_dir = tempfile::tempdir().expect("create temp directory");
+        let created = temp_dir.path().join("new");
+        ensure_private_dir(&created).expect("create");
+        assert!(created.is_dir());
+        ensure_private_dir(&created).expect("an existing folder is kept");
+        #[cfg(unix)]
+        {
+            let open = temp_dir.path().join("open");
+            fs::create_dir(&open).expect("create open folder");
+            fs::set_permissions(&open, fs::Permissions::from_mode(0o755)).expect("open up");
+            ensure_private_dir(&open).expect("tighten");
+            for dir in [created, open] {
+                let mode = fs::metadata(&dir).expect("stat").permissions().mode() & 0o777;
+                assert_eq!(mode, 0o700, "{}", dir.display());
+            }
+        }
+    }
+
+    #[test]
+    fn lab_file_privacy_005_a_file_where_a_folder_belongs_is_refused() {
+        let temp_dir = tempfile::tempdir().expect("create temp directory");
+        let file = temp_dir.path().join("file");
+        fs::write(&file, "").expect("write file");
+
+        let error = ensure_private_dir(&file).expect_err("file refused");
+
+        assert!(error.to_string().contains("is not a folder"), "{error}");
+    }
+
+    #[test]
+    fn lab_file_privacy_006_a_new_secret_file_is_readable_by_the_user_alone() {
+        let temp_dir = tempfile::tempdir().expect("create temp directory");
+        let path = temp_dir.path().join("kubeconfig-k8s");
+
+        write_secret_file(&path, "config", LABEL).expect("write secret file");
+
+        assert!(is_owner_only(&path));
+        assert_eq!(fs::read_to_string(&path).expect("read secret"), "config");
+    }
+
+    #[test]
+    fn lab_file_privacy_007_a_secret_replaces_an_open_file_and_leaves_no_temporary_file() {
+        let temp_dir = tempfile::tempdir().expect("create temp directory");
+        let path = temp_dir.path().join("kubeconfig-k8s");
+        write_open_file(&path, "old");
+
+        write_secret_file(&path, "new", LABEL).expect("write secret file");
+
+        assert_eq!(fs::read_to_string(&path).expect("read secret"), "new");
+        assert!(is_owner_only(&path));
+        let names: Vec<_> = fs::read_dir(temp_dir.path())
+            .expect("list directory")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("kubeconfig-k8s")]);
+    }
+
     #[cfg(unix)]
     #[test]
-    fn a_secret_replaces_a_symlink_instead_of_writing_through_it() {
+    fn lab_file_privacy_008_a_secret_replaces_a_symlink_instead_of_writing_through_it() {
         let temp_dir = tempfile::tempdir().expect("create temp directory");
         let elsewhere = temp_dir.path().join("elsewhere");
         fs::write(&elsewhere, "untouched").expect("write target");
         let path = temp_dir.path().join("kubeconfig-k8s");
         std::os::unix::fs::symlink(&elsewhere, &path).expect("create symlink");
 
-        write_secret_file(&path, "config", "kubeconfig").expect("write secret file");
+        write_secret_file(&path, "config", LABEL).expect("write secret file");
 
         assert_eq!(
             fs::read_to_string(&elsewhere).expect("read target"),
@@ -213,77 +272,18 @@ mod tests {
     }
 
     #[test]
-    fn a_secret_replaces_an_open_file_and_leaves_no_temporary_file() {
+    fn lab_file_privacy_009_a_secret_that_cannot_be_written_names_the_file_and_where() {
         let temp_dir = tempfile::tempdir().expect("create temp directory");
-        let path = temp_dir.path().join("kubeconfig-k8s");
-        write_open_file(&path, "old");
-
-        write_secret_file(&path, "new", "kubeconfig").expect("write secret file");
-
-        assert_eq!(fs::read_to_string(&path).expect("read secret"), "new");
-        assert!(is_owner_only(&path));
-        let names: Vec<_> = fs::read_dir(temp_dir.path())
-            .expect("list directory")
-            .map(|entry| entry.expect("entry").file_name())
-            .collect();
-        assert_eq!(names, vec![std::ffi::OsString::from("kubeconfig-k8s")]);
-    }
-
-    #[test]
-    fn secret_files_are_owner_only_and_named_in_errors() {
-        let temp_dir = tempfile::tempdir().expect("create temp directory");
-        let path = temp_dir.path().join("kubeconfig-k8s");
-        write_secret_file(&path, "config", "kubeconfig").expect("write secret file");
-        assert!(is_owner_only(&path));
-
         let missing = temp_dir.path().join("missing").join("kubeconfig");
-        let error = write_secret_file(&missing, "config", "kubeconfig")
+
+        let error = write_secret_file(&missing, "config", LABEL)
             .expect_err("missing directory should fail");
-        assert!(error.to_string().contains("Failed to write kubeconfig"));
-    }
 
-    #[cfg(unix)]
-    #[test]
-    fn a_private_dir_is_created_or_tightened_to_its_owner() {
-        let temp_dir = tempfile::tempdir().expect("create temp directory");
-        let created = temp_dir.path().join("new");
-        ensure_private_dir(&created).expect("create");
-        let open = temp_dir.path().join("open");
-        fs::create_dir(&open).expect("create open folder");
-        fs::set_permissions(&open, fs::Permissions::from_mode(0o755)).expect("open up");
-        ensure_private_dir(&open).expect("tighten");
-        for dir in [created, open] {
-            let mode = fs::metadata(&dir).expect("stat").permissions().mode() & 0o777;
-            assert_eq!(mode, 0o700, "{}", dir.display());
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_symlink_is_refused_as_a_private_dir() {
-        let temp_dir = tempfile::tempdir().expect("create temp directory");
-        let elsewhere = temp_dir.path().join("elsewhere");
-        fs::create_dir(&elsewhere).expect("create target");
-        fs::set_permissions(&elsewhere, fs::Permissions::from_mode(0o755)).expect("open up");
-        let link = temp_dir.path().join("link");
-        std::os::unix::fs::symlink(&elsewhere, &link).expect("create symlink");
-        let error = ensure_private_dir(&link).expect_err("symlink refused");
-        assert!(error.to_string().contains("symlink"), "{error}");
-        let mode = fs::metadata(&elsewhere).expect("stat").permissions().mode() & 0o777;
-        assert_eq!(mode, 0o755, "the link's target is untouched");
-    }
-
-    #[test]
-    fn a_missing_private_dir_is_created_and_a_file_is_refused() {
-        let temp_dir = tempfile::tempdir().expect("create temp directory");
-        let created = temp_dir.path().join("new");
-        ensure_private_dir(&created).expect("create");
-        assert!(created.is_dir());
-        ensure_private_dir(&created).expect("an existing folder is kept");
-
-        let file = temp_dir.path().join("file");
-        fs::write(&file, "").expect("write file");
-        let error = ensure_private_dir(&file).expect_err("file refused");
-        assert!(error.to_string().contains("is not a folder"), "{error}");
+        let message = error.to_string();
+        assert!(message.contains("Failed to write kubeconfig"), "{message}");
+        assert!(
+            message.contains(&missing.display().to_string()),
+            "{message}"
+        );
     }
 }

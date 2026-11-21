@@ -191,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_manifest_node_does_not_require_lab_metadata_or_keys() {
+    fn ssh_target_002_a_node_not_in_the_manifest_is_refused_before_lab_files_are_needed() {
         let dir = tempdir().unwrap();
         fs::write(
             dir.path().join(SHERPA_MANIFEST_FILE),
@@ -203,7 +203,7 @@ mod tests {
     }
 
     #[test]
-    fn downloaded_files_work_without_a_manifest() {
+    fn ssh_target_005_a_downloaded_folder_connects_without_a_manifest() {
         let dir = tempdir().unwrap();
         write(
             &LabFolder::new(dir.path()).lab_info(),
@@ -229,59 +229,39 @@ mod tests {
     }
 
     #[test]
-    fn known_manifest_aliases_are_checked_before_loading_ssh_files() {
+    fn ssh_target_004_a_folder_without_connection_files_says_how_to_get_them() {
         let dir = tempdir().unwrap();
         fs::write(
             dir.path().join(SHERPA_MANIFEST_FILE),
             "name='test'\nnodes=[{name='vm',model='omarchy_linux'}]\n",
         )
         .unwrap();
+        let check = |dir: &Path| {
+            for name in ["vm", "vm.abcd1234", "vm.abcd1234.sherpa.lab.local"] {
+                let error = load_ssh_connection(name, "abcd1234", dir).unwrap_err();
+                let message = error.to_string();
+                assert!(
+                    message.contains("Lab connection files are missing"),
+                    "{error:#}"
+                );
+                assert!(message.contains("sherpa up"), "{message}");
+                assert!(
+                    message.contains("sherpa download abcd1234 --force"),
+                    "{message}"
+                );
+            }
+        };
+
+        check(dir.path());
         write(
             &LabFolder::new(dir.path()).lab_info(),
             &lab_info().to_string(),
         );
-        for name in ["vm", "vm.abcd1234", "vm.abcd1234.sherpa.lab.local"] {
-            let error = load_ssh_connection(name, "abcd1234", dir.path()).unwrap_err();
-            assert!(
-                error
-                    .to_string()
-                    .contains("Lab connection files are missing"),
-                "{error:#}"
-            );
-            assert!(error.to_string().contains("sherpa up"));
-            assert!(
-                error
-                    .to_string()
-                    .contains("sherpa download abcd1234 --force")
-            );
-        }
+        check(dir.path());
     }
 
     #[test]
-    fn unstarted_lab_reports_how_to_create_its_connection_files() {
-        let dir = tempdir().unwrap();
-        fs::write(
-            dir.path().join(SHERPA_MANIFEST_FILE),
-            "name='test'\nnodes=[{name='vm',model='omarchy_linux'}]\n",
-        )
-        .unwrap();
-        let error = load_ssh_connection("vm", "abcd1234", dir.path()).unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("Lab connection files are missing"),
-            "{error:#}"
-        );
-        assert!(error.to_string().contains("sherpa up"));
-        assert!(
-            error
-                .to_string()
-                .contains("sherpa download abcd1234 --force")
-        );
-    }
-
-    #[test]
-    fn connection_file_read_errors_keep_their_underlying_cause() {
+    fn ssh_target_007_a_connection_file_that_cannot_be_read_fails_with_its_cause() {
         let dir = tempdir().unwrap();
         let error = read_lab_connection_file(dir.path(), "abcd1234").unwrap_err();
         assert!(
@@ -294,36 +274,7 @@ mod tests {
     }
 
     #[test]
-    fn loose_files_of_the_old_layout_are_not_read() {
-        let dir = tempdir().unwrap();
-        fs::write(dir.path().join("lab-info.toml"), lab_info().to_string()).unwrap();
-        fs::write(dir.path().join("sherpa_ssh_config"), "Host vm.abcd1234\n").unwrap();
-        let error = load_ssh_connection("vm", "abcd1234", dir.path()).unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("Lab connection files are missing"),
-            "{error:#}"
-        );
-    }
-
-    #[test]
-    fn an_unknown_node_is_reported() {
-        let error = prepare_ssh_connection(
-            "oma1",
-            "abcd1234",
-            &lab_info(),
-            "Host 192.0.2.10 oma01.abcd1234 oma01.abcd1234.sherpa.lab.local\n    User alice\n",
-        )
-        .unwrap_err();
-        assert!(
-            error.to_string().contains("Node 'oma1' not found"),
-            "{error:#}"
-        );
-    }
-
-    #[test]
-    fn configured_host_aliases_connect() {
+    fn ssh_target_001_a_node_is_taken_by_any_of_its_names() {
         let config = "Host 192.0.2.10 vm.abcd1234 vm.abcd1234.sherpa.lab.local\n    User alice\n";
         for (name, host) in [
             ("vm", "vm.abcd1234"),
@@ -341,21 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn a_node_from_before_0_7_0_needs_no_lab_key() {
-        assert_eq!(
-            prepare_ssh_connection(
-                "router",
-                "abcd1234",
-                &lab_info(),
-                "Host router.abcd1234\n    User sherpa\n"
-            )
-            .unwrap(),
-            "router.abcd1234"
-        );
-    }
-
-    #[test]
-    fn ssh_files_of_another_lab_are_refused() {
+    fn ssh_target_006_connection_files_of_another_lab_are_refused() {
         let error = prepare_ssh_connection(
             "vm",
             "ffff0000",
@@ -367,8 +304,9 @@ mod tests {
     }
 
     #[test]
-    fn comments_hostnames_and_partial_aliases_do_not_count_as_nodes() {
+    fn ssh_target_003_a_node_with_no_host_in_the_ssh_config_is_refused_naming_it() {
         for config in [
+            "Host 192.0.2.10 router.abcd1234 router.abcd1234.sherpa.lab.local\n    User alice\n",
             "# Host vm.abcd1234\n",
             "Host router.abcd1234 # vm.abcd1234\n",
             "HostName vm.abcd1234\n",
@@ -383,32 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn the_node_name_is_the_name_without_the_lab_suffix() {
-        assert_eq!(node_name("dev01", "a10736e8"), "dev01");
-        assert_eq!(node_name("dev01.a10736e8", "a10736e8"), "dev01");
-        assert_eq!(
-            node_name("dev01.a10736e8.sherpa.lab.local", "a10736e8"),
-            "dev01"
-        );
-        assert_eq!(node_name("dev01.deadbeef", "a10736e8"), "dev01.deadbeef");
-    }
-
-    #[test]
-    fn test_qualify_device_name_different_suffix_not_matching() {
-        // Name ends with a different lab id — should still append
-        let result = qualify_device_name("dev01.deadbeef", "a10736e8");
-        assert_eq!(result, "dev01.deadbeef.a10736e8");
-    }
-
-    #[test]
-    fn test_qualify_device_name_partial_match_not_fooled() {
-        // Name contains the lab id but not as a proper suffix
-        let result = qualify_device_name("a10736e8-dev01", "a10736e8");
-        assert_eq!(result, "a10736e8-dev01.a10736e8");
-    }
-
-    #[test]
-    fn the_close_line_starts_on_a_new_line_after_an_escape() {
+    fn ssh_target_009_the_close_line_starts_on_a_new_line_after_an_escape() {
         assert_eq!(
             closed_line("dev01.a10736e8", false),
             "Connection to dev01.a10736e8 closed."

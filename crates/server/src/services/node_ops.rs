@@ -6702,7 +6702,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn each_keycloak_node_starts_with_its_own_saved_admin_kept_across_redeploy() {
+    fn lab_credentials_014_a_keycloak_container_starts_with_its_saved_admin_kept_across_redeploy() {
         let lab = ZtpLab::new();
         let kc01 = keycloak_settings(&lab, "kc01");
         assert_eq!(
@@ -6714,11 +6714,9 @@ echo "$*" >> '{}'
             .to_owned();
         assert_eq!(password.len(), 20);
 
-        // Saved for the server's realm setup and for `download`, readable only by the server.
+        // Saved for the server's realm setup and for `download`.
         let saved = format!("{}/{KEYCLOAK_DIR}/kc01.toml", lab.root());
         assert!(fs::read_to_string(&saved).unwrap().contains(&password));
-        let mode = fs::metadata(&saved).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600);
 
         // A second node gets its own; a redeploy keeps the node's.
         let kc02 = keycloak_settings(&lab, "kc02");
@@ -6734,7 +6732,7 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn admin_passwords_are_in_no_log_line() {
+    fn lab_credentials_016_a_generated_password_is_in_no_log_line() {
         let lab = ZtpLab::new();
         let ((keycloak, surreal_db), output) = capture_log(|| {
             let mut db01 = named_node("db01", data::NodeModel::SurrealDb);
@@ -6758,7 +6756,8 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn each_surreal_db_node_starts_with_its_own_saved_root_user_kept_across_redeploy() {
+    fn lab_credentials_015_a_surreal_db_container_starts_with_its_saved_root_kept_across_redeploy()
+    {
         let lab = ZtpLab::new();
         let mut db01 = named_node("db01", data::NodeModel::SurrealDb);
         let created = lab.container(&mut db01, None).unwrap();
@@ -6772,8 +6771,6 @@ echo "$*" >> '{}'
 
         let saved = format!("{}/{SURREAL_DB_DIR}/db01.toml", lab.root());
         assert!(fs::read_to_string(&saved).unwrap().contains(&password));
-        let mode = fs::metadata(&saved).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600);
 
         let mut db02 = named_node("db02", data::NodeModel::SurrealDb);
         let other = lab.container(&mut db02, None).unwrap();

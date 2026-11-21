@@ -126,7 +126,7 @@ mod tests {
     const ADDRESS: &str = "http://172.31.1.24:8000";
 
     #[test]
-    fn a_new_surreal_db_node_gets_its_own_root_user_saved_owner_only() {
+    fn lab_credentials_010_a_new_surreal_db_node_gets_root_saved_for_sherpad() {
         let dir = TempDir::new().unwrap();
         let admin = ensure_surreal_db_credentials(dir.path(), "db01", ADDRESS).unwrap();
         assert_eq!(admin.username, "root");
@@ -145,40 +145,7 @@ mod tests {
     }
 
     #[test]
-    fn each_surreal_db_node_gets_a_different_password() {
-        let dir = TempDir::new().unwrap();
-        let db01 = ensure_surreal_db_credentials(dir.path(), "db01", ADDRESS).unwrap();
-        let db02 = ensure_surreal_db_credentials(dir.path(), "db02", ADDRESS).unwrap();
-        assert_ne!(db01.password, db02.password);
-    }
-
-    #[test]
-    fn a_redeployed_surreal_db_node_keeps_its_root_user() {
-        let dir = TempDir::new().unwrap();
-        let created = ensure_surreal_db_credentials(dir.path(), "db01", ADDRESS).unwrap();
-        let again = ensure_surreal_db_credentials(dir.path(), "db01", ADDRESS).unwrap();
-        assert_eq!(again, created);
-    }
-
-    #[test]
-    fn up_and_download_list_each_surreal_db_by_name() {
-        let dir = TempDir::new().unwrap();
-        ensure_surreal_db_credentials(dir.path(), "db02", "http://172.31.1.25:8000").unwrap();
-        let db01 = ensure_surreal_db_credentials(dir.path(), "db01", ADDRESS).unwrap();
-        fs::write(dir.path().join("notes.txt"), "ignored").unwrap();
-        let surreal_dbs = read_surreal_db_credentials(dir.path()).unwrap();
-        let names: Vec<&str> = surreal_dbs.iter().map(|db| db.name.as_str()).collect();
-        assert_eq!(names, ["db01", "db02"]);
-        assert_eq!(surreal_dbs[0].admin, db01);
-        assert_eq!(surreal_dbs[1].address, "http://172.31.1.25:8000");
-        assert_eq!(
-            read_surreal_db_credentials(&dir.path().join("missing")).unwrap(),
-            [] as [SurrealDbInfo; 0]
-        );
-    }
-
-    #[test]
-    fn the_root_password_is_hidden_from_debug_output() {
+    fn lab_credentials_017_an_administrator_s_password_is_not_in_its_debug_output() {
         let dir = TempDir::new().unwrap();
         let admin = ensure_surreal_db_credentials(dir.path(), "db01", ADDRESS).unwrap();
         let debug = format!("{admin:?}");

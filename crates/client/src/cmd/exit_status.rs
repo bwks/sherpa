@@ -82,7 +82,7 @@ mod tests {
     }
 
     #[test]
-    fn a_node_shell_exit_keeps_its_code() {
+    fn ssh_target_008_a_node_shell_s_exit_code_is_the_exit_code_of_sherpa_ssh() {
         assert_eq!(exit_status(&ShellExit(75).into()), 75);
         assert_eq!(exit_status(&ShellExit(2).into()), 2);
     }

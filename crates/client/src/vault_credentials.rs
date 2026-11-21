@@ -83,7 +83,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
-    fn each_vault_gets_an_owner_only_credentials_file() {
+    fn lab_credentials_006_a_vault_file_has_its_token_and_key_and_is_owner_only() {
         let dir = tempfile::tempdir().unwrap();
         let vaults = [VaultInfo {
             name: "vault01".to_owned(),

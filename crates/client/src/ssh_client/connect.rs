@@ -249,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    fn the_nodes_unknown_or_changed_key_is_a_mismatch() {
+    fn node_host_keys_009_a_node_s_unknown_or_changed_key_makes_the_cli_fetch_keys() {
         assert_eq!(
             key_mismatch(&changed(node()), &node()),
             Some(KeyMismatch::Changed)
@@ -261,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn the_servers_key_and_other_errors_are_not_a_node_mismatch() {
+    fn node_host_keys_010_the_server_s_key_and_other_failures_fetch_nothing() {
         assert_eq!(key_mismatch(&changed(server()), &node()), None);
         assert_eq!(key_mismatch(&unknown(server()), &node()), None);
         let refused = Error::Connect {
