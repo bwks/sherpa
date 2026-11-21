@@ -197,7 +197,7 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn secrets_have_the_key_types_and_formats_talos_accepts() {
+    fn cluster_secrets_001_secrets_have_the_key_types_and_formats_talos_accepts() {
         let secrets = generate_cluster_secrets().unwrap();
         for key in [
             &secrets.os_ca_key,
@@ -224,7 +224,7 @@ mod tests {
     }
 
     #[test]
-    fn admin_credentials_carry_the_admin_role_and_group() {
+    fn cluster_credentials_002_admin_credentials_carry_the_admin_role_and_group() {
         let secrets = generate_cluster_secrets().unwrap();
         let talos = talos_admin_credentials(&secrets).unwrap();
         let kubernetes = kubernetes_admin_credentials(&secrets).unwrap();
@@ -246,7 +246,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_pinned_talos_minor_version_is_supported() {
+    fn machine_config_006_only_the_pinned_talos_minor_version_is_supported() {
         for version in ["1.14.0", "1.14.4", "v1.14.4"] {
             ensure_supported_version("cp1", version).unwrap();
         }
@@ -255,11 +255,15 @@ mod tests {
                 .unwrap_err()
                 .to_string();
             assert!(error.contains("1.14.x only"), "{version}: {error}");
+            assert!(
+                error.contains(&format!("Node 'cp1' uses Talos Linux {version},")),
+                "{version}: {error}"
+            );
         }
     }
 
     #[test]
-    fn saved_secrets_round_trip_and_are_private() {
+    fn cluster_secrets_002_saved_secrets_round_trip_and_are_private() {
         let root = tempdir().unwrap();
         let dir = root.path().join("k8s");
         let secrets = generate_cluster_secrets().unwrap();
@@ -272,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn the_service_account_public_key_carries_no_private_material() {
+    fn cluster_vault_005_the_service_account_public_key_carries_no_private_material() {
         let secrets = generate_cluster_secrets().unwrap();
         let public_key = service_account_public_key(&secrets).unwrap();
         assert!(public_key.starts_with("-----BEGIN PUBLIC KEY-----"));

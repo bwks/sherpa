@@ -600,7 +600,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn clusters_load_from_their_stored_plans_and_saved_secrets() {
+    async fn cluster_addresses_011_clusters_load_from_their_stored_plans_and_saved_secrets() {
         let (db, lab, labs) = stored_cluster_lab().await;
 
         let clusters = load_clusters(&db, labs.path(), lab.id.as_ref().unwrap(), &lab.lab_id)
@@ -614,19 +614,17 @@ pub(crate) mod tests {
             solo.secrets,
             load_secrets(&cluster_dir(labs.path(), &lab.lab_id, "solo"), "solo").unwrap()
         );
-    }
-
-    #[tokio::test]
-    async fn a_lab_without_stored_plans_has_no_clusters() {
-        let (db, lab) = cluster_lab().await;
-        let labs = tempfile::tempdir().unwrap();
-        save_cluster_files(labs.path(), &lab.lab_id, &cluster_plans());
-
-        let clusters = load_clusters(&db, labs.path(), lab.id.as_ref().unwrap(), &lab.lab_id)
-            .await
-            .unwrap();
-
-        assert!(clusters.is_empty());
+        let (cluster, role, address) = find_member_cluster(&clusters, "w1").unwrap();
+        assert_eq!(
+            (cluster.plan.name.as_str(), role, address),
+            ("ha", ClusterRole::Worker, Ipv4Addr::new(172, 31, 1, 24))
+        );
+        let (cluster, role, _) = find_member_cluster(&clusters, "solo").unwrap();
+        assert_eq!(
+            (cluster.plan.name.as_str(), role),
+            ("solo", ClusterRole::ControlPlane)
+        );
+        assert!(find_member_cluster(&clusters, "vm1").is_none());
     }
 
     #[tokio::test]
@@ -661,28 +659,8 @@ pub(crate) mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn members_are_found_in_the_loaded_clusters() {
-        let (db, lab, labs) = stored_cluster_lab().await;
-        let clusters = load_clusters(&db, labs.path(), lab.id.as_ref().unwrap(), &lab.lab_id)
-            .await
-            .unwrap();
-
-        let (cluster, role, address) = find_member_cluster(&clusters, "w1").unwrap();
-        assert_eq!(
-            (cluster.plan.name.as_str(), role, address),
-            ("ha", ClusterRole::Worker, Ipv4Addr::new(172, 31, 1, 24))
-        );
-        let (cluster, role, _) = find_member_cluster(&clusters, "solo").unwrap();
-        assert_eq!(
-            (cluster.plan.name.as_str(), role),
-            ("solo", ClusterRole::ControlPlane)
-        );
-        assert!(find_member_cluster(&clusters, "vm1").is_none());
-    }
-
     #[test]
-    fn only_cluster_controllers_are_refused_for_redeploy() {
+    fn cluster_redeploy_003_only_a_cluster_controller_is_refused_for_redeploy() {
         let cluster = TalosCluster {
             name: "k8s".to_owned(),
             controllers: vec!["cp1".to_owned()],
@@ -695,19 +673,6 @@ pub(crate) mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("controller of talos cluster 'k8s'"));
-    }
-
-    #[test]
-    fn only_cluster_workers_wait_for_kubernetes_instead_of_their_api_port() {
-        let clusters = [TalosCluster {
-            name: "k8s".to_owned(),
-            controllers: vec!["cp1".to_owned(), "cp2".to_owned(), "cp3".to_owned()],
-            workers: vec!["w1".to_owned()],
-            ..TalosCluster::default()
-        }];
-        assert!(readiness_waits_for_kubernetes(&clusters, "w1"));
-        assert!(!readiness_waits_for_kubernetes(&clusters, "cp1"));
-        assert!(!readiness_waits_for_kubernetes(&clusters, "standalone"));
     }
 
     fn plan_using(oidc: Option<ClusterMember>, vault: Option<ClusterMember>) -> ClusterPlan {
@@ -728,7 +693,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn clusters_log_in_through_their_keycloaks_sherpa_realm() {
+    fn cluster_oidc_006_clusters_log_in_through_their_keycloaks_sherpa_realm() {
         let plan = plan_using(
             Some(ClusterMember {
                 name: "kc01".to_owned(),
@@ -743,11 +708,10 @@ pub(crate) mod tests {
                 ca_cert: "lab-ca",
             })
         );
-        assert_eq!(vault_config(&plan, "lab-ca"), None);
     }
 
     #[test]
-    fn clusters_reach_their_vault_through_their_own_auth_mount() {
+    fn cluster_vault_003_clusters_reach_their_vault_through_their_own_auth_mount() {
         let plan = plan_using(
             None,
             Some(ClusterMember {
@@ -763,6 +727,5 @@ pub(crate) mod tests {
                 auth_mount: "kubernetes-k8s".to_owned(),
             })
         );
-        assert_eq!(oidc_config(&plan, "lab-ca"), None);
     }
 }

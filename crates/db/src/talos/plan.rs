@@ -352,7 +352,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stored_plans_read_back_as_planned() {
+    async fn cluster_addresses_007_stored_plans_read_back_as_planned() {
         let (db, lab) = lab().await;
         let lab_id = lab.id.unwrap();
 
@@ -367,7 +367,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn storing_the_plans_again_replaces_them() {
+    async fn cluster_addresses_008_storing_the_plans_again_replaces_them() {
         let (db, lab) = lab().await;
         let lab_id = lab.id.unwrap();
         let mut moved = plans();
@@ -392,7 +392,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_plan_for_a_cluster_not_in_the_definition_stores_nothing() {
+    async fn cluster_addresses_009_a_plan_for_a_cluster_not_in_the_definition_stores_nothing() {
         let (db, lab) = lab().await;
         let lab_id = lab.id.unwrap();
         let mut unknown = plans();
@@ -407,7 +407,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_member_without_a_management_address_is_refused() {
+    async fn cluster_addresses_010_a_member_without_a_management_address_is_refused() {
         let (db, lab) = lab().await;
         let lab_id = lab.id.unwrap();
         store_talos_cluster_plans(&db, &lab_id, &plans())
@@ -427,7 +427,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn destroying_the_lab_removes_its_plans() {
+    async fn cluster_addresses_012_destroying_the_lab_removes_its_plans() {
         let (db, lab) = lab().await;
         store_talos_cluster_plans(&db, lab.id.as_ref().unwrap(), &plans())
             .await

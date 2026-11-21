@@ -386,8 +386,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_container_is_not_running_before_its_services_are_restored() {
-        // M9.1: redeploy used to record the container running, then restore Vault or Keycloak.
+    async fn cluster_redeploy_004_a_container_is_not_running_before_its_services_are_restored() {
         let (db, node) = launched_container("rd-rest1").await;
         let operation = begin("rd-rest1").await;
         let restore = async {
@@ -407,7 +406,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_container_whose_services_are_restored_is_running() {
+    async fn cluster_redeploy_005_a_container_whose_services_are_restored_is_running() {
         let (db, node) = launched_container("rd-rest2").await;
         let operation = begin("rd-rest2").await;
 

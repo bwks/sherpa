@@ -236,14 +236,20 @@ nodes = [
     }
 
     #[test]
-    fn only_talos_nodes_without_their_own_config_join_clusters() {
+    fn only_talos_nodes_join_clusters() {
         let toml = with_cluster(r#"{ name = "k8s", controllers = ["cp1"], workers = ["dev"] }"#);
         assert!(error(&toml).contains("only talos_linux nodes"));
+    }
+
+    #[test]
+    fn machine_config_007_a_cluster_member_with_its_own_ztp_config_is_refused() {
         let toml = VALID.replace(
             r#"{ name = "w1", model = "talos_linux" }"#,
             r#"{ name = "w1", model = "talos_linux", ztp = { config = "w1.yaml" } }"#,
         );
-        assert!(error(&toml).contains("sets ztp.config"));
+        let message = error(&toml);
+        assert!(message.contains("sets ztp.config"), "{message}");
+        assert!(message.contains("talos cluster 'k8s'"), "{message}");
     }
 
     #[test]
@@ -337,7 +343,7 @@ nodes = [
     }
 
     #[test]
-    fn vault_must_run_the_config_sherpa_generates() {
+    fn machine_config_008_a_cluster_vault_with_its_own_ztp_config_is_refused() {
         let toml = with_cluster(r#"{ name = "k8s", controllers = ["cp1"], vault = "vault01" }"#)
             .replace(
                 r#"{ name = "vault01", model = "hashicorp_vault" }"#,

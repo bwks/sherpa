@@ -27,7 +27,7 @@ ui             = true"#;
 // ============================================================================
 
 #[test]
-fn test_vault_config() {
+fn vault_init_011_the_generated_config_has_raft_tls_the_node_s_addresses_and_the_ui() {
     let t = VaultConfigTemplate {
         node_name: "vault01".to_string(),
         node_address: "172.31.1.21".to_string(),

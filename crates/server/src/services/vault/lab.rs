@@ -514,7 +514,7 @@ cluster_addr = "https://127.0.0.1:8201"
     }
 
     #[test]
-    fn only_vault_nodes_with_the_generated_config_are_initialised() {
+    fn vault_init_006_only_vault_nodes_with_the_generated_config_are_initialised() {
         assert!(sherpa_initialises_vault(NodeModel::HashicorpVault, false));
         assert!(!sherpa_initialises_vault(NodeModel::HashicorpVault, true));
         assert!(!sherpa_initialises_vault(NodeModel::AristaEos, false));
@@ -585,7 +585,7 @@ cluster_addr = "https://127.0.0.1:8201"
     }
 
     #[test]
-    fn init_is_sent_again_only_while_vault_is_not_initialised() {
+    fn vault_init_007_init_is_sent_again_only_while_vault_is_not_initialised() {
         assert_eq!(
             after_failed_init(NOT_INITIALISED, 1),
             AfterFailedInit::Retry
@@ -597,7 +597,7 @@ cluster_addr = "https://127.0.0.1:8201"
     }
 
     #[test]
-    fn a_vault_initialised_after_a_failed_init_lost_its_init_response() {
+    fn vault_init_008_a_vault_initialised_after_a_failed_init_lost_its_init_response() {
         for failed_inits in 1..=INIT_ATTEMPTS {
             assert_eq!(
                 after_failed_init(INITIALISED, failed_inits),
@@ -615,17 +615,7 @@ cluster_addr = "https://127.0.0.1:8201"
     }
 
     #[test]
-    fn a_vault_initialised_before_sherpa_sent_init_uses_its_saved_credentials() {
-        assert_eq!(
-            saved_credentials("vault01", Some(credentials("hvs.one"))).unwrap(),
-            credentials("hvs.one")
-        );
-        let message = format!("{:#}", saved_credentials("vault01", None).unwrap_err());
-        assert!(message.contains("initialised outside Sherpa"), "{message}");
-    }
-
-    #[test]
-    fn a_lost_init_response_says_so_and_how_to_reset_the_node() {
+    fn vault_init_009_a_lost_init_response_says_so_and_how_to_reset_the_node() {
         let init_error = anyhow!("operation timed out").context("Vault API did not answer");
         let message = format!("{:#}", lost_init_response_error("vault01", &init_error));
         assert!(
@@ -645,7 +635,7 @@ cluster_addr = "https://127.0.0.1:8201"
     }
 
     #[test]
-    fn an_unknown_status_after_a_failed_init_says_how_to_reset_the_node() {
+    fn vault_init_010_an_unknown_status_after_a_failed_init_says_how_to_reset_the_node() {
         let message = format!(
             "{:#}",
             status_unknown_error(
@@ -668,21 +658,59 @@ cluster_addr = "https://127.0.0.1:8201"
 
     #[tokio::test]
     #[ignore = "requires a Docker daemon and the hashicorp/vault:1.21 image"]
-    async fn a_new_vault_is_initialised_then_unsealed_with_its_saved_credentials() {
+    async fn vault_init_001_a_new_vault_is_initialised_saved_and_unsealed() {
         let vault = TestVault::start("sherpa-test-vault-init").await;
+        let dir = TempDir::new().unwrap();
+        let client = vault.client();
+        let credentials =
+            unseal_with_client(&client, dir.path(), "vault01", TEST_TIMEOUT, &progress())
+                .await
+                .unwrap();
+        assert_eq!(
+            load_credentials(dir.path(), "vault01").unwrap(),
+            Some(credentials)
+        );
+        let status = client.seal_status().await.unwrap();
+        assert!(status.initialized && !status.sealed, "{status:?}");
+        assert!(client.is_active().await.unwrap());
+        vault.remove().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a Docker daemon and the hashicorp/vault:1.21 image"]
+    async fn vault_init_002_an_initialised_vault_is_not_initialised_again() {
+        let vault = TestVault::start("sherpa-test-vault-again").await;
         let dir = TempDir::new().unwrap();
         let client = vault.client();
         let first = unseal_with_client(&client, dir.path(), "vault01", TEST_TIMEOUT, &progress())
             .await
             .unwrap();
-        assert_eq!(
-            load_credentials(dir.path(), "vault01").unwrap(),
-            Some(first.clone())
-        );
         let again = unseal_with_client(&client, dir.path(), "vault01", TEST_TIMEOUT, &progress())
             .await
             .unwrap();
         assert_eq!(again, first);
+        assert_eq!(
+            load_credentials(dir.path(), "vault01").unwrap(),
+            Some(first)
+        );
+        vault.remove().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a Docker daemon and the hashicorp/vault:1.21 image"]
+    async fn vault_init_003_a_vault_initialised_without_saved_credentials_is_refused() {
+        let vault = TestVault::start("sherpa-test-vault-outside").await;
+        let client = vault.client();
+        let initialised = TempDir::new().unwrap();
+        unseal_with_client(
+            &client,
+            initialised.path(),
+            "vault01",
+            TEST_TIMEOUT,
+            &progress(),
+        )
+        .await
+        .unwrap();
 
         let elsewhere = TempDir::new().unwrap();
         let error = unseal_with_client(
@@ -698,19 +726,19 @@ cluster_addr = "https://127.0.0.1:8201"
             format!("{error:#}").contains("initialised outside Sherpa"),
             "{error:#}"
         );
+        assert_eq!(load_credentials(elsewhere.path(), "vault01").unwrap(), None);
         vault.remove().await;
     }
 
     #[tokio::test]
     #[ignore = "requires a Docker daemon and the hashicorp/vault:1.21 image"]
-    async fn a_timed_out_init_that_completes_in_vault_is_reported_as_a_lost_init_response() {
-        let name = "sherpa-test-vault-lost-init";
+    async fn vault_init_004_a_timed_out_init_that_completes_in_vault_is_a_lost_init_response() {
         let dir = TempDir::new().unwrap();
         // Saved for the node's earlier Vault, as before a redeploy: they must not be used.
         save_credentials(dir.path(), "vault01", &credentials("hvs.stale")).unwrap();
 
         // Raft init takes seconds, so the request times out and Vault finishes it anyway.
-        let vault = TestVault::start(name).await;
+        let vault = TestVault::start("sherpa-test-vault-lost-init").await;
         let client = vault.client().with_init_timeout(Duration::from_millis(200));
         let error = unseal_with_client(&client, dir.path(), "vault01", TEST_TIMEOUT, &progress())
             .await
@@ -731,23 +759,27 @@ cluster_addr = "https://127.0.0.1:8201"
             .unwrap();
         assert!(status.initialized);
         vault.remove().await;
+    }
 
-        // The reset the error asks for: the node again with empty Vault storage.
-        let vault = TestVault::start(name).await;
-        let fresh = unseal_with_client(
-            &vault.client(),
-            dir.path(),
-            "vault01",
-            TEST_TIMEOUT,
-            &progress(),
-        )
-        .await
-        .unwrap();
+    #[tokio::test]
+    #[ignore = "requires a Docker daemon and the hashicorp/vault:1.21 image"]
+    async fn vault_init_005_a_node_restarted_with_empty_storage_gets_new_saved_credentials() {
+        let dir = TempDir::new().unwrap();
+        save_credentials(dir.path(), "vault01", &credentials("hvs.stale")).unwrap();
+
+        // The reset the lost init response error asks for: the node again with empty storage.
+        let vault = TestVault::start("sherpa-test-vault-reset").await;
+        let client = vault.client();
+        let fresh = unseal_with_client(&client, dir.path(), "vault01", TEST_TIMEOUT, &progress())
+            .await
+            .unwrap();
         assert_ne!(fresh.root_token, "hvs.stale");
         assert_eq!(
             load_credentials(dir.path(), "vault01").unwrap(),
             Some(fresh)
         );
+        let status = client.seal_status().await.unwrap();
+        assert!(status.initialized && !status.sealed, "{status:?}");
         vault.remove().await;
     }
 }

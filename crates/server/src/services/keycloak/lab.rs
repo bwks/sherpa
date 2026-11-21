@@ -363,7 +363,7 @@ password = "owner-pw"
     }
 
     #[test]
-    fn realm_users_are_cluster_admins_with_permanent_passwords() {
+    fn keycloak_realm_002_realm_users_are_cluster_admins_with_permanent_passwords() {
         let user = realm_user(&KeycloakUser {
             username: "alice".to_owned(),
             password: "pw".to_owned(),
@@ -374,7 +374,7 @@ password = "owner-pw"
     }
 
     #[test]
-    fn the_kubernetes_client_puts_groups_and_its_audience_in_tokens() {
+    fn keycloak_realm_003_the_kubernetes_client_puts_groups_and_its_audience_in_tokens() {
         let client = kubernetes_client();
         assert_eq!(client["clientId"], "kubernetes");
         assert_eq!(client["publicClient"], true);

@@ -247,7 +247,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn bootstrap_statuses_are_interpreted() {
+    fn cluster_bootstrap_004_accepted_and_already_done_bootstraps_count_and_others_are_refused() {
         assert_eq!(
             bootstrap_outcome(Some("0"), Some("")).unwrap(),
             BootstrapOutcome::Bootstrapped
@@ -264,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn shutdown_is_accepted_only_with_an_ok_status() {
+    fn cluster_shutdown_005_a_shutdown_is_accepted_only_with_an_ok_status() {
         accepted(Some("0"), None).unwrap();
         let refused = accepted(Some("7"), Some("permission denied")).unwrap_err();
         assert!(
@@ -276,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn only_nodes_with_a_true_ready_condition_count() {
+    fn cluster_bootstrap_005_only_nodes_with_a_true_ready_condition_count() {
         let nodes = json!({ "items": [
             { "status": { "conditions": [{ "type": "Ready", "status": "True" }] } },
             { "status": { "conditions": [{ "type": "Ready", "status": "False" }] } },
