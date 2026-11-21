@@ -401,6 +401,11 @@ fn tree_children(dir: &SourceDir, tree: Tree) -> Result<Vec<Child>, IsoError> {
 }
 
 /// Lay out one tree: identifiers, children, path-table order and numbers, directory sizes.
+///
+/// Each directory's records are built here with every position zero, only to learn their size,
+/// and built again with the real positions when they are written. No length depends on a
+/// position, so the size cannot change between the two, and one planning pass and one placing
+/// pass are enough.
 fn plan_tree(source: &Source, tree: Tree) -> Result<TreeLayout, IsoError> {
     let count = source.dirs.len();
     let mut children = Vec::with_capacity(count);
@@ -538,7 +543,9 @@ fn write_dirs(
 
 /// A directory's records, packed so none crosses a sector boundary, padded to whole sectors.
 /// In the primary tree each record carries Rock Ridge fields; the root's `.` also points at the
-/// continuation area holding the `ER` entry.
+/// continuation area holding the `ER` entry. The `ER` entry has a sector of its own because, in
+/// the root's `.` record with the other entries, that record would pass the 255 bytes a record's
+/// one-byte length can hold.
 fn dir_extent(
     source: &Source,
     layout: &TreeLayout,

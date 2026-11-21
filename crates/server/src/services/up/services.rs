@@ -35,7 +35,8 @@ pub(super) struct LabServices {
 
 /// Once the nodes answer: bootstrap the Kubernetes clusters, make the Sherpa realm on Keycloak
 /// nodes, and initialise and unseal Vault nodes running the generated config, letting the
-/// clusters that use them log in. A service that does not come up is a non-critical error.
+/// clusters that use them log in. A service that does not come up is a critical error, and the
+/// lab is left partly created.
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn start_lab_services(
     build: &LabBuild<'_>,

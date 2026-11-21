@@ -4,6 +4,15 @@
 //! interface's live definition is taken from the domain's XML, its `link` element is set, and
 //! the result is handed to libvirt as a device update. The persistent definition is not
 //! changed, so a domain that is started again has its links up.
+//!
+//! The link state is the only carrier a guest sees: virtio-net does not see a host tap set down
+//! or its carrier taken off, so neither is used, and the tap and its filter stay as they are.
+//!
+//! The interface's XML is edited as a stream of events, not through a model of the interface:
+//! its own `link` element is replaced, or added before its end tag when it has none, and every
+//! other element, attribute and value passes through with its bytes. So nothing libvirt reports
+//! that Sherpa does not model is lost, which matters because libvirt refuses a live update that
+//! changes a field it cannot change live.
 
 use std::borrow::Cow;
 use std::mem;
