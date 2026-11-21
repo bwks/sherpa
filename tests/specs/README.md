@@ -18,10 +18,10 @@ One file per area a user sees, flat in this folder.
 | Consoles | [consoles.md](consoles.md) | the serial console and the VNC console through sherpad, who may open one, one session per console and taking it over, refusals, how an open console ends, the console sockets on the server, nodes defined with consoles on TCP |
 | ZTP | [ztp.md](ztp.md) | the ZTP setting of an image and of a node, ZTP off, how a config reaches a node by each method, the config ISO, a node's own `ztp.config`, the config generated for each model, its management addresses and its accounts, the lab's boot server (DHCP, DNS, TFTP, HTTP), who can read a node's config on the server |
 | Provisioning | [provisioning.md](provisioning.md) | what the CLI reads on the user's machine for a node, the text files, binary files and systemd units of a first boot, startup and user scripts, the environment variables of the owner's login, the `ssh` provisioner's files, env files and scripts, when provisioners run, how they wait and what they report, container secret files, what of a provisioner the server never keeps |
-| Client lab files and secrets | [client-lab-files.md](client-lab-files.md) | lab folder, SSH config, known hosts, kubeconfig and other secret files, how the CLI reaches nodes (only `ssh_access` written so far) |
+| Client lab files and secrets | [client-lab-files.md](client-lab-files.md) | the lab folder's `.sherpa`: lab info, SSH config, known hosts, lab CA certificate, kubeconfig, talosconfig and the application nodes' credential files, when they are saved, who can read them, what destroy removes, the lab's line in the user's `~/.ssh` and `sherpa ssh-config`, node host keys, the administrators Sherpa generates for application nodes, how `sherpa ssh` finds a node, how the CLI reaches nodes |
 | Tailnet | not yet written | Tailscale gateway, enrollment, routes |
 | Talos | not yet written | Talos clusters, Cilium, OIDC, Vault |
-| Install and update | not yet written | install, update and uninstall scripts, database migrations, image folders of renamed models after an update |
+| Install and update | not yet written | install, update and uninstall scripts, database migrations, image folders of renamed models after an update, lab folders and saved credentials an older release left |
 | Manifests | not yet written | manifest parsing and validation, which kinds a model takes and which settings a kind takes |
 | Inspect and web UI | not yet written | what Sherpa shows about labs and nodes |
 
