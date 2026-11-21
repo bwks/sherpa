@@ -15,7 +15,8 @@ and a second viewer while the console is held, and a viewer after the first left
 user, and an admin, refused; a second console naming who holds it, and `--force`; the container
 refused both consoles. Always destroys the lab. See README.md.
 
-A pytest module: the `prepared` fixture checks the server and the accounts and writes the lab's
+A pytest module: the `prepared` fixture checks the server, the owner and the admin, has the admin
+create a throwaway normal user as the other user (deleted at the end), and writes the lab's
 manifest, the `lab` fixture brings the lab up once for the module and destroys it at the end, and
 the function fixtures `at_login`, `vnc` and `held_vnc` give a case the console it starts from and
 end it after. The cases are the `test_<case_id>_*` functions, in case order. Run as a script, it
@@ -23,17 +24,22 @@ runs pytest on itself; `--self-test` runs the runner's own unit tests instead.
 """
 
 import argparse
+import fcntl
 import json
 import os
 from pathlib import Path
 import re
+import secrets
 import select
 import shlex
 import shutil
 import signal
 import socket
+import string
+import struct
 import subprocess
 import sys
+import termios
 import time
 import tomllib
 from typing import NamedTuple
@@ -56,15 +62,18 @@ CONTAINER_NODE = {"name": CONTAINER, "model": "generic", "kind": "container", "i
 VM_IMAGE = ("alpine_linux", None, None)
 CONTAINER_IMAGE = ("generic", "container", "3.22")
 
-# The other two accounts: a normal user and an admin, neither owning the lab. Their passwords are
-# only read from the environment.
-ENV_OTHER_USER = "SHERPA_LAB_TEST_OTHER_USER"
-ENV_OTHER_PASSWORD = "SHERPA_LAB_TEST_OTHER_PASSWORD"
+# The admin, who does not own the lab; its password is only read from the environment.
 ENV_ADMIN_USER = "SHERPA_LAB_TEST_ADMIN_USER"
 ENV_ADMIN_PASSWORD = "SHERPA_LAB_TEST_ADMIN_PASSWORD"
 # How `sherpa login` takes a user name and password without asking.
 LOGIN_USER_ENV = "SHERPA_USER_NAME"
 LOGIN_PASSWORD_ENV = "SHERPA_USER_PASSWORD"
+# The other user, a normal user the run creates as the admin and deletes at the end: its name, the
+# prompts of `sherpa server user create` and the rules of the password generated for it.
+OTHER_USER_PREFIX = "console"
+CREATE_PROMPTS = ("Password for {username}: ", "Confirm password: ")
+PASSWORD_LENGTH = 16
+PASSWORD_PUNCTUATION = "_-"
 # Tools a console must not need.
 NOT_NEEDED = ("telnet", "ssh")
 
@@ -97,11 +106,15 @@ VNC_STOPPED = f"Stopped relaying the VNC console of {VM}."
 VNC_REFUSED_EXIT = 1
 # How long `sherpa vnc` may take to print its address, to answer a viewer, or to end.
 VNC_TIMEOUT = 60
+# How long a password prompt may take to show, and the command answered to end.
+PROMPT_TIMEOUT = 60
 # How long a finished command's remaining output is read for.
 DRAIN_SECONDS = 5
 # The text typed at the login prompt, checked for in the guest's echo. It is never submitted.
 TYPED = "sherpa-console-check"
 NO_CONTAINER = "--no-container: the lab has no container"
+# The run's passwords and tokens, masked in every log and failure message.
+SECRETS = []
 
 
 class TestFailure(Exception):
@@ -124,7 +137,19 @@ class Outcome(NamedTuple):
 
 def require(condition, message):
     if not condition:
-        raise TestFailure(message)
+        raise TestFailure(mask(message))
+
+
+def add_secret(secret):
+    if secret and secret not in SECRETS:
+        SECRETS.append(secret)
+
+
+def mask(text):
+    """`text` with every secret of the run replaced, for the logs."""
+    for secret in SECRETS:
+        text = text.replace(secret, "********")
+    return text
 
 
 def run_logged(log, label, arguments, cwd, timeout=COMMAND_TIMEOUT, env=None):
@@ -139,11 +164,11 @@ def run_logged(log, label, arguments, cwd, timeout=COMMAND_TIMEOUT, env=None):
                    for part in (error.stdout, error.stderr)]
         outcome = Outcome(None, partial[0], f"{partial[1]}\ntimed out after {timeout}s")
     except KeyboardInterrupt:
-        log.write(f"=== {label}: {shlex.join(arguments)}\n--- interrupted\n")
+        log.write(mask(f"=== {label}: {shlex.join(arguments)}\n--- interrupted\n"))
         log.flush()
         raise
-    log.write(f"=== {label}: {shlex.join(arguments)}\n--- exit {outcome.code}\n"
-              f"--- stdout\n{outcome.stdout}\n--- stderr\n{outcome.stderr}\n")
+    log.write(mask(f"=== {label}: {shlex.join(arguments)}\n--- exit {outcome.code}\n"
+                   f"--- stdout\n{outcome.stdout}\n--- stderr\n{outcome.stderr}\n"))
     log.flush()
     return outcome
 
@@ -193,6 +218,125 @@ def connected_line(lab_name):
     """The line `sherpa console` prints once the console is open: the node, the lab and both
     escapes."""
     return f"{CONNECTED}{lab_name}. Escape: Ctrl+] or ~. at the start of a line."
+
+
+def password_fits(password, username):
+    """Whether a generated password meets the login password rules."""
+    return (PASSWORD_LENGTH == len(password) and password[0].isalnum()
+            and all(c.isascii() and (c.isalnum() or c in PASSWORD_PUNCTUATION) for c in password)
+            and any(c.islower() for c in password) and any(c.isupper() for c in password)
+            and any(c.isdigit() for c in password) and any(c in PASSWORD_PUNCTUATION for c in password)
+            and username.lower() not in password.lower()
+            and not any(a == b == c for a, b, c in zip(password, password[1:], password[2:])))
+
+
+def generate_password(username):
+    """A random password for the run that meets the login password rules. It is only held in
+    memory, and masked in the logs."""
+    first = string.ascii_letters + string.digits
+    rest = first + PASSWORD_PUNCTUATION
+    while True:
+        password = secrets.choice(first) + "".join(secrets.choice(rest) for _ in range(PASSWORD_LENGTH - 1))
+        if password_fits(password, username):
+            add_secret(password)
+            return password
+
+
+def parse_key_list(stdout):
+    """The keys in `sherpa server --output json user ssh-key list`'s output."""
+    try:
+        return json.loads(stdout[stdout.index("{"):])["ssh_keys"]
+    except (ValueError, KeyError) as error:
+        raise TestFailure(f"the key list printed no keys: {stdout.strip()}") from error
+
+
+class Terminal:
+    """A command in a pseudo-terminal of its own, as a user's terminal runs it: it is the command's
+    controlling terminal, so the password prompts of `sherpa` read from it."""
+
+    def __init__(self, log, label, arguments, cwd, env):
+        self.log = log
+        self.label = label
+        self.transcript = bytearray()
+        master, slave = os.openpty()
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 120, 0, 0))
+        self.master = master
+        self.process = subprocess.Popen(arguments, cwd=cwd, env=env, stdin=slave, stdout=slave,
+                                        stderr=slave, preexec_fn=lambda: os.login_tty(slave))
+        os.close(slave)
+        print(f"[{Path(cwd).name}] {label}", flush=True)
+
+    def read(self, timeout):
+        """Read what the command printed within `timeout` seconds; False once it has closed."""
+        ready, _, _ = select.select([self.master], [], [], timeout)
+        if not ready:
+            return True
+        try:
+            data = os.read(self.master, 4096)
+        except OSError:
+            return False
+        self.transcript += data
+        return bool(data)
+
+    def text(self):
+        return self.transcript.decode(errors="replace").replace("\r\n", "\n")
+
+    def send(self, data):
+        os.write(self.master, data)
+
+    def running(self):
+        return self.process.poll() is None
+
+    def wait_for(self, condition, timeout, what):
+        """Wait until `condition(text)` holds; return the text."""
+        deadline = time.monotonic() + timeout
+        while True:
+            text = self.text()
+            if condition(text):
+                return text
+            remaining = deadline - time.monotonic()
+            require(remaining > 0, f"{self.label}: {what} not seen within {timeout}s; see {self.log.name}")
+            open_ = self.read(min(remaining, 1))
+            require(open_ or self.running(), f"{self.label} ended before {what}; see {self.log.name}")
+
+    def kill(self):
+        if self.running():
+            self.process.kill()
+
+    def finish(self, timeout=PROMPT_TIMEOUT):
+        """Wait for the command to end and return its exit code, keeping what it printed."""
+        deadline = time.monotonic() + timeout
+        while self.running() and time.monotonic() < deadline:
+            self.read(0.5)
+        ended = not self.running()
+        drain(self.read)
+        code = self.process.poll()
+        if code is None:
+            self.process.kill()
+            self.process.wait()
+        os.close(self.master)
+        self.log.write(mask(f"=== {self.label}\n--- exit {code}\n--- terminal\n{self.text()}\n"))
+        self.log.flush()
+        require(ended, f"{self.label} did not end within {timeout}s; see {self.log.name}")
+        return code
+
+
+def answer_prompts(terminal, answers, timeout=PROMPT_TIMEOUT):
+    """Type each `(prompt, answer)` of `answers`, in order, once its prompt shows, then wait for the
+    command to end and return its exit code and what it printed."""
+    try:
+        seen = 0
+        for prompt, answer in answers:
+            text = terminal.wait_for(lambda text, prompt=prompt: prompt in text[seen:], timeout,
+                                     f"the prompt {prompt!r}")
+            seen = text.index(prompt, seen) + len(prompt)
+            terminal.send(answer.encode() + b"\r")
+    except BaseException:
+        terminal.kill()
+        terminal.finish()
+        raise
+    code = terminal.finish(timeout)
+    return code, terminal.text()
 
 
 class Account(NamedTuple):
@@ -273,8 +417,7 @@ class Console:
         drain(self.read)
         os.close(self.master)
         self.finished = True
-        self.log.write(f"=== {self.label}\n--- exit {code}\n--- terminal\n"
-                       f"{self.text()}\n")
+        self.log.write(mask(f"=== {self.label}\n--- exit {code}\n--- terminal\n{self.text()}\n"))
         self.log.flush()
         require(code is not None, f"{self.label} did not end within {timeout}s; see {self.log.name}")
         return code
@@ -360,7 +503,7 @@ class Vnc:
         drain(self.read)
         self.process.stdout.close()
         self.finished = True
-        self.log.write(f"=== {self.label}\n--- exit {code}\n--- output\n{self.text()}\n")
+        self.log.write(mask(f"=== {self.label}\n--- exit {code}\n--- output\n{self.text()}\n"))
         self.log.flush()
         require(code is not None, f"{self.label} did not end within {timeout}s; see {self.log.name}")
         return code
@@ -577,6 +720,9 @@ def log_in(log, run_root, role, username, password, owner, admin):
     login = run_logged(log, f"sherpa login ({role})", ["sherpa", "login"], run_root,
                        env={**env, LOGIN_USER_ENV: username, LOGIN_PASSWORD_ENV: password})
     require(login.code == 0, f"could not log in as {username}; see {log.name}")
+    token = Path(env["HOME"]) / ".sherpa" / "token"
+    if token.exists():
+        add_secret(token.read_text().strip())
     info = run_logged(log, f"sherpa server user info ({role})", ["sherpa", "server", "user", "info"], run_root,
                       env=env)
     found = INFO_ADMIN.search(info.stdout)
@@ -585,53 +731,115 @@ def log_in(log, run_root, role, username, password, owner, admin):
     return Account(role, username, env)
 
 
-def preflight(run_root, other_user, admin_user, passwords, with_container):
-    """Check the server and the three accounts; return the owner and the other two accounts."""
+def preflight(log, run_root, admin_user, admin_password, with_container):
+    """Check the server, the owner and the admin; return the owner, the admin's account and the
+    owner's public key."""
     require(shutil.which("sherpa"), "sherpa is not on PATH")
     require(shutil.which("sherpa", path=path_without(*NOT_NEEDED)),
             "sherpa is in the same directory as telnet or ssh; install it elsewhere for this test")
-    with (run_root / "preflight.log").open("w") as log:
-        whoami = run_logged(log, "sherpa whoami", ["sherpa", "whoami"], run_root)
-        require(whoami.code == 0, "the sherpa CLI is not logged in (run `sherpa login`)")
-        owner = require_device_password(log, run_root)
-        user = log_in(log, run_root, "user", other_user, passwords[0], owner, admin=False)
-        admin = log_in(log, run_root, "admin", admin_user, passwords[1], owner, admin=True)
-        images = (VM_IMAGE, CONTAINER_IMAGE) if with_container else (VM_IMAGE,)
-        for model, kind, version in images:
-            arguments = ["sherpa", "server", "image", "show", model]
-            if kind:
-                arguments += ["--kind", kind]
-            if version:
-                arguments += ["--version", version]
-            image = run_logged(log, f"{model} image present", arguments, run_root)
-            require(image.code == 0, f"the server has no {model} {version or 'default'} image")
-    return owner, user, admin
+    whoami = run_logged(log, "sherpa whoami", ["sherpa", "whoami"], run_root)
+    require(whoami.code == 0, "the sherpa CLI is not logged in (run `sherpa login`)")
+    owner = require_device_password(log, run_root)
+    keys = run_logged(log, "the owner's keys", ["sherpa", "server", "--output", "json", "user", "ssh-key", "list"],
+                      run_root)
+    require(keys.code == 0, f"could not list the owner's SSH keys; see {log.name}")
+    owner_keys = parse_key_list(keys.stdout)
+    require(owner_keys, f"{owner} has no SSH key, which `sherpa up` needs")
+    admin = log_in(log, run_root, "admin", admin_user, admin_password, owner, admin=True)
+    images = (VM_IMAGE, CONTAINER_IMAGE) if with_container else (VM_IMAGE,)
+    for model, kind, version in images:
+        arguments = ["sherpa", "server", "image", "show", model]
+        if kind:
+            arguments += ["--kind", kind]
+        if version:
+            arguments += ["--version", version]
+        image = run_logged(log, f"{model} image present", arguments, run_root)
+        require(image.code == 0, f"the server has no {model} {version or 'default'} image")
+    return owner, admin, owner_keys[0]
+
+
+class OtherUser:
+    """The lab's other user: a normal Sherpa user the admin creates for the run, with a unique name,
+    a password generated for the run and the owner's public key, and deletes at the end. The
+    password lives only in this object, typed at the prompts of `sherpa server user create` and
+    passed in the environment of `sherpa login`; it is never written to a file or a command line."""
+
+    def __init__(self, log, run_root, admin):
+        self.log = log
+        self.run_root = run_root
+        self.admin = admin
+        self.username = f"{OTHER_USER_PREFIX}{uuid.uuid4().hex[:8]}"
+        self.password = generate_password(self.username)
+        self.created = False
+
+    def __repr__(self):
+        return f"OtherUser({self.username!r})"
+
+    def create(self, owner, owner_key):
+        """Create the user as the admin, log it in to a HOME of its own and add `owner_key` to it as
+        the user; return its account."""
+        label = f"sherpa server user create {self.username} (admin)"
+        terminal = Terminal(self.log, label, ["sherpa", "server", "user", "create", self.username], self.run_root,
+                            self.admin.env)
+        self.created = True
+        prompts = [prompt.format(username=self.username) for prompt in CREATE_PROMPTS]
+        code, text = answer_prompts(terminal, [(prompt, self.password) for prompt in prompts])
+        require(code == 0, f"{label} failed (exit {code}): {text.strip()[-600:]}")
+        account = log_in(self.log, self.run_root, "user", self.username, self.password, owner, admin=False)
+        key_file = self.run_root / "user-key.pub"
+        key_file.write_text(f"{owner_key}\n")
+        add = run_logged(self.log, "sherpa server user ssh-key add (user)",
+                         ["sherpa", "server", "user", "ssh-key", "add", str(key_file)], self.run_root, env=account.env)
+        require(add.code == 0, f"could not add the owner's key to {self.username}; see {self.log.name}")
+        return account
+
+    def delete(self):
+        """Delete the user as the admin and check it is gone. Returns a failure, or None."""
+        if not self.created:
+            return None
+        try:
+            label = f"sherpa server user delete {self.username} (admin)"
+            delete = run_logged(self.log, label, ["sherpa", "server", "user", "delete", self.username, "--force"],
+                                self.run_root, env=self.admin.env)
+            require(delete.code == 0, f"{label} failed; see {self.log.name}")
+            listing = run_logged(self.log, "sherpa server user list (admin)", ["sherpa", "server", "user", "list"],
+                                 self.run_root, env=self.admin.env)
+            require(listing.code == 0 and not re.search(rf"\b{re.escape(self.username)}\b", listing.stdout),
+                    f"user {self.username} still exists after delete; see {self.log.name}")
+        except TestFailure as error:
+            return error
+        return None
 
 
 @pytest.fixture(scope="module")
 def prepared(request):
-    """The lab before it is up: the server and the three accounts checked and the run's manifest
-    written."""
+    """The lab before it is up: the server, the owner and the admin checked, the other user created,
+    and the run's manifest written. The other user is deleted at the end, even when a case fails."""
     signal.signal(signal.SIGTERM, stop_on_sigterm)
-    other_user = request.config.getoption("other_user")
     admin_user = request.config.getoption("admin_user")
-    passwords = (os.environ.get(ENV_OTHER_PASSWORD), os.environ.get(ENV_ADMIN_PASSWORD))
-    missing = [name for name, value in ((f"--other-user or ${ENV_OTHER_USER}", other_user),
-                                        (f"${ENV_OTHER_PASSWORD}", passwords[0]),
-                                        (f"--admin-user or ${ENV_ADMIN_USER}", admin_user),
-                                        (f"${ENV_ADMIN_PASSWORD}", passwords[1])) if not value]
+    admin_password = os.environ.get(ENV_ADMIN_PASSWORD)
+    add_secret(admin_password)
+    missing = [name for name, value in ((f"--admin-user or ${ENV_ADMIN_USER}", admin_user),
+                                        (f"${ENV_ADMIN_PASSWORD}", admin_password)) if not value]
     require(not missing, f"missing {', '.join(missing)}")
     with_container = not request.config.getoption("no_container")
     run_root = RUNS / f"console-{uuid.uuid4().hex[:12]}"
     run_root.mkdir(parents=True)
     print(f"Logs: {run_root}", flush=True)
-    owner, user, admin = preflight(run_root, other_user, admin_user, passwords, with_container)
-    lab = Lab(run_root, owner, user, admin, with_container)
-    lab.prepare()
-    try:
-        yield lab
-    finally:
-        lab.log.close()
+    with (run_root / "accounts.log").open("w") as log:
+        owner, admin, owner_key = preflight(log, run_root, admin_user, admin_password, with_container)
+        other = OtherUser(log, run_root, admin)
+        try:
+            lab = Lab(run_root, owner, other.create(owner, owner_key), admin, with_container)
+            lab.prepare()
+            try:
+                yield lab
+            finally:
+                lab.log.close()
+        finally:
+            failure = other.delete()
+            if failure:
+                raise failure
 
 
 @pytest.fixture(scope="module")
@@ -810,7 +1018,7 @@ def test_console_refusal_002_a_container_is_refused_vnc_with_exit_code_1_and_no_
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter,
-                                     epilog="Other arguments, such as --other-user, --admin-user, --keep-failed, "
+                                     epilog="Other arguments, such as --admin-user, --keep-failed, "
                                             "--no-container or -k, are passed to pytest.")
     parser.add_argument("--self-test", action="store_true", help="Run the runner's own unit tests")
     args, pytest_args = parser.parse_known_args()
@@ -838,6 +1046,12 @@ class SelfTest(unittest.TestCase):
         finally:
             os.environ["PATH"] = original
             shutil.rmtree(directory)
+
+    def test_generated_passwords_fit_the_rules_and_are_masked(self):
+        for _ in range(50):
+            password = generate_password("console0a1b2c3d")
+            self.assertTrue(password_fits(password, "console0a1b2c3d"))
+            self.assertEqual(mask(f"pw={password}"), "pw=********")
 
 
 if __name__ == "__main__":

@@ -36,6 +36,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
   Set it once with `sherpa server user device-password`.
   The owner-login lab instead creates its own throwaway owner, with a device password, as an admin
   whose name and password it takes from an option and an environment variable, never printing them.
+  The console lab likewise has an admin create the other user it needs, and deletes it at the end.
 - Each runner has a `--self-test` mode for its pure logic, which runs in seconds.
 
 Lab tests are started by hand. How and when end-to-end tests run is being planned in

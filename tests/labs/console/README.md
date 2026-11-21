@@ -20,17 +20,27 @@ The runner writes the manifest for each run itself; there is no manifest file he
 - The `alpine_linux` image and the `generic` container `alpine` 3.22 image. On a server without
   the container image, `--no-container` leaves `ctr01` out and skips its two cases.
 - `sherpa` not in the same directory as `telnet` or `ssh`.
-- Two more accounts, each logged in non-interactively to a `HOME` of its own (the owner's client
-  config and trusted server certificate are copied there), so the owner's login is never touched:
+- An admin who is not the owner, such as the built-in `admin`. It is logged in
+  non-interactively to a `HOME` of its own (the owner's client config and trusted server
+  certificate are copied there), so the owner's login is never touched:
 
 | Input | Meaning |
 |---|---|
-| `--other-user NAME` or `SHERPA_LAB_TEST_OTHER_USER` | A normal user, not the owner |
-| `SHERPA_LAB_TEST_OTHER_PASSWORD` | Its Sherpa password |
 | `--admin-user NAME` or `SHERPA_LAB_TEST_ADMIN_USER` | An admin, not the owner |
-| `SHERPA_LAB_TEST_ADMIN_PASSWORD` | Its Sherpa password |
+| `SHERPA_LAB_TEST_ADMIN_PASSWORD` | Its Sherpa password, only read from the environment |
 
-Passwords are only read from the environment.
+- An SSH key on the owner's account, as `sherpa up` needs.
+
+The other user the cases need, a normal user who does not own the lab, is made by the run, so no
+account is made by hand. The admin creates it with `sherpa server user create`, under a unique
+name (`console` and 8 hex digits) and with a password generated with Python's `secrets`; the
+runner types the password at both prompts in a pseudo-terminal, as a user does. The user is then
+logged in to a `HOME` of its own with `sherpa login`, the password passed in
+`SHERPA_USER_PASSWORD`, and adds the owner's public key with `sherpa server user ssh-key add`.
+The password is only held in memory: never written to a file or put on a command line, and
+masked in the logs, as are the admin's password and both tokens. At the end, even when a case
+fails, the admin deletes the user with `sherpa server user delete --force` and checks
+`sherpa server user list` no longer shows it.
 
 ## Running
 
@@ -38,20 +48,21 @@ The runner is a pytest module; `uv run` installs the pytest version pinned in it
 and runs pytest on it, passing on any other arguments:
 
 ```sh
-export SHERPA_LAB_TEST_OTHER_PASSWORD=... SHERPA_LAB_TEST_ADMIN_PASSWORD=...
-uv run tests/labs/console/console_lab_test.py --other-user bob --admin-user dana
-uv run tests/labs/console/console_lab_test.py --other-user bob --admin-user dana --keep-failed
-uv run tests/labs/console/console_lab_test.py --other-user bob --admin-user dana --no-container
-uv run tests/labs/console/console_lab_test.py --other-user bob --admin-user dana -k vnc_console_
+export SHERPA_LAB_TEST_ADMIN_PASSWORD=...
+uv run tests/labs/console/console_lab_test.py --admin-user admin
+uv run tests/labs/console/console_lab_test.py --admin-user admin --keep-failed
+uv run tests/labs/console/console_lab_test.py --admin-user admin --no-container
+uv run tests/labs/console/console_lab_test.py --admin-user admin -k vnc_console_
 uv run tests/labs/console/console_lab_test.py --self-test     # the runner's own unit tests
 ```
 
 pytest runs it directly too, for example `uvx --python 3.15 pytest==9.2.0
-tests/labs/console/console_lab_test.py --other-user bob --admin-user dana`. The options are
+tests/labs/console/console_lab_test.py --admin-user admin`. The options are
 defined in `conftest.py` next to the runner.
 
-The module-scoped `prepared` fixture checks the requirements, logs the other two accounts in and
-writes the run's manifest under a unique lab name; the `lab` fixture brings the lab up once and
+The module-scoped `prepared` fixture checks the requirements, logs the admin in, creates the
+other user and writes the run's manifest under a unique lab name, and deletes the other user at
+the end; the `lab` fixture brings the lab up once and
 destroys it at the end, even when a case fails, unless `--keep-failed` is given and something
 failed. Each case starts from a console of its own, given by a function fixture that ends it
 after the case:
@@ -68,7 +79,8 @@ The cases are the functions named `test_<case_id>_*`, in the order below; every 
 when one fails. The runner's own unit tests, under `--self-test`, are not collected by pytest.
 
 Logs, including each console's terminal transcript, are under
-`.tmp/lab-tests/console-<run>/lab/commands.log`. A run takes about 1–5 minutes.
+`.tmp/lab-tests/console-<run>/lab/commands.log`; the accounts' commands, the other user's
+creation and deletion included, are in `.tmp/lab-tests/console-<run>/accounts.log`. A run takes about 1–5 minutes.
 
 ## What it checks
 
