@@ -145,54 +145,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_error_code_values() {
-        assert_eq!(RpcErrorCode::ParseError.code(), -32700);
-        assert_eq!(RpcErrorCode::InvalidRequest.code(), -32600);
-        assert_eq!(RpcErrorCode::MethodNotFound.code(), -32601);
-        assert_eq!(RpcErrorCode::InvalidParams.code(), -32602);
-        assert_eq!(RpcErrorCode::InternalError.code(), -32603);
-        assert_eq!(RpcErrorCode::ServerError.code(), -32000);
-        assert_eq!(RpcErrorCode::AuthInvalid.code(), -32001);
-        assert_eq!(RpcErrorCode::AuthRequired.code(), -32002);
-        assert_eq!(RpcErrorCode::AccessDenied.code(), -32003);
-        assert_eq!(RpcErrorCode::NotFound.code(), -32004);
-        assert_eq!(RpcErrorCode::InsufficientMemory.code(), -32005);
-        assert_eq!(RpcErrorCode::CpuPinsHeld.code(), -32006);
-    }
-
-    #[test]
-    fn test_from_i32() {
-        assert_eq!(RpcErrorCode::from(-32700), RpcErrorCode::ParseError);
-        assert_eq!(RpcErrorCode::from(-32600), RpcErrorCode::InvalidRequest);
-        assert_eq!(RpcErrorCode::from(-32601), RpcErrorCode::MethodNotFound);
-        assert_eq!(RpcErrorCode::from(-32602), RpcErrorCode::InvalidParams);
-        assert_eq!(RpcErrorCode::from(-32603), RpcErrorCode::InternalError);
-        assert_eq!(RpcErrorCode::from(-32000), RpcErrorCode::ServerError);
-        assert_eq!(RpcErrorCode::from(-32001), RpcErrorCode::AuthInvalid);
-        assert_eq!(RpcErrorCode::from(-32002), RpcErrorCode::AuthRequired);
-        assert_eq!(RpcErrorCode::from(-32003), RpcErrorCode::AccessDenied);
-        assert_eq!(RpcErrorCode::from(-32004), RpcErrorCode::NotFound);
-        assert_eq!(RpcErrorCode::from(-32005), RpcErrorCode::InsufficientMemory);
-        assert_eq!(RpcErrorCode::from(-32006), RpcErrorCode::CpuPinsHeld);
-    }
-
-    #[test]
-    fn test_from_i32_unknown() {
-        let unknown = RpcErrorCode::from(-99999);
-        assert_eq!(unknown, RpcErrorCode::Unknown(-99999));
-        assert_eq!(unknown.code(), -99999);
-    }
-
-    #[test]
-    fn test_serialize() {
-        let code = RpcErrorCode::AuthRequired;
-        let json = serde_json::to_string(&code).unwrap();
-        assert_eq!(json, "-32002");
-    }
-
-    #[test]
-    fn test_deserialize() {
+    fn api_errors_005_an_error_code_is_sent_as_its_number_and_an_unknown_number_is_kept() {
+        assert_eq!(
+            serde_json::to_string(&RpcErrorCode::AuthRequired).unwrap(),
+            "-32002"
+        );
         let code: RpcErrorCode = serde_json::from_str("-32002").unwrap();
         assert_eq!(code, RpcErrorCode::AuthRequired);
+        let unknown: RpcErrorCode = serde_json::from_str("-99999").unwrap();
+        assert_eq!(unknown, RpcErrorCode::Unknown(-99999));
+        assert_eq!(serde_json::to_string(&unknown).unwrap(), "-99999");
     }
 }

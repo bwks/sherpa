@@ -285,7 +285,7 @@ mod tests {
     };
 
     #[test]
-    fn links_table_shows_each_link_state() {
+    fn cli_tables_011_the_links_table_shows_each_links_state() {
         let link = |node_b: &str, state| LinkInfo {
             node_a_name: "vm1".to_string(),
             int_a: "eth1".to_string(),
@@ -386,7 +386,7 @@ mod tests {
     }
 
     #[test]
-    fn the_nodes_table_names_each_nodes_kind() {
+    fn cli_tables_013_the_nodes_table_names_each_node_with_its_address_model_and_kind() {
         let nodes = [
             NodeInfo {
                 name: "veos1".to_string(),
@@ -419,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    fn a_device_row_shows_each_of_its_values() {
+    fn cli_tables_009_an_active_nodes_row_gives_the_nodes_values_and_a_dash_for_none() {
         let devices = vec![DeviceInfo {
             name: "router01".to_string(),
             model: NodeModel::CiscoCat8000,
@@ -444,7 +444,7 @@ mod tests {
     }
 
     #[test]
-    fn lab_info_table_shows_where_the_lab_was_started() {
+    fn cli_tables_007_the_lab_info_table_has_a_row_for_each_detail_and_none_for_ipv6_it_lacks() {
         let lab_info = LabInfo {
             ssh_usernames: Vec::default(),
             id: "039ab286".to_string(),

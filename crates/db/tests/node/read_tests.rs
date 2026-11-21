@@ -91,7 +91,7 @@ async fn test_get_node_by_name_and_lab_not_found() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_count_nodes_by_lab_accurate() -> Result<()> {
+async fn labs_list_012_the_node_count_is_the_labs_own_nodes() -> Result<()> {
     let db = setup_db().await?;
 
     let user = create_user(&db, "ian".to_string(), "TestPass123!", false, vec![]).await?;

@@ -9,7 +9,7 @@ use shared::data::{ModelKind, NodeModel};
 use crate::{create_test_config, setup_db};
 
 #[tokio::test]
-async fn test_count_node_images() -> Result<()> {
+async fn web_layout_007_the_dashboards_image_count_is_every_recorded_image() -> Result<()> {
     let db = setup_db().await?;
 
     let initial_count = count_node_images(&db).await?;

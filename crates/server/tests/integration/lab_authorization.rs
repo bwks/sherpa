@@ -1010,13 +1010,13 @@ async fn cancel_with_nothing_running_stops_nothing() -> Result<()> {
 // ── Lab pages ──
 
 #[tokio::test]
-async fn the_labs_grid_shows_each_user_their_own_labs() -> Result<()> {
+async fn labs_list_003_a_user_with_no_labs_is_shown_they_have_none_with_a_link_to_create_one()
+-> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
-    let (callers, owners) = login_callers(&server, &mut ws).await?;
+    let (callers, _) = login_callers(&server, &mut ws).await?;
     let http = http_client()?;
     let base = format!("http://{}", server.addr);
-    seed_lab(&server, owner(&owners, "alice")?, 1).await?;
 
     let body = http
         .get(format!("{base}/labs/grid"))
@@ -1026,14 +1026,15 @@ async fn the_labs_grid_shows_each_user_their_own_labs() -> Result<()> {
         .text()
         .await?;
     ensure!(
-        body.contains("No Labs Found"),
+        body.contains("No Labs Found") && body.contains(r#"<a href="/labs/create""#),
         "a user with no labs did not get the empty state: {body}"
     );
     Ok(())
 }
 
 #[tokio::test]
-async fn an_unknown_job_is_not_found() -> Result<()> {
+async fn web_jobs_004_an_unknown_jobs_page_is_not_found_and_its_stream_ends_at_once() -> Result<()>
+{
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let (callers, _) = login_callers(&server, &mut ws).await?;

@@ -482,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn device_details_come_from_the_database_and_pool() {
+    fn lab_details_002_a_nodes_details_are_its_record_and_the_volumes_named_for_it() {
         let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
         let volumes = vec![
             "dev01-a1b2c3d4-hdd.qcow2".to_string(),

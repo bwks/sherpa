@@ -2,9 +2,6 @@
   var root = document.documentElement;
   var stored = localStorage.getItem("theme");
 
-  // Older releases offered several colour palettes; Soda Pop is now the only one.
-  localStorage.removeItem("palette");
-
   function applyTheme(dark) {
     if (dark) {
       root.classList.add("dark");

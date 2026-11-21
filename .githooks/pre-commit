@@ -4,4 +4,6 @@
 
 set -euo pipefail
 
-exec "$(git rev-parse --show-toplevel)/dev/check-lint-exceptions.sh"
+root="$(git rev-parse --show-toplevel)"
+"${root}/dev/check-lint-exceptions.sh"
+exec "${root}/dev/check-template-text-decisions.sh"

@@ -67,8 +67,9 @@ Enable the pre-commit hook once per checkout:
 git config core.hooksPath .githooks
 ```
 
-It runs `dev/check-lint-exceptions.sh`, which refuses new `allow`/`expect` lint exceptions. CI
-runs the same check.
+It runs `dev/check-lint-exceptions.sh`, which refuses new `allow`/`expect` lint exceptions, and
+`dev/check-template-text-decisions.sh`, which refuses web UI template tags that decide from an
+enum's text. CI runs the same checks.
 
 ### Dev Scripts
 
@@ -78,6 +79,7 @@ Helper scripts are in the `dev/` directory:
 dev/serve              # run the server in development mode
 dev/rebuild            # Rebuild the project and copy binaries to path
 dev/check-lint-exceptions.sh  # refuse lint exceptions not on its allowlist
+dev/check-template-text-decisions.sh  # refuse template tags that decide from an enum's text
 ```
 
 ## Logging

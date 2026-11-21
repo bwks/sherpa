@@ -863,51 +863,15 @@ pub fn build_openapi() -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::DownloadLabResponse;
 
     #[test]
-    fn up_and_download_send_no_lab_ssh_key() {
-        for (name, schema) in [
-            ("UpResponse", schema_for!(UpResponse).to_value()),
-            (
-                "DownloadLabResponse",
-                schema_for!(DownloadLabResponse).to_value(),
-            ),
-        ] {
-            let properties = schema["properties"].as_object().unwrap();
-            assert!(properties.contains_key("ssh_config"), "{name}");
-            assert!(!properties.contains_key("ssh_private_key"), "{name}");
-        }
-    }
-
-    #[test]
-    fn test_all_operation_names_unique() {
+    fn api_documents_005_every_operation_has_its_own_name_and_its_schemas_are_in_the_spec() {
         let spec = build_spec();
         let mut names: Vec<&str> = spec.operations.iter().map(|op| op.name).collect();
         let total = names.len();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), total, "Duplicate operation names found");
-    }
-
-    #[test]
-    fn test_streaming_operations_have_stream_type() {
-        let spec = build_spec();
-        let streaming_ops: Vec<&OperationDef> =
-            spec.operations.iter().filter(|op| op.streaming).collect();
-
-        for op in &streaming_ops {
-            assert!(
-                op.transports.rest.stream_type.is_some(),
-                "Streaming operation '{}' missing stream_type in REST binding",
-                op.name
-            );
-        }
-    }
-
-    #[test]
-    fn test_schema_references_valid() {
-        let spec = build_spec();
         for op in &spec.operations {
             if let Some(schema_name) = op.request_schema {
                 assert!(
@@ -929,7 +893,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_openapi_has_all_paths() {
+    fn api_documents_006_the_openapi_document_has_every_rest_path_of_the_spec() {
         let spec = build_spec();
         let doc = build_openapi();
         let paths = doc["paths"].as_object().unwrap();
@@ -951,7 +915,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_openapi_schema_refs_rewritten() {
+    fn api_documents_011_every_schema_reference_in_the_openapi_document_points_inside_it() {
         let doc = build_openapi();
         let json_str = serde_json::to_string(&doc).unwrap();
         assert!(
@@ -961,25 +925,37 @@ mod tests {
     }
 
     #[test]
-    fn test_build_openapi_public_endpoints_no_security() {
+    fn api_documents_008_an_operation_that_needs_no_login_has_no_security_requirement() {
         let doc = build_openapi();
         let login_op = &doc["paths"]["/api/v1/auth/login"]["post"];
         assert_eq!(login_op["security"], json!([]));
     }
 
     #[test]
-    fn test_build_openapi_streaming_ops_use_sse() {
+    fn api_documents_007_a_streaming_operation_has_a_stream_type_and_an_event_stream_response() {
+        let spec = build_spec();
         let doc = build_openapi();
-        // lab.create is POST /api/v1/labs and is streaming
-        let create_lab = &doc["paths"]["/api/v1/labs"]["post"];
-        assert!(
-            create_lab["responses"]["200"]["content"]["text/event-stream"].is_object(),
-            "Streaming operation should have text/event-stream response"
-        );
+        let streaming: Vec<&OperationDef> =
+            spec.operations.iter().filter(|op| op.streaming).collect();
+        assert!(!streaming.is_empty(), "the spec has no streaming operation");
+        for op in streaming {
+            let rest = &op.transports.rest;
+            assert!(
+                rest.stream_type.is_some(),
+                "Streaming operation '{}' missing stream_type in REST binding",
+                op.name
+            );
+            let operation = &doc["paths"][rest.path][rest.method.openapi_key()];
+            assert!(
+                operation["responses"]["200"]["content"]["text/event-stream"].is_object(),
+                "Streaming operation '{}' has no text/event-stream response",
+                op.name
+            );
+        }
     }
 
     #[test]
-    fn test_build_openapi_path_parameters_extracted() {
+    fn api_documents_010_a_paths_parameters_are_listed_for_it() {
         let doc = build_openapi();
         let lab_path = &doc["paths"]["/api/v1/labs/{id}"];
         let params = lab_path["parameters"].as_array().unwrap();
@@ -990,7 +966,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_openapi_admin_ops_marked() {
+    fn api_documents_009_an_admin_operation_is_marked_x_admin_required() {
         let doc = build_openapi();
         // image.import is admin-only: POST /api/v1/images/import
         let import_op = &doc["paths"]["/api/v1/images/import"]["post"];

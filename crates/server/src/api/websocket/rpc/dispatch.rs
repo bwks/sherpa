@@ -436,15 +436,11 @@ mod tests {
     ];
 
     #[test]
-    fn method_names_are_unique() {
+    fn api_documents_004_the_rpc_methods_answered_are_the_ones_the_spec_lists_each_once() {
         let mut names = HashSet::new();
         for method in METHODS {
             assert!(names.insert(method.name), "{} listed twice", method.name);
         }
-    }
-
-    #[test]
-    fn the_method_table_matches_the_published_spec() {
         let spec = build_spec();
         let mut differences = Vec::new();
         for op in &spec.operations {
@@ -508,18 +504,20 @@ mod tests {
     }
 
     #[test]
-    fn unclassified_failures_send_the_message_chain_not_debug_output() {
+    fn api_errors_003_an_unknown_rpc_failure_is_a_server_error_with_its_chain_as_context() {
         let error = anyhow::anyhow!("disk full").context("Failed to write lab file");
         let rpc = service_error(&error, "Up operation failed");
+        assert_eq!(rpc.code, RpcErrorCode::ServerError);
         assert_eq!(rpc.message, "Up operation failed");
         assert_eq!(
             rpc.context.as_deref(),
             Some("Failed to write lab file: disk full")
         );
+        assert!(rpc.data.is_none());
     }
 
     #[test]
-    fn typed_failures_keep_their_codes_and_send_no_context() {
+    fn api_errors_004_a_known_rpc_refusal_keeps_its_code_and_message_and_has_no_context() {
         let error = anyhow::Error::new(ServiceError::Invalid("bad lab ID".to_owned()));
         let rpc = service_error(&error, "Clean failed");
         assert_eq!(rpc.code, RpcErrorCode::InvalidParams);
@@ -577,12 +575,5 @@ mod tests {
                 "held_role": "vcpu",
             }))
         );
-    }
-
-    #[test]
-    fn other_failures_carry_no_data() {
-        let rpc = service_error(&anyhow::anyhow!("disk full"), "Up operation failed");
-        assert_eq!(rpc.code, RpcErrorCode::ServerError);
-        assert!(rpc.data.is_none());
     }
 }
