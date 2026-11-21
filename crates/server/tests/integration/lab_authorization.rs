@@ -2,7 +2,7 @@ use anyhow::{Context, Result, ensure};
 use db::DefaultRequest;
 use reqwest::{Client, Response, StatusCode, header};
 use serde_json::{Value, json};
-use shared::data::{DbUser, LabPhase, ModelKind, NodeModel};
+use shared::data::{DbUser, LabPhase, ModelKind, NodeModel, NodeState};
 use shared::error::RpcErrorCode;
 use shared::konst::{DEVICE_PASSWORD_DOCS_URL, SSH_KEYS_DOCS_URL};
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
@@ -988,7 +988,7 @@ async fn access_control_013_a_node_operation_is_refused_to_a_non_owner_and_unkno
 }
 
 #[tokio::test]
-async fn cancel_with_nothing_running_stops_nothing() -> Result<()> {
+async fn lab_cancel_001_cancel_with_nothing_running_answers_stopped_false() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let (callers, owners) = login_callers(&server, &mut ws).await?;
@@ -1005,6 +1005,150 @@ async fn cancel_with_nothing_running_stops_nothing() -> Result<()> {
         "cancel with nothing running: {response}"
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn lab_cancel_002_the_rest_cancel_answers_as_the_rpc_does() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let (callers, owners) = login_callers(&server, &mut ws).await?;
+    let lab_id = seed_lab(&server, owner(&owners, "alice")?, 1).await?;
+    let alice = token_of(&callers, "alice")?;
+
+    let rpc = ws
+        .rpc_call("cancel", json!({ "token": alice, "lab_id": lab_id }))
+        .await?;
+    let response = http_client()?
+        .post(format!(
+            "http://{}/api/v1/labs/{lab_id}/cancel",
+            server.addr
+        ))
+        .bearer_auth(&alice)
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::OK,
+        "REST cancel: {}",
+        response.status()
+    );
+    let rest: Value = response.json().await?;
+    ensure!(
+        rest == json!({ "lab_id": lab_id, "stopped": false }) && rest == rpc["result"],
+        "REST cancel answered {rest}, the RPC {rpc}"
+    );
+    Ok(())
+}
+
+/// The JSON of the `error` event of an SSE stream's `body`.
+fn stream_error(body: &str) -> Result<Value> {
+    let data = body
+        .lines()
+        .skip_while(|line| *line != "event: error")
+        .find_map(|line| line.strip_prefix("data: "))
+        .with_context(|| format!("no error event in the stream: {body}"))?;
+    Ok(serde_json::from_str(data)?)
+}
+
+#[tokio::test]
+async fn lab_phase_012_down_resume_and_redeploy_of_a_lab_not_ready_are_refused_as_a_conflict()
+-> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let (owner, token) = keyed_owner(&server, &mut ws, "fern", false).await?;
+    // The server stopped while `up` built the lab: its one node is left running.
+    let lab_id = format!("{:08x}", rand::random::<u32>());
+    let lab = db::create_lab(
+        &server.db,
+        "auth-matrix",
+        &lab_id,
+        &owner,
+        &ipv4_lab_networks(12),
+        &db::LabDetails::default(),
+    )
+    .await?
+    .id
+    .context("the seeded lab's record")?;
+    db::update_lab_phase_from(
+        &server.db,
+        &lab_id,
+        LabPhase::Creating,
+        LabPhase::Interrupted,
+    )
+    .await?;
+    let image = db::upsert_node_image(
+        &server.db,
+        ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
+        DefaultRequest::Keep,
+    )
+    .await?;
+    let node = db::create_node(
+        &server.db,
+        "vm",
+        1,
+        image.id.context("an image record")?,
+        lab,
+    )
+    .await?
+    .id
+    .context("the node's record")?;
+    db::update_node_state_from(
+        &server.db,
+        node.clone(),
+        NodeState::Building,
+        NodeState::Running,
+    )
+    .await?;
+    let refusal = format!(
+        "Lab {lab_id}: the server stopped while the lab was being created; destroy it and start \
+         it again"
+    );
+    let http = http_client()?;
+    let base = format!("http://{}/api/v1/labs/{lab_id}", server.addr);
+
+    let checks: Result<()> = async {
+        for action in ["down", "resume"] {
+            let response = http
+                .post(format!("{base}/{action}"))
+                .bearer_auth(&token)
+                .json(&json!({}))
+                .send()
+                .await?;
+            ensure!(
+                response.status() == StatusCode::CONFLICT,
+                "REST {action}: {}",
+                response.status()
+            );
+            let body: Value = response.json().await?;
+            ensure!(
+                body["error"]["code"] == "CONFLICT" && body["error"]["message"] == refusal,
+                "REST {action}: {body}"
+            );
+        }
+        let manifest =
+            json!({ "name": "auth-matrix", "nodes": [{ "name": "vm", "model": "ubuntu_linux" }] });
+        let body = http
+            .post(format!("{base}/nodes/vm/redeploy"))
+            .bearer_auth(&token)
+            .json(&json!({ "manifest": manifest }))
+            .send()
+            .await?
+            .text()
+            .await?;
+        let error = stream_error(&body)?;
+        ensure!(
+            error["code"] == "CONFLICT" && error["error"] == refusal,
+            "REST redeploy: {error}"
+        );
+        let state = db::get_node(&server.db, node.clone()).await?.state;
+        ensure!(
+            state == NodeState::Running,
+            "the refused operations left the node {state}"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = remove_lab(&server, &lab_id).await;
+    checks.and(cleanup)
 }
 
 // ── Lab pages ──

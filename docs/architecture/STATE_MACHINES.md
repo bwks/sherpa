@@ -322,7 +322,7 @@ stateDiagram-v2
 - Tests: `released_leases_leave_the_map_and_a_held_one_stays`,
   `a_waiter_gets_the_lock_its_holder_released`,
   `a_waiter_cancelled_mid_wait_gives_up_its_count` and
-  `racing_takes_and_releases_never_split_a_lab_across_two_locks`.
+  `lab_concurrency_012_racing_operations_stops_and_scans_never_share_a_lab`.
 
 **Transitions.**
 

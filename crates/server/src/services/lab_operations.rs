@@ -292,7 +292,7 @@ mod tests {
     const WAIT: Duration = Duration::from_secs(5);
 
     #[tokio::test]
-    async fn stop_cancels_running_operations_and_waits_for_them() {
+    async fn lab_concurrency_005_a_destroy_stops_the_operations_of_its_lab_and_waits_for_them() {
         let operation = begin("lab-ops-stop").await;
         let stopping = tokio::spawn(stop("lab-ops-stop", StopReason::Destroy));
         // The sleep ends early once the destroy has cancelled the operation.
@@ -309,7 +309,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_operation_queued_behind_a_requested_stop_yields_to_a_destroy() {
+    async fn lab_concurrency_009_an_operation_queued_behind_a_requested_stop_yields_to_a_destroy() {
         let lab = "lab-ops-queued";
         let running = begin(lab).await;
         let requested = tokio::spawn(stop(lab, StopReason::Request));
@@ -340,7 +340,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stop_without_operations_does_not_wait() {
+    async fn lab_concurrency_006_a_destroy_with_nothing_running_does_not_wait() {
         let (was_running, _stopped) =
             tokio::time::timeout(WAIT, stop("lab-ops-idle", StopReason::Destroy))
                 .await
@@ -349,7 +349,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn operations_wait_for_a_destroy_and_then_start_fresh() {
+    async fn lab_concurrency_007_an_operation_waits_for_a_destroy_then_runs() {
         let (_, stopped) = stop("lab-ops-after", StopReason::Destroy).await;
         let starting = tokio::spawn(async {
             let operation = begin("lab-ops-after").await;
@@ -362,7 +362,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stop_only_affects_its_own_lab() {
+    async fn lab_concurrency_008_stopping_one_labs_operations_leaves_another_running() {
         let other = begin("lab-ops-other").await;
         let (_, _stopped) = tokio::time::timeout(WAIT, stop("lab-ops-mine", StopReason::Destroy))
             .await
@@ -371,7 +371,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_requested_stop_says_so_and_releases_the_lab() {
+    async fn lab_cancel_003_a_requested_stop_ends_the_operation_and_releases_the_lab() {
         let operation = begin("lab-ops-request").await;
         assert_eq!(operation.stop_reason(), None);
         let stopping = tokio::spawn(stop("lab-ops-request", StopReason::Request));
@@ -390,7 +390,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_destroy_after_a_requested_stop_keeps_the_first_reason() {
+    async fn lab_concurrency_010_a_destroy_after_a_requested_stop_keeps_the_first_reason() {
         let operation = begin("lab-ops-first").await;
         let request = tokio::spawn(stop("lab-ops-first", StopReason::Request));
         tokio::time::timeout(WAIT, operation.sleep(Duration::from_secs(3600)))
@@ -406,7 +406,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_operation_waits_while_the_scanner_observes_its_lab() {
+    async fn lab_concurrency_011_an_operation_waits_while_the_scanner_observes_its_lab() {
         let observed = try_observe("lab-ops-observe-wait").unwrap();
         let operation = tokio::spawn(async {
             let operation = begin("lab-ops-observe-wait").await;
@@ -424,7 +424,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn racing_takes_and_releases_never_split_a_lab_across_two_locks() {
+    async fn lab_concurrency_012_racing_operations_stops_and_scans_never_share_a_lab() {
         const LAB: &str = "lab-ops-race";
         static READERS: AtomicUsize = AtomicUsize::new(0);
         static WRITERS: AtomicUsize = AtomicUsize::new(0);

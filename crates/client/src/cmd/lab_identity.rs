@@ -232,8 +232,11 @@ mod tests {
         )
     }
 
+    /// A manifest that does not load: its node list is never closed.
+    const BROKEN_MANIFEST: &str = "name = 'core'\nnodes = [\n";
+
     #[test]
-    fn a_downloaded_folder_without_a_manifest_names_its_lab() {
+    fn lab_identity_001_a_folder_with_only_lab_info_is_the_lab_it_records() {
         let dir = downloaded_folder("core", "0a1b2c3d");
         assert!(!dir.path().join(SHERPA_MANIFEST_FILE).exists());
         let identity = resolve_lab_identity(dir.path()).unwrap();
@@ -244,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn the_lab_info_id_is_used_whatever_the_os_user_is_called() {
+    fn lab_identity_002_the_recorded_id_is_used_beside_a_manifest_of_the_same_name() {
         // The ID was made for another user's name, so no hash of this OS user's name gives
         // it; with a manifest for the same lab beside it, the folder still names it.
         let dir = downloaded_folder("core", "0a1b2c3d");
@@ -264,15 +267,22 @@ mod tests {
     }
 
     #[test]
-    fn a_manifest_alone_names_a_lab_by_its_name() {
+    fn lab_identity_003_a_folder_with_only_a_manifest_is_the_logins_lab_of_its_name() {
         assert_eq!(
-            folder_lab(Path::new(""), None, Some("a".to_string())).unwrap(),
-            FolderLab::Named("a".to_string())
+            folder_lab(Path::new(""), None, Some("core".to_string())).unwrap(),
+            FolderLab::Named("core".to_string())
+        );
+        assert_eq!(new_lab_id(&token_for("dev"), "core").unwrap(), "b886ee2b");
+        // Nothing from the OS user goes in: both run as the same OS user, so only the Sherpa
+        // login tells them apart.
+        assert_ne!(
+            new_lab_id(&token_for("alice"), "core").unwrap(),
+            new_lab_id(&token_for("bob"), "core").unwrap()
         );
     }
 
     #[test]
-    fn files_naming_different_labs_are_refused() {
+    fn lab_identity_005_files_naming_different_labs_are_refused() {
         let error =
             folder_lab(Path::new(""), Some(lab("a", "1")), Some("b".to_string())).unwrap_err();
         // The path is the platform's, `.sherpa\lab-info.toml` on Windows.
@@ -289,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_with_neither_file_names_no_lab() {
+    fn lab_identity_006_a_folder_with_neither_file_is_refused() {
         let error = folder_lab(Path::new(""), None, None).unwrap_err();
         let path = Path::new(".sherpa").join("lab-info.toml");
         assert_eq!(
@@ -299,21 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn a_new_lab_id_hashes_the_sherpa_username_and_the_lab_name() {
-        assert_eq!(new_lab_id(&token_for("dev"), "core").unwrap(), "b886ee2b");
-    }
-
-    #[test]
-    fn two_sherpa_users_with_the_same_os_name_get_different_lab_ids() {
-        // Nothing from the OS user goes in: both run as the same OS user, so only the Sherpa
-        // login tells them apart.
-        let alice = new_lab_id(&token_for("alice"), "core").unwrap();
-        let bob = new_lab_id(&token_for("bob"), "core").unwrap();
-        assert_ne!(alice, bob);
-    }
-
-    #[test]
-    fn up_redeploy_and_provision_say_a_downloaded_folder_has_no_source_manifest() {
+    fn lab_identity_007_up_redeploy_and_provision_without_a_manifest_say_where_to_run() {
         let dir = downloaded_folder("core", "0a1b2c3d");
         for command in ["up", "redeploy", "provision"] {
             let error =
@@ -328,6 +324,45 @@ mod tests {
                 )
             );
         }
+    }
+
+    #[test]
+    fn lab_identity_008_a_manifest_that_does_not_load_is_passed_over_only_beside_lab_info() {
+        let dir = downloaded_folder("core", "0a1b2c3d");
+        fs::write(dir.path().join(SHERPA_MANIFEST_FILE), BROKEN_MANIFEST).unwrap();
+        let identity = resolve_lab_identity(dir.path()).unwrap();
+        assert_eq!(
+            (identity.name.as_str(), identity.id.as_str()),
+            ("core", "0a1b2c3d")
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let manifest = dir.path().join(SHERPA_MANIFEST_FILE);
+        fs::write(&manifest, BROKEN_MANIFEST).unwrap();
+        let error = resolve_lab_identity(dir.path()).unwrap_err().to_string();
+        assert_eq!(
+            error,
+            format!("Failed to parse manifest {}", manifest.display())
+        );
+    }
+
+    #[test]
+    fn lab_identity_009_a_lab_info_that_does_not_parse_counts_as_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = lab_info_file(dir.path());
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "id = '0a1b2c3d'\nname = \n").unwrap();
+
+        assert_eq!(lab_info_identity(dir.path()), None);
+        assert_eq!(
+            folder_lab(
+                dir.path(),
+                lab_info_identity(dir.path()),
+                Some("core".to_string())
+            )
+            .unwrap(),
+            FolderLab::Named("core".to_string())
+        );
     }
 
     #[test]

@@ -198,23 +198,32 @@ mod tests {
     }
 
     #[test]
-    fn lab_events_move_a_lab_as_listed() {
+    fn lab_phase_001_a_lab_moves_only_as_allowed_and_a_refusal_names_the_move_and_phase() {
         assert_eq!(Creating.on_event(LabEvent::Built), Ok(To(Ready)));
         assert_eq!(Creating.on_event(LabEvent::Released), Ok(Removed));
+        for phase in LabPhase::iter() {
+            assert_eq!(
+                phase.on_event(LabEvent::DestroyStarted),
+                Ok(To(Destroying)),
+                "{phase:?}"
+            );
+        }
         assert_eq!(Destroying.on_event(LabEvent::Destroyed), Ok(Removed));
-        assert_eq!(Ready.on_event(LabEvent::DestroyStarted), Ok(To(Destroying)));
         assert_eq!(
-            Creating.on_event(LabEvent::DestroyStarted),
-            Ok(To(Destroying))
+            Destroying.on_event(LabEvent::DestroyFailed),
+            Ok(To(DestroyFailed))
         );
-        assert_eq!(
-            Ready.on_event(LabEvent::Destroyed),
-            refused(Ready, LabEvent::Destroyed)
-        );
-        assert_eq!(
-            Ready.on_event(LabEvent::OwnerLost),
-            refused(Ready, LabEvent::OwnerLost)
-        );
+
+        // Once built, a failed second `up` has no reservation to give back.
+        for event in [
+            LabEvent::Built,
+            LabEvent::Released,
+            LabEvent::Destroyed,
+            LabEvent::DestroyFailed,
+            LabEvent::OwnerLost,
+        ] {
+            assert_eq!(Ready.on_event(event), refused(Ready, event), "{event:?}");
+        }
         assert_eq!(
             refused(Ready, LabEvent::Built).unwrap_err().to_string(),
             "cannot finish building a lab that is ready"
@@ -222,32 +231,40 @@ mod tests {
     }
 
     #[test]
-    fn only_a_ready_lab_takes_operations_on_its_nodes() {
+    fn lab_phase_002_only_a_ready_lab_takes_operations_on_its_nodes() {
         for phase in LabPhase::iter() {
             assert_eq!(phase.ensure_ready().is_ok(), phase == Ready, "{phase:?}");
             assert_eq!(phase.is_ready(), phase == Ready, "{phase:?}");
         }
     }
 
-    // One test per defect in the state-machines inventory that the machine itself rules out.
-
     #[test]
-    fn a_lab_being_created_cannot_be_built_or_released_twice() {
-        // M3.1: only the `up` holding the reservation moves the lab out of `Creating`; once
-        // built, a failed second `up` has no reservation to give back.
-        assert_eq!(
-            Ready.on_event(LabEvent::Released),
-            refused(Ready, LabEvent::Released)
-        );
-        assert_eq!(
-            Ready.on_event(LabEvent::Built),
-            refused(Ready, LabEvent::Built)
-        );
+    fn lab_phase_003_the_refusal_of_each_phase_says_what_to_do() {
+        for (phase, refusal) in [
+            (
+                Creating,
+                "the lab is being created; wait for `up` to finish, or destroy it",
+            ),
+            (
+                DestroyFailed,
+                "destroying the lab left resources behind; destroy it again",
+            ),
+            (
+                Interrupted,
+                "the server stopped while the lab was being created; destroy it and start it again",
+            ),
+            (
+                Unknown,
+                "the lab is in a phase this server does not know; destroy it",
+            ),
+        ] {
+            assert_eq!(phase.ensure_ready().unwrap_err().to_string(), refusal);
+        }
     }
 
     #[test]
-    fn a_lab_left_mid_operation_by_a_restart_is_marked_not_left() {
-        // M6.3: the daemon stopped while `up` built the lab, or while a destroy removed it.
+    fn lab_phase_004_a_lab_that_lost_its_operation_is_marked_and_can_be_destroyed() {
+        // The daemon stopped while `up` built the lab, or while a destroy removed it.
         assert_eq!(Creating.on_event(LabEvent::OwnerLost), Ok(To(Interrupted)));
         assert_eq!(
             Destroying.on_event(LabEvent::OwnerLost),
@@ -255,28 +272,11 @@ mod tests {
         );
         for phase in [Interrupted, DestroyFailed] {
             assert_eq!(phase.on_event(LabEvent::DestroyStarted), Ok(To(Destroying)));
-            let refusal = phase.ensure_ready().unwrap_err().to_string();
-            assert!(refusal.contains("destroy it"), "{refusal}");
         }
     }
 
     #[test]
-    fn a_half_destroyed_lab_is_not_ready() {
-        // M6.2 and M7.3: a destroy or rollback that left resources behind used to leave a lab
-        // that looked stopped and offered Start.
-        assert_eq!(
-            Destroying.on_event(LabEvent::DestroyFailed),
-            Ok(To(DestroyFailed))
-        );
-        assert!(DestroyFailed.ensure_ready().is_err());
-        assert_eq!(
-            Ready.on_event(LabEvent::DestroyFailed),
-            refused(Ready, LabEvent::DestroyFailed)
-        );
-    }
-
-    #[test]
-    fn a_phase_this_build_does_not_know_decodes_as_unknown() {
+    fn lab_phase_005_an_unknown_phase_reads_as_unknown_and_can_be_destroyed() {
         let phase: LabPhase = serde_json::from_str(r#""archived""#).unwrap();
         assert_eq!(phase, Unknown);
         assert!(phase.ensure_ready().is_err());

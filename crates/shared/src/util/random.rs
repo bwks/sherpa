@@ -23,30 +23,16 @@ pub fn get_id_for_user(username: &str, lab_name: &str) -> String {
 mod tests {
     use super::*;
 
-    // ========================================================================
-    // generate_lab_name
-    // ========================================================================
-
-    // ========================================================================
-    // get_id_for_user
-    // ========================================================================
-
     #[test]
-    fn test_get_id_for_user_is_a_stable_hash_of_user_and_lab() {
+    fn lab_identity_004_a_new_lab_id_is_a_stable_hash_of_the_owner_and_the_lab_name() {
         assert_eq!(get_id_for_user("bob", "my-lab"), "05f076b9");
-    }
-
-    #[test]
-    fn test_get_id_for_user_different_usernames_different_ids() {
-        let id1 = get_id_for_user("alice", "same-lab");
-        let id2 = get_id_for_user("bob", "same-lab");
-        assert_ne!(id1, id2);
-    }
-
-    #[test]
-    fn test_get_id_for_user_different_lab_names_different_ids() {
-        let id1 = get_id_for_user("alice", "lab-one");
-        let id2 = get_id_for_user("alice", "lab-two");
-        assert_ne!(id1, id2);
+        assert_ne!(
+            get_id_for_user("alice", "same-lab"),
+            get_id_for_user("bob", "same-lab")
+        );
+        assert_ne!(
+            get_id_for_user("alice", "lab-one"),
+            get_id_for_user("alice", "lab-two")
+        );
     }
 }

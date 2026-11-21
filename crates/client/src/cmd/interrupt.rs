@@ -175,7 +175,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_yes_stops_the_operation() {
+    fn lab_cancel_009_only_y_or_yes_stops_the_operation() {
         for answer in ["y", "Y", "yes", " YES \n"] {
             assert!(wants_stop(answer), "{answer:?}");
         }

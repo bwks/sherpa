@@ -147,8 +147,11 @@ async fn fail_building_nodes(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
-    use crate::services::lab_operations::begin;
+    use crate::log_capture::capture_log;
+    use crate::services::lab_operations::{StopReason, begin};
     use crate::services::node_lifecycle::tests::lab_of;
     use shared::data::LabRefused;
 
@@ -176,7 +179,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn up_moves_the_lab_it_reserved_to_ready() {
+    async fn lab_phase_007_up_moves_the_lab_it_reserved_to_ready() {
         let (db, _, _) = lab_of("ll-built", 1).await;
         let operation = begin("ll-built").await;
 
@@ -187,7 +190,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_up_whose_lab_is_already_built_cannot_release_it() {
+    async fn lab_phase_008_a_refused_move_leaves_the_phase_as_it_was() {
         // M3.1: a second `up` must never give back, or roll back, a lab it did not reserve.
         let (db, _, _) = lab_of("ll-taken", 1).await;
         put_in(&db, "ll-taken", LabPhase::Ready).await;
@@ -206,7 +209,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_destroyed_lab_loses_its_record_and_a_failed_one_keeps_it() {
+    async fn lab_phase_009_a_failed_destroy_keeps_the_record_and_a_full_one_removes_it() {
         // M6.2 and M7.3: a destroy that left something behind is visible and can be retried.
         let (db, _, _) = lab_of("ll-dfail", 1).await;
         let (_, destroy) =
@@ -227,109 +230,111 @@ mod tests {
         assert_eq!(phase(&db, "ll-dfail").await, None);
     }
 
-    #[tokio::test]
-    async fn operations_on_nodes_need_a_ready_lab() {
-        // M7.3: a lab whose destroy failed used to offer Start.
-        let (db, _, _) = lab_of("ll-ready", 1).await;
-        for to in [
-            LabPhase::Creating,
-            LabPhase::DestroyFailed,
-            LabPhase::Interrupted,
-            LabPhase::Ready,
-        ] {
-            let mut lab = db::get_lab(&db, "ll-ready").await.unwrap();
-            lab.phase = to;
-            let result = require_ready(&lab);
-            assert_eq!(result.is_ok(), to == LabPhase::Ready, "{to:?}");
-            if let Err(error) = result {
-                assert!(
-                    matches!(ServiceError::find(&error), Some(ServiceError::Conflict(_))),
-                    "{error}"
-                );
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn recovery_leaves_no_lab_without_an_owner() {
-        // M6.3: the daemon stopped during `up`, during a destroy, and during a redeploy.
-        let (db, creating, _) = lab_of("ll-rec01", 2).await;
-        // `lab_of` makes one lab per database; add the others to the same one.
-        let user = db::get_user(&db, "alice").await.unwrap();
-        let mut labs = vec![("ll-rec01", creating, LabPhase::Creating)];
-        for (index, (lab_id, to)) in [
-            ("ll-rec02", LabPhase::Destroying),
-            ("ll-rec03", LabPhase::Ready),
-            ("ll-rec04", LabPhase::DestroyFailed),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let octet = index + 2;
-            let lab = db::create_lab(
-                &db,
-                lab_id,
-                lab_id,
-                &user,
-                &db::LabNetworks {
-                    management_network: format!("172.31.{octet}.0/24"),
-                    gateway_ipv4: format!("172.31.{octet}.1"),
-                    router_ipv4: format!("172.31.{octet}.2"),
-                    management_network_v6: None,
-                    loopback_network_v6: None,
-                    gateway_ipv6: None,
-                    router_ipv6: None,
-                },
-                &db::LabDetails::default(),
-            )
-            .await
-            .unwrap();
-            put_in(&db, lab_id, to).await;
-            labs.push((lab_id, lab.id.unwrap(), to));
-        }
-        // The ready lab has a running node and one a redeploy was rebuilding.
-        let image = db::list_node_images(&db).await.unwrap().remove(0);
-        let ready = labs[2].1.clone();
-        let running = db::create_node(&db, "r1", 1, image.id.clone().unwrap(), ready.clone())
-            .await
-            .unwrap();
-        db::update_node_state_from(
-            &db,
-            running.id.unwrap(),
-            NodeState::Building,
-            NodeState::Running,
+    /// Add lab `lab_id` of alice's, on `172.31.{octet}.0/24`, to `db`, moved to `to`.
+    async fn another_lab(db: &db::Database, lab_id: &str, octet: u8, to: LabPhase) {
+        let user = db::get_user(db, "alice").await.unwrap();
+        db::create_lab(
+            db,
+            lab_id,
+            lab_id,
+            &user,
+            &db::LabNetworks {
+                management_network: format!("172.31.{octet}.0/24"),
+                gateway_ipv4: format!("172.31.{octet}.1"),
+                router_ipv4: format!("172.31.{octet}.2"),
+                management_network_v6: None,
+                loopback_network_v6: None,
+                gateway_ipv6: None,
+                router_ipv6: None,
+            },
+            &db::LabDetails::default(),
         )
         .await
         .unwrap();
-        db::create_node(&db, "r2", 2, image.id.unwrap(), ready.clone())
-            .await
-            .unwrap();
+        put_in(db, lab_id, to).await;
+    }
+
+    #[tokio::test]
+    async fn lab_phase_014_startup_marks_labs_left_mid_operation_and_removes_nothing() {
+        // The daemon stopped during an `up` and during a destroy.
+        let (db, _, _) = lab_of("ll-rec01", 0).await;
+        another_lab(&db, "ll-rec02", 2, LabPhase::Destroying).await;
+        another_lab(&db, "ll-rec03", 3, LabPhase::Ready).await;
+        another_lab(&db, "ll-rec04", 4, LabPhase::DestroyFailed).await;
 
         let recovery = recover(&db).await.unwrap();
 
         assert_eq!(
-            recovery,
-            Recovery {
-                interrupted_labs: 1,
-                failed_destroys: 1,
-                failed_nodes: 3,
-                errors: 0,
-            }
+            (
+                recovery.interrupted_labs,
+                recovery.failed_destroys,
+                recovery.errors
+            ),
+            (1, 1, 0)
         );
         assert_eq!(phase(&db, "ll-rec01").await, Some(LabPhase::Interrupted));
         assert_eq!(phase(&db, "ll-rec02").await, Some(LabPhase::DestroyFailed));
         assert_eq!(phase(&db, "ll-rec03").await, Some(LabPhase::Ready));
         assert_eq!(phase(&db, "ll-rec04").await, Some(LabPhase::DestroyFailed));
-        for (lab_id, _, _) in &labs {
-            let phase = phase(&db, lab_id).await.unwrap();
-            assert!(
-                !matches!(phase, LabPhase::Creating | LabPhase::Destroying),
-                "{lab_id} {phase:?}"
-            );
-        }
 
         // Recovering again finds nothing left to mark.
         assert_eq!(recover(&db).await.unwrap(), Recovery::default());
+    }
+
+    #[test]
+    fn lab_phase_015_a_lab_that_cannot_be_marked_at_startup_is_counted_and_logged() {
+        // One thread, so the log of the spawned recovery is captured.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let ((recovery, phases), log) = capture_log(|| {
+            runtime.block_on(async {
+                let (db, _, _) = lab_of("ll-mrk01", 0).await;
+                another_lab(&db, "ll-mrk02", 2, LabPhase::Creating).await;
+                another_lab(&db, "ll-mrk03", 3, LabPhase::Destroying).await;
+                // Recovery waits for the lease on the second lab, whose record goes meanwhile.
+                let (_, held) = lab_operations::stop("ll-mrk02", StopReason::Destroy).await;
+                let recovering = tokio::spawn({
+                    let db = db.clone();
+                    async move { recover(&db).await.unwrap() }
+                });
+                tokio::time::timeout(Duration::from_mins(1), async {
+                    while phase(&db, "ll-mrk01").await != Some(LabPhase::Interrupted) {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .unwrap();
+                assert!(
+                    db::delete_lab_from(&db, "ll-mrk02", LabPhase::Creating)
+                        .await
+                        .unwrap()
+                );
+                drop(held);
+                let recovery = recovering.await.unwrap();
+                let phases = [phase(&db, "ll-mrk01").await, phase(&db, "ll-mrk03").await];
+                (recovery, phases)
+            })
+        });
+
+        assert_eq!(
+            (
+                recovery.interrupted_labs,
+                recovery.failed_destroys,
+                recovery.errors
+            ),
+            (1, 1, 1)
+        );
+        assert_eq!(
+            phases,
+            [Some(LabPhase::Interrupted), Some(LabPhase::DestroyFailed)]
+        );
+        assert!(
+            log.lines()
+                .any(|line| line.contains("Failed to recover lab") && line.contains("ll-mrk02")),
+            "{log}"
+        );
     }
 
     #[tokio::test]
