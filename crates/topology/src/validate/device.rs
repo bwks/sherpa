@@ -83,7 +83,7 @@ mod tests {
     }
 
     #[test]
-    fn plain_node_names_are_allowed() {
+    fn node_naming_001_a_plain_name_is_taken() {
         let longest = "a".repeat(NODE_NAME_MAX_LEN);
         for name in ["r1", "Spine-01", "leaf_2", "9k", longest.as_str()] {
             assert!(check_node_names(&[named(name)]).is_ok(), "{name}");
@@ -91,7 +91,7 @@ mod tests {
     }
 
     #[test]
-    fn names_with_paths_quotes_or_markup_are_refused() {
+    fn node_naming_002_a_name_with_a_path_a_quote_or_markup_is_refused() {
         let too_long = "a".repeat(NODE_NAME_MAX_LEN + 1);
         for name in [
             "",
@@ -108,12 +108,17 @@ mod tests {
         ] {
             let error = check_node_names(&[named("ok1"), named(name)])
                 .expect_err(&format!("'{name}' should be refused"));
-            assert!(error.to_string().contains("is not allowed"), "{error}");
+            let error = error.to_string();
+            assert!(
+                error.contains(&format!("'{name}' is not allowed")),
+                "{error}"
+            );
+            assert!(error.contains("letters, digits, '-' or '_'"), "{error}");
         }
     }
 
     #[test]
-    fn test_check_duplicate_device_with_duplicates() {
+    fn node_naming_003_two_nodes_with_one_name_are_refused_naming_it() {
         let devices = vec![
             Node {
                 name: "router1".to_string(),
@@ -135,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn test_check_device_count_rejects_more_nodes_than_addresses() {
+    fn node_naming_004_a_manifest_with_235_nodes_is_refused() {
         let devices = vec![Node::default(); 235];
         let error = check_device_count(&devices).unwrap_err().to_string();
         assert!(error.contains("235 nodes defined"));

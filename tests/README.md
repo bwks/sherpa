@@ -310,7 +310,7 @@ runs, so install the build under test first.
 ```sh
 uv run tests/labs/private-bridge/private_bridge_lab_test.py  # private bridges: a VM and containers
 uv run tests/labs/p2p-containers/p2p_containers_lab_test.py  # P2p links on NOS, app and OS containers
-uv run tests/labs/container-ztp/container_ztp_lab_test.py    # ZTP on and off on the mounted-config containers
+uv run tests/labs/container-ztp/container_ztp_lab_test.py    # ZTP on and off on the mounted-config containers; sherpa validate and sherpa new
 uv run tests/labs/p2p-links/p2p_links_lab_test.py            # P2p link requirements on every pair of node kinds
 uv run tests/labs/cisco-iol/cisco_iol_lab_test.py            # Cisco IOL: config, SSH, links, TCP, write memory
 uv run tests/labs/console/console_lab_test.py --admin-user NAME  # sherpa console and sherpa vnc: prompt, escapes, in use, --force, other accounts, containers

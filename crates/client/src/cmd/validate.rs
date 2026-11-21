@@ -137,42 +137,29 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_manifest_accepts_data_interface_count_override() {
-        let manifest = r#"
+    fn validate_command_003_a_link_past_the_built_in_data_count_is_taken_once_data_count_is_set() {
+        let check = |name: &str, interfaces: &str| {
+            let manifest = format!(
+                r#"
 name = "override-lab"
 
 nodes = [
-  { name = "dev01", model = "ubuntu_linux", interfaces = { data_count = 4 } },
-  { name = "dev02", model = "ubuntu_linux", interfaces = { data_count = 4 } },
+  {{ name = "dev01", model = "ubuntu_linux"{interfaces} }},
+  {{ name = "dev02", model = "ubuntu_linux"{interfaces} }},
 ]
 
 links = [
-  { src = "dev01::eth4", dst = "dev02::eth4" },
+  {{ src = "dev01::eth4", dst = "dev02::eth4" }},
 ]
-"#;
-        let path = write_temp_manifest("override-pass", manifest);
-        let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
-        fs::remove_file(path).ok();
-        assert!(result.is_ok());
-    }
+"#
+            );
+            let path = write_temp_manifest(name, &manifest);
+            let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
+            fs::remove_file(path).ok();
+            result
+        };
 
-    #[test]
-    fn test_validate_manifest_rejects_link_past_default_interface_count() {
-        let manifest = r#"
-name = "override-lab"
-
-nodes = [
-  { name = "dev01", model = "ubuntu_linux" },
-  { name = "dev02", model = "ubuntu_linux" },
-]
-
-links = [
-  { src = "dev01::eth2", dst = "dev02::eth2" },
-]
-"#;
-        let path = write_temp_manifest("override-fail", manifest);
-        let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
-        fs::remove_file(path).ok();
-        assert!(result.is_err());
+        assert!(check("override-fail", "").is_err());
+        assert!(check("override-pass", r", interfaces = { data_count = 4 }").is_ok());
     }
 }

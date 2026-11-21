@@ -72,6 +72,20 @@ It holds the container cases of [`tests/specs/ztp.md`](../../specs/ztp.md):
 | `ztp_disabled_003` | The redeployed node with ZTP off is as it was after up: running, with no config mount and no owner login |
 | `ztp_disabled_004` | Once the nodes with ZTP on take the owner's login, and 20 s later, every node, the ones with ZTP off and the application container included, is running and was never restarted |
 
+Before the lab is up, it also holds the command cases of
+[`tests/specs/manifests.md`](../../specs/manifests.md), which need no lab of their own. Each works
+in its own folder of the run, beside the lab's:
+
+| Case | Check |
+|---|---|
+| `manifest_file_001` | `sherpa validate` in a folder with no `manifest.toml` exits 1 and says the file was not found |
+| `manifest_file_009` | `sherpa validate` of a manifest with an unknown key on a node exits 1 and prints the file, the line and column, the key and the keys a node takes |
+| `manifest_file_010` | `sherpa new` writes two Linux nodes and a link between them under a generated name, and `sherpa validate` passes it |
+| `manifest_file_011` | `sherpa new` leaves an existing `manifest.toml` as it is and says so, and `sherpa new --force` writes over it |
+| `validate_command_001` | `sherpa validate` of the lab's manifest, with an empty home and no `SHERPA_` variables, ticks every check, prints `Manifest validation passed!` and exits 0 |
+| `validate_command_002` | `sherpa validate` of a 1001-character description exits 1 with the description check's message, and prints no check after it |
+| `validate_command_005` | `sherpa up` of a node whose `environment_variables` key starts with a digit, which only the server checks, exits 1 with the server's message naming the key and the node; should up ever pass it, the case destroys what it built |
+
 `config_delivery_001` comes before `ztp_disabled_003` because it brings the redeploy in after its
 own after-up checks, and the `ztp_disabled` cases before it see every node as up left it.
 

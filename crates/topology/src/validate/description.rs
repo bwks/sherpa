@@ -35,7 +35,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_missing_or_multiline_unicode_description_is_accepted() {
+    fn lab_settings_001_a_missing_empty_or_long_multiline_unicode_description_is_taken() {
         check_lab_description(None).unwrap();
         check_lab_description(Some("")).unwrap();
         check_lab_description(Some("Practice BGP.\r\n\tTwo routers, café ☕")).unwrap();
@@ -43,7 +43,7 @@ mod tests {
     }
 
     #[test]
-    fn a_description_over_the_limit_is_rejected() {
+    fn lab_settings_002_a_description_of_1001_characters_is_refused_giving_its_length() {
         let error = check_lab_description(Some(&"a".repeat(MAX_DESCRIPTION_CHARS + 1)))
             .unwrap_err()
             .to_string();
@@ -51,7 +51,7 @@ mod tests {
     }
 
     #[test]
-    fn control_characters_other_than_line_breaks_and_tabs_are_rejected() {
+    fn lab_settings_003_a_control_character_other_than_a_line_break_or_tab_is_refused() {
         for description in ["bell\u{7}", "escape\u{1b}[31m", "nul\u{0}"] {
             let error = check_lab_description(Some(description))
                 .unwrap_err()

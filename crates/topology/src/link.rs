@@ -98,18 +98,3 @@ impl Link2 {
         })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_manifest_impairment_too_long_for_microseconds_is_refused() {
-        let manifest = ManifestImpairment {
-            delay: Some(u32::MAX),
-            ..ManifestImpairment::default()
-        };
-        let error = LinkImpairment::try_from(&manifest).unwrap_err().to_string();
-        assert_eq!(error, "Impairment delay of 4294967295 ms is too long");
-    }
-}

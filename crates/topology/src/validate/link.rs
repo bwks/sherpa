@@ -221,7 +221,6 @@ fn check_interface_index(
 mod tests {
     use super::*;
     use crate::BridgeLinkDetailed;
-    use anyhow::Result;
     use shared::data::ModelKind;
 
     /// Helper to create a test link
@@ -265,77 +264,68 @@ mod tests {
     }
 
     #[test]
-    fn test_interface_bounds_exceeds_maximum() {
-        // Rocky Linux with 52 data interfaces, trying to use interface 53
-        let links = vec![create_link("rocky1", 53, "rocky2", 1)];
-        let bridges = vec![];
-
-        let result =
-            check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &bridges);
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("exceeds the maximum interface index"));
-        assert!(err_msg.contains("52")); // max interface index
-    }
-
-    #[test]
-    fn test_interface_bounds_management_interface_dedicated() {
-        // Rocky Linux with dedicated management, trying to use interface 0
+    fn manifest_links_006_the_management_interface_is_refused_in_a_link_and_in_a_bridge() {
         let links = vec![create_link("rocky1", 0, "rocky2", 1)];
-        let bridges = vec![];
-
-        let result =
-            check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &bridges);
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("is the management interface and cannot be used in links"));
-    }
-
-    #[test]
-    fn test_interface_bounds_reserved_interface() {
-        // Cisco IOS XRv9000 with 2 reserved interfaces
-        let links = vec![create_link("xr1", 2, "xr2", 3)];
-        let bridges = vec![];
-
-        let result = check_interface_bounds(
-            "xr1",
-            &NodeModel::CiscoIosxr9000,
-            31,
-            2, // reserved_interface_count = 2 (indices 1 and 2)
-            &links,
-            &bridges,
+        let err_msg = check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &[])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err_msg.contains("is the management interface and cannot be used in links"),
+            "{err_msg}"
         );
 
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("reserved interface"));
+        let bridges = vec![create_bridge("br1", vec![("rocky1", 0), ("rocky2", 5)])];
+        let err_msg =
+            check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &[], &bridges)
+                .unwrap_err()
+                .to_string();
+        assert!(err_msg.contains("bridge 'br1'"), "{err_msg}");
+        assert!(
+            err_msg.contains("is the management interface and cannot be used in bridges"),
+            "{err_msg}"
+        );
     }
 
     #[test]
-    fn test_interface_bounds_first_data_interface_after_reserved() -> Result<()> {
-        // Cisco IOS XRv9000: interface 3 is first data interface
+    fn manifest_links_007_a_reserved_interface_is_refused_and_the_first_after_them_is_taken() {
+        // Cisco IOS XRv9000 reserves indices 1 and 2; 3 is its first data interface.
+        let links = vec![create_link("xr1", 2, "xr2", 3)];
+        let err_msg = check_interface_bounds("xr1", &NodeModel::CiscoIosxr9000, 31, 2, &links, &[])
+            .unwrap_err()
+            .to_string();
+        assert!(err_msg.contains("reserved interface"), "{err_msg}");
+
         let links = vec![create_link("xr1", 3, "xr2", 3)];
-        let bridges = vec![];
-
-        check_interface_bounds(
-            "xr1",
-            &NodeModel::CiscoIosxr9000,
-            31,
-            2, // reserved_interface_count = 2
-            &links,
-            &bridges,
-        )
+        check_interface_bounds("xr1", &NodeModel::CiscoIosxr9000, 31, 2, &links, &[]).unwrap();
     }
 
     #[test]
-    fn test_interface_bounds_max_with_reserved() -> Result<()> {
-        // Cisco IOS XRv9000: max data interface index = 3 + 31 - 1 = 33
-        let links = vec![create_link("xr1", 33, "xr2", 3)];
-        let bridges = vec![];
+    fn manifest_links_008_an_interface_past_the_last_data_interface_is_refused() {
+        let links = vec![create_link("rocky1", 53, "rocky2", 1)];
+        let err_msg = check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &[])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err_msg.contains("exceeds the maximum interface index '52'"),
+            "{err_msg}"
+        );
 
-        check_interface_bounds("xr1", &NodeModel::CiscoIosxr9000, 31, 2, &links, &bridges)
+        let bridges = vec![create_bridge("br1", vec![("rocky1", 100)])];
+        let err_msg =
+            check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &[], &bridges)
+                .unwrap_err()
+                .to_string();
+        assert!(err_msg.contains("bridge 'br1'"), "{err_msg}");
+        assert!(
+            err_msg.contains("exceeds the maximum interface index '52'"),
+            "{err_msg}"
+        );
+
+        // Cisco IOS XRv9000: the last data interface is 3 + 31 - 1 = 33.
+        let links = vec![create_link("xr1", 33, "xr2", 3)];
+        check_interface_bounds("xr1", &NodeModel::CiscoIosxr9000, 31, 2, &links, &[]).unwrap();
+        let bridges = vec![create_bridge("br1", vec![("rocky1", 52)])];
+        check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &[], &bridges).unwrap();
     }
 
     /// Helper to create a test bridge with connections
@@ -357,67 +347,41 @@ mod tests {
         }
     }
 
-    // ============================================================================
-    // Bridge-specific tests
-    // ============================================================================
-
     #[test]
-    fn test_bridge_interface_bounds_exceeds_max() {
-        // Bridge exceeding max interface for a device
-        let links = vec![];
-        let bridges = vec![create_bridge("br1", vec![("rocky1", 100)])];
-
-        let result =
-            check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &bridges);
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("bridge 'br1'"));
-        assert!(err_msg.contains("exceeds the maximum interface index"));
-    }
-
-    #[test]
-    fn test_bridge_mgmt_usage_blocked() {
-        // Bridge attempting to use management interface (eth0)
-        let links = vec![];
-        let bridges = vec![create_bridge("br1", vec![("rocky1", 0), ("rocky2", 5)])];
-
-        let result =
-            check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &bridges);
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("bridge 'br1'"));
-        assert!(err_msg.contains("is the management interface and cannot be used in bridges"));
-    }
-
-    #[test]
-    fn test_duplicate_interface_link_and_bridge() {
-        // Same interface used in both a link AND a bridge (should fail)
-        let links = vec![create_link("rocky1", 5, "rocky2", 10)];
-        let bridges = vec![create_bridge("br1", vec![("rocky1", 5), ("rocky3", 15)])];
-
-        let result = check_duplicate_interface_link(&links, &bridges);
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("rocky1"));
-        assert!(err_msg.contains("interface index '5'"));
-        assert!(err_msg.contains("already in use"));
-    }
-
-    #[test]
-    fn test_duplicate_interface_multiple_bridges() {
-        // Same interface used in multiple bridges (should fail)
-        let links = vec![];
-        let bridges = vec![
-            create_bridge("br1", vec![("rocky1", 10), ("rocky2", 15)]),
-            create_bridge("br2", vec![("rocky1", 10), ("rocky3", 20)]), // rocky1:10 reused
-        ];
-
-        let result = check_duplicate_interface_link(&links, &bridges);
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("rocky1"));
-        assert!(err_msg.contains("interface index '10'"));
-        assert!(err_msg.contains("already in use"));
+    fn manifest_links_009_an_interface_used_twice_is_refused_naming_the_node_and_the_index() {
+        for (links, bridges, index) in [
+            (
+                vec![
+                    create_link("rocky1", 7, "rocky2", 1),
+                    create_link("rocky1", 7, "rocky3", 1),
+                ],
+                vec![],
+                7,
+            ),
+            (
+                vec![create_link("rocky1", 5, "rocky2", 10)],
+                vec![create_bridge("br1", vec![("rocky1", 5), ("rocky3", 15)])],
+                5,
+            ),
+            (
+                vec![],
+                vec![
+                    create_bridge("br1", vec![("rocky1", 10), ("rocky2", 15)]),
+                    create_bridge("br2", vec![("rocky1", 10), ("rocky3", 20)]),
+                ],
+                10,
+            ),
+        ] {
+            let err_msg = check_duplicate_interface_link(&links, &bridges)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err_msg.contains(&format!(
+                    "device 'rocky1' interface index '{index}' is already in use"
+                )),
+                "{err_msg}"
+            );
+        }
     }
 
     fn impaired_link(impairment: crate::link::ManifestImpairment) -> Link2 {
@@ -430,26 +394,50 @@ mod tests {
     }
 
     #[test]
-    fn link_impairments_netem_cannot_apply_are_refused() {
-        let error = check_link_impairments(&[impaired_link(crate::link::ManifestImpairment {
-            loss_percent: Some(150.0),
-            ..Default::default()
-        })])
-        .unwrap_err();
-        let error = format!("{error:#}");
-        assert!(error.contains("dev01::eth1 <-> dev02::eth1"), "{error}");
-        assert!(error.contains("loss_percent"), "{error}");
-        assert!(
-            check_link_impairments(&[impaired_link(crate::link::ManifestImpairment {
-                delay: Some(300_000),
-                ..Default::default()
-            })])
-            .is_err()
-        );
+    fn manifest_links_013_an_impairment_netem_cannot_apply_is_refused_naming_the_link_and_field() {
+        let percent = |field: &str, value: f64| {
+            let mut impairment = crate::link::ManifestImpairment::default();
+            match field {
+                "loss_percent" => impairment.loss_percent = Some(value),
+                "reorder_percent" => impairment.reorder_percent = Some(value),
+                _ => impairment.corrupt_percent = Some(value),
+            }
+            impairment
+        };
+        let mut refused = vec![
+            (
+                "delay",
+                crate::link::ManifestImpairment {
+                    delay: Some(274_878),
+                    ..Default::default()
+                },
+            ),
+            (
+                "jitter",
+                crate::link::ManifestImpairment {
+                    jitter: Some(274_878),
+                    ..Default::default()
+                },
+            ),
+        ];
+        for field in ["loss_percent", "reorder_percent", "corrupt_percent"] {
+            refused.push((field, percent(field, 100.5)));
+            refused.push((field, percent(field, -1.0)));
+        }
+        for (field, impairment) in refused {
+            let error = format!(
+                "{:#}",
+                check_link_impairments(&[impaired_link(impairment)]).unwrap_err()
+            );
+            assert!(error.contains("dev01::eth1 <-> dev02::eth1"), "{error}");
+            assert!(error.contains(&format!("Impairment {field} ")), "{error}");
+        }
         check_link_impairments(&[impaired_link(crate::link::ManifestImpairment {
-            delay: Some(20),
-            loss_percent: Some(1.5),
-            ..Default::default()
+            delay: Some(274_877),
+            jitter: Some(274_877),
+            loss_percent: Some(100.0),
+            reorder_percent: Some(0.0),
+            corrupt_percent: Some(1.5),
         })])
         .unwrap();
     }

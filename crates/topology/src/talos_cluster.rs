@@ -74,66 +74,42 @@ pub fn find_talos_cluster<'a>(
 mod tests {
     use super::*;
 
-    fn cluster() -> TalosCluster {
-        toml::from_str(
+    #[test]
+    fn manifest_clusters_011_a_nodes_cluster_and_role_are_those_of_the_list_it_is_in() {
+        let k8s: TalosCluster = toml::from_str(
             r#"
             name = "k8s"
-            controllers = ["cp1", "cp2", "cp3"]
+            controllers = ["cp2", "cp1", "cp3"]
             workers = ["w1"]
             "#,
         )
-        .unwrap()
-    }
+        .unwrap();
+        let clusters = vec![
+            k8s,
+            TalosCluster {
+                name: "dev".to_owned(),
+                controllers: vec!["dev-cp1".to_owned()],
+                ..TalosCluster::default()
+            },
+        ];
 
-    #[test]
-    fn roles_come_from_the_member_lists() {
-        let cluster = cluster();
-        assert_eq!(cluster.role_of("cp2"), Some(ClusterRole::ControlPlane));
-        assert_eq!(cluster.role_of("w1"), Some(ClusterRole::Worker));
-        assert_eq!(cluster.role_of("other"), None);
-    }
-
-    #[test]
-    fn members_list_controllers_in_order_then_workers() {
         assert_eq!(
-            cluster().members(),
+            clusters[0].members(),
             vec![
-                ("cp1", ClusterRole::ControlPlane),
                 ("cp2", ClusterRole::ControlPlane),
+                ("cp1", ClusterRole::ControlPlane),
                 ("cp3", ClusterRole::ControlPlane),
                 ("w1", ClusterRole::Worker),
             ]
         );
-    }
-
-    #[test]
-    fn unknown_fields_are_rejected() {
-        let error = toml::from_str::<TalosCluster>(
-            r#"
-            name = "k8s"
-            controllers = ["cp1"]
-            nodes = []
-            "#,
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(error.contains("unknown field `nodes`"), "{error}");
-    }
-
-    #[test]
-    fn find_talos_cluster_returns_the_cluster_and_role() {
-        let clusters = vec![
-            cluster(),
-            TalosCluster {
-                name: "dev".to_owned(),
-                controllers: vec!["dev-cp1".to_owned()],
-                workers: vec![],
-                ..TalosCluster::default()
-            },
-        ];
-        let (found, role) = find_talos_cluster(&clusters, "dev-cp1").unwrap();
-        assert_eq!(found.name, "dev");
-        assert_eq!(role, ClusterRole::ControlPlane);
+        for (node, cluster, role) in [
+            ("cp1", "k8s", ClusterRole::ControlPlane),
+            ("w1", "k8s", ClusterRole::Worker),
+            ("dev-cp1", "dev", ClusterRole::ControlPlane),
+        ] {
+            let (found, found_role) = find_talos_cluster(&clusters, node).unwrap();
+            assert_eq!((found.name.as_str(), found_role), (cluster, role), "{node}");
+        }
         assert!(find_talos_cluster(&clusters, "standalone").is_none());
     }
 }

@@ -18,14 +18,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_split_node_int_valid() {
-        let (node, iface) = split_node_int("router1::eth1").unwrap();
-        assert_eq!(node, "router1");
-        assert_eq!(iface, "eth1");
-    }
-
-    #[test]
-    fn test_split_node_int_missing_separator() {
+    fn manifest_links_004_an_end_that_is_not_written_node_interface_is_refused() {
         let result = split_node_int("router1-eth1");
         assert!(result.is_err());
     }

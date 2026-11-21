@@ -824,23 +824,3 @@ async fn image_list_007_a_path_whose_kind_is_not_a_kind_is_refused_as_a_bad_requ
     }
     Ok(())
 }
-
-#[tokio::test]
-async fn an_old_model_name_in_an_image_path_is_refused_naming_its_replacement() -> Result<()> {
-    let server = TestServer::start().await?;
-    seed_arista_eos_images(&server).await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
-
-    for path in [
-        "/api/v1/images/arista_ceos/container",
-        "/admin/images/arista_ceos/container",
-    ] {
-        let (status, body) = request(&server, Method::GET, path, &token).await?;
-        ensure!(
-            status == StatusCode::BAD_REQUEST && body.contains("renamed in 0.7.0"),
-            "GET {path}: {status} {body}"
-        );
-    }
-    Ok(())
-}

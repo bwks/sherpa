@@ -26,7 +26,7 @@ mod tests {
     }
 
     #[test]
-    fn a_mode_that_is_not_octal_digits_up_to_777_is_refused() {
+    fn manifest_provisioners_009_a_mode_that_is_not_octal_digits_up_to_777_is_refused() {
         for digits in [8, 9, 448, 800, 999, 1000] {
             let error = mode_from_octal_digits(digits).unwrap_err();
             assert_eq!(

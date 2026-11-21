@@ -62,14 +62,14 @@ mod tests {
     }
 
     #[test]
-    fn text_file_modes_that_are_not_octal_digits_are_refused() {
+    fn boot_settings_001_a_text_file_whose_permissions_are_not_octal_digits_is_refused() {
         let error = check_text_file_modes(&[node(Some(999), None)])
             .unwrap_err()
             .to_string();
-        assert!(error.contains("/etc/motd"), "{error}");
+        assert!(error.contains("'dev01' text file '/etc/motd'"), "{error}");
         let error = check_text_file_modes(&[node(None, Some(1000))])
             .unwrap_err()
             .to_string();
-        assert!(error.contains("/etc/issue"), "{error}");
+        assert!(error.contains("'dev01' text file '/etc/issue'"), "{error}");
     }
 }

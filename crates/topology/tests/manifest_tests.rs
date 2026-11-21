@@ -1,8 +1,12 @@
 use shared::data::{
-    CpuMode, CpuTopology, DiskCache, DiskImageCloneMethod, DiskIo, NodeKind, NodeModel,
-    NumaMemoryMode, PtxPlatform, WatchdogAction, Ztp,
+    ClusterCni, CpuMode, CpuTopology, DiskCache, DiskImageCloneMethod, DiskIo, NodeBootDisk,
+    NodeCpu, NodeInterfaces, NodeKind, NodeModel, NodeNuma, NumaMemoryMode, PtxPlatform,
+    WatchdogAction, Ztp,
 };
-use topology::Manifest;
+use topology::{
+    BinaryFile, Manifest, ManifestImpairment, Node, NodeExpanded, NodeReadyCheck, NodeZtp,
+    Provisioner, SystemdUnit, TailscaleConfig, TextFile,
+};
 
 // ============================================================================
 // Expected TOML manifests
@@ -10,7 +14,13 @@ use topology::Manifest;
 
 const FULL_MANIFEST: &str = r#"
 name = "full-lab"
+description = "Every key"
 ready_timeout = 600
+provision_concurrency = 4
+
+[tailscale]
+enabled = true
+auth_key_env = "TS_AUTH_KEY"
 
 [[nodes]]
 name = "router1"
@@ -19,6 +29,7 @@ version = "24.04"
 memory = 2048
 environment_variables = ["TERM=xterm", "LANG=en_US.UTF-8"]
 startup_scripts = ["scripts/init.sh"]
+user_scripts = ["scripts/user.sh"]
 
 [nodes.cpu]
 count = 2
@@ -53,6 +64,21 @@ skip = true
 [nodes.vm]
 watchdog = "reset"
 
+[[nodes.text_files]]
+src = "/home/user/.config/app.json"
+dst = "/etc/app/config.json"
+user = "root"
+group = "root"
+permissions = 644
+
+[[nodes.binary_files]]
+source = "files/blob.bin"
+
+[[nodes.systemd_units]]
+name = "app.service"
+source = "units/app.service"
+enabled = true
+
 [[nodes]]
 name = "server1"
 model = "juniper_evolved"
@@ -83,69 +109,158 @@ dst = "server1::eth1"
 [[links]]
 src = "router1::eth2"
 dst = "server1::eth2"
+impairment = { delay = 10, jitter = 2, loss_percent = 1.5, reorder_percent = 2.5, corrupt_percent = 0.5 }
 
 [[bridges]]
 name = "mgmt-bridge"
 links = ["router1::eth3", "server1::eth3"]
-
-[ztp_server]
-enable = true
-username = "admin"
-password = "secret123"
 "#;
 
-const MANIFEST_WITH_TEXT_FILES: &str = r#"
-    name = "text-files-lab"
-
-    [[nodes]]
-    name = "dev01"
-    model = "ubuntu_linux"
-
-    [[nodes.text_files]]
-    src = "/home/user/.config/app.json"
-    dst = "/etc/app/config.json"
-    user = "root"
-    group = "root"
-    permissions = 644
-
-    [[nodes.text_files]]
-    src = "relative/path.txt"
-    dst = "/opt/data/path.txt"
-    user = "sherpa"
-    group = "sherpa"
-    permissions = 755
-    "#;
-
-const MANIFEST_WITH_TEXT_FILES_UNKNOWN_FIELD: &str = r#"
-    name = "bad-lab"
-
-    [[nodes]]
-    name = "dev01"
-    model = "ubuntu_linux"
-
-    [[nodes.text_files]]
-    src = "/tmp/file.txt"
-    dst = "/etc/file.txt"
-    user = "root"
-    group = "root"
-    permissions = 644
-    unknown_field = "bad"
-    "#;
-
-// ============================================================================
-// Tests — manifest parsing
-// ============================================================================
+/// A manifest of one Ubuntu node, `dev01`, followed by `rest`.
+fn one_node(rest: &str) -> String {
+    format!("name = 'lab'\n[[nodes]]\nname = 'dev01'\nmodel = 'ubuntu_linux'\n{rest}\n")
+}
 
 #[test]
-fn test_parse_full_manifest() {
-    let manifest: Manifest = toml::from_str(FULL_MANIFEST).expect("parses");
+fn manifest_file_003_a_manifest_without_name_or_nodes_is_refused_naming_the_missing_key() {
+    for (manifest, key) in [
+        (
+            "nodes = [{ name = 'dev01', model = 'ubuntu_linux' }]",
+            "name",
+        ),
+        ("name = 'lab'", "nodes"),
+    ] {
+        let error = toml::from_str::<Manifest>(manifest)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(&format!("missing field `{key}`")), "{error}");
+    }
+}
 
-    // Top-level fields
-    assert_eq!(manifest.name, "full-lab");
-    assert_eq!(manifest.ready_timeout, Some(600));
+/// A table of a node, as TOML that follows the node, and the unknown key it sets.
+const UNKNOWN_KEYS_OF_A_NODE: &[(&str, &str, &str)] = &[
+    ("a node", "cpu_count = 2", "cpu_count"),
+    (
+        "cpu.topology",
+        "[nodes.cpu]\ntopology = { sockets = 1, cores = 1, threads = 1, unknown = 1 }",
+        "unknown",
+    ),
+    (
+        "a volume",
+        "[nodes.container]\nvolumes = [{ src = '/a', dst = '/b', unknown = 1 }]",
+        "unknown",
+    ),
+    (
+        "a text file",
+        "[[nodes.text_files]]\nsrc = 'a'\ndst = '/b'\nuser = 'root'\ngroup = 'root'\npermissions = 644\nunknown = 1",
+        "unknown",
+    ),
+    (
+        "a binary file",
+        "[[nodes.binary_files]]\nsource = 'a'\nunknown = 1",
+        "unknown",
+    ),
+    (
+        "a systemd unit",
+        "[[nodes.systemd_units]]\nname = 'a.service'\nsource = 'a'\nenabled = true\nunknown = 1",
+        "unknown",
+    ),
+    (
+        "an ssh provisioner",
+        "[[nodes.provisioners]]\ntype = 'ssh'\ncommands = ['ls']",
+        "commands",
+    ),
+    (
+        "an ssh provisioner's file",
+        "[[nodes.provisioners]]\ntype = 'ssh'\n[[nodes.provisioners.files]]\nsrc = 'a'\ndst = '/b'\nowner = 'root'",
+        "owner",
+    ),
+    (
+        "a container provisioner",
+        "[[nodes.provisioners]]\ntype = 'container'\nunknown = 1",
+        "unknown",
+    ),
+    (
+        "a container provisioner's file",
+        "[[nodes.provisioners]]\ntype = 'container'\n[[nodes.provisioners.files]]\nsrc = 'a'\nname = 'a'\ndst = '/run/a'",
+        "dst",
+    ),
+];
 
-    // Node 1 — a VM with every shared group and the vm group
-    let r1 = &manifest.nodes[0];
+/// A table of the lab, as a whole manifest, and the unknown key it sets.
+const UNKNOWN_KEYS_OF_THE_LAB: &[(&str, &str, &str)] = &[
+    (
+        "the top level",
+        "name = 'lab'\nclusters = []\nnodes = []",
+        "clusters",
+    ),
+    (
+        "a link",
+        "name = 'lab'\nnodes = []\n[[links]]\nsrc = 'a::eth1'\ndst = 'b::eth1'\nunknown = 1",
+        "unknown",
+    ),
+    (
+        "an impairment",
+        "name = 'lab'\nnodes = []\n[[links]]\nsrc = 'a::eth1'\ndst = 'b::eth1'\nimpairment = { delay = 1, unknown = 1 }",
+        "unknown",
+    ),
+    (
+        "a bridge",
+        "name = 'lab'\nnodes = []\n[[bridges]]\nname = 'br'\nlinks = []\nunknown = 1",
+        "unknown",
+    ),
+    (
+        "a Talos cluster",
+        "name = 'lab'\nnodes = []\n[[talos_clusters]]\nname = 'k8s'\ncontrollers = ['cp1']\nnodes = []",
+        "nodes",
+    ),
+    (
+        "[tailscale]",
+        "name = 'lab'\nnodes = []\n[tailscale]\nenabled = true\nauth_key = 'tskey-auth-secret'",
+        "auth_key",
+    ),
+];
+
+#[test]
+fn manifest_file_004_an_unknown_key_is_refused_in_every_table_naming_the_key() {
+    let groups = [
+        "cpu",
+        "numa",
+        "boot_disk",
+        "interfaces",
+        "ztp",
+        "ready_check",
+        "vm",
+        "container",
+        "unikernel",
+    ]
+    .map(|group| {
+        (
+            group,
+            one_node(&format!("[nodes.{group}]\nunknown = 1")),
+            "unknown",
+        )
+    });
+    let of_a_node = UNKNOWN_KEYS_OF_A_NODE
+        .iter()
+        .map(|(table, rest, key)| (*table, one_node(rest), *key));
+    let of_the_lab = UNKNOWN_KEYS_OF_THE_LAB
+        .iter()
+        .map(|(table, manifest, key)| (*table, (*manifest).to_owned(), *key));
+    for (table, manifest, key) in groups.into_iter().chain(of_a_node).chain(of_the_lab) {
+        let error = toml::from_str::<Manifest>(&manifest)
+            .expect_err(table)
+            .to_string();
+        assert!(
+            error.contains(&format!("unknown field `{key}`")),
+            "{table}: {error}"
+        );
+    }
+}
+
+/// The checks on the virtual machine of `FULL_MANIFEST`, which sets every shared group and
+/// `vm`.
+fn assert_every_vm_key_is_read(r1: &Node) {
     assert_eq!(r1.name, "router1");
     assert_eq!(r1.model, NodeModel::UbuntuLinux);
     assert_eq!(r1.version, Some("24.04".to_string()));
@@ -192,8 +307,52 @@ fn test_parse_full_manifest() {
         r1.startup_scripts,
         Some(vec!["scripts/init.sh".to_string()])
     );
+    assert_eq!(r1.user_scripts, Some(vec!["scripts/user.sh".to_string()]));
+    assert_eq!(
+        r1.text_files,
+        Some(vec![TextFile {
+            src: "/home/user/.config/app.json".to_owned(),
+            dst: "/etc/app/config.json".to_owned(),
+            user: "root".to_owned(),
+            group: "root".to_owned(),
+            permissions: 644,
+        }])
+    );
+    assert_eq!(
+        r1.binary_files,
+        Some(vec![BinaryFile {
+            source: "files/blob.bin".to_owned(),
+        }])
+    );
+    assert_eq!(
+        r1.systemd_units,
+        Some(vec![SystemdUnit {
+            name: "app.service".to_owned(),
+            source: "units/app.service".to_owned(),
+            enabled: true,
+        }])
+    );
+}
 
-    // Node 2 — a container with the container group
+#[test]
+fn manifest_file_005_every_key_a_manifest_takes_is_read_as_the_setting_it_names() {
+    let manifest: Manifest = toml::from_str(FULL_MANIFEST).expect("parses");
+
+    assert_eq!(manifest.name, "full-lab");
+    assert_eq!(manifest.description.as_deref(), Some("Every key"));
+    assert_eq!(manifest.ready_timeout, Some(600));
+    assert_eq!(manifest.provision_concurrency, Some(4));
+    assert_eq!(
+        manifest.tailscale,
+        Some(TailscaleConfig {
+            enabled: true,
+            auth_key_env: Some("TS_AUTH_KEY".to_owned()),
+        })
+    );
+
+    assert_every_vm_key_is_read(&manifest.nodes[0]);
+
+    // A container with the container group
     let s1 = &manifest.nodes[1];
     assert_eq!(s1.name, "server1");
     assert_eq!(s1.model, NodeModel::JuniperEvolved);
@@ -217,7 +376,7 @@ fn test_parse_full_manifest() {
     assert_eq!(vols[1].src, "/logs");
     assert_eq!(vols[1].dst, "/var/log/app");
 
-    // Node 3 — a unikernel with the unikernel group
+    // A unikernel with the unikernel group
     let u1 = &manifest.nodes[2];
     assert_eq!(
         u1.unikernel
@@ -226,161 +385,93 @@ fn test_parse_full_manifest() {
         Some("console=ttyS0".to_string())
     );
 
-    // Links
     let links = manifest.links.as_ref().expect("has links");
     assert_eq!(links.len(), 2);
     assert_eq!(links[0].src, "router1::eth1");
     assert_eq!(links[0].dst, "server1::eth1");
-    assert_eq!(links[0].p2p, None);
+    assert_eq!(links[0].impairment, None);
     assert_eq!(links[1].src, "router1::eth2");
     assert_eq!(links[1].dst, "server1::eth2");
-    assert_eq!(links[1].p2p, None);
+    assert_eq!(
+        links[1].impairment,
+        Some(ManifestImpairment {
+            delay: Some(10),
+            jitter: Some(2),
+            loss_percent: Some(1.5),
+            reorder_percent: Some(2.5),
+            corrupt_percent: Some(0.5),
+        })
+    );
 
-    // Bridges
     let bridges = manifest.bridges.as_ref().expect("has bridges");
     assert_eq!(bridges.len(), 1);
     assert_eq!(bridges[0].name, "mgmt-bridge");
     assert_eq!(bridges[0].links, vec!["router1::eth3", "server1::eth3"]);
-
-    // ZTP server
-    let ztp = manifest.ztp_server.as_ref().expect("has ztp_server");
-    assert!(ztp.enable);
-    assert_eq!(ztp.username, Some("admin".to_string()));
-    assert_eq!(ztp.password, Some("secret123".to_string()));
-}
-
-// ============================================================================
-// Tests — invalid TOML
-// ============================================================================
-
-#[test]
-fn test_parse_missing_name() {
-    let toml_str = r#"
-nodes = [
-  { name = "dev01", model = "ubuntu_linux" },
-]
-"#;
-    let error = toml::from_str::<Manifest>(toml_str)
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("missing field `name`"), "{error}");
 }
 
 #[test]
-fn test_parse_missing_nodes() {
-    let toml_str = r#"
-        name = "test-lab"
-        "#;
-    let error = toml::from_str::<Manifest>(toml_str)
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("missing field `nodes`"), "{error}");
-}
+fn manifest_file_006_a_key_left_out_stays_unset() {
+    let manifest: Manifest = toml::from_str(
+        r#"
+        name = "lab"
 
-// ============================================================================
-// Tests — Manifest::example()
-// ============================================================================
+        [[talos_clusters]]
+        name = "k8s"
+        controllers = ["cp1"]
 
-// ============================================================================
-// Tests — write/load round-trip
-// ============================================================================
+        [[nodes]]
+        name = "dev01"
+        model = "ubuntu_linux"
 
-// ============================================================================
-// Tests — Link2::expand()
-// ============================================================================
+        [[nodes.provisioners]]
+        type = "ssh"
 
-// ============================================================================
-// Tests — Bridge::parse_links()
-// ============================================================================
+        [[nodes.provisioners.files]]
+        src = "~/hosts.yml"
+        dst = "~/.config/gh/hosts.yml"
 
-// ============================================================================
-// Tests — text_files parsing
-// ============================================================================
+        [[nodes]]
+        name = "db01"
+        model = "mongo_db"
 
-#[test]
-fn test_parse_text_files() {
-    let manifest: Manifest = toml::from_str(MANIFEST_WITH_TEXT_FILES).expect("parses");
+        [[nodes.provisioners]]
+        type = "container"
+
+        [[nodes.provisioners.files]]
+        src = "secrets/mongo-password"
+        name = "mongo_password"
+        "#,
+    )
+    .unwrap();
+
     let node = &manifest.nodes[0];
-    let text_files = node.text_files.as_ref().expect("has text_files");
-    assert_eq!(text_files.len(), 2);
+    assert_eq!(node.kind, None);
+    assert_eq!(node.ztp, NodeZtp::default());
+    assert_eq!(NodeExpanded::new(1, node).unwrap().ztp.method, None);
+    assert_eq!(node.cpu, NodeCpu::default());
+    assert_eq!(node.numa, NodeNuma::default());
+    assert_eq!(node.boot_disk, NodeBootDisk::default());
+    assert_eq!(node.interfaces, NodeInterfaces::default());
+    assert_eq!(node.ready_check, NodeReadyCheck::default());
+    assert!(node.vm.is_none() && node.container.is_none() && node.unikernel.is_none());
 
-    assert_eq!(text_files[0].src, "/home/user/.config/app.json");
-    assert_eq!(text_files[0].dst, "/etc/app/config.json");
-    assert_eq!(text_files[0].user, "root");
-    assert_eq!(text_files[0].group, "root");
-    assert_eq!(text_files[0].permissions, 644);
+    assert!(manifest.tailscale.is_none());
+    let tailscale: Manifest =
+        toml::from_str("name = 'lab'\nnodes = []\n[tailscale]\nauth_key_env = 'TS_AUTH_KEY'")
+            .unwrap();
+    assert!(!tailscale.tailscale.unwrap().enabled);
 
-    assert_eq!(text_files[1].src, "relative/path.txt");
-    assert_eq!(text_files[1].dst, "/opt/data/path.txt");
-    assert_eq!(text_files[1].user, "sherpa");
-    assert_eq!(text_files[1].group, "sherpa");
-    assert_eq!(text_files[1].permissions, 755);
-}
+    let Some([Provisioner::Ssh(ssh)]) = node.provisioners.as_deref() else {
+        panic!("expected one ssh provisioner");
+    };
+    assert_eq!(ssh.files[0].mode, 600);
+    let Some([Provisioner::Container(container)]) = manifest.nodes[1].provisioners.as_deref()
+    else {
+        panic!("expected one container provisioner");
+    };
+    assert_eq!(container.files[0].mode, 444);
 
-#[test]
-fn test_parse_text_files_rejects_unknown_fields() {
-    let error = toml::from_str::<Manifest>(MANIFEST_WITH_TEXT_FILES_UNKNOWN_FIELD)
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("unknown field `unknown_field`"), "{error}");
-}
-
-// ============================================================================
-// Tests — keys of earlier manifests are refused
-// ============================================================================
-
-/// Each flat key of earlier manifests, a group key under its old name, and the removed `ssh`
-/// group as a table or inline, with a value of its type. Each is refused with serde's
-/// unknown-field error naming it.
-#[test]
-fn test_old_flat_keys_are_refused() {
-    for (key, line) in [
-        ("cpu_count", "2"),
-        ("boot_disk_size", "20"),
-        ("boot_disk_clone_method", "'copy'"),
-        ("data_interface_count", "2"),
-        ("ssh_authorized_keys", "['ssh-ed25519 AAAA']"),
-        ("ssh_authorized_key_files", "[{ source = 'a.pub' }]"),
-        ("commands", "['ls']"),
-        ("volumes", "[{ src = '/a', dst = '/b' }]"),
-        ("privileged", "true"),
-        ("shm_size", "1024"),
-        ("user", "'root'"),
-        ("skip_ready_check", "true"),
-        ("ready_port", "22"),
-        ("ztp_config", "'a.cfg'"),
-        ("kernel_cmdline", "'console=ttyS0'"),
-        ("watchdog", "'reset'"),
-        ("platform", "'bt'"),
-        ("performance_tuning", "{ cpu_mode = 'host-model' }"),
-        (
-            "ssh",
-            "{ authorized_key_files = [{ source = 'keys/admin.pub' }] }",
-        ),
-    ]
-    .map(|(key, value)| (key, format!("{key} = {value}")))
-    .into_iter()
-    .chain([(
-        "ssh",
-        "[nodes.ssh]\nauthorized_keys = ['ssh-ed25519 AAAA']".to_owned(),
-    )]) {
-        let manifest =
-            format!("name = 'lab'\n[[nodes]]\nname = 'dev01'\nmodel = 'ubuntu_linux'\n{line}\n");
-        let error = toml::from_str::<Manifest>(&manifest)
-            .expect_err("an old key is refused")
-            .to_string();
-        assert!(
-            error.contains(&format!("unknown field `{key}`")),
-            "{key}: {error}"
-        );
-    }
-}
-
-#[test]
-fn test_old_keys_inside_a_group_are_refused() {
-    let manifest = "name = 'lab'\n[[nodes]]\nname = 'dev01'\nmodel = 'ubuntu_linux'\n[nodes.cpu]\ncpu_pinning = [1]\n";
-    let error = toml::from_str::<Manifest>(manifest)
-        .expect_err("an old key in a group is refused")
-        .to_string();
-    assert!(error.contains("unknown field `cpu_pinning`"), "{error}");
+    let cluster = &manifest.talos_clusters.as_ref().unwrap()[0];
+    assert_eq!(cluster.cni, ClusterCni::Flannel);
+    assert_eq!(cluster.workers, Vec::<String>::new());
 }

@@ -76,39 +76,41 @@ pub fn validate_data_interface_count_override(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::{ModelKind, NodeConfig, NodeModel};
+    use crate::data::{ModelKind, NodeConfig};
 
     #[test]
-    fn test_validate_data_interface_count_override_rejects_unsupported_count() {
+    fn node_settings_010_a_data_count_past_the_models_interfaces_is_refused_naming_the_most() {
         let node_image = NodeConfig::ubuntu_linux();
-        let result = effective_data_interface_count("dev01", Some(53), &node_image);
-        assert!(result.is_err());
-        let error = result.unwrap_err().to_string();
-        assert!(error.contains("dev01"));
-        assert!(error.contains("ubuntu_linux"));
-        assert!(error.contains("data_interface_count 53"));
+        let error = effective_data_interface_count("dev01", Some(53), &node_image)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Node 'dev01'"), "{error}");
+        assert!(error.contains("model: ubuntu_linux"), "{error}");
+        assert!(error.contains("data_interface_count 53"), "{error}");
+        assert!(error.contains("only 0..=52 data interfaces"), "{error}");
     }
 
     #[test]
-    fn test_validate_data_interface_count_override_rejects_index_overflow() {
+    fn node_settings_011_a_data_count_past_the_last_index_with_reserved_ones_is_an_overflow() {
         let mut node_image = NodeConfig::ubuntu_linux();
         node_image.interfaces.reserved_count = 250;
-        let result = effective_data_interface_count("dev01", Some(10), &node_image);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("overflow"));
+        let error = effective_data_interface_count("dev01", Some(10), &node_image)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("overflow"), "{error}");
     }
 
     #[test]
-    fn test_default_data_interface_counts_fit_model_interfaces() {
+    fn node_settings_012_every_models_built_in_data_count_fits_the_interfaces_the_model_has() {
         let mut overruns = Vec::new();
-        for model in NodeModel::to_vec() {
-            let node_image = ModelKind::default_for(model).node_config();
+        for model_kind in ModelKind::all() {
+            let node_image = model_kind.node_config();
             if let Err(err) = validate_data_interface_count_override(
                 "default",
                 node_image.interfaces.data_count,
                 &node_image,
             ) {
-                overruns.push(format!("{model}: {err}"));
+                overruns.push(format!("{model_kind}: {err}"));
             }
         }
         assert!(overruns.is_empty(), "{}", overruns.join("\n"));
