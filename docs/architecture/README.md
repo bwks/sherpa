@@ -9,7 +9,7 @@ Do not document user-facing behaviour here; document it there.
 
 | Document | Covers |
 |---|---|
-| [`AGENT_BUS.md`](AGENT_BUS.md) | Development tool, not released: the NATS bus between the host agent and guest agents, its messages and flows, NKey permissions, how guests run Claude Code, base sessions, usage, state files. |
+| [`AGENT_BUS.md`](AGENT_BUS.md) | Development tool, not released: the bus, enrolment, TLS and permissions, the guest loop, the record, work items, host usage and time, the Generation section, and how to run it. |
 | [`DATABASE.md`](DATABASE.md) | The embedded Turso database: why one writer and a connection per operation, build-time query checks, positional mapping, schema version rules and Turso's limits, CPU pin triggers, lab definitions as written, sealed secrets and the database key. |
 | [`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md) | How a VM's owner login, device password, files, environment and scripts reach the guest, and why: delivery per OS, password forms, cloud-init staging, Windows account and key isolation. |
 | [`PROVISIONERS.md`](PROVISIONERS.md) | Client-side provisioners: why the server never holds their contents, the never-serialized manifest field, the SSH transport's retry and prompt rules and concurrency, container secret files in RAM. |

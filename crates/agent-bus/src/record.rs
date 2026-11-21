@@ -1,10 +1,10 @@
 //! Opening the host's record for one command: the only way any process reads or writes it.
 //!
-//! A command that needs the record (`usage`, `show`, `history`) connects to the bus, takes
-//! `record.lock` in the state directory, opens `agent-bus.db`, catches it up from the durable
-//! consumer `_record` (each message recorded in one transaction, committed, then
-//! acknowledged; its stream sequence is its key, so one delivered again changes nothing), runs
-//! its query, and closes the record and the lock when it drops `Record`. There is no
+//! A command that needs the record (every record command, and `send` after it has sent)
+//! connects to the bus, takes `record.lock` in the state directory, opens `agent-bus.db`,
+//! catches it up from the durable consumer `_record` (each message recorded in one transaction,
+//! committed, then acknowledged; its stream sequence is its key, so one delivered again changes
+//! nothing), runs its query, and closes the record and the lock when it drops `Record`. There is no
 //! long-running writer: between commands the stream keeps what the record has not taken yet.
 //!
 //! Catching up reads until the consumer has nothing left to deliver, however many pulls that
@@ -13,7 +13,8 @@
 //! acknowledged and counted, and the command prints one line with the counts.
 //!
 //! Turso holds its file for one process, and its lock says nothing about who holds it, so
-//! `record.lock` is the arbiter. Its holder writes its PID into it; a command that cannot take
+//! `record.lock` is the arbiter. Turso's own lock is a POSIX record lock, which a second open
+//! inside the same process does not see, so it is only a second guard. Its holder writes its PID into it; a command that cannot take
 //! it within `LOCK_WAIT` fails naming that PID. When the bus cannot be reached, or the host's
 //! seed is missing, the command answers from what is recorded and says it did not catch up.
 

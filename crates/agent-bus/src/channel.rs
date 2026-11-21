@@ -288,6 +288,10 @@ impl Channel {
     /// Open `agent`'s inbox, with its reader's notices written to `notices`. The inbox remembers
     /// what was read, so a restarted reader goes on where it stopped.
     ///
+    /// A second reader is refused when the consumer already has a pull waiting. A reader has a
+    /// pull waiting only while it waits for a message, not while it handles one, so the check
+    /// misses a reader in that window; the guest and `listen` handle a message in milliseconds.
+    ///
     /// # Errors
     ///
     /// Fails when the name is invalid, or the inbox does not exist: the host creates it when it

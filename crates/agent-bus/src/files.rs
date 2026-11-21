@@ -54,6 +54,10 @@ pub struct FileLock {
 }
 
 /// A JSON Lines file in the state directory, pruned to `FILE_RETENTION`.
+///
+/// Pruning rewrites the file and renames it over the old one, so an append made by another task
+/// while a prune runs would be lost. Each file is pruned and appended to by one task only: the
+/// guest's engine for `results.jsonl`, the listener's loop for its journal.
 #[derive(Debug, Clone)]
 pub struct JsonLines {
     path: PathBuf,
