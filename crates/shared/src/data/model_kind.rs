@@ -473,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    fn test_every_models_default_ztp_is_disabled_or_a_listed_method() {
+    fn ztp_setting_013_every_models_built_in_setting_is_disabled_or_a_method_it_takes() {
         for model_kind in ModelKind::all() {
             let ztp = model_kind.node_config().ztp();
             assert!(

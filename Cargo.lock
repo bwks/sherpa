@@ -5046,7 +5046,6 @@ dependencies = [
  "md5 0.7.0",
  "petname",
  "rand 0.8.5",
- "regex",
  "reqwest",
  "rustls",
  "rustls-pemfile",

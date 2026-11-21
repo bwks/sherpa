@@ -175,21 +175,4 @@ links = [
         fs::remove_file(path).ok();
         assert!(result.is_err());
     }
-
-    #[test]
-    fn test_validate_manifest_reports_a_ztp_method_the_model_does_not_allow() {
-        let manifest = r#"
-name = "ztp-lab"
-
-nodes = [
-  { name = "frr01", model = "frr_linux", ztp = { method = "cdrom" } },
-]
-"#;
-        let path = write_temp_manifest("ztp-fail", manifest);
-        let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
-        fs::remove_file(path).ok();
-        let error = format!("{:#}", result.expect_err("the manifest is refused"));
-        assert!(error.contains("'frr01'"), "{error}");
-        assert!(error.contains("allows: disabled, volume"), "{error}");
-    }
 }

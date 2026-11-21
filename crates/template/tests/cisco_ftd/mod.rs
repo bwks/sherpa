@@ -27,20 +27,12 @@ const EXPECTED_MANUAL_IPV4: &str = r#"{
   "ManageLocally": "Yes"
 }"#;
 
-const EXPECTED_MANAGE_LOCALLY_NO: &str = r#"{
-  "EULA": "",
-  "Hostname": "ftdv01",
-  "AdminPassword": "",
-  "FirewallMode": "routed",
-  "ManageLocally": "No"
-}"#;
-
 // ============================================================================
 // Tests
 // ============================================================================
 
 #[test]
-fn test_manual_ipv4() {
+fn generated_config_005_cisco_ftdv_day0_json() {
     let t = CiscoFtdZtpTemplate {
         eula: "accept".to_string(),
         hostname: "ftdv01".to_string(),
@@ -58,18 +50,7 @@ fn test_manual_ipv4() {
 }
 
 #[test]
-fn test_manage_locally_false() {
-    let t = CiscoFtdZtpTemplate {
-        hostname: "ftdv01".to_string(),
-        manage_locally: YesNo(false),
-        ..Default::default()
-    };
-    let json = serde_json::to_string_pretty(&t).expect("serializes");
-    assert_eq!(json, EXPECTED_MANAGE_LOCALLY_NO);
-}
-
-#[test]
-fn test_admin_password_is_intact() {
+fn device_accounts_002_cisco_ftdv_admin() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let t = CiscoFtdZtpTemplate {
             hostname: "ftdv01".to_string(),

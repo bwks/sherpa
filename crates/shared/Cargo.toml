@@ -72,7 +72,6 @@ strum_macros = "0.27"
 tempfile = { workspace = true }
 
 [dev-dependencies]
-regex = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [features]

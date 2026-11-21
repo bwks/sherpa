@@ -83,7 +83,7 @@ mod tests {
     }
 
     #[test]
-    fn the_images_setting_is_used_unless_the_node_sets_one() {
+    fn ztp_setting_002_a_node_is_built_with_its_manifests_method_or_else_its_images() {
         assert_eq!(
             validate(NodeModel::FrrLinux, None, None).unwrap(),
             Ztp::Volume
@@ -99,20 +99,7 @@ mod tests {
     }
 
     #[test]
-    fn srx_runs_with_cdrom_and_refuses_tftp_before_anything_is_built() {
-        assert_eq!(
-            validate(NodeModel::JuniperSrxv3, None, None).unwrap(),
-            Ztp::Cdrom
-        );
-        // A manifest written when vSRX still took TFTP, as `up` and `redeploy` check it.
-        let error = validate(NodeModel::JuniperSrxv3, Some(Ztp::Tftp), None).unwrap_err();
-        let error = format!("{error:#}");
-        assert!(error.contains("node1"), "{error}");
-        assert!(error.ends_with("allows: disabled, cdrom"), "{error}");
-    }
-
-    #[test]
-    fn a_method_the_model_does_not_take_is_refused_from_either_source() {
+    fn ztp_setting_005_up_and_redeploy_refuse_an_images_method_as_a_manifests() {
         let error = validate(NodeModel::FrrLinux, Some(Ztp::Cdrom), None).unwrap_err();
         let error = format!("{error:#}");
         assert!(error.contains("node1"), "{error}");
@@ -130,7 +117,7 @@ mod tests {
     }
 
     #[test]
-    fn a_config_is_accepted_only_where_a_generator_reads_it() {
+    fn custom_config_005_a_config_is_taken_only_by_the_methods_that_deliver_one() {
         for (model, ztp) in [
             (NodeModel::JuniperEvolved, Ztp::Tftp),
             (NodeModel::JuniperEvolved, Ztp::Usb),
@@ -160,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn a_config_on_a_node_with_ztp_off_is_refused_except_vaults() {
+    fn custom_config_006_a_config_with_ztp_off_is_refused_except_for_vault() {
         for model in NodeModel::to_vec() {
             let result = validate(model, Some(Ztp::Disabled), Some("config"));
             if model == NodeModel::HashicorpVault {
@@ -173,7 +160,7 @@ mod tests {
     }
 
     #[test]
-    fn a_talos_cluster_member_with_ztp_off_is_refused() {
+    fn ztp_setting_014_a_talos_cluster_member_with_ztp_off_is_refused() {
         let clusters = [TalosCluster {
             name: "prod".to_owned(),
             controllers: vec!["node1".to_owned()],

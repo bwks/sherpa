@@ -68,7 +68,7 @@ fn asa(password: &str) -> CiscoAsaZtpTemplate {
 }
 
 #[test]
-fn test_static_ipv4() {
+fn generated_config_004_cisco_asav() {
     let output = asa("Rand0mPass-1").render().expect("template renders");
     assert_eq!(
         output,
@@ -77,7 +77,7 @@ fn test_static_ipv4() {
 }
 
 #[test]
-fn test_password_is_intact_for_enable_and_owner() {
+fn device_accounts_001_cisco_asav_enable_and_owner() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let output = asa(password).render().expect("template renders");
         assert!(output.contains(&format!("\nenable password {password}\n")));

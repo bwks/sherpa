@@ -239,7 +239,7 @@ Cases 001 to 014 render the model's config with device passwords that between th
 | 020 | A cloud-init account with no groups has no groups key, and one with groups has them as one comma-separated string | unit |
 | 021 | A device password hash names its algorithm and a salt of its own, and has no rounds field, as the devices that store one read it | unit |
 | 022 | A `juniper_srxv3` node's config has the owner and `root` each with a hash of the device password | unit |
-| 023 | The configs served over TFTP and HTTP carry only a hash of the device password, and AOS-CX's carries none (no test yet) | unit |
+| 023 | The configs served over TFTP and HTTP carry only a hash of the device password, and AOS-CX's carries none | unit |
 | 024 | The models that store a hash, Arista, Junos, PAN-OS, FRR and SONiC, each have the hash unchanged for every character a password may have, and only the accounts their case in `generated_config` shows (no test yet) | unit |
 
 ## `boot_server`: each lab has a boot server for its nodes' addresses, names and network configs

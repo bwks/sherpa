@@ -72,7 +72,7 @@ fn xrv(password: &str) -> CiscoIosxrZtpTemplate {
 }
 
 #[test]
-fn test_static_ipv4() {
+fn generated_config_012_cisco_iosxr() {
     let output = xrv("Rand0mPass-1").render().expect("template renders");
     assert_eq!(
         output,
@@ -81,7 +81,7 @@ fn test_static_ipv4() {
 }
 
 #[test]
-fn test_password_is_intact_for_admin_and_owner() {
+fn device_accounts_006_cisco_iosxr_admin_and_owner() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let output = xrv(password).render().expect("template renders");
         assert_eq!(

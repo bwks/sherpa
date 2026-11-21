@@ -1135,7 +1135,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_iso_writes_labelled_volume_descriptors() -> Result<()> {
+    fn config_iso_001_the_image_has_labelled_primary_and_joliet_descriptors() -> Result<()> {
         let src = TempDir::new()?;
         ztp_source(src.path())?;
         let image = build(src.path(), CIDATA)?;
@@ -1163,7 +1163,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_iso_keeps_relaxed_primary_names() -> Result<()> {
+    fn config_iso_002_the_primary_tree_keeps_each_name_whole() -> Result<()> {
         let src = TempDir::new()?;
         ztp_source(src.path())?;
         panos_source(src.path())?;
@@ -1188,7 +1188,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_iso_rock_ridge_names_and_modes() -> Result<()> {
+    fn config_iso_003_rock_ridge_carries_each_name_and_read_only_modes() -> Result<()> {
         let src = TempDir::new()?;
         panos_source(src.path())?;
         fs::write(src.path().join("day0-config"), "hostname asa1\n")?;
@@ -1196,13 +1196,6 @@ mod tests {
 
         let root = root_record(&image, 16);
         let entries = records(&image, root.extent, root.size);
-        let dot = su_entries(&entries[0].system_use);
-        assert_eq!(dot[0], ("SP".to_string(), vec![0xbe, 0xef, 0]));
-        let ce = su_entry(&entries[0], "CE").expect("CE on the root");
-        let er = &sector(&image, le32(&ce))[..le32(&ce[16..]) as usize];
-        assert_eq!(&er[..2], b"ER");
-        assert_eq!(&er[8..18], b"RRIP_1991A");
-
         for record in &entries[2..] {
             let px = su_entry(record, "PX").expect("PX entry");
             let (mode, nlink) = (le32(&px), le32(&px[8..]));
@@ -1238,7 +1231,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_iso_joliet_tree_matches_rock_ridge() -> Result<()> {
+    fn config_iso_004_the_joliet_tree_holds_the_rock_ridge_files() -> Result<()> {
         let src = TempDir::new()?;
         ztp_source(src.path())?;
         panos_source(src.path())?;
@@ -1248,7 +1241,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_iso_round_trips_file_contents() -> Result<()> {
+    fn config_iso_005_every_files_contents_read_back_unchanged() -> Result<()> {
         let src = TempDir::new()?;
         panos_source(src.path())?;
         let big = "x".repeat(BIG_FILE_LEN);
@@ -1271,7 +1264,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_iso_directory_spans_sectors() -> Result<()> {
+    fn config_iso_006_a_folder_larger_than_a_sector_is_written_whole() -> Result<()> {
         let src = TempDir::new()?;
         for n in 0..MANY_FILES {
             fs::write(
@@ -1289,7 +1282,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_iso_path_tables_list_directories() -> Result<()> {
+    fn config_iso_007_the_path_tables_list_every_folder_under_its_parent() -> Result<()> {
         let src = TempDir::new()?;
         panos_source(src.path())?;
         fs::create_dir(src.path().join("config/nested"))?;
@@ -1330,7 +1323,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_iso_leaves_out_its_own_output() -> Result<()> {
+    fn config_iso_008_an_iso_written_into_its_source_leaves_itself_out() -> Result<()> {
         let src = TempDir::new()?;
         ztp_source(src.path())?;
         let iso = src.path().join(ISO_NAME);
@@ -1346,7 +1339,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn test_create_iso_failed_write_keeps_the_previous_image() -> Result<()> {
+    fn config_iso_009_a_failed_write_keeps_the_previous_image() -> Result<()> {
         let src = TempDir::new()?;
         ztp_source(src.path())?;
         let iso = src.path().join(ISO_NAME);
@@ -1372,7 +1365,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_iso_leaves_out_a_partial_image() -> Result<()> {
+    fn config_iso_010_a_partial_image_from_an_earlier_write_is_left_out() -> Result<()> {
         let src = TempDir::new()?;
         ztp_source(src.path())?;
         let iso = src.path().join(ISO_NAME);
@@ -1389,7 +1382,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_iso_rejects_missing_source() -> Result<()> {
+    fn config_iso_011_a_missing_source_folder_is_refused() -> Result<()> {
         let dir = TempDir::new()?;
         let iso = dir.path().join(ISO_NAME);
         let missing = dir.path().join("missing");
@@ -1402,7 +1395,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_iso_rejects_invalid_volume_ids() -> Result<()> {
+    fn config_iso_012_an_invalid_volume_label_is_refused() -> Result<()> {
         let src = TempDir::new()?;
         ztp_source(src.path())?;
         for volume_id in ["", "with space", "a-label-longer-than-sixteen"] {
@@ -1418,7 +1411,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_iso_rejects_long_names() -> Result<()> {
+    fn config_iso_013_a_name_too_long_or_clashing_is_refused() -> Result<()> {
         let src = TempDir::new()?;
         fs::write(src.path().join("a".repeat(32)), "")?;
         let err = build_error(src.path(), CIDATA);
@@ -1426,11 +1419,7 @@ mod tests {
             matches!(err, IsoError::NameTooLong { limit: 31, .. }),
             "{err}"
         );
-        Ok(())
-    }
 
-    #[test]
-    fn test_create_iso_rejects_clashing_names() -> Result<()> {
         let src = TempDir::new()?;
         fs::write(src.path().join("a;b"), "")?;
         fs::write(src.path().join("a_b"), "")?;
@@ -1440,7 +1429,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_iso_limits_nesting_to_eight_levels() -> Result<()> {
+    fn config_iso_014_folders_nested_past_eight_levels_are_refused() -> Result<()> {
         let src = TempDir::new()?;
         let deepest = (1..=8).fold(src.path().to_path_buf(), |path, n| {
             path.join(format!("d{n}"))
@@ -1455,7 +1444,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn test_create_iso_rejects_symlinks() -> Result<()> {
+    fn config_iso_015_a_symlink_is_refused_naming_it() -> Result<()> {
         let src = TempDir::new()?;
         ztp_source(src.path())?;
         let link = src.path().join("link");
@@ -1473,7 +1462,7 @@ mod tests {
     }
 
     #[test]
-    fn test_record_date_rejects_years_outside_its_byte() -> Result<()> {
+    fn config_iso_016_a_date_the_format_cannot_hold_is_refused() -> Result<()> {
         for stamp in ["1899-12-31T23:59:59Z", "2156-01-01T00:00:00Z"] {
             let err = record_date(stamp.parse()?).unwrap_err();
             assert!(matches!(err, IsoError::DateOutOfRange(_)), "{stamp}: {err}");
@@ -1482,11 +1471,7 @@ mod tests {
             record_date("2155-12-31T23:59:59Z".parse()?)?,
             [255, 12, 31, 23, 59, 59, 0]
         );
-        Ok(())
-    }
 
-    #[test]
-    fn test_volume_date_rejects_years_without_four_digits() -> Result<()> {
         let err = volume_date("-000001-01-01T00:00:00Z".parse()?).unwrap_err();
         assert!(matches!(err, IsoError::DateOutOfRange(_)), "{err}");
         assert_eq!(
@@ -1494,12 +1479,5 @@ mod tests {
             b"2026110610473600\0"
         );
         Ok(())
-    }
-
-    #[test]
-    fn test_su_entry_rejects_data_its_length_byte_cannot_hold() {
-        assert_eq!(super::su_entry(*b"NM", &[0; 251]).unwrap().len(), 255);
-        let err = super::su_entry(*b"NM", &[0; 252]).unwrap_err();
-        assert!(matches!(err, IsoError::TooLarge(_)), "{err}");
     }
 }

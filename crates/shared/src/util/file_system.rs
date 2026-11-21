@@ -345,7 +345,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn writing_a_file_leaves_its_folder_alone() {
+    fn config_privacy_010_writing_a_file_leaves_its_folder_alone() {
         let dir = TempDir::new().expect("tempdir");
         fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).expect("chmod");
 
@@ -356,7 +356,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn a_rewritten_file_gets_the_new_mode_and_contents() {
+    fn config_privacy_009_a_rewritten_file_gets_the_new_mode_and_contents() {
         let dir = TempDir::new().expect("tempdir");
         let path = dir.path().join("key.pem");
         fs::write(&path, b"old").expect("seed");
@@ -372,7 +372,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn missing_folders_are_created_private() {
+    fn config_privacy_011_folders_made_on_the_way_are_private_and_a_new_one_gets_its_mode() {
         let dir = TempDir::new().expect("tempdir");
         let path = dir.path().join("a/b/cert.pem");
 
@@ -381,11 +381,7 @@ mod tests {
         assert_eq!(mode_of(&path), 0o644);
         assert_eq!(mode_of(&dir.path().join("a")), 0o700);
         assert_eq!(mode_of(&dir.path().join("a/b")), 0o700);
-    }
 
-    #[cfg(unix)]
-    #[test]
-    fn a_new_folder_gets_the_mode_and_missing_folders_above_it_are_private() {
         let dir = TempDir::new().expect("tempdir");
         let path = dir.path().join("a/b/tftp");
 
@@ -398,7 +394,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn an_existing_folder_is_set_to_the_mode_and_keeps_its_contents() {
+    fn config_privacy_012_an_existing_folder_is_set_to_the_mode_and_keeps_its_contents() {
         let dir = TempDir::new().expect("tempdir");
         let path = dir.path().join("node");
         fs::create_dir(&path).expect("mkdir");

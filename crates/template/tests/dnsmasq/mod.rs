@@ -87,12 +87,12 @@ fn boot_options(output: &str) -> Vec<&str> {
 }
 
 #[test]
-fn test_dnsmasq_tftp_ztp() {
+fn boot_server_004_the_lab_config_has_leases_names_and_the_tftp_boot_option() {
     assert_eq!(render(Ztp::Tftp), EXPECTED_DNSMASQ_TFTP);
 }
 
 #[test]
-fn test_dnsmasq_http_ztp_sends_the_config_url_in_options_67_and_239() {
+fn boot_server_005_an_http_node_gets_its_config_url_in_options_67_and_239() {
     let output = render(Ztp::Http);
     assert_eq!(
         boot_options(&output),
@@ -108,7 +108,7 @@ fn test_dnsmasq_http_ztp_sends_the_config_url_in_options_67_and_239() {
 }
 
 #[test]
-fn test_dnsmasq_disabled_ztp_keeps_the_host_and_sends_no_boot_option() {
+fn boot_server_006_a_node_with_ztp_off_keeps_its_lease_and_gets_no_boot_option() {
     let output = render(Ztp::Disabled);
     assert!(output.contains("dhcp-host=52:54:00:11:22:33,172.20.0.20,sw01,,set:sw01-tag\n"));
     assert!(boot_options(&output).is_empty(), "{output}");

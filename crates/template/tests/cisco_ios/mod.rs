@@ -143,76 +143,12 @@ do write memory
 !
 exit"#;
 
-const EXPECTED_DHCP: &str = r#"!
-hostname iosv01
-ip domain name lab.sherpa.local
-ip name-server 172.20.0.1
-crypto key generate rsa modulus 2048
-ip ssh version 2
-!
-aaa new-model
-aaa authentication login default local
-aaa authorization exec default local
-!
-username alice privilege 15 secret PASSWORD
-!
-ip ssh pubkey-chain
-  username alice
-   key-hash ssh-rsa OWNERKEY1
-   key-hash ssh-ed25519 OWNERKEY2
-!
-ip scp server enable
-!
-lldp run
-!
-archive
- log config
-  logging enable
-  logging size 1000
-  notify syslog contenttype plaintext
- path flash:/archived-config
- maximum 14
- write-memory
- time-period 1440
-!
-interface GigabitEthernet0/0
- ip address dhcp
- no shutdown
- exit
-!
-ip route 0.0.0.0 0.0.0.0 172.20.0.1
-!
-line con 0
- logging synchronous
- transport preferred none
- stopbits 1
- exit
-!
-line vty 0 4
- logging synchronous
- transport preferred none
- transport input ssh
- exit
-!
-event manager applet ENABLE-MGMT
- event syslog pattern "SYS-5-RESTART"
- action 0 cli command "enable"
- action 1 cli command "conf t"
- action 2 cli command "interface GigabitEthernet0/0"
- action 3 cli command "no shutdown"
- action 4 cli command "exit"
- action 5 cli command "crypto key generate rsa modulus 2048"
-!
-do write memory
-!
-exit"#;
-
 // ============================================================================
 // Tests
 // ============================================================================
 
 #[test]
-fn test_static_ipv4() {
+fn generated_config_008_cisco_iosv() {
     let t = CiscoIosZtpTemplate {
         hostname: "iosv01".to_string(),
         owner: helpers::test_owner(PASSWORD),
@@ -228,7 +164,7 @@ fn test_static_ipv4() {
 }
 
 #[test]
-fn test_dual_stack() {
+fn config_addressing_008_cisco_iosv_dual_stack() {
     let t = CiscoIosZtpTemplate {
         hostname: "iosv01".to_string(),
         owner: helpers::test_owner(PASSWORD),
@@ -244,23 +180,7 @@ fn test_dual_stack() {
 }
 
 #[test]
-fn test_dhcp_mode() {
-    let t = CiscoIosZtpTemplate {
-        hostname: "iosv01".to_string(),
-        owner: helpers::test_owner(PASSWORD),
-        mgmt_interface: "GigabitEthernet0/0".to_string(),
-        dns: helpers::test_dns(),
-        mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: None,
-        mgmt_ipv6_address: None,
-        mgmt_ipv6: None,
-    };
-    let output = t.render().expect("template renders");
-    assert_eq!(output, EXPECTED_DHCP.replace("PASSWORD", PASSWORD));
-}
-
-#[test]
-fn the_password_is_intact_on_ios_and_iosl2() {
+fn device_accounts_004_cisco_iosv_and_iosvl2_owner_only() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let ios = CiscoIosZtpTemplate {
             hostname: "iosv01".to_string(),

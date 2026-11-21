@@ -600,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_ztp_configs_relative_path() {
+    fn custom_config_002_the_cli_reads_ztp_config_relative_to_the_manifest() {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let config_path = dir.path().join("my_config.txt");
         std::fs::write(&config_path, "interface eth0").expect("write config");
@@ -639,7 +639,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_ztp_configs_empty_file_error() {
+    fn custom_config_003_an_empty_ztp_config_is_refused_naming_the_node_and_file() {
         let config_file = NamedTempFile::new().expect("Failed to create temp file");
         let config_path = config_file.path().to_str().expect("path").to_string();
 
@@ -664,7 +664,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_ztp_configs_missing_file_error() {
+    fn custom_config_004_an_unreadable_ztp_config_is_refused_naming_the_node_and_file() {
         let dir = tempfile::tempdir().unwrap();
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),

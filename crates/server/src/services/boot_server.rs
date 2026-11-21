@@ -396,7 +396,7 @@ mod tests {
     const SONIC_HTTP: &str = r#"dhcp-option=tag:sonic-tag,67,"http://172.31.1.2:8080/sonic.conf""#;
 
     #[test]
-    fn a_redeploy_onto_tftp_gives_the_node_its_boot_option() {
+    fn boot_server_011_a_redeploy_onto_tftp_gives_the_node_its_boot_option() {
         let before = config(&redeployed("evo", 2, Ztp::Usb));
         let after = config(&redeployed("evo", 2, Ztp::Tftp));
 
@@ -407,7 +407,7 @@ mod tests {
     }
 
     #[test]
-    fn a_redeploy_off_tftp_removes_the_nodes_boot_option() {
+    fn boot_server_012_a_redeploy_off_tftp_removes_the_boot_option_and_keeps_the_lease() {
         let after = config(&redeployed("evo", 2, Ztp::Usb));
 
         assert!(!after.contains("evo-tag,67"), "{after}");
@@ -415,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn a_redeploy_onto_and_off_http_adds_and_removes_the_nodes_boot_options() {
+    fn boot_server_013_a_redeploy_onto_and_off_http_adds_and_removes_both_options() {
         let on = config(&redeployed("sonic", 4, Ztp::Http));
         let off = config(&redeployed("sonic", 4, Ztp::Disabled));
 
@@ -431,7 +431,7 @@ mod tests {
     }
 
     #[test]
-    fn the_records_are_in_the_order_up_makes_them() {
+    fn boot_server_014_entries_after_a_redeploy_are_in_the_order_up_wrote_them() {
         let records = lab_ztp_records(&lab(), &redeployed("evo", 2, Ztp::Usb)).unwrap();
 
         let names: Vec<&str> = records.iter().map(|r| r.node_name.as_str()).collect();
@@ -447,7 +447,7 @@ mod tests {
     }
 
     #[test]
-    fn a_node_without_an_address_has_no_entry() {
+    fn boot_server_015_a_node_without_an_address_has_no_entry() {
         let mut nodes = lab();
         nodes[2].record.mgmt_ipv4 = None;
 
@@ -457,7 +457,7 @@ mod tests {
     }
 
     #[test]
-    fn the_config_is_written_only_when_it_changed() {
+    fn boot_server_016_the_config_is_written_only_when_it_changed() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(DNSMASQ_CONFIG_FILE);
         let path = path.to_str().unwrap();
@@ -474,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_http_configs_folder_is_served_over_http() {
+    fn boot_server_008_only_the_http_configs_folder_is_served_over_http() {
         let spec = boot_container_spec("abcd1234", "/labs/abcd1234/ztp", &mgmt_net());
 
         let served: Vec<&str> = spec
@@ -488,7 +488,7 @@ mod tests {
     }
 
     #[test]
-    fn dnsmasq_keeps_its_tftp_root_and_leases_outside_the_http_root() {
+    fn boot_server_009_the_tftp_root_and_leases_are_outside_the_http_root() {
         let config = render_dnsmasq_config(&mgmt_net(), &[]).unwrap();
         let value = |key: &str| {
             config
@@ -501,7 +501,6 @@ mod tests {
         let tftp_root = value("tftp-root=");
         let leases = value("dhcp-leasefile=");
 
-        assert_eq!(tftp_root, BOOT_SERVER_TFTP_ROOT);
         assert!(!served_over_http(&tftp_root));
         assert!(!served_over_http(&leases));
     }

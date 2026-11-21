@@ -65,7 +65,7 @@ fn ise(password: &str) -> CiscoIseZtpTemplate {
 }
 
 #[test]
-fn test_static_ipv4() {
+fn generated_config_013_cisco_ise() {
     let output = ise("Rand0mPass-1").render().expect("template renders");
     assert_eq!(
         output,
@@ -74,7 +74,7 @@ fn test_static_ipv4() {
 }
 
 #[test]
-fn test_password_is_intact() {
+fn device_accounts_007_cisco_ise_owner() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let output = ise(password).render().expect("template renders");
         assert!(output.contains(&format!("\npassword={password}\n")));

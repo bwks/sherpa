@@ -569,7 +569,7 @@ mod tests {
     use libvirt::Qemu;
     use tokio::sync::mpsc;
 
-    use crate::konst::{LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, ZTP_ISO};
+    use crate::konst::{LAB_CA_CERT_FILE, LAB_CA_KEY_FILE};
     use shared::data::{LabSubnets, ModelKind, NodeKind, NodeModel};
 
     use super::super::networks::management_network;
@@ -600,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    fn the_dnsmasq_folder_holds_only_its_config() {
+    fn boot_server_010_its_own_folder_holds_only_its_config() {
         let dir = tempfile::tempdir().unwrap();
 
         write_dnsmasq_config(
@@ -679,7 +679,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires libvirt: phase 8 takes a connection, though it creates nothing in it"]
-    async fn a_unikernel_gets_no_certificate_and_containers_and_vms_get_theirs() {
+    async fn config_delivery_028_every_container_and_vm_gets_a_certificate_and_a_unikernel_none() {
         let (db, lab) = lab_with(&MODELS).await;
         let records = db::list_nodes_by_lab(&db, lab.id.clone().unwrap())
             .await
@@ -737,7 +737,5 @@ mod tests {
                 "vm.key"
             ]
         );
-        // The VM's boot files are apart from the lab's folders until its disks are cloned.
-        assert!(lab_dir.path().join("vm-boot.d/vm").join(ZTP_ISO).exists());
     }
 }

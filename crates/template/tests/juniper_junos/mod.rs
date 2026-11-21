@@ -71,7 +71,7 @@ fn junos(hash: &str) -> JunipervJunosZtpTemplate {
 }
 
 #[test]
-fn test_static_ipv4() {
+fn generated_config_018_junos() {
     let hash = helpers::sha512_hash("abcdefghijklm!@_-+.");
     let output = junos(&hash).render().expect("template renders");
     assert_eq!(output, EXPECTED_STATIC_IPV4.replace("HASH", &hash));
