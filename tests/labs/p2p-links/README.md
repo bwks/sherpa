@@ -1,8 +1,7 @@
 # P2p links lab test
 
 Checks the requirements of #391 for P2p (eBPF) links on each pair of node kinds, VM ⟷ VM,
-VM ⟷ container and container ⟷ container, end to end through the `sherpa` CLI. The results
-that led to it are in `docs/investigations/p2p-ebpf-requirements.md`.
+VM ⟷ container and container ⟷ container, end to end through the `sherpa` CLI.
 
 | Node | Model | Role |
 |---|---|---|

@@ -31,7 +31,7 @@ nothing is ever written through a link. Folder modes are set on Unix only.
 The server still sends the files' contents with its own names. Its SSH config names the known
 hosts relatively (`UserKnownHostsFile sherpa_known_hosts`), names no identity file, so a node
 logs in with the client's own keys, and has no `ProxyJump`, so every node is reached directly
-(a jump through the server is added per command; see [`SSH_CLIENT.md`](SSH_CLIENT.md#the-jump)).
+(a jump through the server is added per command; see `client::ssh_client::SshJump`).
 A lab whose folder has a config from an older server, with the jump, gets this one at its next
 `sherpa up` or `sherpa download`. `lab_files::rewrite_ssh_config_for_client` replaces the known
 hosts path with the absolute path of `.sherpa/ssh/known_hosts`. The config therefore works from
@@ -50,7 +50,7 @@ saved there were imported and deleted at startup by 0.6.4 and 0.6.5; 0.7.0 ignor
 behind (see [`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders)). What the server's
 folder keeps is the lab's CA and the container and VM certificates, Talos,
 Vault, Keycloak and SurrealDB credentials (each 0600 in `vault/`, `keycloak/` and `surrealdb/`,
-the application nodes' admins among them, see [`LAB_CA.md`](LAB_CA.md#keycloak)), and the files read while a node exists: the dnsmasq config
+the application nodes' admins among them), and the files read while a node exists: the dnsmasq config
 (`ztp/dnsmasq/dnsmasq.conf`, mounted in the boot container), the TFTP and HTTP files of the nodes
 that boot by them (`ztp/tftp/`, `ztp/configs/`) and each container's config mounts (`<node>/`).
 A lab from before 0.7.0 also still has its old SSH key pair, `sherpa_ssh_key` and `.pub`, until it
@@ -64,7 +64,7 @@ is destroyed (see [`SERVER.md`](SERVER.md#no-lab-ssh-key)). It does not keep:
   of the lab's own folders, whatever the VM is called.
 - **A dnsmasq leases file**: dnsmasq keeps its leases inside the boot container, outside its HTTP
   root (see [`ZTP.md`](ZTP.md#the-boot-server)).
-- **Unikernel certificates**: none are issued (see [`LAB_CA.md`](LAB_CA.md#node-certificates)).
+- **Unikernel certificates**: none are issued.
 - **Another ZTP method's network boot files**: a `redeploy` that moves a VM off TFTP or HTTP
   removes that node's TFTP config or HTTP files (`node_ops::remove_stale_network_boot_files`),
   and no other node's. The boot server's config changes with it: see
@@ -157,8 +157,8 @@ and no secrets).
 A server older than link `index` sends none. `link impair` then falls back to the folder's
 manifest, by the link's place in it, as clients before it did, and without a manifest says the
 server is too old. Older clients ignore the field. A server older than the console route answers
-`console` with a 404, and the client says the server is too old (see
-[`CONSOLE_CLIENT.md`](CONSOLE_CLIENT.md#errors)).
+`console` with a 404, and the client says the server is too old
+(`cmd::console::refusal_message`).
 
 ## Destroy
 

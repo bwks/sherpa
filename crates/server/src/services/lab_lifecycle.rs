@@ -188,7 +188,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_up_whose_lab_is_already_built_cannot_release_it() {
-        // M3.1: a second `up` must never give back, or roll back, a lab it did not reserve.
+        // A second `up` must never give back, or roll back, a lab it did not reserve.
         let (db, _, _) = lab_of("ll-taken", 1).await;
         put_in(&db, "ll-taken", LabPhase::Ready).await;
         let second = begin("ll-taken").await;
@@ -207,7 +207,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_destroyed_lab_loses_its_record_and_a_failed_one_keeps_it() {
-        // M6.2 and M7.3: a destroy that left something behind is visible and can be retried.
+        // A destroy that left something behind is visible and can be retried.
         let (db, _, _) = lab_of("ll-dfail", 1).await;
         let (_, destroy) =
             lab_operations::stop("ll-dfail", lab_operations::StopReason::Destroy).await;
@@ -229,7 +229,6 @@ mod tests {
 
     #[tokio::test]
     async fn operations_on_nodes_need_a_ready_lab() {
-        // M7.3: a lab whose destroy failed used to offer Start.
         let (db, _, _) = lab_of("ll-ready", 1).await;
         for to in [
             LabPhase::Creating,
@@ -252,7 +251,7 @@ mod tests {
 
     #[tokio::test]
     async fn recovery_leaves_no_lab_without_an_owner() {
-        // M6.3: the daemon stopped during `up`, during a destroy, and during a redeploy.
+        // The daemon stopped during `up`, during a destroy, and during a redeploy.
         let (db, creating, _) = lab_of("ll-rec01", 2).await;
         // `lab_of` makes one lab per database; add the others to the same one.
         let user = db::get_user(&db, "alice").await.unwrap();

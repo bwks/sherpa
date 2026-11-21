@@ -69,7 +69,12 @@ async fn embedded_asset_handler(Path(path): Path<String>) -> Response {
     }
 }
 
-/// Build the Axum router with all API routes
+/// Build the Axum router with all API routes.
+///
+/// It sends no CORS headers, so browsers refuse cross-origin calls. The web UI calls only its own
+/// origin and the CLI is not a browser, so neither needs a grant. A layer that mirrored the
+/// request origin with credentials would let any web page call the API with a signed-in user's
+/// session cookie, which the REST routes accept.
 pub fn build_router() -> Router<AppState> {
     Router::new()
         .merge(auth_page_routes())

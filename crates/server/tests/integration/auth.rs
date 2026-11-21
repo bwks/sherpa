@@ -464,7 +464,7 @@ async fn user_sessions_015_a_deleted_users_token_is_rejected_on_all_transports()
     Ok(())
 }
 
-// ── Sessions (M14) ──
+// ── Sessions ──
 
 const BOB_PASSWORD: &str = "Bob-Original-Pass-1!";
 const BOB_NEW_PASSWORD: &str = "Bob-Changed-Pass-2!";

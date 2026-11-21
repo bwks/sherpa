@@ -4,9 +4,7 @@ The agent bus is a message channel between the AI coding agent the user works wi
 (the host agent) and agents running in lab guests (guest agents). The host agent hands a guest
 agent a whole task, and gets back its progress, its questions for the user, and its outcome.
 
-The code is the `agent-bus` crate, `crates/agent-bus`. The research behind it (what was tried and
-measured) is in [`../investigations/agent-bus.md`](../investigations/agent-bus.md). Open work is
-tracked in issue #494.
+The code is the `agent-bus` crate, `crates/agent-bus`. Open work is tracked in issue #494.
 
 ## Purpose and scope
 
@@ -968,7 +966,7 @@ flowchart TD
     fresh --> own
 ```
 
-Measured API-equivalent figures (see the investigation for the runs). The Sonnet rows are from
+Measured API-equivalent figures. The Sonnet rows are from
 before guests moved to Opus 5.5:
 
 | Start of a new task | Model | Cache written | Cache read | Cost of a small task |
@@ -1035,8 +1033,7 @@ one JSON line each.
 
 The record is the host's copy of every message on the bus, kept for as long as the host keeps
 the file: `<state>/agent-bus.db`, an embedded Turso database (`turso` =0.8.3 without default
-features, the workspace's pin, as `crates/db`). The research and the options weighed are in
-[`../investigations/agent-bus-database.md`](../investigations/agent-bus-database.md).
+features, the workspace's pin, as `crates/db`).
 
 **One process opens it.** Turso holds its file for one process (a second open is refused, and
 its read-only mode reads a stale snapshot). Whoever holds the exclusive `flock` on

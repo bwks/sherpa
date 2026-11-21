@@ -51,7 +51,8 @@ fn closed_line(qualified_name: &str, escaped: bool) -> String {
     format!("{gap}Connection to {qualified_name} closed.")
 }
 
-/// The node's shell ended with this non-zero exit code; `sherpa ssh` exits with it too.
+/// The node's shell ended with this non-zero exit code; `sherpa ssh` exits with it too. Windows'
+/// OpenSSH server reports none for an interactive `PowerShell`, so a Windows node gives 0.
 #[derive(Debug)]
 pub struct ShellExit(pub u8);
 

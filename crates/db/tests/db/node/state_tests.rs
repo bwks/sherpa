@@ -41,8 +41,6 @@ async fn a_state_write_moves_a_node_from_the_state_it_expects() -> Result<()> {
 
 #[tokio::test]
 async fn a_state_write_leaves_a_node_another_writer_moved() -> Result<()> {
-    // M1.5 and M1.6: a writer that read the state before another writer moved the node does
-    // not overwrite it.
     let db = setup_db().await?;
     let id = one_node(&db).await?.id.unwrap();
     update_node_state_from(&db, id.clone(), NodeState::Building, NodeState::Stopped).await?;

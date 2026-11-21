@@ -101,7 +101,7 @@ mod tests {
 
     #[test]
     fn lab_status_006_the_labs_list_shows_each_labs_status_from_its_nodes_states() {
-        // The status is no longer stored, so it cannot be stale or missing (M1.7).
+        // The status is not stored, so it cannot be stale or missing.
         let labs = vec![
             lab("ab12cd34", LabPhase::Ready),
             lab("ef56ab78", LabPhase::Ready),

@@ -2436,7 +2436,7 @@ mod tests {
 
     #[test]
     fn node_state_015_an_unknown_node_state_reads_as_unknown_and_known_ones_read_back() {
-        // M1.8: one row written by another version must not fail a whole listing.
+        // One row written by another version must not fail a whole listing.
         for text in [r#""created""#, r#""hibernating""#] {
             let state: NodeState = serde_json::from_str(text).unwrap();
             assert_eq!(state, NodeState::Unknown, "{text}");

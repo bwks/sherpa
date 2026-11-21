@@ -622,8 +622,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_second_up_of_a_lab_is_refused_before_it_creates_anything() {
-        // M3.1: the second `up` used to fail in phase 3, and its rollback removed the first
-        // `up`'s lab. Now the record is the reservation, taken before anything is created.
+        // The record is the reservation, taken before anything is created, so a second `up`
+        // cannot fail later and have its rollback remove the first `up`'s lab.
         let (db, alice) = database_with("alice").await;
         let details = db::LabDetails::default();
         let first = reserve_lab(&db, &config(), "core", "ab12cd34", &alice, &details)

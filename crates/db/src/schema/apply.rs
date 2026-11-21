@@ -905,7 +905,6 @@ mod tests {
 
     #[tokio::test]
     async fn a_node_state_this_build_does_not_know_does_not_fail_the_listing() {
-        // M1.8: a state written by a newer build is read as unknown.
         let db = database_before_the_node_lifecycle(&["hibernating", "running"]).await;
         apply_schema(&db).await.unwrap();
 

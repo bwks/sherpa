@@ -3,6 +3,10 @@
 //! These checks take manifest types, so they live with the manifest rather than in
 //! `shared::validators`. Validators only inspect the data they are given; they do not
 //! generate data.
+//!
+//! The client runs them before it sends a manifest, so mistakes are reported without a round
+//! trip. The server runs them again and is the authority: a client can be old, modified or
+//! bypassed by calling the API.
 
 mod client_files;
 mod description;

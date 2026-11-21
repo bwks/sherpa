@@ -6,9 +6,7 @@ exist only as a pair of fields, a bool or an `Option`, a string, or the presence
 row or kernel object. This document records how each one works today: where it lives, its
 states, the transitions the code makes, and who sets and reads it.
 
-Issue #474 asked for this survey. The invalid states each machine can reach, and the order in
-which to make them explicit, are in
-[`../investigations/state-machines.md`](../investigations/state-machines.md).
+Issue #474 asked for this survey.
 
 ## Conventions
 
@@ -67,8 +65,7 @@ are here so the survey is complete, and because the other machines depend on the
 
 ### 1. Node lifecycle (`NodeState`)
 
-*Made explicit by #498; the defects it had are recorded in the investigation note, M1, M4,
-M8.2 and M9.1.*
+*Made explicit by #498.*
 
 **Where.**
 
@@ -198,8 +195,7 @@ stateDiagram-v2
 
 ### 2. Lab phase and status (`LabPhase` and `LabState`)
 
-*Made explicit by #499; the defects it had are recorded in the investigation note, M3.1, M6
-and M7.*
+*Made explicit by #499.*
 
 A lab has two values. The **phase** is stored and says which operation owns the lab's record.
 The **status** says how healthy its nodes are, and is derived from them each time it is read.
@@ -888,7 +884,7 @@ stateDiagram-v2
 
 ### 14. Sessions and tokens (server)
 
-*Made explicit by #501; the defects it had are recorded in the investigation note, M14.*
+*Made explicit by #501.*
 
 **Where.**
 

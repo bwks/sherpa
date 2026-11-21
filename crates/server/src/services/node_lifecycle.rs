@@ -334,7 +334,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn lab_status_005_a_labs_status_changes_with_the_operations_write_to_its_node() {
-        // M1.7: the lab status no longer waits for the scanner.
+        // The lab status does not wait for the scanner.
         let (db, _, nodes) = lab_of("lc-ops01", 1).await;
         let operation = begin("lc-ops01").await;
         let node = &nodes[0];
@@ -352,7 +352,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn node_state_013_an_operation_cannot_mark_running_a_node_stopped_meanwhile() {
-        // M1.5: `up` probed the node ready, and `down` stopped it before `up` wrote it.
+        // `up` probed the node ready, and `down` stopped it before `up` wrote it.
         let (db, _, nodes) = lab_of("lc-ops02", 1).await;
         let up = begin("lc-ops02").await;
         let down = begin("lc-ops02").await;
@@ -382,7 +382,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn node_state_014_a_stale_scan_does_not_overwrite_an_operations_newer_state() {
-        // M1.6: the scanner read the node, then an operation moved it before the write.
+        // The scanner read the node, then an operation moved it before the write.
         let (db, _, nodes) = lab_of("lc-obs01", 1).await;
         let stale = db::get_node(&db, nodes[0].clone()).await.unwrap();
         {
@@ -415,7 +415,6 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn node_failure_008_a_failed_node_stays_failed_across_scans() {
-        // M1.2: `Failed` used to last one scan.
         let (db, _, nodes) = lab_of("lc-obs03", 1).await;
         {
             let operation = begin("lc-obs03").await;

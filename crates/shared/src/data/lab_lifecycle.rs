@@ -229,11 +229,11 @@ mod tests {
         }
     }
 
-    // One test per defect in the state-machines inventory that the machine itself rules out.
+    // Lifecycle defects the machine itself rules out, one test each.
 
     #[test]
     fn a_lab_being_created_cannot_be_built_or_released_twice() {
-        // M3.1: only the `up` holding the reservation moves the lab out of `Creating`; once
+        // Only the `up` holding the reservation moves the lab out of `Creating`; once
         // built, a failed second `up` has no reservation to give back.
         assert_eq!(
             Ready.on_event(LabEvent::Released),
@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     fn a_lab_left_mid_operation_by_a_restart_is_marked_not_left() {
-        // M6.3: the daemon stopped while `up` built the lab, or while a destroy removed it.
+        // The daemon stopped while `up` built the lab, or while a destroy removed it.
         assert_eq!(Creating.on_event(LabEvent::OwnerLost), Ok(To(Interrupted)));
         assert_eq!(
             Destroying.on_event(LabEvent::OwnerLost),
@@ -262,8 +262,8 @@ mod tests {
 
     #[test]
     fn a_half_destroyed_lab_is_not_ready() {
-        // M6.2 and M7.3: a destroy or rollback that left resources behind used to leave a lab
-        // that looked stopped and offered Start.
+        // A destroy or rollback that left resources behind must not leave a lab that looks
+        // stopped and offers Start.
         assert_eq!(
             Destroying.on_event(LabEvent::DestroyFailed),
             Ok(To(DestroyFailed))

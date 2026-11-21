@@ -5,7 +5,9 @@ use tracing::instrument;
 use shared::util::{allocate_ipv6_management_subnet, allocate_management_subnet};
 
 /// Check that a lab can be given a management IPv4 `/24` from `prefix`, by the same allocation
-/// rule `up` uses, with no subnet taken yet.
+/// rule `up` uses, with no subnet taken yet. It runs `up`'s allocator and discards the subnet,
+/// rather than restating its rules, so `sherpad init` and `up` cannot disagree about which
+/// prefixes work.
 #[instrument(level = "debug")]
 pub fn validate_management_prefix_ipv4(prefix: Ipv4Net) -> Result<()> {
     allocate_management_subnet(&prefix, &[], &[]).with_context(|| {
