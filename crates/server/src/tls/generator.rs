@@ -312,7 +312,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_generate_self_signed_certificate() {
+    fn server_certificate_001_a_start_with_no_certificate_writes_it_with_a_0600_key() {
         let temp_dir = TempDir::new().unwrap();
         let cert_path = temp_dir.path().join("test.crt");
         let key_path = temp_dir.path().join("test.key");
@@ -462,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn certificates_issued_now_chain_to_lab_cas_made_before_ca_specs() {
+    fn upgraded_labs_002_certificates_issued_now_chain_to_lab_cas_made_before_ca_specs() {
         // Labs created before the lab CA moved to `CaSpec` have a CA whose subject is
         // CN then O, with an rcgen default key. Reissuing node certificates from its saved key
         // must produce the same issuer name.

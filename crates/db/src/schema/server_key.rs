@@ -92,7 +92,7 @@ mod tests {
     }
 
     #[test]
-    fn labs_on_the_server_key_are_refused_by_id_name_and_owner() {
+    fn schema_migration_005_labs_on_the_server_key_are_refused_by_id_name_and_owner() {
         let labs = [
             lab("abcd1234", "core", "alice"),
             lab("efgh5678", "edge", "bob"),

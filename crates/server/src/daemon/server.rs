@@ -767,13 +767,13 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn test_shutdown_signals_wait_returns_on_sigterm() {
+    async fn sherpad_daemon_005_sigterm_stops_the_server() {
         wait_after_signal("TERM").await;
     }
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn test_shutdown_signals_wait_returns_on_sigint() {
+    async fn sherpad_daemon_006_sigint_stops_the_server() {
         wait_after_signal("INT").await;
     }
 }

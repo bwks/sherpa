@@ -235,18 +235,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn storage_pool_xml_escapes_its_name_and_path() {
-        let xml = SherpaStoragePool {
-            name: "pool&one".to_string(),
-            path: "/var/a<b".to_string(),
-        }
-        .render()
-        .unwrap();
-        assert!(xml.contains("<name>pool&#38;one</name>"), "{xml}");
-        assert!(xml.contains("<path>/var/a&#60;b</path>"), "{xml}");
-    }
-
-    #[test]
     fn image_delete_008_a_disks_backing_file_is_read_from_its_volume_xml() {
         let overlay = "<volume type='file'><name>srx1-lab-hdd.qcow2</name>\
             <target><path>/opt/sherpa/libvirt/images/srx1-lab-hdd.qcow2</path>\

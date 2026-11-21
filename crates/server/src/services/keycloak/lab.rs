@@ -328,7 +328,8 @@ mod tests {
     }
 
     #[test]
-    fn a_keycloak_node_from_before_its_own_admin_gets_one_and_loses_the_shared_user() {
+    fn upgraded_labs_001_a_keycloak_node_from_before_its_own_admin_gets_one_and_loses_the_shared_user()
+     {
         let dir = TempDir::new().unwrap();
         // A 0.6 file: the shared realm user with the password every node had, and the owner.
         let published = "old-shared-password";

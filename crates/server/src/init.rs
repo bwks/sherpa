@@ -365,37 +365,33 @@ mod tests {
 
     const TEST_SSH_KEY: &str =
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE6/8GjrZ1QD9nWLGeWkclvKEWliuCe2qDrak7cEmjIG dev";
-    /// The umask `server_config_is_written_private_under_the_umask_in_env` runs under, in octal.
+    /// The umask the test runs its checks under when it is run again in a child process, in octal.
     const UMASK_ENV: &str = "SHERPA_TEST_INIT_UMASK";
-    const UMASK_TEST: &str = "init::tests::server_config_is_written_private_under_the_umask_in_env";
+    const UMASK_TEST: &str =
+        "init::tests::server_file_modes_003_init_writes_the_config_0600_under_any_umask";
 
     fn mode_of(path: &Path) -> u32 {
         fs::metadata(path).unwrap().permissions().mode() & 0o777
     }
 
-    /// The umask is per process, so each one is set in a test process of its own: changing it
+    /// The umask is per process, so each one is set in a child process of this test: changing it
     /// here would change the modes of files other tests create meanwhile.
     #[test]
-    fn test_server_config_is_written_private_whatever_the_umask() {
-        for mask in ["0000", "0002", "0022", "0077"] {
-            let output = Command::new(env::current_exe().unwrap())
-                .args(["--exact", UMASK_TEST, "--ignored", "--test-threads=1"])
-                .env(UMASK_ENV, mask)
-                .output()
-                .unwrap();
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            assert!(
-                output.status.success() && stdout.contains("1 passed"),
-                "umask {mask}: {stdout}{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-    }
-
-    #[test]
-    #[ignore = "run in a process of its own by test_server_config_is_written_private_whatever_the_umask"]
-    fn server_config_is_written_private_under_the_umask_in_env() {
+    fn server_file_modes_003_init_writes_the_config_0600_under_any_umask() {
         let Ok(mask) = env::var(UMASK_ENV) else {
+            for mask in ["0000", "0002", "0022", "0077"] {
+                let output = Command::new(env::current_exe().unwrap())
+                    .args(["--exact", UMASK_TEST, "--test-threads=1"])
+                    .env(UMASK_ENV, mask)
+                    .output()
+                    .unwrap();
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                assert!(
+                    output.status.success() && stdout.contains("1 passed"),
+                    "umask {mask}: {stdout}{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
             return;
         };
         umask(Mode::from_bits_truncate(
@@ -418,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_yes_no_reads_answers_and_default() {
+    fn server_init_006_a_yes_or_no_answer_reads_in_any_case_with_a_default() {
         assert!(parse_yes_no("", true).unwrap());
         assert!(!parse_yes_no("", false).unwrap());
         assert!(parse_yes_no("Yes", false).unwrap());
@@ -429,7 +425,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_ssh_key_accepts_a_key_a_file_or_nothing() {
+    fn server_init_007_the_ssh_key_answer_is_a_key_a_file_or_nothing() {
         assert_eq!(read_ssh_key(TEST_SSH_KEY).unwrap(), vec![TEST_SSH_KEY]);
         assert_eq!(read_ssh_key("").unwrap(), [] as [std::string::String; 0]);
 

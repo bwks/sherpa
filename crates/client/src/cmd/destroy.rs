@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn destroy_cleans_up_after_a_failed_migration() {
+    fn lab_folder_upgrade_016_destroy_cleans_up_after_a_failed_migration() {
         let lab = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         let ssh_dir = home.path().join(".ssh");
@@ -379,7 +379,8 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn destroy_after_a_failed_migration_still_refuses_a_symlinked_sherpa_folder() {
+    fn lab_folder_upgrade_017_destroy_after_a_failed_migration_still_refuses_a_symlinked_sherpa_folder()
+     {
         let lab = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         let elsewhere = tempfile::tempdir().unwrap();

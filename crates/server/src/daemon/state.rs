@@ -256,9 +256,10 @@ pub async fn warn_on_sherpa_logins(db: &db::Database) -> Result<usize> {
 mod tests {
     use super::*;
 
-    use shared::data::SessionChannel;
+    use shared::data::{ModelKind, NodeModel, SessionChannel};
 
     use crate::auth::session::SessionRejection;
+    use crate::log_capture::capture_log;
 
     #[test]
     fn jobs_are_visible_to_their_creator_and_admins_only() {
@@ -344,10 +345,82 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn a_database_without_sherpa_logins_has_nothing_to_warn_about() {
+    /// A database with one lab holding `logins` nodes, each logging in as the given user.
+    async fn database_with_node_logins(logins: &[&str]) -> db::Database {
         let db = db::open_in_memory().await.expect("open database");
         db::apply_schema(&db).await.expect("apply schema");
-        assert_eq!(warn_on_sherpa_logins(&db).await.expect("count"), 0);
+        let user = db::create_user(&db, "alice".to_owned(), "TestPass123!", false, vec![])
+            .await
+            .expect("user");
+        let networks = db::LabNetworks {
+            management_network: "172.31.1.0/24".to_owned(),
+            gateway_ipv4: "172.31.1.1".to_owned(),
+            router_ipv4: "172.31.1.2".to_owned(),
+            management_network_v6: None,
+            loopback_network_v6: None,
+            gateway_ipv6: None,
+            router_ipv6: None,
+        };
+        let lab = db::create_lab(
+            &db,
+            "Old",
+            "lab-0001",
+            &user,
+            &networks,
+            &db::LabDetails::default(),
+        )
+        .await
+        .expect("lab");
+        let image = db::upsert_node_image(
+            &db,
+            ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
+            db::DefaultRequest::Keep,
+        )
+        .await
+        .expect("image");
+        for (index, login) in (1u16..).zip(logins) {
+            let node = db::create_node(
+                &db,
+                &format!("node{index}"),
+                index,
+                image.id.clone().expect("image id"),
+                lab.id.clone().expect("lab id"),
+            )
+            .await
+            .expect("node");
+            db::update_node_ssh_username(&db, node.id.expect("node id"), Some(login))
+                .await
+                .expect("login");
+        }
+        db
+    }
+
+    #[test]
+    fn upgraded_labs_003_sherpad_warns_with_the_count_of_nodes_that_log_in_as_sherpa() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+
+        let (count, output) = capture_log(|| {
+            runtime.block_on(async {
+                let db = database_with_node_logins(&["sherpa", "alice", "sherpa"]).await;
+                warn_on_sherpa_logins(&db).await.expect("count")
+            })
+        });
+        assert_eq!(count, 2);
+        assert!(output.contains("WARN"), "{output}");
+        assert!(output.contains("count=2"), "{output}");
+        assert!(output.contains("Redeploy or recreate them"), "{output}");
+
+        let (count, output) = capture_log(|| {
+            runtime.block_on(async {
+                let db = database_with_node_logins(&["alice"]).await;
+                warn_on_sherpa_logins(&db).await.expect("count")
+            })
+        });
+        assert_eq!(count, 0);
+        assert!(!output.contains("WARN"), "{output}");
+        assert!(!output.contains("Redeploy"), "{output}");
     }
 }

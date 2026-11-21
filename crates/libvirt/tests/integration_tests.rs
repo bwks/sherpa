@@ -58,7 +58,7 @@ fn cleanup_pool(conn: &Connect, name: &str) {
 
 #[test]
 #[ignore = "requires a libvirt daemon"]
-fn test_create_bridge_network() {
+fn server_init_010_the_sherpa_bridge_network_is_made_active() {
     let conn = connect().expect("connects");
     let name = "sherpa-test-br-net";
     let bridge = "sherpa-tbr0";
@@ -249,7 +249,7 @@ fn management_network_003_a_labs_management_network_is_made_ipv4_or_dual_stack_o
 
 #[test]
 #[ignore = "requires a libvirt daemon"]
-fn test_create_storage_pool() {
+fn server_init_011_the_storage_pool_is_made_with_its_folder_active() {
     let conn = connect().expect("connects");
     let pool_name = "sherpa-test-pool";
     let pool_path = "/tmp/sherpa-test-pool";
@@ -279,7 +279,7 @@ fn test_create_storage_pool() {
 
 #[test]
 #[ignore = "requires a libvirt daemon"]
-fn test_create_storage_pool_idempotent() {
+fn server_init_012_a_storage_pool_that_is_there_is_left_as_it_is() {
     let conn = connect().expect("connects");
     let pool_name = "sherpa-test-pool-idem";
     let pool_path = "/tmp/sherpa-test-pool-idem";
@@ -309,7 +309,7 @@ fn test_create_storage_pool_idempotent() {
 
 #[test]
 #[ignore = "requires a libvirt daemon"]
-fn test_create_storage_pool_starts_an_inactive_pool() {
+fn server_init_013_a_stopped_storage_pool_is_started() {
     let conn = connect().expect("connects");
     let pool_name = "sherpa-test-pool-inactive";
     let pool_path = "/tmp/sherpa-test-pool-inactive";

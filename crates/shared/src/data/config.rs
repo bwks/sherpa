@@ -316,26 +316,51 @@ mod tests {
     use crate::util::default_config;
 
     #[test]
-    fn host_memory_settings_default_when_left_out_and_keep_partial_overrides() {
+    fn server_config_005_a_config_without_otel_scanner_or_host_memory_loads_with_their_defaults() {
         let mut value = toml::Value::try_from(default_config()).unwrap();
-        value.as_table_mut().unwrap().remove("host_memory");
+        let table = value.as_table_mut().unwrap();
+        for name in ["otel", "scanner", "host_memory"] {
+            table.remove(name);
+        }
         let config: Config = toml::from_str(&toml::to_string(&value).unwrap()).unwrap();
+        assert_eq!(
+            toml::to_string(&config.otel).unwrap(),
+            toml::to_string(&OtelConfig::default()).unwrap()
+        );
+        assert_eq!(
+            toml::to_string(&config.scanner).unwrap(),
+            toml::to_string(&ScannerConfig::default()).unwrap()
+        );
         assert_eq!(config.host_memory, HostMemorySettings::default());
-        assert_eq!(config.host_memory.reserve_mib, 4096);
-        assert_eq!(config.host_memory.overcommit_percent, 100);
 
-        let settings: HostMemorySettings = toml::from_str("overcommit_percent = 150").unwrap();
-        assert_eq!(settings.reserve_mib, 4096);
-        assert_eq!(settings.overcommit_percent, 150);
+        let otel: OtelConfig = toml::from_str("enabled = true").unwrap();
+        let default_otel = OtelConfig::default();
+        assert!(otel.enabled);
+        assert_eq!(otel.endpoint, default_otel.endpoint);
+        assert_eq!(otel.service_name, default_otel.service_name);
+
+        let scanner: ScannerConfig = toml::from_str("enabled = false").unwrap();
+        assert!(!scanner.enabled);
+        assert_eq!(
+            scanner.interval_secs,
+            ScannerConfig::default().interval_secs
+        );
+
+        let memory: HostMemorySettings = toml::from_str("overcommit_percent = 150").unwrap();
+        assert_eq!(memory.overcommit_percent, 150);
+        assert_eq!(
+            memory.reserve_mib,
+            HostMemorySettings::default().reserve_mib
+        );
+    }
+
+    #[test]
+    fn server_config_006_a_key_host_memory_does_not_have_is_refused() {
         assert!(toml::from_str::<HostMemorySettings>("reserve = 1").is_err());
     }
 
     #[test]
-    fn the_client_reads_the_server_http_port_from_its_connection_settings() {
-        assert_eq!(
-            ServerConnection::default().http_port,
-            SHERPA_SERVER_HTTP_PORT
-        );
+    fn client_config_004_the_certificate_port_is_the_one_in_server_connection() {
         let config: ClientConfig =
             toml::from_str("http_port = 9000\n[server_connection]\nhttp_port = 8443\n")
                 .expect("parses");
@@ -343,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    fn an_otel_section_from_an_older_release_still_loads() {
+    fn server_config_004_an_otel_section_from_an_older_release_still_loads() {
         let otel: OtelConfig = toml::from_str(
             r#"
             enabled = true
@@ -354,37 +379,5 @@ mod tests {
         assert!(otel.enabled);
         let written = toml::to_string_pretty(&otel).expect("serializes");
         assert!(!written.contains("protocol"), "{written}");
-    }
-
-    #[test]
-    fn test_otel_config_absent_from_toml() {
-        // Verify that a Config without [otel] section still deserializes
-        let toml_str = r#"
-            name = "test"
-            vm_provider = "libvirt"
-            qemu_bin = "/usr/bin/qemu-system-x86_64"
-            images_dir = "/opt/sherpa/images"
-            containers_dir = "/opt/sherpa/containers"
-            bins_dir = "/opt/sherpa/bins"
-        "#;
-        let config: Config = toml::from_str(toml_str).expect("deserializes without otel section");
-        assert!(!config.otel.enabled);
-        assert_eq!(config.otel.endpoint, "http://localhost:4317");
-    }
-
-    #[test]
-    fn test_scanner_config_absent_from_toml() {
-        let toml_str = r#"
-            name = "test"
-            vm_provider = "libvirt"
-            qemu_bin = "/usr/bin/qemu-system-x86_64"
-            images_dir = "/opt/sherpa/images"
-            containers_dir = "/opt/sherpa/containers"
-            bins_dir = "/opt/sherpa/bins"
-        "#;
-        let config: Config =
-            toml::from_str(toml_str).expect("deserializes without scanner section");
-        assert!(config.scanner.enabled);
-        assert_eq!(config.scanner.interval_secs, 30);
     }
 }

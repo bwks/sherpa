@@ -267,18 +267,16 @@ mod tests {
     }
 
     #[test]
-    fn a_child_that_already_exited_is_reported() {
-        let mut child = spawn_shell("exit 3");
+    fn sherpad_daemon_001_a_start_is_failed_when_the_server_exits_at_once_and_started_when_it_runs()
+    {
+        let mut exited = spawn_shell("exit 3");
         thread::sleep(Duration::from_millis(300));
-        let error = check_still_running(&mut child).expect_err("an exited child passed");
+        let error = check_still_running(&mut exited).expect_err("an exited child passed");
         assert!(error.to_string().contains("exit status: 3"), "{error}");
-    }
 
-    #[test]
-    fn a_running_child_passes() {
-        let mut child = spawn_shell("sleep 5");
-        assert!(check_still_running(&mut child).is_ok());
-        child.kill().unwrap();
-        child.wait().unwrap();
+        let mut running = spawn_shell("sleep 5");
+        assert!(check_still_running(&mut running).is_ok());
+        running.kill().unwrap();
+        running.wait().unwrap();
     }
 }

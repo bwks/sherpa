@@ -68,7 +68,7 @@ LkK3HQdFGQWqVGqfyN5x
 -----END CERTIFICATE-----";
 
     #[test]
-    fn every_certificate_of_a_chain_file_is_loaded() {
+    fn server_certificate_006_every_certificate_of_a_chain_file_is_loaded() {
         let mut cert_file = NamedTempFile::new().unwrap();
         writeln!(cert_file, "{TEST_CERT_PEM}\n{TEST_CERT_PEM}").unwrap();
 
@@ -78,7 +78,7 @@ LkK3HQdFGQWqVGqfyN5x
     }
 
     #[test]
-    fn a_file_without_a_certificate_is_refused() {
+    fn server_certificate_007_a_file_without_a_certificate_is_refused() {
         let mut cert_file = NamedTempFile::new().unwrap();
         writeln!(cert_file, "not a certificate").unwrap();
 

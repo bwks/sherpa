@@ -129,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn a_config_with_the_removed_ztp_server_table_still_loads() {
+    fn server_config_001_a_config_with_the_removed_ztp_server_table_still_loads() {
         let config = load_server_fixture(
             "[ztp_server]\nenable = false\nusername = 'sherpa'\npassword = 'kept'",
         )
@@ -138,23 +138,20 @@ mod tests {
     }
 
     #[test]
-    fn test_build_client_websocket_url_with_tls() {
-        let mut config = ClientConfig::default();
+    fn client_config_003_the_server_url_is_wss_with_tls_on_and_ws_with_it_off() {
+        let mut config = ClientConfig {
+            server_ipv4: Ipv4Addr::new(10, 0, 0, 1),
+            ws_port: 3030,
+            ..ClientConfig::default()
+        };
+
         config.tls.enabled = true;
-        config.server_ipv4 = Ipv4Addr::new(10, 0, 0, 1);
-        config.ws_port = 3030;
         assert_eq!(
             build_client_websocket_url(&config),
             "wss://10.0.0.1:3030/ws"
         );
-    }
 
-    #[test]
-    fn test_build_client_websocket_url_without_tls() {
-        let mut config = ClientConfig::default();
         config.tls.enabled = false;
-        config.server_ipv4 = Ipv4Addr::new(10, 0, 0, 1);
-        config.ws_port = 3030;
         assert_eq!(build_client_websocket_url(&config), "ws://10.0.0.1:3030/ws");
     }
 }

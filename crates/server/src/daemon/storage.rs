@@ -84,7 +84,7 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn restrict_dir_creates_a_missing_dir_with_the_mode() {
+    fn server_file_modes_004_a_missing_folder_is_made_with_its_mode() {
         let root = tempdir().unwrap();
         let dir = root.path().join("labs");
         restrict_dir(&dir, 0o2750, None).unwrap();
@@ -94,7 +94,7 @@ mod tests {
     }
 
     #[test]
-    fn restrict_dir_tightens_an_existing_dir_and_sets_its_group() {
+    fn server_file_modes_005_a_wider_folder_is_narrowed_and_given_its_group() {
         let root = tempdir().unwrap();
         let dir = root.path().join("pool");
         fs::create_dir(&dir).unwrap();

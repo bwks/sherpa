@@ -452,7 +452,7 @@ mod tests {
     use crate::lab_folder_migration::migrate_lab_folder;
 
     #[test]
-    fn a_missing_client_config_gives_the_defaults() {
+    fn client_config_001_a_missing_client_config_gives_the_defaults() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sherpa.toml");
         let config = load_client_config_or_default(path.to_str().unwrap()).unwrap();
@@ -460,7 +460,7 @@ mod tests {
     }
 
     #[test]
-    fn a_client_config_that_does_not_parse_is_an_error_naming_the_file() {
+    fn client_config_002_a_client_config_that_does_not_parse_is_an_error_naming_the_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sherpa.toml");
         fs::write(&path, "server_ipv4 = [").unwrap();
@@ -469,7 +469,7 @@ mod tests {
     }
 
     #[test]
-    fn without_a_config_or_insecure_the_servers_certificate_is_validated() {
+    fn certificate_trust_004_without_a_config_or_insecure_the_servers_certificate_is_validated() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sherpa.toml");
 
@@ -479,7 +479,7 @@ mod tests {
     }
 
     #[test]
-    fn only_destroy_goes_on_after_a_failed_migration() {
+    fn lab_folder_upgrade_014_only_destroy_goes_on_after_a_failed_migration() {
         let parse = |args: &[&str]| {
             Cli::try_parse_from(std::iter::once("sherpa").chain(args.iter().copied()))
                 .unwrap()
@@ -500,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_migration_says_it_was_the_migration_once() {
+    fn lab_folder_upgrade_015_a_failed_migration_says_it_was_the_migration_once() {
         let lab = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         let state_dir = lab.path().join(".sherpa");

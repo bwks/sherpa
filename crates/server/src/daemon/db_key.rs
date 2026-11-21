@@ -62,7 +62,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_key_is_made_0600_on_first_start_and_loaded_after() {
+    fn database_key_001_a_key_is_made_0600_on_first_start_and_loaded_after() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("db.key");
         let generated = load_or_create_db_key(&path, false).unwrap();
@@ -74,7 +74,7 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_key_for_sealed_values_is_refused_and_not_made() {
+    fn database_key_002_a_missing_key_for_sealed_values_is_refused_and_not_made() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("db.key");
         let error = load_or_create_db_key(&path, true).unwrap_err();
@@ -85,7 +85,7 @@ mod tests {
     }
 
     #[test]
-    fn a_damaged_key_is_refused_and_kept() {
+    fn database_key_003_a_damaged_key_is_refused_and_kept() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("db.key");
         fs::write(&path, b"short").unwrap();

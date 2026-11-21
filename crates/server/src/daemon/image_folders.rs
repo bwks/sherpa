@@ -222,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_no_disk_uses_is_moved_with_no_link() {
+    fn image_folder_rename_001_a_folder_no_disk_uses_is_moved_with_no_link() {
         let server = Server::new();
         server.image("cisco_asav/9.20/virtioa.qcow2");
 
@@ -237,7 +237,8 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_an_overlay_uses_is_moved_and_linked_until_no_disk_uses_it() {
+    fn image_folder_rename_002_a_folder_an_overlay_uses_is_moved_and_linked_until_no_disk_uses_it()
+    {
         let mut server = Server::new();
         server.image("arista_veos/4.33/virtioa.qcow2");
         server.image("arista_veos/aboot_iso/aboot.iso");
@@ -276,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn an_overlay_on_another_model_does_not_keep_a_link() {
+    fn image_folder_rename_003_an_overlay_on_another_model_does_not_keep_a_link() {
         let mut server = Server::new();
         server.image("juniper_vsrxv3/23.4/virtioa.qcow2");
         server.image("ubuntu_linux/24.04/virtioa.qcow2");
@@ -294,7 +295,8 @@ mod tests {
     }
 
     #[test]
-    fn ios_folders_move_beside_the_iol_folders_and_only_the_used_one_is_linked() {
+    fn image_folder_rename_004_ios_folders_move_beside_the_iol_folders_and_only_the_used_one_is_linked()
+     {
         let mut server = Server::new();
         server.image("cisco_iosv/159-3.m10/virtioa.qcow2");
         server.image("cisco_iosvl2/20200929/virtioa.qcow2");
@@ -326,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn two_old_folders_of_one_model_merge_into_its_folder() {
+    fn image_folder_rename_005_two_old_folders_of_one_model_merge_into_its_folder() {
         let server = Server::new();
         server.image("generic_vm/1.0/virtioa.qcow2");
         server.image("generic_unikernel/1.0/kernel.elf");
@@ -358,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn a_file_the_new_folder_already_has_is_left_in_the_old_one() {
+    fn image_folder_rename_006_a_file_the_new_folder_already_has_is_left_in_the_old_one() {
         let server = Server::new();
         server.image("cisco_ftdv/7.4/virtioa.qcow2");
         server.image("cisco_ftdv/7.6/virtioa.qcow2");
@@ -380,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_disks_keep_a_link_at_every_moved_folder() {
+    fn image_folder_rename_007_unknown_disks_keep_a_link_at_every_moved_folder() {
         let mut server = Server::new();
         server.image("juniper_vrouter/23.2/virtioa.qcow2");
         // The pool's disks cannot be listed.
@@ -398,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn nothing_to_move_changes_nothing() {
+    fn image_folder_rename_008_nothing_to_move_changes_nothing() {
         let server = Server::new();
         server.image("ubuntu_linux/24.04/virtioa.qcow2");
 

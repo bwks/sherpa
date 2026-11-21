@@ -332,7 +332,7 @@ mod tests {
     const SELF_SIGNED: &str = include_str!("testdata/self_signed.crt");
 
     #[test]
-    fn a_self_signed_certificate_is_flagged_and_keeps_its_issuer() {
+    fn certificate_trust_014_a_self_signed_certificate_is_shown_with_its_issuer() {
         let info = extract_cert_info("wss://localhost:3030/ws", SELF_SIGNED).unwrap();
         assert_eq!(info.subject, "Sherpa Test");
         assert_eq!(info.issuer, "Sherpa Test");
@@ -350,28 +350,7 @@ AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
 -----END CERTIFICATE-----";
 
     #[test]
-    fn test_url_to_filename() {
-        let url1 = "wss://192.168.1.100:3030/ws";
-        let url2 = "wss://192.168.1.100:3030/ws";
-        let url3 = "wss://10.0.0.5:3030/ws";
-
-        let filename1 = url_to_filename(url1);
-        let filename2 = url_to_filename(url2);
-        let filename3 = url_to_filename(url3);
-
-        // Same URL should produce same filename
-        assert_eq!(filename1, filename2);
-
-        // Different URLs should produce different filenames
-        assert_ne!(filename1, filename3);
-
-        // Filename should be in host_port format
-        assert_eq!(filename1, "192.168.1.100_3030");
-        assert_eq!(filename3, "10.0.0.5_3030");
-    }
-
-    #[test]
-    fn test_trust_store_new() {
+    fn certificate_trust_009_the_trust_store_is_made_0700() {
         let dir = TempDir::new().unwrap();
         let trust_store = TrustStore::at(dir.path().join("trusted_certs")).unwrap();
 
@@ -387,7 +366,7 @@ AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
     }
 
     #[test]
-    fn test_save_and_get_cert() {
+    fn certificate_trust_010_a_saved_certificate_is_read_back_and_listed() {
         let dir = TempDir::new().unwrap();
         let trust_store = TrustStore::at(dir.path().to_path_buf()).unwrap();
         let server_url = "wss://test.example.com:3030/ws";
@@ -405,7 +384,7 @@ AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
     }
 
     #[test]
-    fn test_remove_cert() {
+    fn certificate_trust_011_a_removed_certificate_is_gone_and_removing_it_again_says_so() {
         let dir = TempDir::new().unwrap();
         let trust_store = TrustStore::at(dir.path().to_path_buf()).unwrap();
         let server_url = "wss://test.example.com:3030/ws";
@@ -417,7 +396,7 @@ AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
     }
 
     #[test]
-    fn a_certificate_that_does_not_parse_is_refused() {
+    fn certificate_trust_013_text_that_is_not_a_certificate_is_not_saved() {
         let dir = TempDir::new().unwrap();
         let trust_store = TrustStore::at(dir.path().to_path_buf()).unwrap();
         let server_url = "wss://test.example.com:3030/ws";
@@ -435,7 +414,19 @@ AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
     }
 
     #[test]
-    fn a_url_without_a_port_is_stored_under_its_scheme_default() {
+    fn certificate_trust_012_each_server_and_port_has_its_own_entry_and_no_port_is_the_schemes_default()
+     {
+        let url1 = "wss://192.168.1.100:3030/ws";
+        let url3 = "wss://10.0.0.5:3030/ws";
+
+        assert_eq!(url_to_filename(url1), url_to_filename(url1));
+        assert_ne!(url_to_filename(url1), url_to_filename(url3));
+        assert_eq!(url_to_filename(url1), "192.168.1.100_3030");
+        assert_eq!(url_to_filename(url3), "10.0.0.5_3030");
+        assert_ne!(
+            url_to_filename("wss://192.168.1.100:3031/ws"),
+            url_to_filename(url1)
+        );
         assert_eq!(
             url_to_filename("wss://sherpa.example/ws"),
             "sherpa.example_443"

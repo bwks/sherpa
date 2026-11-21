@@ -114,9 +114,9 @@ fn refuse_newer_version(version: usize) -> Result<()> {
 mod tests {
     use shared::data::{
         BiosTypes, BootDiskSettings, CdromSettings, ContainerSettings, CpuArchitecture, CpuModels,
-        DbCpuPins, DiskBuses, InterfaceDeviceSettings, InterfaceType, KindSettings, LabPhase,
-        MachineSettings, MachineType, ModelKind, NodeConfig, NodeCpuPins, NodeKind, NodeModel,
-        NodeState, OsVariant, REMOVED_MODELS, ReadyCheck, RecordId, UnikernelBootMode,
+        DbCpuPins, DbLab, DiskBuses, InterfaceDeviceSettings, InterfaceType, KindSettings,
+        LabPhase, MachineSettings, MachineType, ModelKind, NodeConfig, NodeCpuPins, NodeKind,
+        NodeModel, NodeState, OsVariant, REMOVED_MODELS, ReadyCheck, RecordId, UnikernelBootMode,
         UnikernelCpuSettings, UnikernelMachineSettings, UnikernelSettings, VmCpuSettings,
         VmSettings, Ztp, ZtpSettings,
     };
@@ -128,8 +128,8 @@ mod tests {
     use crate::persistence::{enum_text, key_of, new_key};
     use crate::{
         DefaultRequest, LabDetails, LabNetworks, count_nodes_by_ssh_username, create_lab,
-        device_password_set, find_lab, find_node_image_by_id, get_user, list_cpu_pins,
-        list_node_images, list_nodes_by_lab, open_in_memory, read_lab_definition,
+        create_user, device_password_set, find_lab, find_node_image_by_id, find_user, get_user,
+        list_cpu_pins, list_node_images, list_nodes_by_lab, open_in_memory, read_lab_definition,
         update_node_image, upsert_node_image,
     };
 
@@ -444,19 +444,6 @@ mod tests {
         }
     }
 
-    async fn trigger_count(db: &Database, pattern: &str) -> usize {
-        let conn = db.reader().await.unwrap();
-        query_count(
-            &conn,
-            Query::new(
-                "SELECT count(*) FROM sqlite_schema WHERE type = 'trigger' AND name LIKE ?1",
-            )
-            .bind([pattern.into()]),
-        )
-        .await
-        .unwrap()
-    }
-
     #[tokio::test]
     async fn a_value_a_newer_release_stored_is_kept_and_named_when_read() {
         let db = open_in_memory().await.unwrap();
@@ -497,33 +484,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn no_enum_rule_triggers_are_created_and_older_ones_are_dropped() {
-        let db = open_in_memory().await.unwrap();
-        apply_schema(&db).await.unwrap();
-        assert_eq!(trigger_count(&db, "%_rules_%").await, 0);
-
-        // A database from before the triggers were removed, which still has them.
-        let db = open_in_memory().await.unwrap();
-        {
-            let writer = db.writer().await.unwrap();
-            for batch in TABLES.iter().chain(&migrations::ALL[..6]) {
-                writer.conn.execute_batch(batch).await.unwrap();
-            }
-            writer
-                .conn
-                .execute_batch(
-                    "CREATE TRIGGER node_image_rules_insert BEFORE INSERT ON node_image \
-                     BEGIN SELECT 1; END; PRAGMA user_version = 7;",
-                )
-                .await
-                .unwrap();
-        }
-        apply_schema(&db).await.unwrap();
-        assert_eq!(trigger_count(&db, "%_rules_%").await, 0);
-        assert_eq!(version(&db).await, SCHEMA_VERSION);
-    }
-
-    #[tokio::test]
     async fn image_default_009_two_defaults_for_one_model_and_kind_are_never_stored() {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
@@ -553,7 +513,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn apply_schema_sets_the_current_version_and_is_idempotent() {
+    async fn schema_migration_001_a_new_database_gets_the_current_version_and_a_second_start_changes_nothing()
+     {
         let db = open_in_memory().await.unwrap();
         assert_eq!(version(&db).await, 0);
 
@@ -565,7 +526,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn apply_schema_corrects_data_interface_counts_of_older_databases() {
+    async fn upgraded_records_011_images_at_16_data_interfaces_of_csr_and_iosvl2_have_15() {
         // A version 1 database: the tables alone.
         let db = open_in_memory().await.unwrap();
         let writer = db.writer().await.unwrap();
@@ -606,8 +567,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn apply_schema_corrects_ztp_image_defaults() {
-        // A version 3 database, before the ISE correction.
+    async fn upgraded_records_018_a_generic_vm_images_virtio_cdrom_bus_is_sata_and_another_models_is_kept()
+     {
+        // A version 3 database, before the CD-ROM bus correction.
         let db = open_in_memory().await.unwrap();
         let writer = db.writer().await.unwrap();
         for batch in TABLES.iter().chain(&migrations::ALL[..2]) {
@@ -619,15 +581,6 @@ mod tests {
             .await
             .unwrap();
         drop(writer);
-        for model in [NodeModel::CiscoIse, NodeModel::CiscoAsa] {
-            insert_into_older_schema(
-                &db,
-                &ModelKind::default_for(model).node_config(),
-                true,
-                "cdrom",
-            )
-            .await;
-        }
         for model in [NodeModel::Generic, NodeModel::CiscoIos] {
             let mut image = ModelKind::default_for(model).node_config();
             let KindSettings::VirtualMachine(vm) = &mut image.settings else {
@@ -639,21 +592,6 @@ mod tests {
 
         apply_schema(&db).await.unwrap();
         assert_eq!(version(&db).await, SCHEMA_VERSION);
-
-        let methods: Vec<(NodeModel, Ztp)> = list_node_images(&db)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|image| (image.model, image.ztp()))
-            .collect();
-        assert!(
-            methods.contains(&(NodeModel::CiscoIse, Ztp::Disk)),
-            "{methods:?}"
-        );
-        assert!(
-            methods.contains(&(NodeModel::CiscoAsa, Ztp::Cdrom)),
-            "{methods:?}"
-        );
 
         let buses: Vec<(NodeModel, DiskBuses)> = list_node_images(&db)
             .await
@@ -669,88 +607,6 @@ mod tests {
             buses.contains(&(NodeModel::CiscoIos, DiskBuses::Virtio)),
             "{buses:?}"
         );
-    }
-
-    #[tokio::test]
-    async fn apply_schema_moves_vsrx_images_to_the_cdrom_ztp_method() {
-        // A version 4 database, before the vSRX correction.
-        let db = open_in_memory().await.unwrap();
-        let writer = db.writer().await.unwrap();
-        for batch in TABLES.iter().chain(&migrations::ALL[..3]) {
-            writer.conn.execute_batch(batch).await.unwrap();
-        }
-        writer
-            .conn
-            .execute("PRAGMA user_version = 4", ())
-            .await
-            .unwrap();
-        drop(writer);
-        for model in [NodeModel::JuniperSrxv3, NodeModel::AristaEos] {
-            insert_into_older_schema(
-                &db,
-                &ModelKind::default_for(model).node_config(),
-                true,
-                "tftp",
-            )
-            .await;
-        }
-
-        apply_schema(&db).await.unwrap();
-        assert_eq!(version(&db).await, SCHEMA_VERSION);
-
-        let methods: Vec<(NodeModel, Ztp)> = list_node_images(&db)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|image| (image.model, image.ztp()))
-            .collect();
-        assert!(
-            methods.contains(&(NodeModel::JuniperSrxv3, Ztp::Cdrom)),
-            "{methods:?}"
-        );
-        assert!(
-            methods.contains(&(NodeModel::AristaEos, Ztp::Tftp)),
-            "{methods:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn apply_schema_drops_the_dedicated_management_interface_column() {
-        let db = open_in_memory().await.unwrap();
-        {
-            let writer = db.writer().await.unwrap();
-            for batch in TABLES.iter().chain(&migrations::ALL[..7]) {
-                writer.conn.execute_batch(batch).await.unwrap();
-            }
-            writer
-                .conn
-                .execute("PRAGMA user_version = 8", ())
-                .await
-                .unwrap();
-        }
-        insert_into_older_schema(
-            &db,
-            &ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
-            true,
-            "cloud-init",
-        )
-        .await;
-
-        apply_schema(&db).await.unwrap();
-
-        let conn = db.reader().await.unwrap();
-        let columns = query_count(
-            &conn,
-            Query::new(
-                "SELECT COUNT(*) FROM pragma_table_info('node_image') \
-             WHERE name = 'dedicated_management_interface'",
-            )
-            .bind([]),
-        )
-        .await
-        .unwrap();
-        assert_eq!(columns, 0);
-        assert_eq!(list_node_images(&db).await.unwrap().len(), 1);
     }
 
     /// User `alice`, the owner of the old labs.
@@ -795,6 +651,13 @@ mod tests {
         db
     }
 
+    async fn lab_count(db: &Database) -> usize {
+        let conn = db.reader().await.unwrap();
+        query_count(&conn, Query::new("SELECT count(*) FROM lab").bind([]))
+            .await
+            .unwrap()
+    }
+
     async fn has_ssh_key_column(db: &Database) -> bool {
         let conn = db.reader().await.unwrap();
         query_count(
@@ -808,7 +671,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_lab_created_before_lab_keys_is_refused_and_named() {
+    async fn schema_migration_004_a_lab_on_the_server_key_is_refused_and_the_database_is_as_it_was()
+    {
         // A database from before lab keys: its lab gets the server's key when migrated.
         let db = database_at(9).await;
         {
@@ -827,10 +691,9 @@ mod tests {
         assert!(error.contains("server's shared SSH key"), "{error}");
         // Not one migration of the run is kept.
         assert_eq!(version(&db).await, 10);
-    }
+        assert_eq!(lab_count(&db).await, 1);
 
-    #[tokio::test]
-    async fn a_lab_on_the_server_key_stops_the_column_from_being_dropped() {
+        // The step that drops the column is next: the steps before it are undone too.
         let db = database_before_lab_keys_only("server").await;
 
         let error = format!("{:#}", apply_schema(&db).await.unwrap_err());
@@ -838,24 +701,95 @@ mod tests {
         assert!(error.contains("lab-0001 (Old, owned by alice)"), "{error}");
         assert_eq!(version(&db).await, migrations_before_lab_key_drop() + 1);
         assert!(has_ssh_key_column(&db).await);
+        assert_eq!(lab_count(&db).await, 1);
     }
 
     #[tokio::test]
-    async fn the_ssh_key_column_is_dropped_once_every_lab_has_its_own_key() {
+    async fn upgraded_records_003_labs_with_values_this_release_does_not_keep_keep_their_records() {
+        // Every lab has its own key: the column of the server's key is dropped.
         let db = database_before_lab_keys_only("lab").await;
 
         apply_schema(&db).await.unwrap();
 
         assert_eq!(version(&db).await, SCHEMA_VERSION);
-        assert!(!has_ssh_key_column(&db).await);
         assert_eq!(
             find_lab(&db, "lab-0001").await.unwrap().unwrap().name,
             "Old"
         );
+
+        // A version 27 database, from before the provisioning login setting was removed, with
+        // a lab that set it.
+        let before = migrations_before(migrations::DROP_PROVISION_CURRENT_USER);
+        assert_eq!(before + 1, 27);
+        let db = database_with_nodes(before, &[Some("alice")]).await;
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute(
+                    "UPDATE lab SET has_definition = 1, provision_current_user = 1 \
+                     WHERE id = 'l1'",
+                    (),
+                )
+                .await
+                .unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+        let lab = find_lab(&db, "lab-0001").await.unwrap().unwrap();
+        let lab_id = lab.id.unwrap();
+        let definition = read_lab_definition(&db, &lab_id).await.unwrap().unwrap();
+        assert_eq!(definition.name, "Old");
+        assert_eq!(list_nodes_by_lab(&db, lab_id).await.unwrap().len(), 1);
+
+        // A version 34 database, from before consoles moved behind sherpad, with a lab that was
+        // given a loopback network.
+        let before = migrations_before(migrations::RETIRE_LAB_LOOPBACK_NETWORK);
+        assert_eq!(before + 1, 34);
+        let db = database_at(before).await;
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute_batch(
+                    "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys,
+                         created_at, updated_at)
+                     VALUES ('u1', 'alice', 'x', 0, '[]', '2026-01-01T00:00:00Z',
+                         '2026-01-01T00:00:00Z');
+                     INSERT INTO lab (id, lab_id, name, user, loopback_network,
+                         management_network, gateway_ipv4, router_ipv4)
+                     VALUES ('l1', 'lab-0001', 'Old', 'u1', '127.127.1.0/24', '172.31.1.0/24',
+                         '172.31.1.1', '172.31.1.2');",
+                )
+                .await
+                .unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        assert_eq!(
+            find_lab(&db, "lab-0001").await.unwrap().unwrap().name,
+            "Old"
+        );
+        let conn = db.reader().await.unwrap();
+        let retired = query_count(
+            &conn,
+            Query::new(
+                "SELECT count(*) FROM lab \
+                 WHERE lab_id = 'lab-0001' AND retired_loopback_network = '127.127.1.0/24'",
+            )
+            .bind([]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(retired, 1);
     }
 
     #[tokio::test]
-    async fn the_upgrade_check_refuses_without_changing_the_database() {
+    async fn schema_migration_006_the_upgrade_check_refuses_a_lab_on_the_server_key_and_changes_nothing()
+     {
         let db = database_before_lab_keys_only("server").await;
 
         let error = format!("{:#}", check_schema_upgrade(&db).await.unwrap_err());
@@ -866,7 +800,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_upgrade_check_passes_a_database_this_release_can_use() {
+    async fn schema_migration_007_the_upgrade_check_passes_a_usable_database_and_changes_nothing() {
         let fresh = open_in_memory().await.unwrap();
         check_schema_upgrade(&fresh).await.unwrap();
         assert_eq!(version(&fresh).await, 0);
@@ -881,10 +815,11 @@ mod tests {
         let current = open_in_memory().await.unwrap();
         apply_schema(&current).await.unwrap();
         check_schema_upgrade(&current).await.unwrap();
+        assert_eq!(version(&current).await, SCHEMA_VERSION);
     }
 
     #[tokio::test]
-    async fn the_upgrade_check_refuses_a_newer_schema() {
+    async fn schema_migration_003_the_upgrade_check_refuses_a_newer_schema() {
         let db = database_at(migrations::ALL.len()).await;
         {
             let writer = db.writer().await.unwrap();
@@ -948,7 +883,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn nodes_recorded_created_are_stopped_after_the_upgrade() {
+    async fn upgraded_records_004_nodes_recorded_created_are_stopped_and_other_states_kept() {
         // `created` was the scanner's word for a container Docker had created and not started.
         let db = database_before_the_node_lifecycle(&["created", "running", "unknown"]).await;
 
@@ -981,7 +916,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn models_left_without_a_default_image_get_their_newest() {
+    async fn upgraded_records_013_a_model_without_a_default_image_gets_its_newest_and_a_default_is_kept()
+     {
         let db = open_in_memory().await.unwrap();
         {
             let writer = db.writer().await.unwrap();
@@ -1022,7 +958,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn labs_from_before_the_lab_lifecycle_are_ready_and_their_status_is_not_stored() {
+    async fn upgraded_records_001_a_lab_with_a_stored_status_is_ready() {
         // Every lab that exists before the phase was stored had been built.
         let db = open_in_memory().await.unwrap();
         {
@@ -1051,20 +987,16 @@ mod tests {
 
         let lab = find_lab(&db, "lab-0001").await.unwrap().unwrap();
         assert_eq!(lab.phase, LabPhase::Ready);
-        let writer = db.writer().await.unwrap();
-        assert!(
-            writer
-                .conn
-                .execute("SELECT status FROM lab", ())
-                .await
-                .is_err()
-        );
     }
 
     #[tokio::test]
-    async fn apply_schema_refuses_a_newer_schema() {
+    async fn schema_migration_002_a_newer_schema_is_refused_naming_both_versions_and_left_unchanged()
+     {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
+        create_user(&db, "alice".into(), "AlicePass123!", false, vec![])
+            .await
+            .unwrap();
         let writer = db.writer().await.unwrap();
         writer
             .conn
@@ -1074,11 +1006,19 @@ mod tests {
         drop(writer);
 
         let error = apply_schema(&db).await.unwrap_err().to_string();
+
         assert!(error.contains("newer"), "{error}");
+        assert!(
+            error.contains(&format!("version {}", SCHEMA_VERSION + 1)),
+            "{error}"
+        );
+        assert!(error.contains(&format!("than {SCHEMA_VERSION}")), "{error}");
+        assert_eq!(version(&db).await, SCHEMA_VERSION + 1);
+        assert!(find_user(&db, "alice").await.unwrap().is_some());
     }
 
     #[tokio::test]
-    async fn apply_schema_folds_every_ztp_pair_into_the_one_setting() {
+    async fn upgraded_records_015_every_old_ztp_pair_becomes_the_one_ztp_setting_the_model_takes() {
         // A version 15 database, before the one `ztp` column.
         let db = database_at(14).await;
         for model in models_before_the_ztp_setting() {
@@ -1109,10 +1049,7 @@ mod tests {
             );
             check_ztp(image.model_kind().unwrap(), image.ztp()).unwrap();
         }
-    }
 
-    #[tokio::test]
-    async fn apply_schema_keeps_the_settings_this_release_ships_with() {
         // The pairs the model defaults of the release before stored: enabled with the model's
         // method, `none` for every container, and off for unikernels.
         let db = database_at(14).await;
@@ -1133,10 +1070,50 @@ mod tests {
             let default = ModelKind::default_for(image.model).node_config().ztp();
             assert_eq!(image.ztp(), default, "{}", image.model);
         }
+
+        // A version 3 database, before the ISE correction: ISE moves to a disk, ASA keeps its
+        // CD-ROM.
+        let db = open_in_memory().await.unwrap();
+        let writer = db.writer().await.unwrap();
+        for batch in TABLES.iter().chain(&migrations::ALL[..2]) {
+            writer.conn.execute_batch(batch).await.unwrap();
+        }
+        writer
+            .conn
+            .execute("PRAGMA user_version = 3", ())
+            .await
+            .unwrap();
+        drop(writer);
+        for model in [NodeModel::CiscoIse, NodeModel::CiscoAsa] {
+            insert_into_older_schema(
+                &db,
+                &ModelKind::default_for(model).node_config(),
+                true,
+                "cdrom",
+            )
+            .await;
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        let methods: Vec<(NodeModel, Ztp)> = list_node_images(&db)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|image| (image.model, image.ztp()))
+            .collect();
+        assert!(
+            methods.contains(&(NodeModel::CiscoIse, Ztp::Disk)),
+            "{methods:?}"
+        );
+        assert!(
+            methods.contains(&(NodeModel::CiscoAsa, Ztp::Cdrom)),
+            "{methods:?}"
+        );
     }
 
     #[tokio::test]
-    async fn apply_schema_turns_ztp_off_for_a_model_this_build_does_not_know() {
+    async fn upgraded_records_016_an_image_of_a_model_this_release_does_not_know_has_ztp_off() {
         let db = database_at(14).await;
         let key = insert_into_older_schema(
             &db,
@@ -1165,21 +1142,11 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(disabled, 1);
-        let old_columns = query_count(
-            &conn,
-            Query::new(
-                "SELECT count(*) FROM pragma_table_info('node_image') \
-             WHERE name IN ('ztp_enable', 'ztp_method')",
-            )
-            .bind([]),
-        )
-        .await
-        .unwrap();
-        assert_eq!(old_columns, 0);
     }
 
     #[tokio::test]
-    async fn apply_schema_keeps_each_kinds_own_settings_and_drops_the_rest() {
+    async fn upgraded_records_020_each_image_keeps_the_settings_of_its_own_kind_as_shipped_and_edited()
+     {
         // A version 17 database. Every model is stored twice: as it ships, and edited to
         // settings other than the defaults, as the web form or an older release could store.
         // The columns a kind does not use hold the edited values too.
@@ -1251,7 +1218,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn nodes_from_before_ready_checks_get_the_check_the_scanner_ran() {
+    async fn upgraded_records_005_nodes_with_no_ready_check_get_the_check_their_model_has() {
         // A database from before the ready check was stored, with a node of each kind: what
         // the scanner did with each then is what it does now.
         let db = database_at(migrations_before_ready_checks()).await;
@@ -1338,7 +1305,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn labs_from_before_definitions_have_none_and_keep_their_records() {
+    async fn upgraded_records_002_a_lab_with_no_definition_has_none_and_keeps_its_records() {
         // A database from before lab definitions were stored, with a lab and a node.
         let db = database_at(migrations_before_lab_definitions()).await;
         let image = insert_default_before_the_login_drop(&db, NodeModel::UbuntuLinux).await;
@@ -1379,10 +1346,9 @@ mod tests {
         assert_eq!(nodes[0].memory, Some(2048));
     }
 
-    #[tokio::test]
-    async fn the_import_mark_is_dropped_and_marked_nodes_are_kept() {
-        // A database before the mark was dropped, with a lab whose definition is stored and a
-        // node the startup import of 0.6.4 or 0.6.5 marked.
+    /// A database before the import mark was dropped, with a lab whose definition is stored and
+    /// a node the startup import of 0.6.4 or 0.6.5 marked.
+    async fn database_with_an_import_marked_node() -> Database {
         let before = migrations::ALL
             .iter()
             .position(|batch| *batch == migrations::DROP_NODE_DEFINITION_IMPORTED)
@@ -1414,6 +1380,75 @@ mod tests {
                 .await
                 .unwrap();
         }
+        db
+    }
+
+    /// A version 35 database, from before VNC moved behind sherpad, with a lab and two VMs that
+    /// were given VNC ports. Returns the database and the lab.
+    async fn database_with_vnc_ports() -> (Database, DbLab) {
+        let before = migrations_before(migrations::RETIRE_NODE_VNC_PORT);
+        assert_eq!(before + 1, 35);
+        let db = database_at(before).await;
+        let user = crate::create_user(&db, "alice".to_owned(), "TestPass123!", false, vec![])
+            .await
+            .unwrap();
+        let networks = LabNetworks {
+            management_network: "172.31.1.0/24".to_owned(),
+            gateway_ipv4: "172.31.1.1".to_owned(),
+            router_ipv4: "172.31.1.2".to_owned(),
+            management_network_v6: None,
+            loopback_network_v6: None,
+            gateway_ipv6: None,
+            router_ipv6: None,
+        };
+        let lab = create_lab(
+            &db,
+            "Old",
+            "lab-0001",
+            &user,
+            &networks,
+            &LabDetails::default(),
+        )
+        .await
+        .unwrap();
+        let image = upsert_node_image(
+            &db,
+            ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
+            DefaultRequest::Keep,
+        )
+        .await
+        .unwrap();
+        for (index, port) in [(1u16, 5900u16), (2, 5901)] {
+            let node = crate::create_node(
+                &db,
+                &format!("node{index}"),
+                index,
+                image.id.clone().unwrap(),
+                lab.id.clone().unwrap(),
+            )
+            .await
+            .unwrap();
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute(
+                    "UPDATE node SET vnc_port = ?2 WHERE id = ?1",
+                    [
+                        Value::from(key_of(node.id.as_ref().unwrap(), "node").unwrap()),
+                        Value::from(i64::from(port)),
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        (db, lab)
+    }
+
+    #[tokio::test]
+    async fn upgraded_records_008_nodes_with_values_this_release_does_not_keep_keep_their_records_and_can_be_changed()
+     {
+        let db = database_with_an_import_marked_node().await;
 
         apply_schema(&db).await.unwrap();
         assert_eq!(version(&db).await, SCHEMA_VERSION);
@@ -1423,42 +1458,64 @@ mod tests {
             .unwrap();
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].name, "dev01");
-        let writer = db.writer().await.unwrap();
-        let columns = query_count(
-            &writer.conn,
-            Query::new(
-                "SELECT count(*) FROM pragma_table_info('node') \
-                 WHERE name = 'definition_imported'",
-            )
-            .bind([]),
+
+        let (db, lab) = database_with_vnc_ports().await;
+
+        apply_schema(&db).await.unwrap();
+
+        let conn = db.reader().await.unwrap();
+        let cleared = query_count(
+            &conn,
+            Query::new("SELECT count(*) FROM node WHERE retired_vnc_port IS NULL").bind([]),
         )
         .await
         .unwrap();
-        assert_eq!(columns, 0);
-    }
-
-    /// The names of the `node_image` columns `names` that the table has.
-    async fn image_columns(db: &Database, names: &[&str]) -> Vec<String> {
-        let conn = db.reader().await.unwrap();
-        let mut rows = conn
-            .query(
-                "SELECT name FROM pragma_table_info('node_image') ORDER BY cid",
-                (),
-            )
+        assert_eq!(cleared, 2);
+        drop(conn);
+        let nodes = list_nodes_by_lab(&db, lab.id.clone().unwrap())
             .await
             .unwrap();
-        let mut found = Vec::new();
-        while let Some(row) = rows.next().await.unwrap() {
-            let name = row.get::<String>(0).unwrap();
-            if names.contains(&name.as_str()) {
-                found.push(name);
-            }
-        }
-        found
+        assert_eq!(nodes.len(), 2);
+        // A node's resources are written without the column.
+        let resources = shared::data::NodeResources {
+            cpu_count: Some(2),
+            memory: Some(1024),
+        };
+        let updated = crate::update_node_resources(&db, nodes[0].id.clone().unwrap(), &resources)
+            .await
+            .unwrap();
+        assert_eq!(updated.memory, Some(1024));
     }
 
     #[tokio::test]
-    async fn the_image_ztp_login_columns_and_their_triggers_are_dropped_and_images_kept() {
+    async fn upgraded_records_022_images_with_values_this_release_does_not_keep_keep_their_settings_and_can_be_edited()
+     {
+        // A version 8 database, with an image that has the dedicated management interface
+        // column.
+        let db = open_in_memory().await.unwrap();
+        {
+            let writer = db.writer().await.unwrap();
+            for batch in TABLES.iter().chain(&migrations::ALL[..7]) {
+                writer.conn.execute_batch(batch).await.unwrap();
+            }
+            writer
+                .conn
+                .execute("PRAGMA user_version = 8", ())
+                .await
+                .unwrap();
+        }
+        insert_into_older_schema(
+            &db,
+            &ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
+            true,
+            "cloud-init",
+        )
+        .await;
+
+        apply_schema(&db).await.unwrap();
+
+        assert_eq!(list_node_images(&db).await.unwrap().len(), 1);
+
         // A version 25 database, with an image that has a ZTP username, a sealed password and
         // password auth on, and one with none of them.
         let before = migrations::ALL
@@ -1480,12 +1537,6 @@ mod tests {
         )
         .await;
         let without = insert_default_before_the_login_drop(&db, NodeModel::UbuntuLinux).await;
-        let login_columns = ["ztp_username", "ztp_password", "ztp_password_auth"];
-        assert_eq!(image_columns(&db, &login_columns).await, login_columns);
-        assert_eq!(
-            trigger_count(&db, "node_image_ztp_password_sealed_%").await,
-            2
-        );
         // The stored password is the sealed one the triggers allow.
         {
             let conn = db.reader().await.unwrap();
@@ -1505,19 +1556,6 @@ mod tests {
         apply_schema(&db).await.unwrap();
 
         assert_eq!(version(&db).await, SCHEMA_VERSION);
-        assert_eq!(
-            image_columns(&db, &login_columns).await,
-            Vec::<String>::new()
-        );
-        assert_eq!(
-            image_columns(&db, &["ztp"]).await,
-            ["ztp"],
-            "the ZTP setting stays"
-        );
-        assert_eq!(
-            trigger_count(&db, "node_image_ztp_password_sealed_%").await,
-            0
-        );
         let images = list_node_images(&db).await.unwrap();
         assert_eq!(images.len(), 2);
         let kept = find_node_image_by_id(&db, with_login.id.clone().unwrap())
@@ -1545,7 +1583,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stored_pins_move_to_the_cpu_pin_table_shared_ones_included() {
+    async fn upgraded_records_007_cpu_pins_stored_on_nodes_are_each_nodes_pins_shared_cpus_included()
+     {
         // A database from before the `cpu_pin` table: two labs whose nodes already share host
         // CPU 2 on their vCPUs, against the rules, and one with QEMU thread CPUs.
         let before = migrations::ALL
@@ -1610,33 +1649,10 @@ mod tests {
                 },
             ]
         );
-        let writer = db.writer().await.unwrap();
-        let columns = query_count(
-            &writer.conn,
-            Query::new(
-                "SELECT count(*) FROM pragma_table_info('node') \
-                 WHERE name IN ('cpu_pinning', 'qemu_thread_cpus')",
-            )
-            .bind([]),
-        )
-        .await
-        .unwrap();
-        assert_eq!(columns, 0);
-        // The copied overlap stays, and a new one is refused.
-        let error = writer
-            .conn
-            .execute(
-                "INSERT INTO cpu_pin (lab, node_name, host_cpu, role) \
-                 VALUES ('l2', 'n3', 3, 'vcpu')",
-                (),
-            )
-            .await
-            .unwrap_err();
-        assert!(error.to_string().contains("already pinned"), "{error}");
     }
 
     #[tokio::test]
-    async fn users_gain_an_unset_device_password_that_must_be_sealed() {
+    async fn upgraded_records_009_a_user_keeps_their_account_and_has_no_device_password() {
         // A version 26 database with a user, from before device passwords.
         let before = migrations::ALL
             .iter()
@@ -1662,183 +1678,14 @@ mod tests {
         apply_schema(&db).await.unwrap();
 
         assert_eq!(version(&db).await, SCHEMA_VERSION);
-        assert_eq!(trigger_count(&db, "user_device_password_sealed_%").await, 2);
         let id = RecordId::new("user", "u1");
         assert!(!device_password_set(&db, &id).await.unwrap());
         let user = get_user(&db, "alice").await.unwrap();
         assert_eq!(user.ssh_keys, Vec::<String>::new());
-        let writer = db.writer().await.unwrap();
-        let error = writer
-            .conn
-            .execute(
-                "UPDATE user SET device_password = 'Granite-Owl42' WHERE id = 'u1'",
-                (),
-            )
-            .await
-            .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("user.device_password must be sealed"),
-            "{error}"
-        );
     }
 
     #[tokio::test]
-    async fn the_loopback_network_is_retired_and_a_new_lab_stores_its_own_id_there() {
-        // A version 34 database, from before consoles moved behind sherpad, with a lab that was
-        // given a loopback network.
-        let before = migrations_before(migrations::RETIRE_LAB_LOOPBACK_NETWORK);
-        assert_eq!(before + 1, 34);
-        let db = database_at(before).await;
-        {
-            let writer = db.writer().await.unwrap();
-            writer
-                .conn
-                .execute_batch(
-                    "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys,
-                         created_at, updated_at)
-                     VALUES ('u1', 'alice', 'x', 0, '[]', '2026-01-01T00:00:00Z',
-                         '2026-01-01T00:00:00Z');
-                     INSERT INTO lab (id, lab_id, name, user, loopback_network,
-                         management_network, gateway_ipv4, router_ipv4)
-                     VALUES ('l1', 'lab-0001', 'Old', 'u1', '127.127.1.0/24', '172.31.1.0/24',
-                         '172.31.1.1', '172.31.1.2');",
-                )
-                .await
-                .unwrap();
-        }
-
-        apply_schema(&db).await.unwrap();
-
-        assert_eq!(
-            find_lab(&db, "lab-0001").await.unwrap().unwrap().name,
-            "Old"
-        );
-        let networks = LabNetworks {
-            management_network: "172.31.2.0/24".to_owned(),
-            gateway_ipv4: "172.31.2.1".to_owned(),
-            router_ipv4: "172.31.2.2".to_owned(),
-            management_network_v6: None,
-            loopback_network_v6: None,
-            gateway_ipv6: None,
-            router_ipv6: None,
-        };
-        let user = get_user(&db, "alice").await.unwrap();
-        create_lab(
-            &db,
-            "New",
-            "lab-0002",
-            &user,
-            &networks,
-            &LabDetails::default(),
-        )
-        .await
-        .unwrap();
-        let conn = db.reader().await.unwrap();
-        for (lab_id, retired) in [("lab-0001", "127.127.1.0/24"), ("lab-0002", "lab-0002")] {
-            let rows = query_count(
-                &conn,
-                Query::new(
-                    "SELECT count(*) FROM lab \
-                     WHERE lab_id = ?1 AND retired_loopback_network = ?2",
-                )
-                .bind([Value::from(lab_id), Value::from(retired)]),
-            )
-            .await
-            .unwrap();
-            assert_eq!(rows, 1, "{lab_id}");
-        }
-    }
-
-    #[tokio::test]
-    async fn the_vnc_port_is_retired_and_cleared_and_nodes_still_read_and_write() {
-        // A version 35 database, from before VNC moved behind sherpad, with two VMs that were
-        // given VNC ports.
-        let before = migrations_before(migrations::RETIRE_NODE_VNC_PORT);
-        assert_eq!(before + 1, 35);
-        let db = database_at(before).await;
-        let user = crate::create_user(&db, "alice".to_owned(), "TestPass123!", false, vec![])
-            .await
-            .unwrap();
-        let networks = LabNetworks {
-            management_network: "172.31.1.0/24".to_owned(),
-            gateway_ipv4: "172.31.1.1".to_owned(),
-            router_ipv4: "172.31.1.2".to_owned(),
-            management_network_v6: None,
-            loopback_network_v6: None,
-            gateway_ipv6: None,
-            router_ipv6: None,
-        };
-        let lab = create_lab(
-            &db,
-            "Old",
-            "lab-0001",
-            &user,
-            &networks,
-            &LabDetails::default(),
-        )
-        .await
-        .unwrap();
-        let image = upsert_node_image(
-            &db,
-            ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
-            DefaultRequest::Keep,
-        )
-        .await
-        .unwrap();
-        for (index, port) in [(1u16, 5900u16), (2, 5901)] {
-            let node = crate::create_node(
-                &db,
-                &format!("node{index}"),
-                index,
-                image.id.clone().unwrap(),
-                lab.id.clone().unwrap(),
-            )
-            .await
-            .unwrap();
-            let writer = db.writer().await.unwrap();
-            writer
-                .conn
-                .execute(
-                    "UPDATE node SET vnc_port = ?2 WHERE id = ?1",
-                    [
-                        Value::from(key_of(node.id.as_ref().unwrap(), "node").unwrap()),
-                        Value::from(i64::from(port)),
-                    ],
-                )
-                .await
-                .unwrap();
-        }
-
-        apply_schema(&db).await.unwrap();
-
-        let conn = db.reader().await.unwrap();
-        let cleared = query_count(
-            &conn,
-            Query::new("SELECT count(*) FROM node WHERE retired_vnc_port IS NULL").bind([]),
-        )
-        .await
-        .unwrap();
-        assert_eq!(cleared, 2);
-        drop(conn);
-        let nodes = list_nodes_by_lab(&db, lab.id.clone().unwrap())
-            .await
-            .unwrap();
-        assert_eq!(nodes.len(), 2);
-        // A node's resources are written without the column.
-        let resources = shared::data::NodeResources {
-            cpu_count: Some(2),
-            memory: Some(1024),
-        };
-        let updated = crate::update_node_resources(&db, nodes[0].id.clone().unwrap(), &resources)
-            .await
-            .unwrap();
-        assert_eq!(updated.memory, Some(1024));
-    }
-
-    #[tokio::test]
-    async fn stored_manifest_ssh_keys_are_deleted_and_the_definition_still_reads() {
+    async fn upgraded_records_010_a_stored_definition_loses_node_ssh_keys_and_keeps_other_lists() {
         // A version 36 database, from before the manifest's `ssh` group was removed, with a lab
         // whose stored definition gave its node keys, key files and an environment variable.
         let before = migrations_before(migrations::DELETE_MANIFEST_SSH_KEYS);
@@ -1991,48 +1838,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_provision_current_user_column_is_dropped_and_labs_kept() {
-        // A version 27 database, from before the setting was removed, with a lab that set it.
-        let before = migrations_before(migrations::DROP_PROVISION_CURRENT_USER);
-        assert_eq!(before + 1, 27);
-        let db = database_with_nodes(before, &[Some("alice")]).await;
-        {
-            let writer = db.writer().await.unwrap();
-            writer
-                .conn
-                .execute(
-                    "UPDATE lab SET has_definition = 1, provision_current_user = 1 \
-                     WHERE id = 'l1'",
-                    (),
-                )
-                .await
-                .unwrap();
-        }
-
-        apply_schema(&db).await.unwrap();
-
-        assert!(version(&db).await >= 28);
-        let conn = db.reader().await.unwrap();
-        let columns = query_count(
-            &conn,
-            Query::new(
-                "SELECT count(*) FROM pragma_table_info('lab') \
-                 WHERE name = 'provision_current_user'",
-            )
-            .bind([]),
-        )
-        .await
-        .unwrap();
-        assert_eq!(columns, 0);
-        let lab = find_lab(&db, "lab-0001").await.unwrap().unwrap();
-        let lab_id = lab.id.unwrap();
-        let definition = read_lab_definition(&db, &lab_id).await.unwrap().unwrap();
-        assert_eq!(definition.name, "Old");
-        assert_eq!(list_nodes_by_lab(&db, lab_id).await.unwrap().len(), 1);
-    }
-
-    #[tokio::test]
-    async fn nodes_from_before_owner_logins_record_sherpa_and_others_keep_theirs() {
+    async fn upgraded_records_006_a_node_with_no_login_records_sherpa_and_one_with_a_login_keeps_it()
+     {
         // A version 28 database: a node with no login recorded, as `up` left nodes that kept
         // only the shared `sherpa` account, and one with the owner's login.
         let before = migrations_before(migrations::LEGACY_NODE_SSH_USERNAME);
@@ -2059,13 +1866,11 @@ mod tests {
             ]
         );
         assert_eq!(count_nodes_by_ssh_username(&db, "sherpa").await.unwrap(), 1);
-        // Applying again changes nothing.
-        apply_schema(&db).await.unwrap();
-        assert_eq!(count_nodes_by_ssh_username(&db, "sherpa").await.unwrap(), 1);
     }
 
     #[tokio::test]
-    async fn sonic_images_at_the_old_default_get_one_data_interface_per_port() {
+    async fn upgraded_records_012_sonic_images_at_52_data_interfaces_have_32_and_other_counts_are_kept()
+     {
         // A version 29 database: sonic_linux images at the old default of 52 data interfaces
         // and at a count an administrator set, and another model at 52.
         let before = migrations_before(migrations::FIX_SONIC_DATA_INTERFACE_COUNT);
@@ -2104,7 +1909,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn srx_images_on_tftp_move_to_cdrom_and_other_settings_are_kept() {
+    async fn upgraded_records_017_an_srx_image_on_tftp_is_on_cdrom_and_other_settings_are_kept() {
         // A version 32 database: vSRX images on each setting it could hold, and a Junos
         // Evolved image on TFTP, which that model still takes.
         let before = migrations_before(migrations::SRX_ZTP_CDROM_ONLY);
@@ -2155,6 +1960,47 @@ mod tests {
                 (NodeModel::JuniperSrxv3, "on-cdrom".to_owned(), Ztp::Cdrom),
                 (NodeModel::JuniperSrxv3, "on-tftp".to_owned(), Ztp::Cdrom),
             ]
+        );
+
+        // A version 4 database, before the vSRX correction: the same, with the ZTP pair of
+        // that release.
+        let db = open_in_memory().await.unwrap();
+        let writer = db.writer().await.unwrap();
+        for batch in TABLES.iter().chain(&migrations::ALL[..3]) {
+            writer.conn.execute_batch(batch).await.unwrap();
+        }
+        writer
+            .conn
+            .execute("PRAGMA user_version = 4", ())
+            .await
+            .unwrap();
+        drop(writer);
+        for model in [NodeModel::JuniperSrxv3, NodeModel::AristaEos] {
+            insert_into_older_schema(
+                &db,
+                &ModelKind::default_for(model).node_config(),
+                true,
+                "tftp",
+            )
+            .await;
+        }
+
+        apply_schema(&db).await.unwrap();
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+
+        let methods: Vec<(NodeModel, Ztp)> = list_node_images(&db)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|image| (image.model, image.ztp()))
+            .collect();
+        assert!(
+            methods.contains(&(NodeModel::JuniperSrxv3, Ztp::Cdrom)),
+            "{methods:?}"
+        );
+        assert!(
+            methods.contains(&(NodeModel::AristaEos, Ztp::Tftp)),
+            "{methods:?}"
         );
     }
 
@@ -2228,7 +2074,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn images_and_lab_definitions_under_the_removed_model_names_take_the_new_names() {
+    async fn upgraded_records_019_images_and_definition_nodes_under_an_earlier_model_name_take_the_models_of_today()
+     {
         let (db, keys) = database_with_old_model_names().await;
         let key = |old: &str| key_of_old(&keys, old);
 
@@ -2272,9 +2119,6 @@ mod tests {
                 ),
             ]
         );
-        // Applying again changes nothing.
-        apply_schema(&db).await.unwrap();
-        assert_eq!(list_node_images(&db).await.unwrap().len(), images.len());
     }
 
     /// Insert a `node_image` row into a database from before migration 34: the columns `values`
@@ -2417,7 +2261,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn each_image_keeps_only_its_kinds_settings_after_the_per_kind_migration() {
+    async fn upgraded_records_021_a_unikernel_with_no_boot_mode_boots_its_kernel_and_other_kinds_values_are_gone()
+     {
         let db = database_with_one_image_of_each_kind().await;
         apply_schema(&db).await.unwrap();
 
@@ -2494,10 +2339,6 @@ mod tests {
                 "{version}"
             );
         }
-
-        // Applying again changes nothing.
-        apply_schema(&db).await.unwrap();
-        assert_eq!(list_node_images(&db).await.unwrap(), images);
     }
 
     #[tokio::test]
