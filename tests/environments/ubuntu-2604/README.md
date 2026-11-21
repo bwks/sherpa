@@ -1,14 +1,13 @@
 # Ubuntu 26.04 test environment
 
 A bare Ubuntu 26.04 LTS guest. See [test environments](../README.md) for usage.
-The [VM release-test harness](../../specs/install/vm-release-harness.md)
+The [installer suite](../../README.md#installer-suite)
 builds its guests from this manifest, using [release-test.toml](release-test.toml).
 
 ## Image
 
-The image build and checksum are recorded in the
-[release-test plan](../../specs/integration/vm-release-test-plan.md)
-(Phase 0): `ubuntu_linux` version `26.04`, Canonical build `20260927`, SHA-256
+The image build and checksum are recorded in `[image]` of
+[release-test.toml](release-test.toml): `ubuntu_linux` version `26.04`, Canonical build `20260927`, SHA-256
 `8800651811af9a85465ad1d552add729947bb16488dddb4a9b5305a3d97332b2`. The stored
 image was rechecked against that checksum on 2026-10-16.
 

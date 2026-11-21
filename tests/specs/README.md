@@ -25,8 +25,6 @@ One file per area a user sees, flat in this folder.
 | Manifests | [manifests.md](manifests.md) | how `manifest.toml` is found and parsed, unknown keys and wrong types, `sherpa validate` and `sherpa new`, where the CLI and the server check differently, node names, which kinds a model takes, which settings a kind and a model take, VM tuning rules and the domain they give, the ends of links and bridges, Talos cluster definitions, provisioner rules, text file modes and environment variable names, the lab's description, `[tailscale]` and `provision_concurrency` |
 | Inspect and web UI | [inspect-and-web-ui.md](inspect-and-web-ui.md) | what `sherpa inspect` prints and how it exits, the CLI's tables, what the server reports about a lab, the lists of labs, the web UI's lab and node pages with the actions they offer and how they refresh, the job page of a lab made or destroyed in the web UI, the create-lab form, the sidebar, the dashboard and the theme, what keeps a page from running what a user typed, the API documents the server publishes, `sherpa server status` and `/health`, what a refused or failed request is answered with, where the CLI and the web UI show the same thing differently |
 
-The folders here named after crates (`client/`, `server/`, `integration/` and the rest) are the old specs, written by crate. Each is deleted once the area specs that replace it are written. Until then they describe what exists, not how to write a new test.
-
 ## Behaviours
 
 Each spec lists behaviours. A behaviour has:

@@ -72,7 +72,7 @@ time.
 
 ## Consumers
 
-- The [VM release-test harness](../specs/install/vm-release-harness.md) builds
+- The [installer suite](../README.md#installer-suite) builds
   its disposable guests from each environment's manifest, with settings in that
   environment's `release-test.toml`. Without `--config` it uses ubuntu-2604.
 - The VM code suite (`tests/harness/test_env.py run`) runs the integration tests in these
