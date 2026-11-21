@@ -57,7 +57,7 @@ fn nxos(password: &str) -> CiscoNxosZtpTemplate {
 }
 
 #[test]
-fn test_static_ipv4() {
+fn generated_config_014_cisco_nxos() {
     let output = nxos("Rand0mPass-1").render().expect("template renders");
     assert_eq!(
         output,
@@ -66,7 +66,7 @@ fn test_static_ipv4() {
 }
 
 #[test]
-fn test_password_is_intact_for_admin_and_owner() {
+fn device_accounts_008_cisco_nxos_admin_and_owner() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let output = nxos(password).render().expect("template renders");
         assert!(output.contains(&format!(

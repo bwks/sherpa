@@ -42,7 +42,7 @@ fn routeros(password: &str, key_files: &[&str]) -> MikrotikRouterosZtpTemplate {
 }
 
 #[test]
-fn test_static_ipv4() {
+fn generated_config_019_mikrotik_routeros() {
     let output = routeros("Rand0mPass-1", &[])
         .render()
         .expect("template renders");
@@ -56,7 +56,7 @@ fn test_static_ipv4() {
 /// `RouterOS` deletes a key file once it imports it, so a retry, such as after the first run
 /// found no `ether1` yet, must skip a key it imported before rather than stop on it.
 #[test]
-fn test_only_the_first_user_and_the_owner_have_accounts() {
+fn device_accounts_010_routeros_first_user_and_owner_are_the_only_accounts() {
     let mut template = routeros("Rand0mPass-1", &[]);
     template.owner_key_files = vec![
         MikrotikRouterosZtpTemplate::owner_key_path("alice", 1),
@@ -65,13 +65,32 @@ fn test_only_the_first_user_and_the_owner_have_accounts() {
     let output = template.render().expect("template renders");
     let users: Vec<&str> = output
         .lines()
-        .filter(|line| line.contains("/user "))
+        .filter(|line| line.contains("/user ") && !line.contains("ssh-keys"))
         .collect();
     assert_eq!(
         users,
         [
             "/user set 0 password=Rand0mPass-1",
             ":do { /user add name=alice password=Rand0mPass-1 group=full } on-error={}",
+        ]
+    );
+}
+
+#[test]
+fn generated_config_025_routeros_imports_each_key_file_only_if_it_is_there() {
+    let mut template = routeros("Rand0mPass-1", &[]);
+    template.owner_key_files = vec![
+        MikrotikRouterosZtpTemplate::owner_key_path("alice", 1),
+        MikrotikRouterosZtpTemplate::owner_key_path("alice", 2),
+    ];
+    let output = template.render().expect("template renders");
+    let imports: Vec<&str> = output
+        .lines()
+        .filter(|line| line.contains("ssh-keys"))
+        .collect();
+    assert_eq!(
+        imports,
+        [
             r#":if ([/file find name=sata1/alice-1.pub] != "") do={ /user ssh-keys import public-key-file=sata1/alice-1.pub user=alice }"#,
             r#":if ([/file find name=sata1/alice-2.pub] != "") do={ /user ssh-keys import public-key-file=sata1/alice-2.pub user=alice }"#,
         ]
@@ -79,7 +98,7 @@ fn test_only_the_first_user_and_the_owner_have_accounts() {
 }
 
 #[test]
-fn test_password_is_intact_for_user_zero_and_owner() {
+fn device_accounts_011_routeros_first_user_and_owner_passwords() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let output = routeros(password, &[]).render().expect("template renders");
         assert!(output.contains(&format!("\n/user set 0 password={password}\n")));

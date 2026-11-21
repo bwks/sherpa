@@ -132,21 +132,21 @@ fn ceos(hash: &str) -> AristaEosContainerZtpTemplate {
 }
 
 #[test]
-fn test_veos_static_ipv4() {
+fn generated_config_001_arista_veos() {
     let hash = helpers::sha512_hash(PASSWORD);
     let output = veos(&hash, false).render().expect("template renders");
     assert_eq!(output, EXPECTED_VEOS_STATIC_IPV4.replace("HASH", &hash));
 }
 
 #[test]
-fn test_ceos_static_ipv4() {
+fn generated_config_002_arista_ceos() {
     let hash = helpers::sha512_hash(PASSWORD);
     let output = ceos(&hash).render().expect("template renders");
     assert_eq!(output, EXPECTED_CEOS_STATIC_IPV4.replace("HASH", &hash));
 }
 
 #[test]
-fn test_veos_dual_stack() {
+fn config_addressing_007_arista_veos_dual_stack() {
     let hash = helpers::sha512_hash(PASSWORD);
     let output = veos(&hash, true).render().expect("template renders");
     assert_eq!(output, EXPECTED_VEOS_DUAL_STACK.replace("HASH", &hash));

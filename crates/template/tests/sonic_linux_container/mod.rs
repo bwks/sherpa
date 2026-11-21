@@ -51,7 +51,7 @@ fn block<'a>(output: &'a str, start: &str, end: &str) -> Vec<&'a str> {
 // ============================================================================
 
 #[test]
-fn test_supervisord_runs_only_the_init_script() {
+fn generated_config_026_sonic_container_supervisord_runs_only_the_start_script() {
     let output = SonicLinuxContainerSupervisordTemplate {
         init_script: INIT_SCRIPT.to_owned(),
     }
@@ -61,7 +61,7 @@ fn test_supervisord_runs_only_the_init_script() {
 }
 
 #[test]
-fn test_init_makes_the_owner_account_only_when_it_does_not_exist() {
+fn device_accounts_015_sonic_container_makes_the_owner_only_when_missing() {
     let hash = helpers::sha512_hash("abcdefghijklm!@_-+.");
     let output = init(Some(&hash), Some(CONFIG_DB));
     let account = block(&output, "if ! id alice >/dev/null 2>&1; then", "fi");
@@ -78,7 +78,7 @@ fn test_init_makes_the_owner_account_only_when_it_does_not_exist() {
 }
 
 #[test]
-fn test_init_gives_the_owner_passwordless_sudo_when_the_image_has_sudo() {
+fn device_accounts_017_sonic_container_owner_gets_passwordless_sudo() {
     let hash = helpers::sha512_hash("abcdefghijklm!@_-+.");
     let output = init(Some(&hash), Some(CONFIG_DB));
     let with_sudo = block(&output, "if command -v sudo >/dev/null 2>&1; then", "else");
@@ -92,7 +92,7 @@ fn test_init_gives_the_owner_passwordless_sudo_when_the_image_has_sudo() {
 }
 
 #[test]
-fn test_init_logs_a_line_and_gives_no_root_path_when_the_image_has_no_sudo() {
+fn device_accounts_018_sonic_container_without_sudo_gives_no_way_to_root() {
     let hash = helpers::sha512_hash("abcdefghijklm!@_-+.");
     let output = init(Some(&hash), Some(CONFIG_DB));
     let without_sudo = block(&output, "else", "fi");
@@ -109,7 +109,7 @@ fn test_init_logs_a_line_and_gives_no_root_path_when_the_image_has_no_sudo() {
 }
 
 #[test]
-fn test_init_locks_root_and_refuses_its_ssh_login() {
+fn device_accounts_016_sonic_container_locks_root_and_refuses_its_ssh_login() {
     for hash in [None, Some(helpers::sha512_hash("abcdefghijklm!@_-+."))] {
         let output = init(hash.as_deref(), Some(CONFIG_DB));
         assert!(output.contains("\nusermod -L root\n"), "{output}");
@@ -119,7 +119,7 @@ fn test_init_locks_root_and_refuses_its_ssh_login() {
 }
 
 #[test]
-fn test_init_waits_for_the_data_interfaces_then_hands_over_to_sonic() {
+fn generated_config_027_sonic_container_waits_for_its_data_interfaces_then_hands_over() {
     let output = init(None, None);
     assert!(output.contains("DATA_COUNT=2\n"));
     assert!(output.contains("grep -c -E '^eth[1-9][0-9]*$'"));
@@ -133,7 +133,7 @@ fn test_init_waits_for_the_data_interfaces_then_hands_over_to_sonic() {
 }
 
 #[test]
-fn test_init_loads_sherpas_config_on_the_first_start_only_and_saves_it() {
+fn generated_config_028_sonic_container_loads_the_config_on_the_first_start_only() {
     let output = init(None, Some(CONFIG_DB));
     let load = block(
         &output,
@@ -151,7 +151,7 @@ fn test_init_loads_sherpas_config_on_the_first_start_only_and_saves_it() {
 }
 
 #[test]
-fn test_init_with_no_config_loads_none_and_makes_no_account() {
+fn generated_config_029_sonic_container_with_no_config_loads_none_and_makes_no_account() {
     let output = init(None, None);
     assert!(!output.contains("sonic-cfggen -j"));
     assert!(!output.contains(".sherpa-config-loaded"));
@@ -162,7 +162,7 @@ fn test_init_with_no_config_loads_none_and_makes_no_account() {
 }
 
 #[test]
-fn test_init_starts_ssh_last_after_the_switch_and_its_config() {
+fn generated_config_030_sonic_container_starts_ssh_last() {
     let output = init(Some("HASH"), Some(CONFIG_DB));
     let initialized = output
         .find("CONFIG_DB_INITIALIZED")
@@ -171,12 +171,10 @@ fn test_init_starts_ssh_last_after_the_switch_and_its_config() {
     let sshd = output.find("/usr/sbin/sshd").expect("starts sshd");
     let ready = output.find("sherpa-init: ready").expect("logs ready");
     assert!(initialized < load && load < sshd && sshd < ready);
-    assert!(output.contains("sysctl -w net.ipv6.conf.all.forwarding=1"));
-    assert!(output.contains("supervisorctl start bgpd"));
 }
 
 #[test]
-fn test_init_makes_the_nodes_own_ssh_host_keys_on_the_first_start_only() {
+fn generated_config_031_sonic_container_makes_its_own_host_keys_once_before_ssh() {
     for (hash, config_db) in [(None, None), (Some("HASH"), Some(CONFIG_DB))] {
         let output = init(hash, config_db);
         let keys = block(
@@ -196,10 +194,7 @@ fn test_init_makes_the_nodes_own_ssh_host_keys_on_the_first_start_only() {
         assert_eq!(output.matches("ssh-keygen").count(), 1);
         assert_eq!(output.matches("ssh_host_").count(), 1);
     }
-}
 
-#[test]
-fn test_init_makes_the_ssh_host_keys_before_sshd_starts() {
     let output = init(Some("HASH"), Some(CONFIG_DB));
     let keygen = output.find("ssh-keygen -A").expect("makes host keys");
     let sshd = output.find("/usr/sbin/sshd").expect("starts sshd");

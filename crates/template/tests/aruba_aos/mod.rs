@@ -60,7 +60,7 @@ fn aoscx() -> ArubaAoscxTemplate {
 }
 
 #[test]
-fn test_static_ipv4() {
+fn generated_config_003_aruba_aoscx_locks_admin_and_the_owner_to_keys() {
     let output = aoscx().render().expect("template renders");
     assert_eq!(output, EXPECTED_STATIC_IPV4.replace("LOCKED", LOCKED));
 }

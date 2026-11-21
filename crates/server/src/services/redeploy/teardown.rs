@@ -147,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn redeploying_a_node_named_like_a_lab_folder_keeps_that_folder() {
+    fn config_privacy_007_a_node_named_like_a_lab_folder_keeps_that_folder() {
         for kind in [NodeKind::VirtualMachine, NodeKind::Container] {
             for name in [
                 LAB_CERTS_DIR,
@@ -170,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn redeploying_a_vm_named_like_a_lab_folder_removes_its_boot_files() {
+    fn config_privacy_008_a_vm_named_like_a_lab_folder_still_loses_its_boot_files() {
         for name in [
             LAB_CERTS_DIR,
             ZTP_DIR,
@@ -195,7 +195,7 @@ mod tests {
     }
 
     #[test]
-    fn redeploying_a_node_removes_its_own_folders_only() {
+    fn config_privacy_006_a_redeploy_removes_only_the_nodes_own_folders() {
         let lab = lab_folder();
         for dir in ["ct1", "ct10"] {
             fs::create_dir(lab.path().join(dir)).unwrap();

@@ -523,20 +523,20 @@ checks both-endian fields agree and that no record crosses a sector boundary.
 
 | Test | Checks |
 |---|---|
-| `test_create_iso_writes_labelled_volume_descriptors` | Descriptor types, `CD001`, the label in both descriptors, volume size equals the file size, block size, Joliet escape, terminator, zero padding |
-| `test_create_iso_keeps_relaxed_primary_names` | Primary identifiers for the ZTP and PAN-OS layouts |
-| `test_create_iso_rock_ridge_names_and_modes` | `SP`, `CE` pointing at `ER` with `RRIP_1991A`, `PX` modes and links, `NM` names |
-| `test_create_iso_joliet_tree_matches_rock_ridge` | Joliet and Rock Ridge give the same paths and contents |
-| `test_create_iso_round_trips_file_contents` | Contents through both trees, including an empty file and a multi-sector file |
-| `test_create_iso_directory_spans_sectors` | 300 entries in one directory |
-| `test_create_iso_path_tables_list_directories` | L and M tables agree; order, parent numbers and the root extent |
-| `test_create_iso_leaves_out_its_own_output` | Writing into the source twice never includes the ISO |
-| `test_create_iso_leaves_out_a_partial_image` | A partial file left by a crashed write is not in the image |
-| `test_create_iso_failed_write_keeps_the_previous_image` | A write that fails keeps the previous image and removes its partial file |
-| `test_create_iso_rejects_*`, `test_create_iso_limits_nesting_to_eight_levels` | Each refusal, by its `IsoError` variant; the missing source keeps its `io::Error` as the source, a refused symlink is named in the message, and a refused label says spaces are not allowed |
-| `test_record_date_rejects_years_outside_its_byte` | 1899 and 2156 are refused; 2155 is the last year recorded |
-| `test_volume_date_rejects_years_without_four_digits` | A negative year is refused; a date is written as 16 digits and a zero offset |
-| `test_su_entry_rejects_data_its_length_byte_cannot_hold` | A system use entry of 255 bytes is written; one byte more is refused |
+| `config_iso_001_the_image_has_labelled_primary_and_joliet_descriptors` | Descriptor types, `CD001`, the label in both descriptors, volume size equals the file size, block size, Joliet escape, terminator, zero padding |
+| `config_iso_002_the_primary_tree_keeps_each_name_whole` | Primary identifiers for the ZTP and PAN-OS layouts |
+| `config_iso_003_rock_ridge_carries_each_name_and_read_only_modes` | `PX` modes and links, `NM` names |
+| `config_iso_004_the_joliet_tree_holds_the_rock_ridge_files` | Joliet and Rock Ridge give the same paths and contents |
+| `config_iso_005_every_files_contents_read_back_unchanged` | Contents through both trees, including an empty file and a multi-sector file |
+| `config_iso_006_a_folder_larger_than_a_sector_is_written_whole` | 300 entries in one directory |
+| `config_iso_007_the_path_tables_list_every_folder_under_its_parent` | L and M tables agree; order, parent numbers and the root extent |
+| `config_iso_008_an_iso_written_into_its_source_leaves_itself_out` | Writing into the source twice never includes the ISO |
+| `config_iso_009_a_failed_write_keeps_the_previous_image` | A write that fails keeps the previous image and removes its partial file |
+| `config_iso_010_a_partial_image_from_an_earlier_write_is_left_out` | A partial file left by a crashed write is not in the image |
+| `config_iso_011` to `config_iso_015` | Each refusal, by its `IsoError` variant: a missing source, which keeps its `io::Error` as the source; a label, refused for a space with a message that says so; a name too long and two names that convert alike; nesting past eight levels; a symlink, named in the message |
+| `config_iso_016_a_date_the_format_cannot_hold_is_refused` | 1899 and 2156 are refused in a record, and 2155 is the last year recorded; a negative year is refused in a volume descriptor, where a date is written as 16 digits and a zero offset |
+
+The tests are the cases of `config_iso` in [`tests/specs/ztp.md`](../../tests/specs/ztp.md).
 
 There is no `#[ignore]` test against `isoinfo` or a kernel mount: `isoinfo` ships with the
 `genisoimage` package the server no longer installs, and mounting needs root.
@@ -564,7 +564,7 @@ OS that takes a config ISO, is recorded on issue #2.
 - **New refusal:** add an `IsoError` variant with the fields its message needs, and a test that
   matches it.
 - **New name rule:** change `identifier`; update the table in
-  [Names](#names-in-the-three-views) and `test_create_iso_keeps_relaxed_primary_names`.
+  [Names](#names-in-the-three-views) and `config_iso_002_the_primary_tree_keeps_each_name_whole`.
 - **New Rock Ridge entry:** add a builder next to `px_entry` and `tf_entry`, emit it in
   `dir_extent`, and set the matching bit in the `RR` flags. Check the root `.` record stays under
   255 bytes, or move the entry to the continuation area.

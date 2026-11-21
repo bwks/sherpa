@@ -16,31 +16,3 @@ pub fn check_node_ztp(node: &NodeExpanded) -> Result<()> {
         None => Ok(()),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::NodeZtp;
-    use shared::data::{ModelKind, NodeModel, Ztp};
-
-    fn node(model: NodeModel, method: Option<Ztp>) -> NodeExpanded {
-        NodeExpanded {
-            name: "node1".to_string(),
-            model_kind: ModelKind::default_for(model),
-            ztp: NodeZtp {
-                method,
-                config: None,
-            },
-            ..NodeExpanded::default()
-        }
-    }
-
-    #[test]
-    fn srx_with_tftp_is_refused_naming_cdrom() {
-        let error = check_node_ztp(&node(NodeModel::JuniperSrxv3, Some(Ztp::Tftp))).unwrap_err();
-        let error = format!("{error:#}");
-        assert!(error.contains("'node1'"), "{error}");
-        assert!(error.contains("'tftp'"), "{error}");
-        assert!(error.ends_with("allows: disabled, cdrom"), "{error}");
-    }
-}

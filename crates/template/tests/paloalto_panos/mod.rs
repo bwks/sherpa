@@ -351,7 +351,7 @@ const EXPECTED_BOOTSTRAP_IPV4: &str = r#"<?xml version="1.0"?>
 // ============================================================================
 
 #[test]
-fn test_panos_init_static_ipv4() {
+fn generated_config_022_panos_init_cfg() {
     let t = PaloAltoPanosZtpTemplate {
         hostname: "panos01".to_string(),
         mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
@@ -367,7 +367,7 @@ fn test_panos_init_static_ipv4() {
 }
 
 #[test]
-fn test_panos_bootstrap_static_ipv4() {
+fn generated_config_023_panos_bootstrap_xml() {
     let hash = "$5$saltsalt$HASHHASHHASHHASHHASHHASHHASHHASHHASHHASHHAS";
     let t = PaloAltoPanosBootstrapTemplate {
         hostname: "panos01".to_string(),

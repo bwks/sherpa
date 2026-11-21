@@ -162,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_node_image_update_refuses_a_ztp_method_the_model_does_not_take() {
+    fn ztp_setting_012_an_edit_to_a_method_the_model_does_not_take_is_refused() {
         let ubuntu = NodeModel::UbuntuLinux;
         let error = validate(ubuntu, &image(ubuntu, Ztp::Tftp, 1, 1024, 1500))
             .unwrap_err()

@@ -26,7 +26,7 @@ fn network(mac_address: &str) -> CloudbaseInitNetwork {
 // ============================================================================
 
 #[test]
-fn test_cloudbase_config() {
+fn generated_config_040_cloudbase_init_user_data_carries_the_nodes_name() {
     let config = CloudbaseInitConfig {
         set_hostname: "win01".to_string(),
         users: vec![],
@@ -44,7 +44,7 @@ fn test_cloudbase_config() {
 }
 
 #[test]
-fn test_cloudbase_network_ipv4() {
+fn config_addressing_003_cloudbase_init_network_config_ipv4() {
     let output = network("52:54:00:aa:bb:cc")
         .render()
         .expect("renders network-config");
@@ -69,7 +69,7 @@ fn test_cloudbase_network_ipv4() {
 }
 
 #[test]
-fn test_cloudbase_network_dual_stack() {
+fn config_addressing_004_cloudbase_init_network_config_dual_stack() {
     let v6 = helpers::test_network_v6();
     let net = CloudbaseInitNetwork::ztp_interface(
         Ipv4Addr::new(172, 20, 0, 10),
@@ -93,7 +93,7 @@ fn test_cloudbase_network_dual_stack() {
 
 /// An all-digit MAC is a base-60 integer in YAML 1.1 when unquoted.
 #[test]
-fn test_all_digit_mac_address_is_a_quoted_string() {
+fn generated_config_039_cloudbase_init_an_all_digit_mac_stays_a_string() {
     let output = network("52:54:00:21:47:08")
         .render()
         .expect("renders network-config");
@@ -104,7 +104,7 @@ fn test_all_digit_mac_address_is_a_quoted_string() {
 }
 
 #[test]
-fn test_cloudbase_password_is_intact() {
+fn device_accounts_014_windows_owner_password_in_cloudbase_init() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let config = CloudbaseInitConfig {
             set_hostname: "win01".to_string(),

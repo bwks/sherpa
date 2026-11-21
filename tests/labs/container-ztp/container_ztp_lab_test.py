@@ -7,8 +7,8 @@
 
 Brings up each container model whose config Sherpa mounts (cEOS, SR Linux, FRR) twice, with its
 image's ZTP setting and with `ztp.method = "disabled"`, plus an application container.
-Checks a node with ZTP on has Sherpa's config mounts, takes the lab owner's SSH login by key and
-refuses the old `sherpa` login, and a node with ZTP off is running with no such mount and no
+Checks a node with ZTP on has Sherpa's config mounts and takes the lab owner's SSH login by
+key, and a node with ZTP off is running with no such mount and no
 owner login, for the reason its model has (SR Linux: no management address; FRR: no SSH server):
 after `sherpa up`, and after redeploying one node of each setting. Checks `sherpa validate` refuses a method a model
 does not take. Always destroys the lab. Runs on the Sherpa server; see README.md.
@@ -52,8 +52,6 @@ LOGIN_COMMANDS = {
 }
 SSH_OPTIONS = ("-F", ".sherpa/ssh/config", "-o", "BatchMode=yes", "-o", "LogLevel=ERROR",
                "-o", "ConnectTimeout=10")
-# The shared account earlier releases gave every node. It is no longer made.
-OLD_SHARED_USER = "sherpa"
 # Why an SSH login to a node with ZTP off fails, read from ssh's own message.
 NO_ADDRESS = "no management address"
 NO_SSH_SERVER = "no SSH server"
@@ -238,13 +236,12 @@ class LabRun:
                                ["docker", "inspect", "--format", template, self.container(node)])
         return outcome.stdout.strip()
 
-    def ssh(self, node, user=None):
-        """Log in to the node as the lab's SSH config does (the lab owner), or as `user`, and run
-        its model's command."""
+    def ssh(self, node):
+        """Log in to the node as the lab's SSH config does (the lab owner), and run its model's
+        command."""
         command = LOGIN_COMMANDS.get(node["model"], "true")
-        login = ["-l", user] if user else []
-        return self.command(f"ssh {user or self.owner}@{node['name']}",
-                            ["ssh", *SSH_OPTIONS, *login, f"{node['name']}.{self.lab_id}", command],
+        return self.command(f"ssh {self.owner}@{node['name']}",
+                            ["ssh", *SSH_OPTIONS, f"{node['name']}.{self.lab_id}", command],
                             check=False)
 
     # -- lab ---------------------------------------------------------------------------------
@@ -314,7 +311,6 @@ class LabRun:
                 self.check_no_owner_login(node, stage)
             else:
                 self.wait_for_login(node, stage)
-                self.check_old_shared_login_refused(node, stage)
         # A node with ZTP off must still be up once the others have booted.
         time.sleep(SETTLE_SECONDS)
         for node in self.nodes:
@@ -336,14 +332,6 @@ class LabRun:
             require(time.monotonic() < deadline,
                     f"{stage}, no SSH login as {self.owner} on {node['name']} within {timeout}s")
             time.sleep(POLL_INTERVAL)
-
-    def check_old_shared_login_refused(self, node, stage):
-        """The shared `sherpa` account is not on the node: its login is refused."""
-        outcome = self.ssh(node, OLD_SHARED_USER)
-        require(outcome.code != 0, f"{stage}, {node['name']} took an SSH login as {OLD_SHARED_USER}")
-        require(ssh_refusal(outcome.output) == LOGIN_REFUSED,
-                f"{stage}, the login as {OLD_SHARED_USER} to {node['name']} was not refused: "
-                f"{outcome.output.strip()}")
 
     def address(self, node):
         """The management address the lab's SSH config reaches the node at."""

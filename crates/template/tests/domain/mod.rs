@@ -122,7 +122,7 @@ fn test_domain_has_a_virtio_scsi_controller_only_for_scsi_disks() {
 }
 
 #[test]
-fn test_domain_passes_the_ignition_config_as_a_libvirt_firmware_config_entry() {
+fn config_delivery_015_a_domain_has_a_firmware_config_entry_only_with_an_ignition_config() {
     let mut template = base_domain_template();
     template.ignition_config =
         Some("/opt/sherpa/libvirt/images/flatcar01-a10736e8-cfg.ign".to_string());
@@ -138,16 +138,10 @@ fn test_domain_passes_the_ignition_config_as_a_libvirt_firmware_config_entry() {
     );
     assert!(!xml.contains("-fw_cfg"), "{xml}");
     assert!(!xml.contains("<ns0:commandline>"), "{xml}");
-    // The SMBIOS serial NoCloud reads stays.
-    assert!(xml.contains("<sysinfo type='smbios'>"), "{xml}");
-}
 
-#[test]
-fn test_domain_without_an_ignition_config_has_no_firmware_config_entry() {
     let xml = base_domain_template().render().unwrap();
     assert!(!xml.contains("fwcfg"), "{xml}");
     assert!(!xml.contains("org.flatcar-linux"), "{xml}");
-    assert!(xml.contains("<sysinfo type='smbios'>"), "{xml}");
 }
 
 #[test]

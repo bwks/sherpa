@@ -333,7 +333,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_append_only_file_omits_contents() {
+    fn generated_config_042_ignition_an_append_only_file_has_no_contents() {
         let f = IgnitionFile {
             path: "/home/alice/.bash_profile".to_owned(),
             mode: FileMode::new(0o644),
@@ -346,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn test_directory_owner_serialized() {
+    fn generated_config_043_ignition_a_directory_carries_its_owner_and_group() {
         let dir = IgnitionDirectory {
             path: "/home/alice/.config".to_owned(),
             mode: FileMode::new(0o755),

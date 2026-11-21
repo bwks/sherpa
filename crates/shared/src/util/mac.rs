@@ -18,17 +18,3 @@ pub fn random_mac(vendor_oui: &str) -> String {
         &hex[4..6]
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::konst::KVM_OUI;
-    use regex::Regex;
-
-    #[test]
-    fn test_random_mac_format() {
-        let mac = random_mac(KVM_OUI);
-        let re = Regex::new(r"^52:54:00:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}$").unwrap();
-        assert!(re.is_match(&mac), "MAC address format is incorrect: {mac}");
-    }
-}

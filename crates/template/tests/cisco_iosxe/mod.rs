@@ -133,7 +133,7 @@ exit";
 // ============================================================================
 
 #[test]
-fn test_static_ipv4() {
+fn generated_config_010_cisco_iosxe_stops_pnp_first() {
     let t = CiscoIosXeZtpTemplate {
         hostname: "csr01".to_string(),
         owner: helpers::test_owner(PASSWORD),
@@ -150,7 +150,7 @@ fn test_static_ipv4() {
 }
 
 #[test]
-fn test_with_license_command() {
+fn generated_config_011_cisco_iosxe_with_a_boot_licence() {
     let t = CiscoIosXeZtpTemplate {
         hostname: "csr01".to_string(),
         owner: helpers::test_owner(PASSWORD),
@@ -167,7 +167,7 @@ fn test_with_license_command() {
 }
 
 #[test]
-fn only_the_owner_has_an_account_and_the_password_is_intact() {
+fn device_accounts_005_cisco_iosxe_owner_only() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let t = CiscoIosXeZtpTemplate {
             hostname: "csr01".to_string(),

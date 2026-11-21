@@ -67,13 +67,13 @@ fn router(password: &str) -> CiscoIolZtpTemplate {
 }
 
 #[test]
-fn a_router_gets_its_accounts_ssh_and_a_static_management_address() {
+fn generated_config_006_cisco_iol() {
     let output = router(PASSWORD).render().expect("template renders");
     assert_eq!(output, EXPECTED_ROUTER.replace("PASSWORD", PASSWORD));
 }
 
 #[test]
-fn a_switch_makes_its_management_port_routed() {
+fn generated_config_007_cisco_iol_l2_routes_its_management_port() {
     let output = CiscoIolZtpTemplate {
         hostname: "sw1".to_string(),
         switch: true,
@@ -94,7 +94,7 @@ fn a_switch_makes_its_management_port_routed() {
 }
 
 #[test]
-fn the_password_is_intact() {
+fn device_accounts_003_cisco_iol_owner() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let output = router(password).render().expect("template renders");
         assert!(output.contains(&format!(
@@ -105,7 +105,7 @@ fn the_password_is_intact() {
 }
 
 #[test]
-fn dual_stack_adds_an_ipv6_management_address_and_route() {
+fn config_addressing_009_cisco_iol_dual_stack() {
     let output = CiscoIolZtpTemplate {
         mgmt_ipv6_address: Some("fd00::10".parse().expect("valid")),
         mgmt_ipv6: Some(helpers::test_network_v6()),

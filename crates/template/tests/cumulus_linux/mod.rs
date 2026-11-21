@@ -63,7 +63,7 @@ fn cumulus(password: &str) -> CumulusLinuxZtpTemplate {
 }
 
 #[test]
-fn test_static_ipv4() {
+fn generated_config_015_cumulus_linux() {
     let output = cumulus("Rand0mPass-1").render().expect("template renders");
     assert_eq!(
         output,
@@ -72,7 +72,7 @@ fn test_static_ipv4() {
 }
 
 #[test]
-fn test_password_is_intact() {
+fn device_accounts_009_cumulus_linux_owner() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let output = cumulus(password).render().expect("template renders");
         assert!(output.contains(&format!(

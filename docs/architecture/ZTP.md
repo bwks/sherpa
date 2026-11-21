@@ -383,10 +383,13 @@ and check each migrated row against this table and `check_ztp`.
 
 ## Tests
 
+The cases are in [`tests/specs/ztp.md`](../../tests/specs/ztp.md).
+
 - Unit: the table, defaults and validator (`shared`), the migration and write refusals (`db`),
   DHCP options (`template`), the generators, owner account and plan-time check (`server`), the
   manifest field (`topology`, `client`).
-- Integration: `lab_lifecycle::frr_gets_its_config_mounts_and_command_only_with_ztp_on` and
+- Integration: `lab_lifecycle::config_delivery_005_frr_with_ztp_on_has_its_config_mounts_and_command_at_up_and_redeploy`,
+  `ztp_setting_006_a_redeploy_to_a_method_the_model_does_not_take_is_refused` and
   `lab_preflight_004_an_unsupported_ztp_setting_is_refused`, against real Docker.
 - Lab: `tests/labs/container-ztp`.
 - Blank disks: `tests/bats/install_tests.bats` makes every disk in a temporary folder and checks

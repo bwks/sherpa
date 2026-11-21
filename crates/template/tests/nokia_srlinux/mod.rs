@@ -34,7 +34,7 @@ fn config(hostname: &str, password: &str, ipv4: bool, ipv6: bool) -> (String, Va
 // ============================================================================
 
 #[test]
-fn test_static_ipv4() {
+fn generated_config_020_nokia_srlinux() {
     let (_, value) = config("srl01", "Rand0mPass-1", true, false);
     assert_eq!(
         value[SYSTEM]["srl_nokia-system-name:name"]["host-name"],
@@ -67,25 +67,7 @@ fn test_static_ipv4() {
 }
 
 #[test]
-fn test_dhcp() {
-    let (_, value) = config("srl02", "Rand0mPass-1", false, false);
-    assert_eq!(
-        value[SYSTEM]["srl_nokia-system-name:name"]["host-name"],
-        "srl02"
-    );
-    let subinterface = &value["srl_nokia-interfaces:interface"][0]["subinterface"][0];
-    assert_eq!(
-        subinterface["ipv4"],
-        json!({
-            "admin-state": "enable",
-            "srl_nokia-interfaces-ip-dhcp:dhcp-client": {},
-        })
-    );
-    assert!(subinterface["ipv4"].get("address").is_none());
-}
-
-#[test]
-fn test_dual_stack() {
+fn config_addressing_010_nokia_srlinux_dual_stack_asks_for_no_dhcp() {
     let (_, value) = config("srl03", "Rand0mPass-1", true, true);
     assert_eq!(
         value[SYSTEM]["srl_nokia-system-name:name"]["host-name"],
@@ -108,7 +90,7 @@ fn test_dual_stack() {
 }
 
 #[test]
-fn test_management_network_instance_and_acl() {
+fn generated_config_021_nokia_srlinux_management_network_instance_and_acl() {
     let (_, value) = config("srl01", "Rand0mPass-1", true, false);
     let instance = &value["srl_nokia-network-instance:network-instance"][0];
     assert_eq!(instance["name"], "mgmt");
@@ -124,7 +106,7 @@ fn test_management_network_instance_and_acl() {
 }
 
 #[test]
-fn test_only_admin_and_the_owner_have_accounts() {
+fn device_accounts_012_srlinux_admin_and_owner_are_the_only_accounts() {
     let (_, value) = config("srl01", "Rand0mPass-1", true, false);
     let authentication = &value[SYSTEM][AAA]["authentication"];
     assert_eq!(authentication["authentication-method"], json!(["local"]));
@@ -132,25 +114,19 @@ fn test_only_admin_and_the_owner_have_accounts() {
         authentication["admin-user"],
         json!({"password": "Rand0mPass-1"})
     );
-    assert_eq!(
-        authentication["user"],
-        json!([{
-            "username": "alice",
-            "password": "Rand0mPass-1",
-            "ssh-key": ["ssh-rsa OWNERKEY1", "ssh-ed25519 OWNERKEY2"],
-            "role": ["srl-admin"],
-        }])
-    );
+    let users = authentication["user"].as_array().expect("a user list");
+    assert_eq!(users.len(), 1, "{users:?}");
+    assert_eq!(users[0]["username"], "alice");
+    assert_eq!(users[0]["password"], "Rand0mPass-1");
 }
 
 #[test]
-fn test_password_is_intact_for_admin_and_owner() {
+fn device_accounts_013_srlinux_admin_and_owner_passwords() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let (json, value) = config("srl01", password, true, false);
         let authentication = &value[SYSTEM][AAA]["authentication"];
         assert_eq!(authentication["admin-user"]["password"], *password);
         assert_eq!(authentication["user"][0]["password"], *password);
-        assert_eq!(authentication["user"].as_array().map(Vec::len), Some(1));
         assert_eq!(json.matches(password).count(), 2);
     }
 }

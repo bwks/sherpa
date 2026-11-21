@@ -57,7 +57,7 @@ mod tests {
     const PASSWORD: &str = "Granite-Owl42!";
 
     #[test]
-    fn hashes_have_the_algorithm_a_salt_and_no_rounds_field() {
+    fn device_accounts_021_a_hash_names_its_algorithm_and_own_salt_without_rounds() {
         for (algorithm, prefix, length) in [
             (CryptHash::Sha512, "$6$", 86),
             (CryptHash::Sha256, "$5$", 43),
@@ -70,10 +70,6 @@ mod tests {
             assert_eq!(parts[2].len(), 16, "{hashed}");
             assert_eq!(parts[3].len(), length, "{hashed}");
         }
-    }
-
-    #[test]
-    fn each_hash_has_its_own_salt() {
         assert_ne!(
             crypt_hash(PASSWORD, CryptHash::Sha512).unwrap(),
             crypt_hash(PASSWORD, CryptHash::Sha512).unwrap()

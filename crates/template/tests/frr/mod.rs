@@ -75,7 +75,7 @@ tail -f /dev/null"#;
 // ============================================================================
 
 #[test]
-fn test_frr_config_static_ipv4() {
+fn generated_config_016_frr_conf() {
     let t = FrrZtpTemplate {
         hostname: "frr01".to_string(),
         mgmt_ipv4: helpers::test_network_v4(),
@@ -95,7 +95,7 @@ fn startup(hash: &str) -> FrrStartupTemplate {
 }
 
 #[test]
-fn test_frr_startup() {
+fn generated_config_017_frr_start_script() {
     let hash = helpers::sha512_hash("abcdefghijklm!@_-+.");
     let output = startup(&hash).render().expect("template renders");
     assert_eq!(output, EXPECTED_FRR_STARTUP.replace("HASH", &hash));

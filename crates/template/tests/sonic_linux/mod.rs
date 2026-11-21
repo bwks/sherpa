@@ -107,21 +107,21 @@ fn user_script(hash: &str) -> SonicLinuxUserTemplate {
 }
 
 #[test]
-fn test_sonic_user_template() {
+fn device_accounts_019_sonic_account_script_makes_the_owner_with_keys_hash_and_sudo() {
     let hash = helpers::sha512_hash("abcdefghijklm!@_-+.");
     let output = user_script(&hash).render().expect("template renders");
     assert_eq!(output, EXPECTED_SONIC_USER.replace("HASH", &hash));
 }
 
 #[test]
-fn test_sonic_file_map() {
+fn config_delivery_017_http_ztp_file_names_its_config_and_account_script_by_url() {
     let server = Ipv4Addr::new(172, 20, 0, 1);
     let output = SonicLinuxZtp::file_map("sonic01", &server);
     assert_eq!(output, EXPECTED_FILE_MAP);
 }
 
 #[test]
-fn test_sonic_config_static_ip() {
+fn generated_config_024_sonic_config_db() {
     let mut expected = expected_base_config();
     expected["MGMT_INTERFACE"] = json!({ "eth0|172.20.0.10/24": { "gwaddr": "172.20.0.1" } });
     expected["MGMT_PORT"] = json!({ "eth0": { "admin_status": "up", "alias": "eth0" } });
@@ -130,7 +130,7 @@ fn test_sonic_config_static_ip() {
 }
 
 #[test]
-fn test_sonic_config_dhcp() {
+fn config_addressing_012_a_sonic_container_has_no_management_address() {
     let output = sonic_ztp(None).config();
     assert_eq!(parsed(&output), expected_base_config());
 }

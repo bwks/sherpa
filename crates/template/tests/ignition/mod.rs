@@ -45,7 +45,7 @@ DNS=fd00::1
 // ============================================================================
 
 #[test]
-fn test_ignition_full_config() {
+fn generated_config_041_ignition_carries_users_files_links_units_and_directories() {
     let user = IgnitionUser {
         name: "core".to_string(),
         password_hash: Some("$6$abc$xyz".to_string()),
@@ -91,7 +91,7 @@ fn test_ignition_full_config() {
 }
 
 #[test]
-fn test_ignition_ztp_interface_ipv4() {
+fn config_addressing_005_flatcar_ignition_network_file_ipv4() {
     let file = IgnitionFile::ztp_interface(
         Ipv4Addr::new(172, 20, 0, 10),
         &helpers::test_network_v4(),
@@ -117,7 +117,7 @@ fn test_ignition_ztp_interface_ipv4() {
 }
 
 #[test]
-fn test_ignition_ztp_interface_dual_stack() {
+fn config_addressing_006_flatcar_ignition_network_file_dual_stack() {
     let v6 = helpers::test_network_v6();
     let file = IgnitionFile::ztp_interface(
         Ipv4Addr::new(172, 20, 0, 10),

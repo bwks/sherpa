@@ -161,7 +161,7 @@ mod tests {
     /// Configuration media uses its existing byte-copy path. Left for the ZTP spec.
     #[test]
     #[ignore = "Requires local libvirt and sherpa-pool; set SHERPA_OVERLAY_LIVE=1"]
-    fn live_config_media_is_copied_byte_for_byte() -> Result<()> {
+    fn config_delivery_006_a_config_medium_is_copied_into_the_pool_byte_for_byte() -> Result<()> {
         let mut fixture = LiveVolumes::new()?;
         let media = env::temp_dir()
             .join(fixture.name("source.iso"))

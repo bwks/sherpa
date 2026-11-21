@@ -819,10 +819,10 @@ async fn check_frr_ztp_off(docker: &Docker, container: &str) -> Result<()> {
     Ok(())
 }
 
-/// Left for the ZTP spec.
 #[tokio::test]
 #[ignore = "requires Docker with quay.io/frrouting/frr:10.5.2 and host network administration rights (CAP_NET_ADMIN)"]
-async fn frr_gets_its_config_mounts_and_command_with_ztp_on() -> Result<()> {
+async fn config_delivery_005_frr_with_ztp_on_has_its_config_mounts_and_command_at_up_and_redeploy()
+-> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_lab_admin(&server).await?;
@@ -855,7 +855,35 @@ async fn frr_gets_its_config_mounts_and_command_with_ztp_on() -> Result<()> {
             response.get("error").is_none(),
             "redeploy of on failed: {response}"
         );
-        check_frr_ztp_on(&docker, &container).await?;
+        check_frr_ztp_on(&docker, &container).await
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker with quay.io/frrouting/frr:10.5.2 and host network administration rights (CAP_NET_ADMIN)"]
+async fn ztp_setting_006_a_redeploy_to_a_method_the_model_does_not_take_is_refused() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_lab_admin(&server).await?;
+    bootstrap_images(&mut ws, &token).await?;
+
+    let mut frr = ModelKind::default_for(NodeModel::FrrLinux).node_config();
+    frr.version = FRR_TEST_VERSION.to_owned();
+    db::upsert_node_image(&server.db, frr, DefaultRequest::Make).await?;
+
+    let lab_name = format!("tr{:06}", std::process::id() % 1_000_000);
+    let manifest = json!({
+        "name": lab_name,
+        "nodes": [{ "name": "on", "model": "frr_linux" }]
+    });
+    let container = format!("on-{lab_name}");
+
+    let checks: Result<()> = async {
+        lab_up(&mut ws, &token, &lab_name, &manifest, Duration::from_secs(180)).await?;
+        let docker = Docker::connect_with_local_defaults()?;
 
         // A method the model does not take is refused before the node is torn down.
         let mut unsupported = manifest.clone();

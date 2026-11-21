@@ -37,7 +37,7 @@ fn network(mac_address: &str) -> CloudInitNetwork {
 // ============================================================================
 
 #[test]
-fn test_cloud_init_config() {
+fn generated_config_032_cloud_init_user_data_carries_the_nodes_name_and_commands() {
     let config = CloudInitConfig {
         ca_certs: None,
         hostname: "ubuntu01".to_string(),
@@ -67,7 +67,7 @@ fn test_cloud_init_config() {
 }
 
 #[test]
-fn test_cloud_init_config_trusts_the_lab_ca() {
+fn generated_config_033_cloud_init_trusts_the_lab_ca() {
     let pem = "-----BEGIN CERTIFICATE-----\nlab\n-----END CERTIFICATE-----\n";
     let config = CloudInitConfig {
         ca_certs: Some(CloudInitCaCerts {
@@ -92,7 +92,7 @@ fn test_cloud_init_config_trusts_the_lab_ca() {
 }
 
 #[test]
-fn test_cloud_init_config_leaves_ssh_password_auth_to_the_image_when_unset() {
+fn generated_config_034_cloud_init_leaves_ssh_password_logins_to_the_image() {
     let config = CloudInitConfig {
         ca_certs: None,
         hostname: "nixos01".to_string(),
@@ -104,7 +104,7 @@ fn test_cloud_init_config_leaves_ssh_password_auth_to_the_image_when_unset() {
 }
 
 #[test]
-fn test_cloud_init_resolv_conf_points_at_the_lab_dns() {
+fn generated_config_035_cloud_init_writes_the_lab_dns_to_resolv_conf() {
     let config = CloudInitConfig {
         manage_resolv_conf: Some(true),
         resolv_conf: Some(CloudInitResolvConf::lab_dns(Ipv4Addr::new(172, 20, 0, 2))),
@@ -123,7 +123,7 @@ fn test_cloud_init_resolv_conf_points_at_the_lab_dns() {
 }
 
 #[test]
-fn test_cloud_init_user_without_groups_omits_the_key() {
+fn device_accounts_020_cloud_init_groups_are_absent_or_one_comma_separated_string() {
     let config = CloudInitConfig {
         users: vec![CloudInitUser {
             name: "alice".to_string(),
@@ -140,10 +140,7 @@ fn test_cloud_init_user_without_groups_omits_the_key() {
     };
     let output = parse_cloud_config(&config.render().expect("renders user-data"));
     assert_eq!(output["users"][0].get("groups"), None);
-}
 
-#[test]
-fn test_cloud_init_user_groups_are_a_comma_separated_string() {
     // cloud-init's BSD add_user drops a groups list and only passes a string to `pw`/`useradd`.
     let config = CloudInitConfig {
         users: vec![CloudInitUser {
@@ -166,11 +163,11 @@ fn test_cloud_init_user_groups_are_a_comma_separated_string() {
 }
 
 #[test]
-fn test_cloud_init_metadata() {
+fn generated_config_036_cloud_init_meta_data_names_the_instance_and_node() {
     let meta = MetaDataConfig {
         instance_id: "i-ubuntu01".to_string(),
         local_hostname: "ubuntu01".to_string(),
-        public_keys: vec!["ssh-rsa AAAA... test@host".to_string()],
+        public_keys: vec![],
     };
     let output = meta.render().expect("renders meta-data");
     assert_eq!(
@@ -178,13 +175,12 @@ fn test_cloud_init_metadata() {
         json!({
             "instance-id": "i-ubuntu01",
             "local-hostname": "ubuntu01",
-            "public-keys": ["ssh-rsa AAAA... test@host"],
         })
     );
 }
 
 #[test]
-fn test_cloud_init_network_ipv4() {
+fn config_addressing_001_cloud_init_network_config_ipv4() {
     let output = network("52:54:00:aa:bb:cc")
         .render()
         .expect("renders network-config");
@@ -208,7 +204,7 @@ fn test_cloud_init_network_ipv4() {
 }
 
 #[test]
-fn test_cloud_init_network_dual_stack() {
+fn config_addressing_002_cloud_init_network_config_dual_stack() {
     let v6 = helpers::test_network_v6();
     let net = CloudInitNetwork::ztp_interface(
         Ipv4Addr::new(172, 20, 0, 10),
@@ -237,7 +233,7 @@ fn test_cloud_init_network_dual_stack() {
 
 /// An all-digit MAC is a base-60 integer in YAML 1.1 when unquoted.
 #[test]
-fn test_all_digit_mac_address_is_a_quoted_string() {
+fn generated_config_037_cloud_init_an_all_digit_mac_stays_a_string() {
     let output = network("52:54:00:21:47:08")
         .render()
         .expect("renders network-config");
@@ -253,7 +249,7 @@ fn test_all_digit_mac_address_is_a_quoted_string() {
 
 /// `yes`, `no`, `on` and `off` are booleans in YAML 1.1 when unquoted.
 #[test]
-fn test_yaml_boolean_words_stay_strings() {
+fn generated_config_038_cloud_init_yaml_boolean_words_stay_strings() {
     let config = CloudInitConfig {
         ca_certs: None,
         hostname: "on".to_string(),

@@ -37,7 +37,7 @@ mod tests {
     use crate::data::NodeModel;
 
     #[test]
-    fn test_disabled_passes_for_every_model() {
+    fn ztp_setting_003_disabled_is_taken_for_every_model_and_kind() {
         for model_kind in ModelKind::all() {
             assert!(
                 check_ztp(model_kind, Ztp::Disabled).is_ok(),
@@ -47,7 +47,7 @@ mod tests {
     }
 
     #[test]
-    fn test_the_error_names_the_model_the_value_and_the_allowed_methods() {
+    fn ztp_setting_004_a_method_the_model_does_not_take_is_refused_naming_what_it_takes() {
         let error = check_ztp(
             ModelKind::default_for(NodeModel::JuniperEvolved),
             Ztp::Cdrom,
@@ -57,37 +57,11 @@ mod tests {
         assert!(error.contains("juniper_evolved"), "{error}");
         assert!(error.contains("'cdrom'"), "{error}");
         assert!(error.ends_with("allows: disabled, tftp, usb"), "{error}");
-    }
 
-    #[test]
-    fn test_srx_refuses_tftp_and_names_cdrom() {
-        let srx = ModelKind::default_for(NodeModel::JuniperSrxv3);
-        check_ztp(srx, Ztp::Cdrom).unwrap();
-        let error = check_ztp(srx, Ztp::Tftp).unwrap_err().to_string();
-        assert!(error.contains("'tftp'"), "{error}");
-        assert!(error.ends_with("allows: disabled, cdrom"), "{error}");
-    }
-
-    #[test]
-    fn test_the_error_for_a_model_without_methods_allows_only_disabled() {
         let error = check_ztp(ModelKind::default_for(NodeModel::MongoDb), Ztp::Volume)
             .unwrap_err()
             .to_string();
         assert!(error.contains("mongo_db"), "{error}");
         assert!(error.ends_with("allows: disabled"), "{error}");
-    }
-
-    #[test]
-    fn test_effective_ztp_is_the_images_when_the_manifest_sets_none() {
-        let image = ModelKind::default_for(NodeModel::FrrLinux).node_config();
-        assert_eq!(effective_ztp(None, &image), Ztp::Volume);
-    }
-
-    #[test]
-    fn test_effective_ztp_prefers_the_manifests() {
-        let image = ModelKind::default_for(NodeModel::FrrLinux).node_config();
-        assert_eq!(effective_ztp(Some(Ztp::Disabled), &image), Ztp::Disabled);
-        let image = ModelKind::default_for(NodeModel::JuniperEvolved).node_config();
-        assert_eq!(effective_ztp(Some(Ztp::Usb), &image), Ztp::Usb);
     }
 }

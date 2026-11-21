@@ -1202,7 +1202,7 @@ mod tests {
     }
 
     #[test]
-    fn the_ztp_choices_are_disabled_and_the_models_methods() {
+    fn ztp_setting_009_the_image_edit_page_offers_disabled_and_the_models_methods() {
         // Two methods, one method, and a container with none.
         assert_eq!(
             offered(NodeModel::JuniperEvolved, Ztp::Usb),
@@ -1241,7 +1241,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_form_reads_the_ztp_word_and_refuses_any_other() {
+    async fn ztp_setting_010_the_edit_form_reads_the_setting_by_its_word_and_refuses_any_other() {
         for (word, ztp) in [("cloud-init", Ztp::CloudInit), ("disabled", Ztp::Disabled)] {
             let Form(form) = posted_form(word).await.unwrap();
             assert_eq!(form.ztp, Some(ztp));
@@ -1266,7 +1266,7 @@ mod tests {
     }
 
     #[test]
-    fn a_saved_form_carries_its_ztp_setting_to_the_image() {
+    fn ztp_setting_011_a_saved_edit_form_carries_its_setting_to_the_image() {
         let config = ModelKind::default_for(NodeModel::JuniperEvolved).node_config();
         let mut form = form_for(&config);
         form.ztp = Some(Ztp::Usb);
