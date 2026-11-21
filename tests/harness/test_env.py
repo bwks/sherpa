@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import re
 import shlex
 import shutil
 import subprocess
@@ -38,15 +39,43 @@ GUEST_SCRIPTS = ("vm_release_guest.py", "test_env_guest.py")
 GUEST_DIRECTORY = "/tmp/sherpa-test-env"
 CONNECT_TIMEOUT = 10
 RUNS = ROOT / ".tmp" / "test-env-runs"
-# The first lines of every Python script in tests/ and dev/ that has a #! line.
-SCRIPT_HEADER = ('#!/usr/bin/env -S uv run --script\n# /// script\n# requires-python = ">=3.15"\n'
-                 '# dependencies = []\n# ///\n')
+# Every Python script in tests/ and dev/ that has a #! line starts with this line, then a
+# '# /// script' block that requires SCRIPT_PYTHON and pins each dependency exactly.
+SCRIPT_SHEBANG = "#!/usr/bin/env -S uv run --script"
+SCRIPT_PYTHON = ">=3.15"
+PINNED_DEPENDENCY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9._,-]+\])?==[A-Za-z0-9.+!-]+")
 TARGET = "x86_64-unknown-linux-gnu"
 # Release binaries are built per package, as the release workflow does, so features are not unified.
 RELEASE_PACKAGES = ("sherpad", "sherpa")
 CLI_TOKEN = Path.home() / ".sherpa" / "token"
 # A full run takes over an hour, and the CLI token must stay valid until cleanup.
 MINIMUM_TOKEN_LIFETIME = 4 * 3600
+
+
+def script_header_problems(text):
+    """Return why a directly-run script would not run on uv's Python with exactly pinned dependencies."""
+    lines = text.splitlines()
+    if lines[:1] != [SCRIPT_SHEBANG]:
+        return [f"first line is not {SCRIPT_SHEBANG!r}"]
+    if lines[1:2] != ["# /// script"]:
+        return ["second line does not open a '# /// script' block"]
+    if "# ///" not in lines[2:]:
+        return ["the '# /// script' block is not closed by '# ///'"]
+    block = lines[2:lines.index("# ///", 2)]
+    try:
+        metadata = tomllib.loads("\n".join(line.removeprefix("#").removeprefix(" ") for line in block))
+    except tomllib.TOMLDecodeError as error:
+        return [f"the '# /// script' block is not TOML: {error}"]
+    problems = []
+    if metadata.get("requires-python") != SCRIPT_PYTHON:
+        problems.append(f"requires-python is not {SCRIPT_PYTHON!r}")
+    dependencies = metadata.get("dependencies")
+    if not isinstance(dependencies, list):
+        problems.append("dependencies is not a list")
+    else:
+        problems.extend(f"dependency {dependency!r} is not pinned with ==" for dependency in dependencies
+                        if not (isinstance(dependency, str) and PINNED_DEPENDENCY.fullmatch(dependency)))
+    return problems
 
 
 def require(condition, message):
@@ -456,7 +485,31 @@ class HostTests(unittest.TestCase):
             if not text.startswith("#!"):
                 continue
             with self.subTest(script=str(path.relative_to(ROOT))):
-                self.assertTrue(text.startswith(SCRIPT_HEADER))
+                self.assertEqual(script_header_problems(text), [])
+
+    def test_script_headers_without_uv_python_or_pinned_dependencies_fail(self):
+        block_start = f"{SCRIPT_SHEBANG}\n# /// script\n"
+        good_python = f'# requires-python = "{SCRIPT_PYTHON}"\n'
+        for dependencies in ("[]", '["pytest==9.2.0"]', '["pytest[testing]==9.2.0", "tomli-w==1.2.0"]'):
+            with self.subTest(dependencies=dependencies):
+                header = f"{block_start}{good_python}# dependencies = {dependencies}\n# ///\n"
+                self.assertEqual(script_header_problems(header), [])
+        bad = {
+            "python3 shebang": f"#!/usr/bin/env python3\n# /// script\n{good_python}# dependencies = []\n# ///\n",
+            "uv run without --script": f"#!/usr/bin/env -S uv run\n# /// script\n{good_python}# dependencies = []\n# ///\n",
+            "no script block": f"{SCRIPT_SHEBANG}\nimport sys\n",
+            "unclosed script block": f"{block_start}{good_python}# dependencies = []\n",
+            "missing requires-python": f"{block_start}# dependencies = []\n# ///\n",
+            "older requires-python": f'{block_start}# requires-python = ">=3.12"\n# dependencies = []\n# ///\n',
+            "missing dependencies": f"{block_start}{good_python}# ///\n",
+            "unpinned dependency": f'{block_start}{good_python}# dependencies = ["pytest"]\n# ///\n',
+            "range dependency": f'{block_start}{good_python}# dependencies = ["pytest>=9.2.0"]\n# ///\n',
+            "wildcard dependency": f'{block_start}{good_python}# dependencies = ["pytest==9.*"]\n# ///\n',
+            "one of two unpinned": f'{block_start}{good_python}# dependencies = ["pytest==9.2.0", "rich"]\n# ///\n',
+        }
+        for case, header in bad.items():
+            with self.subTest(case=case):
+                self.assertNotEqual(script_header_problems(header), [])
 
 
 if __name__ == "__main__":
