@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 
 use shared::data::{LabIdentity, LabInfo};
 use shared::konst::SHERPA_MANIFEST_FILE;
@@ -29,11 +29,12 @@ enum FolderLab {
 ///
 /// # Errors
 ///
-/// Fails when the folder has neither file, when `manifest.toml` does not load and there is no
-/// `lab-info.toml`, when the two name different labs, or when only a manifest names the lab and
-/// there is no login to work out its ID from.
+/// Fails when the folder has neither file, when `lab-info.toml` is there but does not parse,
+/// when `manifest.toml` does not load and there is no `lab-info.toml`, when the two name
+/// different labs, or when only a manifest names the lab and there is no login to work out its
+/// ID from.
 pub fn resolve_lab_identity(dir: &Path) -> Result<LabIdentity> {
-    let lab_info = lab_info_identity(dir);
+    let lab_info = lab_info_identity(dir)?;
     let manifest_path = dir.join(SHERPA_MANIFEST_FILE);
     let manifest_name = if manifest_path.exists() {
         match Manifest::load_file(&manifest_path.to_string_lossy()) {
@@ -55,12 +56,12 @@ pub fn resolve_lab_identity(dir: &Path) -> Result<LabIdentity> {
 ///
 /// # Errors
 ///
-/// Fails when `lab-info.toml` names another lab, or when there is none and no login to work out
-/// the lab's ID from.
+/// Fails when `lab-info.toml` does not parse or names another lab, or when there is none and no
+/// login to work out the lab's ID from.
 pub fn manifest_lab_identity(dir: &Path, manifest: &Manifest) -> Result<LabIdentity> {
     identity_of(folder_lab(
         dir,
-        lab_info_identity(dir),
+        lab_info_identity(dir)?,
         Some(manifest.name.clone()),
     )?)
 }
@@ -109,27 +110,40 @@ fn lab_info_file(dir: &Path) -> PathBuf {
     LabFolder::new(dir).lab_info()
 }
 
-/// The lab `.sherpa/lab-info.toml` in `dir` names, if there is one that parses.
-fn lab_info_identity(dir: &Path) -> Option<LabIdentity> {
-    folder_lab_info(dir).map(|lab_info| LabIdentity {
+/// The lab `.sherpa/lab-info.toml` in `dir` names, if there is one.
+///
+/// # Errors
+///
+/// Fails when the file is there but cannot be read or does not parse.
+fn lab_info_identity(dir: &Path) -> Result<Option<LabIdentity>> {
+    Ok(folder_lab_info(dir)?.map(|lab_info| LabIdentity {
         name: lab_info.name,
         id: lab_info.id,
-    })
+    }))
 }
 
-/// `.sherpa/lab-info.toml` in `dir`, if there is one that parses.
-fn folder_lab_info(dir: &Path) -> Option<LabInfo> {
+/// `.sherpa/lab-info.toml` in `dir`, if there is one. A file that is there but does not parse
+/// stops the command: it may record a lab another user started or one downloaded here, so
+/// falling back to the manifest's lab could act on a different lab.
+///
+/// # Errors
+///
+/// Fails when the file is there but cannot be read or does not parse, naming the file.
+fn folder_lab_info(dir: &Path) -> Result<Option<LabInfo>> {
     let path = lab_info_file(dir);
     if !path.exists() {
-        return None;
+        return Ok(None);
     }
-    match load_file(&path.to_string_lossy()).and_then(|content| content.parse::<LabInfo>()) {
-        Ok(lab_info) => Some(lab_info),
-        Err(error) => {
-            tracing::debug!(error = %format!("{error:#}"), "Ignoring lab-info.toml");
-            None
-        }
-    }
+    load_file(&path.to_string_lossy())
+        .and_then(|content| content.parse::<LabInfo>())
+        .map(Some)
+        .with_context(|| {
+            format!(
+                "{} does not parse; restore it with 'sherpa download' of the lab, or remove it \
+                 if this folder is for the lab named in {SHERPA_MANIFEST_FILE}",
+                path.display()
+            )
+        })
 }
 
 /// Stop unless the user logged in owns the lab of the folder `dir`: only a lab's owner can
@@ -139,9 +153,10 @@ fn folder_lab_info(dir: &Path) -> Option<LabInfo> {
 ///
 /// # Errors
 ///
-/// Fails when `lab-info.toml` names another owner, or there is no login to compare it with.
+/// Fails when `lab-info.toml` does not parse or names another owner, or there is no login to
+/// compare it with.
 pub fn require_lab_owner(dir: &Path) -> Result<()> {
-    let Some(lab_info) = folder_lab_info(dir) else {
+    let Some(lab_info) = folder_lab_info(dir)? else {
         return Ok(());
     };
     check_lab_owner(&lab_info, &username_from_token(&load_token()?)?)
@@ -347,28 +362,36 @@ mod tests {
     }
 
     #[test]
-    fn lab_identity_009_a_lab_info_that_does_not_parse_counts_as_none() {
+    fn lab_identity_009_a_lab_info_that_does_not_parse_stops_the_command_naming_the_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = lab_info_file(dir.path());
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, "id = '0a1b2c3d'\nname = \n").unwrap();
-
-        assert_eq!(lab_info_identity(dir.path()), None);
-        assert_eq!(
-            folder_lab(
-                dir.path(),
-                lab_info_identity(dir.path()),
-                Some("core".to_string())
-            )
-            .unwrap(),
-            FolderLab::Named("core".to_string())
+        fs::write(
+            dir.path().join(SHERPA_MANIFEST_FILE),
+            "name = 'core'\nnodes = []\n",
+        )
+        .unwrap();
+        let manifest: Manifest = toml::from_str("name = 'core'\nnodes = []\n").unwrap();
+        let expected = format!(
+            "{} does not parse; restore it with 'sherpa download' of the lab, or remove it if \
+             this folder is for the lab named in manifest.toml",
+            path.display()
         );
+
+        for error in [
+            resolve_lab_identity(dir.path()).unwrap_err(),
+            manifest_lab_identity(dir.path(), &manifest).unwrap_err(),
+            require_lab_owner(dir.path()).unwrap_err(),
+        ] {
+            assert_eq!(error.to_string(), expected);
+        }
     }
 
     #[test]
     fn access_control_016_a_folder_lab_of_another_user_is_refused_and_a_manifest_alone_is_own() {
         let dir = downloaded_folder("core", "0a1b2c3d");
-        let lab_info = folder_lab_info(dir.path()).unwrap();
+        let lab_info = folder_lab_info(dir.path()).unwrap().unwrap();
         assert!(check_lab_owner(&lab_info, "dev").is_ok());
         for other in ["admin", "dana"] {
             assert_eq!(

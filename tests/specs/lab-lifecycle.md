@@ -140,7 +140,7 @@ The node states themselves are `node_state` in [nodes](nodes.md). A lab's status
 
 ## `lab_identity`: a lab command acts on the lab of its folder
 
-**Statement:** a lab command acts on the lab of the folder it runs in: the lab `.sherpa/lab-info.toml` records, with the ID the server gave it, or else the logged-in user's lab of the name in `manifest.toml`; a folder whose two files name different labs, or that has neither, is refused.
+**Statement:** a lab command acts on the lab of the folder it runs in: the lab `.sherpa/lab-info.toml` records, with the ID the server gave it, or else the logged-in user's lab of the name in `manifest.toml`; a folder whose two files name different labs, whose `lab-info.toml` does not parse, or that has neither, is refused.
 **Relied on by:** the user: every lab command, destroy included, goes to the lab found this way; folders made by `sherpa download`. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -153,7 +153,7 @@ The node states themselves are `node_state` in [nodes](nodes.md). A lab's status
 | 006 | A folder with neither file is refused, naming both files | unit |
 | 007 | `up`, `redeploy` and `provision` in a folder with no manifest are refused, saying a folder made by `sherpa download` has none and where to run the command | unit |
 | 008 | A manifest that does not load beside a `lab-info.toml` does not stop a command that needs no manifest: the lab is the recorded one; with no `lab-info.toml` the command fails with the manifest's error | unit |
-| 009 | A `lab-info.toml` that does not parse counts as none: the folder is the lab of its manifest | unit |
+| 009 | A `lab-info.toml` that is there but does not parse stops the command, beside a manifest too, with an error that names the file and says to restore it with `sherpa download` or remove it; only a folder with no `lab-info.toml` is the lab of its manifest | unit |
 | 010 | A folder with only a manifest and no login is refused, since the lab's ID comes from the login (no test yet) | unit |
 | 011 | After the lab's name is changed in the `manifest.toml` of a running lab's folder, `sherpa inspect` and `sherpa up` exit non-zero naming both labs, and the running lab is untouched (no test yet) | e2e |
 
