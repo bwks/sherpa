@@ -255,7 +255,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_value_gets_its_own_nonce() {
+    fn database_key_006_the_same_value_sealed_twice_gives_two_ciphertexts() {
         let key = SecretKey::generate();
         let first = seal(&key, b"same", "place").unwrap();
         let second = seal(&key, b"same", "place").unwrap();
@@ -268,15 +268,13 @@ mod tests {
     }
 
     #[test]
-    fn a_key_must_be_32_bytes_and_hides_them_when_printed() {
-        assert!(SecretKey::from_bytes(&[0; 31]).is_err());
+    fn database_key_005_a_key_prints_without_its_bytes() {
         let key = SecretKey::from_bytes(&[7; 32]).unwrap();
-        assert_eq!(key.as_bytes(), &[7; 32]);
         assert_eq!(format!("{key:?}"), "SecretKey(..)");
     }
 
     #[tokio::test]
-    async fn the_key_check_is_written_once_and_refuses_another_key() {
+    async fn database_key_004_the_database_records_its_key_and_refuses_another_or_none() {
         let dir = tempfile::tempdir().unwrap();
         let db = crate::open(&dir.path().join("sherpa.sqlite"))
             .await

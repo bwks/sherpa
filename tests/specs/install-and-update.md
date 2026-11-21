@@ -85,7 +85,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | After an install on a bare host, each of the 14 templates is there with its size, file system and label, `644 sherpa:sherpa`, in a folder `775` (no test in the VM run: the check is `tests/bats/install_tests.bats`, run by hand on an installed host) | e2e (fresh VM) |
+| 001 | After an install on a bare host, each of the 14 templates is there with its size, file system and label, `644 sherpa:sherpa`, in a folder `775` | e2e (fresh VM) |
 | 002 | Each template is made with its size, file system and label, and no temporary file is left | unit (bats) |
 | 003 | A template, a folder and even a dangling link of a template's name that are there keep their contents, mode and owner, and the missing templates are made beside them | unit (bats) |
 | 004 | A second run makes nothing and touches no file | unit (bats) |
@@ -93,7 +93,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 006 | A template that fails to build leaves no file of its name and stops the script; the templates made before it stay | unit (bats) |
 | 007 | The update script installs the tools' packages only when a tool is missing | unit (bats) |
 | 008 | The update script makes the missing templates before it stops sherpad, and also when there is nothing to update; when one cannot be made, the server is left running the release it had (no test yet: `update_tests.bats` reads the order of the calls in the script's text) | e2e (fresh VM) |
-| 009 | Cases 002 to 006 hold for the copy of the section in each script (no test yet: `install_tests.bats` compares the two sections' text and runs only the install script's) | unit (bats) |
+| 009 | Cases 002 to 006 hold for the copy of the section in each script | unit (bats) |
 
 ## `server_init`: `sherpad init` sets up a new server and keeps an existing one
 
@@ -265,7 +265,7 @@ Each case builds a database at the schema version that stored the value, upgrade
 | 007 | Run again on a host where nothing is left, it exits 0 | e2e (fresh VM) |
 | 008 | A link in `/usr/local/bin` is removed only when it points at Sherpa's binary: one to another program, and a file, are kept | unit |
 | 009 | Without `--force` it asks, and any answer but `yes` removes nothing and exits 0 (no test yet) | unit (bats) |
-| 010 | `--help` prints the usage and exits 0; an unknown option is an error; not root is refused (no test yet with its ID: the VM run's preflight step checks the first two) | unit (bats) |
+| 010 | `--help` prints the usage and exits 0; an unknown option is an error; not root is refused | unit (bats) |
 | 011 | A `sherpa-db` container on the host is stopped and removed (no test yet) | unit (bats) |
 
 ## `database_backup`: a backup is a consistent copy only `sherpa` can read

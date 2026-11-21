@@ -293,14 +293,16 @@ The harness creates its lab as the logged-in CLI's user, so that user needs a de
 (`sherpa server user device-password`) like every lab owner; the runner stops with that message
 when it is not set. The upgrade scenario also checks the refusal and the fix on the guest.
 
-The BATS tests are supplementary:
+The guest helper reports each case a step shows by its ID, with `PASS` or `FAIL`, and the step
+fails naming every case that failed.
+
+The BATS tests run one function of a script with its commands stubbed, as a user that is not root:
 
 ```sh
 bats tests/bats/install_tests.bats
 bats tests/bats/update_tests.bats
+bats tests/bats/uninstall_tests.bats
 ```
-
-Skipped BATS integration checks do not count as installer coverage.
 
 ## Lab tests
 

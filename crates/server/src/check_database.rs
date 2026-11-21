@@ -32,7 +32,8 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn a_server_without_a_database_passes_and_gets_none() {
+    async fn schema_migration_008_check_database_on_a_server_with_no_database_passes_and_creates_none()
+     {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sherpa.sqlite");
 
@@ -42,7 +43,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_database_at_this_release_passes_unchanged() {
+    async fn schema_migration_009_check_database_on_a_database_at_this_release_passes_unchanged() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sherpa.sqlite");
         {
@@ -50,6 +51,10 @@ mod tests {
             db::apply_schema(&db).await.unwrap();
         }
 
+        let before = std::fs::read(&path).unwrap();
+
         check_database(&path).await.unwrap();
+
+        assert_eq!(std::fs::read(&path).unwrap(), before);
     }
 }

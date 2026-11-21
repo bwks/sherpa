@@ -413,7 +413,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn test_fix_permissions_recursive_file() -> Result<()> {
+    fn server_file_modes_015_doctor_boxes_sets_folders_to_775_and_files_to_660() -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = TempDir::new()?;
@@ -422,23 +422,15 @@ mod tests {
         fix_permissions_recursive(file.to_str().unwrap())?;
         let mode = fs::metadata(&file)?.permissions().mode() & 0o777;
         assert_eq!(mode, 0o660);
-        Ok(())
-    }
 
-    #[cfg(unix)]
-    #[test]
-    fn test_fix_permissions_recursive_dir() -> Result<()> {
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = TempDir::new()?;
         let sub = dir.path().join("subdir");
         fs::create_dir(&sub)?;
-        let file = sub.join("file.txt");
-        fs::write(&file, "data")?;
+        let nested = sub.join("file.txt");
+        fs::write(&nested, "data")?;
         fix_permissions_recursive(sub.to_str().unwrap())?;
         let dir_mode = fs::metadata(&sub)?.permissions().mode() & 0o777;
         assert_eq!(dir_mode, 0o775);
-        let file_mode = fs::metadata(&file)?.permissions().mode() & 0o777;
+        let file_mode = fs::metadata(&nested)?.permissions().mode() & 0o777;
         assert_eq!(file_mode, 0o660);
         Ok(())
     }

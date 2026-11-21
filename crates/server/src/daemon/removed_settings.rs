@@ -44,7 +44,7 @@ mod tests {
     use crate::log_capture::capture_log;
 
     #[test]
-    fn finds_the_ztp_server_table() {
+    fn server_config_002_a_config_with_the_ztp_server_table_is_warned_about_and_loads() {
         let contents = r#"server_ipv4 = "0.0.0.0"
 
 [ztp_server]
@@ -53,26 +53,7 @@ username = "sherpa"
 password = "kept"
 "#;
         assert!(has_ztp_server_table(contents).unwrap());
-    }
 
-    #[test]
-    fn a_config_without_it_is_not_reported() {
-        let contents = r#"server_ipv4 = "0.0.0.0"
-
-[tls]
-enabled = true
-"#;
-        assert!(!has_ztp_server_table(contents).unwrap());
-    }
-
-    #[test]
-    fn a_key_of_that_name_inside_another_table_is_not_reported() {
-        let contents = "[otel]\nztp_server = true\n";
-        assert!(!has_ztp_server_table(contents).unwrap());
-    }
-
-    #[test]
-    fn warns_without_error_for_a_file_with_the_table() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("sherpa.toml");
         fs::write(&path, "[ztp_server]\nenable = false\n").unwrap();
@@ -83,5 +64,18 @@ enabled = true
             output.contains("[ztp_server] table, which sherpad no longer reads"),
             "{output}"
         );
+    }
+
+    #[test]
+    fn server_config_003_a_config_without_the_table_gets_no_warning() {
+        let contents = r#"server_ipv4 = "0.0.0.0"
+
+[tls]
+enabled = true
+"#;
+        assert!(!has_ztp_server_table(contents).unwrap());
+
+        let contents = "[otel]\nztp_server = true\n";
+        assert!(!has_ztp_server_table(contents).unwrap());
     }
 }

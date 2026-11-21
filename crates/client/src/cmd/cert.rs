@@ -272,7 +272,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_bare_host_uses_the_sherpa_server_port() {
+    fn certificate_trust_015_a_host_a_host_and_port_or_a_websocket_url_names_the_entry_a_connection_uses()
+     {
         assert_eq!(
             normalize_server_url("10.0.0.1").unwrap(),
             "wss://10.0.0.1:3030/ws"
@@ -280,14 +281,6 @@ mod tests {
         assert_eq!(
             normalize_server_url("[::1]").unwrap(),
             "wss://[::1]:3030/ws"
-        );
-    }
-
-    #[test]
-    fn an_explicit_port_is_kept() {
-        assert_eq!(
-            normalize_server_url("10.0.0.1:3030").unwrap(),
-            "wss://10.0.0.1:3030/ws"
         );
         assert_eq!(
             normalize_server_url("example.com:443").unwrap(),
@@ -297,10 +290,6 @@ mod tests {
             normalize_server_url("[::1]:4000").unwrap(),
             "wss://[::1]:4000/ws"
         );
-    }
-
-    #[test]
-    fn a_websocket_url_is_used_as_given() {
         assert_eq!(
             normalize_server_url("wss://h:3030/ws").unwrap(),
             "wss://h:3030/ws"
@@ -312,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn other_urls_are_refused() {
+    fn certificate_trust_016_any_other_url_a_path_and_nothing_are_refused() {
         for input in ["https://h:3030", "h:3030/path", ""] {
             let error = normalize_server_url(input).unwrap_err().to_string();
             assert!(error.starts_with(&format!("Server '{input}' ")), "{error}");

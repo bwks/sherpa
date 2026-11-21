@@ -59,8 +59,10 @@ Each case is tested at the highest level that can show it:
 
 1. **e2e:** the `sherpa` CLI against an installed server: the lab tests (`tests/labs/`) and the VM suite.
    - **e2e (browser):** a browser driving the web UI's pages and their scripts against an installed server. Nothing runs one yet, so these cases have no test.
+   - **e2e (fresh VM):** the install, update and uninstall scripts run as root on a bare guest that `tests/harness/test_install.sh` builds on the host and destroys. The guest helper reports each case a step shows by its ID.
 2. **integration:** real libvirt, Docker, the database or a running sherpad: the server integration tests (`crates/server/tests/integration/`) and the `#[ignore]` crate tests.
 3. **unit:** only for logic with too many branches to cover above: parsing, validation, allocation, template rendering. Still a case of a behaviour, with its ID. The web UI's scripts are unit tested in JavaScript (`tests/web/`), marked unit (JavaScript).
+   - **unit (bats):** one function of a shell script, sourced with its commands stubbed and its paths in a temporary folder (`tests/bats/`). The test's name, `@test "<case ID>"`, is the ID.
 
 ### e2e lab tests
 
@@ -86,6 +88,15 @@ A test fails on a regression of its case, and only then. It must not depend on:
 
 A bug fix starts with a test that fails on the bug, as a case of the behaviour the bug broke; add the case to the spec if it is missing.
 
+## Tooling outside the specs
+
+These test the test tooling or the build, not Sherpa. They prove no case, carry no case ID, and the name check skips them:
+
+- `crates/agent-bus`, the message bus between the host agent and the agents in lab guests.
+- `crates/db/build`: the build script's count of a query file's parameters (`placeholders.rs`).
+- `crates/server/src/log_capture.rs`: the helper other tests read log lines with.
+- The self-tests of `tests/harness/` (`vm_release_test.py`, `vm_release_guest.py`, `vm_release_faults.py`, `verify_release_test.py` and the rest) other than the three named by a case ID, the VM run's `failure-checks` scenario, and its `baseline`, `install-baseline` and `seed-upgrade` steps, which prepare a run.
+
 ## Enforcement
 
-A check script will fail CI on a test whose name is not a known behaviour ID and case number, and on a case number the spec does not list or lists twice. It also reports cases with no test, without failing. It is added once the tree passes it.
+A check script will fail CI on a test whose name is not a known behaviour ID and case number, and on a case number the spec does not list or lists twice. It also reports cases with no test, without failing. It skips the tooling above. It is added once the tree passes it.

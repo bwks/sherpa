@@ -352,8 +352,8 @@ installed before the installer made them gets the missing ones. The function:
 
 The disk table and the functions are one section, between `# BEGIN blank disks` and
 `# END blank disks`, copied in both scripts, because each script is fetched alone with `curl`
-and has nothing next to it to run. `tests/bats/install_tests.bats` fails when the two copies
-differ. The tools are in `qemu-utils`, `dosfstools` and `e2fsprogs`: the installer installs them
+and has nothing next to it to run. `tests/bats/install_tests.bats` runs the same cases against
+each script's copy. The tools are in `qemu-utils`, `dosfstools` and `e2fsprogs`: the installer installs them
 with its other packages, and the update script installs them when one is missing.
 
 `iosv.img` was made by `create_iosv_disk.sh`, which wrote a hand-made boot sector and then ran
@@ -392,6 +392,7 @@ The cases are in [`tests/specs/ztp.md`](../../tests/specs/ztp.md).
   `ztp_setting_006_a_redeploy_to_a_method_the_model_does_not_take_is_refused` and
   `lab_preflight_004_an_unsupported_ztp_setting_is_refused`, against real Docker.
 - Lab: `tests/labs/container-ztp`.
-- Blank disks: `tests/bats/install_tests.bats` makes every disk in a temporary folder and checks
-  its size, file system and label with `blkid` and `file`, that existing files and folders are
-  left alone, and, after a real install, the disks under `/opt/sherpa`.
+- Blank disks: `tests/bats/install_tests.bats` makes every disk in a temporary folder, with each
+  script's copy of the section, and checks its size, file system and label with `blkid` and
+  `file`, and that existing files and folders are left alone (`blank_disks_002` to `006`, `009`).
+  The VM run checks the disks under `/opt/sherpa` after a real install (`blank_disks_001`).

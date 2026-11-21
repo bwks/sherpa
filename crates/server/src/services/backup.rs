@@ -51,7 +51,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn backup_files_are_named_after_the_time_in_utc() {
+    fn database_backup_003_the_file_is_named_after_the_time_in_utc() {
         let taken: Timestamp = "2026-11-01T09:08:07.654Z".parse().unwrap();
         assert_eq!(
             backup_path(taken),

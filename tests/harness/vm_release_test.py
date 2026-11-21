@@ -1264,7 +1264,7 @@ sys.exit(runner.run('preflight'))
             result = subprocess.run(["git", "-C", directory, "check-ignore", "-q", str(key)])
             self.assertEqual(result.returncode, 0)
 
-    def test_uninstall_removes_only_owned_binary_symlinks(self):
+    def test_uninstall_script_008_a_link_is_removed_only_when_it_points_at_sherpas_binary(self):
         source = (ROOT / "scripts/sherpa_uninstall.sh").read_text().removesuffix('main "$@"\n')
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -1297,20 +1297,16 @@ sys.exit(runner.run('preflight'))
             with self.subTest(value=value), self.assertRaises(ValueError):
                 validate_config(invalid)
 
-    def test_missing_version_is_rejected_before_host_changes(self):
-        result = subprocess.run(["bash", str(ROOT / "scripts/sherpa_install.sh"), "--version"],
-                                capture_output=True, text=True, timeout=5)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("--version requires a version", result.stderr)
-
-    def test_missing_local_artifact_is_rejected_before_host_changes(self):
+    def test_install_preflight_009_local_archives_need_version_and_the_sherpad_archive(self):
         with tempfile.TemporaryDirectory() as directory:
             env = dict(os.environ, SHERPA_ARTIFACT_DIR=directory)
-            result = subprocess.run(["bash", str(ROOT / "scripts/sherpa_install.sh"),
-                                     "--version", "v0.5.35"], env=env,
-                                    capture_output=True, text=True, timeout=5)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("artifact not found", result.stderr)
+            for arguments, message in (([], "Local artifacts require --version"),
+                                       (["--version", "v0.5.35"], "artifact not found")):
+                with self.subTest(arguments=arguments):
+                    result = subprocess.run(["bash", str(ROOT / "scripts/sherpa_install.sh"), *arguments],
+                                            env=env, capture_output=True, text=True, timeout=5)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(message, result.stdout + result.stderr)
 
     def test_setup_failure_produces_failed_result_and_nonzero_exit(self):
         config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")

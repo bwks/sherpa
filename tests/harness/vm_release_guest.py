@@ -9,6 +9,7 @@ this helper on the Sherpa host."""
 
 import fcntl
 from contextlib import suppress
+import grp
 import hashlib
 import json
 import os
@@ -37,6 +38,54 @@ import xml.etree.ElementTree as ET
 def require(condition, message):
     if not condition:
         raise RuntimeError(message)
+
+
+def check_cases(cases):
+    """Run each case's check, given as (case ID, check), and report it by its ID with PASS or FAIL;
+    a failed case does not stop the next. The step then fails naming every case that failed."""
+    failed = []
+    for case, check in cases:
+        try:
+            check()
+        except TimeoutError:
+            print(f"FAIL {case}: timed out", flush=True)
+            raise
+        except (RuntimeError, OSError, KeyError) as error:
+            failed.append(case)
+            print(f"FAIL {case}: {error}", flush=True)
+        else:
+            print(f"PASS {case}", flush=True)
+    require(not failed, "Failed cases: " + ", ".join(failed))
+
+
+def authenticate_case(previous_step, upgrade):
+    """The case an authenticate step completes after the step before it, or None. In the upgrade
+    scenario the verify steps report the update's cases, and the server first set up is the
+    earlier release's."""
+    return None if upgrade else AUTHENTICATE_CASES.get(previous_step)
+
+
+def account_exists(name):
+    try:
+        pwd.getpwnam(name)
+    except KeyError:
+        return False
+    return True
+
+
+def check_mode(path, mode, owner=None, group=None):
+    """`path` has `mode`, special bits included, and the owner and group given."""
+    status = path.stat()
+    require(status.st_mode & 0o7777 == mode, f"{path} is {status.st_mode & 0o7777:o}, not {mode:o}")
+    if owner:
+        require(status.st_uid == pwd.getpwnam(owner).pw_uid, f"{path} is not owned by {owner}")
+    if group:
+        require(status.st_gid == grp.getgrnam(group).gr_gid, f"{path} is not in the {group} group")
+
+
+def blkid(path, tag):
+    return subprocess.run(["blkid", "-p", "-o", "value", "-s", tag, str(path)],
+                          capture_output=True, text=True, check=False).stdout.strip()
 
 
 def validate_identity(expected_uuid, expected_hostname, actual_uuid, actual_hostname):
@@ -91,6 +140,29 @@ TAILNET_TESTS = [
 TAILNET_SUBNET = "172.31.250.0/24"
 TAILNET_GATEWAY_IPV4 = "172.31.250.10"
 THP_BOOT_RULE = Path("/etc/tmpfiles.d/sherpa-thp.conf")
+# The case an authenticate step completes, by the step before it (see authenticate_case).
+AUTHENTICATE_CASES = {"initialize": "server_init_001", "reboot": "install_host_008",
+                      "reinstall": "install_host_009", "restore": "uninstall_script_002",
+                      "new-database": "uninstall_script_004"}
+# The steps after which the guest records no previous step: they test nothing of Sherpa.
+UNRECORDED_STEPS = ("diagnostics", "diagnostics-live", "fault-wait", "cancel")
+PREVIOUS_STEP_FILE = "previous-step"
+# Each blank disk template as (name, bytes, file system, label, FAT version): what the ZTP code in
+# crates/server expects. None is none.
+BLANK_DISKS = (("base.img", 67108864, None, None, None),
+               ("fat16.img", 67108864, "vfat", None, "FAT16"),
+               ("fat32.img", 67108864, "vfat", None, "FAT32"),
+               ("junos.img", 67108864, "vfat", "vmm-data", "FAT16"),
+               ("iosv.img", 67092480, "vfat", None, "FAT16"),
+               ("ise.img", 10485760, "ext4", "ISE-ZTP", None),
+               ("ext4-100mb.img", 104857600, "ext4", "data-disk", None),
+               ("ext4-200mb.img", 209715200, "ext4", "data-disk", None),
+               ("ext4-500mb.img", 524288000, "ext4", "data-disk", None),
+               ("ext4-1g.img", 1073741824, "ext4", "data-disk", None),
+               ("ext4-2g.img", 2147483648, "ext4", "data-disk", None),
+               ("ext4-3g.img", 3221225472, "ext4", "data-disk", None),
+               ("ext4-4g.img", 4294967296, "ext4", "data-disk", None),
+               ("ext4-5g.img", 5368709120, "ext4", "data-disk", None))
 
 
 def summarize_tests(output):
@@ -358,11 +430,12 @@ class Guest:
         print("PASS bare baseline, cloud-init, nested KVM and guest identity")
 
     def preflight(self):
-        for script in ("sherpa_install.sh", "sherpa_update.sh", "sherpa_uninstall.sh"):
-            code, output = self.command(["bash", str(self.workspace / script), "--help"])
-            require("Usage:" in output, "Missing help output")
-            code, output = self.command(["bash", str(self.workspace / script), "--bogus"], check=False)
-            require(code != 0 and "Unknown option" in output, "Invalid argument accepted")
+        check_cases([("install_preflight_010", self.preflight_refusals)])
+
+    def preflight_refusals(self):
+        """Each refusal of the install script a bare host can reach leaves no installation."""
+        code, output = self.command(["bash", str(self.workspace / "sherpa_install.sh"), "--bogus"], check=False)
+        require(code != 0 and "Unknown option" in output, "Invalid argument accepted")
         code, output = self.command(["sudo", "-u", self.login_user().pw_name, *self.installer()],
                                     env=self.environment(), check=False)
         require(code != 0 and "must be run as root" in output, "Non-root installer accepted")
@@ -375,6 +448,7 @@ class Guest:
         code, output = self.command(self.installer(), env=env, check=False)
         require(code != 0 and "artifact" in output.lower(), "Unavailable artifacts accepted")
         require(not self.base.exists(), "Preflight failures changed the installation")
+        require(not account_exists("sherpa"), "Preflight failures created the sherpa account")
 
     def check_runtimes(self):
         """Docker and libvirt answer requests. libvirtd is socket-activated and exits when
@@ -383,21 +457,24 @@ class Guest:
         self.command(["systemctl", "is-active", "libvirtd.socket"])
         self.command(["virsh", "-c", "qemu:///system", "version"])
 
-    def install(self, selection="candidate"):
+    def install(self, selection="candidate", fresh=False):
+        """Install the release. `fresh` is the first install on a bare host: it reports the cases
+        of install_host and blank_disks it shows."""
         self.command(self.installer(selection), timeout=self.timeouts["install"], env=self.environment(selection))
-        self.verify_installation(selection)
+        if fresh:
+            check_cases([("install_host_001", lambda: self.verify_binaries(selection)),
+                         ("install_host_002", self.verify_accounts),
+                         ("install_host_003", self.verify_service),
+                         ("install_host_004", lambda: self.verify_environment(selection)),
+                         ("install_host_005", self.verify_router_image),
+                         ("install_host_006", self.verify_hugepages),
+                         ("blank_disks_001", self.verify_blank_disks)])
+        else:
+            self.verify_installation(selection)
 
     def verify_installation(self, selection="candidate"):
-        for binary in ("sherpa", "sherpad"):
-            path = self.base / "bin" / binary
-            require(digest(path) == self.config[selection][f"{binary}_binary_sha256"],
-                    f"Installed {binary} does not match the {selection} artifact")
-            require(path.stat().st_mode & 0o777 == 0o755, f"Invalid {binary} permissions")
-            require(path.stat().st_uid == pwd.getpwnam("sherpa").pw_uid, f"Invalid {binary} owner")
-            link = Path("/usr/local/bin") / binary
-            require(link.is_symlink() and link.resolve() == path, f"Invalid {binary} symlink")
-            _, output = self.command([str(path), "--version"])
-            validate_binary_version(binary, self.config[selection]["version"], output)
+        """What an install, a reinstall or an update leaves, the release's own modes included."""
+        self.verify_binaries(selection)
         database_mode = database_directory_mode(self.config[selection]["version"])
         config_mode, env_file_mode = config_modes(self.config[selection]["version"])
         for directory, permissions in (("", 0o775), ("db", database_mode), ("config", config_mode),
@@ -410,13 +487,7 @@ class Guest:
         require(env_file.stat().st_mode & 0o777 == env_file_mode,
                 f"Environment permissions are not {env_file_mode:o}")
         require(env_file.stat().st_uid == pwd.getpwnam("sherpa").pw_uid, "Invalid environment owner")
-        env_values = dict(line.split("=", 1) for line in env_file.read_text().splitlines()
-                          if line and not line.startswith("#") and "=" in line)
-        for key, value in self.environment(selection).items():
-            if key.startswith("SHERPA_") and key != "SHERPA_ARTIFACT_DIR":
-                require(env_values.get(key) == value, f"Environment setting mismatch: {key}")
-        for key in ("SHERPA_DB_PASSWORD", "SHERPA_DB_PORT"):
-            require(key not in env_values, f"Embedded-database install wrote {key}")
+        self.verify_environment(selection)
         _, groups = self.command(["id", "-nG", "sherpa"])
         require({"libvirt", "docker", "kvm"}.issubset(groups.split()), "Missing runtime groups")
         self.check_runtimes()
@@ -428,14 +499,81 @@ class Guest:
                 "Missing private /run/sherpa for container secrets")
         require(Path("/etc/logrotate.d/sherpad").is_file(), "Missing logrotate configuration")
         if selection == "candidate":
-            thp = THP_ENABLED.read_text()
-            require("[madvise]" in thp or "[always]" in thp, "Transparent hugepages are not madvise")
-            if "[always]" not in thp:
-                require(f"w {THP_ENABLED} - - - - madvise" in THP_BOOT_RULE.read_text(),
-                        "Missing transparent hugepages boot rule")
+            self.verify_hugepages()
+        self.verify_router_image()
+
+    def verify_binaries(self, selection):
+        for binary in ("sherpa", "sherpad"):
+            path = self.base / "bin" / binary
+            require(digest(path) == self.config[selection][f"{binary}_binary_sha256"],
+                    f"Installed {binary} does not match the {selection} artifact")
+            require(path.stat().st_mode & 0o777 == 0o755, f"Invalid {binary} permissions")
+            require(path.stat().st_uid == pwd.getpwnam("sherpa").pw_uid, f"Invalid {binary} owner")
+            link = Path("/usr/local/bin") / binary
+            require(link.is_symlink() and link.resolve() == path, f"Invalid {binary} symlink")
+            _, output = self.command([str(path), "--version"])
+            validate_binary_version(binary, self.config[selection]["version"], output)
+
+    def verify_accounts(self):
+        """Docker and libvirt run; `sherpa` cannot log in and is in their groups; the user who
+        ran sudo is in the `sherpa` group."""
+        self.check_runtimes()
+        account = pwd.getpwnam("sherpa")
+        require(account.pw_shell == "/usr/sbin/nologin", f"The sherpa account's shell is {account.pw_shell}")
+        _, groups = self.command(["id", "-nG", "sherpa"])
+        require({"libvirt", "docker", "kvm"}.issubset(groups.split()), "Missing runtime groups")
+        installer = self.login_user().pw_name
+        require(installer in grp.getgrnam("sherpa").gr_mem, f"{installer} is not in the sherpa group")
+
+    def verify_service(self):
+        """The unit is installed and enabled but not started, runs sherpad as `sherpa` with its
+        capabilities, needs Docker and libvirt and keeps /run/sherpa; the log is rotated daily."""
+        self.command(["systemctl", "is-enabled", "sherpad"])
+        code, _ = self.command(["systemctl", "is-active", "--quiet", "sherpad"], check=False)
+        require(code != 0, "The install started sherpad")
+        unit = Path("/etc/systemd/system/sherpad.service").read_text().splitlines()
+        for line in ("ExecStart=/opt/sherpa/bin/sherpad start --foreground", "User=sherpa",
+                     "Requires=docker.service libvirtd.service",
+                     "AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_BPF CAP_PERFMON",
+                     "RuntimeDirectory=sherpa", "RuntimeDirectoryMode=0700", "RuntimeDirectoryPreserve=yes"):
+            require(line in unit, f"The service unit lacks {line}")
+        rotation = Path("/etc/logrotate.d/sherpad").read_text()
+        require("/opt/sherpa/logs/sherpad.log" in rotation and "daily" in rotation.split(),
+                "sherpad.log is not rotated daily")
+
+    def verify_environment(self, selection):
+        """sherpa.env holds the address and ports the installer was given."""
+        env_file = self.base / "env/sherpa.env"
+        env_values = dict(line.split("=", 1) for line in env_file.read_text().splitlines()
+                          if line and not line.startswith("#") and "=" in line)
+        for key, value in self.environment(selection).items():
+            if key.startswith("SHERPA_") and key != "SHERPA_ARTIFACT_DIR":
+                require(env_values.get(key) == value, f"Environment setting mismatch: {key}")
+
+    def verify_router_image(self):
         self.command(["docker", "image", "inspect", "--format", "{{.Id}}", self.settings["router_image"]])
-        code, _ = self.command(["docker", "inspect", "--format", "{{.Id}}", "sherpa-db"], check=False)
-        require(code != 0, "A sherpa-db container exists; releases from 0.5.0 embed the database")
+
+    def verify_hugepages(self):
+        thp = THP_ENABLED.read_text()
+        require("[madvise]" in thp or "[always]" in thp, "Transparent hugepages are not madvise")
+        if "[always]" not in thp:
+            require(f"w {THP_ENABLED} - - - - madvise" in THP_BOOT_RULE.read_text(),
+                    "Missing transparent hugepages boot rule")
+
+    def verify_blank_disks(self):
+        """Each blank disk template has its size, file system and label, 644 sherpa:sherpa, in a
+        folder 775."""
+        folder = self.base / "images/blank_disk"
+        check_mode(folder, 0o775)
+        for name, size, kind, label, version in BLANK_DISKS:
+            disk = folder / name
+            require(disk.is_file() and not disk.is_symlink(), f"Blank disk {name} is missing")
+            require(disk.stat().st_size == size, f"Blank disk {name} is not {size} bytes")
+            check_mode(disk, 0o644, "sherpa", "sherpa")
+            require(blkid(disk, "TYPE") == (kind or ""), f"Blank disk {name} has the wrong file system")
+            require(blkid(disk, "LABEL") == (label or ""), f"Blank disk {name} has the wrong label")
+            if version:
+                require(blkid(disk, "VERSION") == version, f"Blank disk {name} is not {version}")
 
     def verify_embedded_database(self):
         """The database is the file sherpad embeds."""
@@ -548,7 +686,62 @@ class Guest:
             f"ca_cert_path = {json.dumps(str(self.base / '.certs/server.crt'))}\n")
         return url
 
+    def previous_step(self):
+        path = self.workspace / PREVIOUS_STEP_FILE
+        return path.read_text().strip() if path.exists() else None
+
     def authenticate(self):
+        """Wait for sherpad and log in. After a step whose case needs a running server, report that
+        case; after the first set-up, the modes of the server's files too."""
+        case = authenticate_case(self.previous_step(), "baseline" in self.config)
+        if case is None:
+            self.wait_authenticated()
+            return
+        cases = [(case, self.wait_authenticated)]
+        if case == "server_init_001":
+            cases += [("server_file_modes_001", self.verify_server_file_modes),
+                      ("server_file_modes_002", self.verify_secret_readers)]
+        check_cases(cases)
+
+    def verify_server_file_modes(self):
+        """Each path of the spec's table of the server's files has its mode and owner."""
+        for path, mode, owner, group in (
+                ("", 0o775, "sherpa", "sherpa"),
+                ("bin/sherpad", 0o755, "sherpa", "sherpa"), ("bin/sherpa", 0o755, "sherpa", "sherpa"),
+                ("config", 0o750, "sherpa", "sherpa"), ("config/sherpa.toml", 0o600, "sherpa", "sherpa"),
+                ("env", 0o750, "sherpa", "sherpa"), ("env/sherpa.env", 0o600, "sherpa", "sherpa"),
+                ("env/sherpa.env.example", 0o600, "sherpa", "sherpa"),
+                (".secret", 0o700, "sherpa", "sherpa"), (".certs", 0o700, None, None),
+                (".certs/server.key", 0o600, None, None),
+                ("db", 0o750, "sherpa", "sherpa"), ("db/backups", 0o700, "sherpa", "sherpa"),
+                ("logs", 0o750, "sherpa", "sherpa"),
+                ("labs", 0o2750, "sherpa", "sherpa"), ("libvirt/images", 0o2750, "sherpa", "kvm"),
+                ("images/blank_disk", 0o775, "sherpa", "sherpa")):
+            check_mode(self.base / path, mode, owner, group)
+        for folder in (".secret", "db"):
+            for file in (self.base / folder).iterdir():
+                if file.is_file():
+                    check_mode(file, 0o600, "sherpa", "sherpa")
+        log = self.base / "logs/sherpad.log"
+        if log.exists():
+            check_mode(log, 0o640)
+        for disk in (self.base / "images/blank_disk").iterdir():
+            check_mode(disk, 0o644, "sherpa", "sherpa")
+        for path in (Path("/etc/systemd/system/sherpad.service"), Path("/etc/logrotate.d/sherpad"), THP_BOOT_RULE):
+            if path != THP_BOOT_RULE or path.exists():
+                check_mode(path, 0o644, "root")
+
+    def verify_secret_readers(self):
+        """sherpa.toml and the env files are read by `sherpa` and by no one else, the user who
+        installed, in the `sherpa` group, included."""
+        for file in ("config/sherpa.toml", "env/sherpa.env", "env/sherpa.env.example"):
+            path = str(self.base / file)
+            self.command(["runuser", "-u", "sherpa", "--", "test", "-r", path])
+            for account in (self.login_user().pw_name, "nobody"):
+                code, _ = self.command(["runuser", "-u", account, "--", "test", "-r", path], check=False)
+                require(code != 0, f"{account} can read {path}")
+
+    def wait_authenticated(self):
         deadline = time.monotonic() + self.timeouts["startup"]
         last_error = ""
         while time.monotonic() < deadline:
@@ -634,6 +827,11 @@ class Guest:
         self.command(["systemctl", "start", "sherpad"])
 
     def verify_upgrade(self, phase):
+        case = "update_script_001" if phase == "after" else "update_script_002"
+        check_cases([(case, lambda: self.verify_upgraded(phase))])
+
+    def verify_upgraded(self, phase):
+        """This release's binaries, and the users, settings and identity the server held."""
         self.verify_installation()
         self.verify_embedded_database()
         evidence = tomllib.loads((self.workspace / "upgrade-state.toml").read_text())
@@ -711,14 +909,23 @@ class Guest:
         self.command(["systemctl", "start", "sherpad"])
 
     def uninstall(self, mode):
+        """Uninstall in `mode`, and report its case and the resources every mode leaves alone."""
         before = self.resources()
         evidence = self.workspace / ("resources-" + mode.removeprefix("--") + ".toml")
         self.write_resources(evidence, {"before": before})
         self.command(["bash", str(self.workspace / "sherpa_uninstall.sh"), mode, "--force"])
         after = self.resources()
         self.write_resources(evidence, {"before": before, "after": after})
-        validate_retained_resources(before, after)
-        print("PASS retained packages, users/groups, images, volumes and libvirt resources")
+        case = {"--keep-data": "uninstall_script_001", "--remove-data": "uninstall_script_003",
+                "--remove-all": "uninstall_script_005"}[mode]
+        check_cases([(case, lambda: self.verify_uninstalled(mode)),
+                     ("uninstall_script_006", lambda: self.verify_left_alone(before, after))])
+
+    def verify_uninstalled(self, mode):
+        """The service and what the install put outside /opt/sherpa are gone, and the data is
+        kept or removed as `mode` says."""
+        code, _ = self.command(["systemctl", "is-active", "--quiet", "sherpad"], check=False)
+        require(code != 0, "Server still running")
         require(not Path("/etc/systemd/system/sherpad.service").exists(), "Service unit remains")
         require(not Path("/etc/logrotate.d/sherpad").exists(), "Logrotate entry remains")
         require(not THP_BOOT_RULE.exists(), "Transparent hugepages boot rule remains")
@@ -727,12 +934,6 @@ class Guest:
             require(not (self.base / "bin" / binary).exists(), f"{binary} binary remains")
             link = Path("/usr/local/bin") / binary
             require(not link.exists() and not link.is_symlink(), f"{binary} symlink remains")
-        code, _ = self.command(["docker", "inspect", "--format", "{{.Id}}", "sherpa-db"], check=False)
-        require(code != 0, "Database container remains")
-        code, _ = self.command(["systemctl", "is-active", "--quiet", "sherpad"], check=False)
-        require(code != 0, "Server still running")
-        self.check_runtimes()
-        self.command(["id", "sherpa"])
         if mode == "--remove-all":
             require(not self.base.exists(), "Installation directory remains")
         else:
@@ -744,6 +945,18 @@ class Guest:
             require((self.base / "db").is_dir(), "Database directory removed")
             files = list((self.base / "db").iterdir())
             require(bool(files) if mode == "--keep-data" else not files, "Incorrect database retention")
+
+    def verify_left_alone(self, before, after):
+        """Packages, accounts and groups, Docker's and libvirt's resources are as they were, and
+        Docker and libvirt still run."""
+        validate_retained_resources(before, after)
+        self.check_runtimes()
+        self.command(["id", "sherpa"])
+
+    def repeat_uninstall(self):
+        """The uninstall on a host where nothing is left exits 0."""
+        check_cases([("uninstall_script_007", lambda: self.command(
+            ["bash", str(self.workspace / "sherpa_uninstall.sh"), "--remove-all", "--force"]))])
 
     def write_resources(self, path, sections):
         lines = []
@@ -1090,13 +1303,13 @@ class Guest:
     def run(self, step):
         self.guard(baseline=step in ("baseline", "diagnostics", "cancel"))
         actions = {"baseline": self.baseline, "preflight": self.preflight,
-                   "install": self.install, "initialize": self.initialize,
+                   "install": lambda: self.install(fresh=True), "initialize": self.initialize,
                    "authenticate": self.authenticate, "reboot": self.reboot,
                    "reinstall": self.reinstall, "restore": self.reinstall,
                    "keep-data": lambda: self.uninstall("--keep-data"),
                    "remove-data": lambda: self.uninstall("--remove-data"),
                    "remove-all": lambda: self.uninstall("--remove-all"),
-                   "repeat-uninstall": lambda: self.uninstall("--remove-all"),
+                   "repeat-uninstall": self.repeat_uninstall,
                    "diagnostics": self.diagnostics,
                    "diagnostics-live": lambda: self.diagnostics(required=True),
                    "fault-wait": self.fault_wait, "cancel": self.cancel,
@@ -1120,12 +1333,35 @@ class Guest:
         previous = signal.signal(signal.SIGTERM, interrupted)
         try:
             actions[step]()
+            if step not in UNRECORDED_STEPS:
+                (self.workspace / PREVIOUS_STEP_FILE).write_text(step)
         finally:
             active.unlink(missing_ok=True)
             signal.signal(signal.SIGTERM, previous)
 
 
 class GuestTests(unittest.TestCase):
+    def test_each_case_is_reported_by_its_id_and_the_step_names_the_failed_ones(self):
+        def failing():
+            require(False, "the check failed")
+        ran = []
+        with patch("builtins.print") as printed, self.assertRaises(RuntimeError) as raised:
+            check_cases([("first_001", lambda: ran.append(1)), ("second_002", failing),
+                         ("third_003", lambda: ran.append(3))])
+        self.assertEqual(ran, [1, 3])
+        lines = [call.args[0] for call in printed.call_args_list]
+        self.assertEqual(lines, ["PASS first_001", "FAIL second_002: the check failed", "PASS third_003"])
+        self.assertEqual(str(raised.exception), "Failed cases: second_002")
+        with patch("builtins.print"):
+            check_cases([("first_001", lambda: None)])
+
+    def test_authenticate_reports_the_case_of_the_step_before_it_outside_the_upgrade(self):
+        self.assertEqual(authenticate_case("initialize", upgrade=False), "server_init_001")
+        self.assertEqual(authenticate_case("reboot", upgrade=False), "install_host_008")
+        self.assertIsNone(authenticate_case("initialize", upgrade=True))
+        self.assertIsNone(authenticate_case("authenticate", upgrade=False))
+        self.assertIsNone(authenticate_case(None, upgrade=False))
+
     def test_environment_fingerprint_ignores_comments_but_detects_changed_settings(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "environment"

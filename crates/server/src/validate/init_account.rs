@@ -24,12 +24,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepts_the_service_account() {
+    fn server_init_002_any_account_but_sherpa_is_refused_with_the_command_to_run() {
         assert!(validate_init_account("sherpa").is_ok());
-    }
-
-    #[test]
-    fn refuses_any_other_account_with_the_command_to_run() {
         for account in ["bradmin", "root", "Sherpa", "sherpa2", ""] {
             let error = validate_init_account(account).unwrap_err().to_string();
             assert!(

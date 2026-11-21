@@ -125,21 +125,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_write_and_read_pid() {
-        let temp_dir = TempDir::new().unwrap();
-        let pid_file = temp_dir.path().join("test.pid");
-        let pid_path = pid_file.to_str().unwrap();
-
-        // Write current PID
-        write_pid(pid_path).unwrap();
-
-        // Read it back
-        let read_pid_value = read_pid(pid_path).unwrap();
-        assert_eq!(read_pid_value, Some(Pid::this()));
-    }
-
-    #[test]
-    fn a_pid_that_would_signal_a_group_or_init_is_refused() {
+    fn sherpad_daemon_003_a_pid_that_would_signal_a_group_or_init_is_refused() {
         let temp_dir = TempDir::new().unwrap();
         let pid_file = temp_dir.path().join("test.pid");
         let pid_path = pid_file.to_str().unwrap();
@@ -152,22 +138,16 @@ mod tests {
     }
 
     #[test]
-    fn test_read_nonexistent_pid() {
-        let result = read_pid("/tmp/nonexistent_pid_file_12345.pid").unwrap();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_remove_pid() {
+    fn sherpad_daemon_002_the_pid_file_holds_the_pid_and_a_missing_one_reads_as_no_server() {
         let temp_dir = TempDir::new().unwrap();
         let pid_file = temp_dir.path().join("test.pid");
         let pid_path = pid_file.to_str().unwrap();
 
-        // Write PID
-        write_pid(pid_path).unwrap();
-        assert!(Path::new(pid_path).exists());
+        assert!(read_pid(pid_path).unwrap().is_none());
 
-        // Remove it
+        write_pid(pid_path).unwrap();
+        assert_eq!(read_pid(pid_path).unwrap(), Some(Pid::this()));
+
         remove_pid(pid_path).unwrap();
         assert!(!Path::new(pid_path).exists());
 
@@ -176,7 +156,7 @@ mod tests {
     }
 
     #[test]
-    fn the_log_file_is_created_and_narrowed_to_its_mode() {
+    fn server_file_modes_009_the_log_file_is_created_and_narrowed_to_its_mode() {
         let temp_dir = TempDir::new().unwrap();
         let new_log = temp_dir.path().join("new.log");
         open_log_file(&new_log).unwrap();
@@ -197,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn a_process_is_running_until_it_has_exited() {
+    fn sherpad_daemon_004_a_process_is_running_until_it_has_exited() {
         assert!(is_process_running(Pid::this()));
 
         let mut child = Command::new("sleep").arg("60").spawn().unwrap();

@@ -957,37 +957,7 @@ ipv4_router = "172.31.1.254"
     }
 
     #[test]
-    fn replacing_an_include_points_it_at_the_new_path_in_place() {
-        let tmp = TempDir::new().unwrap();
-        let ssh_dir = tmp.path().join(".ssh");
-        add_lab_ssh_include_at(&ssh_dir, "/labs/a/sherpa_ssh_config").unwrap();
-        add_lab_ssh_include_at(&ssh_dir, "/labs/b/sherpa_ssh_config").unwrap();
-
-        assert!(
-            replace_lab_ssh_include(
-                &ssh_dir,
-                "/labs/a/sherpa_ssh_config",
-                "/labs/a/.sherpa/ssh/config"
-            )
-            .unwrap()
-        );
-
-        let content = read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE));
-        let includes: Vec<&str> = content
-            .lines()
-            .filter(|l| l.starts_with("Include"))
-            .collect();
-        assert_eq!(
-            includes,
-            [
-                "Include /labs/a/.sherpa/ssh/config",
-                "Include /labs/b/sherpa_ssh_config"
-            ]
-        );
-    }
-
-    #[test]
-    fn replacing_an_absent_include_changes_nothing() {
+    fn lab_folder_upgrade_010_with_no_include_for_the_lab_nothing_in_ssh_is_written() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         assert!(!replace_lab_ssh_include(&ssh_dir, "/labs/a/sherpa_ssh_config", "/x").unwrap());
@@ -1000,7 +970,7 @@ ipv4_router = "172.31.1.254"
     }
 
     #[test]
-    fn replacing_an_include_already_present_at_the_new_path_drops_the_old_one() {
+    fn lab_folder_upgrade_009_an_include_present_at_both_paths_is_left_once_at_the_new_one() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         add_lab_ssh_include_at(&ssh_dir, "/labs/a/.sherpa/ssh/config").unwrap();

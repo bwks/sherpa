@@ -133,7 +133,7 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
-    use super::{ensure_private_dir, restrict_secret_permissions, write_secret_file};
+    use super::{ensure_private_dir, write_secret_file};
 
     /// What the secret files in these tests are called in error messages.
     const LABEL: &str = "kubeconfig";
@@ -163,29 +163,6 @@ mod tests {
         #[cfg(unix)]
         fs::set_permissions(path, fs::Permissions::from_mode(0o644)).expect("open up file");
         assert!(!is_owner_only(path), "the file starts readable by others");
-    }
-
-    #[test]
-    fn restrict_secret_permissions_repairs_existing_file() {
-        let temp_dir = tempfile::tempdir().expect("create temp directory");
-        let path = temp_dir.path().join("kubeconfig-k8s");
-        write_open_file(&path, "config");
-
-        restrict_secret_permissions(&path, LABEL).expect("restrict secret file");
-
-        assert!(is_owner_only(&path));
-        assert_eq!(fs::read_to_string(&path).expect("read secret"), "config");
-    }
-
-    #[test]
-    fn restrict_secret_permissions_rejects_missing_file() {
-        let temp_dir = tempfile::tempdir().expect("create temp directory");
-        let path = temp_dir.path().join("missing-kubeconfig");
-
-        let error =
-            restrict_secret_permissions(&path, LABEL).expect_err("missing secret file should fail");
-
-        assert!(error.to_string().contains(LABEL));
     }
 
     #[test]

@@ -364,7 +364,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn insecure_mode_accepts_every_scheme_the_provider_verifies() {
+    fn certificate_trust_006_insecure_accepts_each_signature_scheme_the_library_can_check() {
         let schemes = NoCertificateVerification.supported_verify_schemes();
         assert!(schemes.contains(&rustls::SignatureScheme::RSA_PSS_SHA256));
         assert!(schemes.contains(&rustls::SignatureScheme::ECDSA_NISTP384_SHA384));
@@ -373,7 +373,7 @@ mod tests {
     const SELF_SIGNED: &str = include_str!("testdata/self_signed.crt");
 
     #[test]
-    fn a_certificate_no_public_ca_issued_is_refused_and_flagged() {
+    fn certificate_trust_003_a_certificate_no_public_ca_issued_is_refused_and_flagged() {
         let unknown_issuer = Arc::new(AtomicBool::new(false));
         let verifier = PublicCaVerifier::new(Arc::clone(&unknown_issuer)).unwrap();
         let cert = parse_certificate_pem(SELF_SIGNED).unwrap();
@@ -387,7 +387,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn insecure_mode_never_falls_back_to_trust_on_first_use() {
+    async fn certificate_trust_005_insecure_connects_without_asking_fetching_or_saving() {
         rustls::crypto::aws_lc_rs::default_provider()
             .install_default()
             .ok();
@@ -403,7 +403,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_custom_ca_is_trusted_without_the_trust_store() {
+    async fn certificate_trust_007_a_certificate_from_the_configured_ca_is_trusted_without_a_question()
+     {
         rustls::crypto::aws_lc_rs::default_provider()
             .install_default()
             .ok();

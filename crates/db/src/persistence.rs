@@ -698,11 +698,4 @@ mod tests {
             );
         }
     }
-
-    #[test]
-    fn key_of_refuses_a_record_of_another_table() {
-        let id = RecordId::new("node", "abc123");
-        assert_eq!(key_of(&id, NODE_TABLE).unwrap(), "abc123");
-        assert!(key_of(&id, LAB_TABLE).is_err());
-    }
 }

@@ -119,7 +119,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[tokio::test]
-    async fn the_logged_fingerprint_is_the_one_clients_are_asked_to_check() {
+    async fn server_certificate_003_the_logged_fingerprint_is_the_one_clients_are_asked_to_check() {
         let temp_dir = TempDir::new().unwrap();
         let cert_path = temp_dir.path().join("server.crt");
         let config = TlsConfig {

@@ -110,7 +110,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_certificate_is_fetched_from_the_configured_http_port() {
+    async fn certificate_trust_008_the_certificate_is_fetched_from_the_servers_http_port() {
         let port = serve_certificate_once();
         let pem = fetch_server_certificate("wss://127.0.0.1:3030/ws", port)
             .await

@@ -455,7 +455,7 @@ users = []
     }
 
     #[test]
-    fn an_old_layout_moves_into_the_sherpa_folder() {
+    fn lab_folder_upgrade_001_the_files_move_and_the_users_own_stay() {
         let lab = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         let ssh_dir = home.path().join(".ssh");
@@ -465,9 +465,9 @@ users = []
         let migration = migrate_lab_folder(lab.path(), &ssh_dir).unwrap();
 
         assert_eq!(migration.moved.len(), 8, "{:?}", migration.moved);
-        assert!(migration.include_replaced);
         assert_eq!(fs::read_to_string(folder.lab_info()).unwrap(), LAB_INFO);
         for path in [
+            folder.ssh_config(),
             folder.known_hosts(),
             folder.lab_ca(),
             folder.vault("vault01"),
@@ -488,6 +488,18 @@ users = []
             ],
             "only the user's files and the old lab key stay loose"
         );
+    }
+
+    #[test]
+    fn lab_folder_upgrade_002_the_moved_ssh_config_names_the_known_hosts_at_its_new_place() {
+        let lab = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let ssh_dir = home.path().join(".ssh");
+        old_layout(lab.path(), &ssh_dir);
+        let folder = LabFolder::new(lab.path());
+
+        migrate_lab_folder(lab.path(), &ssh_dir).unwrap();
+
         let target = jato::SshConfig::load_file(folder.ssh_config())
             .unwrap()
             .route("dev.fecb1a12")
@@ -495,6 +507,30 @@ users = []
             .target;
         assert_eq!(target.identity_files, [lab.path().join("sherpa_ssh_key")]);
         assert_eq!(target.known_hosts, [folder.known_hosts()]);
+
+        let by_name =
+            "Host x\n  IdentityFile sherpa_ssh_key\n  UserKnownHostsFile sherpa_known_hosts\n";
+        let rewritten = rewrite_legacy_ssh_config(by_name, &LabFolder::new(Path::new("/labs/a")));
+        assert_eq!(
+            rewritten,
+            format!(
+                "Host x\n  IdentityFile sherpa_ssh_key\n  UserKnownHostsFile {}\n",
+                LabFolder::new(Path::new("/labs/a")).known_hosts().display()
+            )
+        );
+    }
+
+    #[test]
+    fn lab_folder_upgrade_003_the_include_names_the_moved_config_and_other_labs_are_untouched() {
+        let lab = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let ssh_dir = home.path().join(".ssh");
+        old_layout(lab.path(), &ssh_dir);
+        let folder = LabFolder::new(lab.path());
+
+        let migration = migrate_lab_folder(lab.path(), &ssh_dir).unwrap();
+
+        assert!(migration.include_replaced);
         let index = fs::read_to_string(ssh_dir.join("sherpa_lab_hosts")).unwrap();
         assert_eq!(
             index,
@@ -507,12 +543,21 @@ users = []
 
     #[cfg(unix)]
     #[test]
-    fn migrated_folders_are_owner_only_and_secrets_0600() {
+    fn lab_folder_upgrade_004_folders_are_owner_only_and_each_moved_secret_is_0600() {
         use std::os::unix::fs::PermissionsExt;
         let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
         let lab = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         old_layout(lab.path(), &home.path().join(".ssh"));
+        for name in [
+            "sherpa_known_hosts",
+            "vault-vault01.toml",
+            "keycloak-kc01.toml",
+            "kubeconfig-k8s",
+            "talosconfig-k8s",
+        ] {
+            fs::set_permissions(lab.path().join(name), fs::Permissions::from_mode(0o666)).unwrap();
+        }
         let folder = LabFolder::new(lab.path());
 
         migrate_lab_folder(lab.path(), &home.path().join(".ssh")).unwrap();
@@ -540,7 +585,7 @@ users = []
     }
 
     #[test]
-    fn legacy_lab_files_lists_only_what_the_old_client_generated() {
+    fn lab_folder_upgrade_005_only_what_the_old_client_generated_is_taken() {
         let lab = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         old_layout(lab.path(), &home.path().join(".ssh"));
@@ -567,7 +612,7 @@ users = []
     }
 
     #[test]
-    fn a_migrated_folder_is_left_as_it_is() {
+    fn lab_folder_upgrade_006_a_migrated_folder_is_left_as_it_is() {
         let lab = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         let ssh_dir = home.path().join(".ssh");
@@ -588,7 +633,7 @@ users = []
     }
 
     #[test]
-    fn a_partial_migration_is_finished() {
+    fn lab_folder_upgrade_007_a_partial_migration_is_finished() {
         let lab = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         let ssh_dir = home.path().join(".ssh");
@@ -613,7 +658,7 @@ users = []
     }
 
     #[test]
-    fn a_swapped_include_is_finished_once_the_files_have_moved() {
+    fn lab_folder_upgrade_008_an_include_at_the_old_path_is_corrected_once_the_files_have_moved() {
         let lab = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         let ssh_dir = home.path().join(".ssh");
@@ -632,7 +677,7 @@ users = []
     }
 
     #[test]
-    fn a_folder_that_is_not_a_lab_is_untouched() {
+    fn lab_folder_upgrade_011_a_folder_that_is_not_a_lab_is_untouched() {
         let lab = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         for name in ["kubeconfig-a", "talosconfig-a", "sherpa_ssh_key"] {
@@ -648,7 +693,7 @@ users = []
 
     #[cfg(unix)]
     #[test]
-    fn a_symlinked_sherpa_folder_is_refused() {
+    fn lab_folder_upgrade_012_a_symlinked_sherpa_folder_is_refused() {
         let lab = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         let elsewhere = tempfile::tempdir().unwrap();
@@ -664,29 +709,12 @@ users = []
     }
 
     #[test]
-    fn only_old_ssh_configs_name_lab_folders_to_migrate() {
+    fn lab_folder_upgrade_013_only_old_ssh_configs_name_lab_folders_to_migrate() {
         let includes = [
             "/labs/a/sherpa_ssh_config".to_string(),
             "/labs/b/.sherpa/ssh/config".to_string(),
             "/labs/c/other".to_string(),
         ];
         assert_eq!(legacy_lab_folders(&includes), [PathBuf::from("/labs/a")]);
-    }
-
-    #[test]
-    fn an_old_relative_ssh_config_is_pointed_at_the_sherpa_folder() {
-        let folder = LabFolder::new(Path::new("/labs/a"));
-        let config =
-            "Host x\n  IdentityFile sherpa_ssh_key\n  UserKnownHostsFile sherpa_known_hosts\n";
-
-        let rewritten = rewrite_legacy_ssh_config(config, &folder);
-
-        assert_eq!(
-            rewritten,
-            format!(
-                "Host x\n  IdentityFile sherpa_ssh_key\n  UserKnownHostsFile {}\n",
-                folder.known_hosts().display()
-            )
-        );
     }
 }

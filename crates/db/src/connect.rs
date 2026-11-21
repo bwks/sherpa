@@ -189,7 +189,8 @@ mod tests {
     use crate::{apply_schema, create_user, find_user};
 
     #[tokio::test]
-    async fn backup_copies_the_database_while_it_is_open() {
+    async fn database_backup_001_a_backup_taken_while_the_database_is_open_opens_with_the_same_records()
+     {
         let dir = tempfile::tempdir().unwrap();
         let db = open(&dir.path().join("sherpa.sqlite")).await.unwrap();
         apply_schema(&db).await.unwrap();
@@ -211,7 +212,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn open_limits_the_database_files_to_the_owner() {
+    async fn server_file_modes_008_a_wider_database_file_is_owner_only_once_opened() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sherpa.sqlite");
         fs::write(&path, b"").unwrap();
@@ -231,7 +232,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_new_database_and_its_first_writes_are_owner_only() {
+    async fn server_file_modes_007_a_new_database_and_its_first_writes_are_owner_only() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sherpa.sqlite");
 
@@ -251,7 +252,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn backup_refuses_an_existing_file() {
+    async fn database_backup_002_a_backup_to_an_existing_file_is_refused_and_the_file_is_unchanged()
+    {
         let dir = tempfile::tempdir().unwrap();
         let db = open(&dir.path().join("sherpa.sqlite")).await.unwrap();
         apply_schema(&db).await.unwrap();

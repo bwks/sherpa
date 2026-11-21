@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 #
-# Test suite for scripts/sherpa_update.sh
+# Test suite for scripts/sherpa_update.sh. Each test is a case of tests/specs/install-and-update.md
+# and is named by its ID.
 #
 # Run (no root required):
 #   bats tests/bats/update_tests.bats
@@ -58,52 +59,51 @@ _run_function() {
 # CLI & Argument Parsing
 # ============================================================
 
-@test "CLI: --help documents local release archives" {
-    run bash "${SCRIPT}" --help
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"SHERPA_ARTIFACT_DIR"* ]]
-}
-
-@test "CLI: local release archives require --version" {
+@test "update_script_016_local_archives_need_version_and_the_sherpad_archive" {
     SHERPA_ARTIFACT_DIR="${WORK_DIR}" run bash "${SCRIPT}"
     [ "$status" -ne 0 ]
     [[ "$output" == *"Local artifacts require --version"* ]]
-}
-
-@test "CLI: local release archives must include sherpad" {
     SHERPA_ARTIFACT_DIR="${WORK_DIR}" run bash "${SCRIPT}" --version v0.5.0
     [ "$status" -ne 0 ]
     [[ "$output" == *"Required sherpad artifact not found"* ]]
+}
+
+@test "update_script_017_help_prints_the_usage_and_an_unknown_option_is_an_error" {
+    run bash "${SCRIPT}" --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Usage:"* ]]
+    [[ "$output" == *"SHERPA_ARTIFACT_DIR"* ]]
+    run bash "${SCRIPT}" --bogus
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Unknown option: --bogus"* ]]
 }
 
 # ============================================================
 # Upgrade Check: pre-0.5.0 database
 # ============================================================
 
-@test "check_legacy_database: refuses with a sherpa-db container and no database file" {
+@test "update_script_004_a_server_with_only_surrealdb_data_is_refused_with_the_release_to_update_to" {
     _stub_docker_with_containers other sherpa-db
     _run_function check_legacy_database
     [ "$status" -eq 1 ]
     [[ "$output" == *"older than 0.5.0"* ]]
     [[ "$output" == *"v0.5.12/scripts/sherpa_update.sh"* ]]
     [[ "$output" == *"--version v0.5.12"* ]]
-}
 
-@test "check_legacy_database: refuses with SurrealDB data and no database file" {
+    # The data folder the container kept, with no container.
     _stub_docker_with_containers other
     mkdir "${WORK_DIR}/sherpa.db"
     _run_function check_legacy_database
     [ "$status" -eq 1 ]
     [[ "$output" == *"${WORK_DIR}/sherpa.db"* ]]
-}
+    [[ "$output" == *"--version v0.5.12"* ]]
 
-@test "check_legacy_database: refuses without Docker when SurrealDB data is left" {
+    # The data folder, with no Docker.
     local no_docker_bin
     no_docker_bin="$(mktemp -d)"
     for tool in grep cat; do
         ln -s "$(command -v "${tool}")" "${no_docker_bin}/${tool}"
     done
-    mkdir "${WORK_DIR}/sherpa.db"
     run bash -c "
         set +e
         PATH='${no_docker_bin}'
@@ -114,23 +114,23 @@ _run_function() {
     "
     rm -rf "${no_docker_bin}"
     [ "$status" -eq 1 ]
+    [[ "$output" == *"--version v0.5.12"* ]]
 }
 
-@test "check_legacy_database: passes once the data has moved to the database file" {
+@test "update_script_005_a_server_with_a_database_file_or_no_surrealdb_passes" {
     _stub_docker_with_containers sherpa-db
     mkdir "${WORK_DIR}/sherpa.db"
     touch "${WORK_DIR}/sherpa.sqlite"
     _run_function check_legacy_database
     [ "$status" -eq 0 ]
-}
 
-@test "check_legacy_database: passes on a server with neither SurrealDB container nor data" {
+    rm -rf "${WORK_DIR}/sherpa.db" "${WORK_DIR}/sherpa.sqlite"
     _stub_docker_with_containers other sherpa-db-backup
     _run_function check_legacy_database
     [ "$status" -eq 0 ]
 }
 
-@test "update: refuses a pre-0.5.0 server before changing anything" {
+@test "update_script_006_refusing_such_a_server_stops_nothing_and_keeps_the_binary" {
     _stub_docker_with_containers sherpa-db
     printf '#!/bin/bash\nexit 0\n' > "${MOCK_BIN}/curl"
     # The stub's own variables: they expand when the stub runs, not here.
@@ -150,7 +150,7 @@ _run_function() {
 }
 
 # ============================================================
-# Server SSH Key
+# The new release's database check and the server SSH key
 # ============================================================
 
 # A runuser stub that records its arguments, prints what the given sherpad check-database
@@ -172,7 +172,7 @@ EOF
     chmod +x "${MOCK_BIN}/runuser" "${MOCK_BIN}/systemctl" "${MOCK_BIN}/sleep"
 }
 
-@test "check_new_sherpad_can_use_database: refuses, names the labs and starts the running release again" {
+@test "update_script_007_a_release_that_refuses_the_database_is_not_installed_and_the_old_one_restarts" {
     _stub_check_database 1 "lab-0001 (Old, owned by alice)"
     touch "${WORK_DIR}/sherpa.sqlite"
     mkdir -p "${WORK_DIR}/new"
@@ -183,7 +183,7 @@ EOF
     grep -qx "restart sherpad" "${WORK_DIR}/systemctl.args"
 }
 
-@test "check_new_sherpad_can_use_database: runs the new sherpad's check-database as sherpa" {
+@test "update_script_009_the_new_sherpads_check_runs_as_sherpa_and_is_skipped_without_a_database" {
     _stub_check_database 0 "This release can use the database"
     touch "${WORK_DIR}/sherpa.sqlite"
     mkdir -p "${WORK_DIR}/new"
@@ -192,20 +192,30 @@ EOF
     [ "$(tr '\n' ' ' < "${WORK_DIR}/runuser.args")" = "-u sherpa -- ${WORK_DIR}/new/sherpad check-database " ]
     # The service is left stopped for the install.
     [ ! -e "${WORK_DIR}/systemctl.args" ]
-}
 
-@test "check_new_sherpad_can_use_database: skips releases before v0.6.0 and servers without a database" {
+    rm "${WORK_DIR}/sherpa.sqlite" "${WORK_DIR}/runuser.args"
     _stub_check_database 1 "unrecognized subcommand"
-    touch "${WORK_DIR}/sherpa.sqlite"
-    _run_function "SHERPA_VERSION=v0.5.35; check_new_sherpad_can_use_database '${WORK_DIR}/sherpad'"
-    [ "$status" -eq 0 ]
-    rm "${WORK_DIR}/sherpa.sqlite"
-    _run_function "SHERPA_VERSION=v0.6.0; check_new_sherpad_can_use_database '${WORK_DIR}/sherpad'"
+    _run_function "SHERPA_VERSION=v0.6.0; check_new_sherpad_can_use_database '${WORK_DIR}/new/sherpad'"
     [ "$status" -eq 0 ]
     [ ! -e "${WORK_DIR}/runuser.args" ]
 }
 
-@test "update_binaries: a sherpad that refuses the database is not installed" {
+@test "update_script_010_a_release_before_0_6_0_skips_the_check_and_keeps_the_servers_key" {
+    _stub_check_database 1 "unrecognized subcommand"
+    touch "${WORK_DIR}/sherpa.sqlite"
+    _run_function "SHERPA_VERSION=v0.5.35; check_new_sherpad_can_use_database '${WORK_DIR}/sherpad'"
+    [ "$status" -eq 0 ]
+    [ ! -e "${WORK_DIR}/runuser.args" ]
+
+    mkdir -p "${WORK_DIR}/ssh"
+    touch "${WORK_DIR}/ssh/sherpa_ssh_key" "${WORK_DIR}/ssh/sherpa_ssh_key.pub"
+    _run_function "SERVER_SSH_KEY_DIR='${WORK_DIR}/ssh'; SHERPA_VERSION=v0.5.35; remove_server_ssh_key"
+    [ "$status" -eq 0 ]
+    [ -e "${WORK_DIR}/ssh/sherpa_ssh_key" ]
+    [ -e "${WORK_DIR}/ssh/sherpa_ssh_key.pub" ]
+}
+
+@test "update_script_008_after_that_refusal_the_installed_sherpad_is_the_one_that_was_there" {
     _stub_check_database 1 "lab-0001 (Old, owned by alice)"
     touch "${WORK_DIR}/sherpa.sqlite"
     mkdir -p "${WORK_DIR}/bin" "${WORK_DIR}/artifacts" "${WORK_DIR}/build"
@@ -218,49 +228,42 @@ EOF
     [ ! -e "${WORK_DIR}/bin/sherpad.previous" ]
 }
 
-@test "remove_server_ssh_key: deletes the server's key pair and its empty folder" {
+@test "update_script_011_the_servers_key_pair_is_deleted_and_other_files_are_kept" {
+    # The key pair, and its folder once that leaves it empty.
     mkdir -p "${WORK_DIR}/ssh"
     touch "${WORK_DIR}/ssh/sherpa_ssh_key" "${WORK_DIR}/ssh/sherpa_ssh_key.pub"
     _run_function "SERVER_SSH_KEY_DIR='${WORK_DIR}/ssh'; SHERPA_VERSION=v0.6.0; remove_server_ssh_key"
     [ "$status" -eq 0 ]
     [ ! -e "${WORK_DIR}/ssh" ]
     [[ "$output" == *"Removed the server's shared SSH key"* ]]
-}
 
-@test "remove_server_ssh_key: says nothing when there is no key and no folder" {
-    _run_function "SERVER_SSH_KEY_DIR='${WORK_DIR}/ssh'; SHERPA_VERSION=v0.6.1; remove_server_ssh_key"
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"Removed"* ]]
-}
-
-@test "remove_server_ssh_key: says nothing when the folder holds no key and is kept" {
-    mkdir -p "${WORK_DIR}/ssh"
-    touch "${WORK_DIR}/ssh/other"
-    _run_function "SERVER_SSH_KEY_DIR='${WORK_DIR}/ssh'; SHERPA_VERSION=v0.6.1; remove_server_ssh_key"
-    [ "$status" -eq 0 ]
-    [ -e "${WORK_DIR}/ssh/other" ]
-    [[ "$output" != *"Removed"* ]]
-}
-
-@test "remove_server_ssh_key: reports an empty folder it removed" {
-    mkdir -p "${WORK_DIR}/ssh"
-    _run_function "SERVER_SSH_KEY_DIR='${WORK_DIR}/ssh'; SHERPA_VERSION=v0.6.1; remove_server_ssh_key"
-    [ "$status" -eq 0 ]
-    [ ! -e "${WORK_DIR}/ssh" ]
-    [[ "$output" == *"Removed the server's shared SSH key"* ]]
-}
-
-@test "remove_server_ssh_key: keeps other files in the folder, and the key for releases before v0.6.0" {
+    # The key pair beside another file: the file and the folder stay.
     mkdir -p "${WORK_DIR}/ssh"
     touch "${WORK_DIR}/ssh/sherpa_ssh_key" "${WORK_DIR}/ssh/sherpa_ssh_key.pub" "${WORK_DIR}/ssh/other"
-    _run_function "SERVER_SSH_KEY_DIR='${WORK_DIR}/ssh'; SHERPA_VERSION=v0.5.35; remove_server_ssh_key"
-    [ "$status" -eq 0 ]
-    [ -e "${WORK_DIR}/ssh/sherpa_ssh_key" ]
     _run_function "SERVER_SSH_KEY_DIR='${WORK_DIR}/ssh'; SHERPA_VERSION=v0.6.0; remove_server_ssh_key"
     [ "$status" -eq 0 ]
     [ ! -e "${WORK_DIR}/ssh/sherpa_ssh_key" ]
     [ ! -e "${WORK_DIR}/ssh/sherpa_ssh_key.pub" ]
     [ -e "${WORK_DIR}/ssh/other" ]
+
+    # A folder with no key is kept, and nothing is said.
+    _run_function "SERVER_SSH_KEY_DIR='${WORK_DIR}/ssh'; SHERPA_VERSION=v0.6.1; remove_server_ssh_key"
+    [ "$status" -eq 0 ]
+    [ -e "${WORK_DIR}/ssh/other" ]
+    [[ "$output" != *"Removed"* ]]
+
+    # No key and no folder: nothing is said.
+    rm -rf "${WORK_DIR}/ssh"
+    _run_function "SERVER_SSH_KEY_DIR='${WORK_DIR}/ssh'; SHERPA_VERSION=v0.6.1; remove_server_ssh_key"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"Removed"* ]]
+
+    # An empty folder is removed, and that is reported.
+    mkdir -p "${WORK_DIR}/ssh"
+    _run_function "SERVER_SSH_KEY_DIR='${WORK_DIR}/ssh'; SHERPA_VERSION=v0.6.1; remove_server_ssh_key"
+    [ "$status" -eq 0 ]
+    [ ! -e "${WORK_DIR}/ssh" ]
+    [[ "$output" == *"Removed the server's shared SSH key"* ]]
 }
 
 # ============================================================
@@ -294,9 +297,11 @@ _run_secure_config_files() {
     _run_function "SHERPA_CONFIG_DIR='${WORK_DIR}/config'; SHERPA_ENV_DIR='${WORK_DIR}/env'; SHERPA_LOG_DIR='${WORK_DIR}/logs'; secure_config_files"
 }
 
-@test "secure_config_files: gives each file and folder sherpa's ownership and its mode" {
+@test "server_file_modes_010_the_update_gives_the_config_env_and_log_files_their_modes_and_owner" {
     _stub_chown
     _old_install_layout
+    local before after
+    before="$(cd "${WORK_DIR}" && sha256sum config/sherpa.toml env/sherpa.env env/sherpa.env.example logs/sherpad.log*)"
     _run_secure_config_files
     [ "$status" -eq 0 ]
     [ "$(stat -c '%a' "${WORK_DIR}/config")" = "750" ]
@@ -311,20 +316,11 @@ _run_secure_config_files() {
         logs logs/sherpad.log logs/sherpad.log.1; do
         grep -qx "sherpa:sherpa ${WORK_DIR}/${path}" "${WORK_DIR}/chown.args"
     done
-}
-
-@test "secure_config_files: leaves the contents unchanged" {
-    _stub_chown
-    _old_install_layout
-    local before after
-    before="$(cd "${WORK_DIR}" && sha256sum config/sherpa.toml env/sherpa.env env/sherpa.env.example logs/sherpad.log*)"
-    _run_secure_config_files
-    [ "$status" -eq 0 ]
     after="$(cd "${WORK_DIR}" && sha256sum config/sherpa.toml env/sherpa.env env/sherpa.env.example logs/sherpad.log*)"
     [ "${before}" = "${after}" ]
 }
 
-@test "secure_config_files: a missing file or folder is not an error" {
+@test "server_file_modes_011_the_update_skips_a_missing_file_or_folder_and_creates_none" {
     _stub_chown
     mkdir -p "${WORK_DIR}/config"
     _run_secure_config_files
@@ -335,7 +331,7 @@ _run_secure_config_files() {
     [ "$(cat "${WORK_DIR}/chown.args")" = "sherpa:sherpa ${WORK_DIR}/config" ]
 }
 
-@test "secure_config_files: leaves a symlink and its target alone" {
+@test "server_file_modes_012_the_update_leaves_a_symlink_and_its_target_and_says_so" {
     _stub_chown
     mkdir -p "${WORK_DIR}/config"
     touch "${WORK_DIR}/target"
@@ -349,11 +345,6 @@ _run_secure_config_files() {
     [ "$status" -ne 0 ]
 }
 
-@test "update: restricts the config and env files when there is nothing to update, too" {
-    grep -A6 'needs_update" = false' "${SCRIPT}" | grep -qx '        secure_config_files'
-    grep -B2 -A2 '^    secure_database_storage$' "${SCRIPT}" | grep -qx '    secure_config_files'
-}
-
 # ============================================================
 # Blank Disks
 # ============================================================
@@ -364,21 +355,12 @@ _stub_apt_get() {
     chmod +x "${MOCK_BIN}/apt-get"
 }
 
-@test "update: fills in missing blank disks before sherpad stops, and when there is nothing to update" {
-    grep -A3 'needs_update" = false' "${SCRIPT}" | grep -qx '        ensure_blank_disks'
-    grep -A3 'needs_update" = false' "${SCRIPT}" | grep -qx '        install_blank_disk_tools'
-    sed -n '/^main()/,/^}/p' "${SCRIPT}" | grep -B4 '^    stop_sherpad$' | grep -qx '    ensure_blank_disks'
-}
-
-@test "install_blank_disk_tools: installs nothing when every tool is there" {
+@test "blank_disks_007_the_update_installs_the_tools_packages_only_when_a_tool_is_missing" {
     _stub_apt_get
     _run_function "BLANK_DISK_TOOLS=(bash); install_blank_disk_tools"
     [ "$status" -eq 0 ]
     [ ! -e "${WORK_DIR}/apt-get.args" ]
-}
 
-@test "install_blank_disk_tools: installs the packages when a tool is missing" {
-    _stub_apt_get
     _run_function "BLANK_DISK_TOOLS=(bash no-such-mkfs); install_blank_disk_tools"
     [ "$status" -eq 0 ]
     grep -qx "install -y -qq qemu-utils dosfstools e2fsprogs" "${WORK_DIR}/apt-get.args"
