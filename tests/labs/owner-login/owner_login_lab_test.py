@@ -21,25 +21,17 @@ runs pytest on itself; `--self-test` runs the runner's own unit tests instead.
 """
 
 import argparse
-import fcntl
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import io
 import json
 import os
 from pathlib import Path
 import re
-import secrets
-import select
-import shlex
 import shutil
 import signal
 import ssl
-import string
-import struct
-import subprocess
 import sys
 import tempfile
-import termios
 import threading
 import time
 import tomllib
@@ -52,6 +44,27 @@ import urllib.request
 import uuid
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from labkit import (
+    COMMAND_TIMEOUT,
+    DEVICE_PASSWORD_SET,
+    INFO_ADMIN,
+    INFO_USERNAME,
+    Terminal,
+    TestFailure,
+    add_secret,
+    answer_prompts,
+    generate_password,
+    log_name,
+    mask,
+    parse_key_list,
+    require,
+    run_logged,
+    stop_on_sigterm,
+    value_toml,
+)
 
 
 LAB = Path(__file__).resolve().parent
@@ -86,12 +99,7 @@ NO_SSH_KEY = "has no SSH public key registered"
 CREATE_PROMPTS = ("Password for {owner}: ", "Confirm password: ")
 DEVICE_PASSWORD_PROMPTS = ("Sherpa login password for {owner}: ", "New device password: ",
                            "Confirm device password: ")
-# A generated password: a letter or digit, then letters, digits and punctuation both the login
-# password and the device password rules take.
-PASSWORD_LENGTH = 16
-PASSWORD_PUNCTUATION = "_-"
 
-COMMAND_TIMEOUT = 180
 UP_TIMEOUT = 1800
 READY_TIMEOUT = 1200
 POLL_INTERVAL = 10
@@ -131,31 +139,9 @@ ESCAPE = b"\r~."
 PASSWORD_PROMPT = re.compile(
     r"(?P<user>[^\s@()']+)@(?P<host>[^\s')]+)'s password: |"
     r"\((?P<kuser>[^\s@()]+)@(?P<khost>[^\s)]+)\) Password: ")
-DEVICE_PASSWORD_SET = re.compile(r"^\s*Device password:\s*set\s*$", re.MULTILINE)
-INFO_USERNAME = re.compile(r"^\s*Username:\s*(\S+)\s*$", re.MULTILINE)
-INFO_ADMIN = re.compile(r"^\s*Admin:\s*(Yes|No)\s*$", re.MULTILINE)
 # A terminal control sequence, such as the colours and cursor moves of SR Linux's CLI.
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 CELL_SEPARATOR = "│"
-SECRETS = []
-
-
-class TestFailure(Exception):
-    """A check failed; the message says which and why."""
-
-    __test__ = False
-
-
-class Outcome(NamedTuple):
-    """A finished command. Parse `stdout`; search `output` for messages, which may be on either stream."""
-
-    code: int | None
-    stdout: str
-    stderr: str
-
-    @property
-    def output(self):
-        return self.stdout + self.stderr
 
 
 class SshHost(NamedTuple):
@@ -184,64 +170,6 @@ class UserInfo(NamedTuple):
     device_password_set: bool
 
 
-def require(condition, message):
-    if not condition:
-        raise TestFailure(mask(message))
-
-
-def add_secret(secret):
-    if secret and secret not in SECRETS:
-        SECRETS.append(secret)
-
-
-def mask(text):
-    """`text` with every secret of the run replaced, for the logs."""
-    for secret in SECRETS:
-        text = text.replace(secret, "********")
-    return text
-
-
-def log_name(log):
-    return getattr(log, "name", "the log")
-
-
-def run_logged(log, label, arguments, cwd, timeout=COMMAND_TIMEOUT, env=None):
-    """Run a command, record it and its output in the log, and return its Outcome."""
-    print(f"[{cwd.name}] {label}", flush=True)
-    try:
-        result = subprocess.run(arguments, cwd=cwd, capture_output=True, text=True, timeout=timeout,
-                                env=env, stdin=subprocess.DEVNULL)
-        outcome = Outcome(result.returncode, result.stdout, result.stderr)
-    except subprocess.TimeoutExpired as error:
-        partial = [part.decode(errors="replace") if isinstance(part, bytes) else part or ""
-                   for part in (error.stdout, error.stderr)]
-        outcome = Outcome(None, partial[0], f"{partial[1]}\ntimed out after {timeout}s")
-    except KeyboardInterrupt:
-        log.write(mask(f"=== {label}: {shlex.join(arguments)}\n--- interrupted\n"))
-        log.flush()
-        raise
-    log.write(mask(f"=== {label}: {shlex.join(arguments)}\n--- exit {outcome.code}\n"
-                   f"--- stdout\n{outcome.stdout}\n--- stderr\n{outcome.stderr}\n"))
-    log.flush()
-    return outcome
-
-
-def stop_on_sigterm(_signal, _frame):
-    raise KeyboardInterrupt("SIGTERM")
-
-
-def value_toml(value):
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, str):
-        return json.dumps(value)
-    if isinstance(value, dict):
-        return "{ " + ", ".join(f"{key} = {value_toml(item)}" for key, item in value.items()) + " }"
-    raise TypeError(f"Unsupported TOML value: {value!r}")
-
-
 def render_manifest(manifest, name):
     """The lab manifest for one run, under a unique lab name."""
     lines = [f"name = {value_toml(name)}", "", "nodes = ["]
@@ -255,27 +183,6 @@ def child_env(home):
     env = {key: value for key, value in os.environ.items() if key not in PRIVATE_ENV}
     env["HOME"] = str(home)
     return env
-
-
-def password_fits(password, username):
-    """Whether a generated password meets both the login and the device password rules."""
-    return (PASSWORD_LENGTH == len(password) and password[0].isalnum()
-            and all(c.isascii() and (c.isalnum() or c in PASSWORD_PUNCTUATION) for c in password)
-            and any(c.islower() for c in password) and any(c.isupper() for c in password)
-            and any(c.isdigit() for c in password) and any(c in PASSWORD_PUNCTUATION for c in password)
-            and username.lower() not in password.lower() and "cisco" not in password.lower()
-            and not any(a == b == c for a, b, c in zip(password, password[1:], password[2:])))
-
-
-def generate_password(username):
-    """A random password for the run that meets both the login and the device password rules."""
-    first = string.ascii_letters + string.digits
-    rest = first + PASSWORD_PUNCTUATION
-    while True:
-        password = secrets.choice(first) + "".join(secrets.choice(rest) for _ in range(PASSWORD_LENGTH - 1))
-        if password_fits(password, username):
-            add_secret(password)
-            return password
 
 
 # -- parsing -------------------------------------------------------------------------------------
@@ -333,14 +240,6 @@ def parse_devices_table(text):
         if cells[0]:
             rows.append(dict(zip(headers, cells)))
     return rows
-
-
-def parse_key_list(stdout):
-    """The keys in `sherpa server --output json user ssh-key list`'s output."""
-    try:
-        return json.loads(stdout[stdout.index("{"):])["ssh_keys"]
-    except (ValueError, KeyError) as error:
-        raise TestFailure(f"the key list printed no keys: {stdout.strip()}") from error
 
 
 def key_blob(public_key):
@@ -490,111 +389,6 @@ def rest_post(url, token, body, context):
 
 
 # -- terminal ------------------------------------------------------------------------------------
-
-
-# The "device status report" a program sends to ask for the cursor position, and a terminal's
-# answer: row 1, column 1.
-CURSOR_POSITION_QUERY = b"\x1b[6n"
-CURSOR_POSITION_REPORT = b"\x1b[1;1R"
-
-
-class Terminal:
-    """A command in a pseudo-terminal of its own, as a user's terminal runs it: it is the command's
-    controlling terminal, so `ssh`, `sherpa ssh` and the password prompts of `sherpa` read from it."""
-
-    def __init__(self, log, label, arguments, cwd, env):
-        self.log = log
-        self.label = label
-        self.transcript = bytearray()
-        master, slave = os.openpty()
-        # A terminal of a real size: a full-screen CLI lays its prompt out by it.
-        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 120, 0, 0))
-        self.master = master
-        self.process = subprocess.Popen(arguments, cwd=cwd, env=env, stdin=slave, stdout=slave,
-                                        stderr=slave, preexec_fn=lambda: os.login_tty(slave))
-        os.close(slave)
-        print(f"[{Path(cwd).name}] {label}", flush=True)
-
-    def read(self, timeout):
-        """Read what the command printed within `timeout` seconds; False once it has closed."""
-        ready, _, _ = select.select([self.master], [], [], timeout)
-        if not ready:
-            return True
-        try:
-            data = os.read(self.master, 4096)
-        except OSError:
-            return False
-        self.transcript += data
-        # A full-screen CLI such as SR Linux's asks the terminal where its cursor is and waits for
-        # the answer; a real terminal replies, so this one does too.
-        for _ in range(data.count(CURSOR_POSITION_QUERY)):
-            os.write(self.master, CURSOR_POSITION_REPORT)
-        return bool(data)
-
-    def text(self):
-        return self.transcript.decode(errors="replace").replace("\r\n", "\n")
-
-    def send(self, data):
-        os.write(self.master, data)
-
-    def running(self):
-        return self.process.poll() is None
-
-    def wait_for(self, condition, timeout, what):
-        """Wait until `condition(text)` holds; return the text."""
-        deadline = time.monotonic() + timeout
-        while True:
-            text = self.text()
-            if condition(text):
-                return text
-            remaining = deadline - time.monotonic()
-            require(remaining > 0, f"{self.label}: {what} not seen within {timeout}s; see {log_name(self.log)}")
-            open_ = self.read(min(remaining, 1))
-            require(open_ or self.running(), f"{self.label} ended before {what}; see {log_name(self.log)}")
-
-    def wait_for_end(self, timeout):
-        """Read until the command ends; whether it did within `timeout` seconds."""
-        deadline = time.monotonic() + timeout
-        while self.running() and time.monotonic() < deadline:
-            self.read(0.5)
-        return not self.running()
-
-    def kill(self):
-        if self.running():
-            self.process.kill()
-
-    def finish(self, timeout=CONNECT_TIMEOUT):
-        """Wait for the command to end and return its exit code, keeping what it printed."""
-        ended = self.wait_for_end(timeout)
-        while self.read(0.1):
-            pass
-        code = self.process.poll()
-        if code is None:
-            self.process.kill()
-            self.process.wait()
-        os.close(self.master)
-        self.log.write(mask(f"=== {self.label}\n--- exit {code}\n--- terminal\n{self.text()}\n"))
-        self.log.flush()
-        require(ended, f"{self.label} did not end within {timeout}s; see {log_name(self.log)}")
-        return code
-
-
-def answer_prompts(terminal, answers, timeout=CONNECT_TIMEOUT):
-    """Type each `(prompt, answer)` of `answers`, in order, once its prompt shows, then wait for the
-    command to end and return its exit code and what it printed."""
-    try:
-        seen = 0
-        for prompt, answer in answers:
-            text = terminal.wait_for(lambda text, prompt=prompt: prompt in text[seen:], timeout,
-                                     f"the prompt {prompt!r}")
-            seen = text.index(prompt, seen) + len(prompt)
-            terminal.send(answer.encode() + b"\r")
-    except BaseException:
-        terminal.kill()
-        terminal.finish()
-        raise
-    code = terminal.finish(timeout)
-    return code, terminal.text()
 
 
 def answer_passwords(terminal, address, password, timeout):
@@ -1308,36 +1102,6 @@ class SelfTest(unittest.TestCase):
         with self.assertRaises(TestFailure):
             parse_user_info("  Device password: set\n")
 
-    def test_a_secret_is_masked_in_the_log_and_in_failures(self):
-        SECRETS.clear()
-        add_secret("hunter2")
-        add_secret("")
-        self.addCleanup(SECRETS.clear)
-        self.assertEqual(mask("pw hunter2, again hunter2"), "pw ********, again ********")
-        with self.assertRaisesRegex(TestFailure, r"^said \*+$"):
-            require(False, "said hunter2")
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp)
-            with (path / "log").open("w+") as log:
-                run_logged(log, "echo", ["echo", "hunter2"], path)
-                log.seek(0)
-                text = log.read()
-        self.assertNotIn("hunter2", text)
-        self.assertIn("********", text)
-
-    def test_a_generated_password_meets_both_rules_and_is_masked(self):
-        SECRETS.clear()
-        self.addCleanup(SECRETS.clear)
-        passwords = {generate_password("owner1a2b3c4d") for _ in range(50)}
-        self.assertEqual(len(passwords), 50)
-        for password in passwords:
-            self.assertTrue(password_fits(password, "owner1a2b3c4d"))
-            self.assertEqual(mask(password), "********")
-        self.assertFalse(password_fits("aaab-Cdefghij1kl", "x"))
-        self.assertFalse(password_fits("-Abcdefghij1klmn", "x"))
-        self.assertFalse(password_fits("Abcdefghij1klmno", "x"))
-        self.assertFalse(password_fits("Abc-ciscoj1klmno", "x"))
-
     def test_a_childs_environment_has_its_own_home_and_none_of_the_runners_secrets(self):
         with mock.patch.dict(os.environ, {LOGIN_PASSWORD_ENV: "pw", "SSH_AUTH_SOCK": "/s", "PATH": "/bin"}):
             env = child_env(Path("/h"))
@@ -1345,21 +1109,6 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(env["PATH"], "/bin")
         self.assertNotIn(LOGIN_PASSWORD_ENV, env)
         self.assertNotIn("SSH_AUTH_SOCK", env)
-
-    def test_prompts_are_answered_in_order_and_not_echoed_to_the_log(self):
-        script = ("import getpass\na = getpass.getpass('Password for bob: ')\n"
-                  "b = getpass.getpass('Confirm password: ')\nprint('same' if a == b == 's3cret' else 'differ')\n")
-        SECRETS.clear()
-        add_secret("s3cret")
-        self.addCleanup(SECRETS.clear)
-        with tempfile.TemporaryDirectory() as temp:
-            log = io.StringIO()
-            terminal = Terminal(log, "prompts", [sys.executable, "-I", "-c", script], Path(temp), os.environ.copy())
-            code, text = answer_prompts(terminal, [("Password for bob: ", "s3cret"), ("Confirm password: ", "s3cret")],
-                                        20)
-        self.assertEqual(code, 0)
-        self.assertIn("same", text)
-        self.assertNotIn("s3cret", log.getvalue())
 
     def test_the_lab_ssh_config_is_read_into_hosts(self):
         config = ("\nHost 172.31.0.21 ubu01.abcd1234 ubu01.abcd1234.sherpa.lab.local\n    HostName 172.31.0.21\n"
@@ -1393,10 +1142,6 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(parse_devices_table("nothing here"), [])
 
     def test_keys_are_compared_by_their_body(self):
-        self.assertEqual(parse_key_list('note\n{"username": "a", "ssh_keys": ["ssh-ed25519 AAAA x"]}'),
-                         ["ssh-ed25519 AAAA x"])
-        with self.assertRaises(TestFailure):
-            parse_key_list("no keys")
         self.assertEqual(key_blob("ssh-ed25519 AAAA comment here"), "AAAA")
         scan = "# 10.0.0.1:22 SSH-2.0-OpenSSH\n10.0.0.1 ssh-ed25519 AAAA\n10.0.0.1 ssh-rsa BBBB\n"
         self.assertEqual(scanned_host_keys(scan), {("ssh-ed25519", "AAAA"), ("ssh-rsa", "BBBB")})

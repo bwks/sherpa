@@ -24,22 +24,15 @@ runs pytest on itself; `--self-test` runs the runner's own unit tests instead.
 """
 
 import argparse
-import fcntl
-import json
 import os
 from pathlib import Path
 import re
-import secrets
 import select
-import shlex
 import shutil
 import signal
 import socket
-import string
-import struct
 import subprocess
 import sys
-import termios
 import time
 import tomllib
 from typing import NamedTuple
@@ -47,6 +40,26 @@ import unittest
 import uuid
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from labkit import (
+    COMMAND_TIMEOUT,
+    INFO_ADMIN,
+    Terminal,
+    TestFailure,
+    add_secret,
+    answer_prompts,
+    drain,
+    generate_password,
+    mask,
+    parse_key_list,
+    require,
+    require_device_password,
+    run_logged,
+    stop_on_sigterm,
+    value_toml,
+)
 
 
 LAB = Path(__file__).resolve().parent
@@ -68,16 +81,13 @@ ENV_ADMIN_PASSWORD = "SHERPA_LAB_TEST_ADMIN_PASSWORD"
 # How `sherpa login` takes a user name and password without asking.
 LOGIN_USER_ENV = "SHERPA_USER_NAME"
 LOGIN_PASSWORD_ENV = "SHERPA_USER_PASSWORD"
-# The other user, a normal user the run creates as the admin and deletes at the end: its name, the
-# prompts of `sherpa server user create` and the rules of the password generated for it.
+# The other user, a normal user the run creates as the admin and deletes at the end: its name and
+# the prompts of `sherpa server user create`.
 OTHER_USER_PREFIX = "console"
 CREATE_PROMPTS = ("Password for {username}: ", "Confirm password: ")
-PASSWORD_LENGTH = 16
-PASSWORD_PUNCTUATION = "_-"
 # Tools a console must not need.
 NOT_NEEDED = ("telnet", "ssh")
 
-COMMAND_TIMEOUT = 180
 UP_TIMEOUT = 1200
 # How long the VM may take to show its login prompt on the console after `sherpa up`.
 LOGIN_TIMEOUT = 600
@@ -106,83 +116,9 @@ VNC_STOPPED = f"Stopped relaying the VNC console of {VM}."
 VNC_REFUSED_EXIT = 1
 # How long `sherpa vnc` may take to print its address, to answer a viewer, or to end.
 VNC_TIMEOUT = 60
-# How long a password prompt may take to show, and the command answered to end.
-PROMPT_TIMEOUT = 60
-# How long a finished command's remaining output is read for.
-DRAIN_SECONDS = 5
 # The text typed at the login prompt, checked for in the guest's echo. It is never submitted.
 TYPED = "sherpa-console-check"
 NO_CONTAINER = "--no-container: the lab has no container"
-# The run's passwords and tokens, masked in every log and failure message.
-SECRETS = []
-
-
-class TestFailure(Exception):
-    """A check failed; the message says which and why."""
-
-    __test__ = False
-
-
-class Outcome(NamedTuple):
-    """A finished command. Search `output` for messages, which may be on either stream."""
-
-    code: int | None
-    stdout: str
-    stderr: str
-
-    @property
-    def output(self):
-        return self.stdout + self.stderr
-
-
-def require(condition, message):
-    if not condition:
-        raise TestFailure(mask(message))
-
-
-def add_secret(secret):
-    if secret and secret not in SECRETS:
-        SECRETS.append(secret)
-
-
-def mask(text):
-    """`text` with every secret of the run replaced, for the logs."""
-    for secret in SECRETS:
-        text = text.replace(secret, "********")
-    return text
-
-
-def run_logged(log, label, arguments, cwd, timeout=COMMAND_TIMEOUT, env=None):
-    """Run a command, record it and its output in the log, and return its Outcome."""
-    print(f"[{cwd.name}] {label}", flush=True)
-    try:
-        result = subprocess.run(arguments, cwd=cwd, capture_output=True, text=True, timeout=timeout,
-                                env=env, stdin=subprocess.DEVNULL)
-        outcome = Outcome(result.returncode, result.stdout, result.stderr)
-    except subprocess.TimeoutExpired as error:
-        partial = [part.decode(errors="replace") if isinstance(part, bytes) else part or ""
-                   for part in (error.stdout, error.stderr)]
-        outcome = Outcome(None, partial[0], f"{partial[1]}\ntimed out after {timeout}s")
-    except KeyboardInterrupt:
-        log.write(mask(f"=== {label}: {shlex.join(arguments)}\n--- interrupted\n"))
-        log.flush()
-        raise
-    log.write(mask(f"=== {label}: {shlex.join(arguments)}\n--- exit {outcome.code}\n"
-                   f"--- stdout\n{outcome.stdout}\n--- stderr\n{outcome.stderr}\n"))
-    log.flush()
-    return outcome
-
-
-def stop_on_sigterm(_signal, _frame):
-    raise KeyboardInterrupt("SIGTERM")
-
-
-def value_toml(value):
-    if isinstance(value, str):
-        return json.dumps(value)
-    if isinstance(value, dict):
-        return "{ " + ", ".join(f"{key} = {value_toml(item)}" for key, item in value.items()) + " }"
-    raise TypeError(f"Unsupported TOML value: {value!r}")
 
 
 def render_manifest(name, nodes):
@@ -200,15 +136,6 @@ def path_without(*tools):
     return os.pathsep.join(kept)
 
 
-def drain(read, limit=DRAIN_SECONDS):
-    """Keep what a finished command printed: call `read` (which returns False at the end of the
-    output) until the end, for at most `limit` seconds, so output held open by something else
-    cannot hang the runner."""
-    deadline = time.monotonic() + limit
-    while time.monotonic() < deadline and read(0.1):
-        pass
-
-
 def refused_to(lab_id):
     """What the server says to anyone but the owner of lab `lab_id` asking for a console."""
     return f"Access denied: only the owner of lab '{lab_id}' can open its consoles"
@@ -218,125 +145,6 @@ def connected_line(lab_name):
     """The line `sherpa console` prints once the console is open: the node, the lab and both
     escapes."""
     return f"{CONNECTED}{lab_name}. Escape: Ctrl+] or ~. at the start of a line."
-
-
-def password_fits(password, username):
-    """Whether a generated password meets the login password rules."""
-    return (PASSWORD_LENGTH == len(password) and password[0].isalnum()
-            and all(c.isascii() and (c.isalnum() or c in PASSWORD_PUNCTUATION) for c in password)
-            and any(c.islower() for c in password) and any(c.isupper() for c in password)
-            and any(c.isdigit() for c in password) and any(c in PASSWORD_PUNCTUATION for c in password)
-            and username.lower() not in password.lower()
-            and not any(a == b == c for a, b, c in zip(password, password[1:], password[2:])))
-
-
-def generate_password(username):
-    """A random password for the run that meets the login password rules. It is only held in
-    memory, and masked in the logs."""
-    first = string.ascii_letters + string.digits
-    rest = first + PASSWORD_PUNCTUATION
-    while True:
-        password = secrets.choice(first) + "".join(secrets.choice(rest) for _ in range(PASSWORD_LENGTH - 1))
-        if password_fits(password, username):
-            add_secret(password)
-            return password
-
-
-def parse_key_list(stdout):
-    """The keys in `sherpa server --output json user ssh-key list`'s output."""
-    try:
-        return json.loads(stdout[stdout.index("{"):])["ssh_keys"]
-    except (ValueError, KeyError) as error:
-        raise TestFailure(f"the key list printed no keys: {stdout.strip()}") from error
-
-
-class Terminal:
-    """A command in a pseudo-terminal of its own, as a user's terminal runs it: it is the command's
-    controlling terminal, so the password prompts of `sherpa` read from it."""
-
-    def __init__(self, log, label, arguments, cwd, env):
-        self.log = log
-        self.label = label
-        self.transcript = bytearray()
-        master, slave = os.openpty()
-        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 120, 0, 0))
-        self.master = master
-        self.process = subprocess.Popen(arguments, cwd=cwd, env=env, stdin=slave, stdout=slave,
-                                        stderr=slave, preexec_fn=lambda: os.login_tty(slave))
-        os.close(slave)
-        print(f"[{Path(cwd).name}] {label}", flush=True)
-
-    def read(self, timeout):
-        """Read what the command printed within `timeout` seconds; False once it has closed."""
-        ready, _, _ = select.select([self.master], [], [], timeout)
-        if not ready:
-            return True
-        try:
-            data = os.read(self.master, 4096)
-        except OSError:
-            return False
-        self.transcript += data
-        return bool(data)
-
-    def text(self):
-        return self.transcript.decode(errors="replace").replace("\r\n", "\n")
-
-    def send(self, data):
-        os.write(self.master, data)
-
-    def running(self):
-        return self.process.poll() is None
-
-    def wait_for(self, condition, timeout, what):
-        """Wait until `condition(text)` holds; return the text."""
-        deadline = time.monotonic() + timeout
-        while True:
-            text = self.text()
-            if condition(text):
-                return text
-            remaining = deadline - time.monotonic()
-            require(remaining > 0, f"{self.label}: {what} not seen within {timeout}s; see {self.log.name}")
-            open_ = self.read(min(remaining, 1))
-            require(open_ or self.running(), f"{self.label} ended before {what}; see {self.log.name}")
-
-    def kill(self):
-        if self.running():
-            self.process.kill()
-
-    def finish(self, timeout=PROMPT_TIMEOUT):
-        """Wait for the command to end and return its exit code, keeping what it printed."""
-        deadline = time.monotonic() + timeout
-        while self.running() and time.monotonic() < deadline:
-            self.read(0.5)
-        ended = not self.running()
-        drain(self.read)
-        code = self.process.poll()
-        if code is None:
-            self.process.kill()
-            self.process.wait()
-        os.close(self.master)
-        self.log.write(mask(f"=== {self.label}\n--- exit {code}\n--- terminal\n{self.text()}\n"))
-        self.log.flush()
-        require(ended, f"{self.label} did not end within {timeout}s; see {self.log.name}")
-        return code
-
-
-def answer_prompts(terminal, answers, timeout=PROMPT_TIMEOUT):
-    """Type each `(prompt, answer)` of `answers`, in order, once its prompt shows, then wait for the
-    command to end and return its exit code and what it printed."""
-    try:
-        seen = 0
-        for prompt, answer in answers:
-            text = terminal.wait_for(lambda text, prompt=prompt: prompt in text[seen:], timeout,
-                                     f"the prompt {prompt!r}")
-            seen = text.index(prompt, seen) + len(prompt)
-            terminal.send(answer.encode() + b"\r")
-    except BaseException:
-        terminal.kill()
-        terminal.finish()
-        raise
-    code = terminal.finish(timeout)
-    return code, terminal.text()
 
 
 class Account(NamedTuple):
@@ -510,7 +318,6 @@ class Vnc:
 
     def text(self):
         return self.output.decode(errors="replace")
-
 
 
 # -- the lab -------------------------------------------------------------------------------------
@@ -693,23 +500,6 @@ def require_vnc_refused(lab, label, outcome, message):
 
 
 # -- the fixtures --------------------------------------------------------------------------------
-
-
-DEVICE_PASSWORD_SET = re.compile(r"^\s*Device password:\s*set\s*$", re.MULTILINE)
-INFO_USERNAME = re.compile(r"^\s*Username:\s*(\S+)\s*$", re.MULTILINE)
-INFO_ADMIN = re.compile(r"^\s*Admin:\s*(Yes|No)\s*$", re.MULTILINE)
-
-
-def require_device_password(log, run_root):
-    """Stop unless the lab owner has a device password, which `sherpa up` needs; return the owner."""
-    info = run_logged(log, "sherpa server user info", ["sherpa", "server", "user", "info"], run_root)
-    require(info.code == 0, "could not read the user's details (`sherpa server user info`)")
-    require(DEVICE_PASSWORD_SET.search(info.stdout),
-            "the user has no device password, which `sherpa up` needs: "
-            "run `sherpa server user device-password`")
-    owner = INFO_USERNAME.search(info.stdout)
-    require(owner, "`sherpa server user info` did not name the user")
-    return owner.group(1)
 
 
 def log_in(log, run_root, role, username, password, owner, admin):
@@ -1046,12 +836,6 @@ class SelfTest(unittest.TestCase):
         finally:
             os.environ["PATH"] = original
             shutil.rmtree(directory)
-
-    def test_generated_passwords_fit_the_rules_and_are_masked(self):
-        for _ in range(50):
-            password = generate_password("console0a1b2c3d")
-            self.assertTrue(password_fits(password, "console0a1b2c3d"))
-            self.assertEqual(mask(f"pw={password}"), "pw=********")
 
 
 if __name__ == "__main__":

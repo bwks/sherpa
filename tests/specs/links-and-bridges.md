@@ -18,8 +18,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 003 | Every host end, a VM's tap included, is MTU 9600, and unfragmented 8972-byte pings and 9000-byte frames pass each way (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
 | 004 | A VM is told its link's MTU, so a virtio interface in the guest comes up at 9600 (no test at this level yet) | e2e |
 | 005 | A capture on a link's host end, `tpa<link>-<lab>` or `tpb<link>-<lab>`, sees every frame from both ends (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
-| 006 | A container's link interface is in the container under its name, up, promiscuous, with carrier and MTU 9600, also in an image with no `ip` command or no shell (no test with its ID yet; `tests/labs/p2p-containers` shows it) | e2e |
-| 007 | Network OS, application and OS containers reach each other across links, directly and routed through a third node (no test with its ID yet; `tests/labs/p2p-containers` shows it) | e2e |
+| 006 | A container's link interface is in the container under its name, up, promiscuous, with carrier and MTU 9600, also in an image with no `ip` command or no shell | e2e |
+| 007 | Network OS, application and OS containers reach each other across links, directly and routed through a third node | e2e |
 | 008 | A link with a unikernel end carries traffic (no test yet) | e2e |
 | 009 | Links carry traffic across a restart of sherpad, with nothing attached again (no test with its ID yet; `tests/labs/p2p-links --sherpad-restart` shows it) | e2e |
 | 010 | sherpad keeps no open file descriptor for a link it attached | integration |
@@ -45,7 +45,7 @@ Cases 016, 018 and 019 show a repair on a real host. Cases 030 to 032 show what 
 | 002 | After redeploying a container that ends two links, pings pass each way on every link (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
 | 003 | After down and resume of the lab, pings, the L2 frames, capture and the LACP bundles work as after up (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
 | 004 | A reboot from inside a VM's guest leaves its links working (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
-| 005 | Redeployed containers with no shell or no `ip` command, and a redeployed router, reach every peer again (no test with its ID yet; `tests/labs/p2p-containers` shows it) | e2e |
+| 005 | Redeployed containers with no shell or no `ip` command, and a redeployed router, reach every peer again | e2e |
 | 006 | A cold-booted VM or unikernel has each of its links attached to its new ends, in both directions | unit |
 | 007 | A container started again gets every data interface again, link ends, bridge members and unused interfaces, before its links are attached | unit |
 | 008 | A container of a lab with no stored manifest gets as many data interfaces as its image has | unit |
@@ -183,7 +183,7 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 | 001 | The interface a manifest names is that interface inside the node, for each model and kind: the name gives its place, and the place gives the name back | unit |
 | 002 | A container's data interfaces are named inside it as its model needs: `eth<N>` by default, SR Linux's `e1-<N>`, `eth4` upwards on cJunosEvolved, `eth<N>` for port N of Cisco IOL | unit |
 | 003 | A VM's interfaces are its management interface, its reserved interfaces, then each data interface on its link, on its bridge, or unused, at up and after a redeploy | unit |
-| 004 | An unused interface of a container on a link is in the container under its name with no carrier (no test with its ID yet; `tests/labs/p2p-containers` shows it) | e2e |
+| 004 | An unused interface of a container on a link is in the container under its name with no carrier | e2e |
 | 005 | An unused interface of a VM is in the guest with its link down (no test at this level yet) | e2e |
 | 006 | An unused container interface is down at both ends, except on a model that needs its interfaces up, where it is up in the container with no carrier | integration |
 | 007 | An unused interface of a container on no link gets a Docker network of its own, named and down | unit |
@@ -244,4 +244,4 @@ Which ranges a lab's management network takes, and which addresses its nodes get
 | 005 | Deleting an interface that is already gone succeeds, so a destroy can be run again | integration |
 | 006 | A Docker network still in use is reported as not removed, and one already gone counts as removed | integration |
 | 007 | A host interface or network that cannot be removed is reported by destroy, which exits non-zero (no test yet) | integration |
-| 008 | After destroying a lab of containers only, no host interface or Docker network of the lab is left (no test with its ID yet; `tests/labs/p2p-containers` shows it) | e2e |
+| 008 | After destroying a lab of containers only, no host interface or Docker network of the lab is left | e2e |
