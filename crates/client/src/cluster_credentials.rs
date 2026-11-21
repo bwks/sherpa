@@ -76,7 +76,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_cluster_gets_its_own_credential_files() {
+    fn lab_credentials_005_each_cluster_s_files_are_saved_under_its_name() {
         let dir = tempfile::tempdir().unwrap();
         let clusters = ["k8s", "edge"].map(|name| ClusterInfo {
             name: name.to_owned(),

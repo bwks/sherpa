@@ -989,7 +989,7 @@ mod tests {
 
     /// Left for the known hosts spec.
     #[test]
-    fn a_settled_container_ready_on_the_ssh_port_keeps_the_key_it_offered() {
+    fn node_host_keys_012_a_container_ready_on_port_22_has_its_key_recorded() {
         let running = Some(ContainerStateStatusEnum::RUNNING);
         // On the SSH port the key it offered is kept, as for a VM.
         assert_eq!(

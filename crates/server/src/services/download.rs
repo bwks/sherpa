@@ -110,7 +110,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_owner_downloads_each_application_node_s_admin() {
+    async fn lab_credentials_020_a_download_gives_each_application_node_s_admin() {
         let labs_root = tempfile::tempdir().unwrap();
         let (db, keycloak, surreal_db) = lab_with_admins("dl-own01", labs_root.path()).await;
         let alice = AuthContext::new("alice".to_owned(), false, "session".to_owned());

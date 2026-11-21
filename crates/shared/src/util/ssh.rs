@@ -675,32 +675,23 @@ mod tests {
     }
 
     #[test]
-    fn test_add_creates_ssh_dir_if_missing() {
+    fn ssh_config_include_002_the_first_lab_makes_ssh_and_sherpa_lab_hosts() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
-        // Do NOT create ssh_dir — let the function do it
-
-        add_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/.sherpa/ssh/config").unwrap();
-
-        assert!(ssh_dir.exists());
-        assert!(ssh_dir.join(SHERPA_SSH_INDEX_FILE).exists());
-    }
-
-    #[test]
-    fn test_add_include_line_to_sherpa_lab_hosts() {
-        let tmp = TempDir::new().unwrap();
-        let ssh_dir = tmp.path().join(".ssh");
-        std::fs::create_dir_all(&ssh_dir).unwrap();
 
         add_lab_ssh_include_at(&ssh_dir, "/home/user/lab1/.sherpa/ssh/config").unwrap();
 
+        assert!(ssh_dir.is_dir());
         let content = read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE));
-        assert!(content.contains(SHERPA_SSH_INDEX_HEADER));
-        assert!(content.contains("Include /home/user/lab1/.sherpa/ssh/config"));
+        assert!(content.contains(SHERPA_SSH_INDEX_HEADER), "{content}");
+        assert!(
+            content.contains("Include /home/user/lab1/.sherpa/ssh/config"),
+            "{content}"
+        );
     }
 
     #[test]
-    fn test_add_prepends_include_to_ssh_config() {
+    fn ssh_config_include_003_the_include_goes_above_the_user_s_hosts() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         std::fs::create_dir_all(&ssh_dir).unwrap();
@@ -718,7 +709,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_idempotent_lab_entry() {
+    fn ssh_config_include_004_a_lab_listed_twice_is_in_the_file_once() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         std::fs::create_dir_all(&ssh_dir).unwrap();
@@ -734,67 +725,50 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_leaves_other_labs_intact() {
+    fn ssh_config_include_009_removing_a_lab_removes_its_line_alone() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
-        std::fs::create_dir_all(&ssh_dir).unwrap();
-
-        add_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/.sherpa/ssh/config").unwrap();
-        add_lab_ssh_include_at(&ssh_dir, "/tmp/lab2/.sherpa/ssh/config").unwrap();
-        add_lab_ssh_include_at(&ssh_dir, "/tmp/lab3/.sherpa/ssh/config").unwrap();
+        for lab in [
+            "/tmp/lab1/.sherpa/ssh/config",
+            "/tmp/lab2/.sherpa/ssh/config-extra",
+            "/tmp/lab2/.sherpa/ssh/config",
+            "/tmp/lab3/.sherpa/ssh/config",
+        ] {
+            add_lab_ssh_include_at(&ssh_dir, lab).unwrap();
+        }
+        let config_before = read_file(&ssh_dir.join("config"));
 
         remove_lab_ssh_include_at(&ssh_dir, "/tmp/lab2/.sherpa/ssh/config").unwrap();
 
         let content = read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE));
-        assert!(content.contains("Include /tmp/lab1/.sherpa/ssh/config"));
-        assert!(!content.contains("Include /tmp/lab2/.sherpa/ssh/config"));
-        assert!(content.contains("Include /tmp/lab3/.sherpa/ssh/config"));
+        let includes: Vec<&str> = content
+            .lines()
+            .filter(|line| line.starts_with("Include "))
+            .collect();
+        assert_eq!(
+            includes,
+            [
+                "Include /tmp/lab1/.sherpa/ssh/config",
+                "Include /tmp/lab2/.sherpa/ssh/config-extra",
+                "Include /tmp/lab3/.sherpa/ssh/config",
+            ]
+        );
+        assert_eq!(read_file(&ssh_dir.join("config")), config_before);
     }
 
     #[test]
-    fn test_remove_no_error_when_index_missing() {
+    fn ssh_config_include_010_removing_a_lab_that_is_not_listed_changes_nothing() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         std::fs::create_dir_all(&ssh_dir).unwrap();
-        // No sherpa_lab_hosts file exists
-
-        let result = remove_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/.sherpa/ssh/config");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_remove_no_error_when_line_not_present() {
-        let tmp = TempDir::new().unwrap();
-        let ssh_dir = tmp.path().join(".ssh");
-        std::fs::create_dir_all(&ssh_dir).unwrap();
-
-        add_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/.sherpa/ssh/config").unwrap();
-
-        let result = remove_lab_ssh_include_at(&ssh_dir, "/tmp/nonexistent/sherpa_ssh_config");
-        assert!(result.is_ok());
-
-        // Original entry still intact
-        let content = read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE));
-        assert!(content.contains("Include /tmp/lab1/.sherpa/ssh/config"));
-    }
-
-    #[test]
-    fn test_remove_does_not_modify_ssh_config() {
-        let tmp = TempDir::new().unwrap();
-        let ssh_dir = tmp.path().join(".ssh");
-        std::fs::create_dir_all(&ssh_dir).unwrap();
-
-        add_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/.sherpa/ssh/config").unwrap();
-
-        let config_before = read_file(&ssh_dir.join("config"));
 
         remove_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/.sherpa/ssh/config").unwrap();
+        assert!(!ssh_dir.join(SHERPA_SSH_INDEX_FILE).exists());
 
-        let config_after = read_file(&ssh_dir.join("config"));
-        assert_eq!(
-            config_before, config_after,
-            "~/.ssh/config should not be modified by remove"
-        );
+        add_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/.sherpa/ssh/config").unwrap();
+        let before = read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE));
+        remove_lab_ssh_include_at(&ssh_dir, "/tmp/nonexistent/.sherpa/ssh/config").unwrap();
+        assert_eq!(read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE)), before);
     }
 
     fn valid_lab_info_toml(lab_id: &str) -> String {
@@ -819,7 +793,7 @@ ipv4_router = "172.31.1.254"
     }
 
     #[test]
-    fn a_lab_folder_with_a_space_is_included_quoted_and_kept_by_clean() {
+    fn ssh_config_include_005_a_lab_folder_with_a_space_is_included_quoted() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         let include_path = create_lab_files(tmp.path(), "my labs", "lab-space");
@@ -841,15 +815,18 @@ ipv4_router = "172.31.1.254"
     }
 
     #[test]
-    fn a_path_ssh_cannot_quote_is_refused() {
+    fn ssh_config_include_006_a_lab_folder_with_a_quote_is_not_listed() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
+
         assert!(add_lab_ssh_include_at(&ssh_dir, r#"/tmp/a"b/.sherpa/ssh/config"#).is_err());
+
+        assert!(!read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE)).contains("/tmp/a"));
     }
 
     #[cfg(unix)]
     #[test]
-    fn a_symlinked_ssh_config_keeps_its_link_and_mode() {
+    fn ssh_config_include_007_a_symlinked_ssh_config_keeps_its_link_and_mode() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         std::fs::create_dir_all(&ssh_dir).unwrap();
@@ -872,7 +849,7 @@ ipv4_router = "172.31.1.254"
     }
 
     #[test]
-    fn concurrent_adds_keep_every_lab() {
+    fn ssh_config_include_008_labs_listed_at_the_same_moment_are_all_listed() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         std::thread::scope(|scope| {
@@ -900,7 +877,7 @@ ipv4_router = "172.31.1.254"
     }
 
     #[test]
-    fn test_inspect_reports_valid_when_lab_is_active() {
+    fn stale_includes_002_a_line_whose_lab_the_server_lists_is_valid() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         std::fs::create_dir_all(&ssh_dir).unwrap();
@@ -917,7 +894,7 @@ ipv4_router = "172.31.1.254"
     }
 
     #[test]
-    fn test_inspect_reports_stale_when_lab_missing_from_server() {
+    fn stale_includes_003_a_line_whose_lab_the_server_does_not_list_is_stale() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         std::fs::create_dir_all(&ssh_dir).unwrap();
@@ -933,7 +910,7 @@ ipv4_router = "172.31.1.254"
     }
 
     #[test]
-    fn test_inspect_reports_stale_when_config_missing() {
+    fn stale_includes_004_a_line_whose_ssh_config_is_gone_is_stale() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         std::fs::create_dir_all(&ssh_dir).unwrap();
@@ -946,20 +923,37 @@ ipv4_router = "172.31.1.254"
     }
 
     #[test]
-    fn an_include_of_an_old_layout_ssh_config_is_broken() {
+    fn stale_includes_006_a_line_for_a_file_that_is_not_a_lab_s_ssh_config_is_broken() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         let lab_dir = tmp.path().join("lab1");
-        std::fs::create_dir_all(&lab_dir).unwrap();
-        let old_config = lab_dir.join("sherpa_ssh_config");
-        std::fs::write(&old_config, "Host test\n").unwrap();
+        std::fs::create_dir_all(lab_dir.join(".sherpa/ssh")).unwrap();
+        std::fs::create_dir_all(lab_dir.join("other/ssh")).unwrap();
         std::fs::write(lab_dir.join("lab-info.toml"), valid_lab_info_toml("old")).unwrap();
-        add_lab_ssh_include_at(&ssh_dir, &old_config.to_string_lossy()).unwrap();
+        std::fs::write(
+            lab_dir.join(".sherpa/lab-info.toml"),
+            valid_lab_info_toml("old"),
+        )
+        .unwrap();
+        let others = [
+            "sherpa_ssh_config",
+            ".sherpa/config",
+            ".sherpa/ssh/key",
+            "other/ssh/config",
+        ]
+        .map(|other| lab_dir.join(other));
+        for other in &others {
+            std::fs::write(other, "Host test\n").unwrap();
+            add_lab_ssh_include_at(&ssh_dir, &other.to_string_lossy()).unwrap();
+        }
 
         let report = inspect_lab_ssh_includes_at(&ssh_dir, None, None).unwrap();
 
-        assert_eq!(report.entries[0].status, SshConfigEntryStatus::Broken);
-        assert!(report.entries[0].reason.contains(".sherpa/ssh/config"));
+        assert_eq!(report.entries.len(), others.len());
+        for entry in &report.entries {
+            assert_eq!(entry.status, SshConfigEntryStatus::Broken, "{entry:?}");
+            assert!(entry.reason.contains(".sherpa/ssh/config"), "{entry:?}");
+        }
     }
 
     #[test]
@@ -1025,7 +1019,7 @@ ipv4_router = "172.31.1.254"
     }
 
     #[test]
-    fn test_inspect_reports_broken_when_lab_info_invalid() {
+    fn stale_includes_005_a_line_whose_lab_info_cannot_be_read_is_broken() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         std::fs::create_dir_all(&ssh_dir).unwrap();
@@ -1043,7 +1037,7 @@ ipv4_router = "172.31.1.254"
     }
 
     #[test]
-    fn test_clean_removes_stale_and_keeps_valid() {
+    fn stale_includes_008_clean_removes_a_stale_line_and_keeps_a_valid_one() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         std::fs::create_dir_all(&ssh_dir).unwrap();
@@ -1065,7 +1059,7 @@ ipv4_router = "172.31.1.254"
     }
 
     #[test]
-    fn test_clean_removes_duplicate_include() {
+    fn stale_includes_007_a_second_line_for_the_same_file_is_stale_and_clean_keeps_one() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         std::fs::create_dir_all(&ssh_dir).unwrap();
@@ -1083,32 +1077,8 @@ ipv4_router = "172.31.1.254"
 
         assert_eq!(report.kept.len(), 1);
         assert_eq!(report.removed.len(), 1);
+        assert_eq!(report.removed[0].status, SshConfigEntryStatus::Stale);
         let content = read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE));
         assert_eq!(content.matches(&include_path).count(), 1);
-    }
-
-    #[test]
-    fn test_remove_uses_exact_line_matching() {
-        let tmp = TempDir::new().unwrap();
-        let ssh_dir = tmp.path().join(".ssh");
-        std::fs::create_dir_all(&ssh_dir).unwrap();
-        ensure_sherpa_include_in_ssh_config_at(&ssh_dir).unwrap();
-        std::fs::write(
-            ssh_dir.join(SHERPA_SSH_INDEX_FILE),
-            format!(
-                "{SHERPA_SSH_INDEX_HEADER}\nInclude /tmp/lab1/.sherpa/ssh/config-extra\nInclude /tmp/lab1/.sherpa/ssh/config\n"
-            ),
-        )
-        .unwrap();
-
-        remove_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/.sherpa/ssh/config").unwrap();
-
-        let content = read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE));
-        assert!(content.contains("Include /tmp/lab1/.sherpa/ssh/config-extra"));
-        assert!(
-            !content
-                .lines()
-                .any(|line| line.trim() == "Include /tmp/lab1/.sherpa/ssh/config")
-        );
     }
 }

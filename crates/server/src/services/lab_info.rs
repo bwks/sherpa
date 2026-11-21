@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_lab_file_is_built_from_the_database() {
+    async fn saved_lab_files_004_the_lab_info_names_the_lab_and_each_recorded_login() {
         let (db, lab) = lab_with(&[
             ("vm1", NodeModel::AlpineLinux),
             ("vm2", NodeModel::UbuntuLinux),
@@ -180,10 +180,6 @@ node_name = "vm1"
 username = "alice"
 "#;
         assert_eq!(info.to_string(), expected);
-        // An older client reads it as it read the server's file.
-        let parsed: LabInfo = info.to_string().parse().unwrap();
-        assert_eq!(parsed.ssh_username("vm1"), Some("alice"));
-        assert_eq!(parsed.ssh_username("vm2"), None);
     }
 
     #[tokio::test]

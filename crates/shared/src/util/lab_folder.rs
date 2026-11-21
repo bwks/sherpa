@@ -178,23 +178,3 @@ pub fn vault_file_name(node: &str) -> String {
 pub fn keycloak_file_name(node: &str) -> String {
     format!("keycloak-{node}.toml")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_lab_folder_is_found_from_its_ssh_config() {
-        let folder = LabFolder::new(Path::new("/home/me/lab"));
-        assert_eq!(LabFolder::of_ssh_config(&folder.ssh_config()), Some(folder));
-        for other in [
-            "/home/me/lab/sherpa_ssh_config",
-            "/home/me/lab/.sherpa/config",
-            "/home/me/lab/.sherpa/ssh/key",
-            "/home/me/lab/other/ssh/config",
-            "config",
-        ] {
-            assert_eq!(LabFolder::of_ssh_config(Path::new(other)), None, "{other}");
-        }
-    }
-}

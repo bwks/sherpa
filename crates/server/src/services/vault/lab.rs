@@ -344,8 +344,12 @@ mod tests {
         CreateContainerOptions, InspectContainerOptions, RemoveContainerOptions,
         StartContainerOptions,
     };
+    use shared::data::{KeycloakInfo, SurrealDbInfo};
     use tempfile::TempDir;
     use tokio::sync::mpsc;
+
+    use crate::services::keycloak::lab::{ensure_keycloak_credentials, read_keycloak_credentials};
+    use crate::services::surreal_db::{ensure_surreal_db_credentials, read_surreal_db_credentials};
 
     use crate::tls::generator::{
         CaSpec, KeyAlgorithm, ServerSubject, generate_ca, issue_server_certificate,
@@ -517,7 +521,7 @@ cluster_addr = "https://127.0.0.1:8201"
     }
 
     #[test]
-    fn credentials_are_saved_owner_only_and_read_back() {
+    fn lab_credentials_018_a_vault_s_token_and_key_are_saved_for_sherpad_and_read_back() {
         let dir = TempDir::new().unwrap();
         save_credentials(dir.path(), "vault01", &credentials("hvs.one")).unwrap();
         let path = credentials_path(dir.path(), "vault01");
@@ -531,18 +535,52 @@ cluster_addr = "https://127.0.0.1:8201"
     }
 
     #[test]
-    fn download_lists_each_vault_by_name() {
-        let dir = TempDir::new().unwrap();
-        save_credentials(dir.path(), "vault02", &credentials("hvs.two")).unwrap();
-        save_credentials(dir.path(), "vault01", &credentials("hvs.one")).unwrap();
-        fs::write(dir.path().join("notes.txt"), "ignored").unwrap();
-        let vaults = read_vault_credentials(dir.path()).unwrap();
-        let names: Vec<&str> = vaults.iter().map(|vault| vault.name.as_str()).collect();
-        assert_eq!(names, ["vault01", "vault02"]);
-        assert_eq!(vaults[1].root_token, "hvs.two");
+    fn lab_credentials_019_each_node_s_credentials_are_listed_by_name_in_name_order() {
+        let lab = TempDir::new().unwrap();
+        let vaults = lab.path().join("vault");
+        let keycloaks = lab.path().join("keycloak");
+        let surreal_dbs = lab.path().join("surrealdb");
+        fs::create_dir_all(&vaults).unwrap();
+        save_credentials(&vaults, "vault02", &credentials("hvs.two")).unwrap();
+        save_credentials(&vaults, "vault01", &credentials("hvs.one")).unwrap();
+        ensure_keycloak_credentials(&keycloaks, "kc02", "https://172.31.1.24:8443", "alice")
+            .unwrap();
+        let kc01 =
+            ensure_keycloak_credentials(&keycloaks, "kc01", "https://172.31.1.23:8443", "alice")
+                .unwrap();
+        ensure_surreal_db_credentials(&surreal_dbs, "db02", "http://172.31.1.26:8000").unwrap();
+        let db01 =
+            ensure_surreal_db_credentials(&surreal_dbs, "db01", "http://172.31.1.25:8000").unwrap();
+        for dir in [&vaults, &keycloaks, &surreal_dbs] {
+            fs::write(dir.join("notes.txt"), "ignored").unwrap();
+        }
+
+        let vault_list = read_vault_credentials(&vaults).unwrap();
+        let keycloak_list = read_keycloak_credentials(&keycloaks).unwrap();
+        let surreal_db_list = read_surreal_db_credentials(&surreal_dbs).unwrap();
+
+        let vault_names: Vec<&str> = vault_list.iter().map(|vault| vault.name.as_str()).collect();
+        assert_eq!(vault_names, ["vault01", "vault02"]);
+        assert_eq!(vault_list[1].root_token, "hvs.two");
+        let keycloak_names: Vec<&str> = keycloak_list.iter().map(|kc| kc.name.as_str()).collect();
+        assert_eq!(keycloak_names, ["kc01", "kc02"]);
+        assert_eq!(keycloak_list[0].admin, Some(kc01));
+        assert_eq!(keycloak_list[1].address, "https://172.31.1.24:8443");
+        let surreal_db_names: Vec<&str> =
+            surreal_db_list.iter().map(|db| db.name.as_str()).collect();
+        assert_eq!(surreal_db_names, ["db01", "db02"]);
+        assert_eq!(surreal_db_list[0].admin, db01);
+        assert_eq!(surreal_db_list[1].address, "http://172.31.1.26:8000");
+
+        let none = lab.path().join("missing");
+        assert_eq!(read_vault_credentials(&none).unwrap(), [] as [VaultInfo; 0]);
         assert_eq!(
-            read_vault_credentials(&dir.path().join("missing")).unwrap(),
-            [] as [shared::data::VaultInfo; 0]
+            read_keycloak_credentials(&none).unwrap(),
+            [] as [KeycloakInfo; 0]
+        );
+        assert_eq!(
+            read_surreal_db_credentials(&none).unwrap(),
+            [] as [SurrealDbInfo; 0]
         );
     }
 

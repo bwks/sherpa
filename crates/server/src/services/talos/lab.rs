@@ -630,7 +630,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn the_download_credentials_come_from_the_stored_plans_and_saved_files() {
+    async fn lab_credentials_021_a_download_gives_each_cluster_s_addresses_and_saved_configs() {
         let (db, lab, labs) = stored_cluster_lab().await;
 
         let infos =

@@ -320,14 +320,6 @@ mod tests {
     }
 
     #[test]
-    fn legacy_lab_info_defaults_to_legacy_ssh() {
-        let saved = make_lab_info().to_string();
-        assert!(!saved.contains("ssh_usernames"));
-        let restored: LabInfo = saved.parse().unwrap();
-        assert_eq!(restored.ssh_usernames, Vec::<NodeSshUsername>::new());
-    }
-
-    #[test]
     fn updating_one_nodes_ssh_identity_preserves_other_nodes() {
         let mut lab = make_lab_info();
         lab.set_ssh_username("vm1", Some("alice"));

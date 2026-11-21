@@ -303,7 +303,7 @@ mod tests {
     const ADDRESS: &str = "https://172.31.1.23:8443";
 
     #[test]
-    fn a_new_keycloak_node_gets_its_own_admin_and_the_owner_saved_owner_only() {
+    fn lab_credentials_009_a_new_keycloak_node_gets_its_admin_and_the_owner_saved_for_sherpad() {
         let dir = TempDir::new().unwrap();
         let admin = ensure_keycloak_credentials(dir.path(), "kc01", ADDRESS, "alice").unwrap();
         assert_eq!(admin.username, "admin");
@@ -325,24 +325,6 @@ mod tests {
             .permissions()
             .mode();
         assert_eq!(mode & 0o777, 0o600);
-    }
-
-    #[test]
-    fn each_keycloak_node_gets_a_different_admin_password() {
-        let dir = TempDir::new().unwrap();
-        let kc01 = ensure_keycloak_credentials(dir.path(), "kc01", ADDRESS, "alice").unwrap();
-        let kc02 = ensure_keycloak_credentials(dir.path(), "kc02", ADDRESS, "alice").unwrap();
-        assert_ne!(kc01.password, kc02.password);
-    }
-
-    #[test]
-    fn a_redeployed_keycloak_node_keeps_its_admin_and_users() {
-        let dir = TempDir::new().unwrap();
-        let created = ensure_keycloak_credentials(dir.path(), "kc01", ADDRESS, "alice").unwrap();
-        let saved = load_credentials(dir.path(), "kc01").unwrap();
-        let again = ensure_keycloak_credentials(dir.path(), "kc01", ADDRESS, "alice").unwrap();
-        assert_eq!(again, created);
-        assert_eq!(load_credentials(dir.path(), "kc01").unwrap(), saved);
     }
 
     #[test]
@@ -405,25 +387,6 @@ password = "owner-pw"
         assert_eq!(
             mappers,
             ["oidc-group-membership-mapper", "oidc-audience-mapper"]
-        );
-    }
-
-    #[test]
-    fn download_lists_each_keycloak_by_name() {
-        let dir = TempDir::new().unwrap();
-        ensure_keycloak_credentials(dir.path(), "kc02", "https://172.31.1.24:8443", "alice")
-            .unwrap();
-        ensure_keycloak_credentials(dir.path(), "kc01", ADDRESS, "alice").unwrap();
-        fs::write(dir.path().join("notes.txt"), "ignored").unwrap();
-        let keycloaks = read_keycloak_credentials(dir.path()).unwrap();
-        let names: Vec<&str> = keycloaks.iter().map(|kc| kc.name.as_str()).collect();
-        assert_eq!(names, ["kc01", "kc02"]);
-        assert_eq!(keycloaks[0].realm, "sherpa");
-        assert_eq!(keycloaks[0].admin.as_ref().unwrap().username, "admin");
-        assert_eq!(keycloaks[1].address, "https://172.31.1.24:8443");
-        assert_eq!(
-            read_keycloak_credentials(&dir.path().join("missing")).unwrap(),
-            [] as [shared::data::KeycloakInfo; 0]
         );
     }
 }

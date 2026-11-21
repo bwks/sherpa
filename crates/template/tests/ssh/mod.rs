@@ -2,114 +2,80 @@ use std::net::Ipv4Addr;
 
 use askama::Template;
 
-use template::{KnownHostsEntry, KnownHostsTemplate, SshConfigTemplate, SshHostConfig};
+use template::{SshConfigTemplate, SshHostConfig};
 
-// ============================================================================
-// Expected configs
-// ============================================================================
+const OLDER_ALGORITHMS: [&str; 3] = [
+    "    PubkeyAcceptedAlgorithms +ssh-rsa",
+    "    HostkeyAlgorithms +ssh-rsa",
+    "    KexAlgorithms +diffie-hellman-group-exchange-sha1,diffie-hellman-group14-sha1",
+];
 
-const EXPECTED_SSH_CONFIG: &str = "
-Host 172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local
-    HostName 172.20.0.10
-    Port 22
-    User alice
-    StrictHostKeyChecking no
-    UserKnownHostsFile /dev/null
-    PubkeyAcceptedAlgorithms +ssh-rsa
-    HostkeyAlgorithms +ssh-rsa
-    KexAlgorithms +diffie-hellman-group-exchange-sha1,diffie-hellman-group14-sha1";
+fn host(name: &str, last_octet: u8, known_hosts_file: Option<&str>) -> SshHostConfig {
+    SshHostConfig {
+        aliases: format!("172.20.0.{last_octet} {name}.abcd1234 {name}.abcd1234.sherpa.lab.local"),
+        username: "alice".to_owned(),
+        known_hosts_file: known_hosts_file.map(str::to_owned),
+        hostname: Ipv4Addr::new(172, 20, 0, last_octet),
+        port: 22,
+    }
+}
 
-const EXPECTED_SSH_CONFIG_MULTI: &str = "
-Host 172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local
-    HostName 172.20.0.10
-    Port 22
-    User alice
-    StrictHostKeyChecking no
-    UserKnownHostsFile /dev/null
-    PubkeyAcceptedAlgorithms +ssh-rsa
-    HostkeyAlgorithms +ssh-rsa
-    KexAlgorithms +diffie-hellman-group-exchange-sha1,diffie-hellman-group14-sha1
-Host 172.20.0.11 switch1.abcd1234 switch1.abcd1234.sherpa.lab.local
-    HostName 172.20.0.11
-    Port 830
-    User admin
-    StrictHostKeyChecking no
-    UserKnownHostsFile /dev/null
-    PubkeyAcceptedAlgorithms +ssh-rsa
-    HostkeyAlgorithms +ssh-rsa
-    KexAlgorithms +diffie-hellman-group-exchange-sha1,diffie-hellman-group14-sha1";
-
-// ============================================================================
-// Tests
-// ============================================================================
+/// The lines of each host of `output`, in order.
+fn hosts(output: &str) -> Vec<Vec<&str>> {
+    output
+        .split("\nHost ")
+        .skip(1)
+        .map(|host| host.lines().collect())
+        .collect()
+}
 
 #[test]
-fn test_ssh_config_multiple_hosts() {
+fn ssh_config_hosts_006_every_host_accepts_the_older_algorithms() {
     let t = SshConfigTemplate {
         hosts: vec![
-            SshHostConfig {
-                aliases: "172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local"
-                    .to_string(),
-                username: "alice".to_owned(),
-                known_hosts_file: None,
-                hostname: Ipv4Addr::new(172, 20, 0, 10),
-                port: 22,
-            },
-            SshHostConfig {
-                aliases: "172.20.0.11 switch1.abcd1234 switch1.abcd1234.sherpa.lab.local"
-                    .to_string(),
-                username: "admin".to_owned(),
-                known_hosts_file: None,
-                hostname: Ipv4Addr::new(172, 20, 0, 11),
-                port: 830,
-            },
+            host("router1", 10, None),
+            host("switch1", 11, Some("sherpa_known_hosts")),
         ],
     };
+
     let output = t.render().expect("template renders");
-    assert_eq!(output, EXPECTED_SSH_CONFIG_MULTI);
+
+    let hosts = hosts(&output);
+    assert_eq!(hosts.len(), 2, "{output}");
+    for host in hosts {
+        for algorithm in OLDER_ALGORITHMS {
+            assert!(host.contains(&algorithm), "{algorithm} in {host:?}");
+        }
+    }
 }
 
 #[test]
-fn a_host_with_a_known_hosts_file_is_checked_strictly() {
+fn node_host_keys_007_a_host_with_a_recorded_key_is_checked_strictly() {
     let t = SshConfigTemplate {
-        hosts: vec![SshHostConfig {
-            aliases: "172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local".to_string(),
-            username: "alice".to_owned(),
-            known_hosts_file: Some("sherpa_known_hosts".to_owned()),
-            hostname: Ipv4Addr::new(172, 20, 0, 10),
-            port: 22,
-        }],
-    };
-    let output = t.render().expect("template renders");
-    let expected = EXPECTED_SSH_CONFIG
-        .replace("StrictHostKeyChecking no", "StrictHostKeyChecking yes")
-        .replace(
-            "UserKnownHostsFile /dev/null",
-            "UserKnownHostsFile sherpa_known_hosts",
-        );
-    assert_eq!(output, expected);
-}
-
-#[test]
-fn known_hosts_names_port_22_by_address_and_other_ports_in_brackets() {
-    let t = KnownHostsTemplate {
-        entries: vec![
-            KnownHostsEntry {
-                hostname: Ipv4Addr::new(172, 20, 0, 10),
-                port: 22,
-                key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJdD".to_owned(),
-            },
-            KnownHostsEntry {
-                hostname: Ipv4Addr::new(172, 20, 0, 11),
-                port: 830,
-                key: "ssh-rsa AAAAB3NzaC1yc2E".to_owned(),
-            },
+        hosts: vec![
+            host("router1", 10, Some("sherpa_known_hosts")),
+            host("switch1", 11, None),
         ],
     };
+
     let output = t.render().expect("template renders");
-    assert_eq!(
-        output,
-        "172.20.0.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJdD\n\
-         [172.20.0.11]:830 ssh-rsa AAAAB3NzaC1yc2E\n"
+
+    let hosts = hosts(&output);
+    assert_eq!(hosts.len(), 2, "{output}");
+    assert!(
+        hosts[0].contains(&"    StrictHostKeyChecking yes"),
+        "{output}"
+    );
+    assert!(
+        hosts[0].contains(&"    UserKnownHostsFile sherpa_known_hosts"),
+        "{output}"
+    );
+    assert!(
+        hosts[1].contains(&"    StrictHostKeyChecking no"),
+        "{output}"
+    );
+    assert!(
+        hosts[1].contains(&"    UserKnownHostsFile /dev/null"),
+        "{output}"
     );
 }

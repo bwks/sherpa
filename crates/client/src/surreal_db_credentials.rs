@@ -77,7 +77,7 @@ mod tests {
     use shared::data::AdminCredential;
 
     #[test]
-    fn each_surreal_db_gets_an_owner_only_credentials_file() {
+    fn lab_credentials_008_a_surreal_db_file_has_its_root_user_and_is_owner_only() {
         let dir = tempfile::tempdir().unwrap();
         let surreal_dbs = [SurrealDbInfo {
             name: "db01".to_owned(),

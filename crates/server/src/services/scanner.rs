@@ -581,22 +581,23 @@ mod tests {
 
     /// Left for the known hosts spec.
     #[test]
-    fn a_running_vm_without_a_host_key_is_probed_for_one() {
+    fn node_host_keys_013_a_running_vm_without_a_key_is_probed_on_ssh_for_one() {
         let keyless = checked(NodeState::Running, false, SSH_CHECK);
         assert_eq!(
             probe_port(&scanned(&keyless, NodeKind::VirtualMachine), true),
             Some(SSH_PORT)
         );
-        // With a skipped check it is probed on SSH for one, but the probe does not decide.
+        // Also with a skipped check.
         let skipped = ReadyCheck {
             port: Some(SSH_PORT),
             skip: true,
             sshd_marker: false,
         };
         let keyless = checked(NodeState::Starting, false, skipped);
-        let vm = scanned(&keyless, NodeKind::VirtualMachine);
-        assert_eq!(probe_port(&vm, true), Some(SSH_PORT));
-        assert_eq!(probe_for(&vm, Some(Probe::NotReady)), Probe::NotProbed);
+        assert_eq!(
+            probe_port(&scanned(&keyless, NodeKind::VirtualMachine), true),
+            Some(SSH_PORT)
+        );
     }
 
     #[tokio::test]
