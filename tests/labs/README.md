@@ -12,7 +12,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 | [cisco-iol](cisco-iol/README.md) | `cisco_iol` routers built from your own CML image: generated config and SSH, P2p links, TCP into IOL, `write memory` across a cold boot. Needs the IOL image | about 3–5 min |
 | [p2p-links](p2p-links/README.md) | P2p (eBPF) link requirements on VM ⟷ VM, VM ⟷ container and container ⟷ container: L2 protocols, LLDP and LACP bundles, capture, per-direction impairment, jumbo frames, lifecycle | about 15–20 min |
 | [nixos-linux](nixos-linux/README.md) | `nixos_linux` VMs built from [bwks/nixos-image](https://github.com/bwks/nixos-image): lab owner login, sudo, text files, cloud-init, a P2p link | about 5 min |
-| [console](console/README.md) | `sherpa console` in a pseudo-terminal through sherpad, with no system `telnet` or `ssh`: login prompt, `Ctrl+]` and `~.`, a console in use naming its holder, `--force`, another user and an admin refused, a container refused | about 3–5 min |
+| [console](console/README.md) | `sherpa console` in a pseudo-terminal and `sherpa vnc` with a scripted viewer, through sherpad, with no system `telnet` or `ssh`: login prompt, `Ctrl+]` and `~.`, the RFB banner and Ctrl+C, a console in use naming its holder, `--force`, another user and an admin refused, a container refused. A pytest module | about 1–5 min |
 | [ssh-access](ssh-access/README.md) | How `sherpa ssh` and SSH provisioners reach a node: directly, or through the Sherpa server with `--ssh-jump`, told apart by which process holds the connection the node sees. Needs a route to the lab's management network | about 2 min |
 | [owner-login](owner-login/README.md) | A throwaway owner's login on a Linux VM and a network OS container, by key and by device password, with admin rights; no keys refused at up and redeploy; a rotated key not pushed on resume; down and resume, redeploy; what an admin who does not own the lab may and may not do. Needs an admin account and a route to the lab's management network | about 5 min |
 | [talos-linux](talos-linux/README.md) | Sherpa-built Talos Kubernetes clusters | about 25–35 min |
@@ -36,6 +36,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
   Set it once with `sherpa server user device-password`.
   The owner-login lab instead creates its own throwaway owner, with a device password, as an admin
   whose name and password it takes from an option and an environment variable, never printing them.
+  The console lab likewise has an admin create the other user it needs, and deletes it at the end.
 - Each runner has a `--self-test` mode for its pure logic, which runs in seconds.
 
 Lab tests are started by hand. How and when end-to-end tests run is being planned in
