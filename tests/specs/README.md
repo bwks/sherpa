@@ -10,7 +10,7 @@ One file per area a user sees, flat in this folder.
 
 | Area | Spec | Covers |
 |---|---|---|
-| Lab lifecycle | [lab-lifecycle.md](lab-lifecycle.md) | up, down, resume, destroy, redeploy, clean, operations on labs at the same time, lab addressing, lab status |
+| Lab lifecycle | [lab-lifecycle.md](lab-lifecycle.md) | up, down, resume, destroy, redeploy, clean, operations on labs at the same time, lab addressing, lab status, which lab a folder holds, lab phases and what the server does at startup with a lab left mid-operation, stopping a running operation |
 | Nodes | [nodes.md](nodes.md) | VM, container and unikernel nodes: boot, ready checks, state, stop and start, failures |
 | Links and bridges | [links-and-bridges.md](links-and-bridges.md) | P2p links, re-attach after a node restarts, link state and carrier, impairment, private bridges, node interfaces, reaching nodes on the management network, what destroy leaves on the host |
 | Images | [images.md](images.md) | import, upload, download, container pulls, scan, default versions, list, show, edit, delete, which image a node gets, who may change images |

@@ -1,6 +1,6 @@
 # Lab lifecycle
 
-Bringing a lab up, taking it down and resuming it, destroying it, redeploying one of its nodes, an admin's clean of a lost lab, operations on labs at the same time, the address ranges a lab gets, and the status a lab reports. Nodes, links, images, accounts and ZTP have their own specs.
+Bringing a lab up, taking it down and resuming it, destroying it, redeploying one of its nodes, an admin's clean of a lost lab, operations on labs at the same time, the address ranges a lab gets, the status a lab reports, which lab a folder holds, the phase a lab is in and what the server does at startup with a lab left mid-operation, and stopping a running operation. Nodes, links, images, accounts and ZTP have their own specs.
 
 Each behaviour lists its cases. A case is one test, whose name is its ID: `<behaviour>_<NNN>_<description>`, such as `lab_up_001_a_container_lab_comes_up_with_every_node_running`. The level is the highest that can show the case: e2e through the `sherpa` CLI, integration against real libvirt, Docker and the database, unit only for logic with too many branches to cover above.
 
@@ -42,6 +42,17 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 001 | A second up of a lab that is coming up is refused and leaves the first alone | integration |
 | 002 | Two destroys of one lab both succeed | integration |
 | 003 | Labs brought up at once get distinct management subnets | integration |
+| 004 | A second reservation of a lab ID that is being created is refused as a conflict that says the lab already exists and is creating, and the first's record is left as it was | integration |
+| 005 | A destroy stops the operations running on its lab, each ending with an error that says the lab is being destroyed, and goes on only once they have ended | unit |
+| 006 | A destroy of a lab with nothing running does not wait | unit |
+| 007 | An operation started while its lab is being destroyed waits for the destroy, then runs as any other | unit |
+| 008 | Stopping the operations of one lab leaves those of another running | unit |
+| 009 | An operation queued behind a requested stop, with a destroy queued behind both, is stopped for the destroy, and operations run again once the destroy is done | unit |
+| 010 | An operation stopped on request keeps that reason when a destroy follows before it has ended | unit |
+| 011 | An operation waits while the scanner observes its lab | unit |
+| 012 | With operations, stops and scans of one lab racing, a stop or a scan never holds the lab beside an operation or beside another stop or scan | unit |
+
+Cases 005 to 012 are the lab's lease in the server: an operation (up, down, resume, redeploy) holds it shared, and a destroy, a clean, a requested stop and the scanner hold it alone. A stop the user asks for is `lab_cancel`. What keeps a second up from a lab that exists is its record, `lab_phase`.
 
 ## `lab_addressing`: each lab gets address ranges of its own
 
@@ -125,4 +136,72 @@ Labs brought up at once getting distinct ranges is `lab_concurrency_003`. Whethe
 | 007 | A lab status this version does not know reads as `unknown` | unit |
 | 008 | A lab with no nodes is `empty` | unit |
 
-The node states themselves are `node_state` in [nodes](nodes.md).
+The node states themselves are `node_state` in [nodes](nodes.md). A lab's status says how its nodes are; which operation owns the lab is its phase, `lab_phase`.
+
+## `lab_identity`: a lab command acts on the lab of its folder
+
+**Statement:** a lab command acts on the lab of the folder it runs in: the lab `.sherpa/lab-info.toml` records, with the ID the server gave it, or else the logged-in user's lab of the name in `manifest.toml`; a folder whose two files name different labs, or that has neither, is refused.
+**Relied on by:** the user: every lab command, destroy included, goes to the lab found this way; folders made by `sherpa download`. **Priority:** P0.
+
+| Case | What it shows | Level |
+|---|---|---|
+| 001 | A folder with only `lab-info.toml`, as `sherpa download` makes, is the lab it records, by name and ID | unit |
+| 002 | With a manifest of the same name beside it, the lab has the ID `lab-info.toml` records, for the commands that load the manifest and for those that do not | unit |
+| 003 | A folder with only a manifest is the lab of the manifest's name, with the ID of the login's Sherpa username and that name, so another Sherpa user gets another ID | unit |
+| 004 | A new lab's ID is eight hex digits from the owner's Sherpa username and the lab's name: the same for the same two every time, and another for another user or another name | unit |
+| 005 | A `lab-info.toml` and a manifest that name different labs are refused, naming both labs and the file, and saying to destroy the recorded lab or remove the file | unit |
+| 006 | A folder with neither file is refused, naming both files | unit |
+| 007 | `up`, `redeploy` and `provision` in a folder with no manifest are refused, saying a folder made by `sherpa download` has none and where to run the command | unit |
+| 008 | A manifest that does not load beside a `lab-info.toml` does not stop a command that needs no manifest: the lab is the recorded one; with no `lab-info.toml` the command fails with the manifest's error (no test yet) | unit |
+| 009 | A `lab-info.toml` that does not parse counts as none: the folder is the lab of its manifest (no test yet) | unit |
+| 010 | A folder with only a manifest and no login is refused, since the lab's ID comes from the login (no test yet) | unit |
+| 011 | After the lab's name is changed in the `manifest.toml` of a running lab's folder, `sherpa inspect` and `sherpa up` exit non-zero naming both labs, and the running lab is untouched (no test yet) | e2e |
+
+Names are compared, never IDs, so a lab keeps the ID it was given. Refusing to connect to the nodes of a folder whose lab is another user's is `access_control_016` in [accounts and auth](accounts-and-auth.md). The files of `.sherpa`, `lab-info.toml` among them, are `saved_lab_files` in [client lab files](client-lab-files.md); `sherpa ssh` from a downloaded folder is `ssh_target_005`, and a console from one is `console_access_005`. An up whose lab ID is in use on the server is `lab_preflight_003`.
+
+## `lab_phase`: a lab's phase says which operation owns it
+
+**Statement:** a lab's record holds its phase: `creating` while up builds it, `ready` once built, `destroying` while a destroy, a clean or a failed up's rollback removes it, `destroy failed` when that left something behind, `interrupted` when the server stopped while it was created, and `unknown` for one this version does not know; only a `ready` lab takes down, resume and redeploy, a lab in any phase can be destroyed, and at startup the server marks each lab left `creating` or `destroying`, and removes nothing.
+**Relied on by:** the user and the web UI, which are told what to do with a lab that is not ready; the admin, finding labs left behind; down, resume and redeploy, which never run on a half-built or half-removed lab. **Priority:** P0.
+
+| Case | What it shows | Level |
+|---|---|---|
+| 001 | The allowed moves: `creating` to `ready` when built, `creating` to removed when its up gives it back, any phase to `destroying`, `destroying` to removed or to `destroy failed`; any other move is refused, naming the move and the phase | unit |
+| 002 | Only `ready` takes operations on the lab's nodes; every other phase refuses them | unit |
+| 003 | The refusal of each phase says what to do: wait or destroy for `creating`, destroy again for `destroy failed`, destroy and start again for `interrupted`, destroy for `unknown` (no test yet) | unit |
+| 004 | A lab that lost its operation moves from `creating` to `interrupted` and from `destroying` to `destroy failed`, and both can then be destroyed | unit |
+| 005 | A phase this version does not know reads as `unknown`, which is not ready and can be destroyed | unit |
+| 006 | The record up reserves a lab with is `creating` | integration |
+| 007 | Up moves the lab it reserved to `ready` | integration |
+| 008 | A refused move leaves the lab's phase as it was: an up cannot give back a lab that is already `ready` | integration |
+| 009 | A destroy that left something behind leaves the record `destroy failed`; a destroy of that lab that removes everything removes the record | integration |
+| 010 | A phase write made from a phase the lab has since left changes nothing, and a lab that does not exist is not moved | integration |
+| 011 | A record is removed only from the phase it was read in, and removing it again is no error | integration |
+| 012 | Down, resume and redeploy of a lab that is not `ready` are refused with a conflict that says what to do, and its nodes are untouched (no test yet) | integration |
+| 013 | An up of a lab that exists and is not `ready` is refused saying it exists and naming its phase | unit |
+| 014 | At startup a lab left `creating` becomes `interrupted` and one left `destroying` becomes `destroy failed`, `ready` and `destroy failed` labs are left as they are, no record is removed, and a second run finds nothing to mark | integration |
+| 015 | A lab that cannot be marked at startup is counted and logged, and the others are still marked (no test yet) | integration |
+| 016 | After sherpad is stopped during an up and started again, `sherpa inspect` shows the lab `interrupted` with what to do, down is refused, and `sherpa destroy` removes it (no test yet) | e2e |
+
+The nodes an up or a redeploy was building when the server stopped are `node_failure_010` in [nodes](nodes.md). How a lab that is not ready is shown is in [inspect and web UI](inspect-and-web-ui.md): `inspect_command_005`, `labs_list_005`, `007`, `009` and `010`, `lab_page_003` and `005`. A second up of a lab that is coming up is `lab_concurrency_001` and `004`; a lab ID another lab uses is `lab_preflight_003`. The Tailscale gateway kept on the record through phase changes is `tailnet_join_007`.
+
+## `lab_cancel`: a running operation can be stopped on request
+
+**Statement:** the lab's owner or an admin can stop the up, resume or redeploy running on a lab, by the `cancel` RPC or `POST /api/v1/labs/{id}/cancel`: the operation stops at its next step, the answer comes once it has ended and says whether anything was running, and a stopped up removes what it created; an operation is not stopped by its client going away, and Ctrl-C in the CLI asks before it stops anything.
+**Relied on by:** the user; scripts and other clients of the API. **Priority:** P1.
+
+| Case | What it shows | Level |
+|---|---|---|
+| 001 | Cancel of a lab with nothing running answers `stopped: false` with the lab's ID | integration |
+| 002 | `POST /api/v1/labs/{id}/cancel` answers as the RPC does (no test yet) | integration |
+| 003 | A requested stop ends a waiting operation with an error that says it was stopped on request, returns only once it has ended, saying an operation was running, and operations started after it run as any other | unit |
+| 004 | A cancelled up of a container lab ends with nothing of the lab left in Docker or the database, and cancel answers `stopped: true` only once it is gone (no test yet) | integration |
+| 005 | A cancelled up whose rollback leaves something behind leaves the lab `destroy failed` (no test yet) | integration |
+| 006 | A cancelled resume stops waiting for its nodes: the nodes it started keep running and the lab stays `ready` (no test yet) | integration |
+| 007 | A cancelled redeploy ends with an error that says it was stopped on request, its node is `failed`, and the lab stays `ready` (no test yet) | integration |
+| 008 | An operation whose REST client disconnects runs on to its end | unit |
+| 009 | Asked whether to stop, only `y` or `yes`, in any case, stops the operation; no answer or any other leaves it | unit |
+| 010 | Ctrl-C during `sherpa up`, answered no: the CLI says the lab creation keeps running on the server and exits non-zero having saved no lab files, and the lab comes up (no test yet) | e2e |
+| 011 | Ctrl-C during `sherpa up`, answered yes: the CLI waits, says the lab creation was stopped, and the lab is gone from the server (no test yet) | e2e |
+
+Who may cancel, the owner or an admin, and a lab that does not exist, are `access_control_013` in [accounts and auth](accounts-and-auth.md). A destroy stopping the operations of its lab is `lab_concurrency_005`. The node a failed redeploy leaves is `lab_redeploy_005`.
