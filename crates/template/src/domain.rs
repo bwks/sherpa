@@ -43,6 +43,11 @@ pub struct DomainTemplate {
     pub vnc_socket: String,
     pub tuning: DomainTuning,
     /// The action of the node's hardware watchdog. None, the domain has no watchdog.
+    ///
+    /// None is the default because Cisco IOS arms a watchdog at boot and feeds it only after an
+    /// init phase that, under nested KVM, outlasts the timeout, so its VMs reset in a loop.
+    /// libvirt still lists the q35 chipset's iTCO watchdog on every q35 domain, which acts only if
+    /// the guest arms it.
     pub watchdog: Option<WatchdogAction>,
 }
 

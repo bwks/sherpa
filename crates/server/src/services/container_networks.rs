@@ -99,6 +99,9 @@ pub(crate) fn data_attachment(
 /// The Docker attachments for a container node's data interfaces, in interface order. Only a
 /// container with no `[[links]]` link gets them: every link is a P2p link, and a container with
 /// one takes all its data interfaces as veths instead.
+///
+/// Every data interface gets one, a disabled one included: Docker names the unnamed interfaces in
+/// the order they are attached, so leaving one out would rename every interface after it.
 pub(crate) fn data_attachments(
     node_name: &str,
     model_kind: data::ModelKind,

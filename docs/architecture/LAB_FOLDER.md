@@ -47,14 +47,14 @@ and its nodes' records when `up`, `download` or `node.host_keys` returns them
 client reads them as before. Each Talos cluster's plan is in the database too. The
 `manifest.toml`, `lab-info.toml`, SSH files and `clusters/<cluster>/cluster.toml` older releases
 saved there were imported and deleted at startup by 0.6.4 and 0.6.5; 0.7.0 ignores any left
-behind (see [`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders)). What the server's
+behind. What the server's
 folder keeps is the lab's CA and the container and VM certificates, Talos,
 Vault, Keycloak and SurrealDB credentials (each 0600 in `vault/`, `keycloak/` and `surrealdb/`,
 the application nodes' admins among them), and the files read while a node exists: the dnsmasq config
 (`ztp/dnsmasq/dnsmasq.conf`, mounted in the boot container), the TFTP and HTTP files of the nodes
 that boot by them (`ztp/tftp/`, `ztp/configs/`) and each container's config mounts (`<node>/`).
 A lab from before 0.7.0 also still has its old SSH key pair, `sherpa_ssh_key` and `.pub`, until it
-is destroyed (see [`SERVER.md`](SERVER.md#no-lab-ssh-key)). It does not keep:
+is destroyed. It does not keep:
 
 - **A VM's boot files** (`vm-boot.d/<node>/`: its seed, config files, `ztp.iso`, config disks,
   Ignition file): they are read once, to copy the VM's media into the storage pool, and removed
@@ -77,7 +77,7 @@ CA, the boot server's files or credentials, so it is kept, with a warning. A con
 like one writes its config files into it, as before.
 
 Older releases left the first three; 0.6.5 removed them at startup, and 0.7.0 ignores any left
-behind (see [`SERVER.md`](SERVER.md#files-older-releases-left-in-lab-folders)). The user's `manifest.toml` in
+behind. The user's `manifest.toml` in
 their own lab folder is the CLI's, and is never touched.
 
 ### Node config modes

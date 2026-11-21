@@ -217,6 +217,10 @@ fn pending_destroys() -> &'static DashMap<String, usize> {
 }
 
 /// Start an operation on a lab. Waits while the lab is being destroyed.
+///
+/// The lease it takes is a shared read lease, so operations on one lab can run at once: what
+/// keeps two `up`s of a lab apart is the lab's phase, not this lease, and `redeploy` serializes
+/// with the lab's other redeploys through its own lock.
 #[instrument(level = "debug")]
 pub async fn begin(lab_id: &str) -> LabOperation {
     // The entry is taken before waiting, so a waiter cancelled mid-wait drops its count too.
