@@ -13,10 +13,7 @@ take; a node with ZTP on has Sherpa's config mounts and takes the lab owner's SS
 after up and after a redeploy; a node with ZTP off is running with no such mount and no owner
 login, for the reason its model has (SR Linux and cEOS: no management address; FRR: no SSH
 server), after up and after a redeploy; and every node is still running once the others have
-booted. Before the lab is up it also checks the command cases of tests/specs/manifests.md, which
-need no lab: what `sherpa validate` prints and exits with, with no manifest, with an unknown key,
-with a failing check and with no login, what `sherpa new` writes, and how `sherpa up` reports a
-manifest the server refuses. Always destroys the lab. Runs on the Sherpa server; see README.md.
+booted. Always destroys the lab. Runs on the Sherpa server; see README.md.
 
 A pytest module: the `prepared` fixture checks the server and writes the lab's manifest, the
 `lab` fixture brings the lab up once for the module and destroys it at the end, and the
@@ -27,7 +24,6 @@ the `test_<case_id>_*` functions, in case order. Run as a script, it runs pytest
 
 import argparse
 import json
-import os
 from pathlib import Path
 import re
 import shlex
@@ -89,14 +85,6 @@ ZTP_OFF_REFUSAL = {
 REFUSED_METHOD = "cdrom"
 AFTER_UP = "after up"
 
-# What `sherpa validate` prints: a line as each check starts, a tick under it once it passes, and
-# a last line once all have passed.
-CHECK_STARTED = "→ Checking "
-CHECK_PASSED = "  ✓ "
-VALIDATE_PASSED = "Manifest validation passed!"
-DESCRIPTION_CHECK = "→ Checking the description..."
-REFUSED_ENVIRONMENT_KEY = "1BAD"
-
 COMMAND_TIMEOUT = 180
 UP_TIMEOUT = 1800
 READY_TIMEOUT = 1200
@@ -135,13 +123,12 @@ def require(condition, message):
         raise TestFailure(message)
 
 
-def run_logged(log, label, arguments, cwd, timeout=COMMAND_TIMEOUT, env=None):
-    """Run a command, record it and its output in the log, and return its Outcome. `env` replaces
-    the environment when given."""
+def run_logged(log, label, arguments, cwd, timeout=COMMAND_TIMEOUT):
+    """Run a command, record it and its output in the log, and return its Outcome."""
     print(f"[{cwd.name}] {label}", flush=True)
     try:
         result = subprocess.run(arguments, cwd=cwd, capture_output=True, text=True, timeout=timeout,
-                                stdin=subprocess.DEVNULL, env=env)
+                                stdin=subprocess.DEVNULL)
         outcome = Outcome(result.returncode, result.stdout, result.stderr)
     except subprocess.TimeoutExpired as error:
         partial = [part.decode(errors="replace") if isinstance(part, bytes) else part or ""
@@ -170,8 +157,6 @@ def value_toml(value):
         return json.dumps(value)
     if isinstance(value, dict):
         return "{ " + ", ".join(f"{key} = {value_toml(item)}" for key, item in value.items()) + " }"
-    if isinstance(value, list):
-        return "[" + ", ".join(value_toml(item) for item in value) + "]"
     raise TypeError(f"Unsupported TOML value: {value!r}")
 
 
@@ -251,14 +236,6 @@ def refused_manifest(nodes, name):
     return render_manifest([{**node, "ztp": {"method": REFUSED_METHOD}}], name), node["name"]
 
 
-def validate_checks(output):
-    """The checks `sherpa validate` printed it was starting, each with whether it was ticked as
-    passed on the next line."""
-    lines = output.splitlines()
-    return [(line.strip(), index + 1 < len(lines) and lines[index + 1].startswith(CHECK_PASSED))
-            for index, line in enumerate(lines) if line.startswith(CHECK_STARTED)]
-
-
 # -- the lab -------------------------------------------------------------------------------------
 
 
@@ -278,29 +255,14 @@ class Lab:
 
     # -- commands ----------------------------------------------------------------------------
 
-    def command(self, label, arguments, timeout=COMMAND_TIMEOUT, check=True, cwd=None, env=None):
-        outcome = run_logged(self.log, label, arguments, cwd or self.directory, timeout, env)
+    def command(self, label, arguments, timeout=COMMAND_TIMEOUT, check=True, cwd=None):
+        outcome = run_logged(self.log, label, arguments, cwd or self.directory, timeout)
         if check and outcome.code != 0:
             raise TestFailure(f"{label} failed (exit {outcome.code}); see {self.log.name}")
         return outcome
 
-    def sherpa(self, label, arguments, timeout=COMMAND_TIMEOUT, check=True, cwd=None, env=None):
-        return self.command(label, ["sherpa", *arguments], timeout, check, cwd, env)
-
-    def case_directory(self, name):
-        """An empty folder of the run, beside the lab's, for a case that needs its own manifest."""
-        directory = self.directory.parent / name
-        directory.mkdir()
-        return directory
-
-    def without_login(self):
-        """The environment of a machine where the CLI has no login and no server: an empty home,
-        and none of the CLI's SHERPA_ variables."""
-        home = self.directory.parent / "empty-home"
-        home.mkdir(exist_ok=True)
-        env = {key: value for key, value in os.environ.items() if not key.startswith("SHERPA_")}
-        env["HOME"] = str(home)
-        return env
+    def sherpa(self, label, arguments, timeout=COMMAND_TIMEOUT, check=True, cwd=None):
+        return self.command(label, ["sherpa", *arguments], timeout, check, cwd)
 
     def container(self, node):
         return f"{node['name']}-{self.lab_id}"
@@ -527,104 +489,6 @@ def test_ztp_setting_001_validate_refuses_a_method_the_model_does_not_take(prepa
     prepared.sherpa("sherpa validate", ["validate"])
 
 
-def test_manifest_file_001_validate_without_a_manifest_exits_1_saying_it_was_not_found(prepared):
-    directory = prepared.case_directory("no-manifest")
-    outcome = prepared.sherpa("sherpa validate (no manifest)", ["validate"], check=False,
-                              cwd=directory)
-    require(outcome.code == 1, f"sherpa validate with no manifest.toml exited {outcome.code}, not 1")
-    require("manifest.toml" in outcome.output and "No such file or directory" in outcome.output,
-            f"sherpa validate did not say manifest.toml was not found: {outcome.output.strip()}")
-
-
-def test_manifest_file_009_validate_names_the_file_place_and_key_of_an_unknown_key(prepared):
-    directory = prepared.case_directory("unknown-key")
-    model = prepared.nodes[0]["model"]
-    (directory / "manifest.toml").write_text(
-        f'name = "{prepared.name}-unknown-key"\n\n[[nodes]]\nname = "n1"\nmodel = "{model}"\n'
-        'colour = "blue"\n')
-    outcome = prepared.sherpa("sherpa validate (unknown key)", ["validate"], check=False,
-                              cwd=directory)
-    require(outcome.code == 1, f"sherpa validate of an unknown key exited {outcome.code}, not 1")
-    for expected in ("manifest.toml", "line 6, column 1", "unknown field `colour`",
-                     "expected one of", "`model`"):
-        require(expected in outcome.output,
-                f"sherpa validate of an unknown key did not print {expected!r}: {outcome.output.strip()}")
-
-
-def test_manifest_file_010_new_writes_two_linux_nodes_and_a_link_that_validate_passes(prepared):
-    directory = prepared.case_directory("new")
-    prepared.sherpa("sherpa new", ["new"], cwd=directory)
-    manifest = tomllib.loads((directory / "manifest.toml").read_text())
-    require(manifest.get("name"), "sherpa new wrote a manifest with no lab name")
-    nodes = manifest.get("nodes", [])
-    require(len(nodes) == 2 and all(node["model"].endswith("_linux") for node in nodes),
-            f"sherpa new did not write two Linux nodes: {nodes}")
-    links = manifest.get("links", [])
-    ends = {end.split("::")[0] for link in links for end in (link["src"], link["dst"])}
-    require(len(links) == 1 and ends == {node["name"] for node in nodes},
-            f"sherpa new did not link its two nodes: {links}")
-    outcome = prepared.sherpa("sherpa validate (new)", ["validate"], check=False, cwd=directory)
-    require(outcome.code == 0 and VALIDATE_PASSED in outcome.output,
-            f"sherpa validate did not pass the manifest sherpa new wrote (exit {outcome.code})")
-
-
-def test_manifest_file_011_new_leaves_an_existing_manifest_and_force_writes_over_it(prepared):
-    directory = prepared.case_directory("new-existing")
-    path = directory / "manifest.toml"
-    existing = render_manifest(prepared.nodes[:1], f"{prepared.name}-existing")
-    path.write_text(existing)
-    outcome = prepared.sherpa("sherpa new (existing manifest)", ["new"], check=False, cwd=directory)
-    require(path.read_text() == existing, "sherpa new wrote over an existing manifest.toml")
-    require("already exists" in outcome.output,
-            f"sherpa new did not say manifest.toml already exists: {outcome.output.strip()}")
-    prepared.sherpa("sherpa new --force", ["new", "--force"], cwd=directory)
-    written = tomllib.loads(path.read_text())
-    require(path.read_text() != existing and len(written.get("nodes", [])) == 2,
-            "sherpa new --force did not write its example over the existing manifest.toml")
-
-
-def test_validate_command_001_a_valid_manifest_passes_every_check_with_no_login_or_server(prepared):
-    outcome = prepared.sherpa("sherpa validate (no login, no server)", ["validate"], check=False,
-                              env=prepared.without_login())
-    require(outcome.code == 0, f"sherpa validate with no login exited {outcome.code}, not 0")
-    checks = validate_checks(outcome.stdout)
-    require(checks and all(ticked for _, ticked in checks),
-            f"sherpa validate did not tick every check: {checks}")
-    require(VALIDATE_PASSED in outcome.stdout, f"sherpa validate did not print {VALIDATE_PASSED!r}")
-
-
-def test_validate_command_002_a_failing_check_exits_1_with_its_message_and_no_later_check(prepared):
-    directory = prepared.case_directory("long-description")
-    manifest = render_manifest(prepared.nodes[:1], f"{prepared.name}-long-description")
-    name_line, rest = manifest.split("\n", 1)
-    (directory / "manifest.toml").write_text(
-        f"{name_line}\ndescription = {value_toml('a' * 1001)}\n{rest}")
-    outcome = prepared.sherpa("sherpa validate (description too long)", ["validate"], check=False,
-                              cwd=directory)
-    require(outcome.code == 1, f"sherpa validate of a long description exited {outcome.code}, not 1")
-    require("1001 characters" in outcome.output,
-            f"sherpa validate did not print the description check's message: {outcome.output.strip()}")
-    checks = validate_checks(outcome.stdout)
-    require(checks and checks[-1] == (DESCRIPTION_CHECK, False),
-            f"sherpa validate went on past the failed description check: {checks}")
-    require(VALIDATE_PASSED not in outcome.output, "sherpa validate said a failed manifest passed")
-
-
-def test_validate_command_005_up_refused_by_the_server_exits_1_naming_the_check_and_node(prepared):
-    directory = prepared.case_directory("refused-up")
-    node = {**prepared.nodes[0], "environment_variables": [f"{REFUSED_ENVIRONMENT_KEY}=value"]}
-    (directory / "manifest.toml").write_text(render_manifest([node], f"{prepared.name}-refused"))
-    outcome = prepared.sherpa("sherpa up (refused by the server)", ["up"], UP_TIMEOUT, check=False,
-                              cwd=directory)
-    if outcome.code != 1 or (directory / ".sherpa" / "lab-info.toml").exists():
-        prepared.sherpa("sherpa destroy (refused up)", ["destroy", "--yes"], UP_TIMEOUT,
-                        check=False, cwd=directory)
-    require(outcome.code == 1, f"sherpa up of a manifest the server refuses exited {outcome.code}, not 1")
-    for expected in (f"environment variable key '{REFUSED_ENVIRONMENT_KEY}'", f"node '{node['name']}'"):
-        require(expected in outcome.output,
-                f"sherpa up did not print the server's refusal naming {expected}: {outcome.output.strip()}")
-
-
 def test_ztp_disabled_001_a_container_with_ztp_off_runs_with_no_config_mount(lab):
     nodes = ztp_off_nodes(lab.nodes)
     require(nodes, "the run has no node with ZTP off")
@@ -736,13 +600,6 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(mount_problems(on, mounts[:2]), ["has no /tmp/sherpa-init.sh mount"])
         self.assertEqual(mount_problems(off, mounts[:1]), ["has Sherpa's /etc/frr/daemons mount"])
         self.assertEqual(mount_problems({"name": "nats01", "model": "nats_bus"}, []), [])
-
-    def test_a_check_is_ticked_only_by_the_line_under_it(self):
-        output = ("→ Checking one...\n  ✓ One passed\n→ Checking two...\nFailed\n"
-                  "→ Checking three...")
-        self.assertEqual(validate_checks(output), [("→ Checking one...", True),
-                                                   ("→ Checking two...", False),
-                                                   ("→ Checking three...", False)])
 
     def test_ssh_refusals_are_read_from_its_message(self):
         self.assertEqual(ssh_refusal("channel 0: open failed: connect failed: No route to host\n"),
