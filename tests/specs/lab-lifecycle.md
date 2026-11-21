@@ -152,8 +152,8 @@ The node states themselves are `node_state` in [nodes](nodes.md). A lab's status
 | 005 | A `lab-info.toml` and a manifest that name different labs are refused, naming both labs and the file, and saying to destroy the recorded lab or remove the file | unit |
 | 006 | A folder with neither file is refused, naming both files | unit |
 | 007 | `up`, `redeploy` and `provision` in a folder with no manifest are refused, saying a folder made by `sherpa download` has none and where to run the command | unit |
-| 008 | A manifest that does not load beside a `lab-info.toml` does not stop a command that needs no manifest: the lab is the recorded one; with no `lab-info.toml` the command fails with the manifest's error (no test yet) | unit |
-| 009 | A `lab-info.toml` that does not parse counts as none: the folder is the lab of its manifest (no test yet) | unit |
+| 008 | A manifest that does not load beside a `lab-info.toml` does not stop a command that needs no manifest: the lab is the recorded one; with no `lab-info.toml` the command fails with the manifest's error | unit |
+| 009 | A `lab-info.toml` that does not parse counts as none: the folder is the lab of its manifest | unit |
 | 010 | A folder with only a manifest and no login is refused, since the lab's ID comes from the login (no test yet) | unit |
 | 011 | After the lab's name is changed in the `manifest.toml` of a running lab's folder, `sherpa inspect` and `sherpa up` exit non-zero naming both labs, and the running lab is untouched (no test yet) | e2e |
 
@@ -168,7 +168,7 @@ Names are compared, never IDs, so a lab keeps the ID it was given. Refusing to c
 |---|---|---|
 | 001 | The allowed moves: `creating` to `ready` when built, `creating` to removed when its up gives it back, any phase to `destroying`, `destroying` to removed or to `destroy failed`; any other move is refused, naming the move and the phase | unit |
 | 002 | Only `ready` takes operations on the lab's nodes; every other phase refuses them | unit |
-| 003 | The refusal of each phase says what to do: wait or destroy for `creating`, destroy again for `destroy failed`, destroy and start again for `interrupted`, destroy for `unknown` (no test yet) | unit |
+| 003 | The refusal of each phase says what to do: wait or destroy for `creating`, destroy again for `destroy failed`, destroy and start again for `interrupted`, destroy for `unknown` | unit |
 | 004 | A lab that lost its operation moves from `creating` to `interrupted` and from `destroying` to `destroy failed`, and both can then be destroyed | unit |
 | 005 | A phase this version does not know reads as `unknown`, which is not ready and can be destroyed | unit |
 | 006 | The record up reserves a lab with is `creating` | integration |
@@ -177,10 +177,10 @@ Names are compared, never IDs, so a lab keeps the ID it was given. Refusing to c
 | 009 | A destroy that left something behind leaves the record `destroy failed`; a destroy of that lab that removes everything removes the record | integration |
 | 010 | A phase write made from a phase the lab has since left changes nothing, and a lab that does not exist is not moved | integration |
 | 011 | A record is removed only from the phase it was read in, and removing it again is no error | integration |
-| 012 | Down, resume and redeploy of a lab that is not `ready` are refused with a conflict that says what to do, and its nodes are untouched (no test yet) | integration |
+| 012 | Down, resume and redeploy of a lab that is not `ready` are refused with a conflict that says what to do, and its nodes are untouched | integration |
 | 013 | An up of a lab that exists and is not `ready` is refused saying it exists and naming its phase | unit |
 | 014 | At startup a lab left `creating` becomes `interrupted` and one left `destroying` becomes `destroy failed`, `ready` and `destroy failed` labs are left as they are, no record is removed, and a second run finds nothing to mark | integration |
-| 015 | A lab that cannot be marked at startup is counted and logged, and the others are still marked (no test yet) | integration |
+| 015 | A lab that cannot be marked at startup is counted and logged, and the others are still marked | integration |
 | 016 | After sherpad is stopped during an up and started again, `sherpa inspect` shows the lab `interrupted` with what to do, down is refused, and `sherpa destroy` removes it (no test yet) | e2e |
 
 The nodes an up or a redeploy was building when the server stopped are `node_failure_010` in [nodes](nodes.md). How a lab that is not ready is shown is in [inspect and web UI](inspect-and-web-ui.md): `inspect_command_005`, `labs_list_005`, `007`, `009` and `010`, `lab_page_003` and `005`. A second up of a lab that is coming up is `lab_concurrency_001` and `004`; a lab ID another lab uses is `lab_preflight_003`. The Tailscale gateway kept on the record through phase changes is `tailnet_join_007`.
@@ -193,12 +193,12 @@ The nodes an up or a redeploy was building when the server stopped are `node_fai
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | Cancel of a lab with nothing running answers `stopped: false` with the lab's ID | integration |
-| 002 | `POST /api/v1/labs/{id}/cancel` answers as the RPC does (no test yet) | integration |
+| 002 | `POST /api/v1/labs/{id}/cancel` answers as the RPC does | integration |
 | 003 | A requested stop ends a waiting operation with an error that says it was stopped on request, returns only once it has ended, saying an operation was running, and operations started after it run as any other | unit |
-| 004 | A cancelled up of a container lab ends with nothing of the lab left in Docker or the database, and cancel answers `stopped: true` only once it is gone (no test yet) | integration |
-| 005 | A cancelled up whose rollback leaves something behind leaves the lab `destroy failed` (no test yet) | integration |
-| 006 | A cancelled resume stops waiting for its nodes: the nodes it started keep running and the lab stays `ready` (no test yet) | integration |
-| 007 | A cancelled redeploy ends with an error that says it was stopped on request, its node is `failed`, and the lab stays `ready` (no test yet) | integration |
+| 004 | A cancelled up of a container lab ends with nothing of the lab left in Docker or the database, and cancel answers `stopped: true` only once it is gone | integration |
+| 005 | A cancelled up whose rollback leaves something behind leaves the lab `destroy failed` | integration |
+| 006 | A cancelled resume stops waiting for its nodes: the nodes it started keep running and the lab stays `ready` | integration |
+| 007 | A cancelled redeploy ends with an error that says it was stopped on request, its node is `failed`, and the lab stays `ready` | integration |
 | 008 | An operation whose REST client disconnects runs on to its end | unit |
 | 009 | Asked whether to stop, only `y` or `yes`, in any case, stops the operation; no answer or any other leaves it | unit |
 | 010 | Ctrl-C during `sherpa up`, answered no: the CLI says the lab creation keeps running on the server and exits non-zero having saved no lab files, and the lab comes up (no test yet) | e2e |

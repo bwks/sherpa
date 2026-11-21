@@ -24,7 +24,7 @@ async fn lab_for(db: &Database, user: &DbUser, lab_id: &str, octet: u8) -> Resul
 }
 
 #[tokio::test]
-async fn a_new_lab_is_being_created() -> Result<()> {
+async fn lab_phase_006_the_record_up_reserves_a_lab_with_is_creating() -> Result<()> {
     // The row `up` inserts is its reservation of the lab ID.
     let db = setup_db().await?;
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
@@ -40,7 +40,7 @@ async fn a_new_lab_is_being_created() -> Result<()> {
 }
 
 #[tokio::test]
-async fn a_phase_write_leaves_a_lab_another_writer_moved() -> Result<()> {
+async fn lab_phase_010_a_stale_phase_write_changes_nothing() -> Result<()> {
     let db = setup_db().await?;
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
     lab_for(&db, &user, "lab-0001", 1).await?;
@@ -67,7 +67,7 @@ async fn a_phase_write_leaves_a_lab_another_writer_moved() -> Result<()> {
 }
 
 #[tokio::test]
-async fn a_lab_is_removed_only_from_the_phase_it_was_read_in() -> Result<()> {
+async fn lab_phase_011_a_record_is_removed_only_from_the_phase_it_was_read_in() -> Result<()> {
     let db = setup_db().await?;
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
     lab_for(&db, &user, "lab-0001", 1).await?;
