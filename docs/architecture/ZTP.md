@@ -127,7 +127,7 @@ The template's first command is therefore `do pnpa service discovery stop`, whic
 before anything else is applied. IOS XE has no configuration-mode command for this, hence `do`.
 On CSR1000v 17.3, CVAC then reads one line of binary bytes after the final `exit` and logs a
 rejected command (`%CVAC-3-CONFIG_ERROR: 1 error(s)`); everything before it is applied and saved.
-Cat8000v 17.16 does not. The template test in `crates/template/tests/cisco_iosxe` holds the stop
+Cat8000v 17.16 does not. The template test in `crates/template/tests/templates/cisco_iosxe.rs` holds the stop
 to the first command.
 
 ## The boot server

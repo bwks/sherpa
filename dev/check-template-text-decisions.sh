@@ -126,7 +126,7 @@ done <<<"${result}"
 cat >&2 <<'EOF'
 
 A template tag calls `to_string()` or compares with a string literal. Give the template a typed
-value, such as a bool or an enum, from Rust and decide from that instead. See AGENTS.md,
-"HTML Templates".
+value, such as a bool or an enum, from Rust and decide from that instead: renaming a
+variant's text must not change what a page shows or offers.
 EOF
 exit 1

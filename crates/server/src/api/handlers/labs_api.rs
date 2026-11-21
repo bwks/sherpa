@@ -6,6 +6,7 @@ use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, sse};
 use serde::Deserialize;
 use std::future::Future;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::api::sse::json_progress_stream;
 use crate::auth::policy::{require_lab_access, require_lab_owner, require_lab_starter};
@@ -168,8 +169,8 @@ pub async fn create_lab_json(
     // Checked before the stream opens so a refusal is a 403, not an error event.
     require_lab_starter(&auth)?;
 
-    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let (progress_tx, progress_rx) = mpsc::unbounded_channel();
+    let (result_tx, result_rx) = oneshot::channel();
     let progress = ProgressSender::new(progress_tx);
 
     tokio::spawn(async move {
@@ -192,8 +193,8 @@ pub async fn delete_lab_json(
     // Checked before the stream opens so a refusal is a 403, not an error event.
     require_lab_access(&auth, &state.db, &lab_id).await?;
 
-    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let (progress_tx, progress_rx) = mpsc::unbounded_channel();
+    let (result_tx, result_rx) = oneshot::channel();
     let progress = ProgressSender::new(progress_tx);
 
     tokio::spawn(async move {
@@ -305,8 +306,8 @@ pub async fn redeploy_node_json(
         as_written,
     };
 
-    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let (progress_tx, progress_rx) = mpsc::unbounded_channel();
+    let (result_tx, result_rx) = oneshot::channel();
     let progress = ProgressSender::new(progress_tx);
 
     tokio::spawn(async move {
@@ -372,9 +373,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_dropped_handler_does_not_stop_its_operation() {
-        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
-        let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
-        let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
+        let (started_tx, started_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel::<()>();
+        let (finished_tx, finished_rx) = oneshot::channel();
         let waiting = tokio::spawn(run_detached(async move {
             let _ = started_tx.send(());
             let _ = release_rx.await;

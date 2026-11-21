@@ -109,6 +109,15 @@ jobs:
       - name: Check templates decide nothing from an enum's text
         run: dev/check-template-text-decisions.sh
 
+      - name: Check mod.rs files hold no code
+        run: dev/check-mod-rs.sh
+
+      - name: Check doc comments hold no code blocks
+        run: dev/check-doc-code-blocks.sh
+
+      - name: Check comments name no issue or pull request numbers
+        run: dev/check-comment-issue-numbers.sh
+
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings
 

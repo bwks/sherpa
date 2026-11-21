@@ -50,7 +50,7 @@
 - Each node gets a Host block with correct hostname `[unit]` **P1**
 - Multiple ZTP records produce multiple Host blocks `[unit]` **P1**
 
-**Existing coverage:** 1 test in `crates/template/tests/ssh/mod.rs`
+**Existing coverage:** 1 test in `crates/template/tests/templates/ssh.rs`
 
 ---
 

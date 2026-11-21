@@ -4711,6 +4711,7 @@ pub(crate) mod tests {
     use crate::konst::TFTP_DIR_MODE;
     use crate::log_capture::capture_log;
     use crate::services::guest_account::tests::test_account;
+    use axum::extract::ws::Message;
     use nix::sys::stat::{Mode, umask};
     use shared::data::{ModelKind, Ztp};
     use std::env;
@@ -5935,7 +5936,7 @@ echo "$*" >> '{}'
         dns: data::Dns,
         progress: ProgressSender,
         /// Kept open so the status messages the nodes are configured with can be sent.
-        _messages: mpsc::UnboundedReceiver<axum::extract::ws::Message>,
+        _messages: mpsc::UnboundedReceiver<Message>,
     }
 
     impl ZtpLab {

@@ -614,6 +614,7 @@ pub(crate) mod tests {
     use std::thread;
 
     use crate::services::node_ops::tests as node_ops_tests;
+    use crate::services::up::process_manifest_nodes;
     use db::SecretKey;
     use jiff::Timestamp;
     use sha_crypt::{PasswordVerifier, ShaCrypt};
@@ -1115,7 +1116,7 @@ pub(crate) mod tests {
             },
             ..Default::default()
         };
-        let nodes = crate::services::up::process_manifest_nodes(&[node]).unwrap();
+        let nodes = process_manifest_nodes(&[node]).unwrap();
         let image = ModelKind::default_for(NodeModel::CiscoIos).node_config();
         assert!(!provisions_owner(&nodes[0], &image));
         let mut node = nodes[0].clone();

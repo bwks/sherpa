@@ -172,3 +172,6 @@ dead_code = "deny"
 pedantic = { level = "warn", priority = -1 }
 # Lints are fixed, not allowed; `#[expect(..., reason = "...")]` is the one exception.
 allow_attributes = "deny"
+# Long qualified paths are imported with `use` at the top of the file, not written inline.
+# The segment limit is `absolute-paths-max-segments` in clippy.toml.
+absolute_paths = "warn"

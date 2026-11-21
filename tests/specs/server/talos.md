@@ -32,4 +32,4 @@ Design: `docs/architecture/TALOS.md`.
 
 Tests: `shared::data::node`, `services::{node_ops, up, resume, ssh_config, import, guest_account}`,
 `services::talos::*`, `tls::generator`, `topology::talos_cluster`, `topology::validate::talos_cluster`,
-`crates/template/tests/talos`, and client `cluster_credentials`.
+`crates/template/tests/templates/talos.rs`, and client `cluster_credentials`.

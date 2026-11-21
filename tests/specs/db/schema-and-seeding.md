@@ -46,7 +46,7 @@
 - `admin`'s password and SSH keys can still change `[integration]` **P0**
 - Other admins can still be demoted and deleted `[integration]` **P0**
 
-Tests: `crates/db/tests/user/admin_protection_tests.rs`.
+Tests: `crates/db/tests/db/user/admin_protection_tests.rs`.
 
 ---
 

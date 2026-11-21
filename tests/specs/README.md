@@ -95,6 +95,7 @@ These test the test tooling or the build, not Sherpa. They prove no case, carry 
 - `crates/agent-bus`, the message bus between the host agent and the agents in lab guests.
 - `crates/db/build`: the build script's count of a query file's parameters (`placeholders.rs`).
 - `crates/server/src/log_capture.rs`: the helper other tests read log lines with.
+- The `--self-test` of the `dev/check-*.sh` scripts, which check the code rules.
 - The self-tests of `tests/harness/` (`vm_release_test.py`, `vm_release_guest.py`, `vm_release_faults.py`, `verify_release_test.py` and the rest) other than the three named by a case ID, the VM run's `failure-checks` scenario, and its `baseline`, `install-baseline` and `seed-upgrade` steps, which prepare a run.
 
 ## Enforcement

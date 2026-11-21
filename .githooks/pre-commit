@@ -6,4 +6,7 @@ set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
 "${root}/dev/check-lint-exceptions.sh"
+"${root}/dev/check-mod-rs.sh"
+"${root}/dev/check-doc-code-blocks.sh"
+"${root}/dev/check-comment-issue-numbers.sh"
 exec "${root}/dev/check-template-text-decisions.sh"

@@ -109,6 +109,8 @@ pub fn token_exists() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
 
     use super::*;
@@ -127,7 +129,6 @@ mod tests {
             .unwrap();
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
             let mode = fs::metadata(&file.path).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }

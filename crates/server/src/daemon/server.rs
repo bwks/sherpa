@@ -16,6 +16,7 @@ use tokio::net::TcpListener;
 use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::FormatTime;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -49,7 +50,7 @@ const SESSION_SWEEP_INTERVAL_SECS: u64 = 3600;
 struct MillisecondTime;
 
 impl FormatTime for MillisecondTime {
-    fn format_time(&self, w: &mut tracing_subscriber::fmt::format::Writer<'_>) -> std::fmt::Result {
+    fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
         let now = jiff::Zoned::now();
         // Format with millisecond precision (3 decimal places)
         // Format: YYYY-MM-DDTHH:MM:SS.sssZ

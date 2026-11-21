@@ -191,6 +191,9 @@ pub(crate) fn write_lab_ca(folder: &LabFolder, lab_ca: &str) -> Result<Option<Pa
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
     use super::*;
 
     const LAB_INFO: &str = r#"id = "fecb1a12"
@@ -267,7 +270,6 @@ ipv4_router = "172.31.3.2"
     #[cfg(unix)]
     #[test]
     fn lab_file_privacy_002_saving_leaves_the_folders_700_and_known_hosts_600() {
-        use std::os::unix::fs::PermissionsExt;
         let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
         let dir = tempfile::tempdir().unwrap();
         let folder = LabFolder::new(dir.path());
@@ -284,7 +286,6 @@ ipv4_router = "172.31.3.2"
     #[cfg(unix)]
     #[test]
     fn lab_file_privacy_004_a_symlinked_sherpa_or_folder_of_it_is_refused() {
-        use std::os::unix::fs::PermissionsExt;
         let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
         let lab_info: LabInfo = LAB_INFO.parse().unwrap();
         let open_folder = || {
@@ -295,7 +296,7 @@ ipv4_router = "172.31.3.2"
 
         let dir = tempfile::tempdir().unwrap();
         let elsewhere = open_folder();
-        std::os::unix::fs::symlink(elsewhere.path(), dir.path().join(".sherpa")).unwrap();
+        symlink(elsewhere.path(), dir.path().join(".sherpa")).unwrap();
         let error = save_lab_files(&LabFolder::new(dir.path()), &lab_files(&lab_info)).unwrap_err();
         assert!(format!("{error:#}").contains("symlink"), "{error:#}");
         assert_eq!(fs::read_dir(elsewhere.path()).unwrap().count(), 0);
@@ -304,7 +305,7 @@ ipv4_router = "172.31.3.2"
         let dir = tempfile::tempdir().unwrap();
         let elsewhere = open_folder();
         fs::create_dir(dir.path().join(".sherpa")).unwrap();
-        std::os::unix::fs::symlink(elsewhere.path(), dir.path().join(".sherpa/ssh")).unwrap();
+        symlink(elsewhere.path(), dir.path().join(".sherpa/ssh")).unwrap();
         let error = save_lab_files(&LabFolder::new(dir.path()), &lab_files(&lab_info)).unwrap_err();
         assert!(format!("{error:#}").contains("symlink"), "{error:#}");
         assert_eq!(fs::read_dir(elsewhere.path()).unwrap().count(), 0);

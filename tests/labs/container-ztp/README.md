@@ -16,7 +16,7 @@ The lab has no links.
 cJunosEvolved (`juniper_evolved`, kind `container`) is not in the lab, though Sherpa mounts its
 config too: its container boots a VM, which is nested in the dev servers, where these tests run,
 and takes many minutes there. Its Junos config is covered by the template unit tests
-(`crates/template/tests/juniper_junos`); its config mount and ZTP-off behaviour are not checked
+(`crates/template/tests/templates/juniper_junos.rs`); its config mount and ZTP-off behaviour are not checked
 live.
 
 ## Requirements

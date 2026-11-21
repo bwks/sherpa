@@ -194,6 +194,7 @@ pub fn load_secrets(dir: &Path, cluster_name: &str) -> Result<TalosClusterSecret
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
 
     #[test]
@@ -269,9 +270,10 @@ mod tests {
         let secrets = generate_cluster_secrets().unwrap();
         save_secrets(&dir, "k8s", &secrets).unwrap();
         assert_eq!(load_secrets(&dir, "k8s").unwrap(), secrets);
-        let mode = std::os::unix::fs::PermissionsExt::mode(
-            &fs::metadata(dir.join(SECRETS_FILE)).unwrap().permissions(),
-        );
+        let mode = fs::metadata(dir.join(SECRETS_FILE))
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o777, 0o600);
     }
 

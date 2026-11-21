@@ -60,7 +60,7 @@
 - Host FQDN uses `<node>.<lab-id>.<domain>` format `[unit]` **P0**
 - Lab ID passed through to template correctly `[unit]` **P0**
 
-**Existing coverage:** 1 test in `crates/template/tests/ssh/mod.rs` (updated for lab_id)
+**Existing coverage:** 1 test in `crates/template/tests/templates/ssh.rs` (updated for lab_id)
 
 ---
 

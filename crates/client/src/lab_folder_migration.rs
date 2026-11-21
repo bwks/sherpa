@@ -374,6 +374,9 @@ fn print_migration(migration: &Migration) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
     use super::*;
 
     const LAB_INFO: &str = r#"id = "fecb1a12"
@@ -434,7 +437,6 @@ users = []
         }
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&key, fs::Permissions::from_mode(0o644)).unwrap();
         }
         fs::create_dir_all(ssh_dir).unwrap();
@@ -544,7 +546,6 @@ users = []
     #[cfg(unix)]
     #[test]
     fn lab_folder_upgrade_004_folders_are_owner_only_and_each_moved_secret_is_0600() {
-        use std::os::unix::fs::PermissionsExt;
         let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
         let lab = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
@@ -698,7 +699,7 @@ users = []
         let home = tempfile::tempdir().unwrap();
         let elsewhere = tempfile::tempdir().unwrap();
         old_layout(lab.path(), &home.path().join(".ssh"));
-        std::os::unix::fs::symlink(elsewhere.path(), lab.path().join(".sherpa")).unwrap();
+        symlink(elsewhere.path(), lab.path().join(".sherpa")).unwrap();
 
         let error = migrate_lab_folder(lab.path(), &home.path().join(".ssh")).unwrap_err();
 
