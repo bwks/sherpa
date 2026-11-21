@@ -1,0 +1,43 @@
+warning: `use` declared inside a function
+  --> $DIR/use_in_function.rs:18:5
+   |
+LL |     use std::fmt::Write;
+   |     ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: declare it with the other `use` statements at the top of the file
+   = note: `#[warn(use_in_function)]` on by default
+
+warning: `use` declared inside a function
+  --> $DIR/use_in_function.rs:26:5
+   |
+LL |     use std::collections::BTreeSet;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: declare it with the other `use` statements at the top of the file
+
+warning: `use` declared inside a function
+  --> $DIR/use_in_function.rs:33:9
+   |
+LL |         use std::collections::VecDeque;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: declare it with the other `use` statements at the top of the file
+
+warning: `use` declared inside a function
+  --> $DIR/use_in_function.rs:42:9
+   |
+LL |         use std::collections::HashSet;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: declare it with the other `use` statements at the top of the file
+
+warning: `use` declared inside a function
+  --> $DIR/use_in_function.rs:52:9
+   |
+LL |         use std::collections::BinaryHeap;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: declare it with the other `use` statements at the top of the file
+
+warning: 5 warnings emitted
+

@@ -1,0 +1,5 @@
+# The nightly that the pinned clippy_utils revision in Cargo.toml builds with. The two change
+# together (`cargo dylint upgrade`).
+[toolchain]
+channel = "nightly-2026-08-20"
+components = ["llvm-tools-preview", "rustc-dev"]

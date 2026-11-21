@@ -1,0 +1,43 @@
+warning: code in a `mod.rs` file
+  --> $DIR/auxiliary/with_code/mod.rs:3:1
+   |
+LL | use std::fmt::Display;
+   | ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: a `mod.rs` holds only docs, `mod` declarations and `pub use` re-exports; move this to its own module
+   = note: `#[warn(code_in_mod_rs)]` on by default
+
+warning: code in a `mod.rs` file
+  --> $DIR/auxiliary/with_code/mod.rs:9:1
+   |
+LL | pub const LIMIT: u8 = 1;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: a `mod.rs` holds only docs, `mod` declarations and `pub use` re-exports; move this to its own module
+
+warning: code in a `mod.rs` file
+  --> $DIR/auxiliary/with_code/mod.rs:11:1
+   |
+LL | pub struct Holder;
+   | ^^^^^^^^^^^^^^^^^^
+   |
+   = help: a `mod.rs` holds only docs, `mod` declarations and `pub use` re-exports; move this to its own module
+
+warning: code in a `mod.rs` file
+  --> $DIR/auxiliary/with_code/mod.rs:13:1
+   |
+LL | pub fn show(value: impl Display) -> String {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: a `mod.rs` holds only docs, `mod` declarations and `pub use` re-exports; move this to its own module
+
+warning: code in a `mod.rs` file
+  --> $DIR/auxiliary/with_code/mod.rs:17:1
+   |
+LL | pub mod inline {
+   | ^^^^^^^^^^^^^^
+   |
+   = help: a `mod.rs` holds only docs, `mod` declarations and `pub use` re-exports; move this to its own module
+
+warning: 5 warnings emitted
+
