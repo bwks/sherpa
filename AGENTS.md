@@ -117,7 +117,7 @@ Validators ensure user supplied data is accurate, usable and secure. They live w
 
 ### Errors
 - Library crates return their own error enum, defined with `thiserror`.
-- Use Anyhow handling errors of other libraries. Prefer adding context errors before they are returned.
+- Use `Anyhow` for handling errors of other libraries. Prefer adding context errors before they are returned.
 
 ### Options
 - Never use `.unwrap()` and `.expect()` are banned in production code. Options must be handled.
@@ -207,3 +207,4 @@ Validators ensure user supplied data is accurate, usable and secure. They live w
 
 ## Agent Hints
 - Before you build or test, read `tests/README.md`: what to run while iterating and before a commit, where to build and test (the dev servers), what never to boot there, and when a change needs a Windows check.
+- Never add code, to reject or test against the removal or old/removed code paths.
