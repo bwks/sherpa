@@ -216,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn the_node_not_accepting_the_login_yet_is_retried() {
+    fn provision_run_009_a_node_refusing_the_login_or_connection_is_tried_again() {
         assert!(retryable(&auth_failed(node()), &node()));
         let refused = anyhow::Error::new(Error::Connect {
             node: node(),
@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn the_server_refusing_the_login_is_not_retried() {
+    fn provision_run_010_the_jump_server_refusing_the_login_is_not_tried_again() {
         assert!(!retryable(&auth_failed(server()), &node()));
     }
 

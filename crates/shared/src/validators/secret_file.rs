@@ -40,8 +40,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn names_are_single_safe_file_names() {
-        for name in ["token", "db.password", "api_key-2", "user+1@host"] {
+    fn container_secrets_012_a_name_is_one_short_safe_file_name() {
+        let longest = "a".repeat(255);
+        for name in [
+            "token",
+            "db.password",
+            "api_key-2",
+            "user+1@host",
+            longest.as_str(),
+        ] {
             validate_secret_file(name, 444).unwrap();
         }
         let long = "a".repeat(256);
@@ -61,7 +68,7 @@ mod tests {
     }
 
     #[test]
-    fn modes_are_octal_digits_up_to_777() {
+    fn container_secrets_013_a_mode_is_octal_digits_up_to_777() {
         for mode in [0, 400, 440, 444, 600, 777] {
             validate_secret_file("token", mode).unwrap();
         }

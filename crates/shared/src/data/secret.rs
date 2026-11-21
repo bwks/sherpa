@@ -64,7 +64,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn content_is_base64_on_the_wire_and_hidden_from_debug() {
+    fn provisioner_secrecy_003_contents_are_base64_in_a_request_and_hidden_from_debug() {
         let file = SecretFile {
             name: "token".to_string(),
             mode: 444,

@@ -35,7 +35,7 @@ mod tests {
     use std::env;
 
     #[test]
-    fn client_paths_start_at_the_manifest_unless_absolute() {
+    fn client_content_001_paths_are_under_home_the_manifest_folder_or_as_written() {
         let dir = Path::new("/labs/dev");
         assert_eq!(
             resolve_client_path(dir, "secrets/a.env"),

@@ -246,8 +246,9 @@ fn skip_reason(node: &str, ready_nodes: Option<&[String]>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cmd::up::ssh_ready_nodes;
     use crate::ssh_client::HostKeyRefresh;
-    use shared::data::ClientConfig;
+    use shared::data::{ClientConfig, NodeInfo, NodeKind, NodeModel, NodeState};
 
     fn manifest() -> Manifest {
         toml::from_str(
@@ -298,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn only_nodes_with_provisioners_are_provisioned() {
+    fn provision_run_003_only_nodes_with_an_ssh_provisioner_are_connected_to_in_manifest_order() {
         let manifest = manifest();
         assert_eq!(
             names(nodes_to_provision(&manifest, None).unwrap()),
@@ -340,7 +341,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn earlier_results_are_reported_without_ssh_nodes() {
+    async fn provision_report_004_container_results_are_reported_when_no_node_has_an_ssh_provisioner()
+     {
         let manifest = manifest();
         let provisioned = provision_lab(
             &manifest,
@@ -370,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn results_are_reported_in_manifest_order() {
+    fn provision_report_002_results_are_listed_in_manifest_order() {
         let manifest = manifest();
         let nodes = nodes_to_provision(&manifest, None).unwrap();
         let finished = vec![
@@ -385,14 +387,25 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_node_is_an_error() {
+    fn provision_run_004_a_named_node_not_in_the_manifest_is_refused_naming_it() {
         let error = nodes_to_provision(&manifest(), Some("dev09")).unwrap_err();
         assert!(error.to_string().contains("dev09"), "{error}");
     }
 
+    fn node_info(name: &str, ssh_port: Option<u16>) -> NodeInfo {
+        NodeInfo {
+            name: name.to_string(),
+            kind: NodeKind::VirtualMachine,
+            model: NodeModel::UbuntuLinux,
+            status: NodeState::Running,
+            ip_address: None,
+            ssh_port,
+        }
+    }
+
     #[test]
-    fn nodes_that_were_not_ready_are_skipped() {
-        let ready = vec!["dev01".to_string()];
+    fn provision_run_005_at_up_a_node_that_did_not_come_up_with_ssh_is_skipped() {
+        let ready = ssh_ready_nodes(&[node_info("dev01", Some(22)), node_info("dev03", None)]);
         assert_eq!(skip_reason("dev01", Some(&ready)), None);
         let reason = skip_reason("dev03", Some(&ready)).unwrap();
         assert!(reason.contains("not ready"), "{reason}");
@@ -400,7 +413,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_lab_without_provisioners_needs_no_ssh_config() {
+    async fn provision_run_006_a_lab_without_provisioners_runs_nothing_and_needs_no_ssh_config() {
         let manifest: Manifest = toml::from_str(
             r#"
             name = "lab"
@@ -423,5 +436,26 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(provisioned, 0);
+    }
+
+    #[tokio::test]
+    async fn provision_run_007_a_lab_folder_with_no_ssh_config_is_refused_saying_what_to_run() {
+        let folder = tempfile::tempdir().unwrap();
+        let error = provision_lab(
+            &manifest(),
+            folder.path(),
+            "abcd1234",
+            None,
+            None,
+            vec![],
+            &access(),
+        )
+        .await
+        .unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("sherpa up") && message.contains("sherpa download"),
+            "{message}"
+        );
     }
 }

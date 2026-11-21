@@ -107,7 +107,7 @@ model = "nats_bus"
     }
 
     #[test]
-    fn secret_files_are_read_for_container_provisioners_only() {
+    fn container_secrets_002_secret_files_are_read_for_container_provisioners_only() {
         let dir = tempdir().unwrap();
         fs::create_dir(dir.path().join("secrets")).unwrap();
         fs::write(dir.path().join("secrets/password"), "pw").unwrap();
@@ -125,7 +125,7 @@ model = "nats_bus"
     }
 
     #[test]
-    fn a_missing_secret_file_is_an_error_naming_it() {
+    fn container_secrets_003_a_missing_secret_file_is_refused_naming_it() {
         let dir = tempdir().unwrap();
         let error = format!(
             "{:#}",

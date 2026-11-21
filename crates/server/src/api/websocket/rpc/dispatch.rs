@@ -487,7 +487,8 @@ mod tests {
     }
 
     #[test]
-    fn requests_with_secrets_never_echo_them_when_they_do_not_parse() {
+    fn provisioner_secrecy_004_a_request_with_secrets_that_does_not_parse_is_answered_without_them()
+    {
         let params = serde_json::json!({
             "lab_id": "abc12345",
             "node_name": "r1",

@@ -87,7 +87,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn paths_resolve_home_relative_destinations() {
+    fn provisioner_files_006_a_home_relative_destination_is_under_the_login_users_home() {
         assert_eq!(remote_path("~/.config/a"), r#""$HOME"/'.config/a'"#);
         assert_eq!(remote_path("/etc/a"), "'/etc/a'");
         assert_eq!(sftp_path("~/.config/a"), ".config/a");
@@ -140,7 +140,7 @@ mod shell_tests {
     }
 
     #[test]
-    fn the_missing_folders_of_a_destination_are_created_private() {
+    fn provisioner_files_004_the_missing_folders_of_a_destination_are_made_owner_only() {
         let home = tempdir().unwrap();
         let output = run(
             home.path(),
@@ -155,7 +155,7 @@ mod shell_tests {
     }
 
     #[test]
-    fn preparing_a_copy_leaves_an_existing_file_alone() {
+    fn provisioner_files_005_a_file_at_the_destination_is_kept_until_the_copy_replaces_it() {
         let home = tempdir().unwrap();
         let file = home.path().join("token");
         fs::write(&file, "old").unwrap();
@@ -172,7 +172,7 @@ mod shell_tests {
     }
 
     #[test]
-    fn the_env_loader_is_added_once_to_the_login_file_bash_reads() {
+    fn provisioner_env_010_the_env_loader_is_added_once_to_the_login_file_bash_reads() {
         let home = tempdir().unwrap();
         fs::write(home.path().join(".bash_profile"), "# mine\n").unwrap();
         for _ in 0..2 {
@@ -190,7 +190,7 @@ mod shell_tests {
     }
 
     #[test]
-    fn login_shells_export_env_files() {
+    fn provisioner_env_011_a_login_shell_exports_every_env_file_to_its_programs() {
         let home = tempdir().unwrap();
         run(
             home.path(),
@@ -201,17 +201,18 @@ mod shell_tests {
         let env_dir = home.path().join(NODE_USER_ENV_DIR);
         fs::create_dir(&env_dir).unwrap();
         fs::write(env_dir.join("dev.env"), "TOKEN='it''s secret'\n").unwrap();
+        fs::write(env_dir.join("other.env"), "OTHER=two\n").unwrap();
         let output = run(
             home.path(),
             Path::new(LOGIN_SHELL),
-            r#". "$HOME/.profile"; sh -c 'printf %s "$TOKEN"'"#,
+            r#". "$HOME/.profile"; sh -c 'printf %s-%s "$TOKEN" "$OTHER"'"#,
             "",
         );
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "its secret");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "its secret-two");
     }
 
     #[test]
-    fn a_script_from_stdin_runs_with_the_node_environment_and_its_status() {
+    fn provisioner_scripts_002_a_script_runs_with_the_node_environment_and_ends_with_its_status() {
         let home = tempdir().unwrap();
         fs::write(
             home.path().join(NODE_USER_ENV_FILE),
@@ -243,7 +244,7 @@ exit 3
     }
 
     #[test]
-    fn a_script_runs_in_a_login_shell_with_the_paths_login_files_add() {
+    fn provisioner_scripts_003_a_script_finds_a_tool_the_login_files_put_on_path() {
         let home = tempdir().unwrap();
         let tools = home.path().join("tools");
         fs::create_dir(&tools).unwrap();
@@ -270,7 +271,7 @@ exit 3
     }
 
     #[test]
-    fn env_files_override_what_login_files_set() {
+    fn provisioner_scripts_004_an_env_file_variable_replaces_one_a_login_file_sets() {
         let home = tempdir().unwrap();
         fs::write(home.path().join(".profile"), "export TOKEN=from-profile\n").unwrap();
         let env_dir = home.path().join(NODE_USER_ENV_DIR);
@@ -288,7 +289,7 @@ printf %s "$TOKEN"
     }
 
     #[test]
-    fn a_script_without_a_shebang_runs_with_sh() {
+    fn provisioner_scripts_005_a_script_with_no_shebang_runs_with_sh() {
         let home = tempdir().unwrap();
         let output = run(
             home.path(),
@@ -316,7 +317,7 @@ exec /bin/sh "$@"
     }
 
     #[test]
-    fn a_shell_without_a_login_flag_still_reads_the_login_files() {
+    fn provisioner_scripts_006_a_shell_with_no_login_option_still_reads_the_login_files() {
         let home = tempdir().unwrap();
         let shell = shell_without_login_flag(home.path());
         let tools = home.path().join("tools");
@@ -344,7 +345,7 @@ exec /bin/sh "$@"
     }
 
     #[test]
-    fn a_shell_without_a_login_flag_keeps_env_files_and_the_exit_status() {
+    fn provisioner_scripts_007_a_shell_with_no_login_option_keeps_env_files_and_the_exit_status() {
         let home = tempdir().unwrap();
         let shell = shell_without_login_flag(home.path());
         fs::write(home.path().join(".profile"), "export TOKEN=from-profile\n").unwrap();

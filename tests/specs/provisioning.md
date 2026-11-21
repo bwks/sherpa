@@ -98,7 +98,7 @@ That a Windows node disables every other account before its startup scripts run 
 | 004 | A node named that is not in the manifest is refused, naming it | unit |
 | 005 | At up, a node that did not come up with SSH is skipped, as not ready when the lab came up, and the others are provisioned; `sherpa provision` skips none | unit |
 | 006 | A lab with no provisioners runs nothing and needs no SSH config in its folder | unit |
-| 007 | A lab folder with no SSH config is refused before any node is connected to, saying to run `sherpa up` or `sherpa download` (no test yet) | unit |
+| 007 | A lab folder with no SSH config is refused before any node is connected to, saying to run `sherpa up` or `sherpa download` | unit |
 | 008 | A node is connected to at the address its `<node>.<lab-id>` entry in the lab's SSH config gives, and one with no entry fails at once, asking whether it was added after the lab was created | unit |
 | 009 | A node that refuses the owner's login, or the connection, is tried again: it may not have made the account yet | unit |
 | 010 | The Sherpa server refusing the login, when it is the jump host, is not tried again | unit |

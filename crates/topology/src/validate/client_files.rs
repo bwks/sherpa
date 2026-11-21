@@ -88,7 +88,7 @@ fn check_file_name(node: &str, name: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{SystemdUnit, SystemdUnitData};
+    use crate::{BinaryFile, SystemdUnit, SystemdUnitData, TextFile};
 
     fn node() -> Node {
         Node {
@@ -106,17 +106,56 @@ mod tests {
     }
 
     #[test]
-    fn files_listed_without_their_contents_are_refused() {
-        let node = Node {
-            systemd_units: Some(vec![SystemdUnit::default()]),
-            ..node()
-        };
-        let error = check_client_read_files(&[node]).expect_err("unread unit accepted");
-        assert!(error.to_string().contains("systemd_units"), "{error}");
+    fn client_content_011_files_listed_without_their_contents_are_refused() {
+        let listed = [
+            (
+                "text_files",
+                Node {
+                    text_files: Some(vec![TextFile::default()]),
+                    ..node()
+                },
+            ),
+            (
+                "binary_files",
+                Node {
+                    binary_files: Some(vec![BinaryFile::default()]),
+                    ..node()
+                },
+            ),
+            (
+                "systemd_units",
+                Node {
+                    systemd_units: Some(vec![SystemdUnit::default()]),
+                    ..node()
+                },
+            ),
+            (
+                "startup_scripts",
+                Node {
+                    startup_scripts: Some(vec!["boot.sh".to_owned()]),
+                    ..node()
+                },
+            ),
+            (
+                "user_scripts",
+                Node {
+                    user_scripts: Some(vec!["user.sh".to_owned()]),
+                    ..node()
+                },
+            ),
+        ];
+        for (field, node) in listed {
+            let error = check_client_read_files(&[node])
+                .expect_err("unread files accepted")
+                .to_string();
+            assert!(error.contains("'fc1'"), "{error}");
+            assert!(error.contains(field), "{error}");
+            assert!(error.contains("sherpa up"), "{error}");
+        }
     }
 
     #[test]
-    fn names_that_are_paths_or_options_are_refused() {
+    fn client_content_012_names_that_are_paths_or_options_are_refused() {
         for name in ["", ".", "..", "../x", "a/b", "-o", "a\\b"] {
             let node = Node {
                 systemd_units: Some(vec![SystemdUnit::default()]),

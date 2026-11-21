@@ -92,17 +92,8 @@ mod tests {
     }
 
     #[test]
-    fn valid_secrets_for_a_container_pass() {
-        validate_node_secrets(&manifest(), &BTreeMap::new()).unwrap();
-        validate_node_secrets(
-            &manifest(),
-            &secrets("db01", vec![file("password", 444), file("key", 400)]),
-        )
-        .unwrap();
-    }
-
-    #[test]
-    fn secrets_must_be_for_container_nodes_in_the_manifest() {
+    fn container_secrets_010_secrets_for_a_node_not_in_the_manifest_or_not_a_container_are_refused()
+    {
         let missing = error(&secrets("db09", vec![file("password", 444)]));
         assert!(
             missing.contains("db09") && missing.contains("not in the manifest"),
@@ -113,7 +104,7 @@ mod tests {
     }
 
     #[test]
-    fn bad_files_are_rejected() {
+    fn container_secrets_011_a_bad_file_is_refused_naming_the_node_and_good_files_are_taken() {
         let bad_content = SecretFile {
             content: serde_json::from_value(serde_json::json!("!!")).unwrap(),
             ..file("password", 444)
@@ -128,5 +119,11 @@ mod tests {
             assert!(message.contains(expected), "{expected}: {message}");
             assert!(message.contains("db01"), "{message}");
         }
+        validate_node_secrets(&manifest(), &BTreeMap::new()).unwrap();
+        validate_node_secrets(
+            &manifest(),
+            &secrets("db01", vec![file("password", 444), file("key", 400)]),
+        )
+        .unwrap();
     }
 }
