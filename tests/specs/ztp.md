@@ -15,7 +15,7 @@ A config template is tested one case per model, not one table-driven case for al
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | `sherpa validate` refuses a `ztp.method` the node's model does not take, naming the node and the settings its model takes, and accepts the manifest without it (no test with its ID yet; `tests/labs/container-ztp` shows it) | e2e |
+| 001 | `sherpa validate` refuses a `ztp.method` the node's model does not take, naming the node and the settings its model takes, and accepts the manifest without it | e2e |
 | 002 | A node is built with its manifest's method, and with its image's when the manifest sets none | unit |
 | 003 | `disabled` is taken for every model and kind | unit |
 | 004 | A method the model and kind do not take is refused, naming the model, the method and every setting the model takes, which for a model with no method is `disabled` alone | unit |
@@ -39,10 +39,10 @@ A config template is tested one case per model, not one table-driven case for al
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | A container with `ztp.method = "disabled"` runs with none of its model's config mounts (no test with its ID yet; `tests/labs/container-ztp` shows it) | e2e |
-| 002 | A container with ZTP off refuses its owner's SSH login, for the reason its model has: no address, or no SSH server (no test with its ID yet; `tests/labs/container-ztp` shows it) | e2e |
-| 003 | A container redeployed with ZTP off is as it was after up: running, with no config mount and no owner login (no test with its ID yet; `tests/labs/container-ztp` shows it) | e2e |
-| 004 | Every node of the lab, the ones with ZTP off and an application container included, is still running and was never restarted once the others have booted (no test with its ID yet; `tests/labs/container-ztp` shows it) | e2e |
+| 001 | A container with `ztp.method = "disabled"` runs with none of its model's config mounts | e2e |
+| 002 | A container with ZTP off refuses its owner's SSH login, for the reason its model has: no address, or no SSH server | e2e |
+| 003 | A container redeployed with ZTP off is as it was after up: running, with no config mount and no owner login | e2e |
+| 004 | Every node of the lab, the ones with ZTP off and an application container included, is still running and was never restarted once the others have booted | e2e |
 | 005 | A VM with ZTP off is built with its boot disk alone, no config CD-ROM, config disk, USB disk or firmware config, and nothing is written for it | unit |
 | 006 | A VM with ZTP off boots from its image with no config media and no owner login (no test yet) | e2e |
 | 007 | A `sonic_linux` container with ZTP off still gets Sherpa's start script, which waits for its data interfaces and starts its SSH server, with no account and no config in it | unit |
@@ -56,7 +56,7 @@ A config template is tested one case per model, not one table-driven case for al
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | A container with ZTP on runs with every config mount of its model and takes its owner's SSH login by key, after up and after a redeploy (no test with its ID yet; `tests/labs/container-ztp` shows it) | e2e |
+| 001 | A container with ZTP on runs with every config mount of its model and takes its owner's SSH login by key, after up and after a redeploy | e2e |
 | 002 | A `cisco_iol` node's running config has the name, the management interface and the owner's account Sherpa generated, read over the owner's SSH login (no test with its ID yet; `tests/labs/cisco-iol` shows it) | e2e |
 | 003 | A cloud-init VM finishes cloud-init without an error (no test with its ID yet; `tests/labs/nixos-linux` shows it) | e2e |
 | 004 | A VM of each other method, `cdrom`, `disk`, `usb`, `tftp`, `http`, `ignition` and `nocloud`, boots with its name and its management address from the config Sherpa delivered (no test yet) | e2e |
