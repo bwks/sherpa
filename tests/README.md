@@ -321,10 +321,10 @@ uv run tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: single
 
 See [labs/README.md](labs/README.md) for the rules and each lab's README for what it checks.
 
-The SSH access and owner login lab tests are pytest modules (see `tests/specs/README.md`): their
-script headers pin pytest, so `uv run` runs pytest on them and passes on pytest arguments such as
-`-k` and `--keep-failed`; `uvx --python 3.15 pytest==9.2.0 tests/labs/ssh-access/ssh_access_lab_test.py`
-runs one directly.
+The SSH access, owner login and container ZTP lab tests are pytest modules (see
+`tests/specs/README.md`): their script headers pin pytest, so `uv run` runs pytest on them and
+passes on pytest arguments such as `-k` and `--keep-failed`;
+`uvx --python 3.15 pytest==9.2.0 tests/labs/ssh-access/ssh_access_lab_test.py` runs one directly.
 
 ## Harness self-tests
 

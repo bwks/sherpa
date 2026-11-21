@@ -1,17 +1,25 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.15"
-# dependencies = []
+# dependencies = ["pytest==9.2.0"]
 # ///
-"""End-to-end test of the ZTP setting on container nodes through the sherpa CLI (Python 3.15+, stdlib only).
+"""End-to-end test of the ZTP setting on container nodes through the sherpa CLI (Python 3.15+,
+pytest).
 
 Brings up each container model whose config Sherpa mounts (cEOS, SR Linux, FRR) twice, with its
-image's ZTP setting and with `ztp.method = "disabled"`, plus an application container.
-Checks a node with ZTP on has Sherpa's config mounts and takes the lab owner's SSH login by
-key, and a node with ZTP off is running with no such mount and no
-owner login, for the reason its model has (SR Linux: no management address; FRR: no SSH server):
-after `sherpa up`, and after redeploying one node of each setting. Checks `sherpa validate` refuses a method a model
-does not take. Always destroys the lab. Runs on the Sherpa server; see README.md.
+image's ZTP setting and with `ztp.method = "disabled"`, plus an application container, and checks
+the container cases of tests/specs/ztp.md: `sherpa validate` refuses a method a model does not
+take; a node with ZTP on has Sherpa's config mounts and takes the lab owner's SSH login by key,
+after up and after a redeploy; a node with ZTP off is running with no such mount and no owner
+login, for the reason its model has (SR Linux and cEOS: no management address; FRR: no SSH
+server), after up and after a redeploy; and every node is still running once the others have
+booted. Always destroys the lab. Runs on the Sherpa server; see README.md.
+
+A pytest module: the `prepared` fixture checks the server and writes the lab's manifest, the
+`lab` fixture brings the lab up once for the module and destroys it at the end, and the
+`redeployed` fixture redeploys one node of each setting for the cases that need it. The cases are
+the `test_<case_id>_*` functions, in case order. Run as a script, it runs pytest on itself;
+`--self-test` runs the runner's own unit tests instead.
 """
 
 import argparse
@@ -30,6 +38,8 @@ from typing import NamedTuple
 import unittest
 from unittest import mock
 import uuid
+
+import pytest
 
 
 LAB = Path(__file__).resolve().parent
@@ -73,17 +83,20 @@ ZTP_OFF_REFUSAL = {
     "frr_linux": NO_SSH_SERVER,
 }
 REFUSED_METHOD = "cdrom"
+AFTER_UP = "after up"
 
 COMMAND_TIMEOUT = 180
 UP_TIMEOUT = 1800
 READY_TIMEOUT = 1200
 POLL_INTERVAL = 10
-# How long a node with ZTP off is watched to stay up after `sherpa up` reports it running.
+# How long every node is watched to stay up once the nodes with ZTP on have booted.
 SETTLE_SECONDS = 20
 
 
 class TestFailure(Exception):
     """A check failed; the message says which and why."""
+
+    __test__ = False
 
 
 class Outcome(NamedTuple):
@@ -98,6 +111,13 @@ class Outcome(NamedTuple):
         return self.stdout + self.stderr
 
 
+class Redeployed(NamedTuple):
+    """The two nodes the `redeployed` fixture redeployed: one with ZTP on, one with it off."""
+
+    on: dict
+    off: dict
+
+
 def require(condition, message):
     if not condition:
         raise TestFailure(message)
@@ -107,7 +127,8 @@ def run_logged(log, label, arguments, cwd, timeout=COMMAND_TIMEOUT):
     """Run a command, record it and its output in the log, and return its Outcome."""
     print(f"[{cwd.name}] {label}", flush=True)
     try:
-        result = subprocess.run(arguments, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(arguments, cwd=cwd, capture_output=True, text=True, timeout=timeout,
+                                stdin=subprocess.DEVNULL)
         outcome = Outcome(result.returncode, result.stdout, result.stderr)
     except subprocess.TimeoutExpired as error:
         partial = [part.decode(errors="replace") if isinstance(part, bytes) else part or ""
@@ -163,6 +184,16 @@ def ztp_is_off(node):
     return node.get("ztp", {}).get("method") == DISABLED
 
 
+def ztp_on_nodes(nodes):
+    """The nodes whose config Sherpa mounts, with ZTP on."""
+    return [node for node in nodes if node["model"] in ZTP_MOUNTS and not ztp_is_off(node)]
+
+
+def ztp_off_nodes(nodes):
+    """The nodes whose model's config Sherpa mounts, with ZTP off."""
+    return [node for node in nodes if node["model"] in ZTP_MOUNTS and ztp_is_off(node)]
+
+
 def mount_problems(node, mounts):
     """What is wrong with a node's container mounts for its ZTP setting, if anything."""
     expected = ZTP_MOUNTS.get(node["model"], ())
@@ -188,30 +219,36 @@ def ssh_hostname(config):
     raise TestFailure("ssh -G printed no hostname")
 
 
-def redeployed_nodes(nodes):
-    """One node with ZTP on and one with it off, of the first model that has both."""
+def redeploy_pair(nodes):
+    """One node with ZTP on and one with it off, of the first model that has both, or None."""
     for model in ZTP_MOUNTS:
-        on = [node["name"] for node in nodes if node["model"] == model and not ztp_is_off(node)]
-        off = [node["name"] for node in nodes if node["model"] == model and ztp_is_off(node)]
+        on = [node for node in ztp_on_nodes(nodes) if node["model"] == model]
+        off = [node for node in ztp_off_nodes(nodes) if node["model"] == model]
         if on and off:
-            return [on[0], off[0]]
-    return []
+            return Redeployed(on[0], off[0])
+    return None
 
 
 def refused_manifest(nodes, name):
     """A manifest whose first mounted-config node asks for a method its model does not take."""
-    node = next(node for node in nodes if node["model"] in ZTP_MOUNTS)
+    node = next((node for node in nodes if node["model"] in ZTP_MOUNTS), None)
+    require(node is not None, "the run has no node whose model's config Sherpa mounts")
     return render_manifest([{**node, "ztp": {"method": REFUSED_METHOD}}], name), node["name"]
 
 
-class LabRun:
-    def __init__(self, run_root, keep_failed, models, owner):
+# -- the lab -------------------------------------------------------------------------------------
+
+
+class Lab:
+    """The lab every case uses: its manifest written by `prepare`, brought up once by `up` and
+    always destroyed by `destroy`."""
+
+    def __init__(self, run_root, models, owner):
         self.owner = owner
         manifest = tomllib.loads((LAB / "manifest.toml").read_text())
         self.nodes = select_nodes(manifest, models)
         self.name = f"{manifest['name']}-{run_root.name[-6:]}"
         self.directory = run_root / "lab"
-        self.keep_failed = keep_failed
         self.started = False
         self.lab_id = None
         self.log = None
@@ -237,59 +274,25 @@ class LabRun:
         return outcome.stdout.strip()
 
     def ssh(self, node):
-        """Log in to the node as the lab's SSH config does (the lab owner), and run its model's
+        """Log in to the node as the lab owner, through the lab's SSH config, and run its model's
         command."""
         command = LOGIN_COMMANDS.get(node["model"], "true")
         return self.command(f"ssh {self.owner}@{node['name']}",
-                            ["ssh", *SSH_OPTIONS, f"{node['name']}.{self.lab_id}", command],
+                            ["ssh", *SSH_OPTIONS, "-l", self.owner, f"{node['name']}.{self.lab_id}", command],
                             check=False)
 
-    # -- lab ---------------------------------------------------------------------------------
+    # -- lifecycle ---------------------------------------------------------------------------
 
-    def run(self):
+    def prepare(self):
         self.directory.mkdir(parents=True)
-        with (self.directory / "commands.log").open("w") as self.log:
-            (self.directory / "manifest.toml").write_text(render_manifest(self.nodes, self.name))
-            failure = None
-            try:
-                self.check_validate_refuses_an_unsupported_method()
-                self.up()
-                self.checks("after up")
-                for name in redeployed_nodes(self.nodes):
-                    self.sherpa(f"sherpa redeploy {name}", ["redeploy", "--node", name], UP_TIMEOUT)
-                    self.checks(f"after redeploying {name}")
-            except (TestFailure, OSError, KeyError, ValueError) as error:
-                failure = error
-            except BaseException:
-                # Interrupted: never leave the lab behind, then stop.
-                self.destroy()
-                raise
-            if failure and self.keep_failed:
-                print(f"keeping failed lab {self.name} ({self.lab_id}) in {self.directory}")
-            else:
-                cleanup = self.destroy()
-                failure = failure or cleanup
-        if failure:
-            raise TestFailure(str(failure))
-
-    def check_validate_refuses_an_unsupported_method(self):
-        """`sherpa validate` names the node and the methods its model takes."""
-        directory = self.directory.parent / "refused"
-        directory.mkdir()
-        manifest, node = refused_manifest(self.nodes, f"{self.name}-refused")
-        (directory / "manifest.toml").write_text(manifest)
-        outcome = self.sherpa("sherpa validate (unsupported method)", ["validate"], check=False,
-                              cwd=directory)
-        require(outcome.code != 0, f"sherpa validate accepted ztp.method = {REFUSED_METHOD!r} on {node}")
-        require(node in outcome.output and "allows: disabled, volume" in outcome.output,
-                f"sherpa validate did not say why {node} was refused: {outcome.output.strip()}")
-        self.sherpa("sherpa validate", ["validate"])
+        self.log = (self.directory / "commands.log").open("w")
+        (self.directory / "manifest.toml").write_text(render_manifest(self.nodes, self.name))
 
     def up(self):
         self.started = True
         outcome = self.sherpa("sherpa up", ["up"], UP_TIMEOUT, check=False)
         # A partly created lab exits non-zero after writing lab-info.toml: record its ID first, so
-        # destroy can check what it leaves behind.
+        # destroy can check the lab is gone.
         info_path = self.directory / ".sherpa" / "lab-info.toml"
         if info_path.exists():
             info = tomllib.loads(info_path.read_text())
@@ -297,30 +300,36 @@ class LabRun:
             self.lab_id = info["id"]
         require(outcome.code == 0, f"sherpa up failed (exit {outcome.code}); see {self.log.name}")
         require(self.lab_id is not None, "sherpa up wrote no .sherpa/lab-info.toml")
-        config = (self.directory / ".sherpa" / "ssh" / "config").read_text()
-        require(f"User {self.owner}" in config, f"the lab's SSH config does not log in as {self.owner}")
-        require("IdentityFile" not in config, "the lab's SSH config names an identity file")
 
-    def checks(self, stage):
-        for node in self.nodes:
-            self.check_mounts(node, stage)
-        for node in self.nodes:
-            if node["model"] not in ZTP_MOUNTS:
-                self.check_running(node, stage)
-            elif ztp_is_off(node):
-                self.check_no_owner_login(node, stage)
-            else:
-                self.wait_for_login(node, stage)
-        # A node with ZTP off must still be up once the others have booted.
-        time.sleep(SETTLE_SECONDS)
-        for node in self.nodes:
-            self.check_running(node, stage)
+    def redeploy(self, node):
+        name = node["name"]
+        self.sherpa(f"sherpa redeploy {name}", ["redeploy", "--node", name], UP_TIMEOUT)
 
-    def check_running(self, node, stage):
+    def destroy(self):
+        """Destroy the lab and check it is gone. Returns a failure, or None."""
+        if not self.started:
+            return None
+        if not (self.directory / ".sherpa" / "lab-info.toml").exists():
+            # `sherpa up` failed early; destroy whatever it created, found by the manifest's lab name.
+            self.sherpa("sherpa destroy (after failed up)", ["destroy", "--yes"], UP_TIMEOUT, check=False)
+            return None
+        try:
+            self.sherpa("sherpa destroy", ["destroy", "--yes"], UP_TIMEOUT)
+            inspect = self.sherpa("lab gone", ["inspect"], check=False)
+            require(inspect.code != 0, f"lab {self.lab_id} still exists after destroy")
+        except TestFailure as error:
+            return error
+        return None
+
+    # -- what a node shows -------------------------------------------------------------------
+
+    def require_running(self, node, stage):
+        """The node's container is running and has never restarted."""
         state = self.inspect(node, "{{.State.Status}} {{.RestartCount}}")
         require(state == "running 0", f"{stage}, {node['name']} is {state!r}, not running")
 
-    def check_mounts(self, node, stage):
+    def require_mounts(self, node, stage):
+        """The node's container has its model's config mounts if ZTP is on, and none if it is off."""
         mounts = self.inspect(node, "{{range .Mounts}}{{.Destination}}\n{{end}}").split()
         problems = mount_problems(node, mounts)
         require(not problems, f"{stage}, {node['name']} {'; '.join(problems)}")
@@ -345,9 +354,10 @@ class LabRun:
         return outcome.code == 0
 
     def refused_login(self, node, stage):
-        """Why the node refuses an SSH login as the lab owner. Taking the login is a failure."""
+        """Why the running node refuses an SSH login as the lab owner. Taking the login is a failure,
+        and so is a container that is not running, which would refuse it for no reason of ZTP."""
         name = node["name"]
-        self.check_running(node, stage)
+        self.require_running(node, stage)
         outcome = self.ssh(node)
         require(outcome.code != 0, f"{stage}, {name} has ZTP off but took an SSH login as {self.owner}")
         refusal = ssh_refusal(outcome.output)
@@ -355,9 +365,9 @@ class LabRun:
                 f"{stage}, the SSH login to {name} failed for an unknown reason: {outcome.output.strip()}")
         return refusal
 
-    def check_no_owner_login(self, node, stage, timeout=READY_TIMEOUT):
-        """The node is running and has no login for the lab owner, for the reason its model has with ZTP
-        off once it has booted. While it boots, the reason may be another; a login never works."""
+    def require_no_owner_login(self, node, stage, timeout=READY_TIMEOUT):
+        """The node has no login for the lab owner, for the reason its model has with ZTP off once
+        it has booted. While it boots, the reason may be another; a login never works."""
         name = node["name"]
         expected = ZTP_OFF_REFUSAL[node["model"]]
         refusal = self.refused_login(node, stage)
@@ -374,33 +384,8 @@ class LabRun:
             require(self.answers_ping(node),
                     f"{stage}, {name} does not answer on its management address")
 
-    def destroy(self):
-        """Destroy the lab and check nothing is left. Returns a failure, or None."""
-        if not self.started:
-            return None
-        if not (self.directory / ".sherpa" / "lab-info.toml").exists():
-            # `sherpa up` failed early; destroy whatever it created, found by the manifest's lab name.
-            self.sherpa("sherpa destroy (after failed up)", ["destroy", "--yes"], UP_TIMEOUT, check=False)
-            return None
-        try:
-            self.sherpa("sherpa destroy", ["destroy", "--yes"], UP_TIMEOUT)
-            inspect = self.sherpa("lab gone", ["inspect"], check=False)
-            require(inspect.code != 0, f"lab {self.lab_id} still exists after destroy")
-            self.no_host_leftovers()
-        except TestFailure as error:
-            return error
-        return None
 
-    def no_host_leftovers(self):
-        checks = (
-            ("Docker containers", ["docker", "ps", "--all", "--format", "{{.Names}}"]),
-            ("Docker networks", ["docker", "network", "ls", "--format", "{{.Name}}"]),
-            ("host interfaces", ["ip", "-brief", "link"]),
-        )
-        for kind, arguments in checks:
-            listing = self.command(f"no leftover {kind}", arguments)
-            leftovers = [line.split()[0] for line in listing.stdout.splitlines() if self.lab_id in line]
-            require(not leftovers, f"{kind} left after destroy: {leftovers}")
+# -- the fixtures --------------------------------------------------------------------------------
 
 
 DEVICE_PASSWORD_SET = re.compile(r"^\s*Device password:\s*set\s*$", re.MULTILINE)
@@ -439,32 +424,132 @@ def preflight(run_root, models):
     return owner
 
 
+@pytest.fixture(scope="module")
+def prepared(request):
+    """The lab before it is up: the server checked and the run's manifest written."""
+    signal.signal(signal.SIGTERM, stop_on_sigterm)
+    models = [model for model in request.config.getoption("models").split(",") if model]
+    run_root = RUNS / f"container-ztp-{uuid.uuid4().hex[:12]}"
+    run_root.mkdir(parents=True)
+    print(f"Logs: {run_root}", flush=True)
+    lab = Lab(run_root, models, preflight(run_root, models))
+    lab.prepare()
+    try:
+        yield lab
+    finally:
+        lab.log.close()
+
+
+@pytest.fixture(scope="module")
+def lab(request, prepared):
+    """The lab every case but the validate one uses: brought up once and destroyed at the end,
+    even when a case fails, unless `--keep-failed` is given and something failed."""
+    keep_failed = request.config.getoption("keep_failed")
+    keep = False
+    try:
+        try:
+            prepared.up()
+        except Exception:
+            keep = keep_failed
+            raise
+        yield prepared
+        keep = keep_failed and request.session.testsfailed > 0
+    finally:
+        if keep:
+            print(f"keeping failed lab {prepared.name} ({prepared.lab_id}) in {prepared.directory}", flush=True)
+        else:
+            cleanup = prepared.destroy()
+            if cleanup:
+                raise cleanup
+
+
+@pytest.fixture(scope="module")
+def redeployed(lab):
+    """One node with ZTP on and one with it off, of the same model, redeployed once for the module."""
+    pair = redeploy_pair(lab.nodes)
+    require(pair is not None, "no model of the run has a node with ZTP on and one with it off to redeploy")
+    lab.redeploy(pair.on)
+    lab.redeploy(pair.off)
+    return pair
+
+
+# -- cases ---------------------------------------------------------------------------------------
+
+
+def test_ztp_setting_001_validate_refuses_a_method_the_model_does_not_take(prepared):
+    directory = prepared.directory.parent / "refused"
+    directory.mkdir()
+    manifest, node = refused_manifest(prepared.nodes, f"{prepared.name}-refused")
+    (directory / "manifest.toml").write_text(manifest)
+    outcome = prepared.sherpa("sherpa validate (unsupported method)", ["validate"], check=False,
+                              cwd=directory)
+    require(outcome.code != 0, f"sherpa validate accepted ztp.method = {REFUSED_METHOD!r} on {node}")
+    require(node in outcome.output and "allows: disabled, volume" in outcome.output,
+            f"sherpa validate did not say why {node} was refused: {outcome.output.strip()}")
+    prepared.sherpa("sherpa validate", ["validate"])
+
+
+def test_ztp_disabled_001_a_container_with_ztp_off_runs_with_no_config_mount(lab):
+    nodes = ztp_off_nodes(lab.nodes)
+    require(nodes, "the run has no node with ZTP off")
+    for node in nodes:
+        lab.require_running(node, AFTER_UP)
+        lab.require_mounts(node, AFTER_UP)
+
+
+def test_ztp_disabled_002_a_container_with_ztp_off_refuses_its_owners_login(lab):
+    nodes = ztp_off_nodes(lab.nodes)
+    require(nodes, "the run has no node with ZTP off")
+    for node in nodes:
+        lab.require_no_owner_login(node, AFTER_UP)
+
+
+def test_config_delivery_001_a_container_with_ztp_on_has_its_config_mounts_and_its_owners_login(lab, request):
+    nodes = ztp_on_nodes(lab.nodes)
+    require(nodes, "the run has no node with ZTP on")
+    for node in nodes:
+        lab.require_running(node, AFTER_UP)
+        lab.require_mounts(node, AFTER_UP)
+        lab.wait_for_login(node, AFTER_UP)
+    # The redeploy comes after the checks above, so they see every node as up left it.
+    node = request.getfixturevalue("redeployed").on
+    stage = f"after redeploying {node['name']}"
+    lab.require_running(node, stage)
+    lab.require_mounts(node, stage)
+    lab.wait_for_login(node, stage)
+
+
+def test_ztp_disabled_003_a_container_redeployed_with_ztp_off_is_as_it_was_after_up(lab, redeployed):
+    node = redeployed.off
+    stage = f"after redeploying {node['name']}"
+    lab.require_running(node, stage)
+    lab.require_mounts(node, stage)
+    lab.require_no_owner_login(node, stage)
+
+
+def test_ztp_disabled_004_every_node_is_still_running_once_the_others_have_booted(lab):
+    for node in ztp_on_nodes(lab.nodes):
+        lab.wait_for_login(node, "waiting for the nodes with ZTP on to boot")
+    time.sleep(SETTLE_SECONDS)
+    for node in lab.nodes:
+        lab.require_running(node, f"{SETTLE_SECONDS}s after the nodes with ZTP on booted")
+
+
+# -- running -------------------------------------------------------------------------------------
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--keep-failed", action="store_true", help="Leave a failed lab running for debugging")
+                                     formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     epilog="Other arguments, such as --keep-failed, --models or -k, are passed "
+                                            "to pytest.")
     parser.add_argument("--self-test", action="store_true", help="Run the runner's own unit tests")
-    parser.add_argument("--models", default="",
-                        help="Comma-separated models to run, for a server without every image "
-                             "(default: every node in the manifest)")
-    args = parser.parse_args()
+    args, pytest_args = parser.parse_known_args()
     if args.self_test:
         sys.argv = sys.argv[:1]
         unittest.main()
         return 0
-    signal.signal(signal.SIGTERM, stop_on_sigterm)
-    models = [model for model in args.models.split(",") if model]
-    run_root = RUNS / f"container-ztp-{uuid.uuid4().hex[:12]}"
-    run_root.mkdir(parents=True)
-    print(f"Logs: {run_root}", flush=True)
-    try:
-        owner = preflight(run_root, models)
-        LabRun(run_root, args.keep_failed, models, owner).run()
-    except TestFailure as error:
-        print(f"FAIL {error}. Logs: {run_root}", file=sys.stderr)
-        return 1
-    print(f"PASS. Logs: {run_root}")
-    return 0
+    return pytest.main(["-v", "-p", "no:cacheprovider", __file__, *pytest_args])
 
 
 class SelfTest(unittest.TestCase):
@@ -476,27 +561,27 @@ class SelfTest(unittest.TestCase):
 
     def test_a_partly_created_lab_keeps_its_id_for_cleanup(self):
         # `sherpa up` exits 1 on a partly created lab after writing lab-info.toml; the run must
-        # still know the lab's ID, so destroy checks for leftovers instead of crashing.
+        # still know the lab's ID, so destroy checks the lab is gone instead of skipping it.
         with tempfile.TemporaryDirectory() as temp:
-            run = LabRun(Path(temp) / "container-ztp-000000abcdef", keep_failed=False, models=[], owner="alice")
-            (run.directory / ".sherpa").mkdir(parents=True)
-            (run.directory / ".sherpa" / "lab-info.toml").write_text(
-                f'id = "4ed6360e"\nname = "{run.name}"\n')
-            run.log = (run.directory / "commands.log").open("w")
-            self.addCleanup(run.log.close)
+            lab = Lab(Path(temp) / "container-ztp-000000abcdef", models=[], owner="alice")
+            lab.prepare()
+            self.addCleanup(lab.log.close)
+            (lab.directory / ".sherpa").mkdir()
+            (lab.directory / ".sherpa" / "lab-info.toml").write_text(
+                f'id = "4ed6360e"\nname = "{lab.name}"\n')
 
             def failing_up(log, label, arguments, *rest):
                 return Outcome(1 if arguments[:2] == ["sherpa", "up"] else 0, "", "")
 
             with mock.patch(f"{__name__}.run_logged", failing_up), self.assertRaises(TestFailure):
-                run.up()
-            self.assertEqual(run.lab_id, "4ed6360e")
+                lab.up()
+            self.assertEqual(lab.lab_id, "4ed6360e")
 
-            def leftover(log, label, arguments, *rest):
-                return Outcome(1 if "inspect" in arguments else 0, "node-4ed6360e-x\n", "")
+            def still_there(log, label, arguments, *rest):
+                return Outcome(0, "", "")
 
-            with mock.patch(f"{__name__}.run_logged", leftover):
-                self.assertIsInstance(run.destroy(), TestFailure)
+            with mock.patch(f"{__name__}.run_logged", still_there):
+                self.assertIsInstance(lab.destroy(), TestFailure)
 
     def test_models_select_their_nodes_and_unknown_models_are_refused(self):
         manifest = self.manifest()
