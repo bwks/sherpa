@@ -20,6 +20,7 @@ use crate::konst::{
     SHERPA_BLANK_DISK_DIR, TFTP_CONFIG_FILE_MODE, VAULT_API_PORT, ZTP_ISO,
 };
 use crate::services::container_networks::is_node_network;
+use crate::services::error::ServiceError;
 use crate::services::guest_account::{self, GuestAccount, KeyFormat, PasswordForm};
 use crate::services::image_lifecycle::ImageLease;
 use crate::services::keycloak::api::keycloak_address;
@@ -2224,10 +2225,11 @@ fn build_windows_private_file_acls(
             continue;
         }
         if file.path.contains(['"', '%']) {
-            bail!(
+            return Err(ServiceError::Invalid(format!(
                 r#"Windows file path '{}' contains '"' or '%', which cannot be used in a path on a Windows node"#,
                 file.path
-            );
+            ))
+            .into());
         }
         commands.push(format!(
             r#"icacls "{}" /inheritance:r /grant {WINDOWS_ADMINISTRATORS_SID}:F /grant {WINDOWS_SYSTEM_SID}:F"#,

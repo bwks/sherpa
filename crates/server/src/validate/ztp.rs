@@ -1,8 +1,10 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 
 use shared::data::{NodeConfig, NodeModel, Ztp};
 use shared::validators::{check_ztp, effective_ztp};
 use topology::{NodeExpanded, TalosCluster, find_talos_cluster};
+
+use crate::services::error::ServiceError;
 
 /// Check a node's ZTP before anything is created or torn down, and return the setting it runs
 /// with: the manifest's or else its image's, which its model must take, and which must be able
@@ -20,16 +22,17 @@ pub fn validate_node_ztp(
 ) -> Result<Ztp> {
     let ztp = effective_ztp(node.ztp.method, image);
     check_ztp(node.model_kind, ztp)
-        .with_context(|| format!("ZTP validation failed for node: {}", node.name))?;
+        .with_context(|| format!("ZTP validation failed for node: {}", node.name))
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     if let Some((cluster, _)) = find_talos_cluster(talos_clusters, &node.name)
         && ztp == Ztp::Disabled
     {
-        bail!(
+        return Err(ServiceError::Invalid(format!(
             "Node '{}' joins talos cluster '{}' but its ZTP is disabled, so the machine config \
              Sherpa generates for it would not reach it",
-            node.name,
-            cluster.name
-        );
+            node.name, cluster.name
+        ))
+        .into());
     }
     if node.ztp.config.is_some() {
         check_ztp_config_is_used(&node.name, node.model_kind.model(), ztp)?;
@@ -45,14 +48,16 @@ fn check_ztp_config_is_used(node_name: &str, model: NodeModel, ztp: Ztp) -> Resu
     match ztp {
         Ztp::Tftp | Ztp::Cdrom | Ztp::Disk | Ztp::Usb | Ztp::NoCloud | Ztp::Volume => Ok(()),
         Ztp::Disabled if model == NodeModel::HashicorpVault => Ok(()),
-        Ztp::Disabled => bail!(
+        Ztp::Disabled => Err(ServiceError::Invalid(format!(
             "Node '{node_name}' sets ztp.config, but its ZTP is disabled, so the config would \
              not be used"
-        ),
-        Ztp::CloudInit | Ztp::Ignition | Ztp::Http => bail!(
+        ))
+        .into()),
+        Ztp::CloudInit | Ztp::Ignition | Ztp::Http => Err(ServiceError::Invalid(format!(
             "Node '{node_name}' sets ztp.config, which ZTP method '{ztp}' does not use. Only \
              tftp, cdrom, disk, usb, nocloud and volume take a custom ZTP config"
-        ),
+        ))
+        .into()),
     }
 }
 

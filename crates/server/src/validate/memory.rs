@@ -104,7 +104,9 @@ fn check_numa_node_fits(
     settings: HostMemorySettings,
 ) -> Result<()> {
     let Some(cell) = host.cells.iter().find(|cell| cell.id == numa_node) else {
-        bail!("The server has no NUMA node {numa_node}");
+        return Err(
+            ServiceError::Invalid(format!("The server has no NUMA node {numa_node}")).into(),
+        );
     };
     let percent = settings.overcommit_percent;
     let cell_mib = cell.total_kib / 1024;

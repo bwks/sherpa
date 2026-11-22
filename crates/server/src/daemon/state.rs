@@ -19,6 +19,7 @@ use crate::daemon::image_folders::move_renamed_model_folders;
 use crate::daemon::link_states::LinkStates;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::storage::secure_storage;
+use crate::daemon::unreadable_ends::UnreadableEnds;
 use crate::daemon::vault_seals::VaultSeals;
 use crate::konst::SHERPA_ADMIN_PASSWORD_ENV;
 use crate::services::image_lifecycle::BackedVolumes;
@@ -97,6 +98,8 @@ pub struct AppState {
     pub pending_jobs: Arc<DashMap<String, Job>>,
     /// The last known state of each lab's P2p links, for `inspect`.
     pub link_states: LinkStates,
+    /// The P2p link ends the scanner could not read, so each problem is logged once.
+    pub unreadable_ends: UnreadableEnds,
     /// The Vault nodes Sherpa manages that are sealed and that it cannot unseal, for `inspect`.
     pub vault_seals: VaultSeals,
     /// The node console sessions open now, one per console.
@@ -186,6 +189,7 @@ impl AppState {
             metrics,
             pending_jobs: Arc::new(DashMap::new()),
             link_states: LinkStates::default(),
+            unreadable_ends: UnreadableEnds::default(),
             vault_seals: VaultSeals::default(),
             console_sessions: ConsoleSessions::default(),
         })

@@ -12,6 +12,7 @@ use super::host::{EndDevice, LinkHost};
 use super::transition::{End, EndAt, LinkStep, Side, step};
 use super::veths::{ContainerVeth, node_links};
 use crate::daemon::link_states::LinkStates;
+use crate::services::error::Unexpected;
 use crate::services::node_lifecycle::Runtimes;
 use crate::services::node_resources::domain_name;
 use crate::services::progress::ProgressSender;
@@ -240,7 +241,7 @@ pub(crate) async fn reattach_node_links(
                 match attach_link(host, &wiring).await {
                     Ok(()) => LinkState::Attached,
                     Err(error) => LinkState::Failed {
-                        reason: format!("{error:#}"),
+                        reason: Unexpected::log(&error, "Failed to re-attach a link").to_string(),
                     },
                 }
             }
@@ -272,8 +273,10 @@ async fn make_container_ends(
     let pid = match host.container_pid(container).await {
         Ok(pid) => pid,
         Err(error) => {
-            let reason =
-                format!("cannot find container {container}'s network namespace: {error:#}");
+            let reason = format!(
+                "cannot find container {container}'s network namespace: {}",
+                Unexpected::log(&error, "Failed to find a container's network namespace")
+            );
             return veths
                 .iter()
                 .map(|veth| (veth.host_veth.clone(), reason.clone()))
@@ -284,7 +287,10 @@ async fn make_container_ends(
     for veth in veths {
         if let Err(error) = host.create_veth(veth, pid).await {
             tracing::warn!(container = %container, host_veth = %veth.host_veth, error = %error, "Failed to make a container veth");
-            broken.insert(veth.host_veth.clone(), format!("{error:#}"));
+            broken.insert(
+                veth.host_veth.clone(),
+                Unexpected::log(&error, "Failed to make a container veth").to_string(),
+            );
         }
     }
     broken
@@ -298,7 +304,10 @@ async fn look_up(host: &impl LinkHost, iface: &str, broken: &HashMap<String, Str
     match host.ifindex(iface).await {
         Ok(Some(ifindex)) => End::Present(ifindex),
         Ok(None) => End::Absent,
-        Err(error) => End::Broken(format!("failed to look up {iface}: {error:#}")),
+        Err(error) => End::Broken(format!(
+            "failed to look up {iface}: {}",
+            Unexpected::log(&error, "Failed to look up a link end")
+        )),
     }
 }
 

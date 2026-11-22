@@ -7,11 +7,12 @@ use axum::extract::{Path, State};
 use crate::api::request_parse::JsonBody;
 use crate::daemon::state::AppState;
 use crate::services::{
-    user_delete, user_device_password, user_password, user_ssh_keys, user_unlock,
+    user_create, user_delete, user_device_password, user_password, user_ssh_keys, user_unlock,
 };
 
 use crate::api::errors::ApiError;
 use crate::api::extractors::AuthenticatedUser;
+use crate::services::error::ServiceError;
 
 use shared::data::{
     AddSshKeyRequest, ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest,
@@ -20,7 +21,6 @@ use shared::data::{
     UserSshKeysResponse,
 };
 use shared::util::normalize_username;
-use shared::validators::validate_username;
 
 /// Create a user (admin only)
 ///
@@ -32,15 +32,11 @@ pub async fn create_user_json(
 ) -> Result<Json<CreateUserResponse>, ApiError> {
     require_admin_auth(&auth)?;
 
-    let username = normalize_username(&request.username);
-    validate_username(&username).map_err(|e| ApiError::bad_request(e.to_string()))?;
-
-    let user = db::create_user(
+    let user = user_create::create_user(
         &state.db,
-        username,
+        &request.username,
         &request.password,
         request.is_admin,
-        vec![],
     )
     .await
     .map_err(ApiError::from)?;
@@ -189,9 +185,10 @@ pub async fn get_user_info_json(
         return Err(ApiError::forbidden("You can only view your own profile"));
     }
 
-    let user = db::get_user(&state.db, &username)
+    let user = db::find_user(&state.db, &username)
         .await
-        .map_err(ApiError::from)?;
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ServiceError::NotFound(format!("User not found: {username}")))?;
 
     let user = user_device_password::user_info(user, &state.db)
         .await

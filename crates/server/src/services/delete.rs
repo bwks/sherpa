@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use db::ImageInUse;
 use tracing::instrument;
 
 use crate::services::image_lifecycle::{
@@ -44,19 +45,25 @@ pub async fn delete_image(
     .context("Failed to look up image in database")?;
 
     let Some(node_image) = node_image else {
-        anyhow::bail!(
+        return Err(ServiceError::NotFound(format!(
             "Image not found for model '{}' with version '{}'. Use 'server image list' to see available images.",
-            request.model,
-            request.version
-        );
+            request.model, request.version
+        ))
+        .into());
     };
 
     let version_dir = ImagePaths::installed().version_dir(request.model, &request.version);
     let image_file =
         image_filename(&node_image.settings).map(|filename| version_dir.join(filename));
     if kind != NodeKind::Container {
-        ensure_image_has_no_overlays(state.qemu.as_ref(), &version_dir)
-            .context("Cannot safely delete image")?;
+        ensure_image_has_no_overlays(state.qemu.as_ref(), &version_dir).map_err(|error| {
+            match ServiceError::find(&error) {
+                Some(ServiceError::Conflict(_)) => {
+                    ServiceError::Conflict(format!("Cannot safely delete image: {error}")).into()
+                }
+                _ => error.context("Cannot safely delete image"),
+            }
+        })?;
     }
     // The Docker image Sherpa recorded for a container image: its repo at its version.
     let docker_reference = node_image
@@ -116,9 +123,13 @@ async fn delete_files_after_database<T>(
     database_delete: impl Future<Output = Result<T>>,
     image_file: Option<&Path>,
 ) -> Result<(T, bool)> {
-    let deleted = database_delete
-        .await
-        .context("Failed to delete image from database; image files retained")?;
+    let deleted = database_delete.await.map_err(|error| {
+        let context = "Failed to delete image from database; image files retained";
+        match error.downcast_ref::<ImageInUse>() {
+            Some(in_use) => ServiceError::Conflict(format!("{context}: {in_use}")).into(),
+            None => error.context(context),
+        }
+    })?;
     let Some(image_file) = image_file else {
         return Ok((deleted, false));
     };

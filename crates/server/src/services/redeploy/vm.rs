@@ -123,6 +123,7 @@ pub(super) async fn redeploy_vm(
         &HashSet::from([redeploy.node_record_id.clone()]),
         &query_runtimes(&redeploy.state.docker, &redeploy.state.qemu).await,
         &redeploy.state.link_states,
+        &redeploy.state.unreadable_ends,
     )
     .await;
 

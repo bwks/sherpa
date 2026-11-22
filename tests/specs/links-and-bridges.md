@@ -73,6 +73,7 @@ Cases 016, 018 and 019 show a repair on a real host. Cases 030 to 032 show what 
 | 030 | Given a VM started outside Sherpa, whose new tap has no redirect while its peer's still points at the old one, a scan attaches the link in both directions | unit |
 | 031 | Given a container restarted outside Sherpa with none of its data interfaces left, a scan makes its link ends and unused interfaces again and attaches its links, and leaves the lab's other links as they were | unit |
 | 032 | Given a VM and a container both changed with nothing remembered of the lab, one scan repairs both, and the next repairs nothing and writes nothing to the host | unit |
+| 033 | An end that cannot be read is logged once at warn with a reference that its link's reason gives on every scan, and once at info when it can be read again; the scans between log nothing more | unit |
 
 ## `link_state`: each link reports whether it is attached
 

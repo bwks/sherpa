@@ -1,4 +1,7 @@
-use anyhow::{Context, Result, anyhow, ensure};
+use std::error::Error;
+use std::fmt;
+
+use anyhow::{Context, Result, anyhow};
 use shared::data::{NodeConfig, RecordId};
 use tracing::instrument;
 
@@ -6,6 +9,25 @@ use crate::Database;
 use crate::persistence::{NODE_IMAGE_TABLE, enum_text, key_of, node_image_from_row};
 use crate::queries;
 use crate::sql::{query_count, query_optional};
+
+/// `delete_node_image` was asked to delete an image that managed nodes still use.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageInUse {
+    pub id: RecordId,
+    pub references: usize,
+}
+
+impl fmt::Display for ImageInUse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Cannot delete node_image {:?}: referenced by {} managed node(s)",
+            self.id, self.references
+        )
+    }
+}
+
+impl Error for ImageInUse {}
 
 /// Delete a `node_image` record by its `RecordId`, and keep its model with a default.
 ///
@@ -15,7 +37,8 @@ use crate::sql::{query_count, query_optional};
 ///
 /// # Errors
 /// - If the record doesn't exist
-/// - If the record is referenced by nodes (`node.image` is `ON DELETE RESTRICT`)
+/// - With [`ImageInUse`] if the record is referenced by nodes (`node.image` is `ON DELETE
+///   RESTRICT`)
 /// - If there's a database error during deletion
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_node_image(db: &Database, id: RecordId) -> Result<Option<NodeConfig>> {
@@ -35,12 +58,9 @@ pub async fn delete_node_image(db: &Database, id: RecordId) -> Result<Option<Nod
     )
     .await
     .context("Cannot check image references before deletion")?;
-    ensure!(
-        references == 0,
-        "Cannot delete node_image {:?}: referenced by {} managed node(s)",
-        id,
-        references
-    );
+    if references != 0 {
+        return Err(ImageInUse { id, references }.into());
+    }
 
     let deleted = query_optional(
         &tx,

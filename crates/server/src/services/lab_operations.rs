@@ -1,15 +1,25 @@
-//! Long-running operations on a lab (`up`, `redeploy`, `resume`) and stopping them.
+//! Operations on a lab, what holds each lab's lease, and stopping them.
 //!
-//! An operation holds a read lease on its lab for as long as it runs, and checks the lab's
-//! cancellation token at safe points: between phases and while it waits for nodes. Stopping a
-//! lab's operations cancels the token, then takes the write lease, so it returns only after
-//! every operation on that lab has ended. Operations stop only at those points, never mid-step,
-//! because some steps hand work to blocking tasks that would outlive a dropped future.
+//! These hold a lab's lease, each as a [`LeaseHolder`] recorded with the lab's entry:
+//! - the operations of [`Operation`], each holding a shared read lease for as long as it runs:
+//!   `up`, `redeploy`, `resume`, `down`, and the recovery of a lab at startup;
+//! - a destroy or a clean, and a requested stop, each holding the write lease alone;
+//! - the scanner's observation, holding the write lease alone without waiting for it.
 //!
-//! Operations are stopped for one of two reasons. Destroying a lab holds the write lease while
-//! it removes the lab, so nothing writes to it afterwards; a stopped `up` leaves the removal to
-//! the destroy. A stop requested by the user (Ctrl-C in the CLI) lets a stopped `up` roll back
-//! like a failed one.
+//! `up`, `redeploy` and `resume` check the lab's cancellation token at safe points: between
+//! phases and while they wait for nodes. They stop only at those points, never mid-step, because
+//! some steps hand work to blocking tasks that would outlive a dropped future. `down` checks the
+//! token once, before it starts, so a destroy that is under way stops it; once running it is
+//! never stopped. Recovery never checks it.
+//!
+//! Operations are stopped for one of two reasons. Destroying a lab cancels the token, then takes
+//! the write lease and holds it while it removes the lab, so it returns only after every
+//! operation on that lab has ended and nothing writes to it afterwards; a stopped `up` leaves
+//! the removal to the destroy. A stop requested by the user (Ctrl-C in the CLI) is made only
+//! when an `up`, `redeploy` or `resume` holds or waits for the lease: it cancels the token, waits
+//! for the write lease and lets a stopped `up` roll back like a failed one. When only a `down`,
+//! a recovery, a destroy or the scanner holds the lab, a requested stop returns at once, having
+//! cancelled nothing.
 //!
 //! The scanner observes a lab only while no operation holds it: `try_observe` takes the write
 //! lease without waiting and without cancelling anything, so a lab with an operation running is
@@ -39,6 +49,28 @@ static LAB_CANCELLATIONS: OnceLock<DashMap<String, Cancellation>> = OnceLock::ne
 /// is pending, such as one queued behind a requested stop, is cancelled at once.
 static PENDING_DESTROYS: OnceLock<DashMap<String, usize>> = OnceLock::new();
 
+/// An operation that runs under a lab's shared lease.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Operation {
+    Up,
+    Redeploy,
+    Resume,
+    Down,
+    /// The server's recovery, at startup, of a lab left mid-operation.
+    Recovery,
+}
+
+/// What holds or waits for a lab's lease.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LeaseHolder {
+    /// An operation, under the shared lease.
+    Operation(Operation),
+    /// A stop, under the write lease.
+    Stop(StopReason),
+    /// The scanner's observation, under the write lease.
+    Scanner,
+}
+
 /// Why a lab's operations are being stopped.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StopReason {
@@ -55,15 +87,16 @@ struct Cancellation {
     reason: Arc<OnceLock<StopReason>>,
 }
 
-/// A lab's lock in `LAB_LEASES`, and how many `LeaseEntry`s hold or wait on it.
+/// A lab's lock in `LAB_LEASES`, and what each `LeaseEntry` holding or waiting on it is.
 struct LeaseSlot {
     lock: Arc<RwLock<()>>,
-    users: usize,
+    holders: Vec<LeaseHolder>,
 }
 
-/// One user's share of a lab's entry in `LAB_LEASES`. Dropping the last one removes the entry.
+/// One holder's share of a lab's entry in `LAB_LEASES`. Dropping the last one removes the entry.
 struct LeaseEntry {
     lab_id: String,
+    holder: LeaseHolder,
     lock: Arc<RwLock<()>>,
 }
 
@@ -120,6 +153,24 @@ impl LabHold for StoppedLab {
     }
 }
 
+impl Operation {
+    /// Whether a requested stop ends this operation: only these check the lab's cancellation
+    /// token while they run.
+    fn stops_on_request(self) -> bool {
+        matches!(
+            self,
+            Operation::Up | Operation::Redeploy | Operation::Resume
+        )
+    }
+}
+
+impl LeaseHolder {
+    /// Whether this holder is an operation a requested stop ends.
+    fn stops_on_request(self) -> bool {
+        matches!(self, LeaseHolder::Operation(operation) if operation.stops_on_request())
+    }
+}
+
 impl Cancellation {
     fn cancel(&self, reason: StopReason) {
         // The first reason wins: a destroy that follows a requested stop finds it set.
@@ -165,19 +216,42 @@ impl LabOperation {
 }
 
 impl LeaseEntry {
-    /// Join a lab's entry in `LAB_LEASES`, creating it if no one holds or waits on the lab.
-    fn join(lab_id: &str) -> Self {
+    /// Join a lab's entry in `LAB_LEASES` as `holder`, creating it if no one holds or waits on
+    /// the lab.
+    fn join(lab_id: &str, holder: LeaseHolder) -> Self {
         let mut slot = leases()
             .entry(lab_id.to_owned())
             .or_insert_with(|| LeaseSlot {
                 lock: Arc::new(RwLock::new(())),
-                users: 0,
+                holders: Vec::new(),
             });
-        slot.users += 1;
+        slot.holders.push(holder);
         Self {
             lab_id: lab_id.to_owned(),
+            holder,
             lock: Arc::clone(&slot.lock),
         }
+    }
+
+    /// Join a lab's entry as a requested stop, or `None` when no operation a requested stop ends
+    /// holds or waits for the lab. The check and the join happen under one shard lock.
+    fn join_stop_request(lab_id: &str) -> Option<Self> {
+        let mut slot = leases().get_mut(lab_id)?;
+        if !slot
+            .holders
+            .iter()
+            .copied()
+            .any(LeaseHolder::stops_on_request)
+        {
+            return None;
+        }
+        let holder = LeaseHolder::Stop(StopReason::Request);
+        slot.holders.push(holder);
+        Some(Self {
+            lab_id: lab_id.to_owned(),
+            holder,
+            lock: Arc::clone(&slot.lock),
+        })
     }
 }
 
@@ -186,8 +260,11 @@ impl Drop for LeaseEntry {
         // The count is read and the entry removed under one shard lock, and no other reference
         // into the map is held here, so this cannot deadlock against `join`.
         if let Entry::Occupied(mut slot) = leases().entry(self.lab_id.clone()) {
-            slot.get_mut().users -= 1;
-            if slot.get().users == 0 {
+            let holders = &mut slot.get_mut().holders;
+            if let Some(index) = holders.iter().position(|holder| *holder == self.holder) {
+                holders.swap_remove(index);
+            }
+            if holders.is_empty() {
                 slot.remove();
             }
         }
@@ -219,16 +296,17 @@ fn pending_destroys() -> &'static DashMap<String, usize> {
     PENDING_DESTROYS.get_or_init(DashMap::new)
 }
 
-/// Start an operation on a lab. Waits while the lab is being destroyed.
+/// Start `operation` on a lab. Waits while the lab is being destroyed.
 ///
 /// The lease it takes is a shared read lease, so operations on one lab can run at once, two
 /// `up`s or an `up` and a `resume` among them. What keeps them apart is the lab's phase, not this
 /// lease: the second `up` cannot reserve the lab, and `resume` refuses a lab that is not `Ready`.
 /// `REDEPLOY_LOCKS` serializes a lab's redeploys with each other only.
 #[instrument(level = "debug")]
-pub async fn begin(lab_id: &str) -> LabOperation {
-    // The entry is taken before waiting, so a waiter cancelled mid-wait drops its count too.
-    let entry = LeaseEntry::join(lab_id);
+pub async fn begin(lab_id: &str, operation: Operation) -> LabOperation {
+    // The entry is taken before waiting, so a waiter cancelled mid-wait drops its share too, and
+    // a requested stop finds the operation while it waits.
+    let entry = LeaseEntry::join(lab_id, LeaseHolder::Operation(operation));
     let lease = Arc::clone(&entry.lock).read_owned().await;
     // Read the token after taking the lease: a destroy that has started has already cancelled it.
     let cancel = cancellations()
@@ -253,7 +331,7 @@ pub async fn begin(lab_id: &str) -> LabOperation {
 /// Hold a lab for the scanner, or `None` when an operation holds it now. Never waits.
 #[instrument(level = "debug")]
 pub fn try_observe(lab_id: &str) -> Option<ObservedLab> {
-    let entry = LeaseEntry::join(lab_id);
+    let entry = LeaseEntry::join(lab_id, LeaseHolder::Scanner);
     Arc::clone(&entry.lock)
         .try_write_owned()
         .ok()
@@ -263,20 +341,18 @@ pub fn try_observe(lab_id: &str) -> Option<ObservedLab> {
         })
 }
 
-/// Stop every operation on a lab and wait until they have finished.
+/// Stop every operation on a lab for a destroy, and wait until they have finished.
 ///
-/// Returns whether any operation was running, and the exclusive lease. A destroy holds it while
-/// the lab's resources are removed; a requested stop drops it straight away.
+/// Returns whether anything held the lab, and the exclusive lease, which the destroy holds
+/// while the lab's resources are removed.
 #[instrument(level = "debug")]
-pub async fn stop(lab_id: &str, reason: StopReason) -> (bool, StoppedLab) {
-    if reason == StopReason::Destroy {
-        *pending_destroys().entry(lab_id.to_owned()).or_default() += 1;
-    }
+pub async fn stop(lab_id: &str) -> (bool, StoppedLab) {
+    *pending_destroys().entry(lab_id.to_owned()).or_default() += 1;
     cancellations()
         .entry(lab_id.to_owned())
         .or_default()
-        .cancel(reason);
-    let entry = LeaseEntry::join(lab_id);
+        .cancel(StopReason::Destroy);
+    let entry = LeaseEntry::join(lab_id, LeaseHolder::Stop(StopReason::Destroy));
     let (was_running, guard) = match Arc::clone(&entry.lock).try_write_owned() {
         Ok(guard) => (false, guard),
         Err(_) => (true, Arc::clone(&entry.lock).write_owned().await),
@@ -284,11 +360,35 @@ pub async fn stop(lab_id: &str, reason: StopReason) -> (bool, StoppedLab) {
     (
         was_running,
         StoppedLab {
-            reason,
+            reason: StopReason::Destroy,
             _lease: guard,
             entry,
         },
     )
+}
+
+/// Stop the `up`, `redeploy` and `resume` running on a lab, on the user's request, and wait
+/// until everything holding the lab has let it go.
+///
+/// Returns whether such an operation held or waited for the lab. When none does, it returns at
+/// once and cancels nothing: a `down`, a recovery, a destroy or the scanner holding the lab
+/// carries on.
+#[instrument(level = "debug")]
+pub async fn request_stop(lab_id: &str) -> bool {
+    let Some(entry) = LeaseEntry::join_stop_request(lab_id) else {
+        return false;
+    };
+    cancellations()
+        .entry(lab_id.to_owned())
+        .or_default()
+        .cancel(StopReason::Request);
+    let guard = Arc::clone(&entry.lock).write_owned().await;
+    drop(StoppedLab {
+        reason: StopReason::Request,
+        _lease: guard,
+        entry,
+    });
+    true
 }
 
 #[cfg(test)]
@@ -301,8 +401,8 @@ mod tests {
 
     #[tokio::test]
     async fn lab_concurrency_005_a_destroy_stops_the_operations_of_its_lab_and_waits_for_them() {
-        let operation = begin("lab-ops-stop").await;
-        let stopping = tokio::spawn(stop("lab-ops-stop", StopReason::Destroy));
+        let operation = begin("lab-ops-stop", Operation::Up).await;
+        let stopping = tokio::spawn(stop("lab-ops-stop"));
         // The sleep ends early once the destroy has cancelled the operation.
         let error = tokio::time::timeout(WAIT, operation.sleep(Duration::from_secs(3600)))
             .await
@@ -319,21 +419,22 @@ mod tests {
     #[tokio::test]
     async fn lab_concurrency_009_an_operation_queued_behind_a_requested_stop_yields_to_a_destroy() {
         let lab = "lab-ops-queued";
-        let running = begin(lab).await;
-        let requested = tokio::spawn(stop(lab, StopReason::Request));
+        let running = begin(lab, Operation::Up).await;
+        let requested = tokio::spawn(request_stop(lab));
         tokio::time::sleep(Duration::from_millis(50)).await;
         // Queued behind the requested stop, then a destroy queues behind both.
-        let queued = tokio::spawn(begin(lab));
+        let queued = tokio::spawn(begin(lab, Operation::Resume));
         tokio::time::sleep(Duration::from_millis(50)).await;
-        let destroying = tokio::spawn(stop(lab, StopReason::Destroy));
+        let destroying = tokio::spawn(stop(lab));
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         drop(running);
-        let (_, stopped) = tokio::time::timeout(WAIT, requested)
-            .await
-            .unwrap()
-            .unwrap();
-        drop(stopped);
+        assert!(
+            tokio::time::timeout(WAIT, requested)
+                .await
+                .unwrap()
+                .unwrap()
+        );
         let queued = tokio::time::timeout(WAIT, queued).await.unwrap().unwrap();
 
         assert_eq!(queued.stop_reason(), Some(StopReason::Destroy));
@@ -344,23 +445,22 @@ mod tests {
             .unwrap();
         drop(destroyed);
         // Once the destroy is done, new operations run again.
-        assert_eq!(begin(lab).await.stop_reason(), None);
+        assert_eq!(begin(lab, Operation::Up).await.stop_reason(), None);
     }
 
     #[tokio::test]
     async fn lab_concurrency_006_a_destroy_with_nothing_running_does_not_wait() {
-        let (was_running, _stopped) =
-            tokio::time::timeout(WAIT, stop("lab-ops-idle", StopReason::Destroy))
-                .await
-                .unwrap();
+        let (was_running, _stopped) = tokio::time::timeout(WAIT, stop("lab-ops-idle"))
+            .await
+            .unwrap();
         assert!(!was_running);
     }
 
     #[tokio::test]
     async fn lab_concurrency_007_an_operation_waits_for_a_destroy_then_runs() {
-        let (_, stopped) = stop("lab-ops-after", StopReason::Destroy).await;
+        let (_, stopped) = stop("lab-ops-after").await;
         let starting = tokio::spawn(async {
-            let operation = begin("lab-ops-after").await;
+            let operation = begin("lab-ops-after", Operation::Up).await;
             operation.ensure_active().is_ok()
         });
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -371,8 +471,8 @@ mod tests {
 
     #[tokio::test]
     async fn lab_concurrency_008_stopping_one_labs_operations_leaves_another_running() {
-        let other = begin("lab-ops-other").await;
-        let (_, _stopped) = tokio::time::timeout(WAIT, stop("lab-ops-mine", StopReason::Destroy))
+        let other = begin("lab-ops-other", Operation::Up).await;
+        let (_, _stopped) = tokio::time::timeout(WAIT, stop("lab-ops-mine"))
             .await
             .unwrap();
         assert!(other.ensure_active().is_ok());
@@ -380,9 +480,9 @@ mod tests {
 
     #[tokio::test]
     async fn lab_cancel_003_a_requested_stop_ends_the_operation_and_releases_the_lab() {
-        let operation = begin("lab-ops-request").await;
+        let operation = begin("lab-ops-request", Operation::Up).await;
         assert_eq!(operation.stop_reason(), None);
-        let stopping = tokio::spawn(stop("lab-ops-request", StopReason::Request));
+        let stopping = tokio::spawn(request_stop("lab-ops-request"));
         let error = tokio::time::timeout(WAIT, operation.sleep(Duration::from_secs(3600)))
             .await
             .unwrap()
@@ -390,22 +490,74 @@ mod tests {
         assert!(error.to_string().contains("stopped on request"));
         assert_eq!(operation.stop_reason(), Some(StopReason::Request));
         drop(operation);
-        let (was_running, stopped) = tokio::time::timeout(WAIT, stopping).await.unwrap().unwrap();
-        assert!(was_running);
-        drop(stopped);
+        assert!(tokio::time::timeout(WAIT, stopping).await.unwrap().unwrap());
         // Operations started after a requested stop run normally.
-        assert!(begin("lab-ops-request").await.ensure_active().is_ok());
+        assert!(
+            begin("lab-ops-request", Operation::Up)
+                .await
+                .ensure_active()
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn lab_cancel_012_a_cancel_during_a_down_answers_stopped_false_at_once_and_the_down_runs_on()
+     {
+        let down = begin("lab-ops-down", Operation::Down).await;
+        let stopped = tokio::time::timeout(WAIT, request_stop("lab-ops-down"))
+            .await
+            .unwrap();
+        assert!(!stopped);
+        assert_eq!(down.stop_reason(), None);
+        assert!(down.ensure_active().is_ok());
+    }
+
+    #[tokio::test]
+    async fn lab_cancel_013_a_cancel_during_a_scan_of_an_idle_lab_answers_stopped_false() {
+        let observed = try_observe("lab-ops-scan").unwrap();
+        let stopped = tokio::time::timeout(WAIT, request_stop("lab-ops-scan"))
+            .await
+            .unwrap();
+        assert!(!stopped);
+        drop(observed);
+        // Nothing was cancelled: the next operation runs.
+        assert!(
+            begin("lab-ops-scan", Operation::Up)
+                .await
+                .ensure_active()
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn lab_cancel_014_a_cancel_of_an_up_waiting_behind_a_scan_stops_it_and_answers_stopped_true()
+     {
+        let lab = "lab-ops-up-behind-scan";
+        let observed = try_observe(lab).unwrap();
+        let up = tokio::spawn(async move { begin(lab, Operation::Up).await.ensure_active() });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let stopping = tokio::spawn(request_stop(lab));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!stopping.is_finished());
+        drop(observed);
+        let error = tokio::time::timeout(WAIT, up)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap_err();
+        assert!(error.to_string().contains("stopped on request"), "{error}");
+        assert!(tokio::time::timeout(WAIT, stopping).await.unwrap().unwrap());
     }
 
     #[tokio::test]
     async fn lab_concurrency_010_a_destroy_after_a_requested_stop_keeps_the_first_reason() {
-        let operation = begin("lab-ops-first").await;
-        let request = tokio::spawn(stop("lab-ops-first", StopReason::Request));
+        let operation = begin("lab-ops-first", Operation::Up).await;
+        let request = tokio::spawn(request_stop("lab-ops-first"));
         tokio::time::timeout(WAIT, operation.sleep(Duration::from_secs(3600)))
             .await
             .unwrap()
             .unwrap_err();
-        let destroy = tokio::spawn(stop("lab-ops-first", StopReason::Destroy));
+        let destroy = tokio::spawn(stop("lab-ops-first"));
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert_eq!(operation.stop_reason(), Some(StopReason::Request));
         drop(operation);
@@ -417,7 +569,7 @@ mod tests {
     async fn lab_concurrency_011_an_operation_waits_while_the_scanner_observes_its_lab() {
         let observed = try_observe("lab-ops-observe-wait").unwrap();
         let operation = tokio::spawn(async {
-            let operation = begin("lab-ops-observe-wait").await;
+            let operation = begin("lab-ops-observe-wait", Operation::Up).await;
             operation.ensure_active().is_ok()
         });
         tokio::task::yield_now().await;
@@ -448,7 +600,7 @@ mod tests {
         for _ in 0..8 {
             tasks.push(tokio::spawn(async {
                 for _ in 0..200 {
-                    let operation = begin(LAB).await;
+                    let operation = begin(LAB, Operation::Up).await;
                     assert_eq!(WRITERS.load(Ordering::SeqCst), 0);
                     READERS.fetch_add(1, Ordering::SeqCst);
                     tokio::task::yield_now().await;
@@ -457,14 +609,17 @@ mod tests {
                 }
             }));
         }
-        for writer in 0..4 {
+        for writer in 0..6 {
             tasks.push(tokio::spawn(async move {
                 for round in 0..100 {
-                    // Half the writers wait for the lease, half only try for it.
-                    if writer % 2 == 0 {
-                        let (_, stopped) = stop(LAB, StopReason::Request).await;
+                    // A third of the writers wait for the lease, a third only try for it, and a
+                    // third ask for a stop, which holds it alone too.
+                    if writer % 3 == 0 {
+                        let (_, stopped) = stop(LAB).await;
                         exclusive(round).await;
                         drop(stopped);
+                    } else if writer % 3 == 1 {
+                        request_stop(LAB).await;
                     } else if let Some(observed) = try_observe(LAB) {
                         exclusive(round).await;
                         drop(observed);

@@ -30,10 +30,11 @@ use crate::auth::policy::{require_host_access, require_lab_starter};
 use crate::daemon::state::AppState;
 use crate::services::clean;
 use crate::services::console;
+use crate::services::error::{ServiceError, caller_message};
 use crate::services::guest_account::{self, GuestAccount};
 use crate::services::lab_definition;
 use crate::services::lab_lifecycle;
-use crate::services::lab_operations::{self, LabHold, LabOperation, StopReason};
+use crate::services::lab_operations::{self, LabHold, LabOperation, Operation, StopReason};
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
 use crate::services::ssh_config::{self, LabSshFiles};
@@ -156,9 +157,9 @@ pub async fn up_lab(
         tailscale_auth_key.as_ref(),
         state.config.tls.enabled,
     )?;
-    db::validate_lab_id(&lab_id)?;
+    db::validate_lab_id(&lab_id).map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     // Destroying the lab stops this operation; see `lab_operations`.
-    let operation = lab_operations::begin(&lab_id).await;
+    let operation = lab_operations::begin(&lab_id, Operation::Up).await;
 
     tracing::info!(
         "Starting lab creation: lab_id={}, name={}",
@@ -277,23 +278,36 @@ fn check_up_request(
     client_host: Option<&str>,
     client_folder: Option<&str>,
 ) -> Result<CheckedManifest> {
-    let manifest: topology::Manifest =
-        parse_value(manifest).context("Failed to deserialize manifest")?;
-    check_lab_name(&manifest.name).context("Manifest validation failed: lab name")?;
+    let manifest: topology::Manifest = parse_value(manifest)
+        .context("Failed to deserialize manifest")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    check_lab_name(&manifest.name)
+        .context("Manifest validation failed: lab name")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     require_host_access(ctx, &manifest.nodes)?;
     check_ready_timeout(manifest.ready_timeout)
-        .context("Manifest validation failed: ready timeout")?;
+        .context("Manifest validation failed: ready timeout")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     check_lab_description(manifest.description.as_deref())
-        .context("Manifest validation failed: description")?;
-    check_client_read_files(&manifest.nodes).context("Manifest validation failed: files")?;
-    reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
-    let as_written = lab_definition::parse_as_written(as_written)?;
+        .context("Manifest validation failed: description")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    check_client_read_files(&manifest.nodes)
+        .context("Manifest validation failed: files")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    reject_provisioners(&manifest)
+        .context("Manifest validation failed: provisioners")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    let as_written = lab_definition::parse_as_written(as_written)
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     let definition = lab_definition::definition(&manifest, as_written.as_ref())
-        .context("Manifest validation failed: the manifest as written")?;
+        .context("Manifest validation failed: the manifest as written")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     validate_node_secrets(&manifest, node_secrets)
-        .context("Manifest validation failed: container secret files")?;
+        .context("Manifest validation failed: container secret files")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     validate_lab_origin(client_host, client_folder)
-        .context("Request validation failed: lab origin")?;
+        .context("Request validation failed: lab origin")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     Ok(CheckedManifest {
         manifest,
         definition,
@@ -396,15 +410,19 @@ fn ensure_no_earlier_attempt(
     {
         return Ok(());
     }
-    anyhow::ensure!(
-        libvirt::list_lab_volumes(qemu_conn, lab_id)?.is_empty(),
-        "Existing disks for this lab ID must be cleaned before startup"
-    );
+    if !libvirt::list_lab_volumes(qemu_conn, lab_id)?.is_empty() {
+        return Err(ServiceError::Conflict(
+            "Existing disks for this lab ID must be cleaned before startup".to_owned(),
+        )
+        .into());
+    }
     for domain in qemu_conn.list_all_domains(0)? {
-        anyhow::ensure!(
-            !util::is_lab_resource(&domain.get_name()?, lab_id),
-            "Existing VM for this lab ID must be cleaned before startup"
-        );
+        if util::is_lab_resource(&domain.get_name()?, lab_id) {
+            return Err(ServiceError::Conflict(
+                "Existing VM for this lab ID must be cleaned before startup".to_owned(),
+            )
+            .into());
+        }
     }
     Ok(())
 }
@@ -928,12 +946,13 @@ async fn roll_back_failed_up(
             }
         }
         Err(clean_err) => {
-            tracing::error!(
-                lab_id = %lab_id,
-                error = ?clean_err,
-                "Auto-cleanup failed"
+            let _ = progress.send_status(
+                format!(
+                    "Cleanup failed: {}",
+                    caller_message(&clean_err, "Auto-cleanup failed")
+                ),
+                StatusKind::Info,
             );
-            let _ = progress.send_status(format!("Cleanup failed: {clean_err}"), StatusKind::Info);
         }
     }
 }

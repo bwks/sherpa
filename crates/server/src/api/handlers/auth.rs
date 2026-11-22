@@ -11,6 +11,8 @@ use std::net::SocketAddr;
 use crate::api::request_parse::{FormBody, JsonBody, QueryParams};
 use crate::auth::{cookies, login, session};
 use crate::daemon::state::AppState;
+use crate::services::error::ServiceError;
+use crate::services::user_create;
 use crate::templates::{
     LoginError, LoginErrorTemplate, LoginPageTemplate, SignupErrorTemplate, SignupPageTemplate,
 };
@@ -35,10 +37,7 @@ pub async fn validate_token_json(
     session::token_status(&state.db, &state.jwt_secret, &request.token)
         .await
         .map(Json)
-        .map_err(|error| {
-            tracing::error!(error = ?error, "Failed to check a token's session");
-            ApiError::internal("Failed to validate the token")
-        })
+        .map_err(|error| ApiError::internal(error, "Failed to check a token's session"))
 }
 
 /// End the session of the token the request is made with.
@@ -53,10 +52,7 @@ pub async fn logout_json(
 ) -> Result<Json<LogoutResponse>, ApiError> {
     let ended = session::logout(&state.db, &auth.session_id)
         .await
-        .map_err(|error| {
-            tracing::error!(username = %auth.username, error = ?error, "Logout failed");
-            ApiError::internal("Failed to end the session")
-        })?;
+        .map_err(|error| ApiError::internal(error, "Logout failed"))?;
     Ok(Json(LogoutResponse { ended }))
 }
 
@@ -75,10 +71,7 @@ pub async fn login(
 ) -> Result<Json<LoginResponse>, ApiError> {
     let user = login::check_credentials(&state.db, &request.username, &request.password, peer.ip())
         .await
-        .map_err(|e| {
-            tracing::error!("Login check failed: {:?}", e);
-            ApiError::internal("Authentication error")
-        })?
+        .map_err(|e| ApiError::internal(e, "Login check failed"))?
         .ok_or_else(|| ApiError::unauthorized(login::LOGIN_REFUSED))?;
 
     let issued = session::start(
@@ -89,10 +82,7 @@ pub async fn login(
         JWT_TOKEN_EXPIRY_SECONDS,
     )
     .await
-    .map_err(|e| {
-        tracing::error!("Failed to start a session: {:?}", e);
-        ApiError::internal("Failed to create authentication token")
-    })?;
+    .map_err(|e| ApiError::internal(e, "Failed to start a session"))?;
     let now = issued.issued_at;
     let expires_at = issued.expires_at;
 
@@ -317,8 +307,8 @@ pub async fn signup_page_handler(State(state): State<AppState>) -> Response {
 ///
 /// # Validation
 /// - Passwords must match
-/// - Username must meet format requirements (handled by `db::create_user`)
-/// - Password must meet strength requirements (handled by `db::create_user`)
+/// - Username must meet format requirements (handled by `user_create::create_user`)
+/// - Password must meet strength requirements (handled by `user_create::create_user`)
 /// - Username must be unique (enforced by database)
 pub async fn signup_form_handler(
     State(state): State<AppState>,
@@ -344,41 +334,29 @@ pub async fn signup_form_handler(
 
     // 2. Create user in database
     // This will validate username format and password strength
-    let user = match db::create_user(
+    let user = match user_create::create_user(
         &state.db,
-        form.username.clone(),
+        &form.username,
         &form.password,
-        false,  // is_admin = false (all self-registered users are non-admin)
-        vec![], // ssh_keys = empty (can be added later in profile)
+        false, // is_admin = false (all self-registered users are non-admin)
     )
     .await
     {
         Ok(user) => user,
         Err(e) => {
-            // Parse error and return appropriate user-friendly message
-            let error_str = e.to_string();
-
-            let error_msg = if error_str.contains("unique")
-                || error_str.contains("already exists")
-                || error_str.contains("duplicate")
-            {
-                // Username already taken
-                tracing::debug!("Username already exists: {}", form.username);
-                "Username is unavailable".to_string()
-            } else if error_str.contains("Username") {
-                // Username validation error - extract the message
-                tracing::debug!("Username validation failed: {}", error_str);
-                // Extract the specific validation message from anyhow error
-                extract_validation_message(&error_str, "Username")
-            } else if error_str.contains("Password") || error_str.contains("password") {
-                // Password validation error - extract the message
-                tracing::debug!("Password validation failed for user: {}", form.username);
-                // Extract the specific validation message from anyhow error
-                extract_validation_message(&error_str, "Password")
-            } else {
-                // Generic database or other error
-                tracing::error!("Registration error for user '{}': {:?}", form.username, e);
-                "Registration failed. Please try again.".to_string()
+            let error_msg = match ServiceError::find(&e) {
+                Some(ServiceError::Conflict(_)) => {
+                    tracing::debug!("Username already exists: {}", form.username);
+                    "Username is unavailable".to_string()
+                }
+                Some(ServiceError::Invalid(message)) => {
+                    tracing::debug!("Signup validation failed: {}", message);
+                    message.clone()
+                }
+                _ => {
+                    tracing::error!("Registration error for user '{}': {:?}", form.username, e);
+                    "Registration failed. Please try again.".to_string()
+                }
             };
 
             return SignupErrorTemplate { message: error_msg }.into_response();
@@ -432,44 +410,6 @@ pub async fn signup_form_handler(
         ],
     )
         .into_response()
-}
-
-/// Helper function to extract user-friendly validation messages from error strings
-///
-/// Takes an error string and extracts the most relevant part for display to the user.
-/// Handles errors from username and password validation.
-fn extract_validation_message(error_str: &str, context: &str) -> String {
-    // For password errors, look for the bulleted list of requirements
-    if context == "Password" {
-        // The password validation error includes a detailed message like:
-        // "Password does not meet security requirements:\n• Minimum 8 characters\n• ..."
-        if let Some(pos) = error_str.find("Password does not meet security requirements") {
-            // Extract everything after this point until we hit a non-validation message
-            let msg_part = &error_str[pos..];
-            // Find the end of the validation message (usually at the next context marker or end)
-            if let Some(end) = msg_part.find("\n\nCaused by:") {
-                return msg_part[..end].to_string();
-            }
-            return msg_part.to_string();
-        }
-    }
-
-    // For username errors, extract the specific requirement message
-    if context == "Username" {
-        // Username errors typically have the format:
-        // "Username must be 3–32 lowercase letters, ..." or "Username 'admin' is reserved"
-        if let Some(pos) = error_str.find("Username") {
-            let msg_part = &error_str[pos..];
-            // Take everything until we hit a newline or end
-            if let Some(end) = msg_part.find('\n') {
-                return msg_part[..end].to_string();
-            }
-            return msg_part.to_string();
-        }
-    }
-
-    // Fallback: return a generic message
-    format!("{context} validation failed. Please check the requirements.")
 }
 
 /// Logout handler

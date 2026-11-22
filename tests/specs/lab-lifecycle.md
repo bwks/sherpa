@@ -187,7 +187,7 @@ The nodes an up or a redeploy was building when the server stopped are `node_fai
 
 ## `lab_cancel`: a running operation can be stopped on request
 
-**Statement:** the lab's owner or an admin can stop the up, resume or redeploy running on a lab, by the `cancel` RPC or `POST /api/v1/labs/{id}/cancel`: the operation stops at its next step, the answer comes once it has ended and says whether anything was running, and a stopped up removes what it created; an operation is not stopped by its client going away, and Ctrl-C in the CLI asks before it stops anything.
+**Statement:** the lab's owner or an admin can stop the up, resume or redeploy running on a lab, by the `cancel` RPC or `POST /api/v1/labs/{id}/cancel`: the operation stops at its next step, the answer comes once it has ended and says `stopped: true` only when an up, resume or redeploy was running or waiting for the lab and was stopped, and a stopped up removes what it created; a down, a destroy, a clean and the scanner are never stopped by it, and when only they hold the lab it answers `stopped: false` at once; an operation is not stopped by its client going away, and Ctrl-C in the CLI asks before it stops anything.
 **Relied on by:** the user; scripts and other clients of the API. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -203,5 +203,8 @@ The nodes an up or a redeploy was building when the server stopped are `node_fai
 | 009 | Asked whether to stop, only `y` or `yes`, in any case, stops the operation; no answer or any other leaves it | unit |
 | 010 | Ctrl-C during `sherpa up`, answered no: the CLI says the lab creation keeps running on the server and exits non-zero having saved no lab files, and the lab comes up (no test yet) | e2e |
 | 011 | Ctrl-C during `sherpa up`, answered yes: the CLI waits, says the lab creation was stopped, and the lab is gone from the server (no test yet) | e2e |
+| 012 | Cancel during a down answers `stopped: false` at once, and the down is not stopped | unit |
+| 013 | Cancel during the scanner's observation of a lab with nothing running answers `stopped: false` at once, and cancels nothing | unit |
+| 014 | Cancel of an up still waiting for the lab behind a scan stops it and answers `stopped: true` once it has ended; an up that is running is 003 and 004 | unit |
 
 Who may cancel, the owner or an admin, and a lab that does not exist, are `access_control_013` in [accounts and auth](accounts-and-auth.md). A destroy stopping the operations of its lab is `lab_concurrency_005`. The node a failed redeploy leaves is `lab_redeploy_005`.

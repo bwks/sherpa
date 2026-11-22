@@ -151,6 +151,7 @@ mod tests {
     use super::super::started::follow_started_links;
     use super::super::started::tests::{ids, lab as started_lab, runtimes};
     use crate::daemon::link_states::LinkStates;
+    use crate::daemon::unreadable_ends::UnreadableEnds;
     use shared::data::{BridgeKind, DbNode, LinkImpairment, NodeKind, NodeState};
 
     fn id(name: &str) -> RecordId {
@@ -330,6 +331,7 @@ mod tests {
                 &ids(&["ctr1"]),
                 &runtimes(&["vm1", "ctr1", "vm2", "ctr2"]),
                 &link_states,
+                &UnreadableEnds::default(),
             )
             .await;
             assert_eq!(host.take_carrier_writes(), vec![]);
@@ -414,7 +416,7 @@ mod tests {
         let (host, lab) = lab();
         let previous = HashMap::from([(0, LinkState::Attached), (1, LinkState::Attached)]);
         let running = HashSet::from([id("vm1"), id("vm2")]);
-        let check = check_lab_links(&host, &lab, &running).await;
+        let check = check_lab_links(&host, &lab, &running, &UnreadableEnds::default()).await;
         let fresh = check.fresh_ends();
         let states = check.into_states();
         assert_eq!(states[&1], peer_down("ctr1"));
@@ -427,7 +429,7 @@ mod tests {
 
         // Unpaused: the link is attached as it was, and the VM's link comes back.
         let running = HashSet::from([id("vm1"), id("vm2"), id("ctr1")]);
-        let check = check_lab_links(&host, &lab, &running).await;
+        let check = check_lab_links(&host, &lab, &running, &UnreadableEnds::default()).await;
         let fresh = check.fresh_ends();
         let next = check.into_states();
         assert_eq!(next[&1], LinkState::Attached);
@@ -461,7 +463,7 @@ mod tests {
             host.remove(&["tpb0", "tpb1"]);
             host.set_carrier_by_hand("tpa1", false);
             let running = HashSet::from([id("vm1")]);
-            let check = check_lab_links(&host, &lab, &running).await;
+            let check = check_lab_links(&host, &lab, &running, &UnreadableEnds::default()).await;
             let fresh = check.fresh_ends();
             let states = check.into_states();
             follow_carrier(&host, &lab, &HashMap::new(), &states, &fresh).await;
@@ -472,7 +474,7 @@ mod tests {
             );
 
             // The second scan has the first's states: nothing changed, nothing is set.
-            let check = check_lab_links(&host, &lab, &running).await;
+            let check = check_lab_links(&host, &lab, &running, &UnreadableEnds::default()).await;
             let fresh = check.fresh_ends();
             let next = check.into_states();
             follow_carrier(&host, &lab, &states, &next, &fresh).await;
@@ -482,7 +484,7 @@ mod tests {
         {
             let (host, lab) = lab();
             let running = HashSet::from([id("vm1"), id("vm2"), id("ctr1")]);
-            let check = check_lab_links(&host, &lab, &running).await;
+            let check = check_lab_links(&host, &lab, &running, &UnreadableEnds::default()).await;
             let fresh = check.fresh_ends();
             let states = check.into_states();
             follow_carrier(&host, &lab, &HashMap::new(), &states, &fresh).await;
@@ -512,7 +514,7 @@ mod tests {
             host.make(&["tpb0"]);
             let previous = HashMap::from([(0, peer_down("vm1"))]);
             let running = HashSet::from([id("vm2"), id("ctr1")]);
-            let check = check_lab_links(&host, &lab, &running).await;
+            let check = check_lab_links(&host, &lab, &running, &UnreadableEnds::default()).await;
             let fresh = check.fresh_ends();
             let states = check.into_states();
             assert_eq!(states[&0], peer_down("vm1"));

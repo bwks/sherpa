@@ -9,6 +9,7 @@ use shared::data::{DestroyResponse, StatusKind, StatusMessage, UpResponse};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::api::errors::stream_error_event;
+use crate::services::error::caller_message;
 use crate::templates::{
     CreateSummaryFailedFragment, CreateSummarySuccessFragment, DestroyProgressLineFragment,
     DestroySummaryErrorsFragment, DestroySummaryFailedFragment, DestroySummarySuccessFragment,
@@ -81,7 +82,7 @@ pub fn destroy_progress_stream(
             Ok(Ok(ref response)) => render_summary(response),
             Ok(Err(e)) => {
                 render_fragment(&DestroySummaryFailedFragment {
-                    message: format!("{e:#}"),
+                    message: caller_message(&e, "Web job failed"),
                 })
             }
             Err(_) => {
@@ -161,7 +162,7 @@ pub fn up_progress_stream(
             Ok(Ok(ref response)) => render_up_summary(response),
             Ok(Err(e)) => {
                 render_fragment(&CreateSummaryFailedFragment {
-                    message: format!("{e:#}"),
+                    message: caller_message(&e, "Web lab creation failed"),
                 })
             }
             Err(_) => {
@@ -228,7 +229,47 @@ fn render_summary(response: &DestroyResponse) -> String {
 
 #[cfg(test)]
 mod tests {
+    use futures::StreamExt;
+
     use super::*;
+    use crate::services::error::ServiceError;
+
+    /// The `Debug` text of every event a web destroy job's stream sends when it fails with
+    /// `error`.
+    async fn failed_job_events(error: anyhow::Error) -> String {
+        let (tx, rx) = oneshot::channel();
+        tx.send(Err(error)).unwrap();
+        let (progress_tx, progress_rx) = mpsc::unbounded_channel();
+        // The job sends no progress: the stream reads on to its result once the sender is gone.
+        drop(progress_tx);
+        let events: Vec<_> = destroy_progress_stream(progress_rx, rx).collect().await;
+        format!("{events:?}")
+    }
+
+    #[tokio::test]
+    async fn api_errors_017_a_failed_web_job_of_no_known_kind_shows_a_ref_and_no_chain() {
+        let error = anyhow::anyhow!("virError(Code=38): cannot remove /var/lib/libvirt/r1.qcow2")
+            .context("Failed to delete disk");
+        let events = failed_job_events(error).await;
+        assert!(events.contains("internal error (ref "), "{events}");
+        assert!(events.contains("see the server log"), "{events}");
+        for detail in ["virError", "/var/lib/libvirt", "Failed to delete disk"] {
+            assert!(!events.contains(detail), "{events}");
+        }
+    }
+
+    #[tokio::test]
+    async fn api_errors_020_a_failed_web_job_of_a_known_kind_shows_its_own_message() {
+        let error = anyhow::Error::new(ServiceError::NotFound(
+            "Job not found or already consumed".to_owned(),
+        ));
+        let events = failed_job_events(error).await;
+        assert!(
+            events.contains("Job not found or already consumed"),
+            "{events}"
+        );
+        assert!(!events.contains("internal error"), "{events}");
+    }
 
     #[test]
     fn web_jobs_001_a_status_message_is_a_progress_line_with_its_text() {

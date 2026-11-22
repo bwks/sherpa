@@ -3,10 +3,11 @@
 use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use tracing::instrument;
 
 use super::context::Redeploy;
+use crate::services::error::ServiceError;
 use crate::services::node_ops;
 
 use shared::data;
@@ -37,7 +38,10 @@ pub(super) async fn destroy_node(redeploy: &Redeploy<'_>) -> Result<()> {
             node_ops::destroy_container_node(&redeploy.state.docker, node_name, lab_id).await?;
         }
         data::NodeKind::Unikernel => {
-            bail!("Redeploy not supported for unikernel nodes");
+            return Err(ServiceError::Invalid(
+                "Redeploy not supported for unikernel nodes".to_owned(),
+            )
+            .into());
         }
     }
 

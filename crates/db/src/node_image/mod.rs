@@ -21,4 +21,4 @@ pub use read::{
 pub use update::update_node_image;
 
 // Public exports - DELETE operations
-pub use delete::delete_node_image;
+pub use delete::{ImageInUse, delete_node_image};

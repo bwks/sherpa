@@ -58,10 +58,9 @@ pub async fn refresh_node_host_key(
         ))
         .into());
     }
-    let ip = db_node
-        .mgmt_ipv4
-        .as_deref()
-        .with_context(|| format!("Node '{node_name}' has no management address"))?;
+    let ip = db_node.mgmt_ipv4.as_deref().ok_or_else(|| {
+        ServiceError::Conflict(format!("Node '{node_name}' has no management address"))
+    })?;
 
     let changed = match node_ops::check_vm_ready(ip, SSH_PORT, db_node.ready_check.sshd_marker)
         .await?

@@ -132,9 +132,10 @@ pub async fn api_spec_handler() -> Result<impl IntoResponse, ApiError> {
     });
     match result {
         Ok(spec) => Ok(Json(spec.clone())),
-        Err(e) => Err(ApiError::internal(format!(
-            "Failed to serialize API spec: {e}"
-        ))),
+        Err(e) => Err(ApiError::internal(
+            anyhow::anyhow!("{e}"),
+            "Failed to serialize API spec",
+        )),
     }
 }
 
@@ -142,19 +143,9 @@ pub async fn api_spec_handler() -> Result<impl IntoResponse, ApiError> {
 ///
 /// GET `/api/v1/openapi.json`
 /// Public endpoint - no authentication required
-pub async fn openapi_handler() -> Result<impl IntoResponse, ApiError> {
-    static OPENAPI_JSON: std::sync::OnceLock<Result<serde_json::Value, String>> =
-        std::sync::OnceLock::new();
-    let result = OPENAPI_JSON.get_or_init(|| {
-        let doc = api_spec::build_openapi();
-        Ok(doc)
-    });
-    match result {
-        Ok(doc) => Ok(Json(doc.clone())),
-        Err(e) => Err(ApiError::internal(format!(
-            "Failed to build OpenAPI spec: {e}"
-        ))),
-    }
+pub async fn openapi_handler() -> impl IntoResponse {
+    static OPENAPI_JSON: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+    Json(OPENAPI_JSON.get_or_init(api_spec::build_openapi).clone())
 }
 
 // Request/Response types

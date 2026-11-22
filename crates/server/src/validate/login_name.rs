@@ -13,9 +13,11 @@
 //! - PAN-OS: at most 31 characters (PAN-OS web interface help, Device > Administrators).
 //! - OpenBSD: at most 31 characters (`adduser(8)`).
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 
 use shared::data::{ModelKind, NodeModel};
+
+use crate::services::error::ServiceError;
 
 /// What a model takes beyond the Sherpa username rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,11 +57,12 @@ pub fn validate_login_name(model_kind: ModelKind, node_name: &str, username: &st
     let rule = login_name_rule(model_kind.model());
     let length = username.chars().count();
     if length > rule.max_length {
-        bail!(
+        return Err(ServiceError::Invalid(format!(
             "Node '{node_name}' ({model_kind}) takes login names of at most {} characters; \
              '{username}' has {length}. Start this lab from an account with a shorter name.",
             rule.max_length
-        );
+        ))
+        .into());
     }
     if rule.alphanumeric_first
         && !username
@@ -67,10 +70,11 @@ pub fn validate_login_name(model_kind: ModelKind, node_name: &str, username: &st
             .next()
             .is_some_and(|first| first.is_ascii_alphanumeric())
     {
-        bail!(
+        return Err(ServiceError::Invalid(format!(
             "Node '{node_name}' ({model_kind}) takes login names that start with a letter or a digit; \
              '{username}' does not. Start this lab from an account whose name does."
-        );
+        ))
+        .into());
     }
     Ok(())
 }

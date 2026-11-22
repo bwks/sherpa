@@ -36,6 +36,7 @@ pub(crate) mod ssh_config;
 pub mod surreal_db;
 pub mod talos;
 pub mod up;
+pub mod user_create;
 pub mod user_delete;
 pub mod user_device_password;
 pub mod user_password;

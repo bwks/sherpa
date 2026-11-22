@@ -1,9 +1,11 @@
 //! The nodes a lab action works on: the whole lab, or one node of it.
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use tracing::instrument;
 
 use shared::data::{DbNode, NodeConfig, RecordId};
+
+use crate::services::error::ServiceError;
 
 /// The lab's nodes, or only `node_name` when one is given, and their images. A named node that
 /// is not in the lab is an error.
@@ -27,7 +29,9 @@ pub(crate) async fn load_target_nodes(
     if let Some(name) = node_name
         && target_nodes.is_empty()
     {
-        return Err(anyhow!("Node '{name}' not found in lab '{lab_id}'"));
+        return Err(
+            ServiceError::NotFound(format!("Node '{name}' not found in lab '{lab_id}'")).into(),
+        );
     }
 
     // Batch-fetch node images to determine kind (VM vs Container)

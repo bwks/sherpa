@@ -1,12 +1,13 @@
 //! Phase 2: validating the manifest against the server, and planning the lab.
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use tracing::instrument;
 
 use super::context::LabBuild;
 use super::nodes::{get_node_image, process_manifest_nodes};
 use crate::auth::context::AuthContext;
 use crate::services::admission::{self, Admission};
+use crate::services::error::ServiceError;
 use crate::services::guest_account;
 use crate::services::guest_account::GuestAccount;
 use crate::services::image_lifecycle::{
@@ -89,14 +90,17 @@ pub(super) async fn plan_lab(
 
     let nodes_expanded = process_manifest_nodes(&validated_nodes)?;
     for (node, expanded) in validated_nodes.iter().zip(&nodes_expanded) {
-        check_node_kind_settings(expanded).context("Manifest validation failed: node settings")?;
+        check_node_kind_settings(expanded)
+            .context("Manifest validation failed: node settings")
+            .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
         let image = get_node_image(
             expanded.model_kind,
             expanded.version.as_deref(),
             &node_images,
         )?;
         check_node_file_settings(node, &image)
-            .context("Manifest validation failed: node settings")?;
+            .context("Manifest validation failed: node settings")
+            .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     }
     let ImageLeases {
         selected_images,
@@ -106,12 +110,12 @@ pub(super) async fn plan_lab(
     for node in &nodes_expanded {
         let image = get_node_image(node.model_kind, node.version.as_deref(), &node_images)?;
         validate_disk_method(
+            &node.name,
             node.boot_disk.clone_method,
             &image,
             &config.images_dir,
             node.boot_disk.size,
-        )
-        .with_context(|| format!("Disk provisioning validation failed for node {}", node.name))?;
+        )?;
         validate_node_ztp(
             node,
             &image,
@@ -131,7 +135,8 @@ pub(super) async fn plan_lab(
 
     let ssh_usernames = node_logins(&owner_account, &nodes_expanded, &node_images, progress)?;
 
-    let (links_detailed, bridges_detailed) = process_links(manifest, &nodes_expanded, lab_id)?;
+    let (links_detailed, bridges_detailed) = process_links(manifest, &nodes_expanded, lab_id)
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
 
     check_node_limits(
         &nodes_expanded,
@@ -170,7 +175,9 @@ async fn admit_nodes(
         .map(|node| NodeCpuPins::of(&node.name, &node.cpu, &node.boot_disk))
         .filter(|pins| !pins.is_empty())
         .collect();
-    check_cpu_pin_overlap(&manifest_pins).context("CPU pinning validation failed")?;
+    check_cpu_pin_overlap(&manifest_pins)
+        .context("CPU pinning validation failed")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     let images = nodes_expanded
         .iter()
         .map(|node| get_node_image(node.model_kind, node.version.as_deref(), node_images))
@@ -209,9 +216,8 @@ pub(super) fn check_node_images(
     node_images: Vec<data::NodeConfig>,
     images_dir: &str,
 ) -> Result<CheckedNodes> {
-    check_manifest_nodes(manifest)?;
-    let nodes = validate_and_resolve_node_versions(&manifest.nodes, &node_images, images_dir)
-        .context("Manifest validation failed: version/image validation")?;
+    check_manifest_nodes(manifest).map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    let nodes = validate_and_resolve_node_versions(&manifest.nodes, &node_images, images_dir)?;
     Ok(CheckedNodes { node_images, nodes })
 }
 
@@ -277,11 +283,15 @@ async fn lease_images(
             &image.version,
         )
         .await?
-        .ok_or_else(|| anyhow!("Selected image was deleted before provisioning"))?;
-        anyhow::ensure!(
-            current.id == image.id,
-            "Selected image changed before provisioning; retry startup"
-        );
+        .ok_or_else(|| {
+            ServiceError::Conflict("Selected image was deleted before provisioning".to_owned())
+        })?;
+        if current.id != image.id {
+            return Err(ServiceError::Conflict(
+                "Selected image changed before provisioning; retry startup".to_owned(),
+            )
+            .into());
+        }
     }
     Ok(ImageLeases {
         selected_images,
@@ -349,18 +359,15 @@ fn check_node_limits(
     bridges_detailed: &[topology::BridgeDetailed],
 ) -> Result<()> {
     for node in nodes_expanded {
-        let node_image = get_node_image(node.model_kind, node.version.as_deref(), node_images)
-            .context(format!(
-                "Node config not found for model: {}",
-                node.model_kind.model()
-            ))?;
+        let node_image = get_node_image(node.model_kind, node.version.as_deref(), node_images)?;
 
         let data_interface_count =
             effective_data_interface_count(&node.name, node.interfaces.data_count, &node_image)
                 .context(format!(
                     "Data interface count validation failed for node: {}",
                     node.name
-                ))?;
+                ))
+                .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
 
         check_interface_bounds(
             &node.name,
@@ -373,16 +380,21 @@ fn check_node_limits(
         .context(format!(
             "Interface bounds validation failed for node: {}",
             node.name
-        ))?;
+        ))
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
 
-        check_vm_tuning(node, &node_image).context(format!(
-            "VM tuning validation failed for node: {}",
-            node.name
-        ))?;
-        check_ptx_platform(node, &node_image).context(format!(
-            "Platform validation failed for node: {}",
-            node.name
-        ))?;
+        check_vm_tuning(node, &node_image)
+            .context(format!(
+                "VM tuning validation failed for node: {}",
+                node.name
+            ))
+            .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+        check_ptx_platform(node, &node_image)
+            .context(format!(
+                "Platform validation failed for node: {}",
+                node.name
+            ))
+            .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     }
     Ok(())
 }

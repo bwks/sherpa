@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::Instant;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use dashmap::DashMap;
 use opentelemetry::KeyValue;
 use tokio::sync::Mutex;
@@ -18,10 +18,11 @@ use super::vm::redeploy_vm;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_lab_owner, require_lab_starter};
 use crate::daemon::state::AppState;
+use crate::services::error::ServiceError;
 use crate::services::guest_account;
 use crate::services::lab_definition;
 use crate::services::lab_lifecycle;
-use crate::services::lab_operations;
+use crate::services::lab_operations::{self, Operation};
 use crate::services::node_lifecycle;
 use crate::services::node_ops;
 use crate::services::node_resources;
@@ -64,7 +65,7 @@ pub async fn redeploy_node(
     let device_password = guest_account::require_device_password(&state.db, &owner).await?;
     let owner_account = guest_account::from_user(&owner, device_password)?;
     // Destroying the lab stops this operation; see `lab_operations`.
-    let operation = lab_operations::begin(&lab_id).await;
+    let operation = lab_operations::begin(&lab_id, Operation::Redeploy).await;
     // Check again under the lease: a destroy that finished while this waited has removed the lab,
     // and only a lab `up` has built, and no destroy has started on, has nodes to operate on.
     let db_lab = require_lab_owner(ctx, &state.db, &lab_id).await?;
@@ -162,7 +163,14 @@ async fn tear_down_and_rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkRe
         OperationEvent::RebuildStarted,
     )
     .await
-    .with_context(|| format!("Cannot redeploy node '{}'", redeploy.node_name))?;
+    .map_err(|error| match ServiceError::find(&error) {
+        Some(ServiceError::Conflict(message)) => ServiceError::Conflict(format!(
+            "Cannot redeploy node '{}': {message}",
+            redeploy.node_name
+        ))
+        .into(),
+        _ => error.context(format!("Cannot redeploy node '{}'", redeploy.node_name)),
+    })?;
     // The rebuilt node gets a new host key, recorded again once it is ready.
     db::update_node_host_key(&redeploy.state.db, redeploy.node_record_id.clone(), None).await?;
     // A link that is not attached is reported with the result; it does not fail the node.
@@ -291,7 +299,10 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
     match redeploy.node_image.kind() {
         data::NodeKind::Container => redeploy_container(redeploy, &cert_paths).await,
         data::NodeKind::VirtualMachine => redeploy_vm(redeploy, &cert_paths).await,
-        data::NodeKind::Unikernel => bail!("Redeploy not supported for unikernel nodes"),
+        data::NodeKind::Unikernel => Err(ServiceError::Invalid(
+            "Redeploy not supported for unikernel nodes".to_owned(),
+        )
+        .into()),
     }
 }
 

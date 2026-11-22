@@ -18,9 +18,10 @@ use shared::konst::SHERPA_LABS_PATH;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
+use crate::services::error::Unexpected;
 use crate::services::lab_lifecycle;
 use crate::services::lab_nodes::load_target_nodes;
-use crate::services::lab_operations;
+use crate::services::lab_operations::{self, Operation};
 use crate::services::node_lifecycle;
 use crate::services::talos;
 
@@ -118,7 +119,7 @@ pub async fn shutdown_lab_nodes(
 
     require_lab_access(ctx, &state.db, lab_id).await?;
     // Destroying the lab stops this operation; see `lab_operations`.
-    let operation = lab_operations::begin(lab_id).await;
+    let operation = lab_operations::begin(lab_id, Operation::Down).await;
     operation.ensure_active()?;
     // Check again under the lease: a destroy that finished while this waited has removed the lab,
     // and only a lab `up` has built, and no destroy has started on, has nodes to operate on.
@@ -138,7 +139,9 @@ pub async fn shutdown_lab_nodes(
         lab_id,
     )
     .await
-    .map_err(|error| format!("{error:#}"));
+    .map_err(|error| {
+        Unexpected::log(&error, "Failed to load the lab's Talos clusters").to_string()
+    });
     let (target_nodes, node_images) =
         load_target_nodes(&state.db, lab_record_id, lab_id, node_name).await?;
 
@@ -206,7 +209,11 @@ pub async fn shutdown_lab_nodes(
         {
             tracing::warn!(node = %node_name, error = %error, "Failed to record the node stopped");
             result.success = false;
-            result.message = format!("{}, but not recorded: {error:#}", result.message);
+            result.message = format!(
+                "{}, but not recorded: {}",
+                result.message,
+                Unexpected::log(&error, "Failed to record a node's state")
+            );
         }
         results.push(result);
     }
@@ -281,7 +288,10 @@ async fn stop_tailscale_gateway(
         success: stopped.is_ok(),
         message: match stopped {
             Ok(()) => "Stopped".into(),
-            Err(error) => format!("Unable to stop Tailscale gateway: {error:#}"),
+            Err(error) => format!(
+                "Unable to stop Tailscale gateway: {}",
+                Unexpected::log(&error, "Unable to stop Tailscale gateway")
+            ),
         },
         links: Vec::new(),
     }
@@ -357,7 +367,10 @@ fn check_domain(conn: &virt::connect::Connect, device_name: &str, node_name: &st
             return DomainCheck::Done(NodeActionResult {
                 name: node_name.to_string(),
                 success: false,
-                message: format!("Domain not found: {e}"),
+                message: format!(
+                    "Domain not found: {}",
+                    Unexpected::log(&e, "Domain not found")
+                ),
                 links: Vec::new(),
             });
         }
@@ -373,7 +386,10 @@ fn check_domain(conn: &virt::connect::Connect, device_name: &str, node_name: &st
         Err(e) => DomainCheck::Done(NodeActionResult {
             name: node_name.to_string(),
             success: false,
-            message: format!("Failed to check state: {e}"),
+            message: format!(
+                "Failed to check state: {}",
+                Unexpected::log(&e, "Failed to check state")
+            ),
             links: Vec::new(),
         }),
     }
@@ -391,7 +407,9 @@ async fn shutdown_vm(
         ShutdownMethod::TalosApi { cluster, address } => {
             match talos::request_shutdown(&cluster, address).await {
                 Ok(()) => StopPlan::AwaitShutdown,
-                Err(error) => StopPlan::RequestFailed(format!("{error:#}")),
+                Err(error) => StopPlan::RequestFailed(
+                    Unexpected::log(&error, "Failed to stop a node").to_string(),
+                ),
             }
         }
         ShutdownMethod::PowerOff(reason) => StopPlan::PowerOff(reason),
@@ -426,7 +444,7 @@ async fn shutdown_vm(
             Err(e) => NodeActionResult {
                 name: node_name,
                 success: false,
-                message: format!("{e:#}"),
+                message: Unexpected::log(&e, "Failed to stop a node").to_string(),
                 links: Vec::new(),
             },
         })
@@ -437,13 +455,13 @@ async fn shutdown_vm(
         Ok(Err(e)) => NodeActionResult {
             name: node_name.to_string(),
             success: false,
-            message: format!("Libvirt error: {e}"),
+            message: format!("Libvirt error: {}", Unexpected::log(&e, "Libvirt error")),
             links: Vec::new(),
         },
         Err(e) => NodeActionResult {
             name: node_name.to_string(),
             success: false,
-            message: format!("Task panicked: {e}"),
+            message: format!("Task panicked: {}", Unexpected::log(&e, "Task panicked")),
             links: Vec::new(),
         },
     }
@@ -472,14 +490,28 @@ async fn shutdown_container(
     // Pausing a container that is not running fails, so a second down would report errors.
     let status = match container::container_status(&state.docker, device_name).await {
         Ok(status) => status,
-        Err(e) => return result(false, format!("Failed to check the container: {e:#}")),
+        Err(e) => {
+            return result(
+                false,
+                format!(
+                    "Failed to check the container: {}",
+                    Unexpected::log(&e, "Failed to check the container")
+                ),
+            );
+        }
     };
     if let Err(already) = container_down_step(status) {
         return result(true, already.to_string());
     }
     match container::pause_container(&state.docker, device_name).await {
         Ok(()) => result(true, "Paused".to_string()),
-        Err(e) => result(false, format!("Failed to pause: {e:#}")),
+        Err(e) => result(
+            false,
+            format!(
+                "Failed to pause: {}",
+                Unexpected::log(&e, "Failed to pause")
+            ),
+        ),
     }
 }
 

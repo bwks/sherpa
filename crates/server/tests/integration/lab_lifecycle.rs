@@ -1717,9 +1717,9 @@ async fn lab_preflight_002_an_invalid_manifest_is_refused() -> Result<()> {
         .await?;
 
     assert!(
-        response["error"]["context"]
+        response["error"]["message"]
             .as_str()
-            .is_some_and(|context| context
+            .is_some_and(|message| message
                 .contains("Failed to deserialize manifest: the request is not valid")),
         "invalid manifest should fail: {response:?}"
     );
@@ -1843,7 +1843,7 @@ async fn check_redeploy_rpc(
         "manifest": { "name": "auth-test", "nodes": [{ "name": "vm", "model": "ubuntu_linux" }] },
     }), Duration::from_secs(30)).await?;
     let expected = if owns_lab {
-        RpcErrorCode::ServerError
+        RpcErrorCode::NotFound
     } else {
         RpcErrorCode::AccessDenied
     };
@@ -1853,7 +1853,7 @@ async fn check_redeploy_rpc(
     );
     if owns_lab {
         ensure!(
-            response["error"]["context"]
+            response["error"]["message"]
                 .as_str()
                 .is_some_and(|message| message.contains("Node 'vm' not found")),
             "Owner did not reach node lookup: {response}"

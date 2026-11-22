@@ -22,6 +22,8 @@ use tracing::instrument;
 use super::host::LinkHost;
 use super::reattach::{LabLinks, LinkOutcome, RecreatedEnd, reattach_node_links};
 use super::veths::ContainerVeth;
+use crate::daemon::unreadable_ends::{EndRead, UnreadableEnd, UnreadableEnds};
+use crate::services::error::Unexpected;
 
 use shared::data::{DbLink, LinkState, RecordId};
 
@@ -52,8 +54,8 @@ enum Seen {
         redirect: bool,
     },
     Absent,
-    /// It could not be read, and why.
-    Unreadable(String),
+    /// It could not be read: what failed, and the error.
+    Unreadable(EndRead, anyhow::Error),
 }
 
 impl fmt::Display for EndFault {
@@ -92,12 +94,14 @@ impl LinkCheck {
 
 /// Check each of the lab's links in the kernel. `running` holds the nodes whose runtime reports
 /// them running: only their ends are checked. A link with an end to repair is `Failed` until
-/// the repair's outcome is recorded.
+/// the repair's outcome is recorded. Which ends could not be read is kept in `unreadable`
+/// (see `record_end_read`).
 #[instrument(skip_all, level = "debug")]
 pub(crate) async fn check_lab_links(
     host: &impl LinkHost,
     lab: &LabLinks,
     running: &HashSet<RecordId>,
+    unreadable: &UnreadableEnds,
 ) -> LinkCheck {
     let mut links: Vec<&DbLink> = lab.links().iter().collect();
     links.sort_by_key(|link| link.index);
@@ -107,7 +111,7 @@ pub(crate) async fn check_lab_links(
         states: HashMap::new(),
     };
     for link in links {
-        let state = check_link(host, lab, link, running, &mut check).await;
+        let state = check_link(host, lab, link, running, unreadable, &mut check).await;
         check.states.insert(link.index, state);
     }
     check
@@ -120,6 +124,7 @@ async fn check_link(
     lab: &LabLinks,
     link: &DbLink,
     running: &HashSet<RecordId>,
+    unreadable_ends: &UnreadableEnds,
     check: &mut LinkCheck,
 ) -> LinkState {
     let ends = [
@@ -133,6 +138,11 @@ async fn check_link(
             continue;
         }
         let seen = see(host, iface).await;
+        let read_failure = match &seen {
+            Seen::Unreadable(read, error) => Some((*read, error)),
+            Seen::Present { .. } | Seen::Absent => None,
+        };
+        let unreadable_reason = record_end_read(unreadable_ends, lab.lab_id(), iface, read_failure);
         if matches!(seen, Seen::Absent | Seen::Present { redirect: false }) {
             check.fresh.insert(iface.clone());
         }
@@ -142,8 +152,8 @@ async fn check_link(
                 Some(EndFault::NoRedirect)
             }
             Seen::Present { .. } => None,
-            Seen::Unreadable(reason) => {
-                unreadable = Some(reason);
+            Seen::Unreadable(..) => {
+                unreadable = unreadable_reason;
                 None
             }
         };
@@ -180,12 +190,40 @@ async fn see(host: &impl LinkHost, iface: &str) -> Seen {
     let ifindex = match host.ifindex(iface).await {
         Ok(Some(ifindex)) => ifindex,
         Ok(None) => return Seen::Absent,
-        Err(error) => return Seen::Unreadable(format!("failed to look up {iface}: {error:#}")),
+        Err(error) => return Seen::Unreadable(EndRead::LookUp, error),
     };
     match host.has_redirect(ifindex).await {
         Ok(redirect) => Seen::Present { redirect },
-        Err(error) => Seen::Unreadable(format!("failed to read the filter of {iface}: {error:#}")),
+        Err(error) => Seen::Unreadable(EndRead::Filter, error),
     }
+}
+
+/// Keep in `ends` whether end `iface` of lab `lab_id` could be read, and log when that
+/// changes: at warn level with a new reference when the end becomes unreadable or what failed
+/// changes, and at info level when it can be read again. An end that stays as it was is not
+/// logged again. Returns the reason the end's link fails with, while it is unreadable.
+fn record_end_read(
+    ends: &UnreadableEnds,
+    lab_id: &str,
+    iface: &str,
+    failure: Option<(EndRead, &anyhow::Error)>,
+) -> Option<String> {
+    let Some((read, error)) = failure else {
+        if ends.record(lab_id, iface, None).is_some() {
+            tracing::info!(%lab_id, %iface, "P2p link end can be read again");
+        }
+        return None;
+    };
+    let unreadable = match ends.of_end(lab_id, iface) {
+        Some(previous) if previous.read == read => previous,
+        _ => UnreadableEnd {
+            read,
+            reference: Unexpected::warn(error, &format!("Failed to {read} P2p link end {iface}")),
+        },
+    };
+    let reason = format!("failed to {read} {iface}: {}", unreadable.reference);
+    let _ = ends.record(lab_id, iface, Some(unreadable));
+    Some(reason)
 }
 
 /// Whether end `iface` exists. One that cannot be looked up is taken as not existing.
@@ -272,6 +310,8 @@ mod tests {
     use super::super::started::follow_started_links;
     use super::super::veths::ContainerVeth;
     use crate::daemon::link_states::LinkStates;
+    use crate::daemon::unreadable_ends::UnreadableEnds;
+    use crate::log_capture::capture_log;
     use crate::services::node_lifecycle::query_runtimes;
     use shared::data::{BridgeKind, DbNode, LinkImpairment, NodeKind, NodeModel, NodeState};
     use shared::konst::{SHERPA_IMAGES_PATH, SHERPA_STORAGE_POOL_PATH};
@@ -377,7 +417,7 @@ mod tests {
         running: &HashSet<RecordId>,
         ends: &[(&str, Planner)],
     ) -> Scan {
-        let mut check = check_lab_links(host, lab, running).await;
+        let mut check = check_lab_links(host, lab, running, &UnreadableEnds::default()).await;
         let mut found: Vec<(&u16, &LinkState)> = check.states.iter().collect();
         found.sort_by_key(|(index, _)| **index);
         let faults = found
@@ -607,6 +647,70 @@ mod tests {
         }
     }
 
+    #[test]
+    fn link_reattach_033_an_unreadable_end_is_logged_once_and_once_when_it_can_be_read_again() {
+        let (mut host, lab) = wired_lab();
+        let ends = UnreadableEnds::default();
+        let nodes = running(&["vm1", "vm2", "ctr1"]);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        host.failing_filter_reads.insert("tpb0".to_string());
+        let (reasons, unreadable_log) = capture_log(|| {
+            (0..3)
+                .map(|_| {
+                    let check = runtime.block_on(check_lab_links(&host, &lab, &nodes, &ends));
+                    check.into_states()[&0].clone()
+                })
+                .collect::<Vec<LinkState>>()
+        });
+        host.failing_filter_reads.clear();
+        let (states, readable_log) = capture_log(|| {
+            (0..2)
+                .map(|_| {
+                    let check = runtime.block_on(check_lab_links(&host, &lab, &nodes, &ends));
+                    check.into_states()[&0].clone()
+                })
+                .collect::<Vec<LinkState>>()
+        });
+
+        let warns: Vec<&str> = unreadable_log
+            .lines()
+            .filter(|line| line.contains(" WARN "))
+            .collect();
+        assert_eq!(warns.len(), 1, "{unreadable_log}");
+        assert!(
+            warns[0].contains("Failed to read the filter of P2p link end tpb0"),
+            "{unreadable_log}"
+        );
+        assert!(!unreadable_log.contains(" ERROR "), "{unreadable_log}");
+        let reference = warns[0]
+            .split("reference=")
+            .nth(1)
+            .and_then(|rest| rest.split_whitespace().next())
+            .unwrap();
+        for state in &reasons {
+            assert_eq!(
+                *state,
+                LinkState::Failed {
+                    reason: format!(
+                        "failed to read the filter of tpb0: internal error (ref {reference}); \
+                         see the server log"
+                    )
+                }
+            );
+        }
+
+        let infos: Vec<&str> = readable_log
+            .lines()
+            .filter(|line| line.contains(" INFO ") && line.contains("can be read again"))
+            .collect();
+        assert_eq!(infos.len(), 1, "{readable_log}");
+        assert!(!readable_log.contains("reference="), "{readable_log}");
+        assert_eq!(states, vec![LinkState::Attached, LinkState::Attached]);
+    }
+
     // Integration: real kernel, Docker and libvirt, as root.
 
     /// Whether interface `iface` has the redirect program on its ingress.
@@ -755,7 +859,8 @@ mod tests {
         /// One scan of the real host, with both containers' ends planned as the scanner does.
         async fn scan(&self, running: &HashSet<RecordId>) -> HashMap<u16, LinkState> {
             let host = KernelHost::new(&self.docker, &self.qemu);
-            let mut check = check_lab_links(&host, &self.lab, running).await;
+            let mut check =
+                check_lab_links(&host, &self.lab, running, &UnreadableEnds::default()).await;
             for node in check.broken_nodes() {
                 let end = if node == id("ctr1") { end_a() } else { end_b() };
                 let outcomes = repair_node(&host, &self.lab, &node, end).await;
@@ -887,7 +992,7 @@ mod tests {
         let host = KernelHost::new(&docker, &qemu);
         let both = running(&["vm1", "peer"]);
         let scan_once = || async {
-            let mut check = check_lab_links(&host, &lab, &both).await;
+            let mut check = check_lab_links(&host, &lab, &both, &UnreadableEnds::default()).await;
             let broken = check.broken_nodes();
             for node in &broken {
                 let outcomes = repair_node(&host, &lab, node, RecreatedEnd::Domain).await;
@@ -1060,7 +1165,13 @@ chmod +x /var/lib/cloud/scripts/per-boot/carrier.sh
         /// link's state.
         async fn scan(&self, running_nodes: &[&str]) -> LinkState {
             let host = KernelHost::new(&self.docker, &self.qemu);
-            let mut check = check_lab_links(&host, &self.lab, &running(running_nodes)).await;
+            let mut check = check_lab_links(
+                &host,
+                &self.lab,
+                &running(running_nodes),
+                &UnreadableEnds::default(),
+            )
+            .await;
             for node in check.broken_nodes() {
                 let end = if node == id("ctr1") {
                     RecreatedEnd::Container {
@@ -1217,6 +1328,7 @@ chmod +x /var/lib/cloud/scripts/per-boot/carrier.sh
             &HashSet::from([id("ctr1")]),
             &query_runtimes(&pair.docker, &pair.qemu).await,
             &pair.states,
+            &UnreadableEnds::default(),
         )
         .await;
         assert_eq!(states[&0], LinkState::Attached);

@@ -18,7 +18,7 @@ use shared::data::{DbLab, LabEvent, LabPhase, LabTransition, NodeState, Operatio
 use tracing::instrument;
 
 use crate::services::error::ServiceError;
-use crate::services::lab_operations::{self, LabHold};
+use crate::services::lab_operations::{self, LabHold, Operation};
 use crate::services::node_lifecycle;
 
 /// How often a write that lost a race to another writer is tried again.
@@ -107,7 +107,7 @@ pub async fn recover(db: &db::Database) -> Result<Recovery> {
 }
 
 async fn recover_lab(db: &db::Database, lab: &DbLab, recovery: &mut Recovery) -> Result<()> {
-    let operation = lab_operations::begin(&lab.lab_id).await;
+    let operation = lab_operations::begin(&lab.lab_id, Operation::Recovery).await;
     let lab_record = lab.id.clone().context("Lab missing record ID")?;
     match lab.phase {
         LabPhase::Creating => {
@@ -151,7 +151,7 @@ mod tests {
 
     use super::*;
     use crate::log_capture::capture_log;
-    use crate::services::lab_operations::{StopReason, begin};
+    use crate::services::lab_operations::begin;
     use crate::services::node_lifecycle::tests::lab_of;
     use shared::data::LabRefused;
 
@@ -181,7 +181,7 @@ mod tests {
     #[tokio::test]
     async fn lab_phase_007_up_moves_the_lab_it_reserved_to_ready() {
         let (db, _, _) = lab_of("ll-built", 1).await;
-        let operation = begin("ll-built").await;
+        let operation = begin("ll-built", Operation::Up).await;
 
         let moved = record(&db, &operation, LabEvent::Built).await.unwrap();
 
@@ -194,7 +194,7 @@ mod tests {
         // A second `up` must never give back, or roll back, a lab it did not reserve.
         let (db, _, _) = lab_of("ll-taken", 1).await;
         put_in(&db, "ll-taken", LabPhase::Ready).await;
-        let second = begin("ll-taken").await;
+        let second = begin("ll-taken", Operation::Up).await;
 
         let error = record(&db, &second, LabEvent::Released).await.unwrap_err();
 
@@ -212,8 +212,7 @@ mod tests {
     async fn lab_phase_009_a_failed_destroy_keeps_the_record_and_a_full_one_removes_it() {
         // A destroy that left something behind is visible and can be retried.
         let (db, _, _) = lab_of("ll-dfail", 1).await;
-        let (_, destroy) =
-            lab_operations::stop("ll-dfail", lab_operations::StopReason::Destroy).await;
+        let (_, destroy) = lab_operations::stop("ll-dfail").await;
         record(&db, &destroy, LabEvent::DestroyStarted)
             .await
             .unwrap();
@@ -294,7 +293,7 @@ mod tests {
                 another_lab(&db, "ll-mrk02", 2, LabPhase::Creating).await;
                 another_lab(&db, "ll-mrk03", 3, LabPhase::Destroying).await;
                 // Recovery waits for the lease on the second lab, whose record goes meanwhile.
-                let (_, held) = lab_operations::stop("ll-mrk02", StopReason::Destroy).await;
+                let (_, held) = lab_operations::stop("ll-mrk02").await;
                 let recovering = tokio::spawn({
                     let db = db.clone();
                     async move { recover(&db).await.unwrap() }

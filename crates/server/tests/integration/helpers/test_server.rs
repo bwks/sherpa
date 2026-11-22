@@ -19,6 +19,7 @@ use sherpad::daemon::link_states::LinkStates;
 use sherpad::daemon::metrics::Metrics;
 use sherpad::daemon::run_scanner;
 use sherpad::daemon::state::AppState;
+use sherpad::daemon::unreadable_ends::UnreadableEnds;
 use sherpad::daemon::vault_seals::VaultSeals;
 
 /// Default admin password used for test servers
@@ -80,6 +81,7 @@ impl TestServer {
             metrics: Metrics::noop(),
             pending_jobs: Arc::new(DashMap::new()),
             link_states: LinkStates::default(),
+            unreadable_ends: UnreadableEnds::default(),
             vault_seals: VaultSeals::default(),
             console_sessions: ConsoleSessions::default(),
         };

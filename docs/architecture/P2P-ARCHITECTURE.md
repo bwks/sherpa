@@ -78,6 +78,12 @@ container's veths), or one with no redirect filter whose peer exists (libvirt's 
 never read back, so a filter that survived with a stale peer ifindex cannot be seen. Each scan of
 a `Ready` lab runs, under the lab hold, the management checksum offload, this repair, then carrier.
 
+An end that cannot be looked up, or whose filter cannot be read, fails its link. Which ends are
+unreadable, and what failed, is kept in memory (`AppState::unreadable_ends`), as the Vault seal
+state is: the end is logged at `warn` with a reference when it becomes unreadable or what failed
+changes, and at `info` when it can be read again. Each scan in between gives the link the same
+reason and reference, and logs nothing.
+
 ### Carrier propagation
 
 The carrier of a link's ends follows its state, as a cable's would (`p2p_links::carrier`). A

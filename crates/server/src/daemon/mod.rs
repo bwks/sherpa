@@ -9,6 +9,7 @@ pub(crate) mod removed_settings;
 pub(crate) mod server;
 pub mod state;
 pub(crate) mod storage;
+pub mod unreadable_ends;
 pub mod vault_seals;
 
 pub use crate::services::scanner::run_scanner;

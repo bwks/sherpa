@@ -20,13 +20,15 @@ use super::host::LinkHost;
 use super::reattach::LabLinks;
 use super::repair::check_lab_links;
 use crate::daemon::link_states::LinkStates;
+use crate::daemon::unreadable_ends::UnreadableEnds;
 use crate::services::node_lifecycle::Runtimes;
 
 use shared::data::{LinkState, RecordId};
 
 /// Decide the state of each link of the `started` nodes as a scan would, from the nodes
 /// `runtimes` reports running; make each end's carrier follow it from the state `link_states`
-/// holds, and record it. Returns the states recorded, by link index.
+/// holds, and record it. Which ends could not be read is kept in `unreadable_ends`, as the
+/// scanner keeps it. Returns the states recorded, by link index.
 ///
 /// When libvirt or Docker did not answer, nothing is decided: a node of that runtime would be
 /// taken as down, and its peers' links with it. The next scan decides them.
@@ -37,6 +39,7 @@ pub(crate) async fn follow_started_links(
     started: &HashSet<RecordId>,
     runtimes: &Runtimes,
     link_states: &LinkStates,
+    unreadable_ends: &UnreadableEnds,
 ) -> HashMap<u16, LinkState> {
     if !runtimes.answered() {
         tracing::warn!("A runtime did not answer; the started nodes' links are left to the scan");
@@ -51,14 +54,15 @@ pub(crate) async fn follow_started_links(
     if links_of_started.is_empty() {
         return HashMap::new();
     }
-    let states: HashMap<u16, LinkState> = check_lab_links(host, lab, &lab.running(runtimes))
-        .await
-        .into_states()
-        .into_iter()
-        .filter(|(index, state)| {
-            links_of_started.contains(index) && !matches!(state, LinkState::Failed { .. })
-        })
-        .collect();
+    let states: HashMap<u16, LinkState> =
+        check_lab_links(host, lab, &lab.running(runtimes), unreadable_ends)
+            .await
+            .into_states()
+            .into_iter()
+            .filter(|(index, state)| {
+                links_of_started.contains(index) && !matches!(state, LinkState::Failed { .. })
+            })
+            .collect();
     follow_carrier(
         host,
         lab,
@@ -206,7 +210,7 @@ pub(crate) mod tests {
         running: &HashSet<RecordId>,
         link_states: &LinkStates,
     ) -> Vec<(EndDevice, bool)> {
-        let check = check_lab_links(host, lab, running).await;
+        let check = check_lab_links(host, lab, running, &UnreadableEnds::default()).await;
         let fresh = check.fresh_ends();
         let states = check.into_states();
         follow_carrier(host, lab, &link_states.of_lab("lab"), &states, &fresh).await;
@@ -229,6 +233,7 @@ pub(crate) mod tests {
             &ids(&["ctr1"]),
             &runtimes(&["vm1", "ctr1", "vm2", "ctr2"]),
             &link_states,
+            &UnreadableEnds::default(),
         )
         .await;
         assert_eq!(states, HashMap::from([(0, LinkState::Attached)]));
@@ -267,6 +272,7 @@ pub(crate) mod tests {
                 &ids(&["ctr1"]),
                 &runtimes(&["ctr1", "vm2", "ctr2"]),
                 &link_states,
+                &UnreadableEnds::default(),
             )
             .await;
             assert_eq!(states, HashMap::from([(0, peer_down("vm1"))]));
@@ -288,6 +294,7 @@ pub(crate) mod tests {
                 &ids(&["vm1"]),
                 &runtimes(&["vm1", "vm2", "ctr2"]),
                 &link_states,
+                &UnreadableEnds::default(),
             )
             .await;
             assert_eq!(states, HashMap::from([(0, peer_down("ctr1"))]));
@@ -312,6 +319,7 @@ pub(crate) mod tests {
                 &ids(&["ctr1"]),
                 &runtimes(&["vm1", "ctr1", "vm2"]),
                 &link_states,
+                &UnreadableEnds::default(),
             )
             .await;
             assert_eq!(states.keys().copied().collect::<Vec<_>>(), vec![0]);
@@ -337,6 +345,7 @@ pub(crate) mod tests {
                 &ids(&["ctr1"]),
                 &runtimes(&["vm1", "ctr1", "vm2", "ctr2"]),
                 &link_states,
+                &UnreadableEnds::default(),
             )
             .await;
             assert_eq!(states, HashMap::new());
@@ -351,8 +360,15 @@ pub(crate) mod tests {
             link_states.record("lab", 0, peer_down("ctr1"));
             let mut answered = runtimes(&["vm1", "ctr1", "vm2", "ctr2"]);
             answered.domains = None;
-            let states =
-                follow_started_links(&host, &lab, &ids(&["ctr1"]), &answered, &link_states).await;
+            let states = follow_started_links(
+                &host,
+                &lab,
+                &ids(&["ctr1"]),
+                &answered,
+                &link_states,
+                &UnreadableEnds::default(),
+            )
+            .await;
             assert_eq!(states, HashMap::new());
             assert_eq!(host.take_carrier_writes(), vec![]);
             assert_eq!(link_states.of_lab("lab")[&0], peer_down("ctr1"));

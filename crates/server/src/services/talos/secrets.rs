@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use rand::Rng;
 use rand::RngCore;
 use rcgen::KeyPair;
@@ -10,6 +10,7 @@ use tracing::instrument;
 use shared::util::{base64_encode_bytes, write_file_with_permissions};
 use template::{TalosClientCredentials, TalosClusterSecrets};
 
+use crate::services::error::ServiceError;
 use crate::tls::generator::{
     CaSpec, ClientSubject, KeyAlgorithm, PemPair, generate_ca, generate_key_pair,
     issue_client_certificate,
@@ -161,9 +162,10 @@ pub fn ensure_supported_version(node_name: &str, version: &str) -> Result<()> {
     let version = version.strip_prefix('v').unwrap_or(version);
     let minor = version.splitn(3, '.').take(2).collect::<Vec<_>>().join(".");
     if minor != TALOS_SUPPORTED_MINOR_VERSION {
-        bail!(
+        return Err(ServiceError::Invalid(format!(
             "Node '{node_name}' uses Talos Linux {version}, but Sherpa builds clusters with Talos {TALOS_SUPPORTED_MINOR_VERSION}.x only. Use a {TALOS_SUPPORTED_MINOR_VERSION}.x image, or remove the node from its cluster and provide your own config with ztp_config"
-        );
+        ))
+        .into());
     }
     Ok(())
 }

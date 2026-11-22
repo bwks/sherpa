@@ -154,7 +154,7 @@ async fn handle_interrupt(target: &OperationTarget<'_>) -> Result<()> {
         println!("{} Stopped the {operation}.", Emoji::Success);
     } else {
         println!(
-            "{} No operation was running on lab {}; it had already finished.",
+            "{} Nothing was stopped: no {operation} was running on lab {}.",
             Emoji::Info,
             result.lab_id
         );
