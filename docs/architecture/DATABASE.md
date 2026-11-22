@@ -132,10 +132,10 @@ not hold (`validate::check_web_redeployable`).
 
 ### Secret values
 
-No secret is stored as plain text: `lab.ztp_server_password` and `user.device_password` are sealed,
-so a database or backup without its key holds only ciphertext. Lab service credentials (Vault
-tokens, Keycloak and SurrealDB admins) are not in the database at all, but in `0600` files in the
-lab's folder on the server. `crates/db/src/secret.rs` seals with AES-256-GCM, a fresh nonce per
+No secret is stored as plain text: `user.device_password` is sealed, so a database or backup
+without its key holds only ciphertext. Lab service credentials (Vault tokens, Keycloak and
+SurrealDB admins) are not in the database at all, but in `0600` files in the lab's folder on the
+server. `crates/db/src/secret.rs` seals with AES-256-GCM, a fresh nonce per
 value, and the value's place (`table.column:row-key`) as associated data, so a value copied to
 another row or column does not open.
 

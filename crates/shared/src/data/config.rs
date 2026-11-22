@@ -15,14 +15,6 @@ use crate::konst::{
 };
 use crate::util::path_to_string;
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct ZtpServer {
-    pub enable: bool,
-    pub username: Option<String>,
-    pub password: Option<String>,
-}
-
 /// Server connection configuration for WebSocket RPC. A field left out of the config file
 /// takes its value from `ServerConnection::default()`.
 #[derive(Clone, Serialize, Deserialize, Debug)]
