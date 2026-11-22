@@ -95,6 +95,7 @@ RPC, REST and web logins all check passwords through `auth::login::check_credent
 asks `auth::login_limit::LoginLimiter` (in `AppState`, in memory, bounded) to let the attempt
 through by username and by the connection's peer address; the limits are `user_login` in
 `tests/specs/accounts-and-auth.md`.
+An IPv4 peer is counted by its address and an IPv6 peer by its /64 prefix (`AddressKey`).
 
 ### Services enforce authorization
 

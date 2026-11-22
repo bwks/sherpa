@@ -129,7 +129,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `user_login`: a username and its password start a session
 
-**Statement:** a user who gives their username and password gets a session and its token, on the CLI, the REST API and the web UI, and a wrong password and an unknown username are refused alike. Failed logins are limited per username and per source address, the same on every path, and a login the limit refuses is answered as a wrong password is.
+**Statement:** a user who gives their username and password gets a session and its token, on the CLI, the REST API and the web UI, and a wrong password and an unknown username are refused alike. Failed logins are limited per username and per source address (per /64 prefix for IPv6), the same on every path, and a login the limit refuses is answered as a wrong password is.
 **Relied on by:** the user, scripts. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -164,6 +164,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 028 | However many usernames and addresses fail, counts are kept for no more than 10,000 of each, so a flood cannot grow the server's memory without limit | unit |
 | 029 | When the counts are full, a lock is kept over a count that has not reached its limit | unit |
 | 030 | A lockout is logged once, at `warn`, with the username and the address | unit |
+| 031 | IPv6 addresses are counted by their /64 prefix: two addresses in one /64 share one count and are locked together, an address in another /64 is not, and the lock is logged under the prefix, such as `2001:db8:1:2::/64` | unit |
 
 ## `user_sessions`: a token works only while its session lasts
 

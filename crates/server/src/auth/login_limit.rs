@@ -10,13 +10,17 @@
 //! cannot check more passwords than the limit allows. The count is given back when the attempt
 //! ends without an answer, such as when the database cannot be read.
 //!
+//! An IPv4 address is counted alone. An IPv6 address is counted by its /64 prefix, the smallest
+//! block a host is usually given, so changing the low 64 bits does not give a client a new count.
+//!
 //! Counts are kept in memory only and a restart clears them. Each table holds at most
 //! [`MAX_TRACKED`] keys: when it is full, expired entries are dropped first, then the oldest
 //! entry that is not locked, then the lock that ends soonest.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::hash::Hash;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -35,6 +39,10 @@ pub const MAX_TRACKED: usize = 10_000;
 /// The characters of a normalised username the limiter keys on. Longer names cannot be
 /// accounts, so a request cannot make one entry take more memory than this.
 const MAX_USERNAME_KEY_CHARS: usize = 64;
+/// The prefix length an IPv6 address is counted under.
+const IPV6_PREFIX_LEN: u32 = 64;
+/// The bits of an IPv6 address that are its counted prefix.
+const IPV6_PREFIX_MASK: u128 = u128::MAX << (128 - IPV6_PREFIX_LEN);
 
 /// Where the limiter reads the time from, so tests can move it.
 pub(crate) trait Clock: Send + Sync {
@@ -55,7 +63,17 @@ pub(crate) struct Attempt<'a> {
     limiter: &'a LoginLimiter,
     username: String,
     address: IpAddr,
+    address_key: AddressKey,
     ended: bool,
+}
+
+/// The key a source address is counted under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum AddressKey {
+    /// An IPv4 address, counted alone.
+    V4(Ipv4Addr),
+    /// The /64 prefix of an IPv6 address, its host bits zero.
+    V6Prefix(Ipv6Addr),
 }
 
 /// The time of the real system.
@@ -64,7 +82,7 @@ struct SystemClock;
 /// The counts of usernames and of addresses.
 struct Tables {
     usernames: Table<String>,
-    addresses: Table<IpAddr>,
+    addresses: Table<AddressKey>,
 }
 
 /// The counts of one kind of key.
@@ -84,6 +102,15 @@ struct Entry {
 impl Clock for SystemClock {
     fn now(&self) -> Instant {
         Instant::now()
+    }
+}
+
+impl fmt::Display for AddressKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::V4(address) => address.fmt(f),
+            Self::V6Prefix(prefix) => write!(f, "{prefix}/{IPV6_PREFIX_LEN}"),
+        }
     }
 }
 
@@ -111,17 +138,19 @@ impl LoginLimiter {
     pub(crate) fn begin(&self, username: &str, address: IpAddr) -> Option<Attempt<'_>> {
         let username = username_key(username);
         let address = address.to_canonical();
+        let address_key = address_key(address);
         let now = self.clock.now();
         let mut tables = self.lock_tables();
-        if !tables.usernames.admits(&username, now) || !tables.addresses.admits(&address, now) {
+        if !tables.usernames.admits(&username, now) || !tables.addresses.admits(&address_key, now) {
             return None;
         }
         tables.usernames.count(username.clone(), now);
-        tables.addresses.count(address, now);
+        tables.addresses.count(address_key, now);
         Some(Attempt {
             limiter: self,
             username,
             address,
+            address_key,
             ended: false,
         })
     }
@@ -147,7 +176,7 @@ impl Attempt<'_> {
         self.ended = true;
         let mut tables = self.limiter.lock_tables();
         tables.usernames.clear(&self.username);
-        tables.addresses.give_back(&self.address);
+        tables.addresses.give_back(&self.address_key);
     }
 
     /// The username is unknown or the password was wrong: keep the counts, and lock the
@@ -159,7 +188,7 @@ impl Attempt<'_> {
             let mut tables = self.limiter.lock_tables();
             (
                 tables.usernames.lock_if_full(&self.username, now),
-                tables.addresses.lock_if_full(&self.address, now),
+                tables.addresses.lock_if_full(&self.address_key, now),
             )
         };
         if username_locked {
@@ -174,7 +203,7 @@ impl Attempt<'_> {
         if address_locked {
             tracing::warn!(
                 username = %self.username,
-                address = %self.address,
+                address = %self.address_key,
                 failures = ADDRESS_FAILURE_LIMIT,
                 lockout_seconds = LOCKOUT.as_secs(),
                 "Login locked for this address: too many failed logins"
@@ -190,7 +219,7 @@ impl Drop for Attempt<'_> {
         }
         let mut tables = self.limiter.lock_tables();
         tables.usernames.give_back(&self.username);
-        tables.addresses.give_back(&self.address);
+        tables.addresses.give_back(&self.address_key);
     }
 }
 
@@ -298,10 +327,19 @@ fn username_key(username: &str) -> String {
         .collect()
 }
 
+/// The key `address` is counted under: an IPv4 address itself, an IPv6 address its /64 prefix.
+/// `address` is already canonical, so an IPv4-mapped IPv6 address arrives as IPv4.
+fn address_key(address: IpAddr) -> AddressKey {
+    match address {
+        IpAddr::V4(v4) => AddressKey::V4(v4),
+        IpAddr::V6(v6) => {
+            AddressKey::V6Prefix(Ipv6Addr::from_bits(v6.to_bits() & IPV6_PREFIX_MASK))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::net::Ipv4Addr;
-
     use super::*;
     use crate::log_capture::capture_log;
 
@@ -490,5 +528,29 @@ mod tests {
         assert!(lockouts[0].contains("WARN"), "{log}");
         assert!(lockouts[0].contains("username=alice"), "{log}");
         assert!(lockouts[0].contains("address=192.0.2.10"), "{log}");
+    }
+
+    #[test]
+    fn user_login_031_ipv6_addresses_in_one_64_prefix_share_one_count_and_lock() {
+        let (limiter, _clock) = limiter();
+        let first = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 1, 2, 0, 0, 0, 1));
+        let same_prefix = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 1, 2, 0xffff, 0xabcd, 9, 9));
+        let other_prefix = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 1, 3, 0, 0, 0, 1));
+        let ((), log) = capture_log(|| {
+            for n in 0..10 {
+                fail(&limiter, &format!("user{n}"), first, 1);
+            }
+            for n in 10..20 {
+                fail(&limiter, &format!("user{n}"), same_prefix, 1);
+            }
+        });
+        assert!(limiter.begin("bob", first).is_none());
+        assert!(limiter.begin("bob", same_prefix).is_none());
+        assert!(limiter.begin("bob", other_prefix).is_some());
+        let lockout = log
+            .lines()
+            .find(|line| line.contains("Login locked for this address"))
+            .unwrap_or_else(|| panic!("no address lockout logged: {log}"));
+        assert!(lockout.contains("address=2001:db8:1:2::/64"), "{log}");
     }
 }
