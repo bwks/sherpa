@@ -27,7 +27,8 @@ use crate::services::talos;
 use crate::services::up::process_manifest_nodes;
 use crate::tls::lab_ca::{self, LabCa};
 use crate::validate::{
-    reject_provisioners, validate_container_repo, validate_node_secrets, validate_node_ztp,
+    reject_provisioners, validate_container_repo, validate_environment_variables,
+    validate_node_secrets, validate_node_ztp,
 };
 
 use libvirt::QemuConnection;
@@ -39,7 +40,8 @@ use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;
 use topology::validate::{
     check_client_read_files, check_lab_name, check_node_kind_settings, check_nonzero_node_settings,
-    check_ptx_platform, check_ready_timeout, check_vm_tuning,
+    check_ptx_platform, check_ready_timeout, check_text_file_modes, check_vm_tuning,
+    check_windows_startup_script_names,
 };
 
 /// The node being redeployed and its lab, loaded and checked before the node is torn down.
@@ -155,10 +157,12 @@ pub(super) async fn load_redeploy<'a>(
     )?;
     let manifest = &definition.manifest;
     let mut target_node = manifest_node(manifest, &node_name)?;
-    let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
-    let talos_membership = find_talos_cluster(talos_clusters, &node_name);
 
     let lab_record_id = db::get_lab_id(db_lab).context("Failed to get lab record ID")?;
+    let talos_clusters =
+        stored_talos_clusters(&state.db, &lab_record_id, manifest, &node_name).await?;
+    let talos_membership = find_talos_cluster(&talos_clusters, &node_name);
+    talos::ensure_redeployable(&node_name, talos_membership)?;
     let LoadedNode {
         db_node,
         node_record_id,
@@ -170,7 +174,7 @@ pub(super) async fn load_redeploy<'a>(
         &lab_record_id,
         &lab_id,
         &mut target_node,
-        talos_clusters,
+        &talos_clusters,
     )
     .await?;
     target_node.version = Some(node_image.version.clone());
@@ -233,10 +237,10 @@ pub(super) async fn load_redeploy<'a>(
 }
 
 /// The request's manifest, with the checks a redeploy shares with `sherpa up`: the lab name,
-/// host access, the ready timeout, the node settings that cannot be 0, the files the client
-/// read, provisioners, and the node's secret files; and that the node, if in a
-/// Talos cluster, can be redeployed. With the parts as written the client sent beside it, the
-/// node's definition is built and its provisioners checked.
+/// host access, the ready timeout, the node settings that cannot be 0, environment variable
+/// keys, text file modes, Windows startup script names, the files the client read,
+/// provisioners, and the node's secret files. With the parts as written the client sent beside
+/// it, the node's definition is built and its provisioners checked.
 fn check_manifest(
     ctx: &AuthContext,
     manifest: &serde_json::Value,
@@ -252,8 +256,15 @@ fn check_manifest(
         .context("Manifest validation failed: ready timeout")?;
     check_nonzero_node_settings(&manifest.nodes)
         .context("Manifest validation failed: node settings")?;
-    let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
-    talos::ensure_redeployable(node_name, find_talos_cluster(talos_clusters, node_name))?;
+    for node in &manifest.nodes {
+        if let Some(ref env_vars) = node.environment_variables {
+            validate_environment_variables(env_vars, &node.name)
+                .context("Manifest validation failed: environment variables")?;
+        }
+    }
+    check_text_file_modes(&manifest.nodes).context("Manifest validation failed: text files")?;
+    check_windows_startup_script_names(&manifest.nodes)
+        .context("Manifest validation failed: startup scripts")?;
     check_client_read_files(&manifest.nodes).context("Manifest validation failed: files")?;
     reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
     let as_written = match lab_definition::parse_as_written(as_written)? {
@@ -276,6 +287,32 @@ fn check_manifest(
         manifest,
         as_written,
     })
+}
+
+/// The Talos clusters of the lab `lab_record_id`'s stored definition, which node `node_name` is
+/// rebuilt with, once `manifest` is found to give the node the cluster and role the definition
+/// does. A lab with no stored definition has no stored cluster to rebuild a member of.
+#[instrument(skip(db, lab_record_id, manifest), level = "debug")]
+async fn stored_talos_clusters(
+    db: &db::Database,
+    lab_record_id: &RecordId,
+    manifest: &topology::Manifest,
+    node_name: &str,
+) -> Result<Vec<topology::TalosCluster>> {
+    let stored = db::read_lab_definition(db, lab_record_id)
+        .await
+        .context("Failed to read the lab's stored definition")?
+        .and_then(|definition| definition.talos_clusters)
+        .unwrap_or_default();
+    talos::ensure_same_membership(
+        node_name,
+        find_talos_cluster(&stored, node_name),
+        find_talos_cluster(
+            manifest.talos_clusters.as_deref().unwrap_or_default(),
+            node_name,
+        ),
+    )?;
+    Ok(stored)
 }
 
 /// The node's record and the image it is rebuilt from, leased, with the node's ZTP setting and
@@ -596,7 +633,7 @@ mod tests {
     use shared::data::{NodeModel, NodeState};
 
     use crate::services::guest_account::tests::test_account;
-    use crate::services::lab_definition::tests::lab_with;
+    use crate::services::lab_definition::tests::{lab_with, store};
     use tokio::sync::mpsc;
 
     const OWNER_KEY: &str =
@@ -674,6 +711,96 @@ mod tests {
             "nodes": [{ "name": "r1", "model": "ubuntu_linux", "memory": 0 }],
         }));
         assert!(error.contains("'r1' `memory` is 0"), "{error}");
+    }
+
+    #[test]
+    fn boot_settings_006_a_redeploy_is_refused_before_teardown_for_an_environment_variable_key_not_a_name()
+     {
+        let error = redeploy_refusal(&serde_json::json!({
+            "name": "core",
+            "nodes": [{
+                "name": "r1",
+                "model": "ubuntu_linux",
+                "environment_variables": ["1BAD KEY=x"],
+            }],
+        }));
+        assert!(error.contains("key '1BAD KEY' for node 'r1'"), "{error}");
+    }
+
+    #[test]
+    fn boot_settings_007_a_redeploy_is_refused_before_teardown_for_a_flatcar_text_file_mode_not_octal()
+     {
+        let error = redeploy_refusal(&serde_json::json!({
+            "name": "core",
+            "nodes": [{
+                "name": "r1",
+                "model": "flatcar_linux",
+                "text_files_data": [{
+                    "content": "aGk=",
+                    "dst": "/etc/motd",
+                    "user": "core",
+                    "group": "core",
+                    "permissions": 999,
+                }],
+            }],
+        }));
+        assert!(error.contains("'r1' text file '/etc/motd'"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn cluster_redeploy_010_a_node_is_rebuilt_with_the_stored_cluster_membership() {
+        let (db, lab) = lab_with(&[
+            ("cp1", NodeModel::TalosLinux),
+            ("w1", NodeModel::TalosLinux),
+            ("w2", NodeModel::TalosLinux),
+        ])
+        .await;
+        let nodes = r#"
+[[nodes]]
+name = "cp1"
+model = "talos_linux"
+
+[[nodes]]
+name = "w1"
+model = "talos_linux"
+
+[[nodes]]
+name = "w2"
+model = "talos_linux"
+"#;
+        store(
+            &db,
+            &lab,
+            &format!(
+                r#"name = "core"
+
+[[talos_clusters]]
+name = "k1"
+controllers = ["cp1"]
+workers = ["w1", "w2"]
+{nodes}"#
+            ),
+        )
+        .await;
+        // The manifest sent gives w1 the same cluster and role, but leaves w2 out of it.
+        let manifest: topology::Manifest = toml::from_str(&format!(
+            r#"name = "core"
+
+[[talos_clusters]]
+name = "k1"
+controllers = ["cp1"]
+workers = ["w1"]
+{nodes}"#
+        ))
+        .unwrap();
+
+        let clusters = stored_talos_clusters(&db, lab.id.as_ref().unwrap(), &manifest, "w1")
+            .await
+            .unwrap();
+
+        let (cluster, role) = find_talos_cluster(&clusters, "w1").unwrap();
+        assert_eq!(role, data::ClusterRole::Worker);
+        assert_eq!(cluster.workers, ["w1", "w2"]);
     }
 
     #[test]

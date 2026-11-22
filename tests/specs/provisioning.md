@@ -57,7 +57,7 @@ A node's `ztp.config` is read the same way: `custom_config_002` to `004` in [ztp
 
 ## `boot_scripts`: a manifest's scripts run at the end of a virtual machine's first boot
 
-**Statement:** a cloud-init virtual machine's `startup_scripts` run as root and then its `user_scripts` as the node's owner in a login shell, each through its own shebang, after its files are in place; a Windows node runs its `startup_scripts`.
+**Statement:** a cloud-init virtual machine's `startup_scripts` run as root and then its `user_scripts` as the node's owner in a login shell, each through its own shebang, after its files are in place; a Windows node runs its `startup_scripts`, and one whose file name has `"` or `%` is refused before the node is built.
 **Relied on by:** the user. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -67,12 +67,13 @@ A node's `ztp.config` is read the same way: `custom_config_002` to `004` in [ztp
 | 003 | A node with startup scripts alone runs them, and nothing is done for user scripts | unit |
 | 004 | The steps of a first boot are in this order: files moved into place, the environment loader, startup scripts, user scripts (no test yet) | unit |
 | 005 | A Windows node's startup scripts are written under `C:\sherpa\startup_scripts` and run with PowerShell (no test yet) | unit |
+| 006 | At up and at redeploy, the CLI and the server refuse a Windows node's startup script whose file name has `"` or `%`, naming the node and the script, and take one without | unit |
 
 That a Windows node disables every other account before its startup scripts run is `owner_login_024`.
 
 ## `login_environment`: a virtual machine's environment variables are set in its owner's login shells
 
-**Statement:** a virtual machine's `environment_variables` are set in its owner's login shells, from a file only the owner reads, and nowhere else on the node; on Windows they are set for the whole machine.
+**Statement:** a virtual machine's `environment_variables` are set in its owner's login shells, from a file only the owner reads, and nowhere else on the node; on Windows they are set for the whole machine, by a PowerShell command passed encoded, so `cmd` never reads a key or a value.
 **Relied on by:** the user, user scripts, ssh provisioner scripts. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -84,6 +85,8 @@ That a Windows node disables every other account before its startup scripts run 
 | 005 | For a user the node does not have, no login file is written and nothing is given to anyone | unit |
 | 006 | On Flatcar the file is private to the owner, and the loading line is appended to the owner's `.bash_profile`, which keeps what it had | unit |
 | 007 | On Windows each variable is set machine-wide, and a value with a single quote in it is kept whole | unit |
+| 008 | On Windows a value with `%NAME%`, `"`, `'` and `&` is passed to PowerShell encoded, so `cmd` sees none of them, and the decoded command sets the value exactly | unit |
+| 009 | On Windows a key and a value with characters beyond ASCII round-trip through the encoding unchanged | unit |
 
 ## `provision_run`: provisioners run on the nodes that have them, once each node takes its owner's login
 

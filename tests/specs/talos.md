@@ -230,7 +230,7 @@ The saved file being readable by sherpad alone is `lab_credentials_018`.
 
 ## `cluster_redeploy`: a worker, a Vault and a Keycloak can be redeployed, and a controller cannot
 
-**Statement:** redeploying a cluster's worker rebuilds it with a machine config from the cluster's stored plan and saved secrets, and it joins again; redeploying a controller is refused before anything is removed; a redeployed Vault node is initialised and unsealed again and set up again for every cluster that uses it, a redeployed Keycloak node gets its realm again with the saved users, and neither is reported running before that is done.
+**Statement:** redeploying a cluster's worker rebuilds it with a machine config from the cluster's stored plan and saved secrets, and it joins again; redeploying a controller is refused before anything is removed; a redeploy whose manifest gives the node another cluster or role than the lab's stored definition does is refused before anything is removed, and the node is rebuilt with its stored cluster and role; a redeployed Vault node is initialised and unsealed again and set up again for every cluster that uses it, a redeployed Keycloak node gets its realm again with the saved users, and neither is reported running before that is done.
 **Relied on by:** the user. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -243,6 +243,8 @@ The saved file being readable by sherpad alone is `lab_credentials_018`.
 | 006 | After `sherpa redeploy` of a cluster's Vault, the folder's file has a new root token and unseal key, and a secret written with them is synced into the cluster (no test yet; real cluster) | e2e |
 | 007 | After `sherpa redeploy` of a cluster's Keycloak, the owner logs in to the cluster with the same user and password as before (no test yet; real cluster) | e2e |
 | 008 | The config a redeployed worker gets is the one up gave it (no test yet) | unit |
+| 009 | A redeploy whose manifest puts the node in another cluster, gives it another role, or puts it in or out of a cluster is refused before teardown, naming the node, its stored membership and the manifest's | unit |
+| 010 | A redeployed node is rebuilt with the lab's stored clusters, not the manifest's: a manifest that leaves another member out of the cluster does not change it | unit |
 
 A redeployed Keycloak node keeping its administrator and users is `lab_credentials_013` and `014`.
 
