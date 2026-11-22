@@ -39,7 +39,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `image_download`: a VM image is downloaded whole from a URL
 
-**Statement:** a VM image is downloaded whole from a URL and recorded, or nothing is left at its path.
+**Statement:** a VM image is downloaded whole from a URL and recorded, or nothing is left at its path; a file already at the path is kept only when it matches what the source says the image is.
 **Relied on by:** the admin. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -48,13 +48,21 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 002 | A download that breaks off leaves nothing at the path, so the next run downloads again | unit |
 | 003 | A body shorter than the length the server declared is refused | unit |
 | 004 | An HTTP answer that is not a success is refused, and nothing is recorded (no test yet) | integration |
-| 005 | A version whose file is already on the server is recorded without a download (no test yet) | integration |
+| 005 | A version whose file on the server has the length the source declares, and the SHA-256 it publishes where it publishes one, is recorded without a download | unit |
 | 006 | `--url` is the URL downloaded, for any model | unit |
 | 007 | Without `--url` only `ubuntu_linux` and `talos_linux` are downloaded; any other model is refused, saying to give `--url` | unit |
 | 008 | A `talos_linux` version, with or without a leading `v`, is downloaded from the Talos Image Factory's vanilla schematic | unit |
 | 009 | An Image Factory answer without a schematic ID is refused | unit |
 | 010 | The Talos Image Factory answers Sherpa's request with the vanilla schematic's ID | integration |
 | 011 | Only a virtual machine image is downloaded: a unikernel is refused, and so is a download without `--version` (no test yet) | unit |
+| 012 | A file on the server shorter than the length the source declares, such as a partial file an interrupted download left, is downloaded again and replaced | unit |
+| 013 | A file of the source's length whose SHA-256 is not the one the source publishes is downloaded again and replaced | unit |
+| 014 | A file is downloaded again and replaced when the source declares no length, as the Talos Image Factory and a `--url` may not | unit |
+| 015 | A download whose SHA-256 is not the one the source publishes is refused, leaving nothing at the path and no record | unit |
+| 016 | An Ubuntu download whose `SHA256SUMS` cannot be fetched, or does not list the image, is refused | unit |
+| 017 | A file to be replaced that has lab disks built on it is refused, and the file is as it was | unit |
+
+Only an Ubuntu release, downloaded without `--url`, publishes a SHA-256 (its `SHA256SUMS`); the Talos Image Factory and a `--url` are checked by length alone.
 
 ## `image_pull`: a pulled container image is in Docker and recorded with its repo
 

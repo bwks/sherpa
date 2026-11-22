@@ -2,6 +2,8 @@ use anyhow::{Context, Result, bail};
 use db::{Database, DefaultRequest};
 use futures_util::{Stream, StreamExt};
 use opentelemetry::KeyValue;
+use sha2::{Digest, Sha256};
+use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -33,8 +35,27 @@ const TALOS_IMAGE_FACTORY_URL: &str = "https://factory.talos.dev";
 /// returns its ID when it is posted to `/schematics`.
 const TALOS_VANILLA_SCHEMATIC_YAML: &str = "customization: {}\n";
 
+/// Ubuntu cloud image releases, each with its images and their `SHA256SUMS`.
+const UBUNTU_RELEASES_URL: &str = "https://cloud-images.ubuntu.com/releases";
+
 /// Bytes between progress reports while downloading an image.
 const DOWNLOAD_REPORT_INTERVAL: u64 = 5 * 1024 * 1024;
+
+/// Where a download comes from: its URL, and the SHA-256 the source publishes for the image, if
+/// any.
+#[derive(Debug)]
+struct DownloadSource {
+    url: String,
+    sha256: Option<String>,
+}
+
+/// What a download's source says the image is: its length, when the server declares one, and its
+/// SHA-256, when the source publishes one.
+#[derive(Debug, Default)]
+struct SourceImage {
+    len: Option<u64>,
+    sha256: Option<String>,
+}
 
 /// Import an image to the server and track it in the database.
 ///
@@ -196,16 +217,9 @@ async fn import_disk_image(
         .await
         .with_context(|| format!("Failed to read source file {}", request.src))?
         .len();
-    let existing_len = match tokio::fs::metadata(&version_disk).await {
-        Ok(metadata) => Some(metadata.len()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("Failed to read {}", version_disk.display()));
-        }
-    };
+    let existing_len = file_len(&version_disk).await?;
 
-    let placed = match ExistingDisk::compare(source_len, existing_len) {
+    let placed = match ExistingDisk::compare(Some(source_len), existing_len) {
         ExistingDisk::Same => {
             let _ = progress.send_status(
                 "Image already exists on disk with the same size, skipping copy".to_string(),
@@ -215,17 +229,7 @@ async fn import_disk_image(
         }
         existing => {
             if existing == ExistingDisk::Different {
-                ensure_image_has_no_overlays(pool, &version_dir).with_context(|| {
-                    format!(
-                        "{} differs from the source and lab disks are built on it; destroy those \
-                         labs or import the image as a new version",
-                        version_disk.display()
-                    )
-                })?;
-                let _ = progress.send_status(
-                    "Image on disk differs from the source, replacing it".to_string(),
-                    StatusKind::Info,
-                );
+                ensure_disk_replaceable(pool, &version_dir, &version_disk, progress)?;
             }
             Some(copy_disk_into_place(request, &version_dir, &version_disk, progress).await?)
         }
@@ -261,6 +265,37 @@ async fn import_disk_image(
         db_tracked: true,
         default: recorded.default,
     })
+}
+
+/// Refuse to replace `version_disk`, which differs from the source, while lab disks are built on
+/// it; otherwise say that it is being replaced.
+fn ensure_disk_replaceable(
+    pool: &impl BackedVolumes,
+    version_dir: &Path,
+    version_disk: &Path,
+    progress: &ProgressSender,
+) -> Result<()> {
+    ensure_image_has_no_overlays(pool, version_dir).with_context(|| {
+        format!(
+            "{} differs from the source and lab disks are built on it; destroy those labs or add \
+             the image as a new version",
+            version_disk.display()
+        )
+    })?;
+    let _ = progress.send_status(
+        "Image on disk differs from the source, replacing it".to_string(),
+        StatusKind::Info,
+    );
+    Ok(())
+}
+
+/// Read a file's length, or `None` when there is no file.
+async fn file_len(path: &Path) -> Result<Option<u64>> {
+    match tokio::fs::metadata(path).await {
+        Ok(metadata) => Ok(Some(metadata.len())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("Failed to read {}", path.display())),
+    }
 }
 
 /// Copy the import's source to a staging file in `version_dir` and rename it onto `version_disk`.
@@ -744,7 +779,8 @@ async fn resolve_download_url(
 
     match model {
         NodeModel::UbuntuLinux => Ok(format!(
-            "https://cloud-images.ubuntu.com/releases/{version}/release/ubuntu-{version}-server-cloudimg-amd64.img"
+            "{UBUNTU_RELEASES_URL}/{version}/release/{}",
+            ubuntu_image_name(version)
         )),
         NodeModel::TalosLinux => {
             let schematic_id = talos_vanilla_schematic_id().await?;
@@ -752,6 +788,98 @@ async fn resolve_download_url(
         }
         _ => anyhow::bail!("No auto-download URL for model '{model}'. Provide --url."),
     }
+}
+
+/// The file name of an Ubuntu release's cloud image.
+fn ubuntu_image_name(version: &str) -> String {
+    format!("ubuntu-{version}-server-cloudimg-amd64.img")
+}
+
+/// The SHA-256 the source of a download publishes for its image: an Ubuntu release's
+/// `SHA256SUMS` entry for a download without `--url`. Other sources publish none.
+async fn published_sha256(
+    model: &NodeModel,
+    version: &str,
+    url: Option<&str>,
+) -> Result<Option<String>> {
+    if url.is_some() || *model != NodeModel::UbuntuLinux {
+        return Ok(None);
+    }
+    let sums_url = format!("{UBUNTU_RELEASES_URL}/{version}/release/SHA256SUMS");
+    fetch_sha256(&sums_url, &ubuntu_image_name(version))
+        .await
+        .map(Some)
+}
+
+/// Fetch a `SHA256SUMS` file and return the SHA-256 it lists for `file_name`.
+#[instrument(level = "debug")]
+async fn fetch_sha256(sums_url: &str, file_name: &str) -> Result<String> {
+    let response = reqwest::get(sums_url)
+        .await
+        .with_context(|| format!("Failed to fetch the image's checksums from {sums_url}"))?;
+    if !response.status().is_success() {
+        bail!(
+            "Failed to fetch the image's checksums: HTTP {} from {sums_url}",
+            response.status()
+        );
+    }
+    let body = response
+        .text()
+        .await
+        .with_context(|| format!("Failed to read the image's checksums from {sums_url}"))?;
+    parse_sha256sums(&body, file_name)
+        .with_context(|| format!("{sums_url} lists no SHA-256 for {file_name}"))
+}
+
+/// Find the SHA-256 of `file_name` in a `SHA256SUMS` body: lines of a hex digest, whitespace, and
+/// the file name, marked `*` when it was hashed in binary mode.
+fn parse_sha256sums(body: &str, file_name: &str) -> Result<String> {
+    let digest = body
+        .lines()
+        .filter_map(|line| line.split_once(char::is_whitespace))
+        .find(|(_, name)| name.trim_start().trim_start_matches('*') == file_name)
+        .map(|(digest, _)| digest)
+        .context("no entry for the file")?;
+    anyhow::ensure!(
+        digest.len() == 64 && digest.chars().all(|c| c.is_ascii_hexdigit()),
+        "the entry is not a SHA-256: {digest}"
+    );
+    Ok(digest.to_ascii_lowercase())
+}
+
+/// The SHA-256 of a file, as lowercase hex. It blocks, so async callers run it with
+/// `spawn_blocking`.
+fn sha256_file(path: &Path) -> Result<String> {
+    let mut file =
+        File::open(path).with_context(|| format!("Failed to open {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    io::copy(&mut file, &mut hasher)
+        .with_context(|| format!("Failed to read {}", path.display()))?;
+    Ok(hex::encode(hasher.finalize()))
+}
+
+/// Compare the file at `version_disk`, if any, with what the source says the image is: by size,
+/// as an import does, then by SHA-256 when the source publishes one.
+async fn compare_existing_download(
+    version_disk: &Path,
+    source: &SourceImage,
+) -> Result<ExistingDisk> {
+    let existing = ExistingDisk::compare(source.len, file_len(version_disk).await?);
+    let Some(expected) = source.sha256.clone() else {
+        return Ok(existing);
+    };
+    if existing != ExistingDisk::Same {
+        return Ok(existing);
+    }
+    let path = version_disk.to_owned();
+    let actual = tokio::task::spawn_blocking(move || sha256_file(&path))
+        .await
+        .context("The image checksum task failed")??;
+    Ok(if actual == expected {
+        ExistingDisk::Same
+    } else {
+        ExistingDisk::Different
+    })
 }
 
 /// Ask the Talos Image Factory for the ID of the vanilla schematic (no system extensions).
@@ -805,12 +933,14 @@ fn talos_image_url(schematic_id: &str, version: &str) -> String {
 /// Stream a download into a staging file for `dest`, rename it into place, and return the placed
 /// image and its size.
 ///
-/// The rename happens only when the whole body arrived and, when the server sent a length, matches
-/// it. An interrupted download leaves nothing at `dest` for a later run to take as a complete image.
+/// The rename happens only when the whole body arrived and matches what the source says the image
+/// is: its declared length and its published SHA-256, when it gives them. A download that is
+/// interrupted or does not match leaves nothing at `dest` for a later run to take as a complete
+/// image.
 async fn write_download<S, B, E>(
     mut body: S,
     dest: &Path,
-    expected_size: Option<u64>,
+    source: &SourceImage,
     progress: &ProgressSender,
 ) -> Result<(PlacedDisk, u64)>
 where
@@ -822,6 +952,7 @@ where
     let mut file = tokio::fs::File::create(staged.partial_path())
         .await
         .with_context(|| format!("Failed to create file {}", staged.partial_path().display()))?;
+    let mut hasher = Sha256::new();
     let mut downloaded: u64 = 0;
     let mut last_reported: u64 = 0;
     while let Some(chunk) = body.next().await {
@@ -830,11 +961,12 @@ where
         file.write_all(chunk)
             .await
             .context("Failed to write chunk to disk")?;
+        hasher.update(chunk);
         downloaded += chunk.len() as u64;
         if downloaded - last_reported >= DOWNLOAD_REPORT_INTERVAL {
             last_reported = downloaded;
             let _ = progress.send_status(
-                download_progress(downloaded, expected_size),
+                download_progress(downloaded, source.len),
                 StatusKind::Progress,
             );
         }
@@ -843,10 +975,16 @@ where
         .await
         .context("Failed to flush image file")?;
     drop(file);
-    if let Some(expected) = expected_size
+    if let Some(expected) = source.len
         && downloaded != expected
     {
-        anyhow::bail!("Download ended after {downloaded} of {expected} bytes");
+        bail!("Download ended after {downloaded} of {expected} bytes");
+    }
+    if let Some(expected) = &source.sha256 {
+        let actual = hex::encode(hasher.finalize());
+        if actual != *expected {
+            bail!("The downloaded image's SHA-256 is {actual}, not the published {expected}");
+        }
     }
     let placed = tokio::task::spawn_blocking(move || staged.place())
         .await
@@ -883,7 +1021,6 @@ pub async fn download_image(
     validate_image_version(&request.version)?;
     let model_kind = image_model_kind(request.model, request.kind)?;
     let _image_guard = lock_image(model_kind, &request.version).await;
-    let config = model_kind.node_config();
     let kind = model_kind.kind();
 
     if kind != NodeKind::VirtualMachine {
@@ -892,57 +1029,97 @@ pub async fn download_image(
 
     let _ = progress.send_status("Resolving download URL...".to_string(), StatusKind::Info);
 
-    let download_url =
-        resolve_download_url(&request.model, &request.version, request.url.as_deref()).await?;
+    let url = request.url.as_deref();
+    let source = DownloadSource {
+        url: resolve_download_url(&request.model, &request.version, url).await?,
+        sha256: published_sha256(&request.model, &request.version, url).await?,
+    };
+    let mut db_config = model_kind.node_config();
+    db_config.version.clone_from(&request.version);
+    db_config.id = None;
 
-    let filename = image_filename(&config.settings)
+    download_disk_image(
+        &request,
+        &source,
+        db_config,
+        &state.db,
+        &ImagePaths::installed(),
+        state.qemu.as_ref(),
+        &progress,
+    )
+    .await
+}
+
+/// Download a VM image from `download.url` into the images directory, then record `db_config`.
+///
+/// A file already at the destination is kept only when it has the length the server declares
+/// for the download and, when the source publishes one, its SHA-256. Otherwise it is downloaded
+/// again and replaced, unless lab overlays are built on it.
+#[instrument(skip_all, fields(model = %request.model, version = %request.version), level = "debug")]
+async fn download_disk_image(
+    request: &DownloadImageRequest,
+    download: &DownloadSource,
+    db_config: NodeConfig,
+    database: &Database,
+    paths: &ImagePaths,
+    pool: &impl BackedVolumes,
+    progress: &ProgressSender,
+) -> Result<ImportResponse> {
+    let kind = db_config.kind();
+    let filename = image_filename(&db_config.settings)
         .with_context(|| format!("{} is a container image, which has no disk", request.model))?;
-    let version_dir = ImagePaths::installed().version_dir(request.model, &request.version);
+    let version_dir = paths.version_dir(request.model, &request.version);
     let version_disk = version_dir.join(filename);
     tokio::fs::create_dir_all(&version_dir)
         .await
         .with_context(|| format!("Failed to create {}", version_dir.display()))?;
 
-    // A file at the destination was renamed there whole, by an earlier download or import.
-    let placed = if tokio::fs::try_exists(&version_disk).await.unwrap_or(false) {
-        tracing::info!(path = %version_disk.display(), "Image already exists, skipping download");
-        let _ = progress.send_status(
-            "Image already exists, skipping download".to_string(),
-            StatusKind::Info,
+    let download_url = &download.url;
+    let response = reqwest::get(download_url)
+        .await
+        .context(format!("Failed to download image from {download_url}"))?;
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "Failed to download image: HTTP {} from {}",
+            response.status(),
+            download_url
         );
-        None
-    } else {
-        let _ = progress.send_status(
-            format!(
-                "Downloading {} {} from {}...",
-                request.model, request.version, download_url
-            ),
-            StatusKind::Progress,
-        );
-        let response = reqwest::get(&download_url)
-            .await
-            .context(format!("Failed to download image from {download_url}"))?;
-        if !response.status().is_success() {
-            anyhow::bail!(
-                "Failed to download image: HTTP {} from {}",
-                response.status(),
-                download_url
+    }
+    let source = SourceImage {
+        len: response.content_length(),
+        sha256: download.sha256.clone(),
+    };
+
+    let placed = match compare_existing_download(&version_disk, &source).await? {
+        ExistingDisk::Same => {
+            tracing::info!(path = %version_disk.display(), "Image already exists, skipping download");
+            let _ = progress.send_status(
+                "Image already exists on disk and matches the source, skipping download"
+                    .to_string(),
+                StatusKind::Info,
             );
+            None
         }
-        let total_size = response.content_length();
-        let (placed, downloaded) = write_download(
-            response.bytes_stream(),
-            &version_disk,
-            total_size,
-            &progress,
-        )
-        .await?;
-        tracing::info!(path = %placed.path().display(), "Download complete");
-        let _ = progress.send_status(
-            format!("Download complete: {} MB", megabytes(downloaded)),
-            StatusKind::Done,
-        );
-        Some(placed)
+        existing => {
+            if existing == ExistingDisk::Different {
+                ensure_disk_replaceable(pool, &version_dir, &version_disk, progress)?;
+            }
+            let _ = progress.send_status(
+                format!(
+                    "Downloading {} {} from {}...",
+                    request.model, request.version, download_url
+                ),
+                StatusKind::Progress,
+            );
+            let (placed, downloaded) =
+                write_download(response.bytes_stream(), &version_disk, &source, progress).await?;
+            tracing::info!(path = %placed.path().display(), "Download complete");
+            let _ = progress.send_status(
+                format!("Download complete: {} MB", megabytes(downloaded)),
+                StatusKind::Done,
+            );
+            Some(placed)
+        }
     };
 
     let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
@@ -951,10 +1128,7 @@ pub async fn download_image(
     } else {
         DefaultRequest::Keep
     };
-    let mut db_config = config;
-    db_config.version.clone_from(&request.version);
-    db_config.id = None;
-    let recorded = match db::upsert_node_image(&state.db, db_config, request_default).await {
+    let recorded = match db::upsert_node_image(database, db_config, request_default).await {
         Ok(recorded) => recorded,
         Err(error) => {
             if let Some(placed) = placed {
@@ -972,7 +1146,7 @@ pub async fn download_image(
         success: true,
         model: request.model,
         kind,
-        version: request.version,
+        version: request.version.clone(),
         image_path: version_disk.to_string_lossy().into_owned(),
         db_tracked: true,
         default: recorded.default,
@@ -982,7 +1156,10 @@ pub async fn download_image(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::Router;
+    use axum::body::Body;
     use axum::extract::ws::Message;
+    use axum::routing::get;
     use futures_util::stream;
     use libvirt::BackedVolume;
     use std::io;
@@ -991,6 +1168,13 @@ mod tests {
     fn quiet_progress() -> ProgressSender {
         let (tx, _rx) = mpsc::unbounded_channel();
         ProgressSender::new(tx)
+    }
+
+    fn declared(len: u64) -> SourceImage {
+        SourceImage {
+            len: Some(len),
+            sha256: None,
+        }
     }
 
     fn chunks(parts: Vec<io::Result<Vec<u8>>>) -> impl Stream<Item = io::Result<Vec<u8>>> + Unpin {
@@ -1003,7 +1187,7 @@ mod tests {
         let dest = dir.path().join("disk.qcow2");
         let body = chunks(vec![Ok(b"abc".to_vec()), Ok(b"def".to_vec())]);
 
-        let (placed, size) = write_download(body, &dest, Some(6), &quiet_progress())
+        let (placed, size) = write_download(body, &dest, &declared(6), &quiet_progress())
             .await
             .unwrap();
 
@@ -1023,7 +1207,7 @@ mod tests {
         ]);
 
         assert!(
-            write_download(body, &dest, None, &quiet_progress())
+            write_download(body, &dest, &SourceImage::default(), &quiet_progress())
                 .await
                 .is_err()
         );
@@ -1038,7 +1222,7 @@ mod tests {
         let dest = dir.path().join("disk.qcow2");
         let body = chunks(vec![Ok(b"abc".to_vec())]);
 
-        let error = write_download(body, &dest, Some(10), &quiet_progress())
+        let error = write_download(body, &dest, &declared(10), &quiet_progress())
             .await
             .unwrap_err();
 
@@ -1299,6 +1483,203 @@ mod tests {
 
         assert!(format!("{error:#}").contains("new version"), "{error:#}");
         assert_eq!(std::fs::read(&disk).unwrap(), base);
+        assert!(recorded(&database, "1").await.is_none());
+    }
+
+    /// Serve `body` at `/image` on a local port, declaring its length when `declare_len` is set,
+    /// and return the image's URL.
+    async fn serve_image(body: &'static [u8], declare_len: bool) -> String {
+        let router = Router::new().route(
+            "/image",
+            get(move || async move {
+                if declare_len {
+                    Body::from(body)
+                } else {
+                    Body::from_stream(stream::iter([Ok::<_, io::Error>(body)]))
+                }
+            }),
+        );
+        format!("{}/image", serve(router).await)
+    }
+
+    /// Serve `router` on a local port and return its base URL.
+    async fn serve(router: Router) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, router).await });
+        format!("http://{address}")
+    }
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        hex::encode(Sha256::digest(bytes))
+    }
+
+    /// A download of the default Ubuntu VM at `version` from `url`, checked against `sha256`.
+    async fn download_disk_on(
+        database: &Database,
+        paths: &ImagePaths,
+        pool: &TestPool,
+        url: String,
+        sha256: Option<String>,
+        version: &str,
+    ) -> Result<ImportResponse> {
+        let request = DownloadImageRequest {
+            model: NodeModel::UbuntuLinux,
+            kind: None,
+            version: version.to_owned(),
+            url: Some(url.clone()),
+            default: false,
+        };
+        let mut config = ModelKind::default_for(request.model).node_config();
+        config.version = request.version.clone();
+        download_disk_image(
+            &request,
+            &DownloadSource { url, sha256 },
+            config,
+            database,
+            paths,
+            pool,
+            &quiet_progress(),
+        )
+        .await
+    }
+
+    async fn download_disk(
+        database: &Database,
+        paths: &ImagePaths,
+        url: String,
+        sha256: Option<String>,
+    ) -> Result<ImportResponse> {
+        download_disk_on(database, paths, &TestPool(Vec::new()), url, sha256, "1").await
+    }
+
+    /// Put `contents` at version `1`'s image path, as a file an earlier run left.
+    fn existing_disk(paths: &ImagePaths, contents: &[u8]) -> PathBuf {
+        let disk = disk_path(paths, "1");
+        std::fs::create_dir_all(disk.parent().unwrap()).unwrap();
+        std::fs::write(&disk, contents).unwrap();
+        disk
+    }
+
+    #[tokio::test]
+    async fn image_download_005_a_file_matching_the_sources_length_and_checksum_is_recorded_without_a_download()
+     {
+        let root = tempfile::tempdir().unwrap();
+        let paths = test_paths(root.path());
+        let disk = existing_disk(&paths, b"old image");
+        let url = serve_image(b"new image", true).await;
+        let database = schema_db().await;
+
+        download_disk(&database, &paths, url, Some(sha256_hex(b"old image")))
+            .await
+            .unwrap();
+
+        assert_eq!(std::fs::read(&disk).unwrap(), b"old image");
+        assert!(recorded(&database, "1").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn image_download_012_a_file_shorter_than_the_sources_length_is_downloaded_again() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = test_paths(root.path());
+        let disk = existing_disk(&paths, b"whole");
+        let url = serve_image(b"whole image", true).await;
+        let database = schema_db().await;
+
+        download_disk(&database, &paths, url, None).await.unwrap();
+
+        assert_eq!(std::fs::read(&disk).unwrap(), b"whole image");
+        assert!(recorded(&database, "1").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn image_download_013_a_file_of_the_sources_length_with_another_checksum_is_downloaded_again()
+     {
+        let root = tempfile::tempdir().unwrap();
+        let paths = test_paths(root.path());
+        let disk = existing_disk(&paths, b"old image");
+        let url = serve_image(b"new image", true).await;
+        let database = schema_db().await;
+
+        download_disk(&database, &paths, url, Some(sha256_hex(b"new image")))
+            .await
+            .unwrap();
+
+        assert_eq!(std::fs::read(&disk).unwrap(), b"new image");
+    }
+
+    #[tokio::test]
+    async fn image_download_014_a_file_is_downloaded_again_when_the_source_declares_no_length() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = test_paths(root.path());
+        let disk = existing_disk(&paths, b"old image");
+        let url = serve_image(b"new image", false).await;
+        let database = schema_db().await;
+
+        download_disk(&database, &paths, url, None).await.unwrap();
+
+        assert_eq!(std::fs::read(&disk).unwrap(), b"new image");
+    }
+
+    #[tokio::test]
+    async fn image_download_015_a_download_whose_checksum_is_not_the_published_one_is_refused_and_leaves_nothing()
+     {
+        let root = tempfile::tempdir().unwrap();
+        let paths = test_paths(root.path());
+        let url = serve_image(b"tampered image", true).await;
+        let database = schema_db().await;
+
+        let error = download_disk(&database, &paths, url, Some(sha256_hex(b"real image")))
+            .await
+            .unwrap_err();
+
+        assert!(format!("{error:#}").contains("SHA-256"), "{error:#}");
+        let version_dir = paths.version_dir(NodeModel::UbuntuLinux, "1");
+        assert_eq!(std::fs::read_dir(version_dir).unwrap().count(), 0);
+        assert!(recorded(&database, "1").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn image_download_016_checksums_that_cannot_be_fetched_or_do_not_list_the_image_are_refused()
+     {
+        let digest = "AB".repeat(32);
+        let sums = format!("{digest} *other.img\n");
+        let router = Router::new().route("/SHA256SUMS", get(move || async move { sums }));
+        let base = serve(router).await;
+
+        assert!(
+            fetch_sha256(&format!("{base}/missing"), "image.img")
+                .await
+                .is_err()
+        );
+        let unlisted = fetch_sha256(&format!("{base}/SHA256SUMS"), "image.img").await;
+        assert!(unlisted.is_err(), "{unlisted:?}");
+        assert_eq!(
+            fetch_sha256(&format!("{base}/SHA256SUMS"), "other.img")
+                .await
+                .unwrap(),
+            digest.to_ascii_lowercase()
+        );
+    }
+
+    #[tokio::test]
+    async fn image_download_017_a_file_to_replace_with_lab_disks_built_on_it_is_refused_and_kept() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = test_paths(root.path());
+        let disk = existing_disk(&paths, b"base");
+        let url = serve_image(b"another image", true).await;
+        let pool = TestPool(vec![BackedVolume {
+            name: "node-lab-hdd.qcow2".to_owned(),
+            backing_file: disk.clone(),
+        }]);
+        let database = schema_db().await;
+
+        let error = download_disk_on(&database, &paths, &pool, url, None, "1")
+            .await
+            .unwrap_err();
+
+        assert!(format!("{error:#}").contains("new version"), "{error:#}");
+        assert_eq!(std::fs::read(&disk).unwrap(), b"base");
         assert!(recorded(&database, "1").await.is_none());
     }
 
