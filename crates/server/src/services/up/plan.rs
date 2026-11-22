@@ -359,11 +359,7 @@ fn check_node_limits(
     bridges_detailed: &[topology::BridgeDetailed],
 ) -> Result<()> {
     for node in nodes_expanded {
-        let node_image = get_node_image(node.model_kind, node.version.as_deref(), node_images)
-            .context(format!(
-                "Node config not found for model: {}",
-                node.model_kind.model()
-            ))?;
+        let node_image = get_node_image(node.model_kind, node.version.as_deref(), node_images)?;
 
         let data_interface_count =
             effective_data_interface_count(&node.name, node.interfaces.data_count, &node_image)

@@ -1,8 +1,9 @@
 //! Expanding manifest nodes and finding their images.
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use tracing::instrument;
 
+use crate::services::error::ServiceError;
 use shared::data;
 
 /// Process manifest nodes into expanded format with indices assigned, each with its kind.
@@ -30,6 +31,11 @@ pub(crate) fn process_manifest_nodes(
 
 /// Get node image from a list of node images: the image of the node's model and kind.
 /// When a version is provided, match on that version. Otherwise fall back to the default.
+///
+/// # Errors
+///
+/// Fails with [`ServiceError::NotFound`] when no image of the node's model and kind has that
+/// version, or none is its default.
 pub(super) fn get_node_image(
     model_kind: data::ModelKind,
     version: Option<&str>,
@@ -43,20 +49,27 @@ pub(super) fn get_node_image(
             .find(|x| x.version == v)
             .cloned()
             .ok_or_else(|| {
-                anyhow!("Node image not found for model: {model} kind: {kind} version: {v}")
+                ServiceError::NotFound(format!(
+                    "Node image not found for model: {model} kind: {kind} version: {v}"
+                ))
+                .into()
             })
     } else {
-        of_model_kind
-            .find(|x| x.default)
-            .cloned()
-            .ok_or_else(|| anyhow!("Default node image not found for model: {model} kind: {kind}"))
+        of_model_kind.find(|x| x.default).cloned().ok_or_else(|| {
+            ServiceError::NotFound(format!(
+                "Default node image not found for model: {model} kind: {kind}"
+            ))
+            .into()
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::error::caller_message;
     use crate::validate::validate_and_resolve_node_versions;
+    use anyhow::Context;
 
     #[test]
     fn talos_node_001_talos_nodes_default_to_a_boot_disk_large_enough_for_talos() {
@@ -199,5 +212,39 @@ mod tests {
             format!("{error:#}").contains("kind: container"),
             "{error:#}"
         );
+    }
+
+    #[test]
+    fn api_errors_023_a_node_with_no_image_of_its_version_is_refused_as_not_found() {
+        let ceos =
+            data::ModelKind::new(data::NodeModel::AristaEos, Some(data::NodeKind::Container))
+                .unwrap();
+        let images = [data::NodeConfig {
+            version: "10.4".to_owned(),
+            default: false,
+            ..ceos.node_config()
+        }];
+        let (model, kind) = (ceos.model(), ceos.kind());
+        let cases = [
+            (
+                Some("9.9"),
+                format!("Node image not found for model: {model} kind: {kind} version: 9.9"),
+            ),
+            (
+                None,
+                format!("Default node image not found for model: {model} kind: {kind}"),
+            ),
+        ];
+        for (version, message) in cases {
+            let error = get_node_image(ceos, version, &images)
+                .context("Failed to plan the lab")
+                .unwrap_err();
+            assert_eq!(
+                ServiceError::find(&error),
+                Some(&ServiceError::NotFound(message.clone())),
+                "{version:?}"
+            );
+            assert_eq!(caller_message(&error, "Failed to plan the lab"), message);
+        }
     }
 }
