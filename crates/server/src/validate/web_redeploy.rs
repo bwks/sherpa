@@ -4,8 +4,7 @@ use anyhow::{Result, bail};
 /// needs what the server does not keep. The definition holds the manifest as the user wrote it,
 /// without file contents or resolved values, and only the `sherpa` CLI, in the lab folder, can
 /// read the files and variables these parts name: a `ztp.config`, `text_files`,
-/// `binary_files`, `systemd_units`, startup and user scripts, and `environment_variables` with
-/// a `$VAR`. Provisioners are refused too, as only the CLI runs them. A node with none of these
+/// `systemd_units`, `startup_scripts`, and `environment_variables` with a `$VAR`. Provisioners are refused too, as only the CLI runs them. A node with none of these
 /// is rebuilt from its definition alone.
 ///
 /// # Errors
@@ -15,10 +14,8 @@ pub fn check_web_redeployable(node: &topology::Node) -> Result<()> {
     let listed = [
         (node.ztp.config.is_some(), "ztp.config"),
         (has_items(node.text_files.as_ref()), "text_files"),
-        (has_items(node.binary_files.as_ref()), "binary_files"),
         (has_items(node.systemd_units.as_ref()), "systemd_units"),
         (has_items(node.startup_scripts.as_ref()), "startup_scripts"),
-        (has_items(node.user_scripts.as_ref()), "user_scripts"),
         (
             node.environment_variables.iter().flatten().any(|entry| {
                 entry
@@ -100,12 +97,6 @@ permissions = 644
             ),
             (&format!("[[nodes.text_files]]\n{text_file}"), "text_files"),
             (
-                r#"[[nodes.binary_files]]
-source = "files/blob.bin"
-"#,
-                "binary_files",
-            ),
-            (
                 r#"[[nodes.systemd_units]]
 name = "app.service"
 source = "units/app.service"
@@ -117,11 +108,6 @@ enabled = true
                 r#"startup_scripts = ["scripts/start.sh"]
 "#,
                 "startup_scripts",
-            ),
-            (
-                r#"user_scripts = ["scripts/user.sh"]
-"#,
-                "user_scripts",
             ),
             (
                 r#"environment_variables = ["MODE=lab", "TOKEN=$LAB_TOKEN"]

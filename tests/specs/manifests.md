@@ -37,6 +37,7 @@ A manifest is checked in five places, and they do not run the same checks. `sher
 | Text file modes | yes | yes | yes | yes | yes |
 | `environment_variables` keys | | only that an entry has `=` | only that an entry has `=` | yes | yes |
 | Windows startup script names | | yes | yes | yes | yes |
+| `text_files`, `startup_scripts`, `systemd_units` against the node's model, kind and ZTP | yes, against the model's built-in settings | yes, against the model's built-in settings | yes, against the model's built-in settings | yes, against the node's image | yes, against the node's image |
 | Images and versions, a `ztp.config` its node takes (#772), host access, files the client read, memory, CPUs held | | | | yes | yes |
 
 A redeploy reads one node of the manifest it is sent. The lab's description, links, bridges, clusters and `[tailscale]` in it are not checked and not stored; `ready_timeout` and `provision_concurrency` are stored. The node's cluster and role in it must be those of the lab's stored definition, and the node is rebuilt with the stored ones: `cluster_redeploy_009` and `010` in [talos.md](talos.md).
@@ -51,7 +52,7 @@ A redeploy reads one node of the manifest it is sent. The lab's description, lin
 | 001 | `sherpa validate` in a folder with no `manifest.toml` exits 1 and says the file was not found | e2e |
 | 002 | A file that is not TOML is refused, naming the file | unit |
 | 003 | A manifest without `name`, or without `nodes`, is refused, naming the missing key | unit |
-| 004 | An unknown key is refused in every table of a manifest, naming the key: the top level, a node, each group of a node, a link, an impairment, a bridge, a text file, a binary file, a systemd unit, a volume, a Talos cluster, `[tailscale]`, a provisioner and a provisioner's file | unit |
+| 004 | An unknown key is refused in every table of a manifest, naming the key: the top level, a node, each group of a node, a link, an impairment, a bridge, a text file, a systemd unit, a volume, a Talos cluster, `[tailscale]`, a provisioner and a provisioner's file | unit |
 | 005 | Every key a manifest takes is read as the setting it names: the lab's own, a virtual machine with every shared group and `vm`, a container with `container`, a unikernel with `unikernel`, text files, links and bridges | unit |
 | 006 | A key left out stays unset and is not given a value: a node's `kind`, its `ztp.method` and its groups; a manifest without `[tailscale]` has no tailnet and `enabled` left out is off; a provisioner file's `mode` is 600 and a secret file's 444; a cluster's `cni` is `flannel` and it has no workers | unit |
 | 007 | A manifest written out as TOML has a table only for the groups a node sets, and reads back the same | unit |
@@ -113,7 +114,7 @@ The server runs these at up before anything is created (`lab_preflight_002`). Th
 
 ## `node_settings`: a node sets only what its kind and its model take
 
-**Statement:** a node that sets a key its kind does not take, or the group of another kind, is refused naming the node, the key and the kind, and for a model that takes several kinds the kind that takes it; a setting only some models take, or that a model bounds, is refused on a node it does not fit.
+**Statement:** a node that sets a key its kind does not take, or the group of another kind, is refused naming the node, the key and the kind, and for a model that takes several kinds the kind that takes it; a setting only some models take, or that a model bounds, is refused on a node it does not fit; `text_files`, `startup_scripts` and `systemd_units` are refused, naming the node, the setting and the model, on a node whose first-boot config does not carry them.
 **Relied on by:** the user, whose setting would otherwise be dropped without a word. **Priority:** P1.
 
 | Setting | Virtual machine | Container | Unikernel |
@@ -122,10 +123,20 @@ The server runs these at up before anything is created (`lab_preflight_002`). Th
 | `cpu.mode`, `cpu.topology`, `cpu.pinning`, `cpu.emulator_pinning`, `numa.node`, `numa.memory_mode` | yes | | |
 | `boot_disk.size` | yes | | yes |
 | `boot_disk.clone_method`, `boot_disk.cache`, `boot_disk.io`, `boot_disk.io_thread_cpus`, `interfaces.queues` | yes | | |
-| `ztp.method`, `ztp.config`, `environment_variables`, `text_files`, `binary_files`, `systemd_units`, `startup_scripts`, `user_scripts` | yes | yes | |
+| `ztp.method`, `ztp.config`, `environment_variables` | yes | yes | |
 | `vm` | yes | | |
 | `container` | | yes | |
 | `unikernel` | | | yes |
+
+The first-boot config a node gets follows from the ZTP setting it runs with, the manifest's or else its image's, and that config alone takes a node's files and scripts. The client checks a node against its model and kind's built-in image at `sherpa validate`, `sherpa up` and `sherpa redeploy`; the server checks it against the image it builds the node from, at up and at redeploy, before anything is built or torn down.
+
+| ZTP setting | Nodes | `text_files` | `startup_scripts` | `systemd_units` |
+|---|---|---|---|---|
+| `cloud-init` | Linux and BSD virtual machines (cloud-init), Windows (cloudbase-init) | yes | yes | |
+| `ignition` | Flatcar | yes | | yes |
+| any other, `disabled` among them | network devices, every container, every unikernel | | | |
+
+A node with its own `ztp.config` takes none of the three: its config replaces the one Sherpa generates.
 
 | Case | What it shows | Level |
 |---|---|---|
@@ -133,7 +144,7 @@ The server runs these at up before anything is created (`lab_preflight_002`). Th
 | 002 | On a model that takes several kinds the refusal names the kind that takes the setting | unit |
 | 003 | Each setting is taken by the kinds the table above gives it and refused on a node of any other kind (no test yet) | unit |
 | 004 | The first setting a node's kind does not take is the one named, and a setting left unset is never refused | unit |
-| 005 | `text_files`, `binary_files`, `systemd_units`, `startup_scripts` and `user_scripts` are taken on every virtual machine and container, those of a model that never uses them included (#781) (no test yet) | unit |
+| 005 | Retired: file and script settings were taken on every virtual machine and container; see 016 to 021 | — |
 | 006 | `container.platform` on a node that is not a `juniper_evolved` container, another model's or the model's virtual machine, is refused, naming the model and kind | unit |
 | 007 | A `juniper_evolved` container takes as many data interfaces as its platform has: 12 on `bt`, which it is without `platform`, and 36 on `bx` | unit |
 | 008 | A `juniper_evolved` container with fewer vCPUs or less memory than its image is refused, and one with more is taken | unit |
@@ -144,6 +155,12 @@ The server runs these at up before anything is created (`lab_preflight_002`). Th
 | 013 | A redeploy whose manifest gives the node a setting its kind does not take is refused, and the node stays as it was (no test yet) | integration |
 | 014 | A `memory`, `cpu.count`, `boot_disk.size`, `interfaces.data_count` or `ready_check.port` of 0 is refused, naming the node and the field, and 1 is taken | unit |
 | 015 | A redeploy whose manifest sets one of those to 0 is refused before any node is torn down, naming the node and the field | unit |
+| 016 | `text_files`, `startup_scripts` and `systemd_units` on a container are each refused, naming the node, the setting, the model and, for a model of several kinds, the kind | unit |
+| 017 | Each of them on a network-device virtual machine, such as `arista_eos` or `juniper_srxv3`, is refused | unit |
+| 018 | Each of them on a node whose model takes it but whose ZTP is off is refused, saying ZTP is disabled | unit |
+| 019 | Each of them on a node with its own `ztp.config` is refused, saying so | unit |
+| 020 | `text_files` and `startup_scripts` are taken on cloud-init Linux, BSD and Windows virtual machines, and `text_files` and `systemd_units` on Flatcar | unit |
+| 021 | `startup_scripts` on Flatcar, and `systemd_units` on a cloud-init or Windows virtual machine, are refused | unit |
 
 ## `vm_tuning`: a virtual machine's tuning fits its vCPUs, disks and interfaces, and is in its domain
 

@@ -5,10 +5,6 @@ use std::time::Duration;
 
 use shared::data::{ClientConfig, RedeployResponse};
 use shared::util::{Emoji, term_msg_surround};
-use topology::validate::{
-    check_lab_name, check_nonzero_node_settings, check_ready_timeout, check_text_file_modes,
-    validate_provisioners,
-};
 
 use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
@@ -19,6 +15,7 @@ use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
 use super::download::download;
+use super::manifest_processing::check_manifest;
 use super::outcome::print_link_reports;
 use super::progress::print_status;
 use super::up::resolve_manifest_files;
@@ -43,13 +40,7 @@ pub async fn redeploy(
 
     // Load the manifest and resolve its client files, as `up` does.
     let mut manifest = topology::Manifest::load_file(manifest_path)?;
-    check_lab_name(&manifest.name).context("Manifest validation failed: lab name")?;
-    check_ready_timeout(manifest.ready_timeout)
-        .context("Manifest validation failed: ready timeout")?;
-    check_nonzero_node_settings(&manifest.nodes)
-        .context("Manifest validation failed: node settings")?;
-    validate_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
-    check_text_file_modes(&manifest.nodes).context("Manifest validation failed: text files")?;
+    check_manifest(&manifest)?;
     // As written, before the files and variables are resolved: what the server stores.
     let as_written = serde_json::to_value(manifest.as_written())
         .context("Failed to serialize the manifest as written to JSON")?;

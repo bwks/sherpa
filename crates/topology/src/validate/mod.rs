@@ -32,7 +32,7 @@ pub use link::{
     check_no_p2p_field,
 };
 pub use names::{check_lab_name, check_node_names};
-pub use node_kind::{check_node_kind_settings, check_node_model_kind};
+pub use node_kind::{check_node_file_settings, check_node_kind_settings, check_node_model_kind};
 pub use nonzero::{check_nonzero_node_settings, check_ready_timeout};
 pub use provisioner::validate_provisioners;
 pub use ptx_platform::check_ptx_platform;
