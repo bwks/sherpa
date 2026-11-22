@@ -1,22 +1,23 @@
 //! Reading a request's JSON body, form, query string or path parameters into its type. When
 //! one does not parse, the reply and the log get a fixed message: the field that is wrong and
-//! what is wrong with it, never the value sent. serde's own messages quote what was sent, a
-//! password among them, so none of their text past a field name is kept.
+//! the kind of fault, never the value sent. The request is deserialized through
+//! `serde_path_to_error`, which gives the field's path as data, with an error type that keeps
+//! the kind of fault serde reports and none of its message, which can quote what was sent.
 
-use axum::extract::path::ErrorKind;
-use axum::extract::rejection::{FormRejection, JsonRejection, PathRejection, QueryRejection};
+mod deserializer;
+
+use axum::extract::rejection::{FormRejection, JsonRejection};
 use axum::extract::{FromRequest, FromRequestParts, RawPathParams, Request};
 use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
+use serde::Deserializer;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use serde_path_to_error::{Path, Segment};
 
+use self::deserializer::{Fault, JsonValue, PathValues, TextPairs};
 use super::errors::ApiError;
 
-const JSON_DATA_PREFIX: &str = "Failed to deserialize the JSON body into the target type: ";
-const FORM_PREFIX: &str = "Failed to deserialize form: ";
-const FORM_BODY_PREFIX: &str = "Failed to deserialize form body: ";
-const QUERY_PREFIX: &str = "Failed to deserialize query string: ";
 const MSG_NOT_JSON: &str = "the body is not valid JSON";
 const MSG_NOT_JSON_CONTENT_TYPE: &str =
     "the body must be sent with `Content-Type: application/json`";
@@ -24,11 +25,8 @@ const MSG_NOT_FORM_CONTENT_TYPE: &str = "the form must be sent with \
      `Content-Type: application/x-www-form-urlencoded`";
 const MSG_UNREADABLE: &str = "the request could not be read";
 const MSG_PATH: &str = "the path does not name what this route takes";
-/// The messages serde gives for a field that is missing, not taken or given twice, which name
-/// the field and nothing that was sent with it.
-const MISSING_FIELD: &str = "missing field `";
-const UNKNOWN_FIELD: &str = "unknown field `";
-const DUPLICATE_FIELD: &str = "duplicate field `";
+const MSG_WRONG_SHAPE: &str = "the request has the wrong type or value";
+const MSG_UNKNOWN_FIELD: &str = "the request has a field it does not take";
 
 /// A request that did not parse, with the fixed message it is answered with.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,10 +77,10 @@ impl<T: DeserializeOwned, S: Send + Sync> FromRequest<S> for JsonBody<T> {
     type Rejection = InvalidRequest;
 
     async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
-        axum::Json::<T>::from_request(request, state)
+        let axum::Json(value) = axum::Json::<Value>::from_request(request, state)
             .await
-            .map(|axum::Json(value)| Self(value))
-            .map_err(|rejection| json_rejection(&rejection))
+            .map_err(|rejection| json_rejection(&rejection))?;
+        from_json(value).map(Self)
     }
 }
 
@@ -90,10 +88,10 @@ impl<T: DeserializeOwned, S: Send + Sync> FromRequest<S> for FormBody<T> {
     type Rejection = InvalidRequest;
 
     async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
-        axum::Form::<T>::from_request(request, state)
+        let axum::Form(pairs) = axum::Form::<Vec<(String, String)>>::from_request(request, state)
             .await
-            .map(|axum::Form(value)| Self(value))
-            .map_err(|rejection| form_rejection(&rejection))
+            .map_err(|rejection| form_rejection(&rejection))?;
+        from_text_pairs(pairs).map(Self)
     }
 }
 
@@ -101,10 +99,11 @@ impl<T: DeserializeOwned, S: Send + Sync> FromRequestParts<S> for QueryParams<T>
     type Rejection = InvalidRequest;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        axum::extract::Query::<T>::from_request_parts(parts, state)
-            .await
-            .map(|axum::extract::Query(value)| Self(value))
-            .map_err(|rejection| query_rejection(&rejection))
+        let axum::extract::Query(pairs) =
+            axum::extract::Query::<Vec<(String, String)>>::from_request_parts(parts, state)
+                .await
+                .map_err(|_| InvalidRequest::new(MSG_UNREADABLE))?;
+        from_text_pairs(pairs).map(Self)
     }
 }
 
@@ -112,18 +111,16 @@ impl<T: DeserializeOwned + Send, S: Send + Sync> FromRequestParts<S> for PathPar
     type Rejection = InvalidRequest;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        match axum::extract::Path::<T>::from_request_parts(parts, state).await {
-            Ok(axum::extract::Path(value)) => Ok(Self(value)),
-            Err(rejection) => {
-                let names: Vec<String> = RawPathParams::from_request_parts(parts, state)
-                    .await
-                    .map_or_else(
-                        |_| Vec::new(),
-                        |params| params.iter().map(|(name, _)| name.to_string()).collect(),
-                    );
-                Err(path_rejection(&rejection, &names))
-            }
-        }
+        let params: Vec<(String, String)> = RawPathParams::from_request_parts(parts, state)
+            .await
+            .map_err(|_| InvalidRequest::new(MSG_PATH))?
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_string()))
+            .collect();
+        let names: Vec<String> = params.iter().map(|(name, _)| name.clone()).collect();
+        serde_path_to_error::deserialize(PathValues(params))
+            .map(Self)
+            .map_err(|error| path_fault(error.path(), &names))
     }
 }
 
@@ -134,9 +131,8 @@ impl<T: DeserializeOwned + Send, S: Send + Sync> FromRequestParts<S> for PathPar
 ///
 /// Fails, with the fixed message of [`InvalidRequest`], when `bytes` are not JSON or not a `T`.
 pub(crate) fn parse_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, InvalidRequest> {
-    axum::Json::<T>::from_bytes(bytes)
-        .map(|axum::Json(value)| value)
-        .map_err(|rejection| json_rejection(&rejection))
+    let value = serde_json::from_slice(bytes).map_err(|_| InvalidRequest::new(MSG_NOT_JSON))?;
+    from_json(value)
 }
 
 /// Read `value`, a part of a request already read as JSON, as `T`.
@@ -145,134 +141,124 @@ pub(crate) fn parse_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, Invalid
 ///
 /// Fails, with the fixed message of [`InvalidRequest`], when `value` is not a `T`.
 pub(crate) fn parse_value<T: DeserializeOwned>(value: &Value) -> Result<T, InvalidRequest> {
-    // A `Value` always serializes; were it not to, the empty body is refused as not JSON.
-    parse_json(&serde_json::to_vec(value).unwrap_or_default())
+    from_json(value.clone())
 }
 
-/// The fixed message of a JSON body that was refused.
+/// Read the JSON `value` as `T`.
+fn from_json<T: DeserializeOwned>(value: Value) -> Result<T, InvalidRequest> {
+    deserialize(JsonValue(value))
+}
+
+/// Read the name and value `pairs` of a form or a query string as `T`.
+fn from_text_pairs<T: DeserializeOwned>(pairs: Vec<(String, String)>) -> Result<T, InvalidRequest> {
+    deserialize(TextPairs(pairs))
+}
+
+/// Read `T` from `deserializer`, answering a fault with its fixed message.
+fn deserialize<'de, T, D>(deserializer: D) -> Result<T, InvalidRequest>
+where
+    T: DeserializeOwned,
+    D: Deserializer<'de, Error = Fault>,
+{
+    serde_path_to_error::deserialize(deserializer)
+        .map_err(|error| fault_message(error.path(), error.inner()))
+}
+
+/// The fixed message of a JSON body that was refused before it was read as its type.
 fn json_rejection(rejection: &JsonRejection) -> InvalidRequest {
     match rejection {
-        JsonRejection::JsonDataError(_) => data_error(&rejection.body_text(), JSON_DATA_PREFIX),
         JsonRejection::MissingJsonContentType(_) => InvalidRequest::new(MSG_NOT_JSON_CONTENT_TYPE),
         JsonRejection::BytesRejection(_) => InvalidRequest::new(MSG_UNREADABLE),
         _ => InvalidRequest::new(MSG_NOT_JSON),
     }
 }
 
-/// The fixed message of a form that was refused.
+/// The fixed message of a form that was refused before it was read as its type.
 fn form_rejection(rejection: &FormRejection) -> InvalidRequest {
     match rejection {
-        FormRejection::FailedToDeserializeForm(_) => {
-            data_error(&rejection.body_text(), FORM_PREFIX)
-        }
-        FormRejection::FailedToDeserializeFormBody(_) => {
-            data_error(&rejection.body_text(), FORM_BODY_PREFIX)
-        }
         FormRejection::InvalidFormContentType(_) => InvalidRequest::new(MSG_NOT_FORM_CONTENT_TYPE),
         _ => InvalidRequest::new(MSG_UNREADABLE),
     }
 }
 
-/// The fixed message of a query string that was refused.
-fn query_rejection(rejection: &QueryRejection) -> InvalidRequest {
-    match rejection {
-        QueryRejection::FailedToDeserializeQueryString(_) => {
-            data_error(&rejection.body_text(), QUERY_PREFIX)
-        }
-        _ => InvalidRequest::new(MSG_UNREADABLE),
-    }
+/// The fixed message of `fault`, found at `path` in a body, a form or a query string.
+fn fault_message(path: &Path, fault: &Fault) -> InvalidRequest {
+    let at = field_path(path);
+    let message = match fault {
+        Fault::Missing(name) => format!("field `{}` is missing", field_in(at, name)),
+        Fault::Duplicate(name) => format!("field `{}` is given more than once", field_in(at, name)),
+        Fault::Unknown(name) if is_name(name) => format!(
+            "field `{}` is not a field this request takes",
+            field_in(at, name)
+        ),
+        Fault::Unknown(_) => MSG_UNKNOWN_FIELD.to_string(),
+        Fault::Invalid => match at {
+            Some(at) => format!("field `{at}` has the wrong type or value"),
+            None => MSG_WRONG_SHAPE.to_string(),
+        },
+    };
+    InvalidRequest::new(message)
 }
 
-/// The fixed message of path parameters that were refused, naming the parameter when axum
-/// knows it, by its name or by its place among the route's parameter `names`.
-fn path_rejection(rejection: &PathRejection, names: &[String]) -> InvalidRequest {
-    let PathRejection::FailedToDeserializePathParams(error) = rejection else {
-        return InvalidRequest::new(MSG_PATH);
-    };
-    let key = match error.kind() {
-        ErrorKind::ParseErrorAtKey { key, .. }
-        | ErrorKind::InvalidUtf8InPathParam { key }
-        | ErrorKind::DeserializeError { key, .. } => Some(key.as_str()),
-        ErrorKind::ParseErrorAtIndex { index, .. } => names.get(*index).map(String::as_str),
+/// The fixed message of path parameters that did not parse at `path`, naming the parameter by
+/// its name or by its place among the route's parameter `names`, or the lone one.
+fn path_fault(path: &Path, names: &[String]) -> InvalidRequest {
+    let name = match path.iter().next() {
+        Some(Segment::Seq { index }) => names.get(*index),
+        Some(Segment::Map { key }) => names.iter().find(|name| *name == key),
+        _ if names.len() == 1 => names.first(),
         _ => None,
     };
-    match key.filter(|key| is_field_path(key)) {
-        Some(key) => InvalidRequest::new(format!(
-            "path parameter `{key}` has the wrong type or value"
+    match name.filter(|name| is_name(name)) {
+        Some(name) => InvalidRequest::new(format!(
+            "path parameter `{name}` has the wrong type or value"
         )),
         None => InvalidRequest::new(MSG_PATH),
     }
 }
 
-/// The fixed message of a body or query that is well formed but not the request's type, from
-/// `text`, axum's message: `prefix`, then `<path>: <serde message>`, or the serde message alone
-/// when the fault is in the request as a whole. Only the path, and the field name of a missing,
-/// unknown or repeated field, are kept: the rest of serde's message can quote what was sent.
-fn data_error(text: &str, prefix: &str) -> InvalidRequest {
-    let detail = text.strip_prefix(prefix).unwrap_or_default();
-    let (path, serde_message) = split_field_path(detail);
-    let named = |problem: &str| -> Option<String> {
-        let name = serde_message.strip_prefix(problem)?.split('`').next()?;
-        is_field_path(name).then(|| field_of(path, name))
-    };
-    let message = if let Some(field) = named(MISSING_FIELD) {
-        format!("field `{field}` is missing")
-    } else if let Some(field) = named(UNKNOWN_FIELD) {
-        format!("field `{field}` is not a field this request takes")
-    } else if let Some(field) = named(DUPLICATE_FIELD) {
-        format!("field `{field}` is given more than once")
-    } else if let Some(path) = path {
-        format!("field `{path}` has the wrong type or value")
-    } else {
-        "the request has the wrong type or value".to_string()
-    };
-    InvalidRequest::new(message)
+/// `path` written as a field path, `files[0].mode`, up to the first segment that is not a
+/// field's name or a list position: a map's keys are what was sent, and are named only when
+/// they are plain names. `None` when the path is the request as a whole.
+fn field_path(path: &Path) -> Option<String> {
+    let mut written = String::new();
+    for segment in path {
+        match segment {
+            Segment::Seq { index } => {
+                written.push('[');
+                written.push_str(&index.to_string());
+                written.push(']');
+            }
+            Segment::Map { key } if is_name(key) => {
+                if !written.is_empty() {
+                    written.push('.');
+                }
+                written.push_str(key);
+            }
+            Segment::Enum { .. } => {}
+            Segment::Map { .. } | Segment::Unknown => break,
+        }
+    }
+    (!written.is_empty()).then_some(written)
 }
 
-/// The path of field `name` serde names in its message, at `path`, where it failed: the field
-/// itself for one it does not take or got twice, and the object it is missing from otherwise.
-fn field_of(path: Option<&str>, name: &str) -> String {
-    match path {
-        Some(path) if path == name || path.ends_with(&format!(".{name}")) => path.to_string(),
-        Some(path) => format!("{path}.{name}"),
+/// The path of field `name`, which serde reports at the path `at`: the path itself when it
+/// already ends at the field, and the field inside it otherwise.
+fn field_in(at: Option<String>, name: &str) -> String {
+    match at {
+        Some(at) if at == name || at.ends_with(&format!(".{name}")) => at,
+        Some(at) => format!("{at}.{name}"),
         None => name.to_string(),
     }
 }
 
-/// `detail` split into the path of the field serde failed at and serde's message about it.
-/// The path comes first, ended by `: `, and only names fields and list positions; a message
-/// with no such path is about the request as a whole.
-fn split_field_path(detail: &str) -> (Option<&str>, &str) {
-    match detail.split_once(": ") {
-        Some((path, message)) if is_field_path(path) => (Some(path), message),
-        _ => (None, detail),
-    }
-}
-
-/// Whether `path` is a field path as serde gives one, `files[0].mode`: field names of
-/// letters, digits, `_` and `-`, joined by `.`, each with any list positions after it.
-fn is_field_path(path: &str) -> bool {
-    !path.is_empty()
-        && path.split('.').all(|segment| {
-            let (name, mut positions) =
-                segment.split_at(segment.find('[').unwrap_or(segment.len()));
-            let name_ok = name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-            if !name_ok || (name.is_empty() && positions.is_empty()) {
-                return false;
-            }
-            while let Some(rest) = positions.strip_prefix('[') {
-                let Some((index, after)) = rest.split_once(']') else {
-                    return false;
-                };
-                if index.is_empty() || !index.chars().all(|c| c.is_ascii_digit()) {
-                    return false;
-                }
-                positions = after;
-            }
-            positions.is_empty()
-        })
+/// Whether `name`, sent by a client, is a plain field name of letters, digits, `_` and `-`,
+/// which can be named back without quoting anything else.
+fn is_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 #[cfg(test)]
@@ -294,7 +280,6 @@ mod tests {
     const SENT: &str = "hunter2-s3cret";
 
     #[derive(Debug, Deserialize)]
-    #[expect(dead_code, reason = "only read to see whether a request parses")]
     struct Lookup {
         name: String,
         port: u16,
@@ -325,7 +310,9 @@ mod tests {
             )
             .route(
                 "/form",
-                post(|FormBody(_): FormBody<Lookup>| async { "ok" }),
+                post(|FormBody(lookup): FormBody<Lookup>| async move {
+                    format!("{}:{}", lookup.name, lookup.port)
+                }),
             )
             .route(
                 "/query",
@@ -424,6 +411,21 @@ mod tests {
             (
                 StatusCode::BAD_REQUEST,
                 "field `port` has the wrong type or value".to_string()
+            )
+        );
+
+        let form = client
+            .post(format!("{url}/form"))
+            .header(
+                header::CONTENT_TYPE.as_str(),
+                "application/x-www-form-urlencoded",
+            )
+            .body(format!("name={SENT}&name=r2&port=22"));
+        assert_eq!(
+            refusal_of(form).await,
+            (
+                StatusCode::BAD_REQUEST,
+                "field `name` is given more than once".to_string()
             )
         );
 

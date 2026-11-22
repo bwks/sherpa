@@ -1719,7 +1719,7 @@ async fn lab_preflight_002_an_invalid_manifest_is_refused() -> Result<()> {
     assert!(
         response["error"]["context"]
             .as_str()
-            .is_some_and(|context| context.contains("missing field `name`")),
+            .is_some_and(|context| context.contains("field `name` is missing")),
         "invalid manifest should fail: {response:?}"
     );
 

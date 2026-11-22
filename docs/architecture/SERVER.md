@@ -45,11 +45,16 @@ progress goes to SSE, the web UI or a WebSocket.
 Every request is read through `api/request_parse.rs`: handlers take `JsonBody`, `FormBody`,
 `QueryParams` and `PathParams` instead of axum's extractors, RPC parameters go through
 `dispatch::parse`, and the WebSocket message and the manifests of `up` and `redeploy` through
-`parse_json` and `parse_value`. serde's message quotes the value it failed on, a password or a
-secret file among them, so a request that does not parse is answered, and logged, with a fixed
-message: the field's path from axum's `serde_path_to_error` error and the kind of fault, and none
-of serde's other text. axum's own rejections are never turned into responses, so their trace
-logging, which carries serde's text, never runs.
+`parse_json` and `parse_value`. serde's messages quote the value they failed on, a password or a
+secret file among them, so no message text from serde or axum is used. axum reads only the
+envelope: the JSON as a `serde_json::Value`, a form or query string as name and value pairs, the
+path as `RawPathParams`, and its rejections give a fixed message by their kind (not JSON, the
+wrong content type, unreadable). The request's type is then deserialized from those through
+`serde_path_to_error`, which gives the field's path as data, by `request_parse/deserializer.rs`,
+whose error type `Fault` keeps the kind of fault serde reports (missing, not taken, given twice,
+or any other) and drops its message. The answer is `400` with a message built from the path and
+the kind. axum's own rejections are never turned into responses, so their trace logging, which
+carries serde's text, never runs.
 
 ## Authentication and authorization architecture
 

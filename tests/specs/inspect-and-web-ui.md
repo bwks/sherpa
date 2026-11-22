@@ -261,9 +261,9 @@ The session cookie that keeps another site's requests from acting as the user is
 | 006 | Over REST each kind of failure has its status, 401, 403, 404, 400, 409, 507 for memory and 500, in an `error` object with a code and a message (no test yet; the 403, 404 and 409 of single operations are cases of `access_control` and `user_accounts`) | integration |
 | 007 | A REST failure of no known kind whose text has `not found`, `Invalid` or `missing` in it is answered 404 or 400 with its whole chain of messages as the detail (no test yet) | unit |
 | 008 | A CLI command the server refuses or fails prints the error with its causes and exits 1 (no test at this level yet) | e2e |
-| 009 | RPC parameters that do not parse, for any method, are answered invalid params with the method's message, and a context that names the field and says whether it is missing, not taken, given twice or of the wrong type or value, never the value sent: a password sent as a number is not in it | unit |
+| 009 | RPC parameters that do not parse, for any method, are answered invalid params with the method's message, and a context that names the field and says whether it is missing, not taken or of the wrong type or value, never the value sent: a password sent as a number is not in it | unit |
 | 010 | A REST JSON body that does not parse is answered 400 `BAD_REQUEST`, `Invalid request`, with details that name the field and what is wrong with it, never the value sent; a body that is not JSON, or not sent as JSON, says only that | unit |
-| 011 | A REST form, query string or path parameter that does not parse is answered 400 `BAD_REQUEST` naming the field or parameter, never the value sent | unit |
+| 011 | A REST form, query string or path parameter that does not parse is answered 400 `BAD_REQUEST` naming the field or parameter and whether it is of the wrong type or value or given twice, never the value sent | unit |
 | 012 | A WebSocket message that is not a request is answered with a fixed message, naming the field where serde gives its path, never what was sent | unit |
 | 013 | A request that does not parse logs nothing of what was sent, at any level | unit |
 | 014 | An up whose manifest does not parse is refused naming the manifest's field, never its value | unit |

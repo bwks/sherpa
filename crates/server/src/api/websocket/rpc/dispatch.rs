@@ -534,6 +534,40 @@ mod tests {
             error.context.as_deref(),
             Some("field `files[0].mode` has the wrong type or value")
         );
+
+        let error = parse::<shared::data::NodeSecretsRequest>(
+            &serde_json::json!({
+                "lab_id": "abc12345", "node_name": "r1",
+                "files": [{ "name": "token", "content": SENT.to_string() }],
+            }),
+            "bad secrets",
+        )
+        .expect_err("parsed");
+        assert_eq!(
+            error.context.as_deref(),
+            Some("field `files[0].mode` is missing")
+        );
+
+        let import = |extra: &str| {
+            let mut params = serde_json::json!({
+                "model": "cisco_ios", "version": "1", "src": "/tmp/i.qcow2",
+            });
+            params[extra] = serde_json::json!(SENT);
+            parse::<shared::data::ImportRequest>(&params, "bad import").expect_err("parsed")
+        };
+        assert_eq!(
+            import("ztp_password").context.as_deref(),
+            Some("field `ztp_password` is not a field this request takes")
+        );
+        let error = import(&format!("{SENT} key"));
+        assert_eq!(
+            error.context.as_deref(),
+            Some("the request has a field it does not take")
+        );
+        assert!(
+            !format!("{error:?}").contains(&SENT.to_string()),
+            "{error:?}"
+        );
     }
 
     #[test]

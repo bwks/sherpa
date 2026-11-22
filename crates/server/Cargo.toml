@@ -35,6 +35,7 @@ ipnet = { workspace = true }
 # Serialization/Deserialization
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_path_to_error = "0.1.20"
 toml = { workspace = true }
 
 # Enum utilities
