@@ -3,7 +3,7 @@
 use super::labs_api::run_detached;
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response, sse};
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
@@ -41,6 +41,7 @@ use shared::konst::{
 use shared::util::{generate_lab_name, get_id_for_user};
 use shared::validators::effective_ztp;
 use topology::Manifest;
+use topology::validate::check_lab_name;
 
 /// Dashboard page handler (HTML)
 ///
@@ -660,20 +661,35 @@ pub async fn lab_download_handler(
     }
 
     let zip_bytes = buf.into_inner();
-    let filename = format!("{}-{}.zip", db_lab.name, lab_id);
+    let disposition = HeaderValue::from_str(&format!(
+        r#"attachment; filename="{}""#,
+        download_file_name(&db_lab.name, &lab_id)
+    ))
+    .map_err(|e| ApiError::internal(format!("Failed to name the download: {e}")))?;
 
     Ok((
         StatusCode::OK,
         [
-            (header::CONTENT_TYPE, "application/zip".to_string()),
             (
-                header::CONTENT_DISPOSITION,
-                format!(r#"attachment; filename="{filename}""#),
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/zip"),
             ),
+            (header::CONTENT_DISPOSITION, disposition),
         ],
         zip_bytes,
     )
         .into_response())
+}
+
+/// The file name of the lab download: `<lab name>-<lab id>.zip`, or `<lab id>.zip` for a lab
+/// stored with a name the lab name rule refuses, so the name in the header is only ever one of
+/// letters, digits, `-` and `_`. `lab_id` is a stored lab's ID, which up validated.
+fn download_file_name(lab_name: &str, lab_id: &str) -> String {
+    if check_lab_name(lab_name).is_ok() {
+        format!("{lab_name}-{lab_id}.zip")
+    } else {
+        format!("{lab_id}.zip")
+    }
 }
 
 /// Handler to return the destroy confirmation panel
@@ -951,6 +967,13 @@ pub async fn lab_create_post_handler(
         }
     };
 
+    if let Err(error) = check_lab_name(&lab_name) {
+        return ErrorTemplate {
+            message: error.to_string(),
+        }
+        .into_response();
+    }
+
     let lab_id = get_id_for_user(&auth.username, &lab_name);
     // A manifest pasted in the web UI is as the user wrote it: nothing resolves its files or
     // variables. One that is not a manifest is refused by `up` with the reason.
@@ -994,6 +1017,26 @@ mod tests {
     use super::*;
     use crate::services::lab_definition::stored_definition;
     use crate::services::lab_definition::tests::{lab_with, store};
+
+    #[test]
+    fn lab_settings_009_the_web_ui_download_is_named_only_from_a_lab_name_the_rule_takes() {
+        assert_eq!(
+            download_file_name("core-lab", "abcd1234"),
+            "core-lab-abcd1234.zip"
+        );
+        for stored in [
+            r#"x"; filename="evil.sh"#,
+            "../../x y;$(id)",
+            "lab\r\nX: y",
+            "",
+        ] {
+            assert_eq!(
+                download_file_name(stored, "abcd1234"),
+                "abcd1234.zip",
+                "{stored}"
+            );
+        }
+    }
 
     #[tokio::test]
     async fn node_page_006_the_ztp_shown_is_the_stored_definitions_or_else_the_images() {

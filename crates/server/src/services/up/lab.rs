@@ -48,7 +48,9 @@ use shared::data;
 use shared::data::{LabEvent, LabSubnets, StatusKind, TailnetAuthKey, TailnetStatus};
 use shared::konst::{READINESS_TIMEOUT, SHERPA_LABS_PATH};
 use shared::util;
-use topology::validate::{check_client_read_files, check_lab_description};
+use topology::validate::{
+    check_client_read_files, check_lab_description, check_lab_name, check_ready_timeout,
+};
 
 /// What setup (phase 1) gives the later phases: the libvirt connection, the owner's record,
 /// every node image, the manifest's nodes with their images checked, and the lab's reservation.
@@ -263,9 +265,10 @@ struct CheckedManifest {
     definition: topology::Manifest,
 }
 
-/// The request's manifest, checked before anything else: host access, the description, the
-/// files the client read, provisioners, container secret files, and where the lab was started
-/// from; and the lab's definition, built from it and the parts as written.
+/// The request's manifest, checked before anything else: the lab name, host access, the ready
+/// timeout, the description, the files the client read, provisioners, container secret files,
+/// and where the lab was started from; and the lab's definition, built from it and the parts as
+/// written.
 fn check_up_request(
     ctx: &AuthContext,
     manifest: &serde_json::Value,
@@ -276,7 +279,10 @@ fn check_up_request(
 ) -> Result<CheckedManifest> {
     let manifest: topology::Manifest =
         parse_value(manifest).context("Failed to deserialize manifest")?;
+    check_lab_name(&manifest.name).context("Manifest validation failed: lab name")?;
     require_host_access(ctx, &manifest.nodes)?;
+    check_ready_timeout(manifest.ready_timeout)
+        .context("Manifest validation failed: ready timeout")?;
     check_lab_description(manifest.description.as_deref())
         .context("Manifest validation failed: description")?;
     check_client_read_files(&manifest.nodes).context("Manifest validation failed: files")?;
