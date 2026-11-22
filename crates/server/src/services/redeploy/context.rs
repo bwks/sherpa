@@ -38,7 +38,8 @@ use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;
 use topology::validate::{
-    check_client_read_files, check_node_kind_settings, check_ptx_platform, check_vm_tuning,
+    check_client_read_files, check_lab_name, check_node_kind_settings, check_nonzero_node_settings,
+    check_ptx_platform, check_ready_timeout, check_vm_tuning,
 };
 
 /// The node being redeployed and its lab, loaded and checked before the node is torn down.
@@ -231,8 +232,9 @@ pub(super) async fn load_redeploy<'a>(
     })
 }
 
-/// The request's manifest, with the checks a redeploy shares with `sherpa up`: host access, the
-/// files the client read, provisioners, and the node's secret files; and that the node, if in a
+/// The request's manifest, with the checks a redeploy shares with `sherpa up`: the lab name,
+/// host access, the ready timeout, the node settings that cannot be 0, the files the client
+/// read, provisioners, and the node's secret files; and that the node, if in a
 /// Talos cluster, can be redeployed. With the parts as written the client sent beside it, the
 /// node's definition is built and its provisioners checked.
 fn check_manifest(
@@ -244,7 +246,12 @@ fn check_manifest(
 ) -> Result<RedeployDefinition> {
     let manifest: topology::Manifest =
         parse_value(manifest).context("Failed to deserialize manifest")?;
+    check_lab_name(&manifest.name).context("Manifest validation failed: lab name")?;
     require_host_access(ctx, &manifest.nodes)?;
+    check_ready_timeout(manifest.ready_timeout)
+        .context("Manifest validation failed: ready timeout")?;
+    check_nonzero_node_settings(&manifest.nodes)
+        .context("Manifest validation failed: node settings")?;
     let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
     talos::ensure_redeployable(node_name, find_talos_cluster(talos_clusters, node_name))?;
     check_client_read_files(&manifest.nodes).context("Manifest validation failed: files")?;
@@ -629,6 +636,46 @@ mod tests {
             "Failed to deserialize manifest: the request is not valid at nodes[0].model"
         );
     }
+    /// The error a redeploy of `r1` gives for `manifest`, refused before anything is torn down.
+    fn redeploy_refusal(manifest: &serde_json::Value) -> String {
+        let ctx = AuthContext::new("dev".to_string(), false, "s".to_string());
+        let Err(error) = check_manifest(&ctx, manifest, None, "r1", None) else {
+            panic!("a redeploy of {manifest} was not refused");
+        };
+        format!("{error:#}")
+    }
+
+    #[test]
+    fn lab_settings_009_a_redeploy_is_refused_before_teardown_for_a_lab_name_the_rule_refuses() {
+        let error = redeploy_refusal(&serde_json::json!({
+            "name": "../x y",
+            "nodes": [{ "name": "r1", "model": "ubuntu_linux" }],
+        }));
+        assert!(
+            error.contains("lab name '../x y' is not allowed"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn lab_settings_010_a_redeploy_is_refused_before_teardown_for_a_ready_timeout_of_0() {
+        let error = redeploy_refusal(&serde_json::json!({
+            "name": "core",
+            "ready_timeout": 0,
+            "nodes": [{ "name": "r1", "model": "ubuntu_linux" }],
+        }));
+        assert!(error.contains("`ready_timeout` is 0"), "{error}");
+    }
+
+    #[test]
+    fn node_settings_015_a_redeploy_is_refused_before_teardown_for_a_setting_of_0() {
+        let error = redeploy_refusal(&serde_json::json!({
+            "name": "core",
+            "nodes": [{ "name": "r1", "model": "ubuntu_linux", "memory": 0 }],
+        }));
+        assert!(error.contains("'r1' `memory` is 0"), "{error}");
+    }
+
     #[test]
     fn owner_login_020_a_redeployed_node_records_the_owner_or_ftdvs_admin() {
         assert_eq!(

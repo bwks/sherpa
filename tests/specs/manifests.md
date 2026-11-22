@@ -22,7 +22,7 @@ A manifest is checked in five places, and they do not run the same checks. `sher
 |---|---|---|---|---|---|
 | Parsing: unknown keys, types, required keys | yes | yes | yes | yes | yes |
 | `[tailscale]` `auth_key_env` | yes | yes | | yes | |
-| The lab's `name`, `ready_timeout` and node settings that cannot be 0 | yes | yes | | yes | |
+| The lab's `name`, `ready_timeout` and node settings that cannot be 0 | yes | yes | yes | yes | yes |
 | Node names, duplicate names, node count | yes | | | yes | |
 | A node's `kind` against its model | yes | | | yes | yes |
 | Settings against the node's kind | yes | | | yes | yes |
@@ -38,7 +38,7 @@ A manifest is checked in five places, and they do not run the same checks. `sher
 | `environment_variables` keys | | only that an entry has `=` | only that an entry has `=` | yes | no (#780) |
 | Images and versions, a `ztp.config` its node takes (#772), host access, files the client read, memory, CPUs held | | | | yes | yes |
 
-A redeploy reads one node of the manifest it is sent. The lab's name, description, links, bridges, clusters and `[tailscale]` in it are not checked and not stored; `ready_timeout` and `provision_concurrency` are stored.
+A redeploy reads one node of the manifest it is sent. The lab's description, links, bridges, clusters and `[tailscale]` in it are not checked and not stored; `ready_timeout` and `provision_concurrency` are stored.
 
 ## `manifest_file`: a lab is read from `manifest.toml` in the current folder, strictly
 
@@ -142,6 +142,7 @@ The server runs these at up before anything is created (`lab_preflight_002`). Th
 | 012 | Every model's built-in data interface count fits the interfaces the model has | unit |
 | 013 | A redeploy whose manifest gives the node a setting its kind does not take is refused, and the node stays as it was (no test yet) | integration |
 | 014 | A `memory`, `cpu.count`, `boot_disk.size`, `interfaces.data_count` or `ready_check.port` of 0 is refused, naming the node and the field, and 1 is taken | unit |
+| 015 | A redeploy whose manifest sets one of those to 0 is refused before any node is torn down, naming the node and the field | unit |
 
 ## `vm_tuning`: a virtual machine's tuning fits its vCPUs, disks and interfaces, and is in its domain
 
@@ -259,7 +260,7 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 ## `lab_settings`: the lab's own settings are checked before it is built
 
 **Statement:** a lab's `name` is 1 to 63 ASCII letters, digits, `-` or `_`, starting with a letter or digit, as a node's is; its `description` is at most 1000 characters with no control character but line breaks and tabs, a lab with `[tailscale]` enabled names the environment variable that holds its key, never the key, `provision_concurrency` is from 1 to 255 and `ready_timeout` is at least 1.
-**Relied on by:** the status messages, log fields and web UI download file name the lab's name is put in; every page and command that shows a lab's description; the tailnet key, which is never in a manifest; the CLI's provisioning and the server's wait for nodes to be ready. **Priority:** P2.
+**Relied on by:** the status messages, log fields and web UI download file name (`<name>-<lab ID>.zip`) the lab's name is put in; every page and command that shows a lab's description; the tailnet key, which is never in a manifest; the CLI's provisioning and the server's wait for nodes to be ready. **Priority:** P2.
 
 | Case | What it shows | Level |
 |---|---|---|
@@ -271,6 +272,7 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 | 006 | A plain lab name is taken: letters of either case, digits, `-` and `_` after the first character, and 63 characters | unit |
 | 007 | An empty lab name, one that is path-like or shell-like, one with a dot, a space, a quote, markup, a line break or a non-ASCII letter, and one of 64 characters, are refused, naming the name and the rule | unit |
 | 008 | A `ready_timeout` of 0 is refused and 1 is taken | unit |
-| 009 | The web UI's lab download is named `<name>-<lab ID>.zip`, and `<lab ID>.zip` for a lab stored with a name the rule refuses, so no quote, path or line break of a name reaches its `Content-Disposition` header | unit |
+| 009 | A redeploy whose manifest has a lab name the rule refuses is refused before any node is torn down, naming the name | unit |
+| 010 | A redeploy whose manifest has a `ready_timeout` of 0 is refused before any node is torn down | unit |
 
-The CLI checks the lab's name, `ready_timeout` and the node settings that cannot be 0 at `sherpa validate` and at up, and the server at up before anything is created; a lab stored before the rule is refused at its next up like any other manifest. A redeploy checks none of them.
+The CLI checks the lab's name, `ready_timeout` and the node settings that cannot be 0 at `sherpa validate`, up and redeploy, and the server at up before anything is created and at redeploy before the node is torn down; a lab stored before the rule is refused at its next up or redeploy like any other manifest.
