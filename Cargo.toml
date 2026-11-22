@@ -122,6 +122,7 @@ serde_derive = "1.0.228"
 serde_json = "1.0.128"
 # SHA-crypt (`$5$`, `$6$`) password hashes for lab node configurations.
 sha-crypt = { version = "0.6.0", default-features = false, features = ["alloc", "password-hash"] }
+sha2 = "0.10.8"
 ssh-key = { version = "0.6.7", features = ["rsa", "ed25519"] }
 strum = "0.27"
 tempfile = "3.25.0"

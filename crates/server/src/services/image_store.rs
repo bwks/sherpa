@@ -47,25 +47,27 @@ impl ImagePaths {
     }
 }
 
-/// What an import does about the file already at its destination.
+/// What an import or a download does about the file already at its destination.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExistingDisk {
     /// Nothing is there: copy the source.
     Absent,
     /// A file of the source's size is there: keep it and skip the copy.
     Same,
-    /// A file of another size is there, so it is not the source; it may be a truncated copy left
-    /// by an earlier release. Replace it, unless lab overlays are built on it.
+    /// A file of another size is there, or the source gives no size, so it is not known to be the
+    /// source; it may be a truncated copy left by an earlier release or an interrupted download.
+    /// Replace it, unless lab overlays are built on it.
     Different,
 }
 
 impl ExistingDisk {
-    /// Compare the file at the destination, if any, with the source by size.
-    pub(crate) fn compare(source_len: u64, existing_len: Option<u64>) -> Self {
-        match existing_len {
-            None => Self::Absent,
-            Some(len) if len == source_len => Self::Same,
-            Some(_) => Self::Different,
+    /// Compare the file at the destination, if any, with the source by size. A source whose size
+    /// is not known never matches.
+    pub(crate) fn compare(source_len: Option<u64>, existing_len: Option<u64>) -> Self {
+        match (source_len, existing_len) {
+            (_, None) => Self::Absent,
+            (Some(source), Some(existing)) if source == existing => Self::Same,
+            (_, Some(_)) => Self::Different,
         }
     }
 }

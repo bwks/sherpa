@@ -79,6 +79,10 @@ dashmap = "6.1"
 # Timestamps for messages
 jiff = { workspace = true }
 
+# Image download checksums
+sha2 = { workspace = true }
+hex = { workspace = true }
+
 # http client
 reqwest = { workspace = true, features = ["stream", "http2", "form"] }
 http-body-util = "0.1.3"
