@@ -1,6 +1,7 @@
 //! Per-lab Tailscale gateway. All host interaction is through the Docker API.
 use std::collections::HashMap;
 use std::hash::BuildHasher;
+use std::net::IpAddr;
 use std::time::Duration;
 
 use anyhow::{Context, Error, Result, bail, ensure};
@@ -27,6 +28,38 @@ use crate::status::is_missing;
 
 const LAB_LABEL: &str = "sh.erpa.tailscale.lab";
 const ROLE_LABEL: &str = "sh.erpa.role";
+/// The gateway's entrypoint: installs the forwarding rules, then runs the daemon. Its
+/// arguments are the daemon's socket path, the addresses the tailnet must not reach, `--`,
+/// then the routes.
+///
+/// The rules live in mangle/FORWARD, before Tailscale's filter/FORWARD accepts, and are
+/// installed before the daemon starts, on every container start. `SHERPA-TAILNET` takes what
+/// arrives from the tailnet: it drops the refused addresses, returns the routes and drops the
+/// rest. `SHERPA-TAILNET-REPLIES` takes what leaves for the tailnet: it returns replies and
+/// drops the rest.
+const GATEWAY_START_SCRIPT: &str = r#"
+socket="$1"; shift
+mkdir -p "$(dirname "$socket")"
+chmod 0700 /var/lib/tailscale
+for tool in iptables-nft ip6tables-nft; do
+    $tool -t mangle -N SHERPA-TAILNET
+    $tool -t mangle -N SHERPA-TAILNET-REPLIES
+done
+action=DROP
+for address in "$@"; do
+    if [ "$address" = -- ]; then action=RETURN; continue; fi
+    case $address in *:*) tool=ip6tables-nft;; *) tool=iptables-nft;; esac
+    $tool -t mangle -A SHERPA-TAILNET -d "$address" -j $action
+done
+for tool in iptables-nft ip6tables-nft; do
+    $tool -t mangle -A SHERPA-TAILNET -j DROP
+    $tool -t mangle -A SHERPA-TAILNET-REPLIES -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+    $tool -t mangle -A SHERPA-TAILNET-REPLIES -j DROP
+    $tool -t mangle -I FORWARD 1 -i tailscale0 -j SHERPA-TAILNET
+    $tool -t mangle -I FORWARD 2 -o tailscale0 -j SHERPA-TAILNET-REPLIES
+done
+exec tailscaled --state=/var/lib/tailscale/tailscaled.state --socket="$socket"
+"#;
 
 #[derive(Debug)]
 pub struct GatewayConfig {
@@ -35,6 +68,9 @@ pub struct GatewayConfig {
     pub ipv4: String,
     pub ipv6: Option<String>,
     pub routes: Vec<String>,
+    /// Addresses inside the routes that the tailnet must not reach: the server's and the
+    /// router's on the lab's management network.
+    pub refused: Vec<IpAddr>,
 }
 
 /// The gateway container's name for the lab `lab_id`.
@@ -65,6 +101,19 @@ fn owned(labels: &HashMap<String, String>, lab_id: &str) -> bool {
     labels.get(LAB_LABEL).is_some_and(|value| value == lab_id) && is_gateway(labels)
 }
 
+/// The gateway's command: the start script and its arguments.
+fn start_command(config: &GatewayConfig, settings: &TailscaleGatewaySettings) -> Vec<String> {
+    let mut command = vec![
+        GATEWAY_START_SCRIPT.into(),
+        "gateway".into(),
+        settings.socket_path.clone(),
+    ];
+    command.extend(config.refused.iter().map(IpAddr::to_string));
+    command.push("--".into());
+    command.extend(config.routes.iter().cloned());
+    command
+}
+
 fn container_config(
     config: &GatewayConfig,
     settings: &TailscaleGatewaySettings,
@@ -74,14 +123,8 @@ fn container_config(
         hostname: Some(gateway_name(&config.lab_id)),
         labels: Some(labels(&config.lab_id)),
         env: Some(vec!["TS_DEBUG_FIREWALL_MODE=nftables".into()]),
-        // Rules live in mangle/FORWARD, before Tailscale's filter/FORWARD accepts.
-        // Install them before starting the daemon, on every container start.
         entrypoint: Some(vec!["sh".into(), "-ec".into()]),
-        cmd: Some(vec![
-            r#"socket="$1"; shift; mkdir -p "$(dirname "$socket")"; chmod 0700 /var/lib/tailscale; for tool in iptables-nft ip6tables-nft; do $tool -t mangle -N SHERPA-TAILNET; done; for route in "$@"; do case $route in *:*) tool=ip6tables-nft;; *) tool=iptables-nft;; esac; $tool -t mangle -A SHERPA-TAILNET -d "$route" -j RETURN; done; for tool in iptables-nft ip6tables-nft; do $tool -t mangle -A SHERPA-TAILNET -j DROP; $tool -t mangle -I FORWARD 1 -i tailscale0 -j SHERPA-TAILNET; done; exec tailscaled --state=/var/lib/tailscale/tailscaled.state --socket="$socket""#.into(),
-            "gateway".into(),
-            settings.socket_path.clone(),
-        ].into_iter().chain(config.routes.iter().cloned()).collect()),
+        cmd: Some(start_command(config, settings)),
         host_config: Some(HostConfig {
             cap_add: Some(vec!["NET_ADMIN".into(), "NET_RAW".into()]),
             privileged: Some(false),
@@ -100,18 +143,24 @@ fn container_config(
                 typ: Some(MountTypeEnum::VOLUME),
                 ..Default::default()
             }]),
-            tmpfs: Some(HashMap::from([("/run".into(), "rw,noexec,nosuid,size=16m,mode=0700".into())])),
+            tmpfs: Some(HashMap::from([(
+                "/run".into(),
+                "rw,noexec,nosuid,size=16m,mode=0700".into(),
+            )])),
             ..Default::default()
         }),
         networking_config: Some(NetworkingConfig {
-            endpoints_config: Some(HashMap::from([(config.network.clone(), EndpointSettings {
-                ipam_config: Some(EndpointIpamConfig {
-                    ipv4_address: Some(config.ipv4.clone()),
-                    ipv6_address: config.ipv6.clone(),
+            endpoints_config: Some(HashMap::from([(
+                config.network.clone(),
+                EndpointSettings {
+                    ipam_config: Some(EndpointIpamConfig {
+                        ipv4_address: Some(config.ipv4.clone()),
+                        ipv6_address: config.ipv6.clone(),
+                        ..Default::default()
+                    }),
                     ..Default::default()
-                }),
-                ..Default::default()
-            })])),
+                },
+            )])),
         }),
         ..Default::default()
     }
@@ -570,12 +619,13 @@ mod tests {
             ipv4: "192.0.2.3".into(),
             ipv6: None,
             routes: vec!["192.0.2.0/24".into()],
+            refused: Vec::new(),
         };
         let body = container_config(&config, &settings);
         assert_eq!(body.image.as_deref(), Some(settings.image.as_str()));
         let command = body.cmd.unwrap();
         assert_eq!(command[2], settings.socket_path);
-        assert_eq!(command[3], config.routes[0]);
+        assert!(command[3..].contains(&config.routes[0]));
         assert!(!command[0].contains(&settings.socket_path));
         let enrollment = enrollment_command(&config.routes, &settings);
         assert_eq!(enrollment[4], format!("--socket={}", settings.socket_path));
@@ -945,6 +995,7 @@ mod tests {
                 .split(',')
                 .map(str::to_owned)
                 .collect(),
+            refused: Vec::new(),
         }
     }
 
@@ -1067,6 +1118,7 @@ mod tests {
             ipv4: "192.0.2.3".into(),
             ipv6: None,
             routes: vec!["192.0.2.0/24".into()],
+            refused: Vec::new(),
         };
         let body = container_config(&config, &TailscaleGatewaySettings::default());
         let host = body.host_config.unwrap();
@@ -1097,8 +1149,7 @@ mod tests {
             let settings = test_settings()?;
             let lab_id = format!("tnsmoke{index}{}", std::process::id());
             let network = format!("sherpa-{lab_id}");
-            let ipv6_prefix = format!("fdf{index:x}:{:x}::/64", std::process::id() % 65536);
-            let ipv6_address = format!("fdf{index:x}:{:x}::3", std::process::id() % 65536);
+            let ipv6_base = format!("fdf{index:x}:{:x}::", std::process::id() % 65536);
             let created = docker
                 .create_network(NetworkCreateRequest {
                     name: network.clone(),
@@ -1106,7 +1157,7 @@ mod tests {
                     enable_ipv6: Some(true),
                     ipam: Some(Ipam {
                         config: Some(vec![IpamConfig {
-                            subnet: Some(ipv6_prefix.clone()),
+                            subnet: Some(format!("{ipv6_base}/64")),
                             ..Default::default()
                         }]),
                         ..Default::default()
@@ -1114,22 +1165,14 @@ mod tests {
                     ..Default::default()
                 })
                 .await?;
-            let config = match smoke_config(
-                &docker,
-                &lab_id,
-                &network,
-                &created.id,
-                ipv6_prefix,
-                ipv6_address,
-            )
-            .await
-            {
-                Ok(config) => config,
-                Err(error) => {
-                    docker.remove_network(&created.id).await?;
-                    return Err(error);
-                }
-            };
+            let config =
+                match smoke_config(&docker, &lab_id, &network, &created.id, &ipv6_base).await {
+                    Ok(config) => config,
+                    Err(error) => {
+                        docker.remove_network(&created.id).await?;
+                        return Err(error);
+                    }
+                };
             let mut gateway = Self {
                 docker,
                 settings,
@@ -1172,13 +1215,18 @@ mod tests {
                 ("iptables-nft", &self.config.routes[0]),
                 ("ip6tables-nft", &self.config.routes[1]),
             ] {
-                let rules = tailnet_rules(&self.docker, &self.id, tool, &self.settings).await?;
+                let rules = self.mangle_rules(tool, "SHERPA-TAILNET").await?;
                 ensure!(
                     rules.contains(route.as_str()) && rules.contains("DROP"),
                     "missing {tool} forwarding restriction: {rules}"
                 );
             }
             Ok(())
+        }
+
+        /// The rules of `chain` in `tool`'s mangle table in the gateway.
+        async fn mangle_rules(&self, tool: &str, chain: &str) -> Result<String> {
+            self.exec(&[tool, "-t", "mangle", "-S", chain], None).await
         }
 
         /// Remove the gateway, its volume and its network, then report `result`.
@@ -1192,15 +1240,15 @@ mod tests {
         }
     }
 
-    /// The gateway configuration for a test network: the third IPv4 address of its subnet and
-    /// `ipv6_address`, advertising the subnet and `ipv6_prefix`.
+    /// The gateway configuration for a test network whose IPv6 /64 starts `ipv6_base`: the
+    /// third address of its IPv4 subnet and of the /64, advertising both, and refusing the
+    /// first and second addresses of each.
     async fn smoke_config(
         docker: &Docker,
         lab_id: &str,
         network: &str,
         network_id: &str,
-        ipv6_prefix: String,
-        ipv6_address: String,
+        ipv6_base: &str,
     ) -> Result<GatewayConfig> {
         let details = docker
             .inspect_network(network_id, None::<InspectNetworkOptions>)
@@ -1221,10 +1269,16 @@ mod tests {
             lab_id: lab_id.to_string(),
             network: network.to_string(),
             ipv4: format!("{prefix}.3"),
-            ipv6: Some(ipv6_address),
+            ipv6: Some(format!("{ipv6_base}3")),
             routes: vec![
                 subnet.subnet.context("test network missing subnet")?,
-                ipv6_prefix,
+                format!("{ipv6_base}/64"),
+            ],
+            refused: vec![
+                format!("{prefix}.1").parse()?,
+                format!("{prefix}.2").parse()?,
+                format!("{ipv6_base}1").parse()?,
+                format!("{ipv6_base}2").parse()?,
             ],
         })
     }
@@ -1235,6 +1289,74 @@ mod tests {
     -> Result<()> {
         let gateway = SmokeGateway::start(0).await?;
         let result = gateway.check_forwarding_rules().await;
+        gateway.remove(result).await
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Linux Docker and TUN; creates and removes a disposable network"]
+    async fn tailnet_routes_006_traffic_from_the_tailnet_to_the_server_and_the_router_is_dropped_before_the_routes_are_accepted()
+    -> Result<()> {
+        let gateway = SmokeGateway::start(3).await?;
+        let result = async {
+            for (tool, host_prefix, route, refused) in [
+                (
+                    "iptables-nft",
+                    "/32",
+                    &gateway.config.routes[0],
+                    &gateway.config.refused[..2],
+                ),
+                (
+                    "ip6tables-nft",
+                    "/128",
+                    &gateway.config.routes[1],
+                    &gateway.config.refused[2..],
+                ),
+            ] {
+                let rules = gateway.mangle_rules(tool, "SHERPA-TAILNET").await?;
+                let position = |rule: String| rules.lines().position(|line| line.ends_with(&rule));
+                let accepted = position(format!("-d {route} -j RETURN"))
+                    .with_context(|| format!("{tool} does not return {route}: {rules}"))?;
+                for address in refused {
+                    let dropped = position(format!("-d {address}{host_prefix} -j DROP"))
+                        .with_context(|| format!("{tool} does not drop {address}: {rules}"))?;
+                    ensure!(
+                        dropped < accepted,
+                        "{tool} returns {route} before it drops {address}: {rules}"
+                    );
+                }
+            }
+            Ok(())
+        }
+        .await;
+        gateway.remove(result).await
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Linux Docker and TUN; creates and removes a disposable network"]
+    async fn tailnet_routes_007_only_replies_are_forwarded_from_the_lab_to_the_tailnet()
+    -> Result<()> {
+        let gateway = SmokeGateway::start(4).await?;
+        let result = async {
+            for tool in ["iptables-nft", "ip6tables-nft"] {
+                let forward = gateway.mangle_rules(tool, "FORWARD").await?;
+                ensure!(
+                    forward.lines().any(|line| line == "-A FORWARD -o tailscale0 -j SHERPA-TAILNET-REPLIES"),
+                    "{tool} does not filter what leaves for the tailnet: {forward}"
+                );
+                let rules = gateway.mangle_rules(tool, "SHERPA-TAILNET-REPLIES").await?;
+                let rules: Vec<&str> = rules.lines().filter(|line| line.starts_with("-A ")).collect();
+                ensure!(
+                    rules
+                        == [
+                            "-A SHERPA-TAILNET-REPLIES -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN",
+                            "-A SHERPA-TAILNET-REPLIES -j DROP",
+                        ],
+                    "{tool} forwards more than replies to the tailnet: {rules:?}"
+                );
+            }
+            Ok(())
+        }
+        .await;
         gateway.remove(result).await
     }
 
@@ -1308,29 +1430,6 @@ mod tests {
         }
         .await;
         gateway.remove(result).await
-    }
-
-    /// The `SHERPA-TAILNET` chain in `tool`'s mangle table in the gateway `id`.
-    async fn tailnet_rules(
-        docker: &Docker,
-        id: &str,
-        tool: &str,
-        settings: &TailscaleGatewaySettings,
-    ) -> Result<String> {
-        exec(
-            docker,
-            id,
-            vec![
-                tool.into(),
-                "-t".into(),
-                "mangle".into(),
-                "-S".into(),
-                "SHERPA-TAILNET".into(),
-            ],
-            None,
-            settings,
-        )
-        .await
     }
 
     /// Print the gateway's last log lines, to show why its daemon did not start.

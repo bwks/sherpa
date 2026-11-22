@@ -178,7 +178,7 @@ The gateway daemon tests need Docker with TUN and nftables, and no tailnet. Each
 removes its own network, gateway and volume, and pulls the gateway image if it is absent:
 
 ```sh
-cargo test -p container -- --ignored tailnet_routes_002 tailnet_key_009 tailnet_suspend_010
+cargo test -p container -- --ignored tailnet_routes_ tailnet_key_009 tailnet_suspend_010
 ```
 
 The enrollment tests join a real tailnet. Use a disposable test tailnet and a disposable Docker

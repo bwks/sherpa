@@ -39,9 +39,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 010 | After an up, the key is not on the server: not in the database, the lab folder, sherpad's log, the gateway's `docker inspect`, its processes' command lines or its `/run` (no test yet; real tailnet) | e2e |
 | 011 | A lab with `[tailscale]` enabled created from the web UI is refused, saying to use the CLI: the web UI sends no key (no test yet; needs server TLS) | integration |
 
-## `tailnet_routes`: the gateway advertises the lab's management subnets and forwards to nothing else
+## `tailnet_routes`: the gateway advertises the lab's management subnets, forwards from the tailnet only to the lab's nodes and back only replies
 
-**Statement:** the gateway advertises the lab's own management subnets, its IPv4 /24 and its IPv6 /64 when it has one, and forwards what arrives from the tailnet only to them, from its own address.
+**Statement:** the gateway advertises the lab's own management subnets, its IPv4 /24 and its IPv6 /64 when it has one, forwards what arrives from the tailnet only to them, from its own address, and never to the server's or the lab router's address in them; from the lab to the tailnet it forwards only replies to connections the tailnet opened, in IPv4 and IPv6.
 **Relied on by:** the user; the other labs and networks of the server, which a lab's gateway must not open. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -51,6 +51,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 003 | From another tailnet device, a node of a second lab and an address of the server outside the lab's subnets do not answer through the first lab's gateway (no test yet; real tailnet) | e2e |
 | 004 | A node sees a connection from the tailnet as coming from the gateway's address, and answers it with no route to the tailnet (no test yet; real tailnet) | e2e |
 | 005 | The gateway takes no routes and no DNS settings from the tailnet (no test yet; real tailnet) | integration |
+| 006 | A started gateway's forwarding rules for traffic from the tailnet drop the server's and the router's addresses, IPv4 and IPv6, before they accept the routes | integration |
+| 007 | A started gateway's forwarding rules for traffic from the lab to the tailnet accept replies and drop the rest, in IPv4 and IPv6 | integration |
 
 ## `tailnet_status`: Sherpa reports the gateway's connection and route approval
 

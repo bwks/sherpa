@@ -1,4 +1,6 @@
 //! Tailnet orchestration; callers authenticate and authorize the lab first.
+use std::net::IpAddr;
+
 use anyhow::{Context, Result, ensure};
 use container::tailscale::{self, GatewayConfig};
 use shared::data::{DbLab, LabInfo, TailnetAuthKey, TailnetStatus};
@@ -50,6 +52,7 @@ pub(crate) async fn provision(
             .map(|net| get_ipv6_addr(net, TAILSCALE_GATEWAY_HOST_OFFSET).map(|ip| ip.to_string()))
             .transpose()?,
         routes: routes(lab),
+        refused: refused(info),
     };
     let settings = &state.config.tailscale;
     let id = tailscale::create_gateway(&state.docker, &config, settings).await?;
@@ -72,6 +75,15 @@ fn routes(lab: &DbLab) -> Vec<String> {
     let mut routes = vec![lab.management_network.clone()];
     routes.extend(lab.management_network_v6.iter().cloned());
     routes
+}
+
+/// The addresses inside the lab's routes that the tailnet must not reach: the server's and the
+/// router's on the management network.
+fn refused(info: &LabInfo) -> Vec<IpAddr> {
+    let mut refused = vec![IpAddr::V4(info.ipv4_gateway), IpAddr::V4(info.ipv4_router)];
+    refused.extend(info.ipv6_gateway.map(IpAddr::V6));
+    refused.extend(info.ipv6_router.map(IpAddr::V6));
+    refused
 }
 
 #[instrument(skip(state, lab), fields(lab_id = %lab.lab_id), level = "debug")]
