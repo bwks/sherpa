@@ -8,9 +8,10 @@
 //! - [`USERNAME_FAILURE_LIMIT`] failures for one username, from any addresses, lock the username,
 //!   which slows a guess spread over many addresses.
 //!
-//! A locked key is refused for [`LOCKOUT`]. A successful login clears its username's counts: its
-//! pairs and its username-alone count. Unknown usernames are counted like known ones, so a
-//! lockout says nothing about which usernames exist.
+//! A locked key is refused for [`LOCKOUT`]. A successful login clears only its own pair, so a
+//! pair locked from another address stays locked and the username-alone count keeps counting
+//! until its window ends. Unknown usernames are counted like known ones, so a lockout says
+//! nothing about which usernames exist.
 //!
 //! An attempt is counted when it starts, not when it fails, so logins made at the same moment
 //! cannot check more passwords than the limit allows. The count is given back when the attempt
@@ -208,19 +209,17 @@ impl LoginLimiter {
 }
 
 impl Attempt<'_> {
-    /// The password was right: clear the username's counts, its pairs from every address and
-    /// its username-alone count, and give back the address's.
+    /// The password was right: clear this pair's count, and give back the address's and the
+    /// username's, so the attempt is counted nowhere.
     pub(crate) fn succeeded(mut self) {
         self.ended = true;
         let mut tables = self.limiter.lock_tables();
-        let username = &self.pair.username;
-        tables
-            .pairs
-            .entries
-            .retain(|pair, _| pair.username != *username);
-        tables.usernames.entries.remove(username);
+        tables.pairs.entries.remove(&self.pair);
         if self.counted.address {
             tables.addresses.give_back(&self.pair.address);
+        }
+        if self.counted.username {
+            tables.usernames.give_back(&self.pair.username);
         }
     }
 
@@ -482,21 +481,19 @@ mod tests {
     }
 
     #[test]
-    fn user_login_022_a_successful_login_clears_its_usernames_pairs_and_username_count() {
+    fn user_login_022_a_successful_login_clears_its_own_pair_and_no_other() {
         let (limiter, _clock) = limiter();
-        // 4 failures from each of 12 addresses: 4 on each pair and 48 on the username. Uncleared,
-        // the second round would lock every pair at 5 and the username at 50.
-        for n in 0..12 {
-            fail(&limiter, "alice", nth_address(n), 4);
-        }
+        fail(&limiter, "alice", ADDRESS, 4);
+        fail(&limiter, "alice", OTHER_ADDRESS, 4);
         limiter
-            .begin("alice", nth_address(0))
+            .begin("alice", ADDRESS)
             .expect("attempt let through")
             .succeeded();
-        for n in 0..12 {
-            fail(&limiter, "alice", nth_address(n), 4);
-        }
-        assert!(limiter.begin("alice", nth_address(0)).is_some());
+
+        fail(&limiter, "alice", ADDRESS, 4);
+        assert!(limiter.begin("alice", ADDRESS).is_some());
+        fail(&limiter, "alice", OTHER_ADDRESS, 1);
+        assert!(limiter.begin("alice", OTHER_ADDRESS).is_none());
     }
 
     #[test]
@@ -665,5 +662,24 @@ mod tests {
         for n in 0..MAX_TRACKED {
             assert!(limiter.begin(&format!("user{n}"), nth_address(n)).is_none());
         }
+    }
+
+    #[test]
+    fn user_login_035_a_success_leaves_a_pair_locked_elsewhere_and_the_username_count_unchanged() {
+        let (limiter, _clock) = limiter();
+        fail(&limiter, "alice", OTHER_ADDRESS, 5);
+        limiter
+            .begin("alice", ADDRESS)
+            .expect("attempt let through")
+            .succeeded();
+        assert!(limiter.begin("alice", OTHER_ADDRESS).is_none());
+
+        // 5 failures counted, so 44 more leave the username one short of its limit of 50.
+        for n in 0..44 {
+            fail(&limiter, "alice", nth_address(n), 1);
+        }
+        assert!(limiter.begin("alice", ADDRESS).is_some());
+        fail(&limiter, "alice", nth_address(44), 1);
+        assert!(limiter.begin("alice", ADDRESS).is_none());
     }
 }

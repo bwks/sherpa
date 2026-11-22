@@ -155,7 +155,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 019 | A locked username and address pair is refused for 15 minutes from when it was locked, and let in after | unit |
 | 020 | A locked address is refused for 15 minutes from when it was locked, and let in after | unit |
 | 021 | Failures 15 minutes or more after a pair's first counted failure start a new count | unit |
-| 022 | A successful login clears its username's counts: its pairs from every address and its count from any address | unit |
+| 022 | A successful login clears the count of its own username and address pair, IPv6 per /64, and of no other pair | unit |
 | 023 | A successful login does not count toward its address's limit | unit |
 | 024 | A username is counted as accounts are looked up, in any case and with surrounding space | unit |
 | 025 | An IPv4 address is counted the same whether the connection gives it as IPv4 or as IPv4-mapped IPv6 | unit |
@@ -168,6 +168,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 032 | A locked pair leaves its username able to log in from another address | unit |
 | 033 | 50 failed logins for a username within 15 minutes, from any addresses, lock it from every address for 15 minutes, and leave other usernames free to log in from those addresses | unit |
 | 034 | When a table is full of locks, a new attempt drops none of them, is not counted there, and is let through to log in | unit |
+| 035 | After a successful login from one address, the username's pair locked from another address is still refused, and its count from any address is unchanged | unit |
 
 ## `user_sessions`: a token works only while its session lasts
 
