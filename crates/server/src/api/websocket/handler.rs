@@ -13,6 +13,7 @@ use uuid::Uuid;
 use super::connection::Connection;
 use super::messages::{ClientMessage, ServerMessage};
 use super::rpc;
+use crate::api::request_parse::{InvalidRequest, parse_json};
 use crate::daemon::state::AppState;
 use shared::data::ConnectedMsg;
 
@@ -100,13 +101,14 @@ async fn handle_socket_inner(socket: WebSocket, state: AppState, conn_id: Uuid) 
     tracing::info!("WebSocket connection closed: {}", conn_id);
 }
 
-/// Handle messages from client
+/// Handle messages from client. A message that is not a request is refused with a fixed
+/// message naming what is wrong, never what was sent.
 fn handle_client_message(
     text: &str,
     connection: &Arc<Connection>,
     state: &AppState,
-) -> Result<(), anyhow::Error> {
-    let message: ClientMessage = serde_json::from_str(text)?;
+) -> Result<(), InvalidRequest> {
+    let message: ClientMessage = parse_json(text.as_bytes())?;
 
     match message {
         ClientMessage::RpcRequest { id, method, params } => {

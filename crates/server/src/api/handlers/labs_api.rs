@@ -2,12 +2,13 @@
 
 use anyhow::Context;
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::response::{IntoResponse, sse};
 use serde::Deserialize;
 use std::future::Future;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::api::request_parse::{JsonBody, QueryParams};
 use crate::api::sse::json_progress_stream;
 use crate::auth::policy::{require_lab_access, require_lab_owner, require_lab_starter};
 use crate::daemon::state::AppState;
@@ -102,7 +103,7 @@ pub async fn get_lab(
 pub async fn get_labs_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    Query(params): Query<ListLabsQuery>,
+    QueryParams(params): QueryParams<ListLabsQuery>,
 ) -> Result<Json<ListLabsResponse>, ApiError> {
     let auth = auth.into_context();
     let username = params.username.as_deref().unwrap_or(&auth.username).trim();
@@ -163,7 +164,7 @@ pub(super) fn require_admin_auth(auth: &AuthenticatedUser) -> Result<(), ApiErro
 pub async fn create_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    Json(payload): Json<UpRequest>,
+    JsonBody(payload): JsonBody<UpRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let auth = auth.into_context();
     // Checked before the stream opens so a refusal is a 403, not an error event.
@@ -212,7 +213,7 @@ pub async fn down_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
     Path(lab_id): Path<String>,
-    Json(payload): Json<NodeActionPayload>,
+    JsonBody(payload): JsonBody<NodeActionPayload>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
     let response = run_detached(async move {
@@ -248,7 +249,7 @@ pub async fn resume_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
     Path(lab_id): Path<String>,
-    Json(payload): Json<NodeActionPayload>,
+    JsonBody(payload): JsonBody<NodeActionPayload>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
     let response = run_detached(async move {
@@ -275,7 +276,7 @@ pub async fn redeploy_node_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
     Path((lab_id, node_name)): Path<(String, String)>,
-    Json(payload): Json<serde_json::Value>,
+    JsonBody(payload): JsonBody<serde_json::Value>,
 ) -> Result<impl IntoResponse, ApiError> {
     let auth = auth.into_context();
     // Checked before the body is validated and the stream opens, so a non-owner gets 403.
@@ -345,7 +346,7 @@ pub async fn update_impairment_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
     Path((lab_id, link_index)): Path<(String, u16)>,
-    Json(payload): Json<UpdateImpairmentRequest>,
+    JsonBody(payload): JsonBody<UpdateImpairmentRequest>,
 ) -> Result<Json<UpdateImpairmentResponse>, ApiError> {
     let request = UpdateImpairmentRequest {
         lab_id,

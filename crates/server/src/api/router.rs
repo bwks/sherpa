@@ -1,7 +1,8 @@
+use axum::Router;
+use axum::extract::Path;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
-use axum::{Router, extract::Path};
 use rust_embed::Embed;
 use tower_http::trace::TraceLayer;
 

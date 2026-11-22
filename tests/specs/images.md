@@ -27,7 +27,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 012 | A VM and a unikernel of one model imported at the same version each keep their own file in the one version folder (no test yet) | integration |
 | 013 | An import with `--kind container` loads a tar archive into Docker and records the version (no test yet) | integration |
 | 014 | A container archive that cannot be read through is a failed import | integration |
-| 015 | An import request with a field the server does not take, such as an image setting an older client sends, is refused naming the field | unit |
+| 015 | An import request with a field the server does not take, such as an image setting an older client sends, is refused naming its path | unit |
 | 016 | An upload, in the web UI or by `POST /api/v1/images/upload`, imports its file as import does (no test yet) | integration |
 | 017 | An upload without its model, version or file, with an empty version, an unknown model or a kind the model does not take, is refused saying which | unit |
 | 018 | An upload without a kind takes the model's default kind, and with one takes that kind | unit |

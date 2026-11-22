@@ -1,12 +1,13 @@
 //! The web UI's admin pages: dashboard, labs, tools and users.
 
 use super::labs_api::run_detached;
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::{Form, Json};
 use serde::Deserialize;
 
+use crate::api::request_parse::FormBody;
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
 use crate::services::{clean, import, user_delete, user_password};
@@ -184,7 +185,7 @@ pub async fn admin_tools_clean_handler(
 pub async fn admin_tools_scan_handler(
     admin: AdminUser,
     State(state): State<AppState>,
-    Form(form): Form<ScanForm>,
+    FormBody(form): FormBody<ScanForm>,
 ) -> Result<impl IntoResponse, ApiError> {
     tracing::info!(
         admin = %admin.username,
@@ -275,7 +276,7 @@ pub async fn admin_update_user_password_handler(
     State(state): State<AppState>,
     Path(target_username): Path<String>,
     admin: AdminUser,
-    Form(form): Form<AdminUpdatePasswordForm>,
+    FormBody(form): FormBody<AdminUpdatePasswordForm>,
 ) -> Result<Response, ApiError> {
     tracing::info!(
         "Admin '{}' attempting to update password for user '{}'",

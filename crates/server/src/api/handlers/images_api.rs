@@ -3,11 +3,12 @@
 use super::images_web::parse_upload_fields;
 use super::labs_api::require_admin_auth;
 use axum::Json;
-use axum::extract::{Multipart, Path, Query, State};
+use axum::extract::{Multipart, Path, State};
 use axum::response::{IntoResponse, sse};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::api::request_parse::{JsonBody, QueryParams};
 use crate::api::sse::json_progress_stream;
 use crate::daemon::state::AppState;
 use crate::services::progress::ProgressSender;
@@ -37,7 +38,7 @@ pub(super) fn path_model_kind(model: &str, kind: &str) -> Result<ModelKind, ApiE
 pub async fn list_images_json(
     _auth: AuthenticatedUser,
     State(state): State<AppState>,
-    Query(params): Query<ListImagesRequest>,
+    QueryParams(params): QueryParams<ListImagesRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let response = import::list_images(params, &state)
         .await
@@ -56,7 +57,7 @@ pub async fn show_image_json(
     _auth: AuthenticatedUser,
     State(state): State<AppState>,
     Path((model, kind)): Path<(String, String)>,
-    Query(params): Query<HashMap<String, String>>,
+    QueryParams(params): QueryParams<HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let model_kind = path_model_kind(&model, &kind)?;
 
@@ -81,7 +82,7 @@ pub async fn show_image_json(
 pub async fn import_image_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    Json(request): Json<ImportRequest>,
+    JsonBody(request): JsonBody<ImportRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_admin_auth(&auth)?;
 
@@ -212,7 +213,7 @@ pub async fn set_default_image_json(
 pub async fn scan_images_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    Json(request): Json<ScanImagesRequest>,
+    JsonBody(request): JsonBody<ScanImagesRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin_auth(&auth)?;
 
@@ -231,7 +232,7 @@ pub async fn scan_images_json(
 pub async fn pull_image_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    Json(request): Json<ContainerPullRequest>,
+    JsonBody(request): JsonBody<ContainerPullRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_admin_auth(&auth)?;
 
@@ -253,7 +254,7 @@ pub async fn pull_image_json(
 pub async fn download_image_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    Json(request): Json<DownloadImageRequest>,
+    JsonBody(request): JsonBody<DownloadImageRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_admin_auth(&auth)?;
 

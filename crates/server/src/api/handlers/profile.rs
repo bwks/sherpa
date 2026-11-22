@@ -5,6 +5,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 
+use crate::api::request_parse::FormBody;
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
 use crate::services::{user_device_password, user_password};
@@ -98,7 +99,7 @@ pub async fn profile_handler(
 pub async fn update_password_handler(
     State(state): State<AppState>,
     auth: AuthenticatedUserFromCookie,
-    axum::Form(form): axum::Form<UpdatePasswordForm>,
+    FormBody(form): FormBody<UpdatePasswordForm>,
 ) -> impl IntoResponse {
     // 1. Validate passwords match
     if form.new != form.confirm_new {
@@ -145,7 +146,7 @@ pub async fn update_password_handler(
 pub async fn update_device_password_handler(
     State(state): State<AppState>,
     auth: AuthenticatedUserFromCookie,
-    axum::Form(form): axum::Form<UpdateDevicePasswordForm>,
+    FormBody(form): FormBody<UpdateDevicePasswordForm>,
 ) -> impl IntoResponse {
     if form.device != form.confirm_device {
         return PasswordErrorTemplate {
@@ -193,7 +194,7 @@ pub async fn update_device_password_handler(
 pub async fn add_ssh_key_handler(
     State(state): State<AppState>,
     auth: AuthenticatedUserFromCookie,
-    axum::Form(form): axum::Form<AddSshKeyForm>,
+    FormBody(form): FormBody<AddSshKeyForm>,
 ) -> impl IntoResponse {
     // 1. Validate SSH key format
     if let Err(e) = validate_ssh_key(&form.ssh_key) {

@@ -1,15 +1,16 @@
 //! The web UI's lab pages, lab and node actions, jobs and lab creation.
 
 use super::labs_api::run_detached;
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{Html, IntoResponse, Response, sse};
-use axum::{Form, Json};
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
 use strum::IntoEnumIterator;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::api::request_parse::FormBody;
 use crate::api::sse::{destroy_progress_stream, up_progress_stream};
 use crate::auth::policy::{
     LabRule, check_lab_rule, require_lab_access, require_lab_owner, require_lab_starter,
@@ -901,7 +902,7 @@ pub async fn lab_create_page_handler(auth: AuthenticatedUserFromCookie) -> impl 
 pub async fn lab_create_post_handler(
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
-    Form(form): Form<HashMap<String, String>>,
+    FormBody(form): FormBody<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let auth = auth.into_context();
     if let Err(refusal) = require_lab_starter(&auth) {
