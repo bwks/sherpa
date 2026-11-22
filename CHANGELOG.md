@@ -2,6 +2,148 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.2] - 2026-11-22
+
+### Upgrade notes
+
+- **Manifests:** the `[ztp_server]` table and the per-node `ssh` group are gone. A manifest that still sets either is refused as an unknown field, naming the line; delete them from your manifests.
+- **Logins:** three failed logins in a row lock an account, and every refusal reads "username and/or password is incorrect". An admin unlocks an account with `sherpa server user unlock <username>` or the Unlock button on the admin users page. If `admin` itself is locked, root stops `sherpad`, runs `sudo -u sherpa sherpad user unlock admin`, and starts `sherpad` again.
+- **Server update:**
+  - The update backs up the database and its key to `/var/backups/sherpa/update-<time>/` before it migrates, and puts the old release back if the new one fails to start. Backups are kept; remove old ones yourself.
+  - `/opt/sherpa`, its `bin` folder and the binaries are now owned by root.
+  - The first update with this release's script reinstalls the binaries even at the same version.
+- **API:** a request that does not parse answers `400` with the JSON error object and the field's path, never the value sent. It was `422`, or `415` for a missing JSON content type.
+- Update the CLI and the server together: `sherpa server user unlock` needs a 0.7.2 server.
+
+### Bug Fixes
+
+- Add profile SSH keys through the shared key service by @bwks ([86a784e](https://github.com/bwks/sherpa/commit/86a784e3f966bb05636bbf880258682b41d44ce9))
+- Read forms and queries through serde_path_to_error, and drop PathParams by @bwks ([ca6bef2](https://github.com/bwks/sherpa/commit/ca6bef21845f9c9d28ae001a6bc7ecc54f5b171a))
+- Read requests straight into their type, answering with the path only by @bwks ([97d0c13](https://github.com/bwks/sherpa/commit/97d0c13d3f508c02cffe5bdfba3f2f0782c013ed))
+- Drop the release checksums by @bwks ([25cb46b](https://github.com/bwks/sherpa/commit/25cb46b5bfbd2c627bd4b4bc4c95171c5556becf))
+- Verify every download: release checksums, Docker's apt repository, router digest by @bwks ([fe1f83d](https://github.com/bwks/sherpa/commit/fe1f83dea5b043e9f57f7667a607a31f6ef8aa44))
+- Read the device password state from the user's own record by @bwks ([9e084e2](https://github.com/bwks/sherpa/commit/9e084e280c91746f5c8cd097dcc6b151c80d2af9))
+- Make /opt/sherpa root's and change nothing as root through a symlink by @bwks ([f3f3d97](https://github.com/bwks/sherpa/commit/f3f3d97e47105c14211e89f529404fedd72450a7))
+- Drop the installer suite's stale server SSH key check by @bwks ([7210d9b](https://github.com/bwks/sherpa/commit/7210d9bb9ba368d36c061aac6a65903c8c14f5c8))
+- Write a VM's config ISOs and disk images 0600 by @bwks ([757e0f9](https://github.com/bwks/sherpa/commit/757e0f9557f7cdd8c244258a9038f037d352d3a3))
+- Download first, back up the database and key, and go back on failure by @bwks ([52115e2](https://github.com/bwks/sherpa/commit/52115e2b744cfdf8cf19eb0010cf0e7aa8c6e5b7))
+- Read requests through serde_path_to_error, not serde's text by @bwks ([d48bb4e](https://github.com/bwks/sherpa/commit/d48bb4e4c8178dc8ac5c806c5730b66564179d34))
+- Stop on a lab-info.toml that does not parse by @bwks ([eee52b6](https://github.com/bwks/sherpa/commit/eee52b6635ef71ceb7cbcdd12f5c8710153814a2))
+- Answer a request that does not parse without the value sent by @bwks ([456aa2d](https://github.com/bwks/sherpa/commit/456aa2d51021c0ee4fd5c3d5d9ac1942c8aec970))
+- Recover poisoned read-error lock in image load by @bwks ([cdbb9d6](https://github.com/bwks/sherpa/commit/cdbb9d601354d6039b4f4950a21a2748e9c33fbf))
+- Close the comment-number loophole and check ebpf-redirect for unwrap by @bwks ([05f8825](https://github.com/bwks/sherpa/commit/05f88252aaa58354224c45df991db4205a4e6474))
+- Up checks node images before connecting to libvirt by @bwks ([1ad3954](https://github.com/bwks/sherpa/commit/1ad3954842dc7226a964011cd42ef98e07c5168a))
+- Link --pr sets the task's pull request by @bwks ([b707526](https://github.com/bwks/sherpa/commit/b7075268b99a09d90a280a0e151d91597db2b995))
+- Images.toml sources use the host's 0.7 folder names [skip ci] by @bwks ([80c511f](https://github.com/bwks/sherpa/commit/80c511f3dacbba3163296921309fd0b26b995ac1))
+
+### CI
+
+- Run the checks on this pull request by @bwks ([7d34182](https://github.com/bwks/sherpa/commit/7d34182caeb2ddc93a03237dade6e7924547a193))
+- Skip the build jobs on docs-only pull requests by @bwks ([30280f6](https://github.com/bwks/sherpa/commit/30280f6d16a158adf3fde11a20e154da0b4a043f))
+- Run the checks on the account_keys change by @bwks ([e7526ec](https://github.com/bwks/sherpa/commit/e7526ec671b6cb69f6cdc8912b6f71319ac1ed5c))
+
+### Documentation
+
+- Rewrite AGENT_BUS.md to its design by @bwks ([48f2d32](https://github.com/bwks/sherpa/commit/48f2d32636c6344751220c672003482208db48e6))
+- Delete LAB_FOLDER and STATE_MACHINES by @bwks ([b97930e](https://github.com/bwks/sherpa/commit/b97930ec843d8322a7a926038c3c1bc5f7058662))
+- Rewrite SERVER, DATABASE, NODE_SETTINGS, GUEST_PROVISIONING, PROVISIONERS and BUILD by @bwks ([93ed6f9](https://github.com/bwks/sherpa/commit/93ed6f9d245107b0f7fecadec61d766bb13b2239))
+- Rewrite ZTP, ZTP_ISO, P2P, TALOS and RELEASE to their design by @bwks ([f547808](https://github.com/bwks/sherpa/commit/f547808ad51219d04a24520baefb677e194b0f06))
+- Delete stale investigations, PRDs and seven architecture docs by @bwks ([652d687](https://github.com/bwks/sherpa/commit/652d687c181a599b2db942d96dcc9b52f8df8213))
+- Add lab identity, lab phase and cancel to the lab lifecycle spec by @bwks ([8669d13](https://github.com/bwks/sherpa/commit/8669d13ca46bc4b1c84381cf51da46e79b9074a7))
+- Remove the old per-crate spec folders by @bwks ([ecc0cef](https://github.com/bwks/sherpa/commit/ecc0cef70e352ab9ded5178abd1d5f5a60a4fa48))
+- Add the removed-code rule to AGENTS.md and fix the Anyhow line by @bwks ([c3ea749](https://github.com/bwks/sherpa/commit/c3ea7494584de475e8e3068b8b0bd3f3bd7d7219))
+- Draft the Install and update spec by @bwks ([a046370](https://github.com/bwks/sherpa/commit/a04637010b317d557d5cf06332defcf601b50fd4))
+- Write strings with quotes as raw strings [skip ci] by @bwks ([9aa3f5a](https://github.com/bwks/sherpa/commit/9aa3f5a2b4bb2215a242b639fd27209abdf2aab8))
+
+### Features
+
+- Sherpad user unlock, so root needs no sqlite3 to unlock admin by @bwks ([36e6a67](https://github.com/bwks/sherpa/commit/36e6a6762396c7d3ecac4022e107491f93e87a05))
+- Lock an account after 3 failed logins in a row by @bwks ([556a0c2](https://github.com/bwks/sherpa/commit/556a0c2854df6bf6921b8763430584af8f739ed8))
+- Make the SSH jump through the Sherpa server optional by @bwks ([d6b41af](https://github.com/bwks/sherpa/commit/d6b41af58ebdf5d7cdeac3cbd48a1795dccd23bb))
+
+### Miscellaneous
+
+- Remove the manifest's ztp_server table by @bwks ([7bfa0ea](https://github.com/bwks/sherpa/commit/7bfa0ea41edbb21cb8f934785de23b493072ffe9))
+- Remove code for older agent-bus versions by @bwks ([223ed8a](https://github.com/bwks/sherpa/commit/223ed8ad37565d21e1725b1c73cdbcf5abe03c7e))
+- Enforce code rules with Clippy absolute_paths and check scripts by @bwks ([4299613](https://github.com/bwks/sherpa/commit/4299613a4858f27ef82f77a420379e6b4d8978b5))
+- Gh-commit commits as the checkout's own identity [skip ci] by @bwks ([0c5b30e](https://github.com/bwks/sherpa/commit/0c5b30ebd54356d7071466a02f785a2ee8011fd1))
+- Test specs by behaviour: rules and the lab lifecycle spec [skip ci]
+
+Every test proves one case of a behaviour in a spec and is named by the
+case's ID, <behaviour>_<NNN>_<description>. tests/specs/README.md holds
+the rules, levels and spec format; tests/specs/lab-lifecycle.md is the
+first area spec. AGENTS.md's Testing section points at the README.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> by @bwks ([aa9f2c4](https://github.com/bwks/sherpa/commit/aa9f2c453380c0da4a171344eedba77aab474a0a))
+- Update instructions by @bwks ([eba745a](https://github.com/bwks/sherpa/commit/eba745ab5fa8470d50df0924627e8722767c4a6d))
+- Convert the remaining strings with quotes to raw strings by @bwks ([b45cb5b](https://github.com/bwks/sherpa/commit/b45cb5b77bc8d5d3cbc1b040b84683944d3b7464))
+- Write strings that contain quotes as raw strings by @bwks ([6dc7cb8](https://github.com/bwks/sherpa/commit/6dc7cb8d68f06b165bd2106408284f52b85190fd))
+- One sherpa-dev lab with nodes dev01 and dev02 [skip ci] by @bwks ([8935958](https://github.com/bwks/sherpa/commit/89359583f7c6d1f1936f1182a844e470764bb3d7))
+
+### Refactor
+
+- Refuse the removed ssh group as an unknown field by @bwks ([403b31f](https://github.com/bwks/sherpa/commit/403b31fd698b1569d5d41e364e75e139efaad424))
+- Remove the manifest's per-node ssh group by @bwks ([30df9e6](https://github.com/bwks/sherpa/commit/30df9e656355d1fcb02ef4e79192fc4fcdaaacff))
+
+### Testing
+
+- User_login_033, root unlocks admin with sherpad user unlock end to end by @bwks ([7d9ae4d](https://github.com/bwks/sherpa/commit/7d9ae4d3aa28acc621e252d8104c063cfba3ef13))
+- Migrate the lab identity, lab phase and cancel tests to the lab lifecycle spec by @bwks ([a98eb7a](https://github.com/bwks/sherpa/commit/a98eb7a219d346030f6688c11cc99bb94b00d724))
+- Check script headers for uv Python and pinned dependencies by @bwks ([2248dcd](https://github.com/bwks/sherpa/commit/2248dcd3c2625b1ccecc8f55a5dab315cb4f2e00))
+- Migrate the Install and update tests to their spec by @bwks ([130ebde](https://github.com/bwks/sherpa/commit/130ebde02f4bf6bcd7a2eb123552d1333c42fa6f))
+- Move the manifest command cases into a module of their own by @bwks ([0a0922f](https://github.com/bwks/sherpa/commit/0a0922fb828c0956fc794abfe0c6ea93e60272b1))
+- Migrate the Manifests tests to their spec by @bwks ([5f5ca5d](https://github.com/bwks/sherpa/commit/5f5ca5def9fb4dd059d77ea00ee708668374729d))
+- Migrate the Inspect and web UI tests to their spec by @bwks ([d817841](https://github.com/bwks/sherpa/commit/d817841ddb3989ac887baa374b42ccbfdbef97eb))
+- Draft the Inspect and web UI area spec by @bwks ([2eb2b14](https://github.com/bwks/sherpa/commit/2eb2b145ad7d4dce8a78225fe961e4c5e1cee4d7))
+- Draft the Manifests area spec by @bwks ([e457cca](https://github.com/bwks/sherpa/commit/e457cca9c8e0167c36c1f6156d97691d2f2b5a4c))
+- Migrate the Talos tests to their spec by @bwks ([0039f3b](https://github.com/bwks/sherpa/commit/0039f3b0e9eff678c61049ad23cbec727780ba05))
+- Draft the Talos area spec by @bwks ([2d42d01](https://github.com/bwks/sherpa/commit/2d42d019f890ac9e0067bf140a4e58853a715dcd))
+- Migrate the Tailnet tests to their spec by @bwks ([79c4343](https://github.com/bwks/sherpa/commit/79c4343f7779364311ede1a545b9cb0a12dec40d))
+- Draft the Tailnet area spec by @bwks ([ca862c6](https://github.com/bwks/sherpa/commit/ca862c63ee694d6c4a767f0789a66dbb5f6adf61))
+- Give the owner-login lab's file checks their case IDs by @bwks ([4fe3860](https://github.com/bwks/sherpa/commit/4fe386072ceea4a749a215491df71aa71fcfc9ba))
+- Convert the p2p-containers lab to a pytest module by @bwks ([3c4e584](https://github.com/bwks/sherpa/commit/3c4e5846f9bb7fb3343c340ee1d56123d9bc0d7b))
+- Migrate the Client lab files Rust tests to their spec by @bwks ([b419f9c](https://github.com/bwks/sherpa/commit/b419f9c6148843abe83f4ff43548211f76b93ce3))
+- Draft the rest of the Client lab files and secrets spec by @bwks ([6da03c9](https://github.com/bwks/sherpa/commit/6da03c97c89dc1eaf346ab72106bbd158c6c56bb))
+- Have the console lab create its own other user by @bwks ([b7696e6](https://github.com/bwks/sherpa/commit/b7696e60ad9c95258b1695f97a29f5f2cb79e232))
+- Convert the console lab to a pytest module by @bwks ([7c9e375](https://github.com/bwks/sherpa/commit/7c9e375440ce2bfbd6626020abecb2b57c2a926a))
+- Convert the container-ztp lab to a pytest module by @bwks ([ff9b9f6](https://github.com/bwks/sherpa/commit/ff9b9f6659f60ba686bc70a0a74bde8d15e334f3))
+- Migrate the provisioning tests to their spec by @bwks ([c5927d0](https://github.com/bwks/sherpa/commit/c5927d062247a8fabb9961911acd24284bdc153b))
+- Draft the Provisioning area spec by @bwks ([008e311](https://github.com/bwks/sherpa/commit/008e3118c9fc40681621ef2ae04697d5c5447c82))
+- Migrate the ZTP tests to their spec by @bwks ([ce2c015](https://github.com/bwks/sherpa/commit/ce2c01547aefddef8aa94081f9123d5b0a9a2264))
+- Add the certificate cases to config_delivery by @bwks ([75569a2](https://github.com/bwks/sherpa/commit/75569a2cddac896e7ab74bdeb2a1419c29f70166))
+- Migrate the Consoles tests to their spec by @bwks ([7db902f](https://github.com/bwks/sherpa/commit/7db902f20fb71104fa06756a3159ecb9c649a2d7))
+- Draft the Consoles area spec by @bwks ([ad38cf7](https://github.com/bwks/sherpa/commit/ad38cf7f1a91d764897c4a0b5ec61f2a3e07524d))
+- Draft the ZTP area spec by @bwks ([488059e](https://github.com/bwks/sherpa/commit/488059e51420622dbf6e81a0020e348aa90000c2))
+- Migrate the Accounts and auth tests to their spec by @bwks ([a82b4da](https://github.com/bwks/sherpa/commit/a82b4da7441e475b397ae5edb8d8573a10285d4a))
+- Drop the removed ssh field from the Node destructure in db tests by @bwks ([94b4d4c](https://github.com/bwks/sherpa/commit/94b4d4cc9f7b34b8223c4cc8f8a2f0925dcd4fcb))
+- Complete the Accounts and auth area spec by @bwks ([d6108ff](https://github.com/bwks/sherpa/commit/d6108fff0eb65fe89753dda46afe0d46389922bf))
+- Give the seven unmapped Links and bridges tests a case or delete them by @bwks ([4210615](https://github.com/bwks/sherpa/commit/421061519a1174e26c09146ed8bb052a7c41b88e))
+- Migrate the Links and bridges tests to their specs by @bwks ([3d9234b](https://github.com/bwks/sherpa/commit/3d9234be739ebb97b423f507fce85d2015366807))
+- Apply the review decisions to the Links and bridges spec draft by @bwks ([fafd934](https://github.com/bwks/sherpa/commit/fafd934244178b1d86e92a40d1760b76b1942578))
+- Draft the Links and bridges area spec by @bwks ([31be6c3](https://github.com/bwks/sherpa/commit/31be6c34df29712976d6f8ea822584dcd3884f6b))
+- Migrate the Images tests to the Images spec by @bwks ([28da2cd](https://github.com/bwks/sherpa/commit/28da2cdb26da23a96610f10047f96ab922fb71cc))
+- Apply the review decisions to the Images spec draft by @bwks ([ceed5d2](https://github.com/bwks/sherpa/commit/ceed5d21c4909ca22b9f3a541442dde4fa16f338))
+- Draft the Images area spec by @bwks ([e4c59bd](https://github.com/bwks/sherpa/commit/e4c59bd23cc31c31939b6761bcc07c5a82cb1b75))
+- Add vm_start case 011 for clone_method reaching VM nodes by @bwks ([adae9bf](https://github.com/bwks/sherpa/commit/adae9bfd4c7750030a0d03189daae29da4c323a8))
+- Migrate the Nodes tests to the Nodes spec by @bwks ([dceaf73](https://github.com/bwks/sherpa/commit/dceaf7312a0f3fd94a306d7ded3ef2cd05018136))
+- Split the node down and resume behaviour in the Nodes spec by @bwks ([9f5b22b](https://github.com/bwks/sherpa/commit/9f5b22b1c8aea3c53a085290a934da538018a020))
+- Settle the Nodes spec draft's open questions by @bwks ([5de9664](https://github.com/bwks/sherpa/commit/5de966410c2bdbc28661aa4e7a7b4435d8adce4b))
+- Revise the Nodes spec draft after review by @bwks ([778f0bf](https://github.com/bwks/sherpa/commit/778f0bf384aba158523de272baf98dcd0fb1626a))
+- Draft the Nodes area spec by @bwks ([6a66fac](https://github.com/bwks/sherpa/commit/6a66fac80a198f11ac6304ce072ad958f447b075))
+- An admin adding a key to another account is an account_keys case [skip ci] by @bwks ([661f4f6](https://github.com/bwks/sherpa/commit/661f4f68a87b5265ba01c3bbdf84715072c039aa))
+- Run the owner login lab test with pytest and a throwaway owner by @bwks ([08dea3a](https://github.com/bwks/sherpa/commit/08dea3a7416cad97606de14b067f0cb4657ad5c8))
+- Trim the ssh_access unit cases to what nothing else guards by @bwks ([be82c23](https://github.com/bwks/sherpa/commit/be82c234f8d2d6229265bf2097df32311ed3825f))
+- Run the SSH access lab test with pytest by @bwks ([9fa4258](https://github.com/bwks/sherpa/commit/9fa4258ae26c59bb17339ae8e5d4bafe4d1d9d28))
+- Migrate the lab lifecycle tests to the behaviour spec by @bwks ([c26920b](https://github.com/bwks/sherpa/commit/c26920bdca49bdae702da2dc1b4e97cf5147ee42))
+- Prune the harness and lab runner self-tests by @bwks ([0c7456f](https://github.com/bwks/sherpa/commit/0c7456fbc11716d9b36b2d3ddd56299dc80314e1))
+- Second prune of tests that restate the code (shared, agent-bus, db, client, template, topology, Python) by @bwks ([3e9006c](https://github.com/bwks/sherpa/commit/3e9006cdbd45ce819ef4f62811ea3a3dab528ebb))
+- Second prune of tests that restate the code (server, container, network, libvirt, iso) by @bwks ([c08a5f1](https://github.com/bwks/sherpa/commit/c08a5f100e7240e9dd589eecd0e60e03339badbf))
+- Full-render test of the PAN-OS bootstrap by @bwks ([1833cd3](https://github.com/bwks/sherpa/commit/1833cd3e74674c92c5b3894f7ef4e9d45a2e4db2))
+- Delete tests that only restate the code by @bwks ([e0fc84d](https://github.com/bwks/sherpa/commit/e0fc84de2af6db3961229e78ae62950555d93d7c))
+- Settle the tests the prune kept as unsure by @bwks ([1beac4f](https://github.com/bwks/sherpa/commit/1beac4f5d5f81afec149b621c2d07c119dc59d03))
+- Prune tests that guard no behavior in crates/server, crates/container, crates/network, crates/libvirt and crates/iso by @bwks ([bb559ef](https://github.com/bwks/sherpa/commit/bb559efab963090c930f878ca4430d87cfbf0ebc))
+- Prune tests that guard no behavior in crates/shared, crates/agent-bus, crates/db, crates/client, crates/template, crates/topology and tests/ by @bwks ([2e369a2](https://github.com/bwks/sherpa/commit/2e369a2ad9d40d457d183923fbecaf448fc9c5f7))
+
 ## [0.7.1] - 2026-11-19
 
 ### Upgrade notes
