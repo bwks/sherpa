@@ -251,7 +251,9 @@ read, and only in labs no operation holds; it never creates or destroys anything
 taking the lab (`try_observe`), so a slow node never delays an operation, then queries the runtimes
 again under the hold to see what an operation just did. A runtime it cannot query keeps its nodes'
 states, as empty would mark them `Missing`. Under the hold it also repairs link ends made again
-outside Sherpa and sets carrier (see [`P2P-ARCHITECTURE.md`](P2P-ARCHITECTURE.md#repair-by-the-scanner)).
+outside Sherpa and sets carrier (see [`P2P-ARCHITECTURE.md`](P2P-ARCHITECTURE.md#repair-by-the-scanner)),
+and unseals the Vault nodes Sherpa manages that it found sealed outside the hold (see
+[`TALOS.md`](TALOS.md#clusters)).
 
 ## HTTP routing architecture
 

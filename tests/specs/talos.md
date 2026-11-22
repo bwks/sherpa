@@ -162,7 +162,7 @@ A machine config reaching its node byte for byte as NoCloud `user-data` is `conf
 
 ## `vault_init`: a Vault node is initialised once and unsealed, and its unseal key is never lost quietly
 
-**Statement:** Sherpa initialises each `hashicorp_vault` node that runs the config Sherpa generates, with one unseal key, saves the key and the root token before it unseals the node, and waits until the node is active; it never sends a second init to a Vault that is initialised, and when it has no key for one it says so and how to reset the node, and resets nothing itself.
+**Statement:** Sherpa initialises each `hashicorp_vault` node that runs the config Sherpa generates, with one unseal key, saves the key and the root token before it unseals the node, and waits until the node is active; it never sends a second init to a Vault that is initialised, and when it has no key for one it says so and how to reset the node, and resets nothing itself. After resume starts such a node again, and whenever the scanner finds it running and sealed, Sherpa unseals it with the saved key without initialising anything, and one it cannot unseal shows on its node in `sherpa inspect` and the web UI, as `Vault sealed: <reason>`, until it is unsealed or stops; a Vault node with its own `ztp.config` is never touched or shown.
 **Relied on by:** the user; the clusters that name the node in `vault`. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -182,6 +182,17 @@ A machine config reaching its node byte for byte as NoCloud `user-data` is `conf
 | 013 | A Vault node with its own `ztp.config` is not initialised, and no credentials file is saved for it (no test yet) | e2e |
 | 014 | After `sherpa down` and `sherpa resume` the node is still unsealed (no test yet) | e2e |
 | 015 | A Vault that cannot be initialised or unsealed is reported, and the lab is partly created (no test yet; Docker) | integration |
+| 016 | A sealed Vault Sherpa initialised, running in a `Ready` lab, is unsealed by the scanner with its saved key, and nothing is kept against it (Docker) | integration |
+| 017 | A sealed Vault Sherpa initialised is unsealed with its saved key by the step resume runs after starting it, and is active before the step returns (Docker) | integration |
+| 018 | The scanner checks only running `hashicorp_vault` nodes that are not being built and run Sherpa's config by the stored definition, and resume picks by the same rule; a Vault node with its own `ztp.config` is left alone | unit |
+| 019 | A sealed Vault with no saved key is kept as "no saved unseal key", one whose key file cannot be read or parsed as "key file unreadable" with the cause, which never quotes the file, and no unseal is sent to either | unit |
+| 020 | A Vault that refuses the saved key is kept as "key refused" and stays sealed (Docker) | integration |
+| 021 | `sherpa inspect` shows `Vault sealed: <reason>` under the state of a Vault node kept sealed, and nothing for other nodes | unit |
+| 022 | The web UI's nodes table shows `Vault sealed: <reason>` under the state of a Vault node kept sealed, and nothing for other nodes | unit |
+| 023 | A Vault kept sealed is logged at warn once when it is first found sealed, and again only when the reason changes, at info once when it is no longer sealed, and the unseal key and root token are never logged | unit |
+| 024 | A Vault found unsealed, or unsealed with its saved key, has what was kept of it cleared; an unseal that decides nothing, such as one Vault does not answer, keeps it | unit |
+| 025 | A Vault node that stops has nothing kept of it being sealed; one still running and not checked keeps it | unit |
+| 026 | A resumed Vault that resume does not unseal fails its node's result with the reason, after what the start said; one it unseals says so, and its node does not fail | unit |
 
 The saved file being readable by sherpad alone is `lab_credentials_018`.
 

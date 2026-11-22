@@ -73,6 +73,8 @@ pub struct NodeRow {
     pub device: DeviceInfo,
     pub state_badge: Badge,
     pub actions: NodeActions,
+    /// Why a Vault node is sealed and the server cannot unseal it, shown under its state.
+    pub vault_sealed: Option<String>,
 }
 
 impl From<DeviceInfo> for NodeRow {
@@ -80,6 +82,7 @@ impl From<DeviceInfo> for NodeRow {
         Self {
             state_badge: Badge::for_node_state(device.state, BadgeSize::Small),
             actions: NodeActions::for_state(device.state),
+            vault_sealed: device.vault_sealed.as_ref().map(ToString::to_string),
             device,
         }
     }
@@ -665,7 +668,7 @@ mod tests {
 
     use askama::Template;
     use axum::http::header::CONTENT_TYPE;
-    use shared::data::{LabState, ModelKind, NodeKind, NodeModel, NodeState};
+    use shared::data::{LabState, ModelKind, NodeKind, NodeModel, NodeState, VaultSealed};
 
     use super::*;
     use crate::api::handlers::lab_offers_download;
@@ -813,7 +816,33 @@ mod tests {
             disks: vec![],
             cpu_count: None,
             memory: None,
+            vault_sealed: None,
         }
+    }
+
+    #[test]
+    fn vault_init_022_the_web_ui_nodes_table_shows_a_vault_sealed_state_under_the_nodes_state() {
+        let sealed = DeviceInfo {
+            name: "vault01".to_string(),
+            model: NodeModel::HashicorpVault,
+            kind: NodeKind::Container,
+            vault_sealed: Some(VaultSealed::KeyFileUnreadable {
+                cause: "Permission denied (os error 13)".to_string(),
+            }),
+            ..test_device()
+        };
+        let html = NodesTableFragment {
+            lab_id: "a1b2c3d4".to_string(),
+            nodes: vec![NodeRow::from(sealed), NodeRow::from(test_device())],
+            device_count: 2,
+        }
+        .render()
+        .expect("template should render");
+        assert_eq!(html.matches("Vault sealed").count(), 1, "{html}");
+        assert!(
+            html.contains("Vault sealed: key file unreadable: Permission denied (os error 13)"),
+            "{html}"
+        );
     }
 
     #[test]

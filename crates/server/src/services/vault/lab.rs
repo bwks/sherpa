@@ -1,5 +1,6 @@
 //! Vault nodes in the lab lifecycle. Sherpa initialises each Vault node that runs its generated
-//! config, keeps the unseal key and root token with the lab's files, and unseals it.
+//! config, keeps the unseal key and root token with the lab's files, and unseals it: in `up` and
+//! redeploy, after resume starts it again, and whenever the scanner finds it sealed.
 
 use std::ffi::OsStr;
 use std::fs;
@@ -9,13 +10,15 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
+use topology::Manifest;
 use tracing::instrument;
 
-use shared::data::{NodeModel, StatusKind, VaultInfo};
+use shared::data::{NodeModel, StatusKind, VaultInfo, VaultSealed};
 use shared::konst::SHERPA_LABS_PATH;
 use shared::util::write_file_with_permissions;
 
-use super::api::{SealStatus, VaultClient};
+use super::api::{SealStatus, VaultClient, VaultRefusal};
+use crate::daemon::vault_seals::VaultSeals;
 use crate::konst::READINESS_SLEEP;
 use crate::services::progress::ProgressSender;
 
@@ -26,6 +29,32 @@ const ACTIVE_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// Init requests sent to a Vault node in one operation. Each after the first is sent only once
 /// Vault has confirmed it is still not initialised.
 const INIT_ATTEMPTS: u32 = 2;
+
+/// Why the saved unseal key did not unseal a Vault, decided by [`apply_unseal_key`].
+#[derive(Debug)]
+enum UnsealFailure {
+    /// Vault refused the key, or took it and stayed sealed.
+    KeyRefused(anyhow::Error),
+    /// The request failed otherwise: it may be tried again.
+    NotApplied(anyhow::Error),
+}
+
+/// What Sherpa found of a Vault node it manages, after unsealing it with its saved key where it
+/// was sealed. See [`unseal_with_saved_key`].
+#[derive(Debug)]
+pub enum SealOutcome {
+    /// Vault is not initialised. Only `up` and redeploy initialise one, so nothing was done.
+    NotInitialised,
+    /// Vault was not sealed.
+    Unsealed,
+    /// Vault was sealed, and its saved key unsealed it now.
+    UnsealedNow,
+    /// Vault is sealed, and Sherpa cannot unseal it.
+    Sealed(VaultSealed),
+    /// Vault is sealed, and the unseal request failed for a reason other than the key, such as
+    /// Vault not answering. It is tried again on the next scan.
+    NotApplied(anyhow::Error),
+}
 
 /// A Vault node's credentials, saved as `<lab>/vault/<node>.toml`, readable only by the server.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +93,15 @@ pub fn sherpa_initialises_vault(model: NodeModel, own_config: bool) -> bool {
     model == NodeModel::HashicorpVault && !own_config
 }
 
+/// Whether node `node_name` of the lab whose stored definition is `definition` is a Vault node
+/// Sherpa manages (see [`sherpa_initialises_vault`]). A Vault node with its own `ztp.config` is
+/// the user's, and Sherpa never touches it; a node the definition does not have is not managed.
+pub fn manages_vault(definition: &Manifest, node_name: &str) -> bool {
+    definition.nodes.iter().any(|node| {
+        node.name == node_name && sherpa_initialises_vault(node.model, node.ztp.config.is_some())
+    })
+}
+
 /// The lab directory where Sherpa keeps its Vault nodes' credentials.
 pub fn vault_dir(lab_id: &str) -> PathBuf {
     Path::new(SHERPA_LABS_PATH).join(lab_id).join(VAULT_DIR)
@@ -86,8 +124,11 @@ fn load_credentials(dir: &Path, node_name: &str) -> Result<Option<VaultCredentia
     }
     let content =
         fs::read_to_string(&path).with_context(|| format!("Failed to read {}", path.display()))?;
-    let credentials =
-        toml::from_str(&content).with_context(|| format!("Failed to parse {}", path.display()))?;
+    // A TOML error quotes the line it is on, which may hold the unseal key or root token: only
+    // its message is kept.
+    let credentials = toml::from_str(&content)
+        .map_err(|error| anyhow!("not a Vault credentials file: {}", error.message()))
+        .with_context(|| format!("Failed to parse {}", path.display()))?;
     Ok(Some(credentials))
 }
 
@@ -135,17 +176,142 @@ async fn unseal_with_client(
     };
 
     if sealed {
-        let status = client
-            .unseal(&credentials.unseal_key)
+        apply_unseal_key(client, node_name, &credentials.unseal_key)
             .await
-            .with_context(|| format!("Failed to unseal Vault node '{node_name}'"))?;
-        if status.sealed {
-            bail!("Vault node '{node_name}' is still sealed after its unseal key was applied");
-        }
+            .map_err(
+                |(UnsealFailure::KeyRefused(error) | UnsealFailure::NotApplied(error))| error,
+            )?;
         let _ = progress.send_status(format!("Vault {node_name} - unsealed"), StatusKind::Done);
     }
     wait_until_active(client, node_name, timeout).await?;
     Ok(credentials)
+}
+
+/// Unseal a sealed Vault with its unseal key: the one unseal step of `up`, redeploy, resume and
+/// the scanner.
+async fn apply_unseal_key(
+    client: &VaultClient,
+    node_name: &str,
+    unseal_key: &str,
+) -> Result<(), UnsealFailure> {
+    match client.unseal(unseal_key).await {
+        Ok(status) if !status.sealed => Ok(()),
+        Ok(_) => Err(UnsealFailure::KeyRefused(anyhow!(
+            "Vault node '{node_name}' is still sealed after its unseal key was applied"
+        ))),
+        Err(error) => {
+            let refused = error
+                .downcast_ref::<VaultRefusal>()
+                .is_some_and(VaultRefusal::refused_request);
+            let error = error.context(format!("Failed to unseal Vault node '{node_name}'"));
+            Err(if refused {
+                UnsealFailure::KeyRefused(error)
+            } else {
+                UnsealFailure::NotApplied(error)
+            })
+        }
+    }
+}
+
+/// Unseal a Vault node Sherpa manages with the unseal key saved in `dir`, if `status`, read
+/// from it just before, says it is sealed. A Vault that is not initialised is left alone: only
+/// `up` and redeploy initialise one. Nothing is sent when no key is saved or the key file cannot
+/// be read.
+#[instrument(level = "debug", skip(client), fields(address = %client.address(), dir = %dir.display()))]
+pub async fn unseal_with_saved_key(
+    client: &VaultClient,
+    dir: &Path,
+    node_name: &str,
+    status: SealStatus,
+) -> SealOutcome {
+    if !status.initialized {
+        return SealOutcome::NotInitialised;
+    }
+    if !status.sealed {
+        return SealOutcome::Unsealed;
+    }
+    let credentials = match load_credentials(dir, node_name) {
+        Ok(Some(credentials)) => credentials,
+        Ok(None) => return SealOutcome::Sealed(VaultSealed::NoSavedKey),
+        Err(error) => {
+            return SealOutcome::Sealed(VaultSealed::KeyFileUnreadable {
+                cause: error.root_cause().to_string(),
+            });
+        }
+    };
+    match apply_unseal_key(client, node_name, &credentials.unseal_key).await {
+        Ok(()) => SealOutcome::UnsealedNow,
+        Err(UnsealFailure::KeyRefused(error)) => {
+            tracing::debug!(%node_name, error = %format!("{error:#}"), "Vault refused the saved unseal key");
+            SealOutcome::Sealed(VaultSealed::KeyRefused)
+        }
+        Err(UnsealFailure::NotApplied(error)) => SealOutcome::NotApplied(error),
+    }
+}
+
+/// After resume started a Vault node Sherpa manages: wait for its API, unseal it with its saved
+/// key as `up` does, and wait until it is active, within `timeout`.
+///
+/// # Errors
+///
+/// Fails when the API does not answer, or an unsealed Vault does not become active, in time.
+#[instrument(skip(lab_ca_pem), fields(%lab_id, %node_name, %node_address))]
+pub async fn unseal_started_vault(
+    lab_id: &str,
+    node_name: &str,
+    node_address: Ipv4Addr,
+    lab_ca_pem: &str,
+    timeout: Duration,
+) -> Result<SealOutcome> {
+    let client = VaultClient::new(node_address, lab_ca_pem)?;
+    unseal_started_with_client(&client, &vault_dir(lab_id), node_name, timeout).await
+}
+
+/// [`unseal_started_vault`] on a Vault client, with the credentials in `dir`.
+async fn unseal_started_with_client(
+    client: &VaultClient,
+    dir: &Path,
+    node_name: &str,
+    timeout: Duration,
+) -> Result<SealOutcome> {
+    let status = wait_for_api(client, node_name, timeout).await?;
+    let outcome = unseal_with_saved_key(client, dir, node_name, status).await;
+    if matches!(outcome, SealOutcome::Unsealed | SealOutcome::UnsealedNow) {
+        wait_until_active(client, node_name, timeout).await?;
+    }
+    Ok(outcome)
+}
+
+/// Keep what `outcome` says of Vault node `node_name` of lab `lab_id` in `seals`, for `inspect`,
+/// and log a change: at warn when the node is found sealed with a reason it was not recorded
+/// with, and at info when it is unsealed or found unsealed after being recorded sealed. An
+/// outcome that decides nothing (`NotApplied`) keeps what was recorded.
+pub fn record_seal_outcome(
+    seals: &VaultSeals,
+    lab_id: &str,
+    node_name: &str,
+    outcome: &SealOutcome,
+) {
+    match outcome {
+        SealOutcome::Sealed(sealed) => {
+            let previous = seals.record(lab_id, node_name, Some(sealed.clone()));
+            if previous.as_ref() != Some(sealed) {
+                tracing::warn!(%lab_id, %node_name, state = %sealed, "Vault node is sealed, and Sherpa cannot unseal it");
+            }
+        }
+        SealOutcome::UnsealedNow => {
+            let _ = seals.record(lab_id, node_name, None);
+            tracing::info!(%lab_id, %node_name, "Unsealed Vault node with its saved unseal key");
+        }
+        SealOutcome::Unsealed | SealOutcome::NotInitialised => {
+            if seals.record(lab_id, node_name, None).is_some() {
+                tracing::info!(%lab_id, %node_name, "Vault node is no longer sealed");
+            }
+        }
+        SealOutcome::NotApplied(error) => {
+            tracing::debug!(%lab_id, %node_name, error = %format!("{error:#}"), "Vault unseal not applied; trying again on the next scan");
+        }
+    }
 }
 
 /// The saved credentials of a Vault node that was already initialised when Sherpa first read
@@ -331,7 +497,7 @@ pub fn read_vault_credentials(dir: &Path) -> Result<Vec<VaultInfo>> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     use std::collections::HashMap;
@@ -348,6 +514,7 @@ mod tests {
     use tempfile::TempDir;
     use tokio::sync::mpsc;
 
+    use crate::log_capture::capture_log;
     use crate::services::keycloak::lab::{ensure_keycloak_credentials, read_keycloak_credentials};
     use crate::services::surreal_db::{ensure_surreal_db_credentials, read_surreal_db_credentials};
 
@@ -356,11 +523,11 @@ mod tests {
     };
 
     /// The Vault image the integration tests run, as on a lab node.
-    const TEST_VAULT_IMAGE: &str = "hashicorp/vault:1.21";
+    pub(crate) const TEST_VAULT_IMAGE: &str = "hashicorp/vault:1.21";
     /// Where a test Vault finds its config and certificate.
     const TEST_VAULT_DIR: &str = "/sherpa-test";
     /// How long a test waits for its Vault, as a lab's readiness timeout.
-    const TEST_TIMEOUT: Duration = Duration::from_secs(120);
+    pub(crate) const TEST_TIMEOUT: Duration = Duration::from_secs(120);
 
     const NOT_INITIALISED: SealStatus = SealStatus {
         initialized: false,
@@ -371,9 +538,15 @@ mod tests {
         sealed: true,
     };
 
-    /// A Vault container running Sherpa's Raft and TLS config, removed when dropped. It waits
+    /// A sealed seal status of an initialised Vault.
+    const SEALED: SealStatus = SealStatus {
+        initialized: true,
+        sealed: true,
+    };
+
+    /// A Vault container running Sherpa's Raft and TLS config, removed by `remove`. It waits
     /// for its certificate, issued for the address Docker gives it, before Vault starts.
-    struct TestVault {
+    pub(crate) struct TestVault {
         docker: Docker,
         name: String,
         address: Ipv4Addr,
@@ -382,7 +555,7 @@ mod tests {
     }
 
     impl TestVault {
-        async fn start(name: &str) -> TestVault {
+        pub(crate) async fn start(name: &str) -> TestVault {
             let docker = Docker::connect_with_local_defaults().unwrap();
             let files = TempDir::new().unwrap();
             let config = format!(
@@ -482,11 +655,11 @@ cluster_addr = "https://127.0.0.1:8201"
             }
         }
 
-        fn client(&self) -> VaultClient {
+        pub(crate) fn client(&self) -> VaultClient {
             VaultClient::new(self.address, &self.lab_ca).unwrap()
         }
 
-        async fn remove(self) {
+        pub(crate) async fn remove(self) {
             self.docker
                 .remove_container(
                     &self.name,
@@ -498,6 +671,43 @@ cluster_addr = "https://127.0.0.1:8201"
                 .await
                 .unwrap();
         }
+    }
+
+    /// A Vault Sherpa initialised, its credentials saved in the returned folder, then sealed
+    /// again, as a restart leaves it.
+    pub(crate) async fn sealed_test_vault(name: &str) -> (TestVault, TempDir) {
+        let vault = TestVault::start(name).await;
+        let dir = TempDir::new().unwrap();
+        let credentials = unseal_with_client(
+            &vault.client(),
+            dir.path(),
+            "vault01",
+            TEST_TIMEOUT,
+            &progress(),
+        )
+        .await
+        .unwrap();
+        vault
+            .client()
+            .write(&credentials.root_token, "sys/seal", &serde_json::json!({}))
+            .await
+            .unwrap();
+        assert!(vault.client().seal_status().await.unwrap().sealed);
+        (vault, dir)
+    }
+
+    /// A client for a Vault that is not there: any request it sends fails.
+    pub(crate) fn absent_vault() -> VaultClient {
+        let ca = generate_ca(
+            &CaSpec {
+                common_name: Some("Vault test CA"),
+                organization: Some("Sherpa"),
+                key_algorithm: KeyAlgorithm::EcdsaP256,
+            },
+            1,
+        )
+        .unwrap();
+        VaultClient::new(Ipv4Addr::LOCALHOST, &ca.cert).unwrap()
     }
 
     fn progress() -> ProgressSender {
@@ -780,6 +990,155 @@ cluster_addr = "https://127.0.0.1:8201"
         );
         let status = client.seal_status().await.unwrap();
         assert!(status.initialized && !status.sealed, "{status:?}");
+        vault.remove().await;
+    }
+
+    #[tokio::test]
+    async fn vault_init_019_a_sealed_vault_without_a_readable_saved_key_is_kept_sealed_and_sent_nothing()
+     {
+        let dir = TempDir::new().unwrap();
+        // Nothing listens there: an unseal sent would come back `NotApplied`.
+        let client = absent_vault();
+        let outcome = unseal_with_saved_key(&client, dir.path(), "vault01", SEALED).await;
+        assert!(
+            matches!(outcome, SealOutcome::Sealed(VaultSealed::NoSavedKey)),
+            "{outcome:?}"
+        );
+
+        // A damaged file, whose TOML error would quote the line holding the key.
+        fs::write(
+            credentials_path(dir.path(), "vault01"),
+            "unseal_key = \"s3cr3t-key\"\nroot_token = hvs.s3cr3t\n",
+        )
+        .unwrap();
+        let outcome = unseal_with_saved_key(&client, dir.path(), "vault01", SEALED).await;
+        let SealOutcome::Sealed(VaultSealed::KeyFileUnreadable { cause }) = outcome else {
+            panic!("{outcome:?}");
+        };
+        assert!(cause.contains("not a Vault credentials file"), "{cause}");
+        assert!(!cause.contains("s3cr3t"), "{cause}");
+
+        // A file that cannot be read at all.
+        fs::create_dir(credentials_path(dir.path(), "vault02")).unwrap();
+        let outcome = unseal_with_saved_key(&client, dir.path(), "vault02", SEALED).await;
+        assert!(
+            matches!(
+                outcome,
+                SealOutcome::Sealed(VaultSealed::KeyFileUnreadable { .. })
+            ),
+            "{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn vault_init_023_a_sealed_vault_is_logged_once_at_warn_and_at_info_when_unsealed() {
+        let seals = VaultSeals::default();
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            credentials_path(dir.path(), "vault01"),
+            "unseal_key = \"s3cr3t-key\"\nroot_token = hvs.s3cr3t\n",
+        )
+        .unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let ((), log) = capture_log(|| {
+            for _ in 0..3 {
+                let outcome = runtime.block_on(unseal_with_saved_key(
+                    &absent_vault(),
+                    dir.path(),
+                    "vault01",
+                    SEALED,
+                ));
+                record_seal_outcome(&seals, "lab1", "vault01", &outcome);
+            }
+            // A new reason is logged again, the same one is not.
+            for _ in 0..2 {
+                record_seal_outcome(
+                    &seals,
+                    "lab1",
+                    "vault01",
+                    &SealOutcome::Sealed(VaultSealed::KeyRefused),
+                );
+            }
+            record_seal_outcome(&seals, "lab1", "vault01", &SealOutcome::Unsealed);
+            record_seal_outcome(&seals, "lab1", "vault01", &SealOutcome::Unsealed);
+        });
+        let warns: Vec<&str> = log.lines().filter(|line| line.contains(" WARN ")).collect();
+        assert_eq!(warns.len(), 2, "{log}");
+        assert!(
+            warns[0].contains("Vault sealed: key file unreadable"),
+            "{log}"
+        );
+        assert!(warns[1].contains("Vault sealed: key refused"), "{log}");
+        let infos: Vec<&str> = log
+            .lines()
+            .filter(|line| line.contains(" INFO ") && line.contains("no longer sealed"))
+            .collect();
+        assert_eq!(infos.len(), 1, "{log}");
+        assert!(!log.contains("s3cr3t"), "{log}");
+    }
+
+    #[test]
+    fn vault_init_024_a_vault_found_unsealed_or_unsealed_now_has_its_sealed_state_cleared() {
+        let seals = VaultSeals::default();
+        for cleared_by in [SealOutcome::Unsealed, SealOutcome::UnsealedNow] {
+            record_seal_outcome(
+                &seals,
+                "lab1",
+                "vault01",
+                &SealOutcome::Sealed(VaultSealed::KeyRefused),
+            );
+            // Not decided: kept.
+            record_seal_outcome(
+                &seals,
+                "lab1",
+                "vault01",
+                &SealOutcome::NotApplied(anyhow!("connection refused")),
+            );
+            assert_eq!(
+                seals.of_lab("lab1").get("vault01"),
+                Some(&VaultSealed::KeyRefused)
+            );
+            record_seal_outcome(&seals, "lab1", "vault01", &cleared_by);
+            assert!(seals.of_lab("lab1").is_empty(), "{cleared_by:?}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a Docker daemon and the hashicorp/vault:1.21 image"]
+    async fn vault_init_017_a_started_vault_sherpa_initialised_is_unsealed_and_active_as_after_resume()
+     {
+        let (vault, dir) = sealed_test_vault("sherpa-test-vault-resume").await;
+        let client = vault.client();
+        let outcome = unseal_started_with_client(&client, dir.path(), "vault01", TEST_TIMEOUT)
+            .await
+            .unwrap();
+        assert!(matches!(outcome, SealOutcome::UnsealedNow), "{outcome:?}");
+        let status = client.seal_status().await.unwrap();
+        assert!(status.initialized && !status.sealed, "{status:?}");
+        assert!(client.is_active().await.unwrap());
+        vault.remove().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a Docker daemon and the hashicorp/vault:1.21 image"]
+    async fn vault_init_020_a_vault_that_refuses_the_saved_key_is_kept_sealed_as_key_refused() {
+        let (vault, dir) = sealed_test_vault("sherpa-test-vault-refused").await;
+        let client = vault.client();
+        let mut saved = load_credentials(dir.path(), "vault01").unwrap().unwrap();
+        // Another Vault's key: the same length, so Vault tries it.
+        saved.unseal_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".to_owned();
+        save_credentials(dir.path(), "vault01", &saved).unwrap();
+
+        let status = client.seal_status().await.unwrap();
+        let outcome = unseal_with_saved_key(&client, dir.path(), "vault01", status).await;
+        assert!(
+            matches!(outcome, SealOutcome::Sealed(VaultSealed::KeyRefused)),
+            "{outcome:?}"
+        );
+        assert!(client.seal_status().await.unwrap().sealed);
         vault.remove().await;
     }
 }

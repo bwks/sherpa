@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::net::Ipv4Addr;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -6,11 +8,14 @@ use shared::data::{
     DbLab, DbNode, LabPhase, ModelKind, NodeConfig, NodeKind, NodeModel, NodeState, Observation,
     Probe, RecordId, Runtime,
 };
-use shared::konst::SSH_PORT;
+use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
 use tokio_util::sync::CancellationToken;
+use topology::Manifest;
 use tracing::instrument;
 
 use crate::daemon::state::AppState;
+use crate::daemon::vault_seals::VaultSeals;
+use crate::konst::LAB_CERTS_DIR;
 use crate::services::lab_definition::stored_definition;
 use crate::services::lab_operations;
 use crate::services::node_lifecycle::{self, Runtimes, query_runtimes};
@@ -20,6 +25,9 @@ use crate::services::p2p_links::{
     repair_node,
 };
 use crate::services::ssh_config;
+use crate::services::vault::api::{SealStatus, VaultClient};
+use crate::services::vault::{self, manages_vault};
+use crate::tls::lab_ca;
 
 /// A node with what the scanner needs to know about its image.
 struct ScannedNode<'a> {
@@ -28,6 +36,15 @@ struct ScannedNode<'a> {
     /// The model of its image, or `None` when the image was not found.
     model: Option<NodeModel>,
     runtime_name: String,
+}
+
+/// A running Vault node Sherpa manages, with the seal status read from it this cycle.
+struct VaultCheck {
+    node_name: String,
+    client: VaultClient,
+    /// Where its credentials are saved.
+    dir: PathBuf,
+    status: SealStatus,
 }
 
 /// Run the background scanner service.
@@ -50,7 +67,10 @@ struct ScannedNode<'a> {
 /// management veth of a running container that needs it (`repair_management_checksums`), and
 /// the P2p links are checked in the kernel, the ends of running nodes that were made again
 /// outside Sherpa being repaired and each link's carrier made to follow its state
-/// (`repair_links`). Exits cleanly when the cancellation token is triggered.
+/// (`repair_links`). Outside the hold, the seal status of each running Vault node Sherpa manages
+/// is read; under the hold, in a `Ready` lab, one found sealed is unsealed with its saved key,
+/// and one that cannot be is kept for `inspect` (`unseal_vaults`). The scanner never initialises
+/// a Vault. Exits cleanly when the cancellation token is triggered.
 #[instrument(skip_all)]
 pub async fn run_scanner(state: AppState, cancel: CancellationToken) {
     let interval_secs = state.config.scanner.interval_secs;
@@ -119,6 +139,7 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
         let probe = probe_node(&state.db, node.node, port).await;
         probes.insert(node.node.name.clone(), probe);
     }
+    let vault_checks = read_vault_seals(state, lab, &scanned, snapshot).await;
 
     if let Some(observed) = lab_operations::try_observe(&lab.lab_id) {
         // Under the hold: what an operation wrote before it ended is in the database, and what
@@ -154,6 +175,14 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
             if let Err(error) = repair_links(state, lab, &nodes, &scanned, &runtimes).await {
                 tracing::warn!(error = %error, "Failed to check the lab's P2p links");
             }
+            unseal_vaults(
+                &state.vault_seals,
+                &lab.lab_id,
+                &scanned,
+                &runtimes,
+                &vault_checks,
+            )
+            .await;
         }
     } else {
         tracing::debug!("An operation holds the lab; leaving it for the next cycle");
@@ -301,6 +330,139 @@ async fn repair_management_checksums(
     }
 }
 
+/// Whether `node` is a Vault node that runs now and that no operation is building.
+fn running_vault(node: &ScannedNode<'_>, runtimes: &Runtimes) -> bool {
+    node.model == Some(NodeModel::HashicorpVault)
+        && node.node.state != NodeState::Building
+        && runtimes.runtime_of(node.kind, &node.runtime_name) == Some(Runtime::Running)
+}
+
+/// The running Vault nodes Sherpa manages, by the lab's stored definition (`manages_vault`). A
+/// Vault node with its own `ztp.config` is never among them.
+fn managed_vaults<'a, 'b>(
+    scanned: &'b [ScannedNode<'a>],
+    runtimes: &Runtimes,
+    definition: &Manifest,
+) -> Vec<&'b ScannedNode<'a>> {
+    scanned
+        .iter()
+        .filter(|node| running_vault(node, runtimes) && manages_vault(definition, &node.node.name))
+        .collect()
+}
+
+/// Read the seal status of each running Vault node Sherpa manages, outside the hold. A lab
+/// with no running Vault node reads nothing; one with no stored definition, or no lab CA, has
+/// none Sherpa can check. A node whose API does not answer is left for the next cycle.
+#[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
+async fn read_vault_seals(
+    state: &AppState,
+    lab: &DbLab,
+    scanned: &[ScannedNode<'_>],
+    snapshot: &Runtimes,
+) -> Vec<VaultCheck> {
+    if !scanned.iter().any(|node| running_vault(node, snapshot)) {
+        return Vec::new();
+    }
+    let Some(lab_record_id) = lab.id.as_ref() else {
+        return Vec::new();
+    };
+    let definition = match db::read_lab_definition(&state.db, lab_record_id).await {
+        Ok(Some(definition)) => definition,
+        Ok(None) => {
+            tracing::debug!("Lab has no stored definition; leaving its Vault nodes alone");
+            return Vec::new();
+        }
+        Err(error) => {
+            tracing::debug!(error = %format!("{error:#}"), "Failed to read the lab's stored definition; leaving its Vault nodes alone");
+            return Vec::new();
+        }
+    };
+    let managed = managed_vaults(scanned, snapshot, &definition);
+    if managed.is_empty() {
+        return Vec::new();
+    }
+    let lab_dir = Path::new(SHERPA_LABS_PATH).join(&lab.lab_id);
+    let lab_ca = match lab_ca::load_lab_ca(&lab_dir.join(LAB_CERTS_DIR), &lab.lab_id) {
+        Ok(lab_ca) => lab_ca,
+        Err(error) => {
+            tracing::debug!(error = %format!("{error:#}"), "Failed to load the lab CA; leaving its Vault nodes for the next cycle");
+            return Vec::new();
+        }
+    };
+    let mut checks = Vec::new();
+    for node in managed {
+        let name = &node.node.name;
+        let Some(address) = node
+            .node
+            .mgmt_ipv4
+            .as_deref()
+            .and_then(|ip| ip.parse::<Ipv4Addr>().ok())
+        else {
+            tracing::debug!(node = %name, "Vault node has no management address");
+            continue;
+        };
+        match VaultClient::new(address, &lab_ca.pair.cert) {
+            Ok(client) => {
+                if let Some(check) = vault_check(name, client, vault::vault_dir(&lab.lab_id)).await
+                {
+                    checks.push(check);
+                }
+            }
+            Err(error) => {
+                tracing::debug!(node = %name, error = %format!("{error:#}"), "Failed to build the Vault API client");
+            }
+        }
+    }
+    checks
+}
+
+/// Read the seal status of Vault node `node_name` through `client`, or `None`, logged, when its
+/// API does not answer.
+async fn vault_check(node_name: &str, client: VaultClient, dir: PathBuf) -> Option<VaultCheck> {
+    match client.seal_status().await {
+        Ok(status) => Some(VaultCheck {
+            node_name: node_name.to_owned(),
+            client,
+            dir,
+            status,
+        }),
+        Err(error) => {
+            tracing::debug!(node = %node_name, error = %format!("{error:#}"), "Vault seal status not answered");
+            None
+        }
+    }
+}
+
+/// Under the hold, in a `Ready` lab: unseal each Vault node `checks` found sealed with its saved
+/// key, if it still runs, and keep what was found in `seals` (`vault::record_seal_outcome`). A
+/// Vault node that no longer runs has nothing recorded against it.
+#[instrument(skip_all, level = "debug", fields(%lab_id))]
+async fn unseal_vaults(
+    seals: &VaultSeals,
+    lab_id: &str,
+    scanned: &[ScannedNode<'_>],
+    runtimes: &Runtimes,
+    checks: &[VaultCheck],
+) {
+    for node in scanned {
+        if node.model == Some(NodeModel::HashicorpVault) && !running_vault(node, runtimes) {
+            seals.forget_node(lab_id, &node.node.name);
+        }
+    }
+    for check in checks {
+        let still_running = scanned
+            .iter()
+            .any(|node| node.node.name == check.node_name && running_vault(node, runtimes));
+        if !still_running {
+            continue;
+        }
+        let outcome =
+            vault::unseal_with_saved_key(&check.client, &check.dir, &check.node_name, check.status)
+                .await;
+        vault::record_seal_outcome(seals, lab_id, &check.node_name, &outcome);
+    }
+}
+
 /// The lab's nodes, each with its kind and model.
 async fn scanned_nodes<'a>(
     state: &AppState,
@@ -393,6 +555,8 @@ mod tests {
 
     use crate::services::node_ops::tests::TestSshd;
     use crate::services::p2p_links::fake::FakeHost;
+    use crate::services::vault::lab::tests::{absent_vault, sealed_test_vault};
+    use shared::data::VaultSealed;
 
     /// A virtual machine's stored check on SSH, as `up` stores it for most models.
     const SSH_CHECK: ReadyCheck = ReadyCheck {
@@ -703,5 +867,133 @@ mod tests {
             probe_node(&db, &node, image_config.port).await,
             Probe::Ready
         );
+    }
+
+    /// A lab definition with Vault nodes `vault01` on Sherpa's config and `vault02` on its own.
+    fn vault_definition() -> Manifest {
+        toml::from_str(
+            r#"
+name = "vaults"
+
+[[nodes]]
+name = "vault01"
+model = "hashicorp_vault"
+
+[[nodes]]
+name = "vault02"
+model = "hashicorp_vault"
+
+[nodes.ztp]
+config = "vault.hcl"
+"#,
+        )
+        .unwrap()
+    }
+
+    fn vault_node(name: &str, state: NodeState) -> DbNode {
+        DbNode {
+            name: name.to_string(),
+            ..db_node(state, true)
+        }
+    }
+
+    /// Runtimes with containers `running` running and `stopped` exited.
+    fn container_runtimes(running: &[&str], stopped: &[&str]) -> Runtimes {
+        let running = running
+            .iter()
+            .map(|name| ((*name).to_string(), ContainerStateStatusEnum::RUNNING));
+        let stopped = stopped
+            .iter()
+            .map(|name| ((*name).to_string(), ContainerStateStatusEnum::EXITED));
+        Runtimes {
+            domains: Some(HashMap::new()),
+            containers: Some(running.chain(stopped).collect()),
+        }
+    }
+
+    #[test]
+    fn vault_init_018_the_scanner_checks_only_running_vaults_on_sherpas_config() {
+        let vault01 = vault_node("vault01", NodeState::Running);
+        let own_config = vault_node("vault02", NodeState::Running);
+        let undefined = vault_node("vault03", NodeState::Running);
+        let building = vault_node("vault01", NodeState::Building);
+        let nodes = [
+            container(&vault01, NodeModel::HashicorpVault, "vault01-lab"),
+            container(&own_config, NodeModel::HashicorpVault, "vault02-lab"),
+            container(&undefined, NodeModel::HashicorpVault, "vault03-lab"),
+        ];
+        let definition = vault_definition();
+        let all_running = container_runtimes(&["vault01-lab", "vault02-lab", "vault03-lab"], &[]);
+        let managed: Vec<&str> = managed_vaults(&nodes, &all_running, &definition)
+            .iter()
+            .map(|node| node.node.name.as_str())
+            .collect();
+        assert_eq!(managed, ["vault01"]);
+
+        let stopped = container_runtimes(&[], &["vault01-lab"]);
+        assert!(managed_vaults(&nodes[..1], &stopped, &definition).is_empty());
+        let being_built = [container(
+            &building,
+            NodeModel::HashicorpVault,
+            "vault01-lab",
+        )];
+        assert!(managed_vaults(&being_built, &all_running, &definition).is_empty());
+        // Resume picks its nodes the same way.
+        assert!(manages_vault(&definition, "vault01"));
+        assert!(!manages_vault(&definition, "vault02"));
+    }
+
+    #[tokio::test]
+    async fn vault_init_025_a_vault_that_stops_has_no_sealed_state_kept() {
+        let seals = VaultSeals::default();
+        let _ = seals.record("lab", "vault01", Some(VaultSealed::KeyRefused));
+        let vault01 = vault_node("vault01", NodeState::Running);
+        let nodes = [container(
+            &vault01,
+            NodeModel::HashicorpVault,
+            "vault01-lab",
+        )];
+        // Still running and not checked this cycle: kept.
+        let running = container_runtimes(&["vault01-lab"], &[]);
+        unseal_vaults(&seals, "lab", &nodes, &running, &[]).await;
+        assert_eq!(seals.of_lab("lab").len(), 1);
+        let stopped = container_runtimes(&[], &["vault01-lab"]);
+        let dir = tempfile::TempDir::new().unwrap();
+        let checked = VaultCheck {
+            node_name: "vault01".to_string(),
+            client: absent_vault(),
+            dir: dir.path().to_path_buf(),
+            status: SealStatus {
+                initialized: true,
+                sealed: true,
+            },
+        };
+        unseal_vaults(&seals, "lab", &nodes, &stopped, &[checked]).await;
+        assert!(seals.of_lab("lab").is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a Docker daemon and the hashicorp/vault:1.21 image"]
+    async fn vault_init_016_the_scanner_unseals_a_sealed_vault_sherpa_initialised() {
+        let (vault, dir) = sealed_test_vault("sherpa-test-vault-scanner").await;
+        let seals = VaultSeals::default();
+        let vault01 = vault_node("vault01", NodeState::Running);
+        let nodes = [container(
+            &vault01,
+            NodeModel::HashicorpVault,
+            "vault01-lab",
+        )];
+        let runtimes = container_runtimes(&["vault01-lab"], &[]);
+
+        let check = vault_check("vault01", vault.client(), dir.path().to_path_buf())
+            .await
+            .unwrap();
+        assert!(check.status.sealed);
+        unseal_vaults(&seals, "lab", &nodes, &runtimes, &[check]).await;
+
+        let status = vault.client().seal_status().await.unwrap();
+        assert!(status.initialized && !status.sealed, "{status:?}");
+        assert!(seals.of_lab("lab").is_empty());
+        vault.remove().await;
     }
 }

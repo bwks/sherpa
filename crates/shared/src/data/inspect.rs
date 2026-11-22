@@ -1,3 +1,5 @@
+use std::fmt;
+
 use super::TailnetStatus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -45,6 +47,35 @@ pub struct DeviceInfo {
     /// Memory in MB the node was given; `None` as for `cpu_count`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory: Option<u16>,
+    /// Why a Vault node Sherpa manages is sealed and Sherpa cannot unseal it, as the server
+    /// last found it. `None` for every other node, for a Vault that is not known to be sealed,
+    /// and from servers that do not report it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault_sealed: Option<VaultSealed>,
+}
+
+/// Why a Vault node running the config Sherpa generates is sealed and Sherpa cannot unseal it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "reason", rename_all = "snake_case")]
+pub enum VaultSealed {
+    /// Vault is initialised, and Sherpa has no unseal key saved for it.
+    NoSavedKey,
+    /// The node's saved credentials file could not be read, and why.
+    KeyFileUnreadable { cause: String },
+    /// Vault refused the saved unseal key.
+    KeyRefused,
+}
+
+impl fmt::Display for VaultSealed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            VaultSealed::NoSavedKey => write!(f, "Vault sealed: no saved unseal key"),
+            VaultSealed::KeyFileUnreadable { cause } => {
+                write!(f, "Vault sealed: key file unreadable: {cause}")
+            }
+            VaultSealed::KeyRefused => write!(f, "Vault sealed: key refused"),
+        }
+    }
 }
 
 /// Display-ready information about a point-to-point link between two nodes

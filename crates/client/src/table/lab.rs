@@ -103,11 +103,16 @@ fn device_cells(device: &DeviceInfo, lab_id: &str) -> [String; 9] {
         Some(memory) => memory.to_string(),
         None => "-".to_string(),
     };
+    // A Vault node the server cannot unseal says why, on a second line.
+    let state = match &device.vault_sealed {
+        Some(sealed) => format!("{}\n{sealed}", device.state),
+        None => device.state.to_string(),
+    };
     [
         format!("{}.{lab_id}", device.name),
         device.model.to_string(),
         device.kind.to_string(),
-        device.state.to_string(),
+        state,
         mgmt_ip,
         device.mgmt_ipv6.as_deref().unwrap_or("-").to_string(),
         cpu_count,
@@ -282,6 +287,7 @@ mod tests {
     use super::*;
     use shared::data::{
         BridgeKind, NodeKind, NodeModel, NodeState, ProvisionStatus, RouteApproval, TailnetState,
+        VaultSealed,
     };
 
     #[test]
@@ -430,6 +436,7 @@ mod tests {
             disks: vec!["/var/lib/sherpa/labs/test/router01.qcow2".to_string()],
             cpu_count: None,
             memory: None,
+            vault_sealed: None,
         }];
 
         let expected = "\
@@ -441,6 +448,34 @@ mod tests {
 │ router01.a1b2c3d4 │ cisco_cat8000 │ virtual_machine │ running │ 172.31.0.11 │ -         │ -   │ -           │ /var/lib/sherpa/labs/test/router01.qcow2 │
 └───────────────────┴───────────────┴─────────────────┴─────────┴─────────────┴───────────┴─────┴─────────────┴──────────────────────────────────────────┘";
         assert_eq!(render_devices_table(&devices, "a1b2c3d4"), expected);
+    }
+
+    #[test]
+    fn vault_init_021_sherpa_inspect_shows_a_vault_sealed_state_under_the_nodes_state() {
+        let vault = |name: &str, vault_sealed| DeviceInfo {
+            name: name.to_string(),
+            model: NodeModel::HashicorpVault,
+            kind: NodeKind::Container,
+            state: NodeState::Running,
+            mgmt_ipv4: "172.31.0.21".to_string(),
+            mgmt_ipv6: None,
+            disks: vec![],
+            cpu_count: None,
+            memory: None,
+            vault_sealed,
+        };
+        let table = render_devices_table(
+            &[
+                vault("vault01", Some(VaultSealed::NoSavedKey)),
+                vault("vault02", None),
+            ],
+            "a1b2c3d4",
+        );
+        let vault01 = table.find("vault01").unwrap();
+        let vault02 = table.find("vault02").unwrap();
+        let sealed = table.find("Vault sealed: no saved unseal key").unwrap();
+        assert!(vault01 < sealed && sealed < vault02, "{table}");
+        assert_eq!(table.matches("Vault sealed").count(), 1, "{table}");
     }
 
     #[test]

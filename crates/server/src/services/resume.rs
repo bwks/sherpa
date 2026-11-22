@@ -6,8 +6,10 @@ use shared::data::{
     self, DbLab, Halt, LabNodeActionResponse, ModelKind, NodeActionResult, NodeKind,
     OperationEvent, RecordId, Runtime, StatusKind, TailnetAuthKey, TailnetStatus,
 };
-use shared::konst::READINESS_TIMEOUT;
+use shared::konst::{READINESS_TIMEOUT, SHERPA_LABS_PATH};
 use std::collections::{HashMap, HashSet};
+use std::net::Ipv4Addr;
+use std::path::Path;
 use std::time::{Duration, Instant};
 use topology::Manifest;
 
@@ -27,10 +29,12 @@ use super::p2p_links::{
 };
 use super::progress::ProgressSender;
 use super::ssh_config;
+use super::vault::{self, SealOutcome};
 use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_lab_access, require_lab_starter};
 use crate::daemon::state::AppState;
-use crate::konst::READINESS_SLEEP;
+use crate::konst::{LAB_CERTS_DIR, READINESS_SLEEP};
+use crate::tls::lab_ca;
 
 /// How a node started by resume shows that it is ready, as `up` checks it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -214,6 +218,7 @@ pub async fn start_lab_nodes(
             tracing::warn!(node = %node.name, error = %error, "Failed to record the node ready");
         }
     }
+    unseal_resumed_vaults(&lab, &ready, &mut results).await;
 
     state.metrics.operation_duration.record(
         start.elapsed().as_secs_f64(),
@@ -336,6 +341,85 @@ async fn wait_for_cold_booted(
     }
     ready_nodes.extend(ready.into_keys());
     Ok(ready_nodes)
+}
+
+/// Unseal each ready cold-booted Vault node Sherpa manages with its saved key, as `up` does, keep
+/// what was found for `inspect`, and add it to the node's result. A Vault that is not unsealed
+/// fails its node's result; the other nodes, and the resume, carry on. A lab with no stored
+/// definition has no Vault Sherpa is known to manage.
+#[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
+async fn unseal_resumed_vaults(
+    lab: &ResumedLab<'_>,
+    ready: &HashSet<String>,
+    results: &mut [NodeActionResult],
+) {
+    let Some(definition) = lab.definition else {
+        return;
+    };
+    let vaults: Vec<(&str, Option<Ipv4Addr>)> = lab
+        .nodes
+        .iter()
+        .filter(|node| ready.contains(&node.name) && vault::manages_vault(definition, &node.name))
+        .map(|node| {
+            let address = node.mgmt_ipv4.as_deref().and_then(|ip| ip.parse().ok());
+            (node.name.as_str(), address)
+        })
+        .collect();
+    if vaults.is_empty() {
+        return;
+    }
+    let certs_dir = Path::new(SHERPA_LABS_PATH)
+        .join(lab.lab_id)
+        .join(LAB_CERTS_DIR);
+    let lab_ca = lab_ca::load_lab_ca(&certs_dir, lab.lab_id);
+    let timeout = ready_timeout(lab.definition);
+    for (node_name, address) in vaults {
+        let outcome = match (&lab_ca, address) {
+            (Ok(lab_ca), Some(address)) => {
+                vault::unseal_started_vault(
+                    lab.lab_id,
+                    node_name,
+                    address,
+                    &lab_ca.pair.cert,
+                    timeout,
+                )
+                .await
+            }
+            (Err(error), _) => Err(anyhow!("Failed to load the lab CA: {error:#}")),
+            (Ok(_), None) => Err(anyhow!("the node has no management address")),
+        };
+        if let Ok(outcome) = &outcome {
+            vault::record_seal_outcome(&lab.state.vault_seals, lab.lab_id, node_name, outcome);
+        }
+        if matches!(outcome, Ok(SealOutcome::UnsealedNow)) {
+            report(
+                lab.progress,
+                format!("Vault {node_name} - unsealed"),
+                StatusKind::Done,
+            );
+        }
+        if let Some(result) = results.iter_mut().find(|result| result.name == node_name) {
+            add_unseal_outcome(result, outcome);
+        }
+    }
+}
+
+/// Add what unsealing a resumed Vault node found to its result. Not unsealed, the node fails.
+fn add_unseal_outcome(result: &mut NodeActionResult, outcome: Result<SealOutcome>) {
+    let problem = match outcome {
+        Ok(SealOutcome::Unsealed) => return,
+        Ok(SealOutcome::UnsealedNow) => {
+            result.message.push_str(", Vault unsealed");
+            return;
+        }
+        Ok(SealOutcome::Sealed(sealed)) => sealed.to_string(),
+        Ok(SealOutcome::NotInitialised) => "Vault is not initialised".to_string(),
+        Ok(SealOutcome::NotApplied(error)) | Err(error) => {
+            format!("Vault not unsealed: {error:#}")
+        }
+    };
+    result.success = false;
+    result.message = format!("{}, but {problem}", result.message);
 }
 
 /// The lab's `ready_timeout`, from its stored definition; the default without one.
@@ -829,6 +913,7 @@ async fn follow_started(lab: &ResumedLab<'_>, started: &HashSet<RecordId>) {
 mod tests {
     use super::*;
     use crate::services::lab_definition::tests::{lab_with, store};
+    use shared::data::VaultSealed;
     use shared::data::{NodeModel, ReadyCheck};
     use shared::konst::SSH_PORT;
 
@@ -976,6 +1061,47 @@ nodes = [{ name = "vm", model = "ubuntu_linux", ready_check = { port = 8443 } }]
         assert_eq!(
             readiness_message(false, Duration::from_secs(600)),
             "Started, but not ready within 600 seconds"
+        );
+    }
+
+    #[test]
+    fn vault_init_026_a_resumed_vault_left_sealed_fails_its_node_with_the_reason() {
+        let started = || NodeActionResult {
+            name: "vault01".to_string(),
+            success: true,
+            message: "Started and ready".to_string(),
+            links: vec![],
+        };
+        let mut unsealed = started();
+        add_unseal_outcome(&mut unsealed, Ok(SealOutcome::UnsealedNow));
+        assert!(unsealed.success);
+        assert_eq!(unsealed.message, "Started and ready, Vault unsealed");
+
+        let mut refused = started();
+        add_unseal_outcome(
+            &mut refused,
+            Ok(SealOutcome::Sealed(VaultSealed::KeyRefused)),
+        );
+        assert!(!refused.success);
+        assert_eq!(
+            refused.message,
+            "Started and ready, but Vault sealed: key refused"
+        );
+
+        let mut unanswered = started();
+        add_unseal_outcome(
+            &mut unanswered,
+            Err(anyhow!(
+                "Vault node 'vault01' API did not answer within 120s"
+            )),
+        );
+        assert!(!unanswered.success);
+        assert!(
+            unanswered.message.ends_with(
+                "but Vault not unsealed: Vault node 'vault01' API did not answer within 120s"
+            ),
+            "{}",
+            unanswered.message
         );
     }
 }
