@@ -700,13 +700,13 @@ fn build_schemas() -> BTreeMap<String, serde_json::Value> {
     schemas
 }
 
-/// Recursively rewrite `$ref` paths from schemars format (`#/definitions/Foo`)
+/// Recursively rewrite `$ref` paths from schemars format (`#/$defs/Foo`)
 /// to `OpenAPI` 3.1 format (`#/components/schemas/Foo`).
 fn rewrite_refs(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(map) => {
             if let Some(serde_json::Value::String(ref_str)) = map.get_mut("$ref")
-                && let Some(name) = ref_str.strip_prefix("#/definitions/")
+                && let Some(name) = ref_str.strip_prefix("#/$defs/")
             {
                 *ref_str = format!("#/components/schemas/{name}");
             }
@@ -723,14 +723,14 @@ fn rewrite_refs(value: &mut serde_json::Value) {
     }
 }
 
-/// Extract nested `definitions` blocks from schemars-generated schemas
+/// Extract nested `$defs` blocks from schemars-generated schemas
 /// and hoist them into the top-level schemas map.
 fn extract_definitions(schemas: &mut BTreeMap<String, serde_json::Value>) {
     let mut hoisted = BTreeMap::new();
 
     for schema in schemas.values_mut() {
         if let serde_json::Value::Object(map) = schema
-            && let Some(serde_json::Value::Object(defs)) = map.remove("definitions")
+            && let Some(serde_json::Value::Object(defs)) = map.remove("$defs")
         {
             for (name, def) in defs {
                 hoisted.insert(name, def);
@@ -933,11 +933,40 @@ mod tests {
     #[test]
     fn api_documents_011_every_schema_reference_in_the_openapi_document_points_inside_it() {
         let doc = build_openapi();
-        let json_str = serde_json::to_string(&doc).unwrap();
-        assert!(
-            !json_str.contains("#/definitions/"),
-            "Found unrewritten #/definitions/ ref in OpenAPI document"
-        );
+        let mut refs = Vec::new();
+        collect_refs(&doc, &mut refs);
+        assert!(!refs.is_empty(), "the OpenAPI document has no $ref");
+        let unresolved: Vec<&String> = refs
+            .iter()
+            .filter(|reference| {
+                reference
+                    .strip_prefix('#')
+                    .is_none_or(|pointer| doc.pointer(pointer).is_none())
+            })
+            .collect();
+        assert!(unresolved.is_empty(), "unresolved $refs: {unresolved:?}");
+    }
+
+    /// Every `$ref` string anywhere in `value`.
+    fn collect_refs(value: &serde_json::Value, refs: &mut Vec<String>) {
+        match value {
+            serde_json::Value::Object(map) => {
+                for (key, child) in map {
+                    match child {
+                        serde_json::Value::String(reference) if key == "$ref" => {
+                            refs.push(reference.clone());
+                        }
+                        _ => collect_refs(child, refs),
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    collect_refs(item, refs);
+                }
+            }
+            _ => {}
+        }
     }
 
     #[test]
