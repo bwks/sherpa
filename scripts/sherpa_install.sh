@@ -28,17 +28,24 @@ set -e  # Exit on error
 # The SurrealDB container of releases before 0.5.0, and the last release that moves its data.
 LEGACY_DB_CONTAINER="sherpa-db"
 LAST_MIGRATING_VERSION="v0.5.12"
-SHERPA_ROUTER_IMAGE="ghcr.io/bwks/sherpa-router:latest"
+# The lab router image, pulled by its digest and tagged with the name sherpad runs it by.
+SHERPA_ROUTER_REPO="ghcr.io/bwks/sherpa-router"
+SHERPA_ROUTER_DIGEST="sha256:c42a07c425de65e315ff8b92143d8a95c183677ffca859124c9476957bff992f"
+SHERPA_ROUTER_IMAGE="${SHERPA_ROUTER_REPO}:latest"
+# Docker's apt repository and its signing key. The key file must have this SHA-256; it is the key
+# with fingerprint 9DC8 5822 9FC7 DD38 854A  E2D8 8D81 803C 0EBF CD88.
+DOCKER_APT_URL="https://download.docker.com/linux/ubuntu"
+DOCKER_APT_KEY_SHA256="1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
+DOCKER_APT_KEYRING="/etc/apt/keyrings/docker.asc"
+DOCKER_APT_SOURCES="/etc/apt/sources.list.d/docker.sources"
+DOCKER_PACKAGES=(docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin)
+OS_RELEASE_FILE="/etc/os-release"
 SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
 SHERPA_DB_FILE="${SHERPA_DB_DIR}/sherpa.sqlite"
 SHERPA_CONFIG_DIR="${SHERPA_BASE_DIR}/config"
-# sherpad's secrets: the JWT secret and the database key. Only sherpa can enter it.
-SHERPA_SECRET_DIR="${SHERPA_BASE_DIR}/.secret"
 SHERPA_ENV_DIR="${SHERPA_BASE_DIR}/env"
 SHERPA_LOG_DIR="${SHERPA_BASE_DIR}/logs"
-SHERPA_LABS_DIR="${SHERPA_BASE_DIR}/labs"
-SHERPA_POOL_DIR="${SHERPA_BASE_DIR}/libvirt/images"
 SHERPA_IMAGES_DIR="${SHERPA_BASE_DIR}/images"
 # The blank disk templates sherpad copies for node ZTP disks, see ensure_blank_disks.
 SHERPA_BLANK_DISK_DIR="${SHERPA_IMAGES_DIR}/blank_disk"
@@ -290,14 +297,51 @@ EOF
     print_success "Transparent hugepages set to madvise (boot rule: ${THP_TMPFILES_CONF})"
 }
 
+# Add Docker's apt repository, signed by its key, once the key's SHA-256 is the one pinned
+# above. A key that differs stops the install before apt trusts it.
+add_docker_apt_repository() {
+    local key suite
+    key="$(mktemp)"
+    if ! curl -fsSL --connect-timeout 15 --retry 3 --retry-all-errors -o "${key}" "${DOCKER_APT_URL}/gpg"; then
+        rm -f "${key}"
+        print_error "Could not fetch Docker's signing key: ${DOCKER_APT_URL}/gpg"
+        return 1
+    fi
+    if [ "$(sha256sum "${key}" | awk '{ print $1 }')" != "${DOCKER_APT_KEY_SHA256}" ]; then
+        rm -f "${key}"
+        print_error "Docker's signing key at ${DOCKER_APT_URL}/gpg is not the one this script trusts"
+        print_error "  expected SHA-256 ${DOCKER_APT_KEY_SHA256}"
+        return 1
+    fi
+    install -d -m 755 "$(dirname "${DOCKER_APT_KEYRING}")"
+    install -m 644 "${key}" "${DOCKER_APT_KEYRING}"
+    rm -f "${key}"
+
+    # shellcheck source=/dev/null
+    suite="$(. "${OS_RELEASE_FILE}" && echo "${UBUNTU_CODENAME:-${VERSION_CODENAME}}")"
+    cat > "${DOCKER_APT_SOURCES}" << EOF
+# Installed by Sherpa: Docker's apt repository.
+Types: deb
+URIs: ${DOCKER_APT_URL}
+Suites: ${suite}
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: ${DOCKER_APT_KEYRING}
+EOF
+    chmod 644 "${DOCKER_APT_SOURCES}"
+    print_success "Added Docker's apt repository for ${suite}"
+}
+
 install_docker() {
     print_header "Installing Docker"
 
     if check_command_exists docker; then
         print_info "Docker is already installed — skipping"
     else
-        print_info "Installing Docker via official convenience script..."
-        curl -fsSL https://get.docker.com | sh
+        print_info "Installing Docker from Docker's apt repository..."
+        add_docker_apt_repository
+        apt-get update -qq
+        DEBIAN_FRONTEND=noninteractive apt-get install -y "${DOCKER_PACKAGES[@]}"
         print_success "Docker installed"
     fi
 
@@ -432,85 +476,136 @@ setup_sherpa_user() {
 
 setup_directories() {
     print_info "Creating directory structure..."
-    
-    # Create base directory
-    if [ ! -d "${SHERPA_BASE_DIR}" ]; then
-        mkdir -p "${SHERPA_BASE_DIR}"
-        print_success "Created ${SHERPA_BASE_DIR}"
-    else
-        print_info "Directory ${SHERPA_BASE_DIR} already exists"
-    fi
-    
-    # Create database directory
-    if [ ! -d "${SHERPA_DB_DIR}" ]; then
-        mkdir -p "${SHERPA_DB_DIR}"
-        print_success "Created ${SHERPA_DB_DIR}"
-    else
-        print_info "Directory ${SHERPA_DB_DIR} already exists"
-    fi
-    
-    # Create config directory
-    if [ ! -d "${SHERPA_CONFIG_DIR}" ]; then
-        mkdir -p "${SHERPA_CONFIG_DIR}"
-        print_success "Created ${SHERPA_CONFIG_DIR}"
-    else
-        print_info "Directory ${SHERPA_CONFIG_DIR} already exists"
-    fi
 
-    # Create the secrets directory, 0700 sherpa. An existing one keeps its mode.
-    if [ ! -d "${SHERPA_SECRET_DIR}" ]; then
-        install -d -o sherpa -g sherpa -m 700 "${SHERPA_SECRET_DIR}"
-        print_success "Created ${SHERPA_SECRET_DIR}"
-    else
-        print_info "Directory ${SHERPA_SECRET_DIR} already exists"
-    fi
-
-    # Create env directory
-    if [ ! -d "${SHERPA_ENV_DIR}" ]; then
-        mkdir -p "${SHERPA_ENV_DIR}"
-        print_success "Created ${SHERPA_ENV_DIR}"
-    else
-        print_info "Directory ${SHERPA_ENV_DIR} already exists"
-    fi
-
-    # Create log directory, for sherpad's log file when it does not run under systemd
-    if [ ! -d "${SHERPA_LOG_DIR}" ]; then
-        mkdir -p "${SHERPA_LOG_DIR}"
-        print_success "Created ${SHERPA_LOG_DIR}"
-    else
-        print_info "Directory ${SHERPA_LOG_DIR} already exists"
-    fi
-
-    # Set ownership and permissions
-    chown -R sherpa:sherpa "${SHERPA_BASE_DIR}"
-    chmod 775 "${SHERPA_BASE_DIR}"
-    # The database and its backups hold password hashes; sherpad keeps the same mode.
-    chmod 750 "${SHERPA_DB_DIR}"
-    # sherpa.toml and the env files can hold secrets: their folders are sherpa and its group
-    # only, and the files sherpa only. 'sherpad init' writes sherpa.toml 0600 itself.
-    chmod 750 "${SHERPA_CONFIG_DIR}"
-    chmod 750 "${SHERPA_ENV_DIR}"
-    if [ -f "${SHERPA_CONFIG_DIR}/sherpa.toml" ]; then
-        chmod 600 "${SHERPA_CONFIG_DIR}/sherpa.toml"
-    fi
+    secure_server_folders
+    # 'sherpad init' writes sherpa.toml 0600 itself; one an older release left wider is narrowed.
+    secure_path "${SHERPA_CONFIG_DIR}/sherpa.toml" 600
     # sherpad's log is not meant to hold secrets, but is no one else's business.
-    chmod 750 "${SHERPA_LOG_DIR}"
-    if [ -f "${SHERPA_LOG_DIR}/sherpad.log" ]; then
-        chmod 640 "${SHERPA_LOG_DIR}/sherpad.log"
-    fi
-
-    # Lab data (node configs, user data, ZTP media, VM disks) is readable only by sherpa, its
-    # group and QEMU, which runs in the kvm group. sherpad enforces the same modes at startup.
-    install -d -o sherpa -g sherpa -m 2750 "${SHERPA_LABS_DIR}"
-    if getent group kvm >/dev/null 2>&1; then
-        install -d -o sherpa -g kvm -m 2750 "${SHERPA_POOL_DIR}"
-    else
-        print_warning "Group kvm not found: ${SHERPA_POOL_DIR} left readable by sherpa only"
-        install -d -o sherpa -g sherpa -m 2750 "${SHERPA_POOL_DIR}"
-    fi
+    secure_path "${SHERPA_LOG_DIR}/sherpad.log" 640
 
     print_success "Directory permissions configured"
 }
+
+# Write standard input to $1, owned by sherpa with mode $2. It is written to a file of root's
+# first and installed at $1, which replaces a file or a link there and never writes through a
+# link.
+write_sherpa_file() {
+    local path="$1" mode="$2" staged status
+    path_has_no_symlink "$(dirname "${path}")" || return 1
+    staged="$(mktemp)" || return 1
+    cat > "${staged}" && install -o sherpa -g sherpa -m "${mode}" "${staged}" "${path}"
+    status=$?
+    rm -f "${staged}"
+    return "${status}"
+}
+
+################################################################################
+# Server Folders
+################################################################################
+# This section is the same in sherpa_install.sh and sherpa_update.sh, between the BEGIN and END
+# lines; tests/bats/install_tests.bats runs its cases against each copy.
+# BEGIN server folders
+
+# The folders only root may change, base folder first: the base folder, the folder of the
+# binaries systemd runs, and the folder above the storage pool. Each is root's, 0755.
+root_folders() {
+    printf '%s\n' "${SHERPA_BASE_DIR}" "${SHERPA_BASE_DIR}/bin" "${SHERPA_BASE_DIR}/libvirt"
+}
+
+# The folders sherpad writes, owned by sherpa, one per line: path, mode, group, and whether a
+# folder that is there gets the mode ("set") or keeps its own ("keep"). sherpad cannot make them
+# itself, as the base folder is root's.
+sherpa_folder_specs() {
+    cat << SPECS
+${SHERPA_BASE_DIR}/config 750 sherpa set
+${SHERPA_BASE_DIR}/env 750 sherpa set
+${SHERPA_BASE_DIR}/logs 750 sherpa set
+${SHERPA_BASE_DIR}/db 750 sherpa set
+${SHERPA_BASE_DIR}/labs 2750 sherpa set
+${SHERPA_BASE_DIR}/libvirt/images 2750 kvm set
+${SHERPA_BASE_DIR}/.secret 700 sherpa keep
+${SHERPA_BASE_DIR}/.certs 700 sherpa keep
+${SHERPA_BASE_DIR}/images 775 sherpa keep
+${SHERPA_BASE_DIR}/containers 755 sherpa keep
+${SHERPA_BASE_DIR}/bins 755 sherpa keep
+${SHERPA_BASE_DIR}/run 755 sherpa keep
+SPECS
+}
+
+# Succeed when no component of the absolute path $1 is a symlink, and say which one is. Root
+# changes nothing at such a path: a link planted by sherpa or a member of its group would hand
+# the link's target to them.
+path_has_no_symlink() {
+    local path="$1" prefix="" part
+    local -a parts
+    IFS='/' read -r -a parts <<< "${path#/}"
+    for part in "${parts[@]}"; do
+        [ -n "${part}" ] || continue
+        prefix="${prefix}/${part}"
+        if [ -L "${prefix}" ]; then
+            print_error "${prefix} is a symlink: nothing at ${path} is changed"
+            return 1
+        fi
+    done
+}
+
+# Make the base folder and the folders under it root's or sherpa's, with their modes, and create
+# those that are missing. Only these folders change, never what is in them. The base folder is
+# made root's first, so no one else can put a link in it between the check and the change.
+secure_server_folders() {
+    print_info "Setting the owners and modes of ${SHERPA_BASE_DIR}..."
+
+    local dir mode group when
+    while read -r dir; do
+        path_has_no_symlink "${dir}" || return 1
+        install -d -o root -g root -m 755 "${dir}" || return 1
+    done < <(root_folders)
+
+    while read -r dir mode group when; do
+        path_has_no_symlink "${dir}" || return 1
+        if [ "${group}" = "kvm" ] && ! getent group kvm >/dev/null 2>&1; then
+            print_warning "Group kvm not found: ${dir} left readable by sherpa only"
+            group="sherpa"
+        fi
+        if [ ! -e "${dir}" ] || [ "${when}" = "set" ]; then
+            install -d -o sherpa -g "${group}" -m "${mode}" "${dir}" || return 1
+        fi
+    done < <(sherpa_folder_specs)
+
+    print_success "${SHERPA_BASE_DIR} is root's; sherpa owns only the folders sherpad writes"
+}
+
+# Give a file or folder sherpa's ownership and the given mode, when it is there. Only its
+# metadata changes, never its contents. A symlink, at the path or above it, is left alone:
+# following it as root would hand its target to sherpa. The mode is set as sherpa, so a link
+# put in its place after the check changes nothing sherpa does not own.
+secure_path() {
+    local path="$1"
+    local mode="$2"
+    if [ -L "${path}" ]; then
+        print_warning "${path} is a symlink; its owner and mode are left alone"
+        return 0
+    fi
+    path_has_no_symlink "${path}" || return 0
+    if [ -e "${path}" ]; then
+        chown -h sherpa:sherpa "${path}"
+        runuser -u sherpa -- chmod "${mode}" "${path}"
+    fi
+}
+
+# Install the binary $1 as $2 in the folder of the binaries, root's and 0755. install replaces
+# a file or a link at that name, and never writes through a link.
+install_binary() {
+    install -o root -g root -m 755 "$1" "${SHERPA_BASE_DIR}/bin/$2"
+}
+
+# Extract the binary $2 from the release archive $1 into the folder $3, owned by root whatever
+# owner the archive records, so no other account can change it before it is installed.
+extract_binary() {
+    tar -xzf "$1" -C "$3" --no-same-owner --no-same-permissions "$2"
+}
+
+# END server folders
 
 ################################################################################
 # Blank Disks
@@ -557,26 +652,32 @@ missing_blank_disk_tools() {
     done
 }
 
-# Write a blank disk of the given size, file system and label to an existing file.
+# Run a command as sherpa. The blank disks and their folder are written by sherpa, never by root:
+# the folder is open to the sherpa group, whose members could put a link at a disk's name.
+as_sherpa() {
+    runuser -u sherpa -- "$@"
+}
+
+# Write a blank disk of the given size, file system and label to an existing file, as sherpa.
 build_blank_disk() {
     local file="$1"
     local size="$2"
     local fs="$3"
     local label="$4"
 
-    qemu-img create -q -f raw "${file}" "${size}" || return 1
+    as_sherpa qemu-img create -q -f raw "${file}" "${size}" || return 1
     case "${fs}" in
         raw) ;;
-        fat16) mkfs.fat -F 16 "${file}" >/dev/null || return 1 ;;
-        fat32) mkfs.fat -F 32 "${file}" >/dev/null || return 1 ;;
+        fat16) as_sherpa mkfs.fat -F 16 "${file}" >/dev/null || return 1 ;;
+        fat32) as_sherpa mkfs.fat -F 32 "${file}" >/dev/null || return 1 ;;
         vfat)
             if [ "${label}" = "-" ]; then
-                mkfs.vfat -I "${file}" >/dev/null || return 1
+                as_sherpa mkfs.vfat -I "${file}" >/dev/null || return 1
             else
-                mkfs.vfat -n "${label}" "${file}" >/dev/null || return 1
+                as_sherpa mkfs.vfat -n "${label}" "${file}" >/dev/null || return 1
             fi
             ;;
-        ext4) mkfs.ext4 -q -L "${label}" "${file}" || return 1 ;;
+        ext4) as_sherpa mkfs.ext4 -q -L "${label}" "${file}" || return 1 ;;
         *)
             print_error "Unknown blank disk file system: ${fs}"
             return 1
@@ -584,7 +685,7 @@ build_blank_disk() {
     esac
 }
 
-# Create one blank disk, 0644 sherpa, when no file of its name exists. An existing file is never
+# Create one blank disk, 0644 sherpa, as sherpa, when no file of its name exists. An existing file is never
 # changed: nodes' disks may have been copied from it. The disk is built under a temporary name
 # and then linked to its own name, which fails rather than replace a file made meanwhile.
 make_blank_disk() {
@@ -600,19 +701,18 @@ make_blank_disk() {
         return 0
     fi
 
-    tmp="$(mktemp "${SHERPA_BLANK_DISK_DIR}/.${name}.XXXXXX")" || return 1
-    if ! build_blank_disk "${tmp}" "${size}" "${fs}" "${label}" \
-        || ! chown sherpa:sherpa "${tmp}" || ! chmod 644 "${tmp}"; then
-        rm -f "${tmp}"
+    tmp="$(as_sherpa mktemp "${SHERPA_BLANK_DISK_DIR}/.${name}.XXXXXX")" || return 1
+    if ! build_blank_disk "${tmp}" "${size}" "${fs}" "${label}" || ! as_sherpa chmod 644 "${tmp}"; then
+        as_sherpa rm -f "${tmp}"
         print_error "Could not create blank disk ${name}"
         return 1
     fi
-    if ln "${tmp}" "${disk}" 2>/dev/null; then
+    if as_sherpa ln "${tmp}" "${disk}" 2>/dev/null; then
         print_success "Created blank disk ${name}"
     else
         print_info "Blank disk ${name} exists; left as it is"
     fi
-    rm -f "${tmp}"
+    as_sherpa rm -f "${tmp}"
 }
 
 # Create the blank disk folder and every blank disk that is missing. Existing folders and disks
@@ -628,13 +728,17 @@ ensure_blank_disks() {
         return 1
     fi
 
-    local dir
-    for dir in "${SHERPA_IMAGES_DIR}" "${SHERPA_BLANK_DISK_DIR}"; do
-        if [ ! -d "${dir}" ]; then
-            mkdir "${dir}" && chown sherpa:sherpa "${dir}" && chmod 775 "${dir}" || return 1
-            print_success "Created ${dir}"
-        fi
-    done
+    # The images folder is in the base folder, which is root's; the blank disk folder is made in it
+    # as sherpa.
+    if [ ! -d "${SHERPA_IMAGES_DIR}" ]; then
+        path_has_no_symlink "${SHERPA_IMAGES_DIR}" || return 1
+        install -d -o sherpa -g sherpa -m 775 "${SHERPA_IMAGES_DIR}" || return 1
+        print_success "Created ${SHERPA_IMAGES_DIR}"
+    fi
+    if [ ! -d "${SHERPA_BLANK_DISK_DIR}" ]; then
+        as_sherpa mkdir -m 775 "${SHERPA_BLANK_DISK_DIR}" || return 1
+        print_success "Created ${SHERPA_BLANK_DISK_DIR}"
+    fi
 
     local name size fs label
     while read -r name size fs label; do
@@ -650,13 +754,16 @@ ensure_blank_disks() {
 # Container Images
 ################################################################################
 
+# Pull the router image by its digest, so the image is the one this release was made with, and
+# tag it with the name sherpad runs it by.
 pull_sherpa_router_image() {
     print_info "Pulling Sherpa Router image..."
 
-    if docker image pull "${SHERPA_ROUTER_IMAGE}"; then
-        print_success "Sherpa Router image pulled successfully"
+    local pinned="${SHERPA_ROUTER_REPO}@${SHERPA_ROUTER_DIGEST}"
+    if docker image pull "${pinned}" && docker image tag "${pinned}" "${SHERPA_ROUTER_IMAGE}"; then
+        print_success "Sherpa Router image pulled: ${pinned}, tagged ${SHERPA_ROUTER_IMAGE}"
     else
-        print_error "Failed to pull Sherpa Router image"
+        print_error "Failed to pull Sherpa Router image ${pinned}"
         exit 1
     fi
 }
@@ -707,10 +814,6 @@ install_binaries() {
     tmp_dir=$(mktemp -d)
     trap 'rm -rf "${tmp_dir}"' RETURN
 
-    # Create bin directory
-    print_info "Creating binary directory..."
-    mkdir -p "${SHERPA_BASE_DIR}/bin"
-
     # Download and install each binary
     # sherpad is required; sherpa is optional
     local binaries="sherpad sherpa"
@@ -743,7 +846,7 @@ install_binaries() {
 
             # Extract and install
             print_info "Installing ${binary}..."
-            tar xzf "${tmp_dir}/${asset}" -C "${tmp_dir}"
+            extract_binary "${tmp_dir}/${asset}" "${binary}" "${tmp_dir}" || true
 
             if [ ! -f "${tmp_dir}/${binary}" ]; then
                 if [ "$is_required" = true ]; then
@@ -755,9 +858,7 @@ install_binaries() {
                 fi
             fi
 
-            cp "${tmp_dir}/${binary}" "${SHERPA_BASE_DIR}/bin/${binary}"
-            chmod 755 "${SHERPA_BASE_DIR}/bin/${binary}"
-            chown sherpa:sherpa "${SHERPA_BASE_DIR}/bin/${binary}"
+            install_binary "${tmp_dir}/${binary}" "${binary}"
             print_success "Binary installed to ${SHERPA_BASE_DIR}/bin/${binary}"
 
             # Clean up extracted binary for next iteration
@@ -876,7 +977,8 @@ UNIT
 
     # Install environment file example
     print_info "Installing environment file example..."
-    cat > "${SHERPA_ENV_DIR}/sherpa.env.example" << 'ENVEXAMPLE'
+    # People copy the example into place, so it gets the env file's mode.
+    write_sherpa_file "${SHERPA_ENV_DIR}/sherpa.env.example" 600 << 'ENVEXAMPLE'
 # Sherpa Environment Configuration
 #
 # This is an example file. The actual environment file is at:
@@ -926,13 +1028,11 @@ RUST_LOG=info
 # Custom configuration (add as needed)
 # SHERPA_CUSTOM_VAR=value
 ENVEXAMPLE
-    # People copy the example into place, so it gets the env file's mode.
-    chmod 600 "${SHERPA_ENV_DIR}/sherpa.env.example"
-    chown sherpa:sherpa "${SHERPA_ENV_DIR}/sherpa.env.example"
 
     # Create actual environment file
     print_info "Creating environment file..."
-    cat > "${SHERPA_ENV_DIR}/sherpa.env" << EOF
+    # systemd reads it as root; an operator may add secrets, such as OTEL_EXPORTER_OTLP_HEADERS.
+    write_sherpa_file "${SHERPA_ENV_DIR}/sherpa.env" 600 << EOF
 # Sherpa Environment Configuration
 # Generated by sherpa_install.sh on $(date)
 
@@ -951,10 +1051,6 @@ LIBVIRT_DEFAULT_URI=qemu:///system
 # Rust logging level (uncomment to enable)
 # RUST_LOG=info
 EOF
-
-    # systemd reads it as root; an operator may add secrets, such as OTEL_EXPORTER_OTLP_HEADERS.
-    chmod 600 "${SHERPA_ENV_DIR}/sherpa.env"
-    chown sherpa:sherpa "${SHERPA_ENV_DIR}/sherpa.env"
     print_success "Environment file created at ${SHERPA_ENV_DIR}/sherpa.env"
 
     # Install logrotate configuration

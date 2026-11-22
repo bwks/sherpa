@@ -29,3 +29,29 @@ SCRIPT="${BATS_TEST_DIRNAME}/../../scripts/sherpa_uninstall.sh"
     [ "$status" -eq 1 ]
     [[ "$output" == *"must be run as root"* ]]
 }
+
+@test "uninstall_script_012_a_link_at_or_above_the_database_or_binaries_folder_removes_nothing_through_it" {
+    local work stripped
+    work="$(mktemp -d)"
+    stripped="${work}/uninstall.sh"
+    grep -v '^main "\$@"' "${SCRIPT}" > "${stripped}"
+    mkdir -p "${work}/elsewhere" "${work}/opt/sherpa"
+    touch "${work}/elsewhere/sherpa.sqlite" "${work}/elsewhere/sherpad"
+    ln -s "${work}/elsewhere" "${work}/opt/sherpa/db"
+    ln -s "${work}/elsewhere" "${work}/opt/sherpa/bin"
+    run bash -c "
+        source '${stripped}'
+        set +e
+        SHERPA_BASE_DIR='${work}/opt/sherpa'
+        SHERPA_DB_DIR='${work}/opt/sherpa/db'
+        remove_database_data
+        echo \"database: \$?\"
+        remove_sherpad_binary
+    "
+    [[ "$output" == *"${work}/opt/sherpa/db is a symlink"* ]]
+    [[ "$output" == *"database: 1"* ]]
+    [[ "$output" == *"${work}/opt/sherpa/bin is a symlink"* ]]
+    [ -e "${work}/elsewhere/sherpa.sqlite" ]
+    [ -e "${work}/elsewhere/sherpad" ]
+    rm -rf "${work}"
+}

@@ -82,13 +82,41 @@ _require_blank_disk_tools() {
     done
 }
 
+# Stubs for running a script's function as a user that is not root, recording in WORK_DIR:
+# chown records its arguments and changes nothing; install records its arguments and installs
+# without the owner and group; runuser runs its command as this user, with SHERPA_TEST_AS set to
+# the account it was asked for.
+_stub_root_commands() {
+    printf '#!/bin/bash\necho "$@" >> "%s/chown.args"\nexit 0\n' "${WORK_DIR}" > "${MOCK_BIN}/chown"
+    cat > "${MOCK_BIN}/install" << EOF
+#!/bin/bash
+echo "\$@" >> '${WORK_DIR}/install.args'
+args=()
+while [ \$# -gt 0 ]; do
+    case "\$1" in
+        -o|-g) shift 2 ;;
+        *) args+=("\$1"); shift ;;
+    esac
+done
+exec $(command -v install) "\${args[@]}"
+EOF
+    cat > "${MOCK_BIN}/runuser" << 'EOF'
+#!/bin/bash
+[ "$1" = "-u" ] || exit 2
+export SHERPA_TEST_AS="$2"
+shift 2
+[ "$1" = "--" ] && shift
+exec "$@"
+EOF
+    chmod +x "${MOCK_BIN}/chown" "${MOCK_BIN}/install" "${MOCK_BIN}/runuser"
+}
+
 # Run ensure_blank_disks of the given script, sourced without its main, on an images folder under
-# WORK_DIR, with chown stubbed. $2 runs before it.
+# WORK_DIR, with the commands root runs stubbed. $2 runs before it.
 _run_ensure_blank_disks() {
     local stripped="${WORK_DIR}/script.sh"
     grep -v '^main "\$@"' "$1" > "${stripped}"
-    printf '#!/bin/bash\necho "$@" >> "%s/chown.args"\nexit 0\n' "${WORK_DIR}" > "${MOCK_BIN}/chown"
-    chmod +x "${MOCK_BIN}/chown"
+    _stub_root_commands
     run bash -c "
         set +e
         PATH='${MOCK_BIN}:${PATH}'
@@ -112,7 +140,6 @@ _blank_disks_case_002() {
     [ "$status" -eq 0 ]
     [ "$(stat -c '%a' "${WORK_DIR}/images/blank_disk")" = "775" ]
     [ "$(stat -c '%a' "${WORK_DIR}/images/blank_disk/fat32.img")" = "644" ]
-    grep -qx "sherpa:sherpa ${WORK_DIR}/images/blank_disk" "${WORK_DIR}/chown.args"
     # No temporary file is left behind.
     [ "$(find "${WORK_DIR}/images/blank_disk" -name '.*' -type f | wc -l)" -eq 0 ]
     rm -rf "${WORK_DIR}"
@@ -178,6 +205,232 @@ _blank_disks_case_006() {
     [ -f "${WORK_DIR}/images/blank_disk/iosv.img" ]
     rm -rf "${WORK_DIR}"
 }
+
+# Stubs for installing Docker on a host without it: PATH is MOCK_BIN and the few tools the
+# function uses, so there is no docker. curl records its arguments and writes WORK_DIR/key for
+# the key; apt-get records its arguments; dpkg prints amd64.
+_stub_docker_install() {
+    TOOLS="$(mktemp -d "${WORK_DIR}/tools.XXXXXX")"
+    local tool
+    for tool in bash cat mktemp rm sha256sum awk dirname chmod; do
+        ln -s "$(command -v "${tool}")" "${TOOLS}/${tool}"
+    done
+    cat > "${MOCK_BIN}/curl" << STUB
+#!/bin/bash
+echo "\$@" >> '${WORK_DIR}/curl.args'
+while [ \$# -gt 1 ]; do
+    [ "\$1" = "-o" ] && cp '${WORK_DIR}/key' "\$2"
+    shift
+done
+STUB
+    printf '#!/bin/bash\necho "$@" >> "%s/apt-get.args"\n' "${WORK_DIR}" > "${MOCK_BIN}/apt-get"
+    printf '#!/bin/bash\necho amd64\n' > "${MOCK_BIN}/dpkg"
+    printf '#!/bin/bash\nexit 0\n' > "${MOCK_BIN}/systemctl"
+    printf '#!/bin/bash\nexec %s "$@"\n' "$(command -v install)" > "${MOCK_BIN}/install"
+    printf '#!/bin/bash\nexec %s "$@"\n' "$(command -v cp)" > "${MOCK_BIN}/cp"
+    chmod +x "${MOCK_BIN}"/*
+    printf 'ID=ubuntu\nVERSION_ID="26.04"\nVERSION_CODENAME=resolute\nUBUNTU_CODENAME=resolute\n' > "${WORK_DIR}/os-release"
+    printf -- '-----BEGIN PGP PUBLIC KEY BLOCK-----\nkey\n' > "${WORK_DIR}/key"
+}
+
+# Run install_docker with the stubs, the apt files under WORK_DIR and the key pinned to $1.
+_run_install_docker() {
+    run bash -c "
+        set +e
+        PATH='${MOCK_BIN}:${TOOLS}'
+        source '${STRIPPED_SCRIPT}'
+        DOCKER_APT_KEY_SHA256='$1'
+        DOCKER_APT_KEYRING='${WORK_DIR}/keyrings/docker.asc'
+        DOCKER_APT_SOURCES='${WORK_DIR}/docker.sources'
+        OS_RELEASE_FILE='${WORK_DIR}/os-release'
+        install_docker
+    "
+}
+
+# ============================================================
+# The server's folders and binaries, in both scripts
+# ============================================================
+
+# Run the commands $2 of the given script, sourced without its main, with the commands root
+# runs stubbed and the base folder at WORK_DIR/opt/sherpa.
+_run_server_folders() {
+    local stripped="${WORK_DIR}/script.sh"
+    grep -v '^main "\$@"' "$1" > "${stripped}"
+    _stub_root_commands
+    run bash -c "
+        set +e
+        PATH='${MOCK_BIN}:${PATH}'
+        source '${stripped}'
+        SHERPA_BASE_DIR='${WORK_DIR}/opt/sherpa'
+        $2
+    "
+}
+
+# The folders an older release's install left: the base folder and the binaries' folder 0775,
+# as sherpa's, and the folders below them 0775 or 0755.
+_older_release_folders() {
+    local base="${WORK_DIR}/opt/sherpa"
+    mkdir -p "${base}/bin" "${base}/libvirt/images" "${base}/config" "${base}/env" "${base}/logs" \
+        "${base}/db" "${base}/labs" "${base}/.secret" "${base}/images"
+    chmod 775 "${base}" "${base}/bin" "${base}/libvirt" "${base}/config" "${base}/env" "${base}/db" \
+        "${base}/labs" "${base}/libvirt/images" "${base}/images"
+    chmod 755 "${base}/logs"
+    chmod 750 "${base}/.secret"
+}
+
+_server_file_modes_case_013() {
+    WORK_DIR="$(mktemp -d)"
+    local base="${WORK_DIR}/opt/sherpa" pool_group=sherpa
+    getent group kvm >/dev/null 2>&1 && pool_group=kvm
+    _older_release_folders
+    _run_server_folders "$1" secure_server_folders
+    echo "${output}"
+    [ "$status" -eq 0 ]
+    local dir
+    for dir in "${base}" "${base}/bin" "${base}/libvirt"; do
+        grep -qx -- "-d -o root -g root -m 755 ${dir}" "${WORK_DIR}/install.args"
+        [ "$(stat -c '%a' "${dir}")" = "755" ]
+    done
+    for dir in config env logs db; do
+        grep -qx -- "-d -o sherpa -g sherpa -m 750 ${base}/${dir}" "${WORK_DIR}/install.args"
+        [ "$(stat -c '%a' "${base}/${dir}")" = "750" ]
+    done
+    grep -qx -- "-d -o sherpa -g sherpa -m 2750 ${base}/labs" "${WORK_DIR}/install.args"
+    grep -qx -- "-d -o sherpa -g ${pool_group} -m 2750 ${base}/libvirt/images" "${WORK_DIR}/install.args"
+    [ "$(stat -c '%a' "${base}/labs")" = "2750" ]
+    [ "$(stat -c '%a' "${base}/libvirt/images")" = "2750" ]
+    # Kept as they were: .secret and images. Made when missing: .certs, containers, bins, run.
+    [ "$(stat -c '%a' "${base}/.secret")" = "750" ]
+    [ "$(stat -c '%a' "${base}/images")" = "775" ]
+    run grep -q -- "${base}/.secret$" "${WORK_DIR}/install.args"
+    [ "$status" -ne 0 ]
+    run grep -q -- "${base}/images$" "${WORK_DIR}/install.args"
+    [ "$status" -ne 0 ]
+    grep -qx -- "-d -o sherpa -g sherpa -m 700 ${base}/.certs" "${WORK_DIR}/install.args"
+    [ "$(stat -c '%a' "${base}/.certs")" = "700" ]
+    for dir in containers bins run; do
+        grep -qx -- "-d -o sherpa -g sherpa -m 755 ${base}/${dir}" "${WORK_DIR}/install.args"
+        [ "$(stat -c '%a' "${base}/${dir}")" = "755" ]
+    done
+    rm -rf "${WORK_DIR}"
+}
+
+_server_file_modes_case_016() {
+    WORK_DIR="$(mktemp -d)"
+    local base="${WORK_DIR}/opt/sherpa"
+    _older_release_folders
+    printf 'binary\n' > "${base}/bin/sherpad"
+    printf 'disk\n' > "${base}/labs/disk.qcow2"
+    mkdir "${base}/images/alpine_linux"
+    printf 'image\n' > "${base}/images/alpine_linux/virtioa.qcow2"
+    chmod 775 "${base}/bin/sherpad" "${base}/images/alpine_linux"
+    chmod 660 "${base}/labs/disk.qcow2" "${base}/images/alpine_linux/virtioa.qcow2"
+    local before
+    before="$(cd "${base}" && stat -c '%n %a %u %g' bin/sherpad labs/disk.qcow2 images/alpine_linux images/alpine_linux/virtioa.qcow2)"
+    _run_server_folders "$1" secure_server_folders
+    [ "$status" -eq 0 ]
+    [ "$(cd "${base}" && stat -c '%n %a %u %g' bin/sherpad labs/disk.qcow2 images/alpine_linux images/alpine_linux/virtioa.qcow2)" = "${before}" ]
+    run grep -E -- "sherpad$|qcow2$|alpine_linux$" "${WORK_DIR}/install.args"
+    [ "$status" -ne 0 ]
+    [ ! -e "${WORK_DIR}/chown.args" ]
+    rm -rf "${WORK_DIR}"
+}
+
+_server_file_modes_case_017() {
+    WORK_DIR="$(mktemp -d)"
+    local base="${WORK_DIR}/opt/sherpa"
+    mkdir -p "${WORK_DIR}/elsewhere"
+    chmod 777 "${WORK_DIR}/elsewhere"
+
+    # The base folder is a link: nothing changes.
+    mkdir -p "${WORK_DIR}/opt"
+    ln -s "${WORK_DIR}/elsewhere" "${base}"
+    _run_server_folders "$1" secure_server_folders
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"${base} is a symlink"* ]]
+    [ "$(stat -c '%a' "${WORK_DIR}/elsewhere")" = "777" ]
+    [ ! -e "${WORK_DIR}/install.args" ]
+    rm "${base}"
+
+    # A folder above it is a link: nothing changes.
+    mv "${WORK_DIR}/opt" "${WORK_DIR}/real-opt"
+    ln -s "${WORK_DIR}/real-opt" "${WORK_DIR}/opt"
+    _run_server_folders "$1" secure_server_folders
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"${WORK_DIR}/opt is a symlink"* ]]
+    [ ! -e "${WORK_DIR}/install.args" ]
+    [ ! -e "${WORK_DIR}/real-opt/sherpa" ]
+    rm "${WORK_DIR}/opt"
+    mv "${WORK_DIR}/real-opt" "${WORK_DIR}/opt"
+
+    # A folder sherpad writes is a link: the script stops, and the link's target keeps its mode.
+    _older_release_folders
+    rmdir "${base}/labs"
+    ln -s "${WORK_DIR}/elsewhere" "${base}/labs"
+    _run_server_folders "$1" secure_server_folders
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"${base}/labs is a symlink"* ]]
+    [ "$(stat -c '%a' "${WORK_DIR}/elsewhere")" = "777" ]
+    run grep -q -- "labs$" "${WORK_DIR}/install.args"
+    [ "$status" -ne 0 ]
+    rm -rf "${WORK_DIR}"
+}
+
+_server_file_modes_case_018() {
+    WORK_DIR="$(mktemp -d)"
+    local base="${WORK_DIR}/opt/sherpa"
+    mkdir -p "${base}/bin"
+    printf 'not a binary\n' > "${WORK_DIR}/target"
+    chmod 644 "${WORK_DIR}/target"
+    ln -s "${WORK_DIR}/target" "${base}/bin/sherpad"
+    printf 'new release\n' > "${WORK_DIR}/sherpad"
+    _run_server_folders "$1" "install_binary '${WORK_DIR}/sherpad' sherpad"
+    [ "$status" -eq 0 ]
+    [ ! -L "${base}/bin/sherpad" ]
+    [ "$(cat "${base}/bin/sherpad")" = "new release" ]
+    [ "$(stat -c '%a' "${base}/bin/sherpad")" = "755" ]
+    grep -qx -- "-o root -g root -m 755 ${WORK_DIR}/sherpad ${base}/bin/sherpad" "${WORK_DIR}/install.args"
+    [ "$(cat "${WORK_DIR}/target")" = "not a binary" ]
+    [ "$(stat -c '%a' "${WORK_DIR}/target")" = "644" ]
+    rm -rf "${WORK_DIR}"
+}
+
+# Stubs of the commands that write a blank disk or its folder: each records the account it runs
+# as, from the runuser stub, and its arguments, then does its work (the disk tools make an empty
+# file of the size asked for).
+# The stubs' own variables: they expand when a stub runs, not here.
+# shellcheck disable=SC2016
+_stub_blank_disk_writers() {
+    local tool real
+    for tool in mktemp chmod ln rm mkdir; do
+        real="$(command -v "${tool}")"
+        printf '#!/bin/bash\necho "${SHERPA_TEST_AS:-root} %s $*" >> "%s/writes"\nexec %s "$@"\n' \
+            "${tool}" "${WORK_DIR}" "${real}" > "${MOCK_BIN}/${tool}"
+    done
+    printf '#!/bin/bash\necho "${SHERPA_TEST_AS:-root} qemu-img $*" >> "%s/writes"\n: > "$5"\n' \
+        "${WORK_DIR}" > "${MOCK_BIN}/qemu-img"
+    for tool in mkfs.fat mkfs.vfat mkfs.ext4; do
+        printf '#!/bin/bash\necho "${SHERPA_TEST_AS:-root} %s $*" >> "%s/writes"\n' \
+            "${tool}" "${WORK_DIR}" > "${MOCK_BIN}/${tool}"
+    done
+    chmod +x "${MOCK_BIN}"/*
+}
+
+_blank_disks_case_010() {
+    WORK_DIR="$(mktemp -d)"
+    _stub_blank_disk_writers
+    _run_ensure_blank_disks "$1"
+    rm -f "${MOCK_BIN}"/*
+    echo "${output}"
+    [ "$status" -eq 0 ]
+    [ "$(grep -c "qemu-img create" "${WORK_DIR}/writes")" -eq 14 ]
+    # Every write in the blank disk folder, and the folder's own, is sherpa's.
+    run grep -v '^sherpa ' "${WORK_DIR}/writes"
+    [ "$status" -ne 0 ]
+    [ ! -e "${WORK_DIR}/chown.args" ]
+    rm -rf "${WORK_DIR}"
+}
+
 
 # ============================================================
 # install_preflight
@@ -428,4 +681,96 @@ _stub_docker_with_containers() {
     _blank_disks_case_004 "${UPDATE_SCRIPT}"
     _blank_disks_case_005 "${UPDATE_SCRIPT}"
     _blank_disks_case_006 "${UPDATE_SCRIPT}"
+}
+
+# ============================================================
+# Verified downloads
+# ============================================================
+
+@test "install_host_016_docker_comes_from_dockers_apt_repository_signed_by_its_key_checked_against_its_pin" {
+    WORK_DIR="$(mktemp -d)"
+    _stub_docker_install
+    _run_install_docker "$(sha256sum "${WORK_DIR}/key" | awk '{ print $1 }')"
+    echo "${output}"
+    [ "$status" -eq 0 ]
+    cmp "${WORK_DIR}/key" "${WORK_DIR}/keyrings/docker.asc"
+    [ "$(stat -c '%a' "${WORK_DIR}/keyrings/docker.asc")" = "644" ]
+    grep -qx "URIs: https://download.docker.com/linux/ubuntu" "${WORK_DIR}/docker.sources"
+    grep -qx "Suites: resolute" "${WORK_DIR}/docker.sources"
+    grep -qx "Architectures: amd64" "${WORK_DIR}/docker.sources"
+    grep -qx "Signed-By: ${WORK_DIR}/keyrings/docker.asc" "${WORK_DIR}/docker.sources"
+    grep -q "^install -y docker-ce docker-ce-cli containerd.io" "${WORK_DIR}/apt-get.args"
+    # The key is the only download, and no script is fetched to run.
+    [ "$(wc -l < "${WORK_DIR}/curl.args")" -eq 1 ]
+    grep -q "https://download.docker.com/linux/ubuntu/gpg$" "${WORK_DIR}/curl.args"
+}
+
+@test "install_host_017_a_docker_key_that_is_not_the_pinned_one_stops_the_install_before_apt_trusts_it" {
+    WORK_DIR="$(mktemp -d)"
+    _stub_docker_install
+    _run_install_docker "$(printf '0%.0s' {1..64})"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"is not the one this script trusts"* ]]
+    [ ! -e "${WORK_DIR}/keyrings/docker.asc" ]
+    [ ! -e "${WORK_DIR}/docker.sources" ]
+    [ ! -e "${WORK_DIR}/apt-get.args" ]
+}
+
+@test "install_host_018_the_router_image_is_pulled_by_its_digest_and_tagged_with_the_name_sherpad_runs" {
+    WORK_DIR="$(mktemp -d)"
+    printf '#!/bin/bash\necho "$@" >> "%s/docker.args"\nexit 0\n' "${WORK_DIR}" > "${MOCK_BIN}/docker"
+    chmod +x "${MOCK_BIN}/docker"
+    run bash -c "
+        set +e
+        PATH='${MOCK_BIN}:${PATH}'
+        source '${STRIPPED_SCRIPT}'
+        pull_sherpa_router_image
+    "
+    [ "$status" -eq 0 ]
+    local pinned
+    pinned="$(sed -n 's|^image pull \(ghcr.io/bwks/sherpa-router@sha256:[0-9a-f]\{64\}\)$|\1|p' "${WORK_DIR}/docker.args")"
+    [ -n "${pinned}" ]
+    grep -qx "image tag ${pinned} ghcr.io/bwks/sherpa-router:latest" "${WORK_DIR}/docker.args"
+
+    # A pull that fails stops the install, and nothing is tagged.
+    rm "${WORK_DIR}/docker.args"
+    printf '#!/bin/bash\necho "$@" >> "%s/docker.args"\nexit 1\n' "${WORK_DIR}" > "${MOCK_BIN}/docker"
+    run bash -c "
+        set +e
+        PATH='${MOCK_BIN}:${PATH}'
+        source '${STRIPPED_SCRIPT}'
+        pull_sherpa_router_image
+    "
+    [ "$status" -eq 1 ]
+    run grep -q "image tag" "${WORK_DIR}/docker.args"
+    [ "$status" -ne 0 ]
+}
+
+# ============================================================
+# The server's folders and binaries, in both scripts
+# ============================================================
+
+@test "server_file_modes_013_the_scripts_make_the_base_folder_root_s_and_the_folders_sherpad_writes_sherpa_s" {
+    _server_file_modes_case_013 "${SCRIPT}"
+    _server_file_modes_case_013 "${UPDATE_SCRIPT}"
+}
+
+@test "server_file_modes_016_nothing_inside_those_folders_changes_owner_or_mode" {
+    _server_file_modes_case_016 "${SCRIPT}"
+    _server_file_modes_case_016 "${UPDATE_SCRIPT}"
+}
+
+@test "server_file_modes_017_a_symlink_at_or_above_one_of_those_folders_stops_the_script_and_its_target_is_unchanged" {
+    _server_file_modes_case_017 "${SCRIPT}"
+    _server_file_modes_case_017 "${UPDATE_SCRIPT}"
+}
+
+@test "server_file_modes_018_a_binary_is_installed_root_s_in_place_of_the_link_at_its_name" {
+    _server_file_modes_case_018 "${SCRIPT}"
+    _server_file_modes_case_018 "${UPDATE_SCRIPT}"
+}
+
+@test "blank_disks_010_the_blank_disks_and_their_folder_are_written_as_sherpa_never_as_root" {
+    _blank_disks_case_010 "${SCRIPT}"
+    _blank_disks_case_010 "${UPDATE_SCRIPT}"
 }

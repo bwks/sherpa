@@ -25,6 +25,11 @@ pre-1.0 version with default features off, as they install mimalloc as the globa
 - **Backups.** `Database::backup` runs `VACUUM INTO` under the write lock, so the copy is
   consistent. It holds everything but the database key, which must be backed up beside it but
   apart from it, or the restored database will not start (see [Secret values](#secret-values)).
+- **Update backups.** `sherpa_update.sh` copies the database file, its `-wal` and `-shm` files
+  and the key, with sherpad stopped, to a new root-only folder in `/var/backups/sherpa` before
+  the new release first opens them. When that release does not start it removes the `-wal` and
+  `-shm` files the release left, as SQLite would apply them to the restored file, and puts the
+  copies back (`update_script`).
 
 ## Queries and row mapping
 

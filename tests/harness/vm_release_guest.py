@@ -8,9 +8,10 @@ Python 3.15 that it installs on the guest with uv, never on the guest's system P
 this helper on the Sherpa host."""
 
 import fcntl
-from contextlib import suppress
+from contextlib import redirect_stdout, suppress
 import grp
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -118,9 +119,6 @@ def validate_binary_version(binary, version, output):
 
 TEST_SUMMARY = re.compile(r"^test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored", re.M)
 FAILED_TEST = re.compile(r"^test (\S+) \.\.\. FAILED$", re.M)
-# Tests that return early when their host requirement is missing; in a test environment
-# the requirement is guaranteed, so the skip means the test did not run.
-REQUIRED_RUN_MARKERS = ("Skipping VM test",)
 THP_ENABLED = Path("/sys/kernel/mm/transparent_hugepage/enabled")
 # Each integration crate's test executables, written by the test build for the test runs.
 TEST_EXECUTABLES_FILE = "test-executables.toml"
@@ -213,8 +211,6 @@ def test_problems(code, summary):
         problems.append("no test results were reported")
     if summary["failed"] or summary["failures"]:
         problems.append(f"{max(summary['failed'], len(summary['failures']))} failed")
-    problems.extend(f"required test skipped: {line}" for line in summary["skips"]
-                    if line.startswith(REQUIRED_RUN_MARKERS))
     return problems
 
 
@@ -243,7 +239,7 @@ def validate_retained_resources(before, after):
 
 
 def validate_upgrade_state(before, after):
-    required = {"config", "ssh_key", "environment", "certificate", "users"}
+    required = {"config", "environment", "certificate", "users"}
     require(set(before) == required and set(after) == required, "Incomplete upgrade state evidence")
     for key in required - {"users"}:
         require(isinstance(before[key], str) and re.fullmatch(r"[0-9a-f]{64}", before[key]),
@@ -266,6 +262,8 @@ def validate_upgrade_evidence(evidence, baseline, candidate):
             require(evidence[phase].get(key) == inputs[key], f"Incorrect {phase} {binary} bytes")
 
 
+# Where the update script keeps its backups of the database and its key.
+UPDATE_BACKUP_ROOT = Path("/var/backups/sherpa")
 # What `sherpa up` says when the lab owner has no device password.
 DEVICE_PASSWORD_REFUSAL = "has no device password, and labs need one"
 # The first release whose installer makes the database directory 0750; older ones made it 0775.
@@ -273,6 +271,17 @@ PRIVATE_DATABASE_DIRECTORY_VERSION = (0, 5, 13)
 # The first release whose installer makes the config folder 0750 and the env file 0600; older
 # ones made them 0775 and 0640.
 PRIVATE_CONFIG_VERSION = (0, 6, 6)
+# The first release whose sherpad makes the database key, at its first start.
+DATABASE_KEY_VERSION = (0, 6, 4)
+# What the server keeps across a reboot, a reinstall, an update and an uninstall that keeps
+# /opt/sherpa, by its name in retained.toml: its path under /opt/sherpa, and the first release
+# that makes it.
+RETAINED_FILES = {"config": ("config/sherpa.toml", (0, 5, 0)),
+                  "certificate": (".certs/server.crt", (0, 5, 0)),
+                  "database_key": (".secret/db.key", DATABASE_KEY_VERSION)}
+RETAINED_FILE = "retained.toml"
+# The settings the harness gives the installer, which it writes to sherpa.env.
+INSTALLER_SETTINGS = ("SHERPA_SERVER_IPV4", "SHERPA_SERVER_WS_PORT", "SHERPA_SERVER_HTTP_PORT")
 
 
 def release_numbers(version):
@@ -283,6 +292,13 @@ def release_numbers(version):
 def database_directory_mode(version):
     """The mode a Sherpa release's installer gives /opt/sherpa/db."""
     return 0o750 if release_numbers(version) >= PRIVATE_DATABASE_DIRECTORY_VERSION else 0o775
+
+
+def base_layout(selection):
+    """The mode and owner of /opt/sherpa and the binaries that an install or update of
+    `selection` leaves: the checkout's scripts install the candidate, root's and 0755; the
+    baseline's own installer left them sherpa's, and the base folder 0775."""
+    return (0o755, "root") if selection == "candidate" else (0o775, "sherpa")
 
 
 def config_modes(version):
@@ -403,8 +419,6 @@ class Guest:
                    SHERPA_SERVER_WS_PORT=str(self.settings["ws_port"]),
                    SHERPA_SERVER_HTTP_PORT=str(self.settings["http_port"]),
                    DEBIAN_FRONTEND="noninteractive")
-        env.pop("SHERPA_DB_PASSWORD", None)
-        env.pop("SHERPA_DB_PORT", None)
         env.pop("SHERPA_ARTIFACT_DIR", None)
         if selection == "baseline":
             env["SHERPA_ARTIFACT_DIR"] = str(self.workspace / "baseline")
@@ -477,12 +491,13 @@ class Guest:
         self.verify_binaries(selection)
         database_mode = database_directory_mode(self.config[selection]["version"])
         config_mode, env_file_mode = config_modes(self.config[selection]["version"])
-        for directory, permissions in (("", 0o775), ("db", database_mode), ("config", config_mode),
-                                       ("env", 0o750)):
+        base_mode, base_owner = base_layout(selection)
+        for directory, permissions, owner in (("", base_mode, base_owner), ("db", database_mode, "sherpa"),
+                                              ("config", config_mode, "sherpa"), ("env", 0o750, "sherpa")):
             path = self.base / directory
             require(path.is_dir() and path.stat().st_mode & 0o777 == permissions,
                     f"Invalid permissions for {path}")
-            require(path.stat().st_uid == pwd.getpwnam("sherpa").pw_uid, f"Invalid owner: {path}")
+            require(path.stat().st_uid == pwd.getpwnam(owner).pw_uid, f"Invalid owner: {path}")
         env_file = self.base / "env/sherpa.env"
         require(env_file.stat().st_mode & 0o777 == env_file_mode,
                 f"Environment permissions are not {env_file_mode:o}")
@@ -508,7 +523,8 @@ class Guest:
             require(digest(path) == self.config[selection][f"{binary}_binary_sha256"],
                     f"Installed {binary} does not match the {selection} artifact")
             require(path.stat().st_mode & 0o777 == 0o755, f"Invalid {binary} permissions")
-            require(path.stat().st_uid == pwd.getpwnam("sherpa").pw_uid, f"Invalid {binary} owner")
+            require(path.stat().st_uid == pwd.getpwnam(base_layout(selection)[1]).pw_uid,
+                    f"Invalid {binary} owner")
             link = Path("/usr/local/bin") / binary
             require(link.is_symlink() and link.resolve() == path, f"Invalid {binary} symlink")
             _, output = self.command([str(path), "--version"])
@@ -546,9 +562,9 @@ class Guest:
         env_file = self.base / "env/sherpa.env"
         env_values = dict(line.split("=", 1) for line in env_file.read_text().splitlines()
                           if line and not line.startswith("#") and "=" in line)
-        for key, value in self.environment(selection).items():
-            if key.startswith("SHERPA_") and key != "SHERPA_ARTIFACT_DIR":
-                require(env_values.get(key) == value, f"Environment setting mismatch: {key}")
+        given = self.environment(selection)
+        for key in INSTALLER_SETTINGS:
+            require(env_values.get(key) == given[key], f"Environment setting mismatch: {key}")
 
     def verify_router_image(self):
         self.command(["docker", "image", "inspect", "--format", "{{.Id}}", self.settings["router_image"]])
@@ -646,18 +662,33 @@ class Guest:
         finally:
             os.close(descriptor)
             print(self.redact(output.decode(errors="replace")), flush=True)
-        self.snapshot()
+        self.record_retained(("config",))
         self.command(["systemctl", "start", "sherpad"])
 
-    def snapshot(self):
-        hashes = {"config": digest(self.base / "config/sherpa.toml"),
-                  "ssh_key": digest(self.base / "ssh/sherpa_ssh_key")}
-        (self.workspace / "retained.toml").write_text("\n".join(f'{key} = "{value}"' for key, value in hashes.items()))
+    def installed_version(self):
+        """The version the installed sherpad reports, such as 0.7.1."""
+        _, output = self.command([str(self.base / "bin/sherpad"), "--version"], display=False)
+        return output.split()[1]
+
+    def record_retained(self, names):
+        """Record the digest of each file of `names` in RETAINED_FILES that the installed release
+        makes and retained.toml has none for yet. The config is there after `sherpad init`, the
+        certificate and the database key after sherpad first starts."""
+        path = self.workspace / RETAINED_FILE
+        hashes = tomllib.loads(path.read_text()) if path.exists() else {}
+        release = release_numbers(self.installed_version())
+        for name in names:
+            relative, since = RETAINED_FILES[name]
+            if name not in hashes and release >= since:
+                hashes[name] = digest(self.base / relative)
+        path.write_text("".join(f'{key} = "{value}"\n' for key, value in hashes.items()))
 
     def verify_retained(self):
-        hashes = tomllib.loads((self.workspace / "retained.toml").read_text())
-        require(digest(self.base / "config/sherpa.toml") == hashes["config"], "Server config changed")
-        require(digest(self.base / "ssh/sherpa_ssh_key") == hashes["ssh_key"], "SSH identity changed")
+        """Each file retained.toml records is as it was."""
+        hashes = tomllib.loads((self.workspace / RETAINED_FILE).read_text())
+        for name, value in hashes.items():
+            relative = RETAINED_FILES[name][0]
+            require(digest(self.base / relative) == value, f"{self.base / relative} changed")
 
     def request(self, path, payload=None, token=None):
         certificate = self.base / ".certs/server.crt"
@@ -700,23 +731,26 @@ class Guest:
         cases = [(case, self.wait_authenticated)]
         if case == "server_init_001":
             cases += [("server_file_modes_001", self.verify_server_file_modes),
-                      ("server_file_modes_002", self.verify_secret_readers)]
+                      ("server_file_modes_002", self.verify_secret_readers),
+                      ("server_file_modes_019", self.verify_writers)]
         check_cases(cases)
 
     def verify_server_file_modes(self):
         """Each path of the spec's table of the server's files has its mode and owner."""
         for path, mode, owner, group in (
-                ("", 0o775, "sherpa", "sherpa"),
-                ("bin/sherpad", 0o755, "sherpa", "sherpa"), ("bin/sherpa", 0o755, "sherpa", "sherpa"),
+                ("", 0o755, "root", "root"), ("bin", 0o755, "root", "root"),
+                ("bin/sherpad", 0o755, "root", "root"), ("bin/sherpa", 0o755, "root", "root"),
                 ("config", 0o750, "sherpa", "sherpa"), ("config/sherpa.toml", 0o600, "sherpa", "sherpa"),
                 ("env", 0o750, "sherpa", "sherpa"), ("env/sherpa.env", 0o600, "sherpa", "sherpa"),
                 ("env/sherpa.env.example", 0o600, "sherpa", "sherpa"),
-                (".secret", 0o700, "sherpa", "sherpa"), (".certs", 0o700, None, None),
+                (".secret", 0o700, "sherpa", "sherpa"), (".certs", 0o700, "sherpa", "sherpa"),
                 (".certs/server.key", 0o600, None, None),
                 ("db", 0o750, "sherpa", "sherpa"), ("db/backups", 0o700, "sherpa", "sherpa"),
                 ("logs", 0o750, "sherpa", "sherpa"),
-                ("labs", 0o2750, "sherpa", "sherpa"), ("libvirt/images", 0o2750, "sherpa", "kvm"),
-                ("images/blank_disk", 0o775, "sherpa", "sherpa")):
+                ("labs", 0o2750, "sherpa", "sherpa"), ("libvirt", 0o755, "root", "root"),
+                ("libvirt/images", 0o2750, "sherpa", "kvm"), ("images", 0o775, "sherpa", "sherpa"),
+                ("images/blank_disk", 0o775, "sherpa", "sherpa"), ("containers", 0o755, "sherpa", "sherpa"),
+                ("bins", 0o755, "sherpa", "sherpa"), ("run", 0o755, "sherpa", "sherpa")):
             check_mode(self.base / path, mode, owner, group)
         for folder in (".secret", "db"):
             for file in (self.base / folder).iterdir():
@@ -741,6 +775,24 @@ class Guest:
                 code, _ = self.command(["runuser", "-u", account, "--", "test", "-r", path], check=False)
                 require(code != 0, f"{account} can read {path}")
 
+    def verify_writers(self):
+        """The user who installed, in the `sherpa` group, can write nothing in /opt/sherpa but the
+        images and blank disk folders, and `sherpa` cannot write what systemd and the scripts run
+        as root."""
+        installer = self.login_user().pw_name
+        writable = {self.base / "images", self.base / "images/blank_disk"}
+        for path in [self.base, *self.base.rglob("*")]:
+            if path.is_symlink() or path in writable:
+                continue
+            code, _ = self.command(["runuser", "-u", installer, "--", "test", "-w", str(path)],
+                                   check=False, display=False)
+            require(code != 0, f"{installer}, in the sherpa group, can write {path}")
+        for path in (self.base, self.base / "bin", self.base / "bin/sherpad", self.base / "bin/sherpa",
+                     self.base / "libvirt", Path("/etc/systemd/system/sherpad.service")):
+            code, _ = self.command(["runuser", "-u", "sherpa", "--", "test", "-w", str(path)],
+                                   check=False, display=False)
+            require(code != 0, f"sherpa can write {path}")
+
     def wait_authenticated(self):
         deadline = time.monotonic() + self.timeouts["startup"]
         last_error = ""
@@ -763,6 +815,7 @@ class Guest:
                 _, output = self.command([str(self.base / "bin/sherpa"), "whoami", "--server-url", url])
                 require("Authenticated" in output and self.credentials["admin_username"] in output,
                         "CLI did not validate the test admin")
+                self.record_retained(RETAINED_FILES)
                 self.verify_retained()
                 print("PASS authenticated API, CLI and persistent admin record")
                 return
@@ -785,7 +838,6 @@ class Guest:
     def upgrade_state(self):
         self.verify_retained()
         state = {"config": digest(self.base / "config/sherpa.toml"),
-                 "ssh_key": digest(self.base / "ssh/sherpa_ssh_key"),
                  "environment": environment_fingerprint(self.base / "env/sherpa.env"),
                  "certificate": digest(self.base / ".certs/server.crt")}
         admin = self.login(self.credentials["admin_username"])
@@ -815,23 +867,39 @@ class Guest:
                 "Persistent test user was not created")
         self.write_resources(self.workspace / "upgrade-state.toml",
                              {"before": self.upgrade_state(), "baseline-binaries": self.installed_hashes()})
-        print("PASS baseline persistent users, settings and identity recorded")
+        print("PASS baseline persistent users, settings and certificate recorded")
 
     def upgrade(self):
         """Upgrade with the update script, as users do."""
         evidence = tomllib.loads((self.workspace / "upgrade-state.toml").read_text())
         validate_upgrade_state(evidence["before"], self.upgrade_state())
-        self.command(self.updater(), timeout=self.timeouts["install"], env=self.environment())
+        _, output = self.command(self.updater(), timeout=self.timeouts["install"], env=self.environment())
+        check_cases([("update_script_025", lambda: self.verify_update_backup(output))])
         self.verify_installation()
         self.verify_retained()
         self.command(["systemctl", "start", "sherpad"])
+
+    def verify_update_backup(self, output):
+        """The backup folder the update names holds the database, root's only, and the key, when
+        the server had one, is the server's."""
+        found = re.findall(r"Backup of the database and its key: (\S+)", output)
+        require(found, "The update named no backup of the database")
+        folder = Path(found[-1])
+        require(folder.parent == UPDATE_BACKUP_ROOT, f"The backup is not in {UPDATE_BACKUP_ROOT}: {folder}")
+        check_mode(folder, 0o700, "root", "root")
+        check_mode(folder / "sherpa.sqlite", 0o600, "root", "root")
+        key = folder / "db.key"
+        if key.exists():
+            check_mode(key, 0o600, "root", "root")
+            require(key.read_bytes() == (self.base / ".secret/db.key").read_bytes(),
+                    "The backed-up key is not the server's")
 
     def verify_upgrade(self, phase):
         case = "update_script_001" if phase == "after" else "update_script_002"
         check_cases([(case, lambda: self.verify_upgraded(phase))])
 
     def verify_upgraded(self, phase):
-        """This release's binaries, and the users, settings and identity the server held."""
+        """This release's binaries, and the users, settings and certificate the server held."""
         self.verify_installation()
         self.verify_embedded_database()
         evidence = tomllib.loads((self.workspace / "upgrade-state.toml").read_text())
@@ -842,11 +910,12 @@ class Guest:
         if phase == "reboot":
             validate_upgrade_evidence(evidence, self.config["baseline"], self.config["candidate"])
         self.write_resources(self.workspace / "upgrade-state.toml", evidence)
-        print(f"PASS {phase}: candidate binaries and unchanged users, settings and identity")
+        print(f"PASS {phase}: candidate binaries and unchanged users, settings and certificate")
 
     def device_password_state(self, token, username):
-        users = self.request("/api/v1/admin/users", token=token)["users"]
-        return next((user.get("device_password_set") for user in users if user["username"] == username), None)
+        """Whether `username` has set a device password, read from their own record with their
+        token: listing every user is for admins only."""
+        return self.request(f"/api/v1/admin/users/{username}", token=token)["user"].get("device_password_set")
 
     def lab_up_as(self, home, directory):
         """`sherpa up` for a one-node lab as the user whose CLI is under `home`; returns the exit
@@ -1365,15 +1434,15 @@ class GuestTests(unittest.TestCase):
     def test_environment_fingerprint_ignores_comments_but_detects_changed_settings(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "environment"
-            path.write_text("# Generated yesterday\nSHERPA_DB_PASSWORD=test-only\nSHERPA_DB_PORT=8000\n")
+            path.write_text("# Generated yesterday\nSHERPA_SERVER_IPV4=127.0.0.1\nSHERPA_SERVER_WS_PORT=3030\n")
             before = environment_fingerprint(path)
-            path.write_text("# Generated today\n\nSHERPA_DB_PORT=8000\nSHERPA_DB_PASSWORD=test-only\n")
+            path.write_text("# Generated today\n\nSHERPA_SERVER_WS_PORT=3030\nSHERPA_SERVER_IPV4=127.0.0.1\n")
             self.assertEqual(before, environment_fingerprint(path))
-            path.write_text("SHERPA_DB_PORT=8001\nSHERPA_DB_PASSWORD=test-only\n")
+            path.write_text("SHERPA_SERVER_WS_PORT=3031\nSHERPA_SERVER_IPV4=127.0.0.1\n")
             self.assertNotEqual(before, environment_fingerprint(path))
 
     def test_upgrade_evidence_rejects_missing_phases_and_wrong_installed_bytes(self):
-        state = {key: "a" * 64 for key in ("config", "ssh_key", "environment", "certificate")}
+        state = {key: "a" * 64 for key in ("config", "environment", "certificate")}
         state["users"] = ['{"username":"admin","is_admin":true}',
                           '{"username":"persisted","is_admin":false}']
         baseline = {f"{binary}_binary_sha256": "b" * 64 for binary in ("sherpa", "sherpad")}
@@ -1391,8 +1460,8 @@ class GuestTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             validate_upgrade_evidence(changed, baseline, candidate)
 
-    def test_upgrade_state_requires_unchanged_settings_identity_and_records(self):
-        before = {key: "a" * 64 for key in ("config", "ssh_key", "environment", "certificate")}
+    def test_upgrade_state_requires_unchanged_settings_certificate_and_records(self):
+        before = {key: "a" * 64 for key in ("config", "environment", "certificate")}
         before["users"] = ['{"username":"admin","is_admin":true}',
                            '{"username":"persisted","is_admin":false}']
         validate_upgrade_state(before, before)
@@ -1402,6 +1471,40 @@ class GuestTests(unittest.TestCase):
                 validate_upgrade_state(before, changed)
         with self.assertRaises(RuntimeError):
             validate_upgrade_state({}, {})
+
+    def retained_guest(self, directory, versions):
+        guest = Guest.__new__(Guest)
+        guest.workspace = Path(directory) / "workspace"
+        guest.base = Path(directory) / "opt"
+        guest.workspace.mkdir()
+        for relative, _ in RETAINED_FILES.values():
+            (guest.base / relative).parent.mkdir(parents=True, exist_ok=True)
+            (guest.base / relative).write_text(relative)
+        guest.installed_version = lambda: versions.pop(0)
+        return guest
+
+    def test_the_database_key_is_kept_from_the_first_release_that_makes_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            guest = self.retained_guest(directory, ["0.7.1", "0.7.1"])
+            # `sherpad init` makes the config; sherpad's first start the certificate and the key.
+            (guest.base / ".certs/server.crt").unlink()
+            guest.record_retained(("config",))
+            (guest.base / ".certs/server.crt").write_text("certificate")
+            guest.record_retained(RETAINED_FILES)
+            self.assertEqual(set(tomllib.loads((guest.workspace / RETAINED_FILE).read_text())), set(RETAINED_FILES))
+            guest.verify_retained()
+            (guest.base / ".secret/db.key").write_text("another key")
+            with self.assertRaisesRegex(RuntimeError, "db.key changed"):
+                guest.verify_retained()
+        with tempfile.TemporaryDirectory() as directory:
+            guest = self.retained_guest(directory, ["0.6.3", "0.7.1"])
+            (guest.base / ".secret/db.key").unlink()
+            guest.record_retained(RETAINED_FILES)
+            self.assertNotIn("database_key", tomllib.loads((guest.workspace / RETAINED_FILE).read_text()))
+            (guest.base / ".secret/db.key").write_text("made by the update")
+            guest.record_retained(RETAINED_FILES)
+            self.assertIn("database_key", tomllib.loads((guest.workspace / RETAINED_FILE).read_text()))
+            guest.verify_retained()
 
     def test_retention_checks_detect_removed_or_changed_resources(self):
         before = {"packages": ["docker:1", "libvirt:2"], "users": ["sherpa:1000"],
@@ -1448,21 +1551,17 @@ class GuestTests(unittest.TestCase):
             "network": {"paths": [], "directories": []},
         })
 
-    def test_missing_results_and_required_skips_are_failures(self):
+    def test_missing_results_are_failures_and_skips_are_recorded(self):
         self.assertEqual(test_problems(0, summarize_tests("error: could not compile\n")),
                          ["no test results were reported"])
-        skipped = summarize_tests("Skipping VM test: /dev/kvm not available\n"
-                                  "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured\n")
-        self.assertEqual(test_problems(0, skipped),
-                         ["required test skipped: Skipping VM test: /dev/kvm not available"])
         optional = summarize_tests("Skipping TAP test on kernel 6.8\n"
                                    "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured\n")
         self.assertEqual(test_problems(0, optional), [])
         self.assertEqual(optional["skips"], ["Skipping TAP test on kernel 6.8"])
 
     def test_leftovers_report_only_new_resources(self):
-        before = {"containers": ["sherpa-db"], "links": ["lo", "eth0"]}
-        after = {"containers": ["sherpa-db", "srl1-tc000001"], "links": ["eth0", "lo"], "domains": ["vm1-x"]}
+        before = {"containers": ["sherpa-router"], "links": ["lo", "eth0"]}
+        after = {"containers": ["sherpa-router", "srl1-tc000001"], "links": ["eth0", "lo"], "domains": ["vm1-x"]}
         self.assertEqual(leftover_resources(before, after),
                          {"containers": ["srl1-tc000001"], "domains": ["vm1-x"]})
 
@@ -1480,8 +1579,10 @@ class GuestTests(unittest.TestCase):
 
         def request(path, payload=None, token=None):
             if path == "/api/v1/admin/users":
-                return {"users": [{"username": "persist-abcdef01", **guest.record}]}
-            posts.append((path, payload))
+                raise urllib.error.HTTPError(path, 403, "Forbidden", None, None)
+            if path == "/api/v1/admin/users/persist-abcdef01" and payload is None:
+                return {"user": {"username": "persist-abcdef01", **guest.record}}
+            posts.append((path, payload, token))
             if path.endswith("/device-password"):
                 guest.record["device_password_set"] = True
                 return {"username": "persist-abcdef01", "device_password_set": True}
@@ -1507,6 +1608,16 @@ class GuestTests(unittest.TestCase):
             guest, _, _ = self.device_password_guest(directory, [(1, "Failed to find a node image")])
             with self.assertRaisesRegex(RuntimeError, "not refused"):
                 guest.device_password()
+
+    def test_the_device_password_step_needs_no_admin_route(self):
+        refusal = "User 'persist-abcdef01' has no device password, and labs need one: " \
+                  "'sherpa server user device-password'"
+        with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()):
+            guest, posts, _ = self.device_password_guest(directory, [(1, refusal), (1, "Failed to find a node image")])
+            guest.device_password()
+        self.assertEqual([(path, token) for path, _, token in posts],
+                         [("/api/v1/admin/users/persist-abcdef01/ssh-keys", "user-token"),
+                          ("/api/v1/admin/users/persist-abcdef01/device-password", "user-token")])
 
     def test_the_update_fails_if_labs_are_still_refused_after_it_is_set(self):
         refusal = "User 'persist-abcdef01' has no device password, and labs need one: " \
