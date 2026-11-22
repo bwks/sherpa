@@ -33,6 +33,13 @@ SHERPA_IMAGES_DIR="${SHERPA_BASE_DIR}/images"
 # The blank disk templates sherpad copies for node ZTP disks, see ensure_blank_disks.
 SHERPA_BLANK_DISK_DIR="${SHERPA_IMAGES_DIR}/blank_disk"
 SHERPA_DB_FILE="${SHERPA_BASE_DIR}/db/sherpa.sqlite"
+# The database key; a database restored without the key it was sealed with opens nothing.
+SHERPA_DB_KEY_FILE="${SHERPA_BASE_DIR}/.secret/db.key"
+# Where the update keeps the copy of the database and its key it takes before the new release
+# runs. Root's only, outside /opt/sherpa, so no uninstall mode removes it.
+SHERPA_UPDATE_BACKUP_ROOT="/var/backups/sherpa"
+# How long the new sherpad must stay running, without systemd restarting it, to count as started.
+SHERPAD_START_CHECK_SECONDS=10
 # The server config and the env files, which can hold secrets, and sherpad's log.
 SHERPA_CONFIG_DIR="${SHERPA_BASE_DIR}/config"
 SHERPA_ENV_DIR="${SHERPA_BASE_DIR}/env"
@@ -51,6 +58,15 @@ TARGET="x86_64-unknown-linux-gnu"
 SHERPA_VERSION=""
 FORCE=false
 SHERPA_ARTIFACT_DIR="${SHERPA_ARTIFACT_DIR:-}"
+# What the update has done so far, so that finish_update can undo it on a failure.
+SHERPAD_STOPPED=false
+BINARIES_REPLACED=false
+DOWNLOAD_DIR=""
+DB_BACKUP_DIR=""
+# The binaries downloaded and extracted into DOWNLOAD_DIR, to install.
+DOWNLOADED_BINARIES=()
+# The installed binaries moved to <name>.previous; finish_update moves only these back.
+PREVIOUS_BINARIES=()
 
 # Color codes for output
 RED='\033[0;31m'
@@ -93,8 +109,11 @@ Usage: $0 [OPTIONS]
 
 Update Sherpa binaries to the latest (or specified) release.
 
-This script downloads new binaries from GitHub releases, stops the sherpad
-service, replaces the binaries, and restarts the service. It does NOT
+This script downloads new binaries from GitHub releases, then stops the
+sherpad service, backs up the database and its key to
+${SHERPA_UPDATE_BACKUP_ROOT}, replaces the binaries, and restarts the service.
+If the new release does not start, it puts the database, the key and the
+binaries back and starts the release that was installed. It does NOT
 reinstall system packages, users or Docker. A server older than 0.5.0 is
 refused: update it to ${LAST_MIGRATING_VERSION} first with that release's update
 script, which moves its data into the embedded database.
@@ -189,16 +208,20 @@ get_latest_version() {
     print_success "Latest release: ${SHERPA_VERSION}"
 }
 
-# Print the version the installed binary $1 reports, when only root can have written it: a
-# regular file of root's that its group and others cannot write. Any other file is never run,
-# as this script runs as root and sherpa or a member of its group may have replaced it; nothing
-# is printed for it.
+# Succeed when only root can have written the file $1: a regular file of root's, not a link,
+# that its group and others cannot write.
+binary_is_root_only() {
+    local binary="$1"
+    [ ! -L "${binary}" ] && [ -f "${binary}" ] && [ "$(stat -c '%u' "${binary}")" = "0" ] &&
+        [ $(( 0$(stat -c '%a' "${binary}") & 022 )) -eq 0 ]
+}
+
+# Print the version the installed binary $1 reports, when only root can have written it. Any
+# other file is never run, as this script runs as root and sherpa or a member of its group may
+# have replaced it; nothing is printed for it.
 trusted_binary_version() {
     local binary="$1"
-    if [ -L "${binary}" ] || [ ! -f "${binary}" ] || [ "$(stat -c '%u' "${binary}")" != "0" ] ||
-        [ $(( 0$(stat -c '%a' "${binary}") & 022 )) -ne 0 ]; then
-        return 0
-    fi
+    binary_is_root_only "${binary}" || return 0
     "${binary}" --version 2>/dev/null | awk '{print $NF}' || true
 }
 
@@ -253,25 +276,34 @@ stop_sherpad() {
         fi
     fi
 
+    SHERPAD_STOPPED=true
     print_success "sherpad stopped"
 }
 
+# Start sherpad, and fail unless it stays running for SHERPAD_START_CHECK_SECONDS without systemd
+# restarting it: a release that cannot migrate the database exits at once, and systemd starts it
+# again and again.
 start_sherpad() {
     print_info "Starting sherpad..."
 
     if command -v systemctl >/dev/null 2>&1 && systemctl is-enabled --quiet sherpad 2>/dev/null; then
         systemctl restart sherpad
-        sleep 2
-
-        if systemctl is-active --quiet sherpad 2>/dev/null; then
-            print_success "sherpad service started"
-        else
-            print_error "sherpad service failed to start"
-            echo ""
-            echo "Check logs with: journalctl -u sherpad --no-pager -n 20"
-            exit 1
-        fi
+        local restarts second
+        restarts="$(systemctl show -p NRestarts --value sherpad 2>/dev/null)" || true
+        for (( second = 0; second < SHERPAD_START_CHECK_SECONDS; second++ )); do
+            sleep 1
+            if ! systemctl is-active --quiet sherpad 2>/dev/null ||
+                [ "$(systemctl show -p NRestarts --value sherpad 2>/dev/null)" != "${restarts}" ]; then
+                print_error "sherpad service failed to start"
+                echo ""
+                echo "Check logs with: journalctl -u sherpad --no-pager -n 20"
+                return 1
+            fi
+        done
+        SHERPAD_STOPPED=false
+        print_success "sherpad service started"
     else
+        SHERPAD_STOPPED=false
         print_warning "systemd service not found or not enabled — skipping auto-start"
         print_info "Start sherpad manually if needed"
     fi
@@ -281,15 +313,14 @@ start_sherpad() {
 # Binary Update
 ################################################################################
 
-update_binaries() {
+# Download and extract each binary that needs the update into DOWNLOAD_DIR, before sherpad is
+# stopped: a release that cannot be fetched, or an archive without its binary, leaves the server
+# running the release it has.
+download_binaries() {
     print_header "Downloading Binaries"
 
-    # Create a temp directory for downloads, clean up on exit
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
-    trap 'rm -rf "${tmp_dir}"' EXIT
+    DOWNLOAD_DIR=$(mktemp -d)
 
-    # Download and install each binary
     # sherpad is required; sherpa is optional
     local binaries="sherpad sherpa"
     local required_binaries="sherpad"
@@ -322,21 +353,18 @@ update_binaries() {
 
         local downloaded=false
         if [ -n "$SHERPA_ARTIFACT_DIR" ]; then
-            if cp "${SHERPA_ARTIFACT_DIR}/${asset}" "${tmp_dir}/${asset}"; then
+            if cp "${SHERPA_ARTIFACT_DIR}/${asset}" "${DOWNLOAD_DIR}/${asset}"; then
                 downloaded=true
             fi
-        elif curl -fsSL --connect-timeout 15 --retry 3 --retry-all-errors -o "${tmp_dir}/${asset}" "${url}"; then
+        elif curl -fsSL --connect-timeout 15 --retry 3 --retry-all-errors -o "${DOWNLOAD_DIR}/${asset}" "${url}"; then
             downloaded=true
         fi
 
         if [ "$downloaded" = true ]; then
             print_success "Downloaded ${asset}"
+            extract_binary "${DOWNLOAD_DIR}/${asset}" "${binary}" "${DOWNLOAD_DIR}" || true
 
-            # Extract and install
-            print_info "Installing ${binary}..."
-            extract_binary "${tmp_dir}/${asset}" "${binary}" "${tmp_dir}" || true
-
-            if [ ! -f "${tmp_dir}/${binary}" ]; then
+            if [ ! -f "${DOWNLOAD_DIR}/${binary}" ]; then
                 if [ "$is_required" = true ]; then
                     print_error "Expected binary '${binary}' not found in archive"
                     exit 1
@@ -345,16 +373,7 @@ update_binaries() {
                     continue
                 fi
             fi
-
-            if [ "$binary" = "sherpad" ]; then
-                check_new_sherpad_can_use_database "${tmp_dir}/sherpad"
-            fi
-
-            install_binary "${tmp_dir}/${binary}" "${binary}"
-            print_success "Installed ${SHERPA_BIN_DIR}/${binary}"
-
-            # Clean up extracted binary for next iteration
-            rm -f "${tmp_dir}/${binary}"
+            DOWNLOADED_BINARIES+=("${binary}")
         else
             if [ "$is_required" = true ]; then
                 print_error "Failed to download required binary: ${asset}"
@@ -366,7 +385,118 @@ update_binaries() {
         fi
     done
 
+    print_success "Downloaded ${SHERPA_VERSION}"
+}
+
+# Install the downloaded binaries, with sherpad stopped, root's and 0755 (install_binary). Each
+# installed binary is first moved to <name>.previous, which finish_update moves back when the new
+# release does not start. mv moves a link itself and keeps the file's owner, so going back puts
+# back exactly what was installed.
+install_binaries() {
+    print_header "Installing Binaries"
+
+    local binary
+    for binary in "${DOWNLOADED_BINARIES[@]}"; do
+        if [ "$binary" = "sherpad" ]; then
+            check_new_sherpad_can_use_database "${DOWNLOAD_DIR}/sherpad"
+        fi
+    done
+
+    for binary in "${DOWNLOADED_BINARIES[@]}"; do
+        print_info "Installing ${binary}..."
+        BINARIES_REPLACED=true
+        if [ -e "${SHERPA_BIN_DIR}/${binary}" ] || [ -L "${SHERPA_BIN_DIR}/${binary}" ]; then
+            mv -f "${SHERPA_BIN_DIR}/${binary}" "${SHERPA_BIN_DIR}/${binary}.previous"
+            PREVIOUS_BINARIES+=("${binary}")
+        fi
+        install_binary "${DOWNLOAD_DIR}/${binary}" "${binary}"
+        print_success "Installed ${SHERPA_BIN_DIR}/${binary}"
+    done
+
     print_success "All binaries updated to ${SHERPA_VERSION}"
+}
+
+################################################################################
+# Database Backup
+################################################################################
+
+# Copy the database, its WAL and shared-memory files, and its key, with sherpad stopped, into a
+# new folder of root's under SHERPA_UPDATE_BACKUP_ROOT, and say where. The files are read as
+# sherpa, so a link in sherpa's folders reaches nothing sherpa cannot read. A server with no
+# database has nothing to back up.
+backup_database() {
+    if [ ! -f "${SHERPA_DB_FILE}" ]; then
+        print_info "No database at ${SHERPA_DB_FILE}; nothing to back up"
+        return 0
+    fi
+
+    print_info "Backing up the database and its key..."
+    path_has_no_symlink "${SHERPA_UPDATE_BACKUP_ROOT}" || return 1
+    install -d -o root -g root -m 700 "${SHERPA_UPDATE_BACKUP_ROOT}" || return 1
+    local dir
+    dir="${SHERPA_UPDATE_BACKUP_ROOT}/update-$(date -u +%Y%m%dT%H%M%SZ)"
+    mkdir -m 700 "${dir}" || return 1
+
+    local file
+    for file in "${SHERPA_DB_FILE}" "${SHERPA_DB_FILE}-wal" "${SHERPA_DB_FILE}-shm" "${SHERPA_DB_KEY_FILE}"; do
+        [ -f "${file}" ] || continue
+        (umask 077 && runuser -u sherpa -- cat "${file}" > "${dir}/$(basename "${file}")") || {
+            print_error "Could not back up ${file} to ${dir}"
+            return 1
+        }
+    done
+
+    DB_BACKUP_DIR="${dir}"
+    print_success "Backup of the database and its key: ${dir}"
+}
+
+# Put the database and its key back from DB_BACKUP_DIR: the database's WAL and shared-memory files
+# the new release left are removed first, as SQLite would apply them to the restored file. The
+# files are written as sherpa, mode 0600.
+restore_database_backup() {
+    [ -n "${DB_BACKUP_DIR}" ] || return 0
+
+    print_info "Restoring the database and its key from ${DB_BACKUP_DIR}..."
+    local file
+    for file in "${SHERPA_DB_FILE}" "${SHERPA_DB_FILE}-wal" "${SHERPA_DB_FILE}-shm"; do
+        runuser -u sherpa -- rm -f "${file}"
+    done
+    for file in "${SHERPA_DB_FILE}" "${SHERPA_DB_FILE}-wal" "${SHERPA_DB_FILE}-shm" "${SHERPA_DB_KEY_FILE}"; do
+        [ -f "${DB_BACKUP_DIR}/$(basename "${file}")" ] || continue
+        # shellcheck disable=SC2016 # $1 expands in the shell runuser starts.
+        runuser -u sherpa -- sh -c 'umask 077 && cat > "$1"' sh "${file}" < "${DB_BACKUP_DIR}/$(basename "${file}")"
+    done
+    print_success "Restored the database and its key from ${DB_BACKUP_DIR}"
+}
+
+# Run on every exit. After a failure with sherpad stopped, put back what the update replaced,
+# the binaries and then the database and its key, and start the release that was installed.
+finish_update() {
+    local status=$?
+    if [ "${status}" -ne 0 ] && [ "${SHERPAD_STOPPED}" = true ]; then
+        print_warning "The update failed with sherpad stopped; going back to the release that was installed"
+        if [ "${BINARIES_REPLACED}" = true ]; then
+            stop_sherpad
+            local binary
+            for binary in "${PREVIOUS_BINARIES[@]}"; do
+                mv -f "${SHERPA_BIN_DIR}/${binary}.previous" "${SHERPA_BIN_DIR}/${binary}"
+                if ! binary_is_root_only "${SHERPA_BIN_DIR}/${binary}"; then
+                    print_warning "${SHERPA_BIN_DIR}/${binary} is back as it was, not root's alone: the next update replaces it"
+                fi
+            done
+            restore_database_backup || print_error "Restore it by hand from ${DB_BACKUP_DIR}"
+        fi
+        if start_sherpad; then
+            print_info "The release that was installed is running again"
+        else
+            print_error "The release that was installed did not start either"
+        fi
+        [ -z "${DB_BACKUP_DIR}" ] || print_info "Backup of the database and its key: ${DB_BACKUP_DIR}"
+    fi
+    if [ -n "${DOWNLOAD_DIR}" ]; then
+        rm -rf "${DOWNLOAD_DIR}"
+    fi
+    exit "${status}"
 }
 
 ensure_symlinks() {
@@ -895,16 +1025,24 @@ main() {
     install_blank_disk_tools
     ensure_blank_disks
 
-    # Perform update
+    # From here, a failure puts back what was replaced and starts the release that was installed.
+    trap finish_update EXIT
+
+    # The release is fetched while the server still runs; then the server stops for the backup and
+    # the install.
+    download_binaries
     stop_sherpad
-    update_binaries
+    backup_database
+    install_binaries
     ensure_symlinks
     secure_config_files
     ensure_runtime_directory
     start_sherpad
+    rm -f "${SHERPA_BIN_DIR}/sherpad.previous" "${SHERPA_BIN_DIR}/sherpa.previous"
     remove_server_ssh_key
     verify_update
 
+    [ -z "${DB_BACKUP_DIR}" ] || print_info "Backup of the database and its key: ${DB_BACKUP_DIR}"
     print_success "Sherpa update complete!"
 }
 

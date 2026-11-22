@@ -262,6 +262,8 @@ def validate_upgrade_evidence(evidence, baseline, candidate):
             require(evidence[phase].get(key) == inputs[key], f"Incorrect {phase} {binary} bytes")
 
 
+# Where the update script keeps its backups of the database and its key.
+UPDATE_BACKUP_ROOT = Path("/var/backups/sherpa")
 # What `sherpa up` says when the lab owner has no device password.
 DEVICE_PASSWORD_REFUSAL = "has no device password, and labs need one"
 # The first release whose installer makes the database directory 0750; older ones made it 0775.
@@ -871,10 +873,26 @@ class Guest:
         """Upgrade with the update script, as users do."""
         evidence = tomllib.loads((self.workspace / "upgrade-state.toml").read_text())
         validate_upgrade_state(evidence["before"], self.upgrade_state())
-        self.command(self.updater(), timeout=self.timeouts["install"], env=self.environment())
+        _, output = self.command(self.updater(), timeout=self.timeouts["install"], env=self.environment())
+        check_cases([("update_script_025", lambda: self.verify_update_backup(output))])
         self.verify_installation()
         self.verify_retained()
         self.command(["systemctl", "start", "sherpad"])
+
+    def verify_update_backup(self, output):
+        """The backup folder the update names holds the database, root's only, and the key, when
+        the server had one, is the server's."""
+        found = re.findall(r"Backup of the database and its key: (\S+)", output)
+        require(found, "The update named no backup of the database")
+        folder = Path(found[-1])
+        require(folder.parent == UPDATE_BACKUP_ROOT, f"The backup is not in {UPDATE_BACKUP_ROOT}: {folder}")
+        check_mode(folder, 0o700, "root", "root")
+        check_mode(folder / "sherpa.sqlite", 0o600, "root", "root")
+        key = folder / "db.key"
+        if key.exists():
+            check_mode(key, 0o600, "root", "root")
+            require(key.read_bytes() == (self.base / ".secret/db.key").read_bytes(),
+                    "The backed-up key is not the server's")
 
     def verify_upgrade(self, phase):
         case = "update_script_001" if phase == "after" else "update_script_002"

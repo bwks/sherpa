@@ -287,7 +287,8 @@ remove_sherpad_binary() {
         print_info "Binary not found"
     fi
 
-    # The copy sherpa_update.sh keeps for rolling back a failed database move.
+    # The copy sherpa_update.sh keeps while it installs, for going back when the new release does
+    # not start.
     rm -f "${SHERPA_BASE_DIR}/bin/sherpad.previous"
 
     remove_binary_symlink /usr/local/bin/sherpad "${SHERPA_BASE_DIR}/bin/sherpad"

@@ -35,6 +35,16 @@ Replaces the Sherpa binaries with the latest, or a given, release and restarts s
 refuses, before changing anything, a server older than 0.5.0 whose data is still in SurrealDB:
 such a server updates to 0.5.12 first with that release's update script, which moves the data.
 
+It downloads the release while sherpad still runs, so a failed download changes nothing. With
+sherpad stopped, it copies the database and its key to a new folder in `/var/backups/sherpa`
+(root's only) and names it, then installs the binaries. If anything fails after sherpad stops, it
+starts sherpad again; if the new release does not stay running for ten seconds, it puts back the
+binaries, the database and the key first. The binaries are installed root's, `0755`. Going back
+moves each binary the update set aside back as it was: root's after an update by this script, and
+on the first update from an earlier release the `sherpa`-owned binary that release installed,
+which is never run by the script and which the next update replaces. The backups are never
+removed.
+
 On every run, including one with nothing to install, it creates the blank disk templates that
 are missing, installing `qemu-utils`, `dosfstools` and `e2fsprogs` first if a tool is missing.
 Existing disks are never changed. Running it again is how a server gets a disk that was removed.

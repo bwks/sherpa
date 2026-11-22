@@ -41,7 +41,9 @@ Root changes nothing through a symlink: the scripts refuse a path with a symlink
 component, set owners with `chown -h`, install binaries and env files with `install`, which
 replaces a link, and write the blank disks and set file modes as `sherpa`. The update script
 runs an installed binary for its version only when the binary is root's and no other account
-can write it; any other is replaced without being run. The modes are `install-and-update.md`,
+can write it; any other is replaced without being run. When a new release does not start, the
+update moves back only the binaries it set aside, keeping their owners, so it never makes a
+binary another account wrote root's. The modes are `install-and-update.md`,
 `server_file_modes`.
 
 ### Config, env and log file permissions
