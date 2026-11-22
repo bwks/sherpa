@@ -545,8 +545,8 @@ async fn account_keys_010_the_profile_page_validates_adds_and_removes_keys_showi
     );
 
     for (key, refusal) in [
-        ("not-a-key", "Invalid SSH key"),
-        (TEST_SSH_PUBLIC_KEY, "This SSH key is already added"),
+        ("not-a-key", "Invalid SSH public key"),
+        (TEST_SSH_PUBLIC_KEY, "This SSH key is already registered"),
     ] {
         let body = web_request(
             &server,
@@ -599,6 +599,58 @@ async fn account_keys_010_the_profile_page_validates_adds_and_removes_keys_showi
     ensure!(
         stored_keys(&server, "keyowner").await? == vec![SECOND_SSH_PUBLIC_KEY.to_owned()],
         "the key at index 0 was not the one deleted"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn account_keys_011_the_profile_page_stores_a_key_trimmed_and_refuses_it_again_with_another_comment()
+-> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    db::create_user(
+        &server.db,
+        "keyowner".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        false,
+        vec![],
+    )
+    .await?;
+    let token = ws.login("keyowner", TEST_ADMIN_PASSWORD).await?;
+    let key = format!("{TEST_SSH_PUBLIC_KEY} laptop");
+
+    let padded = format!("  {key}\n");
+    web_request(
+        &server,
+        &token,
+        Method::POST,
+        "/profile/ssh-keys",
+        &[("ssh_key", padded.as_str())],
+    )
+    .await?;
+    ensure!(
+        stored_keys(&server, "keyowner").await? == vec![key.clone()],
+        "the key was not stored trimmed"
+    );
+
+    let other_comment = format!("{TEST_SSH_PUBLIC_KEY} desktop");
+    let body = web_request(
+        &server,
+        &token,
+        Method::POST,
+        "/profile/ssh-keys",
+        &[("ssh_key", other_comment.as_str())],
+    )
+    .await?
+    .text()
+    .await?;
+    ensure!(
+        body.contains("This SSH key is already registered"),
+        "the key with another comment was not refused: {body}"
+    );
+    ensure!(
+        stored_keys(&server, "keyowner").await? == vec![key],
+        "a refused key changed the account's keys"
     );
     Ok(())
 }

@@ -1,7 +1,7 @@
 use shared::data::{
     ClusterCni, CpuMode, CpuTopology, DbLab, DiskCache, DiskImageCloneMethod, DiskIo, LabPhase,
     ModelKind, NodeBootDisk, NodeCpu, NodeInterfaces, NodeKind, NodeModel, NodeNuma,
-    NumaMemoryMode, PtxPlatform, RecordId, WatchdogAction, Ztp, ZtpServer,
+    NumaMemoryMode, PtxPlatform, RecordId, WatchdogAction, Ztp,
 };
 use topology::{
     BinaryFile, Bridge, ContainerProvisioner, ContainerSecretFile, Link2, Manifest,
@@ -9,18 +9,14 @@ use topology::{
     Provisioner, ProvisionerFile, SshProvisioner, StartupScript, SystemdUnit, TailscaleConfig,
     TalosCluster, TextFile, VolumeMount,
 };
-use turso::Value;
 
 use super::*;
 use crate::persistence::{LAB_TABLE, key_of};
 use crate::sql::{Query, query_count};
 use crate::{
-    Database, DefaultRequest, LabDetails, LabNetworks, SecretKey, apply_schema, create_lab,
-    create_node, create_user, delete_lab_from, get_node_by_name_and_lab, open, open_in_memory,
-    upsert_node_image,
+    Database, DefaultRequest, LabDetails, LabNetworks, apply_schema, create_lab, create_node,
+    create_user, delete_lab_from, get_node_by_name_and_lab, open_in_memory, upsert_node_image,
 };
-
-const PASSWORD: &str = "ztp-Secret-42";
 
 /// Every table the definition writes rows to, other than `lab` and `node`.
 const CHILD_TABLES: [&str; 13] = [
@@ -218,11 +214,6 @@ fn full_manifest() -> Manifest {
                 links: vec!["dev01::eth5".to_owned()],
             },
         ]),
-        ztp_server: Some(ZtpServer {
-            enable: true,
-            username: Some("ztp".to_owned()),
-            password: Some(PASSWORD.to_owned()),
-        }),
     }
 }
 
@@ -239,17 +230,11 @@ fn assert_every_field_set(manifest: &Manifest) {
         nodes,
         links,
         bridges,
-        ztp_server,
     } = manifest;
     assert!(!name.is_empty() && description.is_some());
     assert!(tailscale.as_ref().is_some_and(|t| t.auth_key_env.is_some()));
     assert!(ready_timeout.is_some() && provision_concurrency.is_some());
     assert!(talos_clusters.is_some() && links.is_some() && bridges.is_some());
-    assert!(
-        ztp_server
-            .as_ref()
-            .is_some_and(|z| z.username.is_some() && z.password.is_some())
-    );
     assert_every_node_field_set(&nodes[0]);
 }
 
@@ -346,21 +331,10 @@ fn assert_every_node_field_set(node: &Node) {
     assert!(systemd_units_data.is_none());
 }
 
-/// A database with a key, and the lab `core` holding the nodes `dev01` (Ubuntu) and `web` (a
-/// container), as `up` creates them before it stores the definition.
+/// A database holding the lab `core` with the nodes `dev01` (Ubuntu) and `web` (a container), as
+/// `up` creates them before it stores the definition.
 async fn lab_with_nodes() -> (Database, DbLab) {
-    let db = open_in_memory()
-        .await
-        .unwrap()
-        .with_secret_key(SecretKey::generate());
-    let lab = lab_in(&db).await;
-    (db, lab)
-}
-
-/// The lab `core` with its nodes in `db`. Their images have no ZTP password, so a database
-/// without a key can hold them.
-async fn lab_in(db: &Database) -> DbLab {
-    let db = db.clone();
+    let db = open_in_memory().await.unwrap();
     apply_schema(&db).await.unwrap();
     let user = create_user(&db, "alice".to_owned(), "TestPass123!", false, vec![])
         .await
@@ -410,7 +384,7 @@ async fn lab_in(db: &Database) -> DbLab {
         .await
         .unwrap();
     }
-    lab
+    (db, lab)
 }
 
 async fn count(db: &Database, sql: &'static str, key: &str) -> usize {
@@ -524,7 +498,6 @@ async fn storing_again_replaces_the_whole_definition() {
         .unwrap();
     let mut smaller = full_manifest();
     smaller.links = None;
-    smaller.ztp_server = None;
     smaller.nodes[0] = Node {
         name: "dev01".to_owned(),
         model: NodeModel::UbuntuLinux,
@@ -557,56 +530,6 @@ async fn a_manifest_node_without_a_record_is_refused_and_nothing_is_stored() {
     for (table, rows) in child_rows(&db, &lab_key(&lab)).await {
         assert_eq!(rows, 0, "{table}");
     }
-}
-
-#[tokio::test]
-async fn the_ztp_server_password_is_stored_sealed() {
-    let (db, lab) = lab_with_nodes().await;
-    store_lab_definition(&db, &lab_id(&lab), &full_manifest())
-        .await
-        .unwrap();
-    let conn = db.reader().await.unwrap();
-    let mut rows = conn
-        .query(
-            "SELECT ztp_server_password FROM lab WHERE id = ?1",
-            [lab_key(&lab)],
-        )
-        .await
-        .unwrap();
-    let row = rows.next().await.unwrap().unwrap();
-    let Value::Blob(sealed) = row.get_value(0).unwrap() else {
-        panic!("the password is not a blob");
-    };
-    assert!(
-        !sealed
-            .windows(PASSWORD.len())
-            .any(|window| window == PASSWORD.as_bytes())
-    );
-
-    let other_key = db.clone().with_secret_key(SecretKey::generate());
-    let error = read_lab_definition(&other_key, &lab_id(&lab))
-        .await
-        .unwrap_err();
-    assert!(
-        format!("{error:#}").contains("different database key"),
-        "{error:#}"
-    );
-}
-
-#[tokio::test]
-async fn a_password_cannot_be_stored_without_a_key() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = open(&dir.path().join("sherpa.sqlite")).await.unwrap();
-    let lab = lab_in(&db).await;
-    let error = store_lab_definition(&db, &lab_id(&lab), &full_manifest())
-        .await
-        .unwrap_err();
-    assert!(error.to_string().contains("not loaded"), "{error}");
-    let mut manifest = full_manifest();
-    manifest.ztp_server = None;
-    store_lab_definition(&db, &lab_id(&lab), &manifest)
-        .await
-        .unwrap();
 }
 
 #[tokio::test]

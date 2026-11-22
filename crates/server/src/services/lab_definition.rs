@@ -146,11 +146,6 @@ pub(crate) mod tests {
 name = "core"
 ready_timeout = 300
 
-[ztp_server]
-enable = true
-username = "ztp"
-password = "ztp-Secret-42"
-
 [[nodes]]
 name = "dev01"
 model = "ubuntu_linux"

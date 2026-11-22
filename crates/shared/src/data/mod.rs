@@ -47,7 +47,7 @@ pub use cluster::{AddressRange, ClusterCni, ClusterMember, ClusterPlan, ClusterR
 
 pub use config::{
     ClientConfig, Config, HostMemorySettings, OtelConfig, ScannerConfig, ServerConnection, Sherpa,
-    TailscaleGatewaySettings, TlsConfig, ZtpServer,
+    TailscaleGatewaySettings, TlsConfig,
 };
 pub use console::ConsoleCheck;
 pub use container::{ContainerImage, ContainerNetworkAttachment};

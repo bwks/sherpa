@@ -81,6 +81,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 008 | A user who is not an admin cannot remove a key from another user's account, and it stays | integration |
 | 009 | Of two key edits made from the same read of an account, the second is refused as a conflict and the first is kept | integration |
 | 010 | The profile page refuses an invalid key with the reason, adds a valid one and removes one, showing the list each time | integration |
+| 011 | The profile page stores a key trimmed and refuses it again with another comment, as RPC and REST do, and the account's keys are unchanged | integration |
 
 ## `user_accounts`: an admin creates, lists and deletes user accounts
 
