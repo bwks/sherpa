@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-11-22
+
+### Upgrade notes
+
+This is a breaking release. Update the CLI and the server together.
+
+- **Back up first.** The update runs database migration 40, which deletes stored `binary_files` and `user_scripts`. Back up with `sherpa server backup`.
+- **`[tls] auto_generate_cert` is now `self_generate_cert`.** The old key is ignored, not refused. **If you set `auto_generate_cert = false` to serve your own certificate, rename it to `self_generate_cert = false` before you update.** Otherwise `sherpad` takes the default, `true`, and writes a self-signed certificate over yours on its next start. Your key is kept.
+- **The server certificate is regenerated on every start** with the same key, and clients trust the server by its key. Existing clients keep working with no prompt.
+- **Manifests:**
+  - `binary_files` and `user_scripts` are gone, and a manifest that sets either is refused as an unknown field. Use an ssh provisioner's `files` and `scripts` instead.
+  - `text_files`, `startup_scripts` and `systemd_units` are refused on nodes that don't use them. That means every container, network devices, and nodes with ZTP off or their own `ztp.config`.
+  - The lab `name` follows the node-name rule.
+  - `memory`, `cpu.count`, `boot_disk.size`, `interfaces.data_count`, `ready_check.port` and `ready_timeout` can't be 0.
+  - Environment variable keys are checked by `sherpa validate`.
+  - All of these apply at `up` and at `redeploy`.
+- **Redeploy** refuses a manifest that changes a node's cluster or role. To change a cluster, destroy the lab and run `up` again.
+- **API errors:** an unexpected error answers `internal error (ref <id>); see the server log`, and the server logs the ref with the full error. RPC errors no longer carry the error chain as `context`.
+- **Cancel** answers `stopped: false` straight away when only a `down` or a scan was running. A `down` can't be cancelled.
+- **`sherpa server image pull`** without `--repo` uses the server's default repo for the model. `sherpa server image scan` exits non-zero when it fails to record a version.
+
+### Bug Fixes
+
+- Refuse a node with no image of its version as not found by @bwks ([c29aae1](https://github.com/bwks/sherpa/commit/c29aae197fe60bd57b37ece03dfdaefc1a0c86e1))
+- Log a link end the scanner cannot read once by @bwks ([0dc2884](https://github.com/bwks/sherpa/commit/0dc2884d584cd063c461de98a4946e82c97e7480))
+- Pull from the server's default repo, and fail a scan that records nothing by @bwks ([e5c884b](https://github.com/bwks/sherpa/commit/e5c884b4272d0e4fcefb30bba62e67d944ca3ced))
+- Check environment variable keys in validate, up and redeploy by @bwks ([05e372b](https://github.com/bwks/sherpa/commit/05e372b07760236eb2607b967ce82d4c6756251b))
+- Refuse file and script settings on nodes that ignore them by @bwks ([b1ee744](https://github.com/bwks/sherpa/commit/b1ee7443318da091be9289764a630289596fd33c))
+- Answer callers by error type, and stop only stoppable ops by @bwks ([8400d65](https://github.com/bwks/sherpa/commit/8400d65c1096a9252ed7564e7e60366a5beb25e4))
+- Resolve every schema reference in the OpenAPI document by @bwks ([ddb62ef](https://github.com/bwks/sherpa/commit/ddb62effd65be6532ad05c730b2aa0efb6d50887))
+- Check redeploys as up does, keep cluster membership, encode Windows variables by @bwks ([b874f51](https://github.com/bwks/sherpa/commit/b874f51dadc2a93e0a5731539abc7958b51c10f7))
+- Check the lab name and zero settings at redeploy, drop the download fallback by @bwks ([3558f1e](https://github.com/bwks/sherpa/commit/3558f1e27482063c464d983b0000bc164e9771bc))
+- Validate the lab name and zero settings, check bridges for reused interfaces by @bwks ([a47d82d](https://github.com/bwks/sherpa/commit/a47d82d39a80630813dd2905a5e97104a1173437))
+- Renew the TLS certificate on every start, and pin the server's key by @bwks ([9758ff4](https://github.com/bwks/sherpa/commit/9758ff49783575c791f0545bc3a1d89833f5aede))
+- Unseal a restarted Vault from the scanner and on resume by @bwks ([f34e3eb](https://github.com/bwks/sherpa/commit/f34e3eb509bf52ed48f87aa2fb70b4889c66d1fe))
+- Check a file already at a download's path before reusing it by @bwks ([bd9a842](https://github.com/bwks/sherpa/commit/bd9a842d48e1a2c96f72081a982a4f371665a0be))
+
+### Refactor
+
+- Run up's and redeploy's shared manifest checks from one function by @bwks ([66c9f74](https://github.com/bwks/sherpa/commit/66c9f74d6cd3fade52981ef31b02a43732fb9c67))
+
 ## [0.7.2] - 2026-11-22
 
 ### Upgrade notes
