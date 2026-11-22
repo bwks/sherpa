@@ -18,7 +18,8 @@ sudo ./scripts/sherpa_install.sh
 
 **What it does:**
 - Creates sherpa user and groups
-- Sets up directory structure at `/opt/sherpa/`
+- Sets up directory structure at `/opt/sherpa/`: the base folder and the binaries are root's,
+  and `sherpa` owns only the folders `sherpad` writes
 - Creates the blank disk templates in `/opt/sherpa/images/blank_disk/` that node ZTP disks are
   copied from, each only if it is missing (see "Blank disks" in `docs/architecture/ZTP.md`)
 - Pulls the Sherpa router container image
@@ -38,7 +39,11 @@ It downloads the release while sherpad still runs, so a failed download changes 
 sherpad stopped, it copies the database and its key to a new folder in `/var/backups/sherpa`
 (root's only) and names it, then installs the binaries. If anything fails after sherpad stops, it
 starts sherpad again; if the new release does not stay running for ten seconds, it puts back the
-binaries, the database and the key first. The backups are never removed.
+binaries, the database and the key first. The binaries are installed root's, `0755`. Going back
+moves each binary the update set aside back as it was: root's after an update by this script, and
+on the first update from an earlier release the `sherpa`-owned binary that release installed,
+which is never run by the script and which the next update replaces. The backups are never
+removed.
 
 On every run, including one with nothing to install, it creates the blank disk templates that
 are missing, installing `qemu-utils`, `dosfstools` and `e2fsprogs` first if a tool is missing.
@@ -116,10 +121,11 @@ All scripts can be run from the repository root:
 sudo -E ./scripts/sherpa_install.sh --version v0.3.79
 ```
 
-### Blank disks
+### Blank disks and server folders
 `sherpa_install.sh` and `sherpa_update.sh` carry the same blank disk section, between
-`# BEGIN blank disks` and `# END blank disks`, because each is fetched alone. Change both;
-`tests/bats/install_tests.bats` fails when they differ.
+`# BEGIN blank disks` and `# END blank disks`, and the same server folders section, between
+`# BEGIN server folders` and `# END server folders`, because each is fetched alone. Change both;
+`tests/bats/install_tests.bats` runs its cases against each copy.
 
 ### Testing Changes
 After modifying installation scripts, run the automated test suite:

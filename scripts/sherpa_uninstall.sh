@@ -255,9 +255,28 @@ remove_systemd_service() {
     print_success "Systemd service removal complete"
 }
 
+# Succeed when no component of the absolute path $1 is a symlink, and say which one is. Nothing
+# is removed through a link: rm would delete what is at the link's target.
+path_has_no_symlink() {
+    local path="$1" prefix="" part
+    local -a parts
+    IFS='/' read -r -a parts <<< "${path#/}"
+    for part in "${parts[@]}"; do
+        [ -n "${part}" ] || continue
+        prefix="${prefix}/${part}"
+        if [ -L "${prefix}" ]; then
+            print_error "${prefix} is a symlink: nothing at ${path} is removed"
+            return 1
+        fi
+    done
+}
+
 remove_sherpad_binary() {
     print_info "Removing sherpad binary..."
-    
+
+    if ! path_has_no_symlink "${SHERPA_BASE_DIR}/bin"; then
+        return 0
+    fi
     if [ -f "${SHERPA_BASE_DIR}/bin/sherpad" ]; then
         if rm -f "${SHERPA_BASE_DIR}/bin/sherpad"; then
             print_success "Binary removed"
@@ -309,6 +328,9 @@ remove_thp_boot_rule() {
 ################################################################################
 
 remove_database_data() {
+    if ! path_has_no_symlink "${SHERPA_DB_DIR}"; then
+        return 1
+    fi
     if [ ! -d "${SHERPA_DB_DIR}" ]; then
         print_info "Database directory ${SHERPA_DB_DIR} not found"
         return 0

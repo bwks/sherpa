@@ -26,17 +26,20 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 | Path | Holds | Mode, owner | Made by |
 |---|---|---|---|
-| `/opt/sherpa` | everything below | `775 sherpa:sherpa` | install |
-| `/opt/sherpa/bin/sherpad`, `sherpa` | the binaries, linked from `/usr/local/bin` | `755 sherpa:sherpa` | install, update |
+| `/opt/sherpa` | everything below | `755 root:root` | install, update |
+| `/opt/sherpa/bin/sherpad`, `sherpa` | the binaries, linked from `/usr/local/bin` | folder and files `755 root:root` | install, update |
 | `/opt/sherpa/config/sherpa.toml` | the server's settings | folder `750`, file `600`, `sherpa:sherpa` | install (folder), `sherpad init` (file), update |
 | `/opt/sherpa/env/sherpa.env`, `sherpa.env.example` | the service's environment | folder `750`, files `600`, `sherpa:sherpa` | install, update |
 | `/opt/sherpa/.secret` | the login token secret and `db.key` | folder `700`, files `600`, `sherpa:sherpa` | install, update (folder), sherpad (files) |
-| `/opt/sherpa/.certs` | the server's certificate and key | folder `700`, key `600` | sherpad |
+| `/opt/sherpa/.certs` | the server's certificate and key | folder `700`, key `600`, `sherpa:sherpa` | install, update (folder), sherpad (files) |
 | `/opt/sherpa/db/sherpa.sqlite`, `db/backups` | the database and its backups | `db` `750`, `backups` `700`, files `600`, `sherpa:sherpa` | install, update, sherpad |
 | `/opt/sherpa/logs/sherpad.log` | the log when sherpad is not run by systemd | folder `750`, file `640` | install, update, sherpad |
 | `/opt/sherpa/labs` | each lab's files | `2750 sherpa:sherpa` | install, update, sherpad |
+| `/opt/sherpa/libvirt` | the folder of the storage pool | `755 root:root` | install, update |
 | `/opt/sherpa/libvirt/images` | the storage pool: VM disks and ZTP media | `2750 sherpa:kvm` | install, update, sherpad |
+| `/opt/sherpa/images` | the node images | `775 sherpa:sherpa` | install, update |
 | `/opt/sherpa/images/blank_disk` | the blank disk templates | folder `775`, files `644`, `sherpa:sherpa` | install, update |
+| `/opt/sherpa/containers`, `bins`, `run` | sherpad's container and binary folders, its PID file and the console sockets | `755 sherpa:sherpa` | install, update |
 | `/etc/systemd/system/sherpad.service`, `/etc/logrotate.d/sherpad`, `/etc/tmpfiles.d/sherpa-thp.conf` | the service, log rotation, the transparent hugepages boot rule | `644 root` | install |
 
 ## `install_preflight`: the install script refuses a host or a request it cannot install, before it changes anything
@@ -64,7 +67,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | `sherpad` and `sherpa` are the release's binaries, `755` and owned by `sherpa`, linked from `/usr/local/bin`, and each reports the version asked for | e2e (fresh VM) |
+| 001 | `sherpad` and `sherpa` are the release's binaries, `755` and owned by root, linked from `/usr/local/bin`, and each reports the version asked for | e2e (fresh VM) |
 | 002 | Docker and libvirt are running; the `sherpa` account exists, cannot log in, and is in the `libvirt`, `kvm` and `docker` groups; the user who ran `sudo` is in the `sherpa` group | e2e (fresh VM) |
 | 003 | The service is installed and enabled but not started: it runs `sherpad start --foreground` as `sherpa` with its four capabilities, needs Docker and libvirt, and keeps `/run/sherpa` `0700` across restarts; `sherpad.log` is rotated daily | e2e (fresh VM) |
 | 004 | `sherpa.env` holds the listen address and the ports given in `SHERPA_SERVER_IPV4`, `SHERPA_SERVER_WS_PORT` and `SHERPA_SERVER_HTTP_PORT`, with 3030 and 3031 for ports left out | e2e (fresh VM) |
@@ -94,6 +97,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 007 | The update script installs the tools' packages only when a tool is missing | unit (bats) |
 | 008 | The update script makes the missing templates before it stops sherpad, and also when there is nothing to update; when one cannot be made, the server is left running the release it had (no test yet: `update_tests.bats` reads the order of the calls in the script's text) | e2e (fresh VM) |
 | 009 | Cases 002 to 006 hold for the copy of the section in each script | unit (bats) |
+| 010 | Every blank disk, and the blank disk folder, is written as `sherpa`, never as root, by both scripts: a link a member of the `sherpa` group puts in the folder gets nothing of root's | unit (bats) |
 
 ## `server_init`: `sherpad init` sets up a new server and keeps an existing one
 
@@ -119,7 +123,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `server_file_modes`: the server's files are readable only by the accounts that need them
 
-**Statement:** the files and folders of the table above have its modes and owners, however the scripts and sherpad were run and whatever an older release left there: the settings, the secrets, the database, the logs and the lab data are closed to every other account on the server, and `sherpa.toml` and the env files to the `sherpa` group too.
+**Statement:** the files and folders of the table above have its modes and owners, however the scripts and sherpad were run and whatever an older release left there: the settings, the secrets, the database, the logs and the lab data are closed to every other account on the server, and `sherpa.toml` and the env files to the `sherpa` group too; what systemd and the scripts run is root's, so neither `sherpa` nor its group can change it, and the scripts change nothing as root through a symlink.
 **Relied on by:** the admin; every user, whose password hashes, device password and lab data are in them. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -133,12 +137,16 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 007 | A new database file, and the write-ahead log beside it, are `0600` from their first write | integration |
 | 008 | A database file that is wider is `0600` once it has been opened | integration |
 | 009 | `sherpad.log` is made `0640`, and a wider one is narrowed with its contents kept | unit |
-| 010 | The update script gives the config, env and log folders, `sherpa.toml`, the env files, `sherpad.log` and its rotated copies their modes and `sherpa` as owner, and changes no file's contents | unit (bats) |
-| 011 | The update script skips one of these that is missing, and creates none | unit (bats) |
-| 012 | The update script leaves a symlink in the place of one, and its target, as they are, and says so | unit (bats) |
-| 013 | The update script sets the lab folder and the storage pool to `2750`, the database folder to `750`, and makes `.secret` `700` when it is missing, leaving one that is there (no test yet) | unit (bats) |
+| 010 | The update script gives `sherpa.toml`, the env files, `sherpad.log` and its rotated copies their modes and `sherpa` as owner, setting the mode as `sherpa`, and changes no file's contents | unit (bats) |
+| 011 | The update script skips one of these files that is missing, and creates none | unit (bats) |
+| 012 | The update script leaves a symlink in the place of one, or in the place of its folder, and the link's target, as they are, and says so | unit (bats) |
+| 013 | The install and update scripts make `/opt/sherpa`, `bin` and `libvirt` root's and `755`, the `775 sherpa:sherpa` an older release left included; they give the config, env, log and database folders `750`, and the lab folder and the storage pool `2750`, every run; and they make `.secret` and `.certs` `700`, the images folder `775`, and `containers`, `bins` and `run` `755`, all `sherpa`'s, when missing, leaving one that is there | unit (bats) |
 | 014 | The update script does all of this when there is nothing to update, too (no test yet: `update_tests.bats` reads the order of the calls in the script's text) | e2e (fresh VM) |
 | 015 | `sherpad doctor --boxes` sets every folder under the images folder to `775` and every file to `660` | unit |
+| 016 | Nothing in those folders changes owner or mode: the scripts change the folders only, never what is in them | unit (bats) |
+| 017 | A symlink at `/opt/sherpa`, at one of those folders, or at a folder above them stops the script with the link named, and the link's target keeps its owner and mode | unit (bats) |
+| 018 | Both scripts install a binary `755`, root's, in place of the file or the link at its name, and never write through the link | unit (bats) |
+| 019 | After an install and `sherpad init`, the user who installed, a member of the `sherpa` group, can write nothing in `/opt/sherpa` but the images and blank disk folders, and `sherpa` cannot write `/opt/sherpa`, `bin`, the binaries, `libvirt` or the service's unit | e2e (fresh VM) |
 
 ## `database_key`: the database's secrets open only with the key sherpad made for it
 
@@ -248,11 +256,15 @@ Each case builds a database at the schema version that stored the value, upgrade
 | 016 | With `SHERPA_ARTIFACT_DIR` set, no `--version`, or a folder without the sherpad archive, stops it before anything changes | unit (bats) |
 | 017 | `--help` prints the usage and exits 0; an unknown option is an error | unit (bats) |
 | 018 | A sherpad archive that cannot be fetched stops the update, naming the URL, before sherpad is stopped: the installed binaries are in place and sherpad keeps running | unit (bats) |
+| 019 | An installed binary is run for its version only when it is a file of root's that no other account can write; one of another owner, or a link, is never run, and is replaced | unit (bats) |
+| 020 | A symlink at or above the folder of the server's shared SSH key removes nothing, and says so | unit (bats) |
 | 021 | With sherpad stopped and before the new release runs, the database, its WAL and shared-memory files when there, and the key are copied, read as `sherpa`, to a new folder in `/var/backups/sherpa`, `0700` and root's, files `0600`, and the update names the folder | unit (bats) |
 | 022 | A failure after sherpad is stopped and before the binaries are replaced, a backup that cannot be written among them, stops the update with nothing installed, and starts the installed release again | unit (bats) |
 | 023 | A new release that does not start is undone: its binaries are replaced by the installed release's, the database and key are restored from the backup with the WAL and shared-memory files the new release left removed, the installed release is started, and the backup is named | unit (bats) |
 | 024 | sherpad counts as started only when it is active for ten seconds and systemd does not start it again in that time | unit (bats) |
 | 025 | After the update of a server set up by an earlier release, the folder it names holds the database, root's only, and the key, when the server had one, is the server's | e2e (fresh VM) |
+| 026 | The update installs each binary root's, `0755`, in place of the file or link at its name; a new release that does not start gets back only the binaries the update moved aside, each with the owner it had | unit (bats) |
+| 027 | A symlink at or above `/var/backups/sherpa` stops the update before any binary is replaced, writes nothing through it, and starts the installed release again | unit (bats) |
 
 ## `uninstall_script`: the uninstall script removes the service and only the data it is told to
 
@@ -272,6 +284,7 @@ Each case builds a database at the schema version that stored the value, upgrade
 | 009 | Without `--force` it asks, and any answer but `yes` removes nothing and exits 0 (no test yet) | unit (bats) |
 | 010 | `--help` prints the usage and exits 0; an unknown option is an error; not root is refused | unit (bats) |
 | 011 | A `sherpa-db` container on the host is stopped and removed (no test yet) | unit (bats) |
+| 012 | With a symlink at or above the database or the binaries folder, nothing is removed through it, and the link is named | unit (bats) |
 
 ## `database_backup`: a backup is a consistent copy only `sherpa` can read
 

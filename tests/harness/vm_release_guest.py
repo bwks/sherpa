@@ -293,6 +293,13 @@ def database_directory_mode(version):
     return 0o750 if release_numbers(version) >= PRIVATE_DATABASE_DIRECTORY_VERSION else 0o775
 
 
+def base_layout(selection):
+    """The mode and owner of /opt/sherpa and the binaries that an install or update of
+    `selection` leaves: the checkout's scripts install the candidate, root's and 0755; the
+    baseline's own installer left them sherpa's, and the base folder 0775."""
+    return (0o755, "root") if selection == "candidate" else (0o775, "sherpa")
+
+
 def config_modes(version):
     """The modes a Sherpa release's installer gives /opt/sherpa/config and env/sherpa.env."""
     if release_numbers(version) >= PRIVATE_CONFIG_VERSION:
@@ -483,12 +490,13 @@ class Guest:
         self.verify_binaries(selection)
         database_mode = database_directory_mode(self.config[selection]["version"])
         config_mode, env_file_mode = config_modes(self.config[selection]["version"])
-        for directory, permissions in (("", 0o775), ("db", database_mode), ("config", config_mode),
-                                       ("env", 0o750)):
+        base_mode, base_owner = base_layout(selection)
+        for directory, permissions, owner in (("", base_mode, base_owner), ("db", database_mode, "sherpa"),
+                                              ("config", config_mode, "sherpa"), ("env", 0o750, "sherpa")):
             path = self.base / directory
             require(path.is_dir() and path.stat().st_mode & 0o777 == permissions,
                     f"Invalid permissions for {path}")
-            require(path.stat().st_uid == pwd.getpwnam("sherpa").pw_uid, f"Invalid owner: {path}")
+            require(path.stat().st_uid == pwd.getpwnam(owner).pw_uid, f"Invalid owner: {path}")
         env_file = self.base / "env/sherpa.env"
         require(env_file.stat().st_mode & 0o777 == env_file_mode,
                 f"Environment permissions are not {env_file_mode:o}")
@@ -514,7 +522,8 @@ class Guest:
             require(digest(path) == self.config[selection][f"{binary}_binary_sha256"],
                     f"Installed {binary} does not match the {selection} artifact")
             require(path.stat().st_mode & 0o777 == 0o755, f"Invalid {binary} permissions")
-            require(path.stat().st_uid == pwd.getpwnam("sherpa").pw_uid, f"Invalid {binary} owner")
+            require(path.stat().st_uid == pwd.getpwnam(base_layout(selection)[1]).pw_uid,
+                    f"Invalid {binary} owner")
             link = Path("/usr/local/bin") / binary
             require(link.is_symlink() and link.resolve() == path, f"Invalid {binary} symlink")
             _, output = self.command([str(path), "--version"])
@@ -721,23 +730,26 @@ class Guest:
         cases = [(case, self.wait_authenticated)]
         if case == "server_init_001":
             cases += [("server_file_modes_001", self.verify_server_file_modes),
-                      ("server_file_modes_002", self.verify_secret_readers)]
+                      ("server_file_modes_002", self.verify_secret_readers),
+                      ("server_file_modes_019", self.verify_writers)]
         check_cases(cases)
 
     def verify_server_file_modes(self):
         """Each path of the spec's table of the server's files has its mode and owner."""
         for path, mode, owner, group in (
-                ("", 0o775, "sherpa", "sherpa"),
-                ("bin/sherpad", 0o755, "sherpa", "sherpa"), ("bin/sherpa", 0o755, "sherpa", "sherpa"),
+                ("", 0o755, "root", "root"), ("bin", 0o755, "root", "root"),
+                ("bin/sherpad", 0o755, "root", "root"), ("bin/sherpa", 0o755, "root", "root"),
                 ("config", 0o750, "sherpa", "sherpa"), ("config/sherpa.toml", 0o600, "sherpa", "sherpa"),
                 ("env", 0o750, "sherpa", "sherpa"), ("env/sherpa.env", 0o600, "sherpa", "sherpa"),
                 ("env/sherpa.env.example", 0o600, "sherpa", "sherpa"),
-                (".secret", 0o700, "sherpa", "sherpa"), (".certs", 0o700, None, None),
+                (".secret", 0o700, "sherpa", "sherpa"), (".certs", 0o700, "sherpa", "sherpa"),
                 (".certs/server.key", 0o600, None, None),
                 ("db", 0o750, "sherpa", "sherpa"), ("db/backups", 0o700, "sherpa", "sherpa"),
                 ("logs", 0o750, "sherpa", "sherpa"),
-                ("labs", 0o2750, "sherpa", "sherpa"), ("libvirt/images", 0o2750, "sherpa", "kvm"),
-                ("images/blank_disk", 0o775, "sherpa", "sherpa")):
+                ("labs", 0o2750, "sherpa", "sherpa"), ("libvirt", 0o755, "root", "root"),
+                ("libvirt/images", 0o2750, "sherpa", "kvm"), ("images", 0o775, "sherpa", "sherpa"),
+                ("images/blank_disk", 0o775, "sherpa", "sherpa"), ("containers", 0o755, "sherpa", "sherpa"),
+                ("bins", 0o755, "sherpa", "sherpa"), ("run", 0o755, "sherpa", "sherpa")):
             check_mode(self.base / path, mode, owner, group)
         for folder in (".secret", "db"):
             for file in (self.base / folder).iterdir():
@@ -761,6 +773,24 @@ class Guest:
             for account in (self.login_user().pw_name, "nobody"):
                 code, _ = self.command(["runuser", "-u", account, "--", "test", "-r", path], check=False)
                 require(code != 0, f"{account} can read {path}")
+
+    def verify_writers(self):
+        """The user who installed, in the `sherpa` group, can write nothing in /opt/sherpa but the
+        images and blank disk folders, and `sherpa` cannot write what systemd and the scripts run
+        as root."""
+        installer = self.login_user().pw_name
+        writable = {self.base / "images", self.base / "images/blank_disk"}
+        for path in [self.base, *self.base.rglob("*")]:
+            if path.is_symlink() or path in writable:
+                continue
+            code, _ = self.command(["runuser", "-u", installer, "--", "test", "-w", str(path)],
+                                   check=False, display=False)
+            require(code != 0, f"{installer}, in the sherpa group, can write {path}")
+        for path in (self.base, self.base / "bin", self.base / "bin/sherpad", self.base / "bin/sherpa",
+                     self.base / "libvirt", Path("/etc/systemd/system/sherpad.service")):
+            code, _ = self.command(["runuser", "-u", "sherpa", "--", "test", "-w", str(path)],
+                                   check=False, display=False)
+            require(code != 0, f"sherpa can write {path}")
 
     def wait_authenticated(self):
         deadline = time.monotonic() + self.timeouts["startup"]
