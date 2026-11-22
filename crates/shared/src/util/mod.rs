@@ -27,14 +27,14 @@ pub use dns::{default_dns, default_dns_dual_stack};
 pub use emoji::{Emoji, emoji_success, emoji_warning};
 pub use encode::{base64_decode, base64_decode_bytes, base64_encode, base64_encode_bytes};
 pub use env::get_server_url;
-pub use file_system::{
-    copy_file, create_dir, create_file, dir_exists, expand_path, file_exists, get_cwd,
-    image_filename, load_file, path_to_string,
-};
 #[cfg(unix)]
 pub use file_system::{
-    copy_to_dos_image, copy_to_ext4_image, create_config_archive, create_dir_with_permissions,
-    fix_permissions_recursive, write_file_with_permissions,
+    copy_file_with_permissions, copy_to_dos_image, copy_to_ext4_image, create_config_archive,
+    create_dir_with_permissions, fix_permissions_recursive, write_file_with_permissions,
+};
+pub use file_system::{
+    create_dir, create_file, dir_exists, expand_path, file_exists, get_cwd, image_filename,
+    load_file, path_to_string,
 };
 pub use host::{get_fqdn, get_hostname};
 #[cfg(feature = "netinfo")]

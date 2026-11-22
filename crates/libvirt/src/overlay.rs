@@ -72,6 +72,7 @@ pub fn create_overlay(conn: &Connect, src: &str, dst: &str, size_gb: Option<u16>
 #[cfg(test)]
 mod tests {
     use std::env;
+    use std::os::unix::fs::PermissionsExt;
     use std::process::{self, Command, Output};
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -174,6 +175,45 @@ mod tests {
         fixture.created.push(fixture.name("copy.iso"));
         assert_eq!(fs::read(copied_media)?, b"auxiliary configuration media");
         Ok(())
+    }
+
+    /// Every volume a node gets in the pool is private, whatever the mode of its source: an
+    /// overlay boot disk, a copied boot disk and its config media.
+    #[test]
+    #[ignore = "Requires local libvirt and sherpa-pool; set SHERPA_OVERLAY_LIVE=1"]
+    fn vm_start_010_a_nodes_disks_and_config_media_are_private() -> Result<()> {
+        let (mut fixture, base, _) = LiveVolumes::with_base()?;
+        assert_eq!(
+            mode_of(&base)?,
+            0o644,
+            "the base is not wider than its copies"
+        );
+        fixture.overlay(&base, "overlay.qcow2", None)?;
+        let mut volumes = vec![fixture.path("overlay.qcow2")];
+        clone_disk(&fixture.conn, &base, &fixture.path("copy.qcow2"))?;
+        fixture.created.push(fixture.name("copy.qcow2"));
+        volumes.push(fixture.path("copy.qcow2"));
+        for medium in ["config.iso", "config-cfg.img"] {
+            let source = env::temp_dir()
+                .join(fixture.name(medium))
+                .to_string_lossy()
+                .into_owned();
+            fs::write(&source, b"config")?;
+            fs::set_permissions(&source, fs::Permissions::from_mode(0o644))?;
+            fixture.files.push(source.clone());
+            clone_disk(&fixture.conn, &source, &fixture.path(medium))?;
+            fixture.created.push(fixture.name(medium));
+            volumes.push(fixture.path(medium));
+        }
+        for volume in volumes {
+            assert_eq!(mode_of(&volume)?, 0o600, "{volume}");
+        }
+        Ok(())
+    }
+
+    /// The permission bits of the file at `path`.
+    fn mode_of(path: &str) -> Result<u32> {
+        Ok(fs::metadata(path)?.permissions().mode() & 0o7777)
     }
 
     struct LiveVolumes {

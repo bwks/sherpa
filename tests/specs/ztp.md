@@ -277,7 +277,7 @@ Cases 001 to 014 render the model's config with device passwords that between th
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | Under a permissive umask, a VM's boot folder and every folder in it are 0700 and every config file in it 0600, for a VM of each of `cloud-init`, `cdrom`, `nocloud` and `ignition` | unit |
+| 001 | Under a permissive umask, a VM's boot folder and every folder in it are 0700 and every file in it 0600, config ISOs and disk images among them, for a VM of each of `cloud-init`, `cdrom`, `nocloud` and `ignition` | unit |
 | 002 | Under a permissive umask, the HTTP configs folder is 0700 and its files 0600, and a TFTP config is 0604, which other accounts read and the group does not | unit |
 | 003 | Under a permissive umask, a container's config folders are 0700 and its config files 0600 | unit |
 | 004 | A VM's boot files are removed once its media are in the storage pool | integration |
