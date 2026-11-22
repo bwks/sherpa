@@ -2,7 +2,10 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 
 use shared::data::ModelKind;
-use topology::validate::check_node_file_settings;
+use topology::validate::{
+    check_lab_name, check_node_file_settings, check_nonzero_node_settings, check_ready_timeout,
+    check_text_file_modes, validate_provisioners,
+};
 
 /// Process manifest nodes into expanded format with indices assigned, each with its kind.
 ///
@@ -36,4 +39,22 @@ pub fn check_file_settings(nodes: &[topology::Node]) -> Result<()> {
         check_node_file_settings(node, &model_kind.node_config())?;
     }
     Ok(())
+}
+
+/// Run the manifest checks `up` and `redeploy` share before any file is read or the server is
+/// called: the lab name, `ready_timeout`, zero node settings, provisioners, text file modes and
+/// each node's file settings.
+///
+/// # Errors
+///
+/// Fails on the first check the manifest does not pass, saying which.
+pub fn check_manifest(manifest: &topology::Manifest) -> Result<()> {
+    check_lab_name(&manifest.name).context("Manifest validation failed: lab name")?;
+    check_ready_timeout(manifest.ready_timeout)
+        .context("Manifest validation failed: ready timeout")?;
+    check_nonzero_node_settings(&manifest.nodes)
+        .context("Manifest validation failed: node settings")?;
+    validate_provisioners(manifest).context("Manifest validation failed: provisioners")?;
+    check_text_file_modes(&manifest.nodes).context("Manifest validation failed: text files")?;
+    check_file_settings(&manifest.nodes).context("Manifest validation failed: node settings")
 }
