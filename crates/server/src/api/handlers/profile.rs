@@ -8,15 +8,13 @@ use serde::Deserialize;
 use crate::api::request_parse::FormBody;
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
-use crate::services::{user_device_password, user_password};
+use crate::services::{user_device_password, user_password, user_ssh_keys};
 use crate::templates::{
     DevicePasswordStatusTemplate, DevicePasswordSuccessTemplate, NavPage, PasswordErrorTemplate,
     PasswordSuccessTemplate, ProfileTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
 };
 
 use crate::api::extractors::AuthenticatedUserFromCookie;
-
-use shared::validators::validate_ssh_key;
 
 /// Form data for password update
 #[derive(Debug, Deserialize)]
@@ -189,73 +187,34 @@ pub async fn update_device_password_handler(
 ///
 /// POST `/profile/ssh-keys`
 ///
-/// Validates SSH key format and adds it to user's profile.
-/// Returns updated SSH keys list HTML fragment for HTMX swap.
+/// Adds the key to the caller's own account with the same validation, trimming and duplicate
+/// check as RPC and REST. Returns the updated SSH keys list HTML fragment for HTMX swap.
 pub async fn add_ssh_key_handler(
     State(state): State<AppState>,
     auth: AuthenticatedUserFromCookie,
     FormBody(form): FormBody<AddSshKeyForm>,
 ) -> impl IntoResponse {
-    // 1. Validate SSH key format
-    if let Err(e) = validate_ssh_key(&form.ssh_key) {
-        return SshKeyErrorTemplate {
-            message: format!("Invalid SSH key: {e}"),
+    let ctx = auth.into_context();
+    match user_ssh_keys::add_ssh_key(&ctx, &ctx.username, &form.ssh_key, &state).await {
+        Ok(response) => SshKeysListTemplate {
+            ssh_keys: response.ssh_keys,
         }
-        .into_response();
+        .into_response(),
+        Err(error) => {
+            let message = if let Some(
+                refusal @ (ServiceError::Invalid(_)
+                | ServiceError::Conflict(_)
+                | ServiceError::NotFound(_)),
+            ) = ServiceError::find(&error)
+            {
+                refusal.to_string()
+            } else {
+                tracing::error!(username = %ctx.username, "Failed to add SSH key: {error:?}");
+                "Failed to add SSH key".to_owned()
+            };
+            SshKeyErrorTemplate { message }.into_response()
+        }
     }
-
-    // 2. Get user from database
-    let mut user = match db::get_user(&state.db, &auth.username).await {
-        Ok(user) => user,
-        Err(e) => {
-            tracing::error!(
-                "Failed to load user '{}' for SSH key addition: {:?}",
-                auth.username,
-                e
-            );
-            return SshKeyErrorTemplate {
-                message: "Failed to add SSH key".to_string(),
-            }
-            .into_response();
-        }
-    };
-
-    // 3. Check if key already exists
-    if user.ssh_keys.contains(&form.ssh_key) {
-        return SshKeyErrorTemplate {
-            message: "This SSH key is already added".to_string(),
-        }
-        .into_response();
-    }
-
-    // 4. Add SSH key to user
-    user.ssh_keys.push(form.ssh_key.clone());
-
-    if let Err(e) = db::update_user(&state.db, user)
-        .await
-        .map_err(ServiceError::from_user_write)
-    {
-        if let Some(refusal @ ServiceError::Conflict(_)) = ServiceError::find(&e) {
-            return SshKeyErrorTemplate {
-                message: refusal.to_string(),
-            }
-            .into_response();
-        }
-        tracing::error!(
-            "Failed to add SSH key for user '{}': {:?}",
-            auth.username,
-            e
-        );
-        return SshKeyErrorTemplate {
-            message: "Failed to add SSH key".to_string(),
-        }
-        .into_response();
-    }
-
-    tracing::info!("SSH key added for user '{}'", auth.username);
-
-    // 5. Return updated SSH keys list
-    fetch_and_render_ssh_keys(&state, &auth.username).await
 }
 
 /// Delete SSH key from user profile
