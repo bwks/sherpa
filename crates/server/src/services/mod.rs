@@ -40,6 +40,7 @@ pub mod user_delete;
 pub mod user_device_password;
 pub mod user_password;
 pub mod user_ssh_keys;
+pub mod user_unlock;
 pub mod vault;
 
 pub(crate) mod tailscale;

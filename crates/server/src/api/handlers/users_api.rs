@@ -6,7 +6,9 @@ use axum::extract::{Path, State};
 
 use crate::api::request_parse::JsonBody;
 use crate::daemon::state::AppState;
-use crate::services::{user_delete, user_device_password, user_password, user_ssh_keys};
+use crate::services::{
+    user_delete, user_device_password, user_password, user_ssh_keys, user_unlock,
+};
 
 use crate::api::errors::ApiError;
 use crate::api::extractors::AuthenticatedUser;
@@ -14,7 +16,8 @@ use crate::api::extractors::AuthenticatedUser;
 use shared::data::{
     AddSshKeyRequest, ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest,
     CreateUserResponse, DeleteUserResponse, GetUserInfoResponse, ListUsersResponse,
-    RemoveSshKeyRequest, SetDevicePasswordRequest, SetDevicePasswordResponse, UserSshKeysResponse,
+    RemoveSshKeyRequest, SetDevicePasswordRequest, SetDevicePasswordResponse, UnlockUserResponse,
+    UserSshKeysResponse,
 };
 use shared::util::normalize_username;
 use shared::validators::validate_username;
@@ -76,6 +79,22 @@ pub async fn delete_user_json(
     Path(username): Path<String>,
 ) -> Result<Json<DeleteUserResponse>, ApiError> {
     let response = user_delete::delete_user(&auth.into_context(), &username, &state)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(response))
+}
+
+/// Unlock an account that failed logins locked (admin only)
+///
+/// POST `/api/v1/admin/users/{username}/unlock`
+///
+/// Sets the account's failed login count back to 0. An unknown user is 404.
+pub async fn unlock_user_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+) -> Result<Json<UnlockUserResponse>, ApiError> {
+    let response = user_unlock::unlock_user(&auth.into_context(), &username, &state.db)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(response))

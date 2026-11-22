@@ -3,7 +3,7 @@
 //! The mappers read and write columns in the order of each table's `CREATE TABLE` in `sql/schema/`,
 //! which is the order the statements in `sql/queries/` list them. Record ids are stored as their
 //! key; the table is implied by the column.
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use anyhow::{Context, Result, bail};
 use jiff::Timestamp;
@@ -14,10 +14,10 @@ use turso::{Row, Value};
 
 use shared::data::{
     BootDiskSettings, BridgeMember, CdromSettings, ContainerSettings, CpuSettings, DbBridge, DbLab,
-    DbLink, DbNode, DbSession, DbSessionUser, DbUser, InterfaceDeviceSettings, InterfaceSettings,
-    KindSettings, LinkImpairment, MachineSettings, NodeConfig, NodeKind, ReadyCheck, RecordId,
-    UnikernelCpuSettings, UnikernelMachineSettings, UnikernelSettings, VmCpuSettings, VmSettings,
-    ZtpSettings,
+    DbLink, DbLoginAttempt, DbNode, DbSession, DbSessionUser, DbUser, InterfaceDeviceSettings,
+    InterfaceSettings, KindSettings, LinkImpairment, MachineSettings, NodeConfig, NodeKind,
+    ReadyCheck, RecordId, UnikernelCpuSettings, UnikernelMachineSettings, UnikernelSettings,
+    VmCpuSettings, VmSettings, ZtpSettings,
 };
 use shared::konst::{SHERPA_DB_KEY_CHARSET, SHERPA_DB_KEY_LENGTH};
 
@@ -76,6 +76,25 @@ impl<'a> Cells<'a> {
                 .parse()
                 .map(Some)
                 .with_context(|| format!("Database field {field} is not an IPv4 address: {text}")),
+        }
+    }
+
+    /// An address stored as its bytes: 4 for IPv4, 16 for IPv6.
+    pub(crate) fn ip_address(&mut self, field: &str) -> Result<IpAddr> {
+        match self.next(field)? {
+            Value::Blob(bytes) => {
+                if let Ok(octets) = <[u8; 4]>::try_from(bytes.as_slice()) {
+                    Ok(IpAddr::V4(Ipv4Addr::from(octets)))
+                } else if let Ok(octets) = <[u8; 16]>::try_from(bytes.as_slice()) {
+                    Ok(IpAddr::V6(Ipv6Addr::from(octets)))
+                } else {
+                    bail!(
+                        "Database field {field} is not 4 or 16 bytes: {} bytes",
+                        bytes.len()
+                    )
+                }
+            }
+            other => bail!("Database field {field} is not a blob: {other:?}"),
         }
     }
 
@@ -221,7 +240,10 @@ pub(crate) fn key_of(id: &RecordId, table: &str) -> Result<String> {
 }
 
 pub(crate) fn user_from_row(row: &Row) -> Result<DbUser> {
-    let mut cells = Cells::new(row);
+    user_from_cells(&mut Cells::new(row))
+}
+
+pub(crate) fn user_from_cells(cells: &mut Cells) -> Result<DbUser> {
     Ok(DbUser {
         id: Some(cells.record(USER_TABLE, "id")?),
         username: cells.text("username")?,
@@ -231,6 +253,26 @@ pub(crate) fn user_from_row(row: &Row) -> Result<DbUser> {
         created_at: cells.timestamp("created_at")?,
         updated_at: cells.timestamp("updated_at")?,
     })
+}
+
+pub(crate) fn login_attempt_from_row(row: &Row) -> Result<DbLoginAttempt> {
+    let mut cells = Cells::new(row);
+    Ok(DbLoginAttempt {
+        id: cells.text("id")?,
+        user: cells.record(USER_TABLE, "user")?,
+        attempted_at: cells.timestamp("attempted_at")?,
+        succeeded: cells.boolean("succeeded")?,
+        address: cells.ip_address("address")?,
+    })
+}
+
+/// The bytes `address` is stored as: 4 for IPv4, and for an IPv4-mapped IPv6 address, and
+/// 16 for any other IPv6 address.
+pub(crate) fn address_bytes(address: IpAddr) -> Vec<u8> {
+    match address.to_canonical() {
+        IpAddr::V4(v4) => v4.octets().to_vec(),
+        IpAddr::V6(v6) => v6.octets().to_vec(),
+    }
 }
 
 pub(crate) fn session_from_row(row: &Row) -> Result<DbSession> {

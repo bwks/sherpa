@@ -10,7 +10,7 @@ use serde::Deserialize;
 use crate::api::request_parse::FormBody;
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
-use crate::services::{clean, import, user_delete, user_password};
+use crate::services::{clean, import, user_delete, user_password, user_unlock};
 use crate::templates::{
     AdminNotificationErrorTemplate, AdminPasswordErrorTemplate, AdminPasswordSuccessTemplate,
     AdminSshKeysListTemplate, AdminToolsTemplate, AdminUserEditTemplate, AdminUsersTemplate,
@@ -25,6 +25,8 @@ use shared::util::normalize_username;
 
 /// Element on the admin users page that shows a refused user delete (`hx-retarget` value).
 const ADMIN_USER_DELETE_ERROR_TARGET: &str = "#user-delete-error";
+/// Element on the admin users page that shows a refused unlock (`hx-retarget` value).
+const ADMIN_USER_UNLOCK_ERROR_TARGET: &str = "#user-unlock-error";
 
 /// Helper struct for displaying user information in admin users page
 #[derive(Debug, Clone)]
@@ -34,6 +36,8 @@ pub struct UserSummary {
     pub ssh_key_count: usize,
     pub lab_count: usize,
     pub created_at_formatted: String,
+    /// Whether failed logins locked the account, so the page offers to unlock it.
+    pub locked: bool,
 }
 
 /// Admin users page - lists all users
@@ -48,6 +52,10 @@ pub async fn admin_dashboard_handler(
     // Get all users from database
     let users = db::list_users(&state.db).await.map_err(|e| {
         tracing::error!("Failed to list users: {:?}", e);
+        ApiError::internal("Failed to load users")
+    })?;
+    let locked = db::list_locked_usernames(&state.db).await.map_err(|e| {
+        tracing::error!("Failed to list locked accounts: {:?}", e);
         ApiError::internal("Failed to load users")
     })?;
 
@@ -69,6 +77,7 @@ pub async fn admin_dashboard_handler(
         };
 
         user_summaries.push(UserSummary {
+            locked: locked.contains(&user.username),
             username: user.username,
             is_admin: user.is_admin,
             ssh_key_count: user.ssh_keys.len(),
@@ -437,6 +446,47 @@ pub async fn admin_delete_user_handler(
             } else {
                 tracing::error!("Failed to delete user '{}': {:?}", target_username, e);
                 Err(ApiError::internal("Failed to delete user"))
+            }
+        }
+    }
+}
+
+/// Admin unlock user handler
+///
+/// POST `/admin/users/{username}/unlock`
+///
+/// Unlocks an account that failed logins locked. On success the response is empty and HTMX
+/// removes the account's Unlock button. A refusal is shown in the page's `#user-unlock-error`
+/// notification instead, using `HX-Retarget`.
+#[tracing::instrument(skip(state, admin), fields(admin = %admin.username, %target_username))]
+pub async fn admin_unlock_user_handler(
+    State(state): State<AppState>,
+    Path(target_username): Path<String>,
+    admin: AdminUser,
+) -> Result<Response, ApiError> {
+    match user_unlock::unlock_user(&admin.into_context(), &target_username, &state.db).await {
+        Ok(_) => Ok(StatusCode::OK.into_response()),
+        Err(e) => {
+            if let Some(refusal) = ServiceError::find(&e) {
+                Ok((
+                    [
+                        (
+                            header::HeaderName::from_static("hx-retarget"),
+                            header::HeaderValue::from_static(ADMIN_USER_UNLOCK_ERROR_TARGET),
+                        ),
+                        (
+                            header::HeaderName::from_static("hx-reswap"),
+                            header::HeaderValue::from_static("innerHTML"),
+                        ),
+                    ],
+                    AdminNotificationErrorTemplate {
+                        message: refusal.to_string(),
+                    },
+                )
+                    .into_response())
+            } else {
+                tracing::error!("Failed to unlock user '{}': {:?}", target_username, e);
+                Err(ApiError::internal("Failed to unlock user"))
             }
         }
     }

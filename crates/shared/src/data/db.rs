@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +36,17 @@ pub struct DbSession {
     pub created_at: Timestamp,
     /// When the session expires, to the second, the same as the token's `exp`.
     pub expires_at: Timestamp,
+}
+
+/// One login attempt on an account that was not locked: when it was made, whether it
+/// succeeded, and the address it came from.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct DbLoginAttempt {
+    pub id: String,
+    pub user: RecordId,
+    pub attempted_at: Timestamp,
+    pub succeeded: bool,
+    pub address: IpAddr,
 }
 
 /// A session with the current name and admin flag of its user, read in one query.

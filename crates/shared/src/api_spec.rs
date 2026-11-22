@@ -13,9 +13,9 @@ use crate::data::{
     ListImagesResponse, ListUsersRequest, ListUsersResponse, LoginRequest, LoginResponse,
     LogoutResponse, RedeployRequest, RedeployResponse, RemoveSshKeyRequest, ScanImagesRequest,
     ScanImagesResponse, SetDefaultImageRequest, SetDefaultImageResponse, SetDevicePasswordRequest,
-    SetDevicePasswordResponse, ShowImageRequest, ShowImageResponse, UpRequest, UpResponse,
-    UpdateImpairmentRequest, UpdateImpairmentResponse, UserSshKeysResponse, ValidateRequest,
-    ValidateResponse,
+    SetDevicePasswordResponse, ShowImageRequest, ShowImageResponse, UnlockUserRequest,
+    UnlockUserResponse, UpRequest, UpResponse, UpdateImpairmentRequest, UpdateImpairmentResponse,
+    UserSshKeysResponse, ValidateRequest, ValidateResponse,
 };
 
 /// Top-level unified API specification
@@ -487,6 +487,20 @@ const OPERATIONS: &[Operation] = &[
         cli_command: "sherpa server user delete",
     },
     Operation {
+        name: "user.unlock",
+        description: "Unlock an account that failed logins locked, and set its failed login count back to 0",
+        category: Category::Admin,
+        auth: AuthRequirement::Admin,
+        request_schema: Some("UnlockUserRequest"),
+        response_schema: Some("UnlockUserResponse"),
+        method: HttpMethod::Post,
+        path: "/api/v1/admin/users/{username}/unlock",
+        stream_type: None,
+        rpc_method: "user.unlock",
+        rpc_streaming: false,
+        cli_command: "sherpa server user unlock",
+    },
+    Operation {
         name: "user.passwd",
         description: "Change a user's password",
         category: Category::Admin,
@@ -671,6 +685,8 @@ fn build_schemas() -> BTreeMap<String, serde_json::Value> {
     add_schema::<ListUsersResponse>(&mut schemas);
     add_schema::<DeleteUserRequest>(&mut schemas);
     add_schema::<DeleteUserResponse>(&mut schemas);
+    add_schema::<UnlockUserRequest>(&mut schemas);
+    add_schema::<UnlockUserResponse>(&mut schemas);
     add_schema::<ChangePasswordRequest>(&mut schemas);
     add_schema::<ChangePasswordResponse>(&mut schemas);
     add_schema::<SetDevicePasswordRequest>(&mut schemas);

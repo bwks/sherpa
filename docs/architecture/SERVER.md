@@ -91,6 +91,52 @@ its session is active, a demotion applies on the next request, and a deleted use
 works for a new account of the same name. No authorization decision reads the token's own claims.
 What ends a session is `tests/specs/accounts-and-auth.md`, `user_sessions`.
 
+### Logins and the account lockout
+
+RPC `auth.login`, REST `POST /api/v1/auth/login` and the web form `POST /login` all call
+`auth::login::check_credentials` with the peer's address (`ConnectInfo`; the WebSocket
+connection keeps its peer's). Each answers every refusal with one status and one body,
+"username and/or password is incorrect", so a caller cannot tell a wrong password from an
+unknown username or a locked account.
+
+The attempt is counted before its password is checked: `db::claim_login` is one
+`UPDATE … RETURNING` that adds 1 to `user.failed_logins` only while `locked_at` is `NULL`, and sets
+`locked_at` on the attempt that reaches 3. Attempts that arrive together are serialised by that
+statement, so no more than 3 passwords are checked against an account between successes, and the
+third locks it before its password is checked. `db::finish_login` then, in one transaction,
+stores the attempt in `login_attempt` and, for the right password, sets the count back to 0 and
+clears the lock only if it is this attempt's own or none: a login whose account another attempt
+locked meanwhile is refused and stored as a failure. A server error between the two leaves the
+attempt counted and not stored. Nothing unlocks an account by time.
+
+```mermaid
+flowchart TD
+    A[Login: username, password, peer address] --> B["claim_login: UPDATE user<br/>failed_logins + 1, locked_at at the 3rd<br/>WHERE username AND locked_at IS NULL"]
+    B -->|no row| C[Check the dummy hash]
+    C --> D{User exists?}
+    D -->|yes: locked| E[Log username and address]
+    D -->|no| E
+    E --> R[Refuse: username and/or password is incorrect]
+    B -->|row| F[Check the password against the user's hash]
+    F --> G{Matches?}
+    G -->|no| H[finish_login: store a failed attempt]
+    H --> I[Log; at the 3rd, log the lock]
+    I --> R
+    G -->|yes| J["finish_login: failed_logins = 0, locked_at = NULL<br/>WHERE locked_at IS NULL or this attempt's lock"]
+    J -->|row| K[Store a successful attempt]
+    K --> S[Start the session]
+    J -->|no row: locked meanwhile| L[Store a failed attempt]
+    L --> R
+```
+
+An attempt on a locked account and one for an unknown username are logged with the username and
+address and not stored; neither checks a real hash. Passwords are never logged or stored. An admin
+unlocks an account with `services::user_unlock` (RPC `user.unlock`, REST
+`POST /api/v1/admin/users/{username}/unlock`, the users page's Unlock button), which sets the
+count back to 0. A password reset leaves the lock as it is. Root unlocks the built-in `admin`,
+with `sherpad` stopped, by the `UPDATE` in the user docs. The cases are
+`tests/specs/accounts-and-auth.md`, `user_login`.
+
 ### Services enforce authorization
 
 Every lab service checks the caller's `&AuthContext` with `auth/policy.rs` before it sends

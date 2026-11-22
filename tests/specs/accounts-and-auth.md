@@ -130,7 +130,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `user_login`: a username and its password start a session
 
-**Statement:** a user who gives their username and password gets a session and its token, on the CLI, the REST API and the web UI, and a wrong password and an unknown username are refused alike.
+**Statement:** a user who gives their username and password gets a session and its token, on the CLI, the REST API and the web UI; a wrong password, an unknown username and a locked account are refused alike, and 3 failed logins in a row lock an account until an admin unlocks it.
 **Relied on by:** the user, scripts. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -150,6 +150,20 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 013 | A token is checked over REST as over RPC: a valid one names its user, admin flag and expiry, and any other is answered not valid, not an error | integration |
 | 014 | An RPC login with the right password gives a token, the username, the admin flag and the expiry, and the token names a session that lasts as long | integration |
 | 015 | The CLI reads the signed-in user's name from the saved token, and says to run `sherpa login` when the token is not one | unit |
+| 016 | The third failed login in a row locks the account, and two do not | integration |
+| 017 | A successful login sets the count back to 0: two failures, a success and two more failures leave the account unlocked | integration |
+| 018 | A locked account is refused with its right password, every time, and stays locked | integration |
+| 019 | A wrong password, an unknown username and a locked account get the same status and body, "username and/or password is incorrect", over RPC, REST and the web login form | integration |
+| 020 | Failed logins that arrive at the same time check no more than 3 passwords: all are refused, the account is locked with 3 attempts stored, and the right password is then refused | integration |
+| 021 | Each attempt on an account that is not locked is stored with its user, time, result and IPv4 source address, over RPC, REST and the web login form | integration |
+| 022 | An IPv6 source address is stored as its 16 bytes, and an IPv4-mapped IPv6 one as the 4 bytes of its IPv4 address | integration |
+| 023 | An attempt on a locked account and a failed login for an unknown username are logged with the username and address, never the password, and not stored | integration |
+| 024 | An admin unlocks an account with `sherpa server user unlock`, and the user logs in again | e2e |
+| 025 | The admin users page shows an Unlock button for a locked account only, and it unlocks the account | integration |
+| 026 | An admin unlocks an account over RPC and REST, and an unknown username is answered not found | integration |
+| 027 | A user who is not an admin is refused unlock over RPC, REST and the web UI, and the account stays locked | integration |
+| 028 | An admin's reset of a user's password does not unlock the account | integration |
+| 029 | The SQL the user docs give root unlocks `admin` in the database of a stopped server, which `admin` then logs in to | integration |
 
 ## `user_sessions`: a token works only while its session lasts
 

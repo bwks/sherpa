@@ -25,6 +25,7 @@ const RPC_MSG_AUTH_REQUIRED: &str = "Authentication required";
 const RPC_MSG_USER_ADMIN_ONLY_CREATE: &str = "Access denied: only administrators can create users";
 const RPC_MSG_USER_ADMIN_ONLY_LIST: &str = "Access denied: only administrators can list users";
 const RPC_MSG_USER_ADMIN_ONLY_DELETE: &str = "Access denied: only administrators can delete users";
+const RPC_MSG_USER_ADMIN_ONLY_UNLOCK: &str = "Access denied: only administrators can unlock users";
 const RPC_MSG_ADMIN_ONLY_CLEAN: &str =
     "Access denied: only administrators can run clean operations";
 const RPC_MSG_ADMIN_ONLY_BACKUP: &str =
@@ -113,6 +114,11 @@ pub const METHODS: &[Method] = &[
         Access::Admin(RPC_MSG_USER_ADMIN_ONLY_DELETE),
         false,
     ),
+    Method::new(
+        "user.unlock",
+        Access::Admin(RPC_MSG_USER_ADMIN_ONLY_UNLOCK),
+        false,
+    ),
     Method::new("user.passwd", Access::User, false),
     Method::new("user.device_password.set", Access::User, false),
     Method::new("user.info", Access::User, false),
@@ -194,7 +200,7 @@ async fn call(
         });
     };
     let ctx = match entry.access {
-        Access::Public => return public_call(method, params, state).await,
+        Access::Public => return public_call(method, params, state, connection).await,
         Access::User => authenticate(&params, state).await?,
         Access::Admin(denied) => require_admin(authenticate(&params, state).await?, denied)?,
     };
@@ -210,9 +216,14 @@ async fn call(
     result
 }
 
-async fn public_call(method: &str, params: Value, state: &AppState) -> Result<Value, RpcError> {
+async fn public_call(
+    method: &str,
+    params: Value,
+    state: &AppState,
+    connection: &Connection,
+) -> Result<Value, RpcError> {
     match method {
-        "auth.login" => auth::login(params, state).await,
+        "auth.login" => auth::login(params, state, connection.peer).await,
         "auth.validate" => auth::validate(params, state).await,
         _ => Err(unrouted(method)),
     }
@@ -244,6 +255,7 @@ async fn user_call(
         "user.create" => users::create(ctx, params, state).await,
         "user.list" => users::list(ctx, state).await,
         "user.delete" => users::delete(ctx, params, state).await,
+        "user.unlock" => users::unlock(ctx, params, state).await,
         "user.passwd" => users::change_password(ctx, params, state).await,
         "user.device_password.set" => users::set_device_password(ctx, params, state).await,
         "user.info" => users::info(ctx, params, state).await,

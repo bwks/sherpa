@@ -28,6 +28,7 @@ instead of repeating these instructions.
 | P2p containers lab test | `uv run tests/labs/p2p-containers/p2p_containers_lab_test.py` | On the Sherpa server: the node images (`arista_eos` container included, which is not in a public registry), `alpine:3.22`, Docker access, logged-in CLI | about 2–5 min |
 | Container ZTP lab test | `uv run tests/labs/container-ztp/container_ztp_lab_test.py` | On the Sherpa server: the node images, Docker access, logged-in CLI, internet for the FRR node's packages | about 5–15 min |
 | Manifest commands test | `uv run tests/labs/manifest-commands/manifest_commands_lab_test.py` | The `sherpa` CLI, logged in with an SSH key and a device password for the refused `sherpa up`; brings no lab up | seconds |
+| Account lockout test | `uv run tests/labs/account-lockout/account_lockout_lab_test.py` | The `sherpa` CLI, logged in as an admin, which creates and deletes the run's throwaway user; brings no lab up | seconds |
 | Cisco IOL lab test | `uv run tests/labs/cisco-iol/cisco_iol_lab_test.py` | On the Sherpa server: the `cisco_iol` image built with docker-cisco-iol, `alpine:3.22`, Docker access, logged-in CLI | about 3–5 min |
 | P2p links lab test | `uv run tests/labs/p2p-links/p2p_links_lab_test.py` | On the Sherpa server: the node images, `nicolaka/netshoot:v0.14`, Docker access, logged-in CLI | about 15–20 min |
 | SSH access lab test | `uv run tests/labs/ssh-access/ssh_access_lab_test.py` | A route to the lab's management network (the Sherpa server), `ss`, the `alpine_linux` image, logged-in CLI; for `--ssh-jump`, a host account named as the Sherpa user | about 2 min |
@@ -143,7 +144,7 @@ tests. Run the crates you need:
 | sherpad | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p sherpad -- --ignored --test-threads=1` | root, Docker, libvirt, test images |
 
 sherpad's integration tests are one test binary, `integration`
-(`crates/server/tests/integration/`), with a module per area: `auth`, `image_management`,
+(`crates/server/tests/integration/`), with a module per area: `account_lockout`, `auth`, `image_management`,
 `lab_authorization`, `lab_lifecycle`, `security`, `user_management` and `websocket`. Run one
 area by its module path, and run root tests from the built binary so root never writes to
 `target/`:

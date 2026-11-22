@@ -1,6 +1,7 @@
 mod create;
 mod delete;
 mod device_password;
+mod lock;
 mod read;
 mod update;
 
@@ -17,6 +18,9 @@ pub use update::{UserChanged, change_user_password, update_user};
 pub use device_password::{
     DevicePassword, device_password_set, open_device_password, set_device_password,
 };
+
+// Public exports - the account lockout
+pub use lock::{list_locked_usernames, unlock_user};
 
 // Public exports - DELETE operations
 pub use delete::delete_user;

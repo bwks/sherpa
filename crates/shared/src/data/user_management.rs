@@ -85,6 +85,24 @@ pub struct DeleteUserResponse {
     pub username: String,
 }
 
+/// Request to unlock an account that failed logins locked (admin only)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct UnlockUserRequest {
+    /// Username to unlock
+    pub username: String,
+    /// Caller's authentication token
+    pub token: String,
+}
+
+/// Response after unlocking an account
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct UnlockUserResponse {
+    /// Whether the unlock was successful
+    pub success: bool,
+    /// Username of the unlocked user
+    pub username: String,
+}
+
 /// Request to change user password
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ChangePasswordRequest {

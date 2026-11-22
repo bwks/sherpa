@@ -1,5 +1,7 @@
 //! Login, token validation and logout.
 
+use std::net::IpAddr;
+
 use serde_json::Value;
 
 use shared::data;
@@ -12,7 +14,6 @@ use crate::auth::{login, session};
 use crate::daemon::state::AppState;
 use crate::konst::JWT_TOKEN_EXPIRY_SECONDS;
 
-const RPC_MSG_AUTH_INVALID: &str = "Invalid username or password";
 const RPC_MSG_AUTH_ERROR: &str = "Authentication error";
 const RPC_MSG_TOKEN_CREATE_FAILED: &str = "Failed to create authentication token";
 const RPC_MSG_LOGOUT_FAILED: &str = "Failed to end the session";
@@ -20,17 +21,19 @@ const RPC_MSG_INVALID_PARAMS_LOGIN: &str =
     "Invalid params: expected {username: string, password: string}";
 const RPC_MSG_INVALID_PARAMS_TOKEN: &str = "Invalid params: expected {token: string}";
 
-pub(super) async fn login(params: Value, state: &AppState) -> Result<Value, RpcError> {
+/// Log in over the connection from `peer`, giving a CLI session's token.
+pub(super) async fn login(
+    params: Value,
+    state: &AppState,
+    peer: IpAddr,
+) -> Result<Value, RpcError> {
     let request: data::LoginRequest = parse(&params, RPC_MSG_INVALID_PARAMS_LOGIN)?;
-    let user = match login::check_credentials(&state.db, &request.username, &request.password).await
+    let user = match login::check_credentials(&state.db, &request.username, &request.password, peer)
+        .await
     {
         Ok(Some(user)) => user,
         Ok(None) => {
-            tracing::warn!(
-                username = %request.username,
-                "Login failed: unknown user or wrong password"
-            );
-            return Err(rpc_error(RpcErrorCode::AuthInvalid, RPC_MSG_AUTH_INVALID));
+            return Err(rpc_error(RpcErrorCode::AuthInvalid, login::LOGIN_REFUSED));
         }
         Err(error) => {
             tracing::error!(error = ?error, "Login check failed");
