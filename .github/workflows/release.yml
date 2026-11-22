@@ -181,15 +181,6 @@ jobs:
         with:
           name: release-notes
 
-      # The install, update and uninstall scripts of this release, and SHA256SUMS of every file
-      # the release publishes, which the scripts check each archive against.
-      - name: Add the scripts and the checksums
-        run: |
-          cp scripts/sherpa_install.sh scripts/sherpa_update.sh scripts/sherpa_uninstall.sh artifacts/
-          cd artifacts
-          sha256sum -- * > SHA256SUMS
-          cat SHA256SUMS
-
       - name: Create and push tag
         env:
           GH_TOKEN: ${{ github.token }}

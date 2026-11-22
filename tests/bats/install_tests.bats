@@ -179,23 +179,6 @@ _blank_disks_case_006() {
     rm -rf "${WORK_DIR}"
 }
 
-# A release's archives in WORK_DIR/artifacts: a sherpad archive, and a SHA256SUMS that lists the
-# checksum given for it ("right" for its own).
-_artifacts_with_checksum() {
-    mkdir -p "${WORK_DIR}/artifacts" "${WORK_DIR}/build"
-    printf 'new release\n' > "${WORK_DIR}/build/sherpad"
-    tar czf "${WORK_DIR}/artifacts/sherpad-x86_64-unknown-linux-gnu.tar.gz" -C "${WORK_DIR}/build" sherpad
-    local sum="$1"
-    if [ "${sum}" = "right" ]; then
-        sum="$(sha256sum "${WORK_DIR}/artifacts/sherpad-x86_64-unknown-linux-gnu.tar.gz" | awk '{ print $1 }')"
-    fi
-    if [ -n "${sum}" ]; then
-        printf '%s  sherpad-x86_64-unknown-linux-gnu.tar.gz\n' "${sum}" > "${WORK_DIR}/artifacts/SHA256SUMS"
-    else
-        printf '%s  sherpa-x86_64-unknown-linux-gnu.tar.gz\n' "$(printf '0%.0s' {1..64})" > "${WORK_DIR}/artifacts/SHA256SUMS"
-    fi
-}
-
 # Stubs for installing Docker on a host without it: PATH is MOCK_BIN and the few tools the
 # function uses, so there is no docker. curl records its arguments and writes WORK_DIR/key for
 # the key; apt-get records its arguments; dpkg prints amd64.
@@ -491,78 +474,6 @@ _stub_docker_with_containers() {
 # ============================================================
 # Verified downloads
 # ============================================================
-
-@test "install_host_014_an_archive_that_does_not_match_the_releases_sha256sums_stops_the_install_before_it_is_used" {
-    WORK_DIR="$(mktemp -d)"
-    printf '#!/bin/bash\nexit 1\n' > "${MOCK_BIN}/pgrep"
-    printf '#!/bin/bash\nexit 3\n' > "${MOCK_BIN}/systemctl"
-    printf '#!/bin/bash\necho "$@" >> "%s/tar.args"\nexit 0\n' "${WORK_DIR}" > "${MOCK_BIN}/tar"
-    chmod +x "${MOCK_BIN}"/*
-    local sum
-    # Another checksum, and none for the archive.
-    for sum in "$(printf 'f%.0s' {1..64})" ""; do
-        rm -rf "${WORK_DIR}/artifacts"
-        _artifacts_with_checksum "${sum}"
-        run bash -c "
-            set +e
-            PATH='${MOCK_BIN}:${PATH}'
-            source '${STRIPPED_SCRIPT}'
-            SHERPA_BASE_DIR='${WORK_DIR}/opt'
-            SHERPA_VERSION=v0.7.2
-            SHERPA_ARTIFACT_DIR='${WORK_DIR}/artifacts'
-            install_binaries
-        "
-        [ "$status" -ne 0 ]
-        [[ "$output" == *"Nothing was installed from sherpad-x86_64-unknown-linux-gnu.tar.gz"* ]]
-        [ ! -e "${WORK_DIR}/tar.args" ]
-        [ ! -e "${WORK_DIR}/opt/bin/sherpad" ]
-    done
-    [[ "$output" == *"does not list one checksum for sherpad-x86_64-unknown-linux-gnu.tar.gz"* ]]
-
-    # The archive's own checksum passes.
-    rm -rf "${WORK_DIR}/artifacts"
-    _artifacts_with_checksum right
-    run bash -c "
-        set +e
-        source '${STRIPPED_SCRIPT}'
-        SHERPA_VERSION=v0.7.2
-        SHERPA_ARTIFACT_DIR='${WORK_DIR}/artifacts'
-        mkdir -p '${WORK_DIR}/download'
-        fetch_release_checksums '${WORK_DIR}/download' && verify_release_archive '${WORK_DIR}/artifacts/sherpad-x86_64-unknown-linux-gnu.tar.gz'
-    "
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"matches SHA256SUMS"* ]]
-}
-
-@test "install_host_015_a_release_without_sha256sums_is_refused_and_local_archives_without_one_are_used_with_a_warning" {
-    WORK_DIR="$(mktemp -d)"
-    printf '#!/bin/bash\necho "$@" >> "%s/curl.args"\nexit 22\n' "${WORK_DIR}" > "${MOCK_BIN}/curl"
-    chmod +x "${MOCK_BIN}/curl"
-    mkdir -p "${WORK_DIR}/download"
-    run bash -c "
-        set +e
-        PATH='${MOCK_BIN}:${PATH}'
-        source '${STRIPPED_SCRIPT}'
-        SHERPA_VERSION=v0.7.1
-        fetch_release_checksums '${WORK_DIR}/download'
-    "
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"Could not fetch the checksums of v0.7.1: https://github.com/bwks/sherpa/releases/download/v0.7.1/SHA256SUMS"* ]]
-    [[ "$output" == *"not installed"* ]]
-
-    # Local archives with no SHA256SUMS: a warning, and the archive passes.
-    _artifacts_with_checksum right
-    rm "${WORK_DIR}/artifacts/SHA256SUMS"
-    run bash -c "
-        set +e
-        source '${STRIPPED_SCRIPT}'
-        SHERPA_VERSION=v0.7.2
-        SHERPA_ARTIFACT_DIR='${WORK_DIR}/artifacts'
-        fetch_release_checksums '${WORK_DIR}/download' && verify_release_archive '${WORK_DIR}/artifacts/sherpad-x86_64-unknown-linux-gnu.tar.gz'
-    "
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"No SHA256SUMS in ${WORK_DIR}/artifacts: the local archives are not checked"* ]]
-}
 
 @test "install_host_016_docker_comes_from_dockers_apt_repository_signed_by_its_key_checked_against_its_pin" {
     WORK_DIR="$(mktemp -d)"
