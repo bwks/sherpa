@@ -59,7 +59,7 @@ pub async fn check_credentials(
     if user.is_some() {
         attempt.succeeded().await?;
     } else {
-        attempt.failed().await?;
+        attempt.failed();
     }
     Ok(user)
 }

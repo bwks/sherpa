@@ -21,7 +21,7 @@ use shared::data::{
 };
 use shared::konst::{SHERPA_DB_KEY_CHARSET, SHERPA_DB_KEY_LENGTH};
 
-use crate::login_limit::{LoginCount, LoginKeys};
+use crate::login_limit::LoginKeys;
 
 pub(crate) const USER_TABLE: &str = "user";
 pub(crate) const LAB_TABLE: &str = "lab";
@@ -259,27 +259,19 @@ pub(crate) fn session_user_from_row(row: &Row) -> Result<DbSessionUser> {
     })
 }
 
-/// A login count's `failures` and `locked_until`.
-pub(crate) fn login_count_from_row(row: &Row) -> Result<LoginCount> {
+/// The failed logins in the window for a pair, an address and a username.
+pub(crate) fn login_counts_from_row(row: &Row) -> Result<LoginKeys<u32>> {
     let mut cells = Cells::new(row);
-    Ok(LoginCount {
-        failures: cells.integer("failures")?,
-        locked_until: cells
-            .optional_integer("locked_until")?
-            .map(Timestamp::from_second)
-            .transpose()
-            .context("Database field locked_until is not a valid time")?,
+    Ok(LoginKeys {
+        pair: cells.integer("pair")?,
+        address: cells.integer("address")?,
+        username: cells.integer("username")?,
     })
 }
 
-/// The rows of each login limit table, from the one row of `login_limit_size`.
-pub(crate) fn login_limit_sizes_from_row(row: &Row) -> Result<LoginKeys<usize>> {
-    let mut cells = Cells::new(row);
-    Ok(LoginKeys {
-        pair: cells.integer("pairs")?,
-        address: cells.integer("addresses")?,
-        username: cells.integer("usernames")?,
-    })
+/// The `rowid` a statement returned.
+pub(crate) fn rowid_from_row(row: &Row) -> Result<i64> {
+    Cells::new(row).integer("rowid")
 }
 
 /// A session's column values in the `session` table's column order.

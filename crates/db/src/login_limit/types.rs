@@ -1,4 +1,4 @@
-//! The keys, limits, expiry and counts the login limit's rows are made of.
+//! The keys, counts, window and failures the login limit's rows are made of.
 
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -37,30 +37,34 @@ pub struct LoginKeys<T> {
     pub username: T,
 }
 
-/// What ending an attempt does to one of its keys.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LoginRelease {
-    /// Leave the key's count as it is.
-    Keep,
-    /// Take the attempt back from the key's count.
-    GiveBack,
-    /// Delete the key's count.
-    Clear,
-}
-
-/// The moment a step runs at, and so which rows no longer limit anything: those whose lock has
-/// ended by `now`, and those not locked whose window started at or before `window_started_by`.
+/// The moment an attempt starts at, and the rows it counts: those failed after `expired_by`.
 #[derive(Debug, Clone, Copy)]
-pub struct LoginExpiry {
+pub struct LoginWindow {
     pub now: Timestamp,
-    pub window_started_by: Timestamp,
+    /// The latest moment a failure no longer counts at: `now` less the window.
+    pub expired_by: Timestamp,
 }
 
-/// The counted attempts of one row and the end of its lock.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct LoginCount {
-    pub(crate) failures: u32,
-    pub(crate) locked_until: Option<Timestamp>,
+/// One failure row an attempt wrote when it started, so the attempt can delete it again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoginFailureId {
+    rowid: i64,
+    failed_at: Timestamp,
+}
+
+/// Whether the login limit lets an attempt through, and what it counted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoginAdmission {
+    /// A key has as many failures in the window as its limit; no row is written.
+    Refused,
+    /// Every key is under its limit.
+    Admitted {
+        /// The failures in the window for the pair, the address and the username, the attempt's
+        /// own row included when it was written.
+        counts: LoginKeys<u32>,
+        /// The attempt's own row, `None` when the table was at its cap.
+        failure: Option<LoginFailureId>,
+    },
 }
 
 impl LoginAddress {
@@ -101,31 +105,14 @@ impl fmt::Display for LoginAddress {
     }
 }
 
-impl<T> LoginKeys<T> {
-    /// Each key's value made into another by `f`.
-    pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> LoginKeys<U> {
-        LoginKeys {
-            pair: f(self.pair),
-            address: f(self.address),
-            username: f(self.username),
-        }
+impl LoginFailureId {
+    /// The row `rowid`, written at `failed_at`.
+    pub(super) fn new(rowid: i64, failed_at: Timestamp) -> Self {
+        Self { rowid, failed_at }
     }
-}
 
-impl LoginRelease {
-    /// [`Self::GiveBack`] for a key that counted the attempt, [`Self::Keep`] for one that did not.
-    #[must_use]
-    pub fn give_back_if(counted: bool) -> Self {
-        if counted { Self::GiveBack } else { Self::Keep }
-    }
-}
-
-impl LoginExpiry {
-    /// The `now` and `window_started_by` column values, as Unix seconds.
+    /// The `rowid` and `failed_at` column values.
     pub(super) fn values(self) -> [Value; 2] {
-        [
-            self.now.as_second().into(),
-            self.window_started_by.as_second().into(),
-        ]
+        [self.rowid.into(), self.failed_at.as_second().into()]
     }
 }

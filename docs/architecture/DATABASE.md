@@ -157,31 +157,34 @@ forgotten one. Who may set it is in [`SERVER.md`](SERVER.md#device-passwords).
 
 ### Login limit
 
-The login limit's counts and locks are kept only in three tables, so a lock outlives a restart.
-`login_limit_pair` holds one row per username and address, keyed `(username, address)`,
-`login_limit_address` one per address and `login_limit_username` one per username, each keyed by
-its one column. `address` is a `BLOB`: the 4 bytes of an IPv4 address, or the first 8 bytes of an
-IPv6 address, its `/64` prefix. The length tells them apart, and a `CHECK` refuses any other.
-`db::LoginAddress` is the one place that builds the bytes, from `Ipv4Addr::octets` and
-`Ipv6Addr::octets`; nothing reads an address back. `failures` is the attempts counted,
-`window_start` the first of them and `locked_until` the end of the lock, `NULL` while there is
-none. Times are Unix seconds, as `session.expires_at` is. No password, nor anything made from one,
-is stored.
+The login limit keeps only its failed logins, one row each in `login_failure`, so a lock outlives a
+restart. There is no stored lock and no count: every limit is a `count(*)` of the rows of a key
+whose `failed_at` is within the last 15 minutes. `address` is a `BLOB`: the 4 bytes of an IPv4
+address, or the first 8 bytes of an IPv6 address, its `/64` prefix. The length tells them apart,
+and a `CHECK` refuses any other. `db::LoginAddress` is the one place that builds the bytes, from
+`Ipv4Addr::octets` and `Ipv6Addr::octets`; nothing reads an address back. `failed_at` is Unix
+seconds, as `session.expires_at` is. No password, nor anything made from one, is stored.
 
-- Each step of an attempt runs under the write lock. `begin_login_attempt` checks and counts all
-  three keys in one transaction, so logins made at the same moment cannot count past a limit.
-  `give_back_login_attempt` clears or gives back each key, as its `LoginRelease` says, in one
-  transaction. `lock_full_login_keys` locks each key in a single `UPDATE ... RETURNING` that checks
-  and sets the lock together. Each takes and returns a `LoginKeys`, one named field for the pair,
-  the address and the username.
-- `login_limit_size` has one row whose `pairs`, `addresses` and `usernames` are each table's row
-  count, kept by an insert and a delete trigger on each table, so the cap of 100,000 keys per
-  table is checked without a `COUNT`.
-- Each table's only secondary index is on `window_start`, for the eviction of its oldest row. No
-  index holds a key column, so a lookup by key always takes the primary key; Turso took an index
-  led by another column over the primary key, which scanned the table.
-- `delete_expired_login_limits` is the sweep: it deletes ended locks, and counts with no lock
-  whose window has passed, from each table. It never deletes a lock that has not ended.
+- `begin_login_attempt` runs in one transaction under the write lock: one statement counts the
+  pair, the address and the username, and an admitted attempt inserts its own row and gets its
+  `rowid` back, so logins made at the same moment cannot get past a limit. It returns a
+  `LoginAdmission`: refused, or admitted with the three counts in a `LoginKeys` and the row's
+  `LoginFailureId`. A refused attempt writes nothing.
+- `delete_login_failure` deletes an unanswered attempt's own row, matched on its `rowid`,
+  username, address and `failed_at` together. The table has no `INTEGER PRIMARY KEY`, so a
+  `rowid` can be reused once its row is gone, such as after a success cleared the pair; matching
+  every column means a reused `rowid` can only name a row identical to the attempt's own.
+- `clear_login_failures` deletes every row of a username and address together, for a success.
+- The table holds at most 100,000 rows, checked with a `count(*)` in the attempt's transaction.
+  At the cap the expired rows are deleted first; when that frees nothing the attempt writes no
+  row. A row that still counts is never deleted to make room.
+- `delete_expired_login_failures` is the sweep: it deletes the rows 15 minutes old or older.
+- Each count has an index led by its key and ending in `failed_at`, so `EXPLAIN QUERY PLAN` in
+  Turso gives a `SEARCH ... USING COVERING INDEX` with the key's equality and a range on
+  `failed_at`: `login_failure_pair (username, address, failed_at)`, `login_failure_address
+  (address, failed_at)` and `login_failure_username (username, failed_at)`. Clearing a pair takes
+  `login_failure_pair` too, and deleting one row takes the `rowid`. The cap's `count(*)` and the
+  sweep scan a covering index, as no index leads with `failed_at`.
 
 The rules are in [`SERVER.md`](SERVER.md#login-limit).
 

@@ -45,8 +45,8 @@ use shared::util::{
 const OTEL_METRIC_EXPORT_INTERVAL_SECS: u64 = 60;
 /// How often sherpad deletes expired login sessions, in seconds. It also sweeps once at startup.
 const SESSION_SWEEP_INTERVAL_SECS: u64 = 3600;
-/// How often sherpad deletes expired login counts and locks, in seconds: as often as a count's
-/// window and a lock last. It also sweeps once at startup.
+/// How often sherpad deletes expired failed logins, in seconds: as long as a failure counts. It
+/// also sweeps once at startup.
 const LOGIN_LIMIT_SWEEP_INTERVAL_SECS: u64 = 15 * 60;
 
 /// Custom time formatter that outputs UTC time with millisecond precision
@@ -202,7 +202,7 @@ fn init_meter_provider(otel_config: &OtelConfig) -> Result<SdkMeterProvider> {
     Ok(provider)
 }
 
-/// Start the tasks that delete expired login sessions and expired login counts and locks, each
+/// Start the tasks that delete expired login sessions and expired failed logins, each
 /// at startup and then periodically, until `cancel` fires.
 fn spawn_sweepers(db: &Database, cancel: &CancellationToken) {
     tokio::spawn(session::run_sweeper(

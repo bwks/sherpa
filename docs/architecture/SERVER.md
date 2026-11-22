@@ -94,43 +94,49 @@ What ends a session is `tests/specs/accounts-and-auth.md`, `user_sessions`.
 ### Login limit
 
 RPC, REST and web logins all check passwords through `auth::login::check_credentials`, which first
-asks `auth::login_limit::LoginLimiter` (in `AppState`) to let the attempt through. It counts three
-kinds of key: username and peer address together (5 failures), peer address (20) and username from
-any address (50), each locking for 15 minutes. The pair limit is the tight one, so that failures
-from one address cannot lock a user out from another. A successful login clears only its own pair,
-not other addresses' pairs or the username count. The limits are `user_login` in
-`tests/specs/accounts-and-auth.md`.
+asks `auth::login_limit::LoginLimiter` (in `AppState`) to let the attempt through. Over the failures
+of the last 15 minutes, a sliding window, it refuses a login while its username and peer address
+together have 5, its peer address 20, or its username from any address 50. The pair limit is the
+tight one, so that failures from one address cannot lock a user out from another. No lock is
+stored: a lock ends when enough of its failures are 15 minutes old, so it lasts at most 15 minutes
+from the last failure that brought it to its limit, and less when older failures age out first. A
+refused login writes nothing, so attempts made during a lock do not lengthen it. A successful
+login deletes only its own pair's failures, not other addresses' or other usernames'. The limits
+are `user_login` in `tests/specs/accounts-and-auth.md`.
 
 ```mermaid
 flowchart TD
     rpc["RPC auth.login"] --> check
     rest["REST POST /api/v1/auth/login"] --> check
     web["Web POST /login"] --> check
-    check["check_credentials(username, password, peer)"] --> begin{"LoginLimiter::begin:<br/>pair, address and username<br/>each unlocked and under its limit?"}
-    begin -- no --> refused["check the dummy hash,<br/>answer as a wrong password"]
-    begin -- yes --> count["count the attempt for the pair,<br/>the address and the username"]
-    count --> verify{"check the password"}
-    verify -- right --> success["succeeded: clear its own pair,<br/>give back address and username"]
-    verify -- "wrong or unknown user" --> failure["failed: lock each key<br/>at its limit for 15 minutes"]
-    verify -- "database error" --> unanswered["unanswered: give the counts back"]
-    begin -. reads and writes .-> table[("login_limit_pair,<br/>login_limit_address and<br/>login_limit_username tables")]
+    check["check_credentials(username, password, peer)"] --> begin{"LoginLimiter::begin:<br/>failures in the last 15 minutes<br/>for pair, address and username<br/>each under its limit?"}
+    begin -- no --> refused["write nothing, check the dummy hash,<br/>answer as a wrong password"]
+    begin -- yes --> room{"table under its cap,<br/>after deleting expired rows?"}
+    room -- yes --> insert["insert the attempt's own failure row,<br/>keep its rowid"]
+    room -- no --> nowrite["write no row,<br/>log the full table once at warn"]
+    insert --> verify{"check the password"}
+    nowrite --> verify
+    verify -- right --> success["succeeded: delete every row<br/>of its username and address"]
+    verify -- "wrong or unknown user" --> failure["failed: keep the row,<br/>log a limit it brought to its count"]
+    verify -- "database error or dropped" --> unanswered["unanswered: delete its own row"]
+    begin -. counts in one transaction .-> table[("login_failure table")]
+    insert -.-> table
     success -.-> table
-    failure -.-> table
     unanswered -.-> table
 ```
 
-The counts and locks are kept only in the database's `login_limit_pair`, `login_limit_address` and
-`login_limit_username` tables, so a lock outlives a restart of sherpad
-([`DATABASE.md`](DATABASE.md#login-limit)). Each step that reads and then changes them is one
-transaction or single statements under the write lock, so logins made at the same moment cannot
-check more passwords than a limit allows. An attempt dropped without an outcome, such as a cancelled
-request, gives its counts back in a task of its own. An IPv4 peer is counted by its address and an
+The failures are kept only in the database's `login_failure` table, so a lock outlives a restart
+of sherpad ([`DATABASE.md`](DATABASE.md#login-limit)). An admitted attempt inserts its failure when
+it starts, in the transaction that counts, under the write lock, so logins made at the same moment
+cannot check more passwords than a limit allows. An attempt dropped without an outcome, such as a
+cancelled request, deletes its own row in a task of its own. When a failure brings a count to its
+limit, it is logged once at `warn`, naming the limit. An IPv4 peer is counted by its address and an
 IPv6 peer by its /64 prefix (`db::LoginAddress`). A periodic sweep in sherpad
-(`login_limit::run_sweeper`, at startup and every 15 minutes) deletes ended locks and counts whose
-window has passed. Each table holds at most 100,000 keys. A new key of a full table deletes its
-expired rows, then its oldest count that is not a lock. A lock is never deleted, and when every row
-is one, the attempt is let through uncounted in that table. A full table never refuses a login. No
-password, nor anything made from one, is stored.
+(`login_limit::run_sweeper`, at startup and every 15 minutes) deletes the failures older than the
+window. The table holds at most 100,000 rows. At the cap an attempt deletes the expired rows, and
+when that frees nothing it is let through or refused on its counts as usual but writes no row,
+which is logged once at `warn`; a row that still counts is never deleted, and a full table never
+refuses a login. No password, nor anything made from one, is stored.
 
 ### Services enforce authorization
 

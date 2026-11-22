@@ -1,2 +1,2 @@
-DELETE FROM login_limit_pair
+DELETE FROM login_failure
 WHERE username = ?1 AND address = ?2

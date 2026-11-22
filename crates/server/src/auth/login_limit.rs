@@ -1,64 +1,65 @@
 //! The limit on failed logins, per username and source address together, per address and per
 //! username alone, that every login route goes through.
 //!
-//! Within [`FAILURE_WINDOW`] of a key's first counted failure:
-//! - [`PAIR_FAILURE_LIMIT`] failures for one username from one address lock that pair only, so
-//!   someone who knows a username cannot lock its user out from anywhere else;
-//! - [`ADDRESS_FAILURE_LIMIT`] failures from one address lock the address for every username;
-//! - [`USERNAME_FAILURE_LIMIT`] failures for one username, from any addresses, lock the username,
-//!   which slows a guess spread over many addresses.
+//! Counted over the failures of the last [`FAILURE_WINDOW`], a sliding window, a login is refused
+//! while:
+//! - its username and address together have [`PAIR_FAILURE_LIMIT`] failures, which refuses that
+//!   pair only, so someone who knows a username cannot lock its user out from anywhere else;
+//! - its address has [`ADDRESS_FAILURE_LIMIT`], for every username;
+//! - its username has [`USERNAME_FAILURE_LIMIT`], from any addresses, which slows a guess spread
+//!   over many addresses.
 //!
-//! A locked key is refused for [`LOCKOUT`]. A successful login clears only its own pair, so a
-//! pair locked from another address stays locked and the username-alone count keeps counting
-//! until its window ends. Unknown usernames are counted like known ones, so a lockout says
-//! nothing about which usernames exist.
+//! No lock is stored: a lock ends when enough of its failures are older than the window. A
+//! refused login writes no failure, so attempts during a lock do not lengthen it. A successful
+//! login deletes only its own pair's failures, so a pair locked from another address stays locked
+//! and the username's failures from other addresses keep counting. Unknown usernames are counted
+//! like known ones, so a lockout says nothing about which usernames exist.
 //!
-//! An attempt is counted when it starts, not when it fails, so logins made at the same moment
-//! cannot check more passwords than the limit allows. The count is given back when the attempt
-//! ends without an answer, such as when the database cannot be read.
+//! An admitted attempt writes its failure when it starts, not when it fails, so logins made at the
+//! same moment cannot check more passwords than the limit allows. The failure stays when the
+//! password is wrong, and is deleted when the attempt ends without an answer, such as when the
+//! database cannot be read or the request is dropped.
 //!
 //! An IPv4 address is counted alone. An IPv6 address is counted by its /64 prefix, the smallest
 //! block a host is usually given, so changing the low 64 bits does not give a client a new count.
 //!
-//! The counts and locks are kept only in the database's `login_limit_pair`, `login_limit_address`
-//! and `login_limit_username` tables, so they outlive a restart. Each step that reads and then
-//! changes them runs in one transaction under the database's write lock (`db::login_limit`).
-//! [`run_sweeper`] deletes the rows that limit nothing any more. Each table holds at most
-//! [`MAX_TRACKED`] rows. A new key of a full table makes room by deleting expired rows, then the
-//! oldest row that is not locked; a lock is never deleted. When every row is a lock, the new key is
-//! not counted in that table until one expires. A full table never refuses a login. No password,
-//! nor anything made from one, is stored.
+//! The failures are kept only in the database's `login_failure` table, so a lock outlives a
+//! restart. [`run_sweeper`] deletes those older than the window. The table holds at most
+//! [`MAX_TRACKED`] rows. At the cap an attempt first deletes the expired rows, and when that frees
+//! nothing it is admitted or refused on its counts as usual but writes no failure; a live row is
+//! never deleted, and a full table never refuses a login. No password, nor anything made from
+//! one, is stored.
 
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use db::{Database, LoginAddress, LoginExpiry, LoginKeys, LoginRelease, LoginSubject};
+use db::{
+    Database, LoginAddress, LoginAdmission, LoginFailureId, LoginKeys, LoginSubject, LoginWindow,
+};
 use jiff::Timestamp;
 use shared::util::normalize_username;
 use tokio::time::{self, MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
-/// Failed logins for one username from one address, within [`FAILURE_WINDOW`], that lock the
+/// Failed logins for one username from one address, within [`FAILURE_WINDOW`], that refuse the
 /// pair.
 pub const PAIR_FAILURE_LIMIT: u32 = 5;
-/// Failed logins from one address, within [`FAILURE_WINDOW`], that lock it.
+/// Failed logins from one address, within [`FAILURE_WINDOW`], that refuse it.
 pub const ADDRESS_FAILURE_LIMIT: u32 = 20;
-/// Failed logins for one username from any addresses, within [`FAILURE_WINDOW`], that lock it.
+/// Failed logins for one username from any addresses, within [`FAILURE_WINDOW`], that refuse it.
 pub const USERNAME_FAILURE_LIMIT: u32 = 50;
-/// How long after its first failure a key's failures still count.
+/// How long a failed login counts toward the limits.
 pub const FAILURE_WINDOW: Duration = Duration::from_mins(15);
-/// How long a locked key is refused.
-pub const LOCKOUT: Duration = Duration::from_mins(15);
-/// The most keys of each kind, pairs, addresses and usernames, the limiter keeps counts for: the
-/// cap on each table.
+/// The most failed logins the limiter keeps: the cap on the `login_failure` table.
 pub const MAX_TRACKED: usize = 100_000;
 /// The characters of a normalised username the limiter keys on. Longer names cannot be
 /// accounts, so a request cannot make one row take more space than this.
 const MAX_USERNAME_KEY_CHARS: usize = 64;
-/// The failures that lock the pair, the address and the username.
+/// The failures that refuse the pair, the address and the username.
 const LIMITS: LoginKeys<u32> = LoginKeys {
     pair: PAIR_FAILURE_LIMIT,
     address: ADDRESS_FAILURE_LIMIT,
@@ -70,18 +71,20 @@ pub(crate) trait Clock: Send + Sync {
     fn now(&self) -> Timestamp;
 }
 
-/// The limit on failed logins for every login route, over the database's login limit tables.
+/// The limit on failed logins for every login route, over the database's `login_failure` table.
 /// Cloning it shares its database.
 #[derive(Clone)]
 pub struct LoginLimiter {
     db: Database,
     clock: Arc<dyn Clock>,
-    /// The most keys of each kind the limiter keeps counts for: [`MAX_TRACKED`].
+    /// The most failed logins the limiter keeps: [`MAX_TRACKED`].
     max_tracked: usize,
+    /// Whether the table being full has been logged since an attempt last wrote its failure.
+    full_logged: Arc<AtomicBool>,
 }
 
 /// A login attempt the limiter let through. Report how it ended with [`Attempt::succeeded`],
-/// [`Attempt::failed`] or [`Attempt::unanswered`]; dropped without any, its count is given back
+/// [`Attempt::failed`] or [`Attempt::unanswered`]; dropped without any, its failure is deleted
 /// in the background.
 #[must_use]
 pub(crate) struct Attempt {
@@ -91,9 +94,11 @@ pub(crate) struct Attempt {
     subject: LoginSubject,
     /// The peer's own address.
     peer: IpAddr,
-    /// Which of the pair, the address and the username counted this attempt: a table full of
-    /// locks may not have.
-    counted: LoginKeys<bool>,
+    /// The failures in the window for the pair, the address and the username, this attempt's
+    /// own included when it was written.
+    counts: LoginKeys<u32>,
+    /// The failure this attempt wrote when it started, `None` when the table was full.
+    failure: Option<LoginFailureId>,
     ended: bool,
 }
 
@@ -107,35 +112,36 @@ impl Clock for SystemClock {
 }
 
 impl LoginLimiter {
-    /// A limiter over the counts in `db`, reading the time of the real system.
+    /// A limiter over the failures in `db`, reading the time of the real system.
     #[must_use]
     pub fn new(db: Database) -> Self {
         Self::with_clock(db, Arc::new(SystemClock))
     }
 
-    /// A limiter over the counts in `db` that reads the time from `clock`.
+    /// A limiter over the failures in `db` that reads the time from `clock`.
     pub(crate) fn with_clock(db: Database, clock: Arc<dyn Clock>) -> Self {
         Self {
             db,
             clock,
             max_tracked: MAX_TRACKED,
+            full_logged: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    /// This limiter keeping counts for at most `max_tracked` keys of each kind.
+    /// This limiter keeping at most `max_tracked` failed logins.
     #[cfg(test)]
     fn with_max_tracked(mut self, max_tracked: usize) -> Self {
         self.max_tracked = max_tracked;
         self
     }
 
-    /// Start a login for `username` from `address`, counting it. `None` when its pair, its
-    /// address or its username is locked, or has as many attempts counted as its limit: the
-    /// login is refused without its password being checked.
+    /// Start a login for `username` from `address`, writing its failure. `None` when its pair,
+    /// its address or its username has as many failures in the window as its limit: the login
+    /// is refused without its password being checked, and nothing is written.
     ///
     /// # Errors
     ///
-    /// Fails when the counts cannot be read or written; nothing is counted then.
+    /// Fails when the failures cannot be read or written; nothing is written then.
     #[instrument(level = "debug", skip(self), fields(%username, %address))]
     pub(crate) async fn begin(&self, username: &str, address: IpAddr) -> Result<Option<Attempt>> {
         let peer = address.to_canonical();
@@ -143,153 +149,150 @@ impl LoginLimiter {
             username: username_key(username),
             address: LoginAddress::of(peer),
         };
-        let counted =
-            db::begin_login_attempt(&self.db, &subject, LIMITS, self.expiry()?, self.max_tracked)
-                .await
-                .context("Failed to count the login attempt")?;
-        let Some(counted) = counted else {
+        let admission = db::begin_login_attempt(
+            &self.db,
+            &subject,
+            LIMITS,
+            window_at(self.clock.now())?,
+            self.max_tracked,
+        )
+        .await
+        .context("Failed to count the login attempt")?;
+        let LoginAdmission::Admitted { counts, failure } = admission else {
             return Ok(None);
         };
+        if failure.is_some() {
+            self.full_logged.store(false, Ordering::Relaxed);
+        } else if !self.full_logged.swap(true, Ordering::Relaxed) {
+            tracing::warn!(
+                max_tracked = self.max_tracked,
+                "Login failures are at their cap: logins are let through or refused on the \
+                 failures kept, and new failures are not counted until old ones expire"
+            );
+        }
         Ok(Some(Attempt {
             limiter: self.clone(),
             subject,
             peer,
-            counted,
+            counts,
+            failure,
             ended: false,
         }))
-    }
-
-    /// The moment now, and so which rows have expired.
-    fn expiry(&self) -> Result<LoginExpiry> {
-        expiry_at(self.clock.now())
     }
 }
 
 impl Attempt {
-    /// The password was right: clear this pair's count, and give back the address's and the
-    /// username's, so the attempt is counted nowhere.
+    /// The password was right: delete every failure of this username and address together,
+    /// this attempt's own included, and no other.
     ///
     /// # Errors
     ///
-    /// Fails when the counts cannot be written; they are left as they were.
+    /// Fails when the failures cannot be deleted; they are left as they were.
     pub(crate) async fn succeeded(mut self) -> Result<()> {
         self.ended = true;
-        let releases = LoginKeys {
-            pair: LoginRelease::Clear,
-            ..self.counted.map(LoginRelease::give_back_if)
-        };
-        db::give_back_login_attempt(&self.limiter.db, &self.subject, releases)
+        db::clear_login_failures(&self.limiter.db, &self.subject)
             .await
-            .context("Failed to clear the login count")
+            .context("Failed to clear the failed logins")
     }
 
-    /// The username is unknown or the password was wrong: keep the counts, and lock the pair,
-    /// the address or the username that has reached its limit.
-    ///
-    /// # Errors
-    ///
-    /// Fails when the locks cannot be written. The counts stay, so a key at its limit is still
-    /// refused until its window ends.
-    pub(crate) async fn failed(mut self) -> Result<()> {
+    /// The username is unknown or the password was wrong: keep the failure, and log each limit
+    /// it brings to its count.
+    pub(crate) fn failed(mut self) {
         self.ended = true;
-        let locked_until = self
-            .limiter
-            .clock
-            .now()
-            .checked_add(LOCKOUT)
-            .context("The lockout ends out of range")?;
-        let locked =
-            db::lock_full_login_keys(&self.limiter.db, &self.subject, LIMITS, locked_until)
-                .await
-                .context("Failed to lock the login")?;
-        if locked.pair {
+        if self.failure.is_none() {
+            return;
+        }
+        if self.counts.pair == PAIR_FAILURE_LIMIT {
             tracing::warn!(
                 username = %self.subject.username,
                 address = %self.subject.address,
                 failures = PAIR_FAILURE_LIMIT,
-                lockout_seconds = LOCKOUT.as_secs(),
+                window_seconds = FAILURE_WINDOW.as_secs(),
                 "Login locked for this username from this address: too many failed logins"
             );
         }
-        if locked.address {
+        if self.counts.address == ADDRESS_FAILURE_LIMIT {
             tracing::warn!(
                 username = %self.subject.username,
                 address = %self.subject.address,
                 failures = ADDRESS_FAILURE_LIMIT,
-                lockout_seconds = LOCKOUT.as_secs(),
+                window_seconds = FAILURE_WINDOW.as_secs(),
                 "Login locked for this address: too many failed logins"
             );
         }
-        if locked.username {
+        if self.counts.username == USERNAME_FAILURE_LIMIT {
             tracing::warn!(
                 username = %self.subject.username,
                 address = %self.peer,
                 failures = USERNAME_FAILURE_LIMIT,
-                lockout_seconds = LOCKOUT.as_secs(),
+                window_seconds = FAILURE_WINDOW.as_secs(),
                 "Login locked for this username from every address: too many failed logins"
             );
         }
-        Ok(())
     }
 
-    /// The attempt ended without an answer, such as when the database could not be read: give
-    /// its count back.
+    /// The attempt ended without an answer, such as when the database could not be read:
+    /// delete its own failure.
     ///
     /// # Errors
     ///
-    /// Fails when the counts cannot be written; the attempt then stays counted.
+    /// Fails when the failure cannot be deleted; it then counts until it expires.
     pub(crate) async fn unanswered(mut self) -> Result<()> {
         self.ended = true;
-        let releases = self.counted.map(LoginRelease::give_back_if);
-        db::give_back_login_attempt(&self.limiter.db, &self.subject, releases)
+        let Some(failure) = self.failure else {
+            return Ok(());
+        };
+        db::delete_login_failure(&self.limiter.db, &self.subject, failure)
             .await
-            .context("Failed to give back the login attempt")
+            .context("Failed to delete the unanswered login attempt")
     }
 }
 
 impl Drop for Attempt {
-    /// An attempt dropped unreported, such as a login whose request was cancelled, gives its
-    /// count back in a task of its own, as a drop cannot wait for the database.
+    /// An attempt dropped unreported, such as a login whose request was cancelled, deletes its
+    /// failure in a task of its own, as a drop cannot wait for the database.
     fn drop(&mut self) {
         if self.ended {
             return;
         }
-        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-            tracing::warn!("Login attempt dropped outside a runtime; its count is kept");
+        self.ended = true;
+        let Some(failure) = self.failure else {
             return;
         };
-        self.ended = true;
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            tracing::warn!("Login attempt dropped outside a runtime; its failure is kept");
+            return;
+        };
         let db = self.limiter.db.clone();
         let subject = self.subject.clone();
-        let releases = self.counted.map(LoginRelease::give_back_if);
         runtime.spawn(async move {
-            if let Err(error) = db::give_back_login_attempt(&db, &subject, releases).await {
+            if let Err(error) = db::delete_login_failure(&db, &subject, failure).await {
                 tracing::warn!(
                     error = format!("{error:#}"),
-                    "Failed to give back a dropped login attempt"
+                    "Failed to delete a dropped login attempt"
                 );
             }
         });
     }
 }
 
-/// Delete the login counts and locks that limit nothing any more by `now`: locks that have
-/// ended, and counts not locked whose window has passed. Returns how many were deleted.
+/// Delete the failed logins older than [`FAILURE_WINDOW`] at `now`, which count toward no limit
+/// any more. Returns how many were deleted.
 ///
 /// # Errors
 ///
 /// Fails when the database cannot be written.
 #[instrument(level = "debug", skip(db))]
 pub async fn sweep(db: &Database, now: Timestamp) -> Result<usize> {
-    db::delete_expired_login_limits(db, expiry_at(now)?)
+    db::delete_expired_login_failures(db, window_at(now)?.expired_by)
         .await
-        .context("Failed to sweep expired login counts")
+        .context("Failed to sweep expired failed logins")
 }
 
-/// Sweep expired login counts and locks at once, then every `interval`, until `cancel` fires.
+/// Sweep expired failed logins at once, then every `interval`, until `cancel` fires.
 ///
-/// An expired row is already ignored by the limiter; the sweep only keeps the table from
-/// holding rows that limit nothing. A failed sweep is logged and retried at the next interval.
+/// An expired failure is already not counted; the sweep only keeps the table from holding rows
+/// that limit nothing. A failed sweep is logged and retried at the next interval.
 #[instrument(skip(db, cancel))]
 pub async fn run_sweeper(db: Database, cancel: CancellationToken, interval: Duration) {
     let mut ticks = time::interval(interval);
@@ -305,7 +308,7 @@ pub async fn run_sweeper(db: Database, cancel: CancellationToken, interval: Dura
                 Ok(swept) => tracing::info!(
                     event = "auth.login_limits_swept",
                     swept,
-                    "Deleted expired login counts"
+                    "Deleted expired failed logins"
                 ),
                 Err(error) => tracing::warn!(
                     error = format!("{error:#}"),
@@ -316,12 +319,11 @@ pub async fn run_sweeper(db: Database, cancel: CancellationToken, interval: Dura
     }
 }
 
-/// Which rows have expired at `now`: locks ended by then, and counts not locked whose window
-/// started [`FAILURE_WINDOW`] or more before.
-fn expiry_at(now: Timestamp) -> Result<LoginExpiry> {
-    Ok(LoginExpiry {
+/// The window at `now`: failures made after [`FAILURE_WINDOW`] before it count.
+fn window_at(now: Timestamp) -> Result<LoginWindow> {
+    Ok(LoginWindow {
         now,
-        window_started_by: now
+        expired_by: now
             .checked_sub(FAILURE_WINDOW)
             .context("The login window starts out of range")?,
     })
@@ -349,8 +351,8 @@ mod tests {
 
     const ADDRESS: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10));
     const OTHER_ADDRESS: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 20));
-    /// The cap on keys of each kind the cases about a full table use in place of
-    /// [`MAX_TRACKED`], so they fill it in seconds.
+    /// The cap on failed logins the cases about a full table use in place of [`MAX_TRACKED`],
+    /// so they fill it in seconds.
     const TEST_CAP: usize = 50;
     /// The time a test's clock starts at, in Unix seconds.
     const START: i64 = 1_800_000_000;
@@ -404,9 +406,7 @@ mod tests {
                 .await
                 .expect("begin")
                 .expect("attempt let through")
-                .failed()
-                .await
-                .expect("failed");
+                .failed();
         }
     }
 
@@ -421,7 +421,7 @@ mod tests {
             .expect("succeeded");
     }
 
-    /// Whether the limiter lets an attempt through now. The attempt is given back.
+    /// Whether the limiter lets an attempt through now. The attempt's failure is deleted.
     async fn admits(limiter: &LoginLimiter, username: &str, address: IpAddr) -> bool {
         match limiter.begin(username, address).await.expect("begin") {
             Some(attempt) => {
@@ -432,18 +432,9 @@ mod tests {
         }
     }
 
-    /// How many pairs, addresses and usernames have counts kept.
-    async fn tracked(limiter: &LoginLimiter) -> LoginKeys<usize> {
-        db::count_login_limits(&limiter.db).await.expect("count")
-    }
-
-    /// The same count of keys kept for pairs, addresses and usernames.
-    fn each(keys: usize) -> LoginKeys<usize> {
-        LoginKeys {
-            pair: keys,
-            address: keys,
-            username: keys,
-        }
+    /// How many failed logins the table holds.
+    async fn rows(limiter: &LoginLimiter) -> usize {
+        db::count_login_failures(&limiter.db).await.expect("count")
     }
 
     /// The address of the `n`th distinct client in a test, 10.x.y.z.
@@ -453,35 +444,42 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn user_login_019_a_locked_pair_is_let_in_again_15_minutes_after_it_was_locked() {
+    async fn user_login_019_a_locked_pair_is_let_in_again_once_its_counted_failures_are_15_minutes_old()
+     {
         let (limiter, clock) = limiter().await;
-        fail(&limiter, "alice", ADDRESS, 5).await;
+        fail(&limiter, "alice", ADDRESS, 4).await;
+        clock.advance(Duration::from_mins(10));
+        fail(&limiter, "alice", ADDRESS, 1).await;
         assert!(!admits(&limiter, "alice", ADDRESS).await);
 
-        clock.advance(Duration::from_secs(15 * 60 - 1));
+        // 5 minutes after the lock, the first 4 failures are 15 minutes old.
+        clock.advance(Duration::from_secs(5 * 60 - 1));
         assert!(!admits(&limiter, "alice", ADDRESS).await);
-
         clock.advance(Duration::from_secs(1));
         assert!(admits(&limiter, "alice", ADDRESS).await);
     }
 
     #[tokio::test]
-    async fn user_login_020_a_locked_address_is_let_in_again_15_minutes_after_it_was_locked() {
+    async fn user_login_020_a_locked_address_is_let_in_again_once_its_counted_failures_are_15_minutes_old()
+     {
         let (limiter, clock) = limiter().await;
-        for n in 0..20 {
+        for n in 0..16 {
+            fail(&limiter, &format!("user{n}"), ADDRESS, 1).await;
+        }
+        clock.advance(Duration::from_mins(10));
+        for n in 16..20 {
             fail(&limiter, &format!("user{n}"), ADDRESS, 1).await;
         }
         assert!(!admits(&limiter, "bob", ADDRESS).await);
 
-        clock.advance(Duration::from_secs(15 * 60 - 1));
+        clock.advance(Duration::from_secs(5 * 60 - 1));
         assert!(!admits(&limiter, "bob", ADDRESS).await);
-
         clock.advance(Duration::from_secs(1));
         assert!(admits(&limiter, "bob", ADDRESS).await);
     }
 
     #[tokio::test]
-    async fn user_login_021_failures_15_minutes_after_the_first_start_a_new_count() {
+    async fn user_login_021_a_failure_stops_counting_15_minutes_after_it_was_made() {
         let (limiter, clock) = limiter().await;
         fail(&limiter, "alice", ADDRESS, 4).await;
         clock.advance(Duration::from_mins(15));
@@ -494,7 +492,9 @@ mod tests {
         let (limiter, _clock) = limiter().await;
         fail(&limiter, "alice", ADDRESS, 4).await;
         fail(&limiter, "alice", OTHER_ADDRESS, 4).await;
+        fail(&limiter, "bob", ADDRESS, 4).await;
         succeed(&limiter, "alice", ADDRESS).await;
+        assert_eq!(rows(&limiter).await, 8);
 
         fail(&limiter, "alice", ADDRESS, 4).await;
         assert!(admits(&limiter, "alice", ADDRESS).await);
@@ -546,14 +546,17 @@ mod tests {
             in_flight.iter().filter(|attempt| attempt.is_some()).count(),
             5
         );
+        assert_eq!(rows(&limiter).await, 5);
         for attempt in in_flight.into_iter().flatten() {
             attempt.unanswered().await.expect("unanswered");
         }
+        assert_eq!(rows(&limiter).await, 0);
     }
 
     #[tokio::test]
     async fn user_login_027_an_attempt_that_ends_without_an_answer_is_not_counted() {
         let (limiter, _clock) = limiter().await;
+        fail(&limiter, "alice", ADDRESS, 2).await;
         for _ in 0..5 {
             limiter
                 .begin("alice", ADDRESS)
@@ -564,8 +567,9 @@ mod tests {
                 .await
                 .expect("unanswered");
         }
-        // Dropped unreported, as when its request is cancelled: given back in the background.
-        for _ in 0..5 {
+        // Dropped unreported, as when its request is cancelled: deleted in the background, so
+        // no more than the 3 the pair's limit leaves room for start before they are.
+        for _ in 0..3 {
             drop(
                 limiter
                     .begin("alice", ADDRESS)
@@ -575,36 +579,47 @@ mod tests {
             );
         }
         let deadline = Instant::now() + Duration::from_secs(10);
-        while tracked(&limiter).await != each(0) {
+        while rows(&limiter).await != 2 {
             assert!(
                 Instant::now() < deadline,
-                "dropped attempts were not given back"
+                "dropped attempts were not deleted"
             );
             sleep(Duration::from_millis(10)).await;
         }
 
-        fail(&limiter, "alice", ADDRESS, 4).await;
+        fail(&limiter, "alice", ADDRESS, 2).await;
         assert!(admits(&limiter, "alice", ADDRESS).await);
+        fail(&limiter, "alice", ADDRESS, 1).await;
+        assert!(!admits(&limiter, "alice", ADDRESS).await);
     }
 
     #[tokio::test]
-    async fn user_login_028_counts_are_kept_for_no_more_than_the_cap_of_keys_in_each_table() {
+    async fn user_login_028_the_table_holds_no_more_failed_logins_than_its_cap() {
         let (limiter, _clock) = limiter().await;
         let limiter = limiter.with_max_tracked(TEST_CAP);
         for n in 0..TEST_CAP + 10 {
             fail(&limiter, &format!("user{n}"), nth_address(n), 1).await;
         }
-        assert_eq!(tracked(&limiter).await, each(TEST_CAP));
+        assert_eq!(rows(&limiter).await, TEST_CAP);
     }
 
     #[tokio::test]
-    async fn user_login_029_when_the_counts_are_full_a_lock_is_kept_over_a_count_that_is_not_one() {
-        let (limiter, _clock) = limiter().await;
+    async fn user_login_029_at_the_cap_expired_failures_make_room_and_a_live_one_never_does() {
+        let (limiter, clock) = limiter().await;
         let limiter = limiter.with_max_tracked(TEST_CAP);
+        for n in 0..TEST_CAP - 5 {
+            fail(&limiter, &format!("user{n}"), nth_address(n), 1).await;
+        }
+        clock.advance(Duration::from_mins(5));
         fail(&limiter, "alice", ADDRESS, 5).await;
-        for n in 0..TEST_CAP + 10 {
-            fail(&limiter, &format!("user{n}"), nth_address(n), 1).await;
-        }
+        fail(&limiter, "bob", OTHER_ADDRESS, 1).await;
+        assert_eq!(rows(&limiter).await, TEST_CAP);
+        assert!(!admits(&limiter, "alice", ADDRESS).await);
+
+        // The first failures are now expired, and alice's 5 are not.
+        clock.advance(Duration::from_mins(10));
+        fail(&limiter, "bob", OTHER_ADDRESS, 1).await;
+        assert_eq!(rows(&limiter).await, 6);
         assert!(!admits(&limiter, "alice", ADDRESS).await);
     }
 
@@ -685,26 +700,35 @@ mod tests {
         assert!(admits(&limiter, "alice", ADDRESS).await);
     }
 
-    #[tokio::test]
-    async fn user_login_034_a_table_full_of_locks_drops_none_and_still_lets_an_unlocked_user_log_in()
+    #[test]
+    fn user_login_034_a_full_table_of_live_failures_is_logged_once_and_admits_or_refuses_on_the_counts_kept()
      {
-        let (limiter, _clock) = limiter().await;
-        let limiter = limiter.with_max_tracked(TEST_CAP);
-        for n in 0..TEST_CAP {
-            fail(&limiter, &format!("user{n}"), nth_address(n), 5).await;
-        }
-        assert_eq!(tracked(&limiter).await.pair, TEST_CAP);
+        let runtime = runtime();
+        let ((), log) = capture_log(|| {
+            runtime.block_on(async {
+                let (limiter, _clock) = limiter().await;
+                let limiter = limiter.with_max_tracked(TEST_CAP);
+                for n in 0..TEST_CAP / 5 {
+                    fail(&limiter, &format!("user{n}"), nth_address(n), 5).await;
+                }
+                assert_eq!(rows(&limiter).await, TEST_CAP);
 
-        let attempt = limiter
-            .begin("alice", ADDRESS)
-            .await
-            .expect("begin")
-            .expect("attempt let through");
-        assert_eq!(tracked(&limiter).await.pair, TEST_CAP);
-        attempt.succeeded().await.expect("succeeded");
-        for n in 0..TEST_CAP {
-            assert!(!admits(&limiter, &format!("user{n}"), nth_address(n)).await);
-        }
+                for _ in 0..3 {
+                    succeed(&limiter, "alice", ADDRESS).await;
+                    fail(&limiter, "bob", OTHER_ADDRESS, 1).await;
+                }
+                assert_eq!(rows(&limiter).await, TEST_CAP);
+                for n in 0..TEST_CAP / 5 {
+                    assert!(!admits(&limiter, &format!("user{n}"), nth_address(n)).await);
+                }
+            });
+        });
+        let full: Vec<_> = log
+            .lines()
+            .filter(|line| line.contains("at their cap"))
+            .collect();
+        assert_eq!(full.len(), 1, "{log}");
+        assert!(full[0].contains("WARN"), "{log}");
     }
 
     #[tokio::test]
@@ -738,18 +762,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn user_login_037_the_sweep_deletes_expired_counts_and_locks_and_never_a_live_lock() {
+    async fn user_login_037_the_sweep_deletes_failures_older_than_15_minutes_and_never_a_live_one()
+    {
         let db = database().await;
         let now = Timestamp::now();
         let past = ManualClock::at(now.checked_sub(Duration::from_mins(31)).unwrap());
         let old = LoginLimiter::with_clock(db.clone(), past.clone());
-        // An ended lock and a count whose window has passed.
         fail(&old, "alice", ADDRESS, 5).await;
-        past.advance(Duration::from_mins(1));
+        past.advance(Duration::from_mins(15));
         fail(&old, "bob", OTHER_ADDRESS, 1).await;
         let live = LoginLimiter::with_clock(db.clone(), ManualClock::at(now));
         fail(&live, "carol", nth_address(1), 5).await;
-        assert_eq!(tracked(&live).await, each(3));
+        assert_eq!(rows(&live).await, 11);
 
         let cancel = CancellationToken::new();
         let sweeper = tokio::spawn(run_sweeper(
@@ -758,7 +782,7 @@ mod tests {
             Duration::from_secs(3600),
         ));
         let deadline = Instant::now() + Duration::from_secs(10);
-        while tracked(&live).await != each(1) {
+        while rows(&live).await != 5 {
             assert!(
                 Instant::now() < deadline,
                 "the sweeper did not sweep at start"
@@ -771,5 +795,19 @@ mod tests {
             .expect("the sweeper did not stop")
             .expect("the sweeper panicked");
         assert!(!admits(&live, "carol", nth_address(1)).await);
+    }
+
+    #[tokio::test]
+    async fn user_login_038_a_refused_attempt_writes_no_failure_so_a_lock_does_not_lengthen() {
+        let (limiter, clock) = limiter().await;
+        fail(&limiter, "alice", ADDRESS, 5).await;
+        clock.advance(Duration::from_mins(10));
+        for _ in 0..3 {
+            assert!(!admits(&limiter, "alice", ADDRESS).await);
+        }
+        assert_eq!(rows(&limiter).await, 5);
+
+        clock.advance(Duration::from_mins(5));
+        assert!(admits(&limiter, "alice", ADDRESS).await);
     }
 }

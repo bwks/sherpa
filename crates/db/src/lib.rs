@@ -80,8 +80,9 @@ pub use session::{create_session, delete_expired_sessions, delete_session, find_
 
 // Login limit operations
 pub use login_limit::{
-    LoginAddress, LoginExpiry, LoginKeys, LoginRelease, LoginSubject, begin_login_attempt,
-    count_login_limits, delete_expired_login_limits, give_back_login_attempt, lock_full_login_keys,
+    LoginAddress, LoginAdmission, LoginFailureId, LoginKeys, LoginSubject, LoginWindow,
+    begin_login_attempt, clear_login_failures, count_login_failures, delete_expired_login_failures,
+    delete_login_failure,
 };
 
 // Bridge CRUD operations
