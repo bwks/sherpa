@@ -31,7 +31,8 @@ pub async fn add_ssh_key(
     require_self(ctx, &username)?;
 
     let ssh_key = ssh_key.trim();
-    validate_ssh_key(ssh_key).context("Invalid SSH public key")?;
+    validate_ssh_key(ssh_key)
+        .map_err(|error| ServiceError::Invalid(format!("Invalid SSH public key: {error:#}")))?;
 
     let mut user = load_user(&username, state).await?;
     if find_ssh_key(&user.ssh_keys, ssh_key).is_some() {
