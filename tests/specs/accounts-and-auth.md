@@ -167,6 +167,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 030 | `sherpad user unlock` is refused while the server is running, and the database is as it was | integration |
 | 031 | `sherpad user unlock` of an unknown username fails, saying the user is not found, and unlocks no other account | integration |
 | 032 | `sherpad user unlock` run as any account but `sherpa`, root included, is refused with the command to run, and the database is as it was | integration |
+| 033 | Root unlocks a locked account, `admin` included, with `sherpad user unlock` while the server is stopped: refused while it runs, as root and for an unknown username, changing nothing, and after the restart the account logs in and `admin` is no longer locked | e2e |
 
 ## `user_sessions`: a token works only while its session lasts
 
