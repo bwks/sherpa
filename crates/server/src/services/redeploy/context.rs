@@ -27,8 +27,7 @@ use crate::services::talos;
 use crate::services::up::process_manifest_nodes;
 use crate::tls::lab_ca::{self, LabCa};
 use crate::validate::{
-    reject_provisioners, validate_container_repo, validate_environment_variables,
-    validate_node_secrets, validate_node_ztp,
+    reject_provisioners, validate_container_repo, validate_node_secrets, validate_node_ztp,
 };
 
 use libvirt::QemuConnection;
@@ -41,7 +40,7 @@ use topology::find_talos_cluster;
 use topology::validate::{
     check_client_read_files, check_lab_name, check_node_file_settings, check_node_kind_settings,
     check_nonzero_node_settings, check_ptx_platform, check_ready_timeout, check_text_file_modes,
-    check_vm_tuning, check_windows_startup_script_names,
+    check_vm_tuning, check_windows_startup_script_names, validate_environment_variables,
 };
 
 /// The node being redeployed and its lab, loaded and checked before the node is torn down.
@@ -264,12 +263,8 @@ fn check_manifest(
         .context("Manifest validation failed: ready timeout")?;
     check_nonzero_node_settings(&manifest.nodes)
         .context("Manifest validation failed: node settings")?;
-    for node in &manifest.nodes {
-        if let Some(ref env_vars) = node.environment_variables {
-            validate_environment_variables(env_vars, &node.name)
-                .context("Manifest validation failed: environment variables")?;
-        }
-    }
+    validate_environment_variables(&manifest.nodes)
+        .context("Manifest validation failed: environment variables")?;
     check_text_file_modes(&manifest.nodes).context("Manifest validation failed: text files")?;
     check_windows_startup_script_names(&manifest.nodes)
         .context("Manifest validation failed: startup scripts")?;

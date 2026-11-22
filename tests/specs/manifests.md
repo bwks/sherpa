@@ -35,7 +35,7 @@ A manifest is checked in five places, and they do not run the same checks. `sher
 | Provisioners | yes | yes | yes | yes, on the manifest as written | yes, on the manifest as written |
 | `description` | yes | yes | | yes | |
 | Text file modes | yes | yes | yes | yes | yes |
-| `environment_variables` keys | | only that an entry has `=` | only that an entry has `=` | yes | yes |
+| `environment_variables` keys | yes | yes | yes | yes | yes |
 | Windows startup script names | | yes | yes | yes | yes |
 | `text_files`, `startup_scripts`, `systemd_units` against the node's model, kind and ZTP | yes, against the model's built-in settings | yes, against the model's built-in settings | yes, against the model's built-in settings | yes, against the node's image | yes, against the node's image |
 | Images and versions, a `ztp.config` its node takes (#772), host access, files the client read, memory, CPUs held | | | | yes | yes |
@@ -264,7 +264,7 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 
 ## `boot_settings`: a node's first-boot settings are well formed
 
-**Statement:** a text file's `permissions` are octal digits up to 777, in the files as written and in the contents the CLI sends, and at up and at redeploy the server takes an `environment_variables` entry only as `KEY=VALUE` whose key is a name of letters, digits and `_` that does not start with a digit.
+**Statement:** a text file's `permissions` are octal digits up to 777, in the files as written and in the contents the CLI sends, and `sherpa validate`, up and redeploy, in the CLI and on the server, take an `environment_variables` entry only as `KEY=VALUE` whose key is a name of letters, digits and `_` that does not start with a digit.
 **Relied on by:** the node's first-boot config, where the key is written into a shell file and a mode into a file's permissions. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -272,10 +272,11 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 | 001 | A text file whose `permissions` are not octal digits up to 777 is refused, naming the node and the file's `dst`, in the files as written and in the contents the CLI read | unit |
 | 002 | An entry with a name as its key is taken: a literal value, a `$VAR`, an empty value and a value with `=` in it | unit |
 | 003 | An entry with no `=`, an empty key, a key that starts with a digit or a key with another character is refused, naming the entry or the key and the node | unit |
-| 004 | `sherpa validate` passes an entry whose key is not a name; only the server's up refuses it (no test yet) | unit |
+| 004 | Retired: `sherpa validate` now refuses an entry whose key is not a name; see 008 | — |
 | 005 | Retired: a redeploy now runs both checks; see 006 and 007 | — |
 | 006 | A redeploy whose manifest has an `environment_variables` key that is not a name is refused before any node is torn down, naming the key and the node | unit |
 | 007 | A redeploy whose manifest gives a Flatcar node a text file mode that is not octal digits up to 777 is refused before any node is torn down, naming the node and the file's `dst` | unit |
+| 008 | `sherpa validate` refuses a manifest with an `environment_variables` key that is not a name, naming the key and the node | unit |
 
 ## `lab_settings`: the lab's own settings are checked before it is built
 

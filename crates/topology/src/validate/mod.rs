@@ -11,6 +11,7 @@
 mod client_files;
 mod description;
 mod device;
+mod environment;
 mod link;
 mod names;
 mod node_kind;
@@ -27,6 +28,7 @@ mod ztp;
 pub use client_files::check_client_read_files;
 pub use description::check_lab_description;
 pub use device::{check_device_count, check_duplicate_device};
+pub use environment::validate_environment_variables;
 pub use link::{
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
     check_no_p2p_field,
