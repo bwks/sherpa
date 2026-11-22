@@ -49,7 +49,8 @@ binary another account wrote root's. The modes are `install-and-update.md`,
 ### Config, env and log file permissions
 
 `sherpa.toml` and the env files can hold secrets, so only `sherpa` reads them, not its group.
-`sherpad init` runs as `sherpa` and refuses any other account, root included. The update script
+`sherpad init` and `sherpad user unlock` run as `sherpa` and refuse any other account, root
+included. The update script
 changes owner and mode only, and skips symlinks, so root never follows one planted by `sherpa`.
 
 ## Transport architecture
@@ -90,6 +91,61 @@ and identity comes from the session's row, not the token: `auth::session::lookup
 its session is active, a demotion applies on the next request, and a deleted user's token never
 works for a new account of the same name. No authorization decision reads the token's own claims.
 What ends a session is `tests/specs/accounts-and-auth.md`, `user_sessions`.
+
+### Logins and the account lockout
+
+RPC `auth.login`, REST `POST /api/v1/auth/login` and the web form `POST /login` all call
+`auth::login::check_credentials` with the peer's address (`ConnectInfo`; the WebSocket
+connection keeps its peer's). Each answers every refusal with one status and one body,
+"username and/or password is incorrect", so a caller cannot tell a wrong password from an
+unknown username or a locked account.
+
+The attempt is counted before its password is checked: `db::claim_login` is one
+`UPDATE … RETURNING` that adds 1 to `user.failed_logins` only while `locked_at` is `NULL`, and sets
+`locked_at` on the attempt that reaches 3. Attempts that arrive together are serialised by that
+statement, so no more than 3 passwords are checked against an account between successes, and the
+third locks it before its password is checked. `db::finish_login` then, in one transaction,
+stores the attempt in `login_attempt` and, for the right password, sets the count back to 0 and
+clears the lock only if it is this attempt's own or none: a login whose account another attempt
+locked meanwhile is refused and stored as a failure. A server error between the two leaves the
+attempt counted and not stored. Nothing unlocks an account by time.
+
+```mermaid
+flowchart TD
+    A[Login: username, password, peer address] --> B["claim_login: UPDATE user<br/>failed_logins + 1, locked_at at the 3rd<br/>WHERE username AND locked_at IS NULL"]
+    B -->|no row| C[Check the dummy hash]
+    C --> D{User exists?}
+    D -->|yes: locked| E[Log username and address]
+    D -->|no| E
+    E --> R[Refuse: username and/or password is incorrect]
+    B -->|row| F[Check the password against the user's hash]
+    F --> G{Matches?}
+    G -->|no| H[finish_login: store a failed attempt]
+    H --> I[Log; at the 3rd, log the lock]
+    I --> R
+    G -->|yes| J["finish_login: failed_logins = 0, locked_at = NULL<br/>WHERE locked_at IS NULL or this attempt's lock"]
+    J -->|row| K[Store a successful attempt]
+    K --> S[Start the session]
+    J -->|no row: locked meanwhile| L[Store a failed attempt]
+    L --> R
+```
+
+An attempt on a locked account and one for an unknown username are logged with the username and
+address and not stored; neither checks a real hash. Passwords are never logged or stored. An admin
+unlocks an account with `services::user_unlock` (RPC `user.unlock`, REST
+`POST /api/v1/admin/users/{username}/unlock`, the users page's Unlock button), which sets the
+count back to 0. A password reset leaves the lock as it is.
+
+When no admin can log in, root unlocks an account, the built-in `admin` included, on the host
+with `sherpad user unlock <username>` (`crates/server/src/user.rs`), with no channel into the
+server. It calls the same `db::unlock_user` on the database file, so it needs `sherpad` stopped:
+it reads the PID file as `sherpad status` does (`daemon::pidfile::read_pid`, then
+`is_process_running`), and while that names a running process it refuses before opening the
+database. Like `sherpad init` it runs as `sherpa` only (`validate::validate_service_account`),
+since the database is that account's, and an unknown username is an error. It logs
+`user.unlocked` at `info` on stderr. The steps are `systemctl stop sherpad`,
+`sudo -u sherpa sherpad user unlock admin`, `systemctl start sherpad`. The cases are
+`tests/specs/accounts-and-auth.md`, `user_login`.
 
 ### Services enforce authorization
 

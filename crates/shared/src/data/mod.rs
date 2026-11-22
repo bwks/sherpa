@@ -53,8 +53,8 @@ pub use console::ConsoleCheck;
 pub use container::{ContainerImage, ContainerNetworkAttachment};
 pub use cpu::{CpuFeature, CpuFeaturePolicy, CpuModels};
 pub use db::{
-    BridgeMember, DbBridge, DbCpuPins, DbLab, DbLink, DbNode, DbSession, DbSessionUser, DbUser,
-    NodeResources, ReadyCheck, SessionChannel,
+    BridgeMember, DbBridge, DbCpuPins, DbLab, DbLink, DbLoginAttempt, DbNode, DbSession,
+    DbSessionUser, DbUser, NodeResources, ReadyCheck, SessionChannel,
 };
 pub use destroy::{DestroyError, DestroyRequest, DestroyResponse, DestroySummary};
 pub use disk::{
@@ -120,7 +120,8 @@ pub use user_management::{
     AddSshKeyRequest, ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest,
     CreateUserResponse, DeleteUserRequest, DeleteUserResponse, GetUserInfoRequest,
     GetUserInfoResponse, ListUsersRequest, ListUsersResponse, RemoveSshKeyRequest,
-    SetDevicePasswordRequest, SetDevicePasswordResponse, UserInfo, UserSshKeysResponse,
+    SetDevicePasswordRequest, SetDevicePasswordResponse, UnlockUserRequest, UnlockUserResponse,
+    UserInfo, UserSshKeysResponse,
 };
 pub use vm_action::{CancelLabResponse, LabNodeActionResponse, NodeActionResult};
 pub use watchdog::WatchdogAction;

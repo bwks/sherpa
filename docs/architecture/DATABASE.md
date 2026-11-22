@@ -155,6 +155,22 @@ listing or editing users never touches it. Opened, it is a `DevicePassword`, whi
 in `Debug` and has no `Serialize`, so no response can carry it. There is no clear: a user replaces a
 forgotten one. Who may set it is in [`SERVER.md`](SERVER.md#device-passwords).
 
+### Login attempts and the lockout
+
+`user.failed_logins` counts the logins started since the account's last successful one, and
+`user.locked_at` (RFC 3339 text, `NULL` when not locked) is when the attempt that reached the limit
+locked it. Neither is part of `DbUser`: only the lockout's queries (`user/login_claim.sql`,
+`user/login_succeeded.sql`, `user/unlock.sql`, `user/list_locked.sql`) touch them, and they leave
+`updated_at` alone, so a login does not conflict with an edit of the user. The count is taken with
+one `UPDATE … RETURNING` before the password is checked; how the server uses it is in
+[`SERVER.md`](SERVER.md#logins-and-the-account-lockout).
+
+`login_attempt` holds one row per attempt on an account that was not locked: `user`, `attempted_at`,
+`succeeded`, and `address`, a `BLOB` of the source address's `octets()`, 4 bytes for IPv4 and
+16 for IPv6, with an IPv4-mapped IPv6 address stored as its IPv4 address; a `CHECK` holds the
+length. It is indexed on `(user, attempted_at)`. Rows are never pruned; they go only with their
+user (`ON DELETE CASCADE`).
+
 ### Enum values and triggers
 
 Enum columns are checked by the types, not the database: every value is serialized from its enum,

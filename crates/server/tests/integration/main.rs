@@ -3,6 +3,7 @@
 //! lab_lifecycle::`. Tests that need Docker, libvirt or host network rights are `#[ignore]`;
 //! see `tests/README.md`.
 
+mod account_lockout;
 mod auth;
 mod cpu_pins;
 mod helpers;

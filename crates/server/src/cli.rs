@@ -106,4 +106,23 @@ pub enum Commands {
         #[arg(long, action = clap::ArgAction::SetTrue)]
         boxes: bool,
     },
+
+    /// Manage accounts in the database of a stopped server. Run as the sherpa user
+    User {
+        #[clap(subcommand)]
+        command: UserCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum UserCommands {
+    /// Unlock an account that failed logins locked, the built-in admin included
+    ///
+    /// Sets the account's failed login count back to 0. sherpad holds the database while it
+    /// runs, so stop it first, and run this as the sherpa user:
+    /// sudo -u sherpa sherpad user unlock <USERNAME>
+    Unlock {
+        /// Username of the account to unlock
+        username: String,
+    },
 }

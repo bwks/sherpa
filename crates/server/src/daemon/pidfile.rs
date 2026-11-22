@@ -6,7 +6,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use tracing::instrument;
 
-pub(super) const SHERPAD_PID_FILE_PATH: &str = "/opt/sherpa/run/sherpad.pid";
+pub const SHERPAD_PID_FILE_PATH: &str = "/opt/sherpa/run/sherpad.pid";
 pub(super) const SHERPAD_LOG_FILE_PATH: &str = "/opt/sherpa/logs/sherpad.log";
 const SHERPA_RUN_PATH: &str = "/opt/sherpa/run";
 const SHERPA_LOG_PATH: &str = "/opt/sherpa/logs";

@@ -2,6 +2,7 @@ use axum::extract::ws::{Message, WebSocket};
 use dashmap::DashMap;
 use futures_util::SinkExt;
 use futures_util::stream::SplitSink;
+use std::net::IpAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -9,13 +10,16 @@ use uuid::Uuid;
 /// A single WebSocket connection
 pub struct Connection {
     pub id: Uuid,
+    /// The address of the connection's peer, which logins over it are recorded with.
+    pub peer: IpAddr,
     pub sender: Arc<Mutex<SplitSink<WebSocket, Message>>>,
 }
 
 impl Connection {
-    pub fn new(id: Uuid, sender: SplitSink<WebSocket, Message>) -> Self {
+    pub fn new(id: Uuid, peer: IpAddr, sender: SplitSink<WebSocket, Message>) -> Self {
         Self {
             id,
+            peer,
             sender: Arc::new(Mutex::new(sender)),
         }
     }

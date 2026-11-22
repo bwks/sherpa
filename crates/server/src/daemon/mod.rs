@@ -11,3 +11,4 @@ pub mod state;
 pub(crate) mod storage;
 
 pub use crate::services::scanner::run_scanner;
+pub use pidfile::SHERPAD_PID_FILE_PATH;

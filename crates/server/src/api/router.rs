@@ -14,21 +14,22 @@ use super::handlers::{
     admin_image_update_handler, admin_image_upload_handler, admin_image_upload_page_handler,
     admin_image_versions_handler, admin_images_list_handler, admin_labs_list_handler,
     admin_tools_clean_handler, admin_tools_handler, admin_tools_scan_handler,
-    admin_update_user_password_handler, admin_user_edit_handler, api_spec_handler, cancel_lab_json,
-    change_password_json, clean_lab_json, create_lab_json, create_user_json, dashboard_handler,
-    delete_image_json, delete_lab_json, delete_ssh_key_handler, delete_user_json, down_lab_json,
-    download_image_json, get_certificate_handler, get_lab, get_labs_html, get_labs_json,
-    get_user_info_json, health_check, import_image_json, job_page_handler, job_stream_handler,
-    lab_create_page_handler, lab_create_post_handler, lab_destroy_button_handler,
-    lab_destroy_confirm_handler, lab_destroy_post_handler, lab_detail_handler,
-    lab_download_handler, lab_nodes_handler, lab_start_handler, lab_stop_handler,
-    labs_list_page_handler, list_images_json, list_users_json, login, login_form_handler,
-    login_page_handler, logout_handler, logout_json, node_console_handler, node_detail_handler,
-    node_redeploy_handler, node_start_handler, node_stop_handler, node_vnc_handler,
-    openapi_handler, profile_handler, pull_image_json, redeploy_node_json, remove_ssh_key_json,
-    resume_lab_json, scan_images_json, set_default_image_json, set_device_password_json,
-    show_image_json, signup_form_handler, signup_page_handler, update_device_password_handler,
-    update_impairment_json, update_password_handler, upload_image_multipart, validate_token_json,
+    admin_unlock_user_handler, admin_update_user_password_handler, admin_user_edit_handler,
+    api_spec_handler, cancel_lab_json, change_password_json, clean_lab_json, create_lab_json,
+    create_user_json, dashboard_handler, delete_image_json, delete_lab_json,
+    delete_ssh_key_handler, delete_user_json, down_lab_json, download_image_json,
+    get_certificate_handler, get_lab, get_labs_html, get_labs_json, get_user_info_json,
+    health_check, import_image_json, job_page_handler, job_stream_handler, lab_create_page_handler,
+    lab_create_post_handler, lab_destroy_button_handler, lab_destroy_confirm_handler,
+    lab_destroy_post_handler, lab_detail_handler, lab_download_handler, lab_nodes_handler,
+    lab_start_handler, lab_stop_handler, labs_list_page_handler, list_images_json, list_users_json,
+    login, login_form_handler, login_page_handler, logout_handler, logout_json,
+    node_console_handler, node_detail_handler, node_redeploy_handler, node_start_handler,
+    node_stop_handler, node_vnc_handler, openapi_handler, profile_handler, pull_image_json,
+    redeploy_node_json, remove_ssh_key_json, resume_lab_json, scan_images_json,
+    set_default_image_json, set_device_password_json, show_image_json, signup_form_handler,
+    signup_page_handler, unlock_user_json, update_device_password_handler, update_impairment_json,
+    update_password_handler, upload_image_multipart, validate_token_json,
 };
 
 #[derive(Embed)]
@@ -156,6 +157,10 @@ fn admin_page_routes() -> Router<AppState> {
         .route("/admin/users/{username}", get(admin_user_edit_handler))
         .route("/admin/users/{username}", delete(admin_delete_user_handler))
         .route(
+            "/admin/users/{username}/unlock",
+            post(admin_unlock_user_handler),
+        )
+        .route(
             "/admin/users/{username}/password",
             post(admin_update_user_password_handler),
         )
@@ -267,6 +272,10 @@ fn api_routes() -> Router<AppState> {
         .route(
             "/api/v1/admin/users/{username}",
             get(get_user_info_json).delete(delete_user_json),
+        )
+        .route(
+            "/api/v1/admin/users/{username}/unlock",
+            post(unlock_user_json),
         )
         .route(
             "/api/v1/admin/users/{username}/password",

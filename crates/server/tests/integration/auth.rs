@@ -69,7 +69,7 @@ async fn user_login_005_a_wrong_password_and_an_unknown_user_get_the_same_refusa
         );
         assert_eq!(
             response["error"]["message"],
-            json!("Invalid username or password"),
+            json!("username and/or password is incorrect"),
             "{username}: {response}"
         );
     }
@@ -209,7 +209,10 @@ async fn user_login_007_the_web_login_sets_the_cookie_and_sends_each_user_to_the
             resp.headers()
         );
         let body = resp.text().await?;
-        assert!(body.contains("Invalid username or password"), "{body}");
+        assert!(
+            body.contains("username and/or password is incorrect"),
+            "{body}"
+        );
     }
 
     Ok(())

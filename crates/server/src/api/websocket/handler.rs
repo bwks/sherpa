@@ -1,11 +1,12 @@
 use axum::{
     extract::{
-        State,
+        ConnectInfo, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     response::Response,
 };
 use futures_util::StreamExt;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tracing::Instrument;
 use uuid::Uuid;
@@ -17,27 +18,31 @@ use crate::api::request_parse::{InvalidRequest, parse_json};
 use crate::daemon::state::AppState;
 use shared::data::ConnectedMsg;
 
-/// WebSocket upgrade handler
-pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    ws.on_upgrade(|socket| handle_socket(socket, state))
+/// WebSocket upgrade handler. Logins over the connection are recorded with its peer's address.
+pub async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+) -> Response {
+    ws.on_upgrade(move |socket| handle_socket(socket, state, peer.ip()))
 }
 
 /// Handle individual WebSocket connection
-async fn handle_socket(socket: WebSocket, state: AppState) {
+async fn handle_socket(socket: WebSocket, state: AppState, peer: IpAddr) {
     let conn_id = Uuid::new_v4();
-    let ws_span = tracing::info_span!("ws_connection", connection_id = %conn_id);
-    handle_socket_inner(socket, state, conn_id)
+    let ws_span = tracing::info_span!("ws_connection", connection_id = %conn_id, %peer);
+    handle_socket_inner(socket, state, conn_id, peer)
         .instrument(ws_span)
         .await;
 }
 
-async fn handle_socket_inner(socket: WebSocket, state: AppState, conn_id: Uuid) {
+async fn handle_socket_inner(socket: WebSocket, state: AppState, conn_id: Uuid, peer: IpAddr) {
     tracing::info!("WebSocket connection established: {}", conn_id);
 
     let (sender, mut receiver) = socket.split();
 
     // Create connection and register it
-    let connection = Arc::new(Connection::new(conn_id, sender));
+    let connection = Arc::new(Connection::new(conn_id, peer, sender));
     state.connections.insert(conn_id, connection.clone());
     state.metrics.ws_connections.add(1, &[]);
 

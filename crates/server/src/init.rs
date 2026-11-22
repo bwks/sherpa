@@ -6,7 +6,6 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use ipnet::{Ipv4Net, Ipv6Net};
-use nix::unistd::{User, geteuid};
 use tracing::instrument;
 
 use db::{Database, apply_schema, create_admin_user, create_user, find_user, list_users, open};
@@ -23,12 +22,13 @@ use shared::util::{
 };
 use shared::validators::{validate_ssh_key, validate_username};
 
+use crate::host_account::running_account_name;
 use crate::konst::{
     SHERPA_ADMIN_PASSWORD_ENV, SHERPA_BLANK_DISK_DIR, SHERPA_CONFIG_FILE_PATH,
     SHERPA_DB_BACKUP_PATH, SHERPA_DB_PATH,
 };
 use crate::validate::{
-    validate_init_account, validate_management_prefix_ipv4, validate_management_prefix_ipv6,
+    validate_management_prefix_ipv4, validate_management_prefix_ipv6, validate_service_account,
 };
 
 const SHERPA_BASE_DIR: &str = "/opt/sherpa";
@@ -59,11 +59,7 @@ pub async fn init(
     management_prefix_ipv4: Ipv4Net,
     management_prefix_ipv6: Option<Ipv6Net>,
 ) -> Result<()> {
-    let uid = geteuid();
-    let account = User::from_uid(uid)
-        .with_context(|| format!("Failed to look up the account of uid {uid}"))?
-        .with_context(|| format!("uid {uid} has no account"))?;
-    validate_init_account(&account.name)?;
+    validate_service_account(&running_account_name()?, "init")?;
 
     term_msg_surround("Sherpa Server Initializing");
     validate_management_prefix_ipv4(management_prefix_ipv4)?;

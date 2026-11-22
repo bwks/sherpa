@@ -12,6 +12,7 @@ pub mod definition;
 mod helpers;
 pub mod lab;
 pub mod link;
+pub mod login;
 pub mod node;
 pub mod node_image;
 mod persistence;
@@ -29,8 +30,8 @@ pub use cpu_pin::{CpuPinTaken, claim_cpu_pins, list_cpu_pins, retain_cpu_pins};
 pub use definition::{read_lab_definition, store_lab_definition, store_redeployed_node};
 pub use secret::{SecretKey, secret_key_registered, verify_secret_key};
 pub use shared::data::{
-    DbBridge, DbCpuPins, DbLab, DbLink, DbNode, DbSession, DbSessionUser, DbUser, NodeConfig,
-    SessionChannel,
+    DbBridge, DbCpuPins, DbLab, DbLink, DbLoginAttempt, DbNode, DbSession, DbSessionUser, DbUser,
+    NodeConfig, SessionChannel,
 };
 
 // Helper functions for extracting IDs safely
@@ -70,9 +71,12 @@ pub use seed::admin_user::seed_admin_user;
 // User CRUD operations
 pub use user::{
     DevicePassword, UserChanged, change_user_password, create_admin_user, create_user, delete_user,
-    device_password_set, find_user, find_user_by_id, get_user, list_users, open_device_password,
-    set_device_password, update_user,
+    device_password_set, find_user, find_user_by_id, get_user, list_locked_usernames, list_users,
+    open_device_password, set_device_password, unlock_user, update_user,
 };
+
+// Login attempts and the account lockout
+pub use login::{LoginClaim, claim_login, finish_login, list_login_attempts};
 
 // Session operations
 pub use session::{create_session, delete_expired_sessions, delete_session, find_session};

@@ -10,6 +10,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 | [p2p-containers](p2p-containers/README.md) | P2p links on network OS, application and OS containers, some without `ip` or a shell, through up, redeploy and destroy. A pytest module | about 2–5 min |
 | [container-ztp](container-ztp/README.md) | The `ztp` setting on cEOS, SR Linux and FRR containers: config mounts and the lab owner's login with ZTP on, neither with it off, after up and after a redeploy | about 5–15 min |
 | [manifest-commands](manifest-commands/README.md) | What `sherpa validate`, `sherpa new` and a refused `sherpa up` print and exit with: no manifest, an unknown key, a failing check, no login or server, an existing manifest and `--force`. Brings no lab up. A pytest module | seconds |
+| [account-lockout](account-lockout/README.md) | Failed logins locking a throwaway account and `admin`, and `sherpa server user unlock` and, with `--stop-server` on the server host, `sherpad user unlock` unlocking them. Brings no lab up. Needs a CLI logged in as an admin. A pytest module | seconds |
 | [cisco-iol](cisco-iol/README.md) | `cisco_iol` routers built from your own CML image: generated config and SSH, P2p links, TCP into IOL, `write memory` across a cold boot. Needs the IOL image | about 3–5 min |
 | [p2p-links](p2p-links/README.md) | P2p (eBPF) link requirements on VM ⟷ VM, VM ⟷ container and container ⟷ container: L2 protocols, LLDP and LACP bundles, capture, per-direction impairment, jumbo frames, lifecycle | about 15–20 min |
 | [nixos-linux](nixos-linux/README.md) | `nixos_linux` VMs built from [bwks/nixos-image](https://github.com/bwks/nixos-image): lab owner login, sudo, text files, cloud-init, a P2p link | about 5 min |
@@ -41,11 +42,14 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
   a throwaway owner with a device password; their passwords are generated for the run, typed at
   the CLI's prompts and never printed, and both accounts are deleted at the end.
   The console lab likewise has an admin create the other user it needs, and deletes it at the end.
+  The account-lockout runner brings no lab up and checks no device password: its admin login
+  creates a throwaway user for each case, which it locks, unlocks and deletes at the end. With
+  `--stop-server` it also locks `admin`, and leaves it unlocked.
 - Each runner has a `--self-test` mode for its pure logic, which runs in seconds.
 - What the runners share lives in [`labkit.py`](labkit.py): the failure and outcome types,
   running and logging a command, masking the run's secrets, the manifest TOML, the device
   password preflight, generated passwords and a command in a pseudo-terminal whose prompts
-  the runner answers. The console, owner-login, p2p-containers and manifest-commands runners import it; its own
+  the runner answers. The console, owner-login, p2p-containers, manifest-commands and account-lockout runners import it; its own
   unit tests run with `uv run tests/labs/labkit.py`.
 
 Lab tests are started by hand. How and when end-to-end tests run is being planned in

@@ -11,19 +11,23 @@ use super::dispatch::{parse, respond};
 use crate::api::websocket::messages::RpcError;
 use crate::auth::context::AuthContext;
 use crate::daemon::state::AppState;
-use crate::services::{user_delete, user_device_password, user_password, user_ssh_keys};
+use crate::services::{
+    user_delete, user_device_password, user_password, user_ssh_keys, user_unlock,
+};
 
 const RPC_MSG_ACCESS_DENIED_OWN_INFO: &str =
     "Access denied: you can only view your own information";
 const RPC_MSG_USER_CREATE_FAILED: &str = "Failed to create user";
 const RPC_MSG_USER_LIST_FAILED: &str = "Failed to list users";
 const RPC_MSG_USER_DELETE_FAILED: &str = "Failed to delete user";
+const RPC_MSG_USER_UNLOCK_FAILED: &str = "Failed to unlock user";
 const RPC_MSG_USER_PASSWORD_UPDATE_FAILED: &str = "Failed to update password";
 const RPC_MSG_DEVICE_PASSWORD_SET_FAILED: &str = "Failed to set the device password";
 const RPC_MSG_SSH_KEY_ADD_FAILED: &str = "Failed to add SSH key";
 const RPC_MSG_SSH_KEY_REMOVE_FAILED: &str = "Failed to remove SSH key";
 const RPC_MSG_INVALID_PARAMS_CREATE_USER: &str = "Invalid params: expected CreateUserRequest";
 const RPC_MSG_INVALID_PARAMS_DELETE_USER: &str = "Invalid params: expected DeleteUserRequest";
+const RPC_MSG_INVALID_PARAMS_UNLOCK_USER: &str = "Invalid params: expected UnlockUserRequest";
 const RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD: &str =
     "Invalid params: expected ChangePasswordRequest";
 const RPC_MSG_INVALID_PARAMS_SET_DEVICE_PASSWORD: &str =
@@ -85,6 +89,19 @@ pub(super) async fn delete(
     respond(
         user_delete::delete_user(ctx, &request.username, state).await,
         RPC_MSG_USER_DELETE_FAILED,
+    )
+}
+
+/// Admin only; the dispatcher checks.
+pub(super) async fn unlock(
+    ctx: &AuthContext,
+    params: Value,
+    state: &AppState,
+) -> Result<Value, RpcError> {
+    let request: data::UnlockUserRequest = parse(&params, RPC_MSG_INVALID_PARAMS_UNLOCK_USER)?;
+    respond(
+        user_unlock::unlock_user(ctx, &request.username, &state.db).await,
+        RPC_MSG_USER_UNLOCK_FAILED,
     )
 }
 

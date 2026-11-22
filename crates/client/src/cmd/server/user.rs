@@ -40,6 +40,12 @@ pub enum UserCommands {
         force: bool,
     },
 
+    /// Unlock an account that failed logins locked (admin only)
+    Unlock {
+        /// Username to unlock
+        username: String,
+    },
+
     /// Change user password
     Passwd {
         /// Username (defaults to current user)
@@ -117,6 +123,9 @@ pub async fn user_commands(
                 output_format,
             )
             .await
+        }
+        UserCommands::Unlock { username } => {
+            unlock_user(username, server_url, server_connection, output_format).await
         }
         UserCommands::Passwd { username } => {
             change_password(
@@ -393,6 +402,37 @@ async fn delete_user(
                     "User '{}' deleted successfully",
                     response.username
                 ))
+            );
+        }
+    }
+
+    Ok(())
+}
+
+async fn unlock_user(
+    username: &str,
+    server_url: &str,
+    server_connection: &ServerConnection,
+    output_format: &OutputFormat,
+) -> Result<()> {
+    let request = data::UnlockUserRequest {
+        username: username.to_string(),
+        token: String::new(),
+    };
+
+    let response: data::UnlockUserResponse =
+        rpc_call("user.unlock", request, server_url, server_connection)
+            .await
+            .context("Failed to unlock user")?;
+
+    match output_format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        OutputFormat::Text => {
+            println!(
+                "{}",
+                emoji_success(&format!("User '{}' unlocked", response.username))
             );
         }
     }
