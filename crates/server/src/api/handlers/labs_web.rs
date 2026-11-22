@@ -3,7 +3,7 @@
 use super::labs_api::run_detached;
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response, sse};
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
@@ -41,6 +41,7 @@ use shared::konst::{
 use shared::util::{generate_lab_name, get_id_for_user};
 use shared::validators::effective_ztp;
 use topology::Manifest;
+use topology::validate::check_lab_name;
 
 /// Dashboard page handler (HTML)
 ///
@@ -660,16 +661,20 @@ pub async fn lab_download_handler(
     }
 
     let zip_bytes = buf.into_inner();
-    let filename = format!("{}-{}.zip", db_lab.name, lab_id);
+    let disposition = HeaderValue::from_str(&format!(
+        r#"attachment; filename="{}-{lab_id}.zip""#,
+        db_lab.name
+    ))
+    .map_err(|e| ApiError::internal(format!("Failed to name the download: {e}")))?;
 
     Ok((
         StatusCode::OK,
         [
-            (header::CONTENT_TYPE, "application/zip".to_string()),
             (
-                header::CONTENT_DISPOSITION,
-                format!(r#"attachment; filename="{filename}""#),
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/zip"),
             ),
+            (header::CONTENT_DISPOSITION, disposition),
         ],
         zip_bytes,
     )
@@ -950,6 +955,13 @@ pub async fn lab_create_post_handler(
             .into_response();
         }
     };
+
+    if let Err(error) = check_lab_name(&lab_name) {
+        return ErrorTemplate {
+            message: error.to_string(),
+        }
+        .into_response();
+    }
 
     let lab_id = get_id_for_user(&auth.username, &lab_name);
     // A manifest pasted in the web UI is as the user wrote it: nothing resolves its files or

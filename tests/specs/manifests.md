@@ -16,12 +16,13 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## Where each check runs
 
-A manifest is checked in five places, and they do not run the same checks. `sherpa up` and `sherpa redeploy` do not run `sherpa validate` first: the CLI parses the file, runs three checks, and the server refuses the rest.
+A manifest is checked in five places, and they do not run the same checks. `sherpa up` and `sherpa redeploy` do not run `sherpa validate` first: the CLI parses the file, runs a few checks, and the server refuses the rest.
 
 | Check | `sherpa validate` | CLI at up | CLI at redeploy | Server at up | Server at redeploy |
 |---|---|---|---|---|---|
 | Parsing: unknown keys, types, required keys | yes | yes | yes | yes | yes |
 | `[tailscale]` `auth_key_env` | yes | yes | | yes | |
+| The lab's `name`, `ready_timeout` and node settings that cannot be 0 | yes | yes | yes | yes | yes |
 | Node names, duplicate names, node count | yes | | | yes | |
 | A node's `kind` against its model | yes | | | yes | yes |
 | Settings against the node's kind | yes | | | yes | yes |
@@ -29,7 +30,7 @@ A manifest is checked in five places, and they do not run the same checks. `sher
 | `ztp.method` | yes | | | yes | yes |
 | Pinned CPUs shared inside the manifest | yes | | | yes | |
 | Link ends, interface bounds, `p2p`, impairments | yes, against the model's built-in settings | | | yes, against the node's image | |
-| An interface used twice | yes | | | only when the manifest has links | |
+| An interface used twice | yes | | | yes | |
 | Talos clusters | yes | | | yes | |
 | Provisioners | yes | yes | yes | yes, on the manifest as written | yes, on the manifest as written |
 | `description` | yes | yes | | yes | |
@@ -37,7 +38,7 @@ A manifest is checked in five places, and they do not run the same checks. `sher
 | `environment_variables` keys | | only that an entry has `=` | only that an entry has `=` | yes | no (#780) |
 | Images and versions, a `ztp.config` its node takes (#772), host access, files the client read, memory, CPUs held | | | | yes | yes |
 
-A redeploy reads one node of the manifest it is sent. The lab's name, description, links, bridges, clusters and `[tailscale]` in it are not checked and not stored; `ready_timeout` and `provision_concurrency` are stored.
+A redeploy reads one node of the manifest it is sent. The lab's description, links, bridges, clusters and `[tailscale]` in it are not checked and not stored; `ready_timeout` and `provision_concurrency` are stored.
 
 ## `manifest_file`: a lab is read from `manifest.toml` in the current folder, strictly
 
@@ -88,7 +89,7 @@ What `sherpa validate` does not check, because only the server knows it: whether
 | 003 | Two nodes with one name are refused, naming it | unit |
 | 004 | A manifest with 235 nodes is refused, saying a lab takes at most 234 | unit |
 
-The server runs these at up before anything is created (`lab_preflight_002`). The lab's own `name` is not checked.
+The server runs these at up before anything is created (`lab_preflight_002`). The lab's own `name` follows the same rule: `lab_settings_006` and `007`.
 
 ## `node_kind`: a node is one of the kinds its model takes
 
@@ -140,6 +141,8 @@ The server runs these at up before anything is created (`lab_preflight_002`). Th
 | 011 | A count that, with the image's reserved interfaces, is past the last interface index is refused as an overflow | unit |
 | 012 | Every model's built-in data interface count fits the interfaces the model has | unit |
 | 013 | A redeploy whose manifest gives the node a setting its kind does not take is refused, and the node stays as it was (no test yet) | integration |
+| 014 | A `memory`, `cpu.count`, `boot_disk.size`, `interfaces.data_count` or `ready_check.port` of 0 is refused, naming the node and the field, and 1 is taken | unit |
+| 015 | A redeploy whose manifest sets one of those to 0 is refused before any node is torn down, naming the node and the field | unit |
 
 ## `vm_tuning`: a virtual machine's tuning fits its vCPUs, disks and interfaces, and is in its domain
 
@@ -196,7 +199,7 @@ The server runs these at up before anything is created (`lab_preflight_002`). Th
 | 011 | A bridge link that names a node the manifest does not define is refused, naming it | unit |
 | 012 | A link that sets `p2p`, to either value, is refused, naming the link and saying to delete the key | unit |
 | 013 | A link impairment with a delay or jitter over 274877 ms, or a percentage outside 0 to 100, is refused, naming the link and the field, and one within is taken | unit |
-| 014 | At up the server checks for an interface used twice only when the manifest has links: a manifest of bridges alone with one interface on two bridges is not refused by this check (no test yet) | unit |
+| 014 | At up the server refuses a manifest of bridges alone that puts one interface on two bridges, naming the node and the interface's index | unit |
 
 The count that bounds case 008 is the node's `interfaces.data_count`, or else its image's (`node_settings_010`, `node_interfaces_008`).
 
@@ -256,8 +259,8 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 
 ## `lab_settings`: the lab's own settings are checked before it is built
 
-**Statement:** a lab's `description` is at most 1000 characters with no control character but line breaks and tabs, a lab with `[tailscale]` enabled names the environment variable that holds its key, never the key, and `provision_concurrency` is from 1 to 255.
-**Relied on by:** every page and command that shows a lab's description; the tailnet key, which is never in a manifest; the CLI's provisioning. **Priority:** P2.
+**Statement:** a lab's `name` is 1 to 63 ASCII letters, digits, `-` or `_`, starting with a letter or digit, as a node's is; its `description` is at most 1000 characters with no control character but line breaks and tabs, a lab with `[tailscale]` enabled names the environment variable that holds its key, never the key, `provision_concurrency` is from 1 to 255 and `ready_timeout` is at least 1.
+**Relied on by:** the status messages, log fields and web UI download file name (`<name>-<lab ID>.zip`) the lab's name is put in; every page and command that shows a lab's description; the tailnet key, which is never in a manifest; the CLI's provisioning and the server's wait for nodes to be ready. **Priority:** P2.
 
 | Case | What it shows | Level |
 |---|---|---|
@@ -266,5 +269,10 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 | 003 | A description with a control character other than a line break or a tab, such as an escape or a NUL, is refused | unit |
 | 004 | With `[tailscale]` enabled, an `auth_key_env` that is left out, empty, starts with a digit, or is a key, a `$NAME` or a `NAME=value`, is refused; a name of letters, digits and `_` is taken | unit |
 | 005 | A `provision_concurrency` of 0 is refused and 1 is taken | unit |
+| 006 | A plain lab name is taken: letters of either case, digits, `-` and `_` after the first character, and 63 characters | unit |
+| 007 | An empty lab name, one that is path-like or shell-like, one with a dot, a space, a quote, markup, a line break or a non-ASCII letter, and one of 64 characters, are refused, naming the name and the rule | unit |
+| 008 | A `ready_timeout` of 0 is refused and 1 is taken | unit |
+| 009 | A redeploy whose manifest has a lab name the rule refuses is refused before any node is torn down, naming the name | unit |
+| 010 | A redeploy whose manifest has a `ready_timeout` of 0 is refused before any node is torn down | unit |
 
-The lab's `name` and `ready_timeout` are not checked: any text and any whole number of seconds are taken.
+The CLI checks the lab's name, `ready_timeout` and the node settings that cannot be 0 at `sherpa validate`, up and redeploy, and the server at up before anything is created and at redeploy before the node is torn down; a lab stored before the rule is refused at its next up or redeploy like any other manifest.
