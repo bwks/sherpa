@@ -24,6 +24,7 @@ use super::records::{NodeRecords, create_node_records, store_ssh_usernames};
 use super::runtime::{create_unikernels, create_vms};
 use super::services::{LabServices, ServiceInputs, start_lab_services};
 use super::ztp::{ConfigInputs, NodeConfigs, configure_nodes, start_boot_container};
+use crate::api::request_parse::parse_value;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_host_access, require_lab_starter};
 use crate::daemon::state::AppState;
@@ -136,8 +137,8 @@ pub async fn up_lab(
         definition,
     } = check_up_request(
         ctx,
-        manifest,
-        as_written,
+        &manifest,
+        as_written.as_ref(),
         &node_secrets,
         client_host.as_deref(),
         client_folder.as_deref(),
@@ -267,14 +268,14 @@ struct CheckedManifest {
 /// from; and the lab's definition, built from it and the parts as written.
 fn check_up_request(
     ctx: &AuthContext,
-    manifest: serde_json::Value,
-    as_written: Option<serde_json::Value>,
+    manifest: &serde_json::Value,
+    as_written: Option<&serde_json::Value>,
     node_secrets: &BTreeMap<String, Vec<data::SecretFile>>,
     client_host: Option<&str>,
     client_folder: Option<&str>,
 ) -> Result<CheckedManifest> {
     let manifest: topology::Manifest =
-        serde_json::from_value(manifest).context("Failed to deserialize manifest")?;
+        parse_value(manifest).context("Failed to deserialize manifest")?;
     require_host_access(ctx, &manifest.nodes)?;
     check_lab_description(manifest.description.as_deref())
         .context("Manifest validation failed: description")?;
@@ -928,5 +929,27 @@ async fn roll_back_failed_up(
             );
             let _ = progress.send_status(format!("Cleanup failed: {clean_err}"), StatusKind::Info);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn api_errors_014_an_up_whose_manifest_does_not_parse_names_the_field_never_its_value() {
+        let ctx = AuthContext::new("dev".to_string(), false, "s".to_string());
+        let manifest = serde_json::json!({
+            "name": "core",
+            "nodes": [{ "name": "r1", "model": "hunter2-s3cret" }],
+        });
+        let Err(error) = check_up_request(&ctx, &manifest, None, &BTreeMap::new(), None, None)
+        else {
+            panic!("parsed");
+        };
+        assert_eq!(
+            format!("{error:#}"),
+            "Failed to deserialize manifest: field `nodes[0].model` has the wrong type or value"
+        );
     }
 }

@@ -21,7 +21,7 @@ const RPC_MSG_INVALID_PARAMS_LOGIN: &str =
 const RPC_MSG_INVALID_PARAMS_TOKEN: &str = "Invalid params: expected {token: string}";
 
 pub(super) async fn login(params: Value, state: &AppState) -> Result<Value, RpcError> {
-    let request: data::LoginRequest = parse(params, RPC_MSG_INVALID_PARAMS_LOGIN)?;
+    let request: data::LoginRequest = parse(&params, RPC_MSG_INVALID_PARAMS_LOGIN)?;
     let user = match login::check_credentials(&state.db, &request.username, &request.password).await
     {
         Ok(Some(user)) => user,
@@ -66,7 +66,7 @@ pub(super) async fn login(params: Value, state: &AppState) -> Result<Value, RpcE
 }
 
 pub(super) async fn validate(params: Value, state: &AppState) -> Result<Value, RpcError> {
-    let request: data::ValidateRequest = parse(params, RPC_MSG_INVALID_PARAMS_TOKEN)?;
+    let request: data::ValidateRequest = parse(&params, RPC_MSG_INVALID_PARAMS_TOKEN)?;
     respond(
         session::token_status(&state.db, &state.jwt_secret, &request.token).await,
         RPC_MSG_AUTH_ERROR,

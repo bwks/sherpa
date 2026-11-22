@@ -40,7 +40,7 @@ pub(super) async fn create(
     params: Value,
     state: &AppState,
 ) -> Result<Value, RpcError> {
-    let request: data::CreateUserRequest = parse(params, RPC_MSG_INVALID_PARAMS_CREATE_USER)?;
+    let request: data::CreateUserRequest = parse(&params, RPC_MSG_INVALID_PARAMS_CREATE_USER)?;
     let created = db::create_user(
         &state.db,
         request.username,
@@ -81,7 +81,7 @@ pub(super) async fn delete(
     params: Value,
     state: &AppState,
 ) -> Result<Value, RpcError> {
-    let request: data::DeleteUserRequest = parse(params, RPC_MSG_INVALID_PARAMS_DELETE_USER)?;
+    let request: data::DeleteUserRequest = parse(&params, RPC_MSG_INVALID_PARAMS_DELETE_USER)?;
     respond(
         user_delete::delete_user(ctx, &request.username, state).await,
         RPC_MSG_USER_DELETE_FAILED,
@@ -94,7 +94,7 @@ pub(super) async fn change_password(
     state: &AppState,
 ) -> Result<Value, RpcError> {
     let request: data::ChangePasswordRequest =
-        parse(params, RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD)?;
+        parse(&params, RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD)?;
     respond(
         user_password::change_password(
             ctx,
@@ -115,7 +115,7 @@ pub(super) async fn set_device_password(
     state: &AppState,
 ) -> Result<Value, RpcError> {
     let request: data::SetDevicePasswordRequest =
-        parse(params, RPC_MSG_INVALID_PARAMS_SET_DEVICE_PASSWORD)?;
+        parse(&params, RPC_MSG_INVALID_PARAMS_SET_DEVICE_PASSWORD)?;
     respond(
         user_device_password::set_device_password(
             ctx,
@@ -135,7 +135,7 @@ pub(super) async fn info(
     params: Value,
     state: &AppState,
 ) -> Result<Value, RpcError> {
-    let request: data::GetUserInfoRequest = parse(params, RPC_MSG_INVALID_PARAMS_GET_USER_INFO)?;
+    let request: data::GetUserInfoRequest = parse(&params, RPC_MSG_INVALID_PARAMS_GET_USER_INFO)?;
     if !ctx.is_admin && normalize_username(&request.username) != ctx.username {
         tracing::warn!(
             user = %ctx.username,
@@ -174,7 +174,7 @@ pub(super) async fn add_ssh_key(
     params: Value,
     state: &AppState,
 ) -> Result<Value, RpcError> {
-    let request: data::AddSshKeyRequest = parse(params, RPC_MSG_INVALID_PARAMS_ADD_SSH_KEY)?;
+    let request: data::AddSshKeyRequest = parse(&params, RPC_MSG_INVALID_PARAMS_ADD_SSH_KEY)?;
     respond(
         user_ssh_keys::add_ssh_key(ctx, &request.username, &request.ssh_key, state).await,
         RPC_MSG_SSH_KEY_ADD_FAILED,
@@ -186,7 +186,7 @@ pub(super) async fn remove_ssh_key(
     params: Value,
     state: &AppState,
 ) -> Result<Value, RpcError> {
-    let request: data::RemoveSshKeyRequest = parse(params, RPC_MSG_INVALID_PARAMS_REMOVE_SSH_KEY)?;
+    let request: data::RemoveSshKeyRequest = parse(&params, RPC_MSG_INVALID_PARAMS_REMOVE_SSH_KEY)?;
     respond(
         user_ssh_keys::remove_ssh_key(ctx, &request.username, &request.ssh_key, state).await,
         RPC_MSG_SSH_KEY_REMOVE_FAILED,

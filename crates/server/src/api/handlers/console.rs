@@ -25,10 +25,10 @@ use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use axum::extract::State;
 use axum::extract::connect_info::ConnectInfo;
 use axum::extract::ws::rejection::WebSocketUpgradeRejection;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade, close_code};
-use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use serde::Deserialize;
@@ -40,6 +40,7 @@ use shared::data::ConsoleCheck;
 
 use crate::api::errors::ApiError;
 use crate::api::extractors::BearerUser;
+use crate::api::request_parse::{PathParams, QueryParams};
 use crate::auth::context::AuthContext;
 use crate::auth::session::{self, SessionLookup};
 use crate::daemon::console_sessions::{Claimant, ConsoleClaim, ConsoleSessions};
@@ -127,8 +128,8 @@ enum Ended {
 pub async fn node_console_handler(
     BearerUser(auth): BearerUser,
     State(state): State<AppState>,
-    Path((lab_id, node_name)): Path<(String, String)>,
-    Query(query): Query<ConsoleQuery>,
+    PathParams((lab_id, node_name)): PathParams<(String, String)>,
+    QueryParams(query): QueryParams<ConsoleQuery>,
     client: Option<Extension<ConnectInfo<SocketAddr>>>,
     upgrade: Upgrade,
 ) -> Result<Response, ApiError> {
@@ -153,8 +154,8 @@ pub async fn node_console_handler(
 pub async fn node_vnc_handler(
     BearerUser(auth): BearerUser,
     State(state): State<AppState>,
-    Path((lab_id, node_name)): Path<(String, String)>,
-    Query(query): Query<ConsoleQuery>,
+    PathParams((lab_id, node_name)): PathParams<(String, String)>,
+    QueryParams(query): QueryParams<ConsoleQuery>,
     client: Option<Extension<ConnectInfo<SocketAddr>>>,
     upgrade: Upgrade,
 ) -> Result<Response, ApiError> {

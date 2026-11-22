@@ -1,12 +1,13 @@
 //! Login, signup, logout and token validation.
 
 use axum::Json;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use std::collections::HashMap;
 
+use crate::api::request_parse::{FormBody, JsonBody, QueryParams};
 use crate::auth::{cookies, login, session};
 use crate::daemon::state::AppState;
 use crate::templates::{
@@ -28,7 +29,7 @@ use shared::data::{
 /// session has ended, is answered `valid: false`, not an error.
 pub async fn validate_token_json(
     State(state): State<AppState>,
-    Json(request): Json<ValidateRequest>,
+    JsonBody(request): JsonBody<ValidateRequest>,
 ) -> Result<Json<ValidateResponse>, ApiError> {
     session::token_status(&state.db, &state.jwt_secret, &request.token)
         .await
@@ -67,7 +68,7 @@ pub async fn logout_json(
 /// - `500 Internal Server Error` - Server error during authentication
 pub async fn login(
     State(state): State<AppState>,
-    Json(request): Json<LoginRequest>,
+    JsonBody(request): JsonBody<LoginRequest>,
 ) -> Result<Json<LoginResponse>, ApiError> {
     let user = login::check_credentials(&state.db, &request.username, &request.password)
         .await
@@ -145,7 +146,7 @@ pub struct SignupForm {
 pub async fn login_page_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(params): Query<HashMap<String, String>>,
+    QueryParams(params): QueryParams<HashMap<String, String>>,
 ) -> Response {
     let error = params
         .get("error")
@@ -202,7 +203,7 @@ pub async fn login_page_handler(
 /// Failure: Returns error HTML fragment for HTMX swap
 pub async fn login_form_handler(
     State(state): State<AppState>,
-    axum::Form(form): axum::Form<LoginForm>,
+    FormBody(form): FormBody<LoginForm>,
 ) -> impl IntoResponse {
     let user = match login::check_credentials(&state.db, &form.username, &form.password).await {
         Ok(Some(user)) => user,
@@ -315,7 +316,7 @@ pub async fn signup_page_handler(State(state): State<AppState>) -> Response {
 /// - Username must be unique (enforced by database)
 pub async fn signup_form_handler(
     State(state): State<AppState>,
-    axum::Form(form): axum::Form<SignupForm>,
+    FormBody(form): FormBody<SignupForm>,
 ) -> impl IntoResponse {
     if !state.config.allow_signup {
         tracing::warn!(username = %form.username, "Refused signup: signup is closed");

@@ -9,6 +9,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, ensure};
 use tracing::instrument;
 
+use crate::api::request_parse::parse_value;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_host_access;
 use crate::daemon::state::AppState;
@@ -144,7 +145,13 @@ pub(super) async fn load_redeploy<'a>(
         StatusKind::Progress,
     );
 
-    let definition = check_manifest(ctx, manifest, as_written, &node_name, secrets.as_deref())?;
+    let definition = check_manifest(
+        ctx,
+        &manifest,
+        as_written.as_ref(),
+        &node_name,
+        secrets.as_deref(),
+    )?;
     let manifest = &definition.manifest;
     let mut target_node = manifest_node(manifest, &node_name)?;
     let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
@@ -230,13 +237,13 @@ pub(super) async fn load_redeploy<'a>(
 /// node's definition is built and its provisioners checked.
 fn check_manifest(
     ctx: &AuthContext,
-    manifest: serde_json::Value,
-    as_written: Option<serde_json::Value>,
+    manifest: &serde_json::Value,
+    as_written: Option<&serde_json::Value>,
     node_name: &str,
     secrets: Option<&[data::SecretFile]>,
 ) -> Result<RedeployDefinition> {
     let manifest: topology::Manifest =
-        serde_json::from_value(manifest).context("Failed to deserialize manifest")?;
+        parse_value(manifest).context("Failed to deserialize manifest")?;
     require_host_access(ctx, &manifest.nodes)?;
     let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
     talos::ensure_redeployable(node_name, find_talos_cluster(talos_clusters, node_name))?;
@@ -607,6 +614,21 @@ mod tests {
         )
     }
 
+    #[test]
+    fn api_errors_015_a_redeploy_whose_manifest_does_not_parse_names_the_field_never_its_value() {
+        let ctx = AuthContext::new("dev".to_string(), false, "s".to_string());
+        let manifest = serde_json::json!({
+            "name": "core",
+            "nodes": [{ "name": "r1", "model": "hunter2-s3cret" }],
+        });
+        let Err(error) = check_manifest(&ctx, &manifest, None, "r1", None) else {
+            panic!("parsed");
+        };
+        assert_eq!(
+            format!("{error:#}"),
+            "Failed to deserialize manifest: field `nodes[0].model` has the wrong type or value"
+        );
+    }
     #[test]
     fn owner_login_020_a_redeployed_node_records_the_owner_or_ftdvs_admin() {
         assert_eq!(

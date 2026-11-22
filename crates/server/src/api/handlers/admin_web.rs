@@ -1,12 +1,13 @@
 //! The web UI's admin pages: dashboard, labs, tools and users.
 
 use super::labs_api::run_detached;
-use axum::extract::{Path, State};
+use axum::Json;
+use axum::extract::State;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::{Form, Json};
 use serde::Deserialize;
 
+use crate::api::request_parse::{FormBody, PathParams};
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
 use crate::services::{clean, import, user_delete, user_password};
@@ -161,7 +162,7 @@ pub async fn admin_tools_handler(admin: AdminUser) -> impl IntoResponse {
 pub async fn admin_tools_clean_handler(
     admin: AdminUser,
     State(state): State<AppState>,
-    Path(lab_id): Path<String>,
+    PathParams(lab_id): PathParams<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     tracing::info!(
         admin = %admin.username,
@@ -184,7 +185,7 @@ pub async fn admin_tools_clean_handler(
 pub async fn admin_tools_scan_handler(
     admin: AdminUser,
     State(state): State<AppState>,
-    Form(form): Form<ScanForm>,
+    FormBody(form): FormBody<ScanForm>,
 ) -> Result<impl IntoResponse, ApiError> {
     tracing::info!(
         admin = %admin.username,
@@ -221,7 +222,7 @@ impl ScanForm {
 /// Admin user edit page - shows user details and allows editing
 pub async fn admin_user_edit_handler(
     State(state): State<AppState>,
-    Path(target_username): Path<String>,
+    PathParams(target_username): PathParams<String>,
     admin: AdminUser,
 ) -> Result<Response, ApiError> {
     tracing::info!(
@@ -273,9 +274,9 @@ pub struct AdminUpdatePasswordForm {
 /// Admin update user password handler
 pub async fn admin_update_user_password_handler(
     State(state): State<AppState>,
-    Path(target_username): Path<String>,
+    PathParams(target_username): PathParams<String>,
     admin: AdminUser,
-    Form(form): Form<AdminUpdatePasswordForm>,
+    FormBody(form): FormBody<AdminUpdatePasswordForm>,
 ) -> Result<Response, ApiError> {
     tracing::info!(
         "Admin '{}' attempting to update password for user '{}'",
@@ -329,7 +330,7 @@ pub async fn admin_update_user_password_handler(
 /// Admin delete SSH key handler
 pub async fn admin_delete_ssh_key_handler(
     State(state): State<AppState>,
-    Path((target_username, key_index)): Path<(String, usize)>,
+    PathParams((target_username, key_index)): PathParams<(String, usize)>,
     admin: AdminUser,
 ) -> Result<Response, ApiError> {
     tracing::info!(
@@ -409,7 +410,7 @@ pub async fn admin_delete_ssh_key_handler(
 #[tracing::instrument(skip(state, admin), fields(admin = %admin.username, %target_username))]
 pub async fn admin_delete_user_handler(
     State(state): State<AppState>,
-    Path(target_username): Path<String>,
+    PathParams(target_username): PathParams<String>,
     admin: AdminUser,
 ) -> Result<Response, ApiError> {
     match user_delete::delete_user(&admin.into_context(), &target_username, &state).await {

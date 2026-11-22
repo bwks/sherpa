@@ -12,6 +12,7 @@ use tokio::task::JoinHandle;
 use shared::error::RpcErrorCode;
 
 use super::{auth, images, labs, server, users};
+use crate::api::request_parse::parse_value;
 use crate::api::websocket::connection::Connection;
 use crate::api::websocket::messages::{RpcError, ServerMessage};
 use crate::auth::context::AuthContext;
@@ -334,26 +335,14 @@ async fn send(connection: &Arc<Connection>, response: &ServerMessage) {
     }
 }
 
-/// Parse `params` into a request; `message` names what was expected.
-pub(super) fn parse<T: DeserializeOwned>(params: Value, message: &str) -> Result<T, RpcError> {
-    serde_json::from_value(params).map_err(|error| RpcError {
+/// Parse `params` into a request; `message` names what was expected. When they do not parse,
+/// the context names the field that is wrong and what is wrong with it, never the value sent,
+/// which may be a password or a secret file's contents.
+pub(super) fn parse<T: DeserializeOwned>(params: &Value, message: &str) -> Result<T, RpcError> {
+    parse_value(params).map_err(|error| RpcError {
         code: RpcErrorCode::InvalidParams,
         message: message.to_string(),
-        context: Some(error.to_string()),
-        data: None,
-    })
-}
-
-/// Parse `params` that may carry secret file contents. The parse error is not returned, as it
-/// could quote them.
-pub(super) fn parse_quietly<T: DeserializeOwned>(
-    params: Value,
-    message: &str,
-) -> Result<T, RpcError> {
-    serde_json::from_value(params).map_err(|_| RpcError {
-        code: RpcErrorCode::InvalidParams,
-        message: message.to_string(),
-        context: None,
+        context: Some(error.message),
         data: None,
     })
 }
@@ -483,6 +472,71 @@ mod tests {
     }
 
     #[test]
+    fn api_errors_009_rpc_params_that_do_not_parse_name_the_field_never_its_value() {
+        const SENT: i64 = 271_828_182;
+        let cases: [(&str, Result<(), RpcError>); 4] = [
+            (
+                "field `password` has the wrong type or value",
+                parse::<shared::data::LoginRequest>(
+                    &serde_json::json!({ "username": "dev", "password": SENT }),
+                    "bad login",
+                )
+                .map(drop),
+            ),
+            (
+                "field `password` has the wrong type or value",
+                parse::<shared::data::CreateUserRequest>(
+                    &serde_json::json!({
+                        "username": "dev", "password": SENT, "is_admin": false, "token": "t",
+                    }),
+                    "bad create",
+                )
+                .map(drop),
+            ),
+            (
+                "field `new_password` has the wrong type or value",
+                parse::<shared::data::ChangePasswordRequest>(
+                    &serde_json::json!({ "username": "dev", "new_password": SENT, "token": "t" }),
+                    "bad passwd",
+                )
+                .map(drop),
+            ),
+            (
+                "field `device_password` is missing",
+                parse::<shared::data::SetDevicePasswordRequest>(
+                    &serde_json::json!({
+                        "username": "dev", "login_password": SENT.to_string(), "token": "t",
+                    }),
+                    "bad device password",
+                )
+                .map(drop),
+            ),
+        ];
+        for (expected, result) in cases {
+            let error = result.expect_err("parsed");
+            assert!(matches!(error.code, RpcErrorCode::InvalidParams));
+            assert_eq!(error.context.as_deref(), Some(expected));
+            assert!(
+                !format!("{error:?}").contains(&SENT.to_string()),
+                "{error:?}"
+            );
+        }
+
+        let error = parse::<shared::data::NodeSecretsRequest>(
+            &serde_json::json!({
+                "lab_id": "abc12345", "node_name": "r1",
+                "files": [{ "name": "token", "mode": SENT.to_string(), "content": "x" }],
+            }),
+            "bad secrets",
+        )
+        .expect_err("parsed");
+        assert_eq!(
+            error.context.as_deref(),
+            Some("field `files[0].mode` has the wrong type or value")
+        );
+    }
+
+    #[test]
     fn provisioner_secrecy_004_a_request_with_secrets_that_does_not_parse_is_answered_without_them()
     {
         let params = serde_json::json!({
@@ -491,16 +545,8 @@ mod tests {
             // serde quotes a string found where a number belongs.
             "files": [{ "name": "token", "mode": "s3cret-value", "content": "x" }],
         });
-        let loud =
-            parse::<shared::data::NodeSecretsRequest>(params.clone(), "bad").expect_err("parsed");
-        assert!(
-            format!("{loud:?}").contains("s3cret-value"),
-            "the test no longer shows a leak"
-        );
-        let quiet =
-            parse_quietly::<shared::data::NodeSecretsRequest>(params, "bad").expect_err("parsed");
-        assert!(quiet.context.is_none());
-        assert!(!format!("{quiet:?}").contains("s3cret-value"));
+        let error = parse::<shared::data::NodeSecretsRequest>(&params, "bad").expect_err("parsed");
+        assert!(!format!("{error:?}").contains("s3cret-value"), "{error:?}");
     }
 
     #[test]

@@ -39,9 +39,17 @@ and pass view types, and `dev/check-template-text-decisions.sh` rejects text dec
 
 `api/websocket/rpc/dispatch.rs` holds `METHODS`, the one table of RPC methods with each method's
 access and whether it streams; `dispatch` authenticates as it says, and a test holds it to the
-API spec. `up`, `redeploy` and `node.secrets` carry secret files, so they parse quietly, as serde's
-message can quote values. Long operations report through a `ProgressSender`, so a service never knows whether its
+API spec. Long operations report through a `ProgressSender`, so a service never knows whether its
 progress goes to SSE, the web UI or a WebSocket.
+
+Every request is read through `api/request_parse.rs`: handlers take `JsonBody`, `FormBody`,
+`QueryParams` and `PathParams` instead of axum's extractors, RPC parameters go through
+`dispatch::parse`, and the WebSocket message and the manifests of `up` and `redeploy` through
+`parse_json` and `parse_value`. serde's message quotes the value it failed on, a password or a
+secret file among them, so a request that does not parse is answered, and logged, with a fixed
+message: the field's path from axum's `serde_path_to_error` error and the kind of fault, and none
+of serde's other text. axum's own rejections are never turned into responses, so their trace
+logging, which carries serde's text, never runs.
 
 ## Authentication and authorization architecture
 

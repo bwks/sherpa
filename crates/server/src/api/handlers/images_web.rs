@@ -1,9 +1,7 @@
 //! The web UI's admin image pages and upload.
 
 use anyhow::{Context, anyhow, bail};
-use axum::Form;
-use axum::extract::rejection::FormRejection;
-use axum::extract::{Multipart, Path, State};
+use axum::extract::{Multipart, State};
 use axum::http::header;
 use axum::response::{Html, IntoResponse, Response};
 use serde::Deserialize;
@@ -18,6 +16,7 @@ use tokio::sync::mpsc;
 
 use db::{DefaultRequest, LastDefaultImage};
 
+use crate::api::request_parse::{FormBody, InvalidRequest, PathParams};
 use crate::daemon::state::AppState;
 use crate::services::image_lifecycle::lock_image;
 use crate::services::import;
@@ -326,7 +325,7 @@ fn form_choice<T: DeserializeOwned>(
 /// Admin handler to view a single image configuration detail
 pub async fn admin_image_detail_handler(
     State(state): State<AppState>,
-    Path(params): Path<ImagePath>,
+    PathParams(params): PathParams<ImagePath>,
     admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     tracing::debug!(
@@ -351,7 +350,7 @@ pub async fn admin_image_detail_handler(
 /// Admin handler to render the edit page for an image configuration
 pub async fn admin_image_edit_page_handler(
     State(state): State<AppState>,
-    Path(params): Path<ImagePath>,
+    PathParams(params): PathParams<ImagePath>,
     admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     tracing::debug!(
@@ -501,16 +500,16 @@ impl ImageForm {
 /// with a field it does not take, is refused with a notification naming the problem.
 pub async fn admin_image_update_handler(
     State(state): State<AppState>,
-    Path(params): Path<ImagePath>,
+    PathParams(params): PathParams<ImagePath>,
     _admin: AdminUser,
-    form: Result<Form<ImageForm>, FormRejection>,
+    form: Result<FormBody<ImageForm>, InvalidRequest>,
 ) -> Result<Response, ApiError> {
     let form = match form {
-        Ok(Form(form)) => form,
+        Ok(FormBody(form)) => form,
         Err(rejection) => {
             tracing::warn!(%rejection, "Refused an image form");
             return Ok(AdminNotificationErrorTemplate {
-                message: format!("The image was not saved: {}", rejection.body_text()),
+                message: format!("The image was not saved: {rejection}"),
             }
             .into_response());
         }
@@ -592,7 +591,7 @@ pub async fn admin_image_update_handler(
 pub async fn admin_image_versions_handler(
     State(state): State<AppState>,
     AdminUser { username, .. }: AdminUser,
-    Path(ImageVersionsPath { model, kind }): Path<ImageVersionsPath>,
+    PathParams(ImageVersionsPath { model, kind }): PathParams<ImageVersionsPath>,
 ) -> Result<Response, ApiError> {
     tracing::debug!(
         "Node config versions list request: model={}, kind={}",
@@ -862,7 +861,6 @@ mod tests {
     use askama::Template;
     use axum::body::Body;
     use axum::extract::FromRequest;
-    use axum::extract::rejection::FormRejection;
     use axum::http::{Method, Request};
     use serde::Serialize;
 
@@ -1219,7 +1217,7 @@ mod tests {
     }
 
     /// The image form as a browser posts it, with `ztp` as its ZTP setting.
-    async fn posted_form(ztp: &str) -> Result<Form<ImageForm>, FormRejection> {
+    async fn posted_form(ztp: &str) -> Result<FormBody<ImageForm>, InvalidRequest> {
         let body = format!(
             "os_variant=linux&bios=seabios&cpu_count=1&cpu_architecture=x86_64\
              &cpu_model=host-model&machine_type=q35&memory=1024&hdd_bus=virtio\
@@ -1231,13 +1229,13 @@ mod tests {
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(Body::from(body))
             .unwrap();
-        Form::<ImageForm>::from_request(request, &()).await
+        FormBody::<ImageForm>::from_request(request, &()).await
     }
 
     #[tokio::test]
     async fn ztp_setting_010_the_edit_form_reads_the_setting_by_its_word_and_refuses_any_other() {
         for (word, ztp) in [("cloud-init", Ztp::CloudInit), ("disabled", Ztp::Disabled)] {
-            let Form(form) = posted_form(word).await.unwrap();
+            let FormBody(form) = posted_form(word).await.unwrap();
             assert_eq!(form.ztp, Some(ztp));
         }
         for word in ["none", "ipxe", "on", ""] {
@@ -1255,8 +1253,10 @@ mod tests {
             .await
             .err()
             .expect("version was accepted");
-        let message = rejection.body_text();
-        assert!(message.contains("unknown field `version`"), "{message}");
+        assert_eq!(
+            rejection.message,
+            "field `version` is not a field this request takes"
+        );
     }
 
     #[test]

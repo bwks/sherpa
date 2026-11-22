@@ -8,7 +8,7 @@ use serde_json::Value;
 use shared::data::{self, TailnetAuthKey};
 use shared::konst::SHERPA_LABS_PATH;
 
-use super::dispatch::{parse, parse_quietly, respond};
+use super::dispatch::{parse, respond};
 use crate::api::websocket::messages::RpcError;
 use crate::auth::context::AuthContext;
 use crate::daemon::state::AppState;
@@ -59,7 +59,7 @@ struct TailscaleParams {
     tailscale_auth_key: Option<TailnetAuthKey>,
 }
 
-fn lab_params(params: Value) -> Result<LabParams, RpcError> {
+fn lab_params(params: &Value) -> Result<LabParams, RpcError> {
     parse(params, RPC_MSG_INVALID_PARAMS_LAB_ID)
 }
 
@@ -75,7 +75,7 @@ pub(super) async fn inspect(
     params: Value,
     state: &AppState,
 ) -> Result<Value, RpcError> {
-    let request: data::InspectRequest = parse(params, RPC_MSG_INVALID_PARAMS_LAB_ID)?;
+    let request: data::InspectRequest = parse(&params, RPC_MSG_INVALID_PARAMS_LAB_ID)?;
     respond(
         inspect::inspect_lab(ctx, &request.lab_id, state).await,
         RPC_MSG_LAB_INSPECT_FAILED,
@@ -87,7 +87,7 @@ pub(super) async fn download(
     params: Value,
     state: &AppState,
 ) -> Result<Value, RpcError> {
-    let lab = lab_params(params)?;
+    let lab = lab_params(&params)?;
     respond(
         download::download_lab_files(ctx, &lab.lab_id, &state.db, Path::new(SHERPA_LABS_PATH))
             .await,
@@ -100,7 +100,7 @@ pub(super) async fn down(
     params: Value,
     state: &AppState,
 ) -> Result<Value, RpcError> {
-    let lab = lab_params(params)?;
+    let lab = lab_params(&params)?;
     respond(
         down::shutdown_lab_nodes(ctx, &lab.lab_id, lab.node_name.as_deref(), state).await,
         RPC_MSG_LAB_DOWN_FAILED,
@@ -112,7 +112,7 @@ pub(super) async fn cancel(
     params: Value,
     state: &AppState,
 ) -> Result<Value, RpcError> {
-    let lab = lab_params(params)?;
+    let lab = lab_params(&params)?;
     respond(
         cancel::cancel_lab_operations(ctx, &lab.lab_id, state).await,
         RPC_MSG_LAB_CANCEL_FAILED,
@@ -124,8 +124,7 @@ pub(super) async fn node_secrets(
     params: Value,
     state: &AppState,
 ) -> Result<Value, RpcError> {
-    let request: data::NodeSecretsRequest =
-        parse_quietly(params, RPC_MSG_INVALID_PARAMS_NODE_SECRETS)?;
+    let request: data::NodeSecretsRequest = parse(&params, RPC_MSG_INVALID_PARAMS_NODE_SECRETS)?;
     respond(
         node_secrets::update_node_secrets(ctx, request, state).await,
         RPC_MSG_NODE_SECRETS_FAILED,
@@ -137,7 +136,7 @@ pub(super) async fn node_host_keys(
     params: Value,
     state: &AppState,
 ) -> Result<Value, RpcError> {
-    let request: data::NodeHostKeysRequest = parse(params, RPC_MSG_INVALID_PARAMS_NODE_HOST_KEYS)?;
+    let request: data::NodeHostKeysRequest = parse(&params, RPC_MSG_INVALID_PARAMS_NODE_HOST_KEYS)?;
     respond(
         host_keys::refresh_node_host_key(ctx, &request, state).await,
         RPC_MSG_NODE_HOST_KEYS_FAILED,
@@ -151,7 +150,7 @@ pub(super) async fn update_impairment(
     params: Value,
     state: &AppState,
 ) -> Result<Value, RpcError> {
-    let request: data::UpdateImpairmentRequest = parse(params, RPC_MSG_INVALID_PARAMS_IMPAIRMENT)?;
+    let request: data::UpdateImpairmentRequest = parse(&params, RPC_MSG_INVALID_PARAMS_IMPAIRMENT)?;
     respond(
         impairment::update_impairment(ctx, request, state).await,
         RPC_MSG_IMPAIRMENT_UPDATE_FAILED,
@@ -163,7 +162,7 @@ pub(super) async fn clean(
     params: Value,
     state: &AppState,
 ) -> Result<Value, RpcError> {
-    let lab = lab_params(params)?;
+    let lab = lab_params(&params)?;
     respond(
         clean::clean_lab(ctx, &lab.lab_id, state).await,
         RPC_MSG_LAB_CLEAN_FAILED,
@@ -177,7 +176,7 @@ pub(super) async fn up(
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<Value, RpcError> {
-    let request: data::UpRequest = parse_quietly(params, RPC_MSG_INVALID_PARAMS_MANIFEST)?;
+    let request: data::UpRequest = parse(&params, RPC_MSG_INVALID_PARAMS_MANIFEST)?;
     // `up` reserves the lab ID by inserting its record, so a second `up` of the same lab fails
     // there, before it creates anything.
     respond(
@@ -192,7 +191,7 @@ pub(super) async fn destroy(
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<Value, RpcError> {
-    let request: data::DestroyRequest = parse(params, RPC_MSG_INVALID_PARAMS_LAB_ID)?;
+    let request: data::DestroyRequest = parse(&params, RPC_MSG_INVALID_PARAMS_LAB_ID)?;
     respond(
         destroy::destroy_lab(ctx, &request.lab_id, state, progress).await,
         RPC_MSG_LAB_DESTROY_FAILED,
@@ -205,8 +204,8 @@ pub(super) async fn resume(
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<Value, RpcError> {
-    let tailscale: TailscaleParams = parse(params.clone(), RPC_MSG_INVALID_TAILSCALE_KEY)?;
-    let lab = lab_params(params)?;
+    let tailscale: TailscaleParams = parse(&params, RPC_MSG_INVALID_TAILSCALE_KEY)?;
+    let lab = lab_params(&params)?;
     respond(
         resume::start_lab_nodes(
             ctx,
@@ -227,7 +226,7 @@ pub(super) async fn redeploy(
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<Value, RpcError> {
-    let request: data::RedeployRequest = parse_quietly(params, RPC_MSG_INVALID_PARAMS_REDEPLOY)?;
+    let request: data::RedeployRequest = parse(&params, RPC_MSG_INVALID_PARAMS_REDEPLOY)?;
     respond(
         redeploy::redeploy_node(ctx, request, state, progress).await,
         RPC_MSG_REDEPLOY_FAILED,

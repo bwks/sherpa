@@ -31,7 +31,7 @@ const RPC_MSG_INVALID_PARAMS_IMAGE_LIST: &str = "Invalid params: expected ListIm
 const RPC_MSG_INVALID_PARAMS_IMAGE_SCAN: &str = "Invalid params: expected ScanImagesRequest";
 
 pub(super) async fn list(params: Value, state: &AppState) -> Result<Value, RpcError> {
-    let request: data::ListImagesRequest = parse(params, RPC_MSG_INVALID_PARAMS_IMAGE_LIST)?;
+    let request: data::ListImagesRequest = parse(&params, RPC_MSG_INVALID_PARAMS_IMAGE_LIST)?;
     respond(
         import::list_images(request, state).await,
         RPC_MSG_IMAGE_LIST_FAILED,
@@ -39,7 +39,7 @@ pub(super) async fn list(params: Value, state: &AppState) -> Result<Value, RpcEr
 }
 
 pub(super) async fn show(params: Value, state: &AppState) -> Result<Value, RpcError> {
-    let request: data::ShowImageRequest = parse(params, RPC_MSG_INVALID_PARAMS_IMAGE_SHOW)?;
+    let request: data::ShowImageRequest = parse(&params, RPC_MSG_INVALID_PARAMS_IMAGE_SHOW)?;
     respond(
         import::show_image(request, state).await,
         RPC_MSG_IMAGE_SHOW_FAILED,
@@ -47,7 +47,7 @@ pub(super) async fn show(params: Value, state: &AppState) -> Result<Value, RpcEr
 }
 
 pub(super) async fn delete(params: Value, state: &AppState) -> Result<Value, RpcError> {
-    let request: data::DeleteImageRequest = parse(params, RPC_MSG_INVALID_PARAMS_IMAGE_DELETE)?;
+    let request: data::DeleteImageRequest = parse(&params, RPC_MSG_INVALID_PARAMS_IMAGE_DELETE)?;
     respond(
         delete::delete_image(request, state).await,
         RPC_MSG_IMAGE_DELETE_FAILED,
@@ -56,7 +56,7 @@ pub(super) async fn delete(params: Value, state: &AppState) -> Result<Value, Rpc
 
 pub(super) async fn set_default(params: Value, state: &AppState) -> Result<Value, RpcError> {
     let request: data::SetDefaultImageRequest =
-        parse(params, RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT)?;
+        parse(&params, RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT)?;
     respond(
         import::set_default_image(request, state).await,
         RPC_MSG_IMAGE_SET_DEFAULT_FAILED,
@@ -64,7 +64,7 @@ pub(super) async fn set_default(params: Value, state: &AppState) -> Result<Value
 }
 
 pub(super) async fn scan(params: Value, state: &AppState) -> Result<Value, RpcError> {
-    let request: data::ScanImagesRequest = parse(params, RPC_MSG_INVALID_PARAMS_IMAGE_SCAN)?;
+    let request: data::ScanImagesRequest = parse(&params, RPC_MSG_INVALID_PARAMS_IMAGE_SCAN)?;
     respond(
         import::scan_images(request, state).await,
         RPC_MSG_IMAGE_SCAN_FAILED,
@@ -88,7 +88,8 @@ pub(super) async fn pull(
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<Value, RpcError> {
-    let request: data::ContainerPullRequest = parse(params, RPC_MSG_INVALID_PARAMS_CONTAINER_PULL)?;
+    let request: data::ContainerPullRequest =
+        parse(&params, RPC_MSG_INVALID_PARAMS_CONTAINER_PULL)?;
     respond(
         container_pull::pull_container_image(request, state, progress).await,
         RPC_MSG_CONTAINER_PULL_FAILED,
@@ -100,7 +101,8 @@ pub(super) async fn download(
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<Value, RpcError> {
-    let request: data::DownloadImageRequest = parse(params, RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD)?;
+    let request: data::DownloadImageRequest =
+        parse(&params, RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD)?;
     respond(
         import::download_image(request, state, progress).await,
         RPC_MSG_IMAGE_DOWNLOAD_FAILED,
@@ -113,7 +115,7 @@ fn import_request(mut params: Value) -> Result<data::ImportRequest, RpcError> {
     if let Some(fields) = params.as_object_mut() {
         fields.remove("token");
     }
-    parse(params, RPC_MSG_INVALID_PARAMS_IMPORT)
+    parse(&params, RPC_MSG_INVALID_PARAMS_IMPORT)
 }
 
 #[cfg(test)]
@@ -141,10 +143,9 @@ mod tests {
             "ztp_password": "x",
         }))
         .unwrap_err();
-        assert!(
-            error
-                .context
-                .is_some_and(|context| context.contains("unknown field `ztp_password`")),
+        assert_eq!(
+            error.context.as_deref(),
+            Some("field `ztp_password` is not a field this request takes")
         );
     }
 }

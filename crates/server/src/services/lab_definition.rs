@@ -15,6 +15,7 @@ use shared::data::RecordId;
 use topology::validate::validate_provisioners;
 use topology::{Manifest, ManifestAsWritten};
 
+use crate::api::request_parse::parse_value;
 use crate::services::error::ServiceError;
 use crate::validate::check_web_redeployable;
 
@@ -23,9 +24,9 @@ use crate::validate::check_web_redeployable;
 /// # Errors
 ///
 /// Fails when they are not parts as written.
-pub fn parse_as_written(as_written: Option<Value>) -> Result<Option<ManifestAsWritten>> {
+pub fn parse_as_written(as_written: Option<&Value>) -> Result<Option<ManifestAsWritten>> {
     as_written
-        .map(serde_json::from_value)
+        .map(parse_value)
         .transpose()
         .context("Failed to deserialize the manifest as written")
 }
@@ -350,7 +351,7 @@ ztp = { config = "configs/files01.yaml" }
                 "provisioners": [{ "type": "ssh", "scripts": ["./setup.sh"] }],
             } },
         });
-        let parts = parse_as_written(Some(sent)).unwrap().unwrap();
+        let parts = parse_as_written(Some(&sent)).unwrap().unwrap();
         let stored = definition(&resolved(), Some(&parts)).unwrap();
         let node = &stored.nodes[0];
         assert_eq!(node.ztp.config.as_deref(), Some("configs/dev01.yaml"));
@@ -375,10 +376,10 @@ ztp = { config = "configs/files01.yaml" }
         assert_eq!(without, without_parts());
 
         let zero = serde_json::json!({ "provision_concurrency": 0 });
-        let zero = parse_as_written(Some(zero)).unwrap();
+        let zero = parse_as_written(Some(&zero)).unwrap();
         assert!(definition(&resolved(), zero.as_ref()).is_err());
         let ghost = serde_json::json!({ "nodes": { "ghost": {} } });
-        let ghost = parse_as_written(Some(ghost)).unwrap();
+        let ghost = parse_as_written(Some(&ghost)).unwrap();
         assert!(definition(&resolved(), ghost.as_ref()).is_err());
     }
 
@@ -394,7 +395,7 @@ ztp = { config = "configs/files01.yaml" }
             "provision_concurrency": 3,
             "nodes": { "dev01": { "ztp_config": "configs/dev01.yaml" } },
         });
-        let parts = parse_as_written(Some(sent)).unwrap();
+        let parts = parse_as_written(Some(&sent)).unwrap();
         db::store_lab_definition(
             &db,
             &lab_id,
