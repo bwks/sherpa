@@ -21,6 +21,7 @@ mod tailscale;
 mod talos_cluster;
 mod text_files;
 mod vm_tuning;
+mod windows_scripts;
 mod ztp;
 
 pub use client_files::check_client_read_files;
@@ -39,4 +40,5 @@ pub use tailscale::validate_tailscale;
 pub use talos_cluster::validate_talos_clusters;
 pub use text_files::check_text_file_modes;
 pub use vm_tuning::{check_cpu_pin_overlap, check_vm_tuning};
+pub use windows_scripts::check_windows_startup_script_names;
 pub use ztp::check_node_ztp;

@@ -90,6 +90,44 @@ pub fn ensure_redeployable(
     Ok(())
 }
 
+/// Refuse a redeploy whose manifest gives node `node_name` another cluster membership than
+/// the lab's stored definition does: another cluster, another role, or none. The node is rebuilt
+/// from its stored membership; a cluster changes only when the lab is destroyed and brought up
+/// again.
+pub fn ensure_same_membership(
+    node_name: &str,
+    stored: Option<(&TalosCluster, ClusterRole)>,
+    manifest: Option<(&TalosCluster, ClusterRole)>,
+) -> Result<()> {
+    let same = match (stored, manifest) {
+        (Some((stored, stored_role)), Some((written, written_role))) => {
+            stored.name == written.name && stored_role == written_role
+        }
+        (None, None) => true,
+        _ => false,
+    };
+    if !same {
+        bail!(
+            "node '{node_name}' is {} in this lab; the manifest says it is {}. To change a cluster, destroy the lab and run up again",
+            describe_membership(stored),
+            describe_membership(manifest)
+        );
+    }
+    Ok(())
+}
+
+/// A node's cluster membership in words: "a controller of cluster 'k1'", "a worker of cluster
+/// 'k1'", or "in no cluster".
+fn describe_membership(membership: Option<(&TalosCluster, ClusterRole)>) -> String {
+    match membership {
+        Some((cluster, ClusterRole::ControlPlane)) => {
+            format!("a controller of cluster '{}'", cluster.name)
+        }
+        Some((cluster, ClusterRole::Worker)) => format!("a worker of cluster '{}'", cluster.name),
+        None => "in no cluster".to_owned(),
+    }
+}
+
 /// Whether `up` checks this node through Kubernetes instead of its Talos API port.
 ///
 /// A worker's Talos API starts only once it has a certificate from a controller's trustd,
@@ -673,6 +711,55 @@ pub(crate) mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("controller of talos cluster 'k8s'"));
+    }
+
+    #[test]
+    fn cluster_redeploy_009_a_manifest_that_changes_a_nodes_cluster_or_role_is_refused() {
+        let k1 = TalosCluster {
+            name: "k1".to_owned(),
+            controllers: vec!["cp1".to_owned()],
+            workers: vec!["w1".to_owned()],
+            ..TalosCluster::default()
+        };
+        let k2 = TalosCluster {
+            name: "k2".to_owned(),
+            ..k1.clone()
+        };
+        let controller = Some((&k1, ClusterRole::ControlPlane));
+        let worker = Some((&k1, ClusterRole::Worker));
+        for (node, stored, manifest, expected) in [
+            (
+                "cp1",
+                controller,
+                None,
+                "node 'cp1' is a controller of cluster 'k1' in this lab; the manifest says it is in no cluster. To change a cluster, destroy the lab and run up again",
+            ),
+            (
+                "w1",
+                worker,
+                Some((&k2, ClusterRole::Worker)),
+                "node 'w1' is a worker of cluster 'k1' in this lab; the manifest says it is a worker of cluster 'k2'",
+            ),
+            (
+                "w1",
+                worker,
+                controller,
+                "node 'w1' is a worker of cluster 'k1' in this lab; the manifest says it is a controller of cluster 'k1'",
+            ),
+            (
+                "vm",
+                None,
+                worker,
+                "node 'vm' is in no cluster in this lab; the manifest says it is a worker of cluster 'k1'",
+            ),
+        ] {
+            let error = ensure_same_membership(node, stored, manifest)
+                .unwrap_err()
+                .to_string();
+            assert!(error.starts_with(expected), "{error}");
+        }
+        ensure_same_membership("w1", worker, worker).unwrap();
+        ensure_same_membership("vm", None, None).unwrap();
     }
 
     fn plan_using(oidc: Option<ClusterMember>, vault: Option<ClusterMember>) -> ClusterPlan {

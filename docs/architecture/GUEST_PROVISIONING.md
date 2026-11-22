@@ -55,7 +55,11 @@ have no `root` group and a `root:root` owner fails the whole module.
 
 `runcmd` runs, in order: staged moves, the environment loader, `startup_scripts`, `user_scripts`.
 Environment variables go to the owner's login only (`~/.sherpa_env`, sourced from the login file
-bash reads), never system-wide; Windows sets them machine-wide. Scripts run through their shebang,
+bash reads), never system-wide; Windows sets them machine-wide, each with a PowerShell command
+passed as `-EncodedCommand` (base64 of its UTF-16LE bytes), so the `cmd` that runs `runcmd` never
+parses a key or a value: a `"` cannot end an argument and `%NAME%` is not expanded. A Windows
+startup script's file name does go into a `cmd` line, so one with `"` or `%` is refused at
+validation, as a private file's path is. Scripts run through their shebang,
 not `bash`, because Alpine and the BSDs ship none. Flatcar runs no manifest scripts. Ignition takes
 file modes as decimal numbers, so `template::FileMode` holds the bits and serialises them that way.
 
