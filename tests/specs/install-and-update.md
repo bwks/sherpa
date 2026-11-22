@@ -62,7 +62,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `install_host`: the install script leaves a bare host ready for `sherpad init`
 
-**Statement:** on a bare Ubuntu 24.04 or later host with KVM, the install script installs Docker, libvirt and QEMU, the `sherpa` account, the release's binaries, the service and its environment file, and running it again on an installed server keeps the server's settings and data.
+**Statement:** on a bare Ubuntu 24.04 or later host with KVM, the install script installs Docker from its signed apt repository, libvirt and QEMU, the `sherpa` account, the release's binaries, the router image by its digest, the service and its environment file, and running it again on an installed server keeps the server's settings and data.
 **Relied on by:** the admin. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -71,7 +71,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 002 | Docker and libvirt are running; the `sherpa` account exists, cannot log in, and is in the `libvirt`, `kvm` and `docker` groups; the user who ran `sudo` is in the `sherpa` group | e2e (fresh VM) |
 | 003 | The service is installed and enabled but not started: it runs `sherpad start --foreground` as `sherpa` with its four capabilities, needs Docker and libvirt, and keeps `/run/sherpa` `0700` across restarts; `sherpad.log` is rotated daily | e2e (fresh VM) |
 | 004 | `sherpa.env` holds the listen address and the ports given in `SHERPA_SERVER_IPV4`, `SHERPA_SERVER_WS_PORT` and `SHERPA_SERVER_HTTP_PORT`, with 3030 and 3031 for ports left out | e2e (fresh VM) |
-| 005 | The router image is in Docker | e2e (fresh VM) |
+| 005 | The router image is in Docker under the name sherpad runs it by | e2e (fresh VM) |
 | 006 | Transparent hugepages are `madvise`, or `always` where the host had it, and the boot rule keeps `madvise` | e2e (fresh VM) |
 | 007 | Transparent hugepages at `never` are set to `madvise` now and by a boot rule; `always` is left, with no rule; a kernel without them is skipped with a warning | unit (bats) |
 | 008 | After `sherpad init` and a reboot, sherpad is running without anyone starting it and the first user logs in | e2e (fresh VM) |
@@ -80,6 +80,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 011 | The closing message gives the `sherpad init` command with the address and ports chosen | unit (bats) |
 | 012 | An existing `sherpa` system account with another shell is given `nologin` (no test yet) | unit (bats) |
 | 013 | A release whose sherpad archive cannot be fetched stops the install and names the URL; one without the `sherpa` archive is installed with a warning (no test yet) | unit (bats) |
+| 016 | Docker is installed from Docker's apt repository for the host's Ubuntu release, signed by Docker's key, whose SHA-256 is checked against the one the script pins; no script is fetched to run | unit (bats) |
+| 017 | A Docker key that is not the pinned one stops the install before apt trusts it: no keyring, no source and no package | unit (bats) |
+| 018 | The router image is pulled by the digest the script pins and tagged with the name sherpad runs it by; a pull that fails stops the install | unit (bats) |
 
 ## `blank_disks`: the scripts make each blank disk template that is missing and never change one that is there
 

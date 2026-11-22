@@ -206,6 +206,47 @@ _blank_disks_case_006() {
     rm -rf "${WORK_DIR}"
 }
 
+# Stubs for installing Docker on a host without it: PATH is MOCK_BIN and the few tools the
+# function uses, so there is no docker. curl records its arguments and writes WORK_DIR/key for
+# the key; apt-get records its arguments; dpkg prints amd64.
+_stub_docker_install() {
+    TOOLS="$(mktemp -d "${WORK_DIR}/tools.XXXXXX")"
+    local tool
+    for tool in bash cat mktemp rm sha256sum awk dirname chmod; do
+        ln -s "$(command -v "${tool}")" "${TOOLS}/${tool}"
+    done
+    cat > "${MOCK_BIN}/curl" << STUB
+#!/bin/bash
+echo "\$@" >> '${WORK_DIR}/curl.args'
+while [ \$# -gt 1 ]; do
+    [ "\$1" = "-o" ] && cp '${WORK_DIR}/key' "\$2"
+    shift
+done
+STUB
+    printf '#!/bin/bash\necho "$@" >> "%s/apt-get.args"\n' "${WORK_DIR}" > "${MOCK_BIN}/apt-get"
+    printf '#!/bin/bash\necho amd64\n' > "${MOCK_BIN}/dpkg"
+    printf '#!/bin/bash\nexit 0\n' > "${MOCK_BIN}/systemctl"
+    printf '#!/bin/bash\nexec %s "$@"\n' "$(command -v install)" > "${MOCK_BIN}/install"
+    printf '#!/bin/bash\nexec %s "$@"\n' "$(command -v cp)" > "${MOCK_BIN}/cp"
+    chmod +x "${MOCK_BIN}"/*
+    printf 'ID=ubuntu\nVERSION_ID="26.04"\nVERSION_CODENAME=resolute\nUBUNTU_CODENAME=resolute\n' > "${WORK_DIR}/os-release"
+    printf -- '-----BEGIN PGP PUBLIC KEY BLOCK-----\nkey\n' > "${WORK_DIR}/key"
+}
+
+# Run install_docker with the stubs, the apt files under WORK_DIR and the key pinned to $1.
+_run_install_docker() {
+    run bash -c "
+        set +e
+        PATH='${MOCK_BIN}:${TOOLS}'
+        source '${STRIPPED_SCRIPT}'
+        DOCKER_APT_KEY_SHA256='$1'
+        DOCKER_APT_KEYRING='${WORK_DIR}/keyrings/docker.asc'
+        DOCKER_APT_SOURCES='${WORK_DIR}/docker.sources'
+        OS_RELEASE_FILE='${WORK_DIR}/os-release'
+        install_docker
+    "
+}
+
 # ============================================================
 # The server's folders and binaries, in both scripts
 # ============================================================
@@ -640,6 +681,69 @@ _stub_docker_with_containers() {
     _blank_disks_case_004 "${UPDATE_SCRIPT}"
     _blank_disks_case_005 "${UPDATE_SCRIPT}"
     _blank_disks_case_006 "${UPDATE_SCRIPT}"
+}
+
+# ============================================================
+# Verified downloads
+# ============================================================
+
+@test "install_host_016_docker_comes_from_dockers_apt_repository_signed_by_its_key_checked_against_its_pin" {
+    WORK_DIR="$(mktemp -d)"
+    _stub_docker_install
+    _run_install_docker "$(sha256sum "${WORK_DIR}/key" | awk '{ print $1 }')"
+    echo "${output}"
+    [ "$status" -eq 0 ]
+    cmp "${WORK_DIR}/key" "${WORK_DIR}/keyrings/docker.asc"
+    [ "$(stat -c '%a' "${WORK_DIR}/keyrings/docker.asc")" = "644" ]
+    grep -qx "URIs: https://download.docker.com/linux/ubuntu" "${WORK_DIR}/docker.sources"
+    grep -qx "Suites: resolute" "${WORK_DIR}/docker.sources"
+    grep -qx "Architectures: amd64" "${WORK_DIR}/docker.sources"
+    grep -qx "Signed-By: ${WORK_DIR}/keyrings/docker.asc" "${WORK_DIR}/docker.sources"
+    grep -q "^install -y docker-ce docker-ce-cli containerd.io" "${WORK_DIR}/apt-get.args"
+    # The key is the only download, and no script is fetched to run.
+    [ "$(wc -l < "${WORK_DIR}/curl.args")" -eq 1 ]
+    grep -q "https://download.docker.com/linux/ubuntu/gpg$" "${WORK_DIR}/curl.args"
+}
+
+@test "install_host_017_a_docker_key_that_is_not_the_pinned_one_stops_the_install_before_apt_trusts_it" {
+    WORK_DIR="$(mktemp -d)"
+    _stub_docker_install
+    _run_install_docker "$(printf '0%.0s' {1..64})"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"is not the one this script trusts"* ]]
+    [ ! -e "${WORK_DIR}/keyrings/docker.asc" ]
+    [ ! -e "${WORK_DIR}/docker.sources" ]
+    [ ! -e "${WORK_DIR}/apt-get.args" ]
+}
+
+@test "install_host_018_the_router_image_is_pulled_by_its_digest_and_tagged_with_the_name_sherpad_runs" {
+    WORK_DIR="$(mktemp -d)"
+    printf '#!/bin/bash\necho "$@" >> "%s/docker.args"\nexit 0\n' "${WORK_DIR}" > "${MOCK_BIN}/docker"
+    chmod +x "${MOCK_BIN}/docker"
+    run bash -c "
+        set +e
+        PATH='${MOCK_BIN}:${PATH}'
+        source '${STRIPPED_SCRIPT}'
+        pull_sherpa_router_image
+    "
+    [ "$status" -eq 0 ]
+    local pinned
+    pinned="$(sed -n 's|^image pull \(ghcr.io/bwks/sherpa-router@sha256:[0-9a-f]\{64\}\)$|\1|p' "${WORK_DIR}/docker.args")"
+    [ -n "${pinned}" ]
+    grep -qx "image tag ${pinned} ghcr.io/bwks/sherpa-router:latest" "${WORK_DIR}/docker.args"
+
+    # A pull that fails stops the install, and nothing is tagged.
+    rm "${WORK_DIR}/docker.args"
+    printf '#!/bin/bash\necho "$@" >> "%s/docker.args"\nexit 1\n' "${WORK_DIR}" > "${MOCK_BIN}/docker"
+    run bash -c "
+        set +e
+        PATH='${MOCK_BIN}:${PATH}'
+        source '${STRIPPED_SCRIPT}'
+        pull_sherpa_router_image
+    "
+    [ "$status" -eq 1 ]
+    run grep -q "image tag" "${WORK_DIR}/docker.args"
+    [ "$status" -ne 0 ]
 }
 
 # ============================================================

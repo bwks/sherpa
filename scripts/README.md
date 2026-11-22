@@ -17,12 +17,14 @@ sudo ./scripts/sherpa_install.sh
 ```
 
 **What it does:**
+- Installs Docker from Docker's apt repository, after checking Docker's signing key against the
+  SHA-256 the script pins
 - Creates sherpa user and groups
 - Sets up directory structure at `/opt/sherpa/`: the base folder and the binaries are root's,
   and `sherpa` owns only the folders `sherpad` writes
 - Creates the blank disk templates in `/opt/sherpa/images/blank_disk/` that node ZTP disks are
   copied from, each only if it is missing (see "Blank disks" in `docs/architecture/ZTP.md`)
-- Pulls the Sherpa router container image
+- Pulls the Sherpa router container image by the digest the script pins, tagged `:latest`
 - Installs the binaries, the sherpad systemd service and its environment file
 - Refuses a server older than 0.5.0 (a `sherpa-db` SurrealDB container exists)
 

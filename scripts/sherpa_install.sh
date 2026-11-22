@@ -28,7 +28,18 @@ set -e  # Exit on error
 # The SurrealDB container of releases before 0.5.0, and the last release that moves its data.
 LEGACY_DB_CONTAINER="sherpa-db"
 LAST_MIGRATING_VERSION="v0.5.12"
-SHERPA_ROUTER_IMAGE="ghcr.io/bwks/sherpa-router:latest"
+# The lab router image, pulled by its digest and tagged with the name sherpad runs it by.
+SHERPA_ROUTER_REPO="ghcr.io/bwks/sherpa-router"
+SHERPA_ROUTER_DIGEST="sha256:c42a07c425de65e315ff8b92143d8a95c183677ffca859124c9476957bff992f"
+SHERPA_ROUTER_IMAGE="${SHERPA_ROUTER_REPO}:latest"
+# Docker's apt repository and its signing key. The key file must have this SHA-256; it is the key
+# with fingerprint 9DC8 5822 9FC7 DD38 854A  E2D8 8D81 803C 0EBF CD88.
+DOCKER_APT_URL="https://download.docker.com/linux/ubuntu"
+DOCKER_APT_KEY_SHA256="1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
+DOCKER_APT_KEYRING="/etc/apt/keyrings/docker.asc"
+DOCKER_APT_SOURCES="/etc/apt/sources.list.d/docker.sources"
+DOCKER_PACKAGES=(docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin)
+OS_RELEASE_FILE="/etc/os-release"
 SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
 SHERPA_DB_FILE="${SHERPA_DB_DIR}/sherpa.sqlite"
@@ -286,14 +297,51 @@ EOF
     print_success "Transparent hugepages set to madvise (boot rule: ${THP_TMPFILES_CONF})"
 }
 
+# Add Docker's apt repository, signed by its key, once the key's SHA-256 is the one pinned
+# above. A key that differs stops the install before apt trusts it.
+add_docker_apt_repository() {
+    local key suite
+    key="$(mktemp)"
+    if ! curl -fsSL --connect-timeout 15 --retry 3 --retry-all-errors -o "${key}" "${DOCKER_APT_URL}/gpg"; then
+        rm -f "${key}"
+        print_error "Could not fetch Docker's signing key: ${DOCKER_APT_URL}/gpg"
+        return 1
+    fi
+    if [ "$(sha256sum "${key}" | awk '{ print $1 }')" != "${DOCKER_APT_KEY_SHA256}" ]; then
+        rm -f "${key}"
+        print_error "Docker's signing key at ${DOCKER_APT_URL}/gpg is not the one this script trusts"
+        print_error "  expected SHA-256 ${DOCKER_APT_KEY_SHA256}"
+        return 1
+    fi
+    install -d -m 755 "$(dirname "${DOCKER_APT_KEYRING}")"
+    install -m 644 "${key}" "${DOCKER_APT_KEYRING}"
+    rm -f "${key}"
+
+    # shellcheck source=/dev/null
+    suite="$(. "${OS_RELEASE_FILE}" && echo "${UBUNTU_CODENAME:-${VERSION_CODENAME}}")"
+    cat > "${DOCKER_APT_SOURCES}" << EOF
+# Installed by Sherpa: Docker's apt repository.
+Types: deb
+URIs: ${DOCKER_APT_URL}
+Suites: ${suite}
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: ${DOCKER_APT_KEYRING}
+EOF
+    chmod 644 "${DOCKER_APT_SOURCES}"
+    print_success "Added Docker's apt repository for ${suite}"
+}
+
 install_docker() {
     print_header "Installing Docker"
 
     if check_command_exists docker; then
         print_info "Docker is already installed — skipping"
     else
-        print_info "Installing Docker via official convenience script..."
-        curl -fsSL https://get.docker.com | sh
+        print_info "Installing Docker from Docker's apt repository..."
+        add_docker_apt_repository
+        apt-get update -qq
+        DEBIAN_FRONTEND=noninteractive apt-get install -y "${DOCKER_PACKAGES[@]}"
         print_success "Docker installed"
     fi
 
@@ -706,13 +754,16 @@ ensure_blank_disks() {
 # Container Images
 ################################################################################
 
+# Pull the router image by its digest, so the image is the one this release was made with, and
+# tag it with the name sherpad runs it by.
 pull_sherpa_router_image() {
     print_info "Pulling Sherpa Router image..."
 
-    if docker image pull "${SHERPA_ROUTER_IMAGE}"; then
-        print_success "Sherpa Router image pulled successfully"
+    local pinned="${SHERPA_ROUTER_REPO}@${SHERPA_ROUTER_DIGEST}"
+    if docker image pull "${pinned}" && docker image tag "${pinned}" "${SHERPA_ROUTER_IMAGE}"; then
+        print_success "Sherpa Router image pulled: ${pinned}, tagged ${SHERPA_ROUTER_IMAGE}"
     else
-        print_error "Failed to pull Sherpa Router image"
+        print_error "Failed to pull Sherpa Router image ${pinned}"
         exit 1
     fi
 }
