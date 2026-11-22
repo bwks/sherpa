@@ -22,6 +22,7 @@ use tracing::instrument;
 use super::host::LinkHost;
 use super::reattach::{LabLinks, LinkOutcome, RecreatedEnd, reattach_node_links};
 use super::veths::ContainerVeth;
+use crate::services::error::Unexpected;
 
 use shared::data::{DbLink, LinkState, RecordId};
 
@@ -180,11 +181,19 @@ async fn see(host: &impl LinkHost, iface: &str) -> Seen {
     let ifindex = match host.ifindex(iface).await {
         Ok(Some(ifindex)) => ifindex,
         Ok(None) => return Seen::Absent,
-        Err(error) => return Seen::Unreadable(format!("failed to look up {iface}: {error:#}")),
+        Err(error) => {
+            return Seen::Unreadable(format!(
+                "failed to look up {iface}: {}",
+                Unexpected::log(&error, "Failed to look up a link end")
+            ));
+        }
     };
     match host.has_redirect(ifindex).await {
         Ok(redirect) => Seen::Present { redirect },
-        Err(error) => Seen::Unreadable(format!("failed to read the filter of {iface}: {error:#}")),
+        Err(error) => Seen::Unreadable(format!(
+            "failed to read the filter of {iface}: {}",
+            Unexpected::log(&error, "Failed to read a link end's filter")
+        )),
     }
 }
 

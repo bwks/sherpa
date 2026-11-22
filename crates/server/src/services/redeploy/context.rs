@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow, ensure};
+use anyhow::{Context, Result, anyhow};
 use tracing::instrument;
 
 use crate::api::request_parse::parse_value;
@@ -15,6 +15,7 @@ use crate::auth::policy::require_host_access;
 use crate::daemon::state::AppState;
 use crate::konst::LAB_CERTS_DIR;
 use crate::services::admission::{self, Admission};
+use crate::services::error::ServiceError;
 use crate::services::guest_account::{self, GuestAccount};
 use crate::services::image_lifecycle::{
     ImageLease, check_container_image, lease_image, validate_disk_method,
@@ -248,29 +249,45 @@ fn check_manifest(
     node_name: &str,
     secrets: Option<&[data::SecretFile]>,
 ) -> Result<RedeployDefinition> {
-    let manifest: topology::Manifest =
-        parse_value(manifest).context("Failed to deserialize manifest")?;
-    check_lab_name(&manifest.name).context("Manifest validation failed: lab name")?;
+    let manifest: topology::Manifest = parse_value(manifest)
+        .context("Failed to deserialize manifest")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    check_lab_name(&manifest.name)
+        .context("Manifest validation failed: lab name")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     require_host_access(ctx, &manifest.nodes)?;
     check_ready_timeout(manifest.ready_timeout)
-        .context("Manifest validation failed: ready timeout")?;
+        .context("Manifest validation failed: ready timeout")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     check_nonzero_node_settings(&manifest.nodes)
-        .context("Manifest validation failed: node settings")?;
+        .context("Manifest validation failed: node settings")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     for node in &manifest.nodes {
         if let Some(ref env_vars) = node.environment_variables {
             validate_environment_variables(env_vars, &node.name)
-                .context("Manifest validation failed: environment variables")?;
+                .context("Manifest validation failed: environment variables")
+                .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
         }
     }
-    check_text_file_modes(&manifest.nodes).context("Manifest validation failed: text files")?;
+    check_text_file_modes(&manifest.nodes)
+        .context("Manifest validation failed: text files")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     check_windows_startup_script_names(&manifest.nodes)
-        .context("Manifest validation failed: startup scripts")?;
-    check_client_read_files(&manifest.nodes).context("Manifest validation failed: files")?;
-    reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
-    let as_written = match lab_definition::parse_as_written(as_written)? {
+        .context("Manifest validation failed: startup scripts")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    check_client_read_files(&manifest.nodes)
+        .context("Manifest validation failed: files")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    reject_provisioners(&manifest)
+        .context("Manifest validation failed: provisioners")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    let as_written = match lab_definition::parse_as_written(as_written)
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?
+    {
         Some(parts) => Some(
             lab_definition::definition(&manifest, Some(&parts))
-                .context("Manifest validation failed: the manifest as written")?,
+                .context("Manifest validation failed: the manifest as written")
+                .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?,
         ),
         None => None,
     };
@@ -281,7 +298,8 @@ fn check_manifest(
             &manifest,
             &BTreeMap::from([(node_name.to_owned(), files.to_vec())]),
         )
-        .context("Manifest validation failed: container secret files")?;
+        .context("Manifest validation failed: container secret files")
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     }
     Ok(RedeployDefinition {
         manifest,
@@ -333,9 +351,13 @@ async fn load_node(
     let node_name = target_node.name.as_str();
     let db_node = db::get_node_by_name_and_lab(db, node_name, lab_record_id.clone())
         .await
-        .context(format!(
-            "Node '{node_name}' not found in database for lab '{lab_id}'"
-        ))?;
+        .map_err(|error| {
+            // The lookup returns one error for a missing node and a failed query.
+            tracing::warn!(error = %format!("{error:#}"), "Node lookup failed");
+            ServiceError::NotFound(format!(
+                "Node '{node_name}' not found in database for lab '{lab_id}'"
+            ))
+        })?;
     let node_record_id = db::get_node_id(&db_node).context("Failed to get node record ID")?;
 
     let current_images = db::list_node_images_by_ids(db, vec![db_node.image.clone()])
@@ -344,25 +366,30 @@ async fn load_node(
     let current_image = current_images
         .first()
         .ok_or_else(|| anyhow!("Node image config not found for node '{node_name}'"))?;
-    ensure!(
-        target_node.model_kind.model() == current_image.model
-            && target_node.model_kind.kind() == current_image.kind(),
-        "Redeploy cannot change node model or kind; expected {} ({})",
-        current_image.model,
-        current_image.kind()
-    );
+    if target_node.model_kind.model() != current_image.model
+        || target_node.model_kind.kind() != current_image.kind()
+    {
+        return Err(ServiceError::Invalid(format!(
+            "Redeploy cannot change node model or kind; expected {} ({})",
+            current_image.model,
+            current_image.kind()
+        ))
+        .into());
+    }
     let node_image =
         redeploy_image(db, target_node.model_kind, target_node.version.as_deref()).await?;
-    ensure!(
-        !matches!(node_image.kind(), data::NodeKind::Unikernel),
-        "Redeploy not supported for unikernel nodes"
-    );
+    if matches!(node_image.kind(), data::NodeKind::Unikernel) {
+        return Err(
+            ServiceError::Invalid("Redeploy not supported for unikernel nodes".to_owned()).into(),
+        );
+    }
     validate_node_ztp(target_node, &node_image, talos_clusters)?;
     let data_interface_count =
         effective_data_interface_count(node_name, target_node.interfaces.data_count, &node_image)
             .context(format!(
-            "Data interface count validation failed for node: {node_name}"
-        ))?;
+                "Data interface count validation failed for node: {node_name}"
+            ))
+            .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
 
     let image_guard = lease_image(node_image.model_kind()?, &node_image.version).await;
     if node_image.kind() == data::NodeKind::Container {
@@ -383,6 +410,7 @@ async fn load_node(
         target_node.image = Some(repo);
     }
     validate_disk_method(
+        node_name,
         target_node.boot_disk.clone_method,
         &node_image,
         &state.config.images_dir,
@@ -416,12 +444,20 @@ async fn redeploy_image(
             .await
             .context("Failed to look up the node's image")?
             .ok_or_else(|| {
-                anyhow!("Node image not found for model: {model} kind: {kind} version: {version}")
+                ServiceError::NotFound(format!(
+                    "Node image not found for model: {model} kind: {kind} version: {version}"
+                ))
+                .into()
             }),
         None => db::find_default_node_image(db, &model, &kind)
             .await
             .context("Failed to look up the node's image")?
-            .ok_or_else(|| anyhow!("Default node image not found for model: {model} kind: {kind}")),
+            .ok_or_else(|| {
+                ServiceError::NotFound(format!(
+                    "Default node image not found for model: {model} kind: {kind}"
+                ))
+                .into()
+            }),
     }
 }
 
@@ -469,11 +505,11 @@ async fn worker_rejoin_config(
     )
     .await?;
     let (cluster, _, _) =
-        talos::find_member_cluster(&clusters, &target_node.name).with_context(|| {
-            format!(
+        talos::find_member_cluster(&clusters, &target_node.name).ok_or_else(|| {
+            ServiceError::Conflict(format!(
                 "Node '{}' is not a member of a stored Talos cluster",
                 target_node.name
-            )
+            ))
         })?;
     talos::node_machine_config(cluster, &target_node.name, &mgmt_net.v4, &lab_ca.pair.cert)
 }
@@ -520,13 +556,17 @@ async fn check_fits_server(
     node_image: &data::NodeConfig,
 ) -> Result<(Arc<QemuConnection>, Admission)> {
     let node_name = target_node.name.as_str();
-    check_node_kind_settings(target_node).context(format!(
-        "Node settings validation failed for node: {node_name}"
-    ))?;
+    check_node_kind_settings(target_node)
+        .context(format!(
+            "Node settings validation failed for node: {node_name}"
+        ))
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     check_vm_tuning(target_node, node_image)
-        .context(format!("VM tuning validation failed for node: {node_name}"))?;
+        .context(format!("VM tuning validation failed for node: {node_name}"))
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     check_ptx_platform(target_node, node_image)
-        .context(format!("Platform validation failed for node: {node_name}"))?;
+        .context(format!("Platform validation failed for node: {node_name}"))
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     let qemu_conn = Arc::new(
         state
             .qemu
@@ -554,10 +594,13 @@ fn manifest_node(manifest: &topology::Manifest, node_name: &str) -> Result<topol
     let mut node = process_manifest_nodes(&manifest.nodes)?
         .into_iter()
         .find(|n| n.name == node_name)
-        .ok_or_else(|| anyhow!("Node '{node_name}' not found in manifest"))?;
+        .ok_or_else(|| {
+            ServiceError::NotFound(format!("Node '{node_name}' not found in manifest"))
+        })?;
     if let Some(ref encoded) = node.ztp.config {
         let decoded = util::base64_decode(encoded)
-            .with_context(|| format!("Failed to decode ztp.config for node '{node_name}'"))?;
+            .with_context(|| format!("Failed to decode ztp.config for node '{node_name}'"))
+            .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
         node.ztp.config = Some(decoded);
     }
     Ok(node)

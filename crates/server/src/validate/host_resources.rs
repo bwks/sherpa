@@ -1,6 +1,8 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 
 use topology::NodeExpanded;
+
+use crate::services::error::ServiceError;
 
 /// Check that the host CPUs and NUMA node a node's `cpu`, `boot_disk` and `numa` settings name
 /// exist on the server. Host CPUs are numbered from 0, as libvirt numbers them.
@@ -19,20 +21,22 @@ pub fn check_host_resources(
             continue;
         };
         if let Some(cpu) = cpus.iter().find(|cpu| u32::from(**cpu) >= host_cpus) {
-            bail!(
+            return Err(ServiceError::Invalid(format!(
                 "Node '{node_name}' `{setting}` uses host CPU {cpu}, but the server has CPUs 0 \
                  to {}",
                 host_cpus.saturating_sub(1)
-            );
+            ))
+            .into());
         }
     }
     if let Some(numa_node) = node.numa.node
         && u32::from(numa_node) >= host_numa_nodes
     {
-        bail!(
+        return Err(ServiceError::Invalid(format!(
             "Node '{node_name}' `numa.node` is NUMA node {numa_node}, but the server has \
              {host_numa_nodes} NUMA node(s), numbered from 0"
-        );
+        ))
+        .into());
     }
     Ok(())
 }
@@ -41,10 +45,11 @@ pub fn check_host_resources(
 /// Docker refuses.
 pub fn check_container_cpus(node_name: &str, cpu_count: u8, host_cpus: u32) -> Result<()> {
     if u32::from(cpu_count) > host_cpus {
-        bail!(
+        return Err(ServiceError::Invalid(format!(
             "Node '{node_name}' `cpu.count` is {cpu_count}, but the server has {host_cpus} CPUs; \
              a container's CPU quota cannot be more than the server's CPUs"
-        );
+        ))
+        .into());
     }
     Ok(())
 }

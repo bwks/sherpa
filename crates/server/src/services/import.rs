@@ -22,6 +22,7 @@ use tracing::instrument;
 
 use crate::daemon::state::AppState;
 use crate::services::container_scan::{ScanTarget, plan_container_scan, tagged_versions};
+use crate::services::error::{ServiceError, Unexpected};
 use crate::services::image_lifecycle::{
     BackedVolumes, ensure_image_has_no_overlays, image_model_kind, lock_image,
 };
@@ -82,7 +83,9 @@ pub async fn import_image(
 
     // Validate source file exists on the server
     if !file_exists(&request.src) {
-        anyhow::bail!("Source file does not exist: {}", request.src);
+        return Err(
+            ServiceError::NotFound(format!("Source file does not exist: {}", request.src)).into(),
+        );
     }
 
     let request_default = if request.default {
@@ -275,12 +278,18 @@ fn ensure_disk_replaceable(
     version_disk: &Path,
     progress: &ProgressSender,
 ) -> Result<()> {
-    ensure_image_has_no_overlays(pool, version_dir).with_context(|| {
-        format!(
+    ensure_image_has_no_overlays(pool, version_dir).map_err(|error| {
+        let context = format!(
             "{} differs from the source and lab disks are built on it; destroy those labs or add \
              the image as a new version",
             version_disk.display()
-        )
+        );
+        match ServiceError::find(&error) {
+            Some(ServiceError::Conflict(_)) => {
+                ServiceError::Conflict(format!("{context}: {error}")).into()
+            }
+            _ => error.context(context),
+        }
     })?;
     let _ = progress.send_status(
         "Image on disk differs from the source, replacing it".to_string(),
@@ -387,11 +396,10 @@ pub async fn show_image(request: ShowImageRequest, state: &AppState) -> Result<S
     };
 
     let image = image.ok_or_else(|| {
-        anyhow::anyhow!(
+        ServiceError::NotFound(format!(
             "No image found for model '{}' (kind: {})",
-            request.model,
-            kind
-        )
+            request.model, kind
+        ))
     })?;
 
     Ok(ShowImageResponse { image })
@@ -719,7 +727,10 @@ async fn scan_version(
                 version,
                 e
             );
-            format!("error: {e:#}")
+            format!(
+                "error: {}",
+                Unexpected::log(&e, "Failed to record a scanned image version")
+            )
         }
     };
 
@@ -748,11 +759,11 @@ pub async fn set_default_image(
     .context("Failed to look up image in database")?;
 
     let Some(node_image) = node_image else {
-        anyhow::bail!(
+        return Err(ServiceError::NotFound(format!(
             "Image not found for model '{}' with version '{}'. Use 'server image list' to see available images.",
-            request.model,
-            request.version
-        );
+            request.model, request.version
+        ))
+        .into());
     };
 
     db::update_node_image(&state.db, node_image, DefaultRequest::Make)
@@ -786,7 +797,10 @@ async fn resolve_download_url(
             let schematic_id = talos_vanilla_schematic_id().await?;
             Ok(talos_image_url(&schematic_id, version))
         }
-        _ => anyhow::bail!("No auto-download URL for model '{model}'. Provide --url."),
+        _ => Err(ServiceError::Invalid(format!(
+            "No auto-download URL for model '{model}'. Provide --url."
+        ))
+        .into()),
     }
 }
 
@@ -1024,7 +1038,10 @@ pub async fn download_image(
     let kind = model_kind.kind();
 
     if kind != NodeKind::VirtualMachine {
-        anyhow::bail!("Image download is only supported for virtual machine models, got '{kind}'");
+        return Err(ServiceError::Invalid(format!(
+            "Image download is only supported for virtual machine models, got '{kind}'"
+        ))
+        .into());
     }
 
     let _ = progress.send_status("Resolving download URL...".to_string(), StatusKind::Info);

@@ -7,6 +7,7 @@ use anyhow::Result;
 use tracing::instrument;
 
 use super::context::LabBuild;
+use crate::services::error::caller_message;
 use crate::services::keycloak;
 use crate::services::lab_operations::LabOperation;
 use crate::services::talos;
@@ -98,7 +99,11 @@ pub(super) async fn start_lab_services(
             .await
             {
                 Ok(info) => keycloaks.push(info),
-                Err(error) => errors.push(service_error(format!("{error:#}"))),
+                Err(error) => errors.push(service_error(format!(
+                    "Keycloak node '{}' was not set up: {}",
+                    node.name,
+                    caller_message(&error, "Failed to set up a Keycloak realm")
+                ))),
             }
             continue;
         }
@@ -139,7 +144,10 @@ async fn unseal_vault(
     {
         Ok(info) => info,
         Err(error) => {
-            errors.push(service_error(format!("{error:#}")));
+            errors.push(service_error(format!(
+                "Vault node '{node_name}' was not unsealed: {}",
+                caller_message(&error, "Failed to unseal a Vault")
+            )));
             return None;
         }
     };
@@ -152,7 +160,10 @@ async fn unseal_vault(
     )
     .await
     {
-        errors.push(service_error(format!("{error:#}")));
+        errors.push(service_error(format!(
+            "The clusters were not given access to Vault node '{node_name}': {}",
+            caller_message(&error, "Failed to give clusters access to a Vault")
+        )));
     }
     Some(info)
 }

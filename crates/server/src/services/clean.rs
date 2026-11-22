@@ -11,7 +11,7 @@ use crate::auth::policy::require_admin;
 use crate::daemon::state::AppState;
 use crate::services::destroy::tear_down_lab;
 use crate::services::error::ServiceError;
-use crate::services::lab_operations::{self, LabHold, StopReason};
+use crate::services::lab_operations::{self, LabHold};
 
 /// The name reported for a lab with no record.
 const UNKNOWN_LAB_NAME: &str = "unknown";
@@ -33,7 +33,7 @@ pub async fn clean_lab(
 ) -> Result<DestroyResponse> {
     require_admin(ctx)?;
     // Stop operations still building or changing the lab before removing its resources.
-    let (_, stopped) = lab_operations::stop(lab_id, StopReason::Destroy).await;
+    let (_, stopped) = lab_operations::stop(lab_id).await;
     clean_lab_resources(state, &stopped).await
 }
 

@@ -18,7 +18,7 @@ use crate::api::websocket::messages::{RpcError, ServerMessage};
 use crate::auth::context::AuthContext;
 use crate::auth::middleware;
 use crate::daemon::state::AppState;
-use crate::services::error::ServiceError;
+use crate::services::error::{ServiceError, Unexpected};
 use crate::services::progress::ProgressSender;
 
 const RPC_MSG_AUTH_REQUIRED: &str = "Authentication required";
@@ -368,8 +368,8 @@ pub(super) fn respond<T: Serialize>(
     let response = result.map_err(|error| service_error(&error, failure))?;
     serde_json::to_value(response).map_err(|error| RpcError {
         code: RpcErrorCode::InternalError,
-        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
-        context: Some(error.to_string()),
+        message: Unexpected::log(&error, RPC_MSG_SERIALIZE_FAILED).to_string(),
+        context: None,
         data: None,
     })
 }
@@ -378,7 +378,8 @@ pub(super) fn respond<T: Serialize>(
 ///
 /// Typed service failures keep their own codes, so clients can tell "not allowed", "does not
 /// exist", "bad request", "no room in the server's memory" and "CPU pins held" from operational
-/// failures. Others carry the error's message chain, never its debug form.
+/// failures. Any other error is logged with its chain, which `failure` describes, and answered
+/// with only its reference.
 pub(super) fn service_error(error: &anyhow::Error, failure: &str) -> RpcError {
     let (code, message, data) = match ServiceError::find(error) {
         Some(access @ ServiceError::Denied(_)) => {
@@ -400,15 +401,11 @@ pub(super) fn service_error(error: &anyhow::Error, failure: &str) -> RpcError {
             message.clone(),
             serde_json::to_value(conflict).ok(),
         ),
-        None => {
-            tracing::warn!(error = ?error, "RPC call failed");
-            return RpcError {
-                code: RpcErrorCode::ServerError,
-                message: failure.to_string(),
-                context: Some(format!("{error:#}")),
-                data: None,
-            };
-        }
+        None => (
+            RpcErrorCode::ServerError,
+            Unexpected::log(error, failure).to_string(),
+            None,
+        ),
     };
     RpcError {
         code,
@@ -421,6 +418,7 @@ pub(super) fn service_error(error: &anyhow::Error, failure: &str) -> RpcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::log_capture::capture_log;
     use shared::api_spec::{AuthRequirement, build_spec};
     use shared::error::{CpuPinConflict, CpuPinRole, MemoryShortfall};
     use std::collections::HashSet;
@@ -593,16 +591,47 @@ mod tests {
     }
 
     #[test]
-    fn api_errors_003_an_unknown_rpc_failure_is_a_server_error_with_its_chain_as_context() {
-        let error = anyhow::anyhow!("disk full").context("Failed to write lab file");
+    fn api_errors_016_an_rpc_failure_of_no_known_kind_is_answered_with_a_ref_and_no_chain() {
+        let error = anyhow::anyhow!("libvirt: domain error on /var/lib/sherpa/r1.qcow2")
+            .context("Failed to start node r1");
         let rpc = service_error(&error, "Up operation failed");
         assert_eq!(rpc.code, RpcErrorCode::ServerError);
-        assert_eq!(rpc.message, "Up operation failed");
-        assert_eq!(
-            rpc.context.as_deref(),
-            Some("Failed to write lab file: disk full")
+        let reference = rpc
+            .message
+            .strip_prefix("internal error (ref ")
+            .and_then(|rest| rest.strip_suffix("); see the server log"))
+            .unwrap_or_else(|| panic!("{}", rpc.message));
+        assert!(
+            reference.len() == 8 && reference.chars().all(|c| c.is_ascii_hexdigit()),
+            "{reference}"
         );
+        assert!(rpc.context.is_none());
         assert!(rpc.data.is_none());
+        let answer = serde_json::to_string(&rpc).unwrap();
+        for detail in ["libvirt", "/var/lib/sherpa", "Failed to start node"] {
+            assert!(!answer.contains(detail), "{answer}");
+        }
+    }
+
+    #[test]
+    fn api_errors_018_the_ref_of_an_unexpected_error_is_logged_at_error_level_with_its_chain() {
+        let error = anyhow::anyhow!("disk full").context("Failed to write lab file");
+        let (rpc, log) = capture_log(|| service_error(&error, "Up operation failed"));
+        let line = log
+            .lines()
+            .find(|line| line.contains("Up operation failed"))
+            .unwrap_or_else(|| panic!("{log}"));
+        assert!(line.contains("ERROR"), "{line}");
+        assert!(
+            line.contains("Failed to write lab file: disk full"),
+            "{line}"
+        );
+        let reference = rpc
+            .message
+            .strip_prefix("internal error (ref ")
+            .and_then(|rest| rest.strip_suffix("); see the server log"))
+            .unwrap();
+        assert!(line.contains(&format!("reference={reference}")), "{line}");
     }
 
     #[test]

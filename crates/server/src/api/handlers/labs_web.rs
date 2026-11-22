@@ -18,7 +18,7 @@ use crate::auth::policy::{
 use crate::auth::session::SessionLookup;
 use crate::daemon::state::AppState;
 use crate::daemon::state::{Job, JobType};
-use crate::services::error::ServiceError;
+use crate::services::error::{ServiceError, caller_message};
 use crate::services::progress::ProgressSender;
 use crate::services::{
     destroy, down, download, inspect, lab_definition, list_labs, redeploy, resume, up,
@@ -245,8 +245,7 @@ pub async fn node_redeploy_handler(
         .await
         .map_err(ApiError::from)?;
     let manifest = serde_json::to_value(&definition).map_err(|error| {
-        tracing::error!(%error, "Failed to serialize the lab's stored definition");
-        ApiError::internal("Unable to read the lab's stored definition")
+        ApiError::internal(error, "Failed to serialize the lab's stored definition")
     })?;
 
     // The web UI cannot send secret files, so the node keeps its current ones; nor parts as
@@ -266,10 +265,7 @@ pub async fn node_redeploy_handler(
             async move { redeploy::redeploy_node(&auth, request, &state, progress).await },
         )
         .await
-        .map_err(|e| {
-            tracing::error!("Redeploy failed for node '{}': {:?}", node_name, e);
-            ApiError::internal(format!("Redeploy failed: {e}"))
-        })?;
+        .map_err(ApiError::from)?;
 
     Ok(Json(json!({
         "success": result.success,
@@ -377,7 +373,8 @@ pub(crate) fn lab_offers_download(owns_lab: bool, lab_state: LabState) -> bool {
 
 /// Render the web error page for a failed lab service call.
 ///
-/// Authorization failures render 403 or 404 pages; other failures are logged.
+/// Authorization failures render 403 or 404 pages; other failures render `failure_message` with
+/// what the caller is told of the error.
 fn lab_error_page(
     username: String,
     is_admin: bool,
@@ -409,52 +406,38 @@ fn lab_error_page(
             | ServiceError::InsufficientMemory { .. }
             | ServiceError::CpuPinsHeld { .. },
         )
-        | None => {
-            tracing::error!(
-                "Failed to load lab '{}' for user '{}': {:?}",
-                lab_id,
-                username,
-                error
-            );
-            Error404Template {
-                username,
-                is_admin,
-                nav: NavPage::Other.into(),
-                message: failure_message.to_string(),
-            }
-            .into_response()
+        | None => Error404Template {
+            username,
+            is_admin,
+            nav: NavPage::Other.into(),
+            message: format!(
+                "{failure_message}: {}",
+                caller_message(error, failure_message)
+            ),
         }
+        .into_response(),
     }
 }
 
-/// Render the HTMX error fragment for a failed lab service call.
-///
-/// Authorization failures keep their 403 or 404 status; other failures render the message.
+/// Render the HTMX error fragment for a failed lab service call: `failure_message` with what the
+/// caller is told of the error. Authorization failures keep their 403 or 404 status.
 fn lab_error_fragment(error: &anyhow::Error, failure_message: &str) -> Response {
-    let message = format!("{failure_message}: {error}");
-    match ServiceError::find(error) {
-        Some(ServiceError::Denied(_)) => {
-            (StatusCode::FORBIDDEN, ErrorTemplate { message }).into_response()
-        }
-        Some(ServiceError::NotFound(_)) => {
-            (StatusCode::NOT_FOUND, ErrorTemplate { message }).into_response()
-        }
-        // The refusal names the memory that fell short or the CPUs held; the outer context
-        // would not.
+    let message = format!(
+        "{failure_message}: {}",
+        caller_message(error, failure_message)
+    );
+    let status = match ServiceError::find(error) {
+        Some(ServiceError::Denied(_)) => StatusCode::FORBIDDEN,
+        Some(ServiceError::NotFound(_)) => StatusCode::NOT_FOUND,
         Some(
-            refusal @ (ServiceError::InsufficientMemory { .. } | ServiceError::CpuPinsHeld { .. }),
-        ) => {
-            tracing::warn!("{failure_message}: {refusal}");
-            ErrorTemplate {
-                message: format!("{failure_message}: {refusal}"),
-            }
-            .into_response()
-        }
-        Some(ServiceError::Conflict(_) | ServiceError::Invalid(_)) | None => {
-            tracing::error!("{failure_message}: {:?}", error);
-            ErrorTemplate { message }.into_response()
-        }
-    }
+            ServiceError::Conflict(_)
+            | ServiceError::Invalid(_)
+            | ServiceError::InsufficientMemory { .. }
+            | ServiceError::CpuPinsHeld { .. },
+        )
+        | None => StatusCode::OK,
+    };
+    (status, ErrorTemplate { message }).into_response()
 }
 
 // ============================================================================
@@ -651,13 +634,13 @@ pub async fn lab_download_handler(
 
         for (name, content) in entries {
             zip.start_file(name, options)
-                .map_err(|e| ApiError::internal(format!("Failed to create zip: {e}")))?;
+                .map_err(|e| ApiError::internal(e, "Failed to create zip"))?;
             std::io::Write::write_all(&mut zip, content.as_bytes())
-                .map_err(|e| ApiError::internal(format!("Failed to write zip: {e}")))?;
+                .map_err(|e| ApiError::internal(e, "Failed to write zip"))?;
         }
 
         zip.finish()
-            .map_err(|e| ApiError::internal(format!("Failed to finalize zip: {e}")))?;
+            .map_err(|e| ApiError::internal(e, "Failed to finalize zip"))?;
     }
 
     let zip_bytes = buf.into_inner();
@@ -665,7 +648,7 @@ pub async fn lab_download_handler(
         r#"attachment; filename="{}-{lab_id}.zip""#,
         db_lab.name
     ))
-    .map_err(|e| ApiError::internal(format!("Failed to name the download: {e}")))?;
+    .map_err(|e| ApiError::internal(e, "Failed to name the download"))?;
 
     Ok((
         StatusCode::OK,
@@ -737,7 +720,7 @@ pub async fn lab_destroy_post_handler(
     response.headers_mut().insert(
         header::HeaderName::from_static("hx-redirect"),
         header::HeaderValue::from_str(&redirect_url)
-            .map_err(|e| ApiError::internal(format!("Failed to create redirect header: {e}")))?,
+            .map_err(|e| ApiError::internal(e, "Failed to create redirect header"))?,
     );
 
     Ok(response)
@@ -824,7 +807,9 @@ pub async fn job_stream_handler(
 
     // Consume the pending job
     let Some((_, job)) = state.pending_jobs.remove(&job_id) else {
-        return failed_job_stream(anyhow::anyhow!("Job not found or already consumed"));
+        return failed_job_stream(
+            ServiceError::NotFound("Job not found or already consumed".to_owned()).into(),
+        );
     };
 
     // The job runs as the user who created it, as they are now: a requester whose session has
@@ -839,14 +824,18 @@ pub async fn job_stream_handler(
                 %rejection,
                 "Refused to start a job whose requester's session cannot be used"
             );
-            return failed_job_stream(anyhow::anyhow!(
-                "The job was not started: {rejection} since it was queued. Log in and start it \
-                 again"
-            ));
+            return failed_job_stream(
+                ServiceError::Denied(format!(
+                    "The job was not started: {rejection} since it was queued. Log in and start \
+                     it again"
+                ))
+                .into(),
+            );
         }
         Err(error) => {
-            tracing::error!(%job_id, error = ?error, "Failed to resolve the job's requester");
-            return failed_job_stream(error.context("The job was not started"));
+            return failed_job_stream(error.context(format!(
+                "The job {job_id} was not started: failed to resolve its requester"
+            )));
         }
     };
 

@@ -12,7 +12,7 @@ use crate::api::websocket::messages::RpcError;
 use crate::auth::context::AuthContext;
 use crate::daemon::state::AppState;
 use crate::services::{
-    user_delete, user_device_password, user_password, user_ssh_keys, user_unlock,
+    user_create, user_delete, user_device_password, user_password, user_ssh_keys, user_unlock,
 };
 
 const RPC_MSG_ACCESS_DENIED_OWN_INFO: &str =
@@ -45,12 +45,11 @@ pub(super) async fn create(
     state: &AppState,
 ) -> Result<Value, RpcError> {
     let request: data::CreateUserRequest = parse(&params, RPC_MSG_INVALID_PARAMS_CREATE_USER)?;
-    let created = db::create_user(
+    let created = user_create::create_user(
         &state.db,
-        request.username,
+        &request.username,
         &request.password,
         request.is_admin,
-        vec![],
     )
     .await
     .map(|user| {

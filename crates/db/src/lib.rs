@@ -47,7 +47,7 @@ pub use lab::{
 
 // Node image CRUD operations
 pub use node_image::{
-    DefaultRequest, LastDefaultImage, count_node_images, delete_node_image,
+    DefaultRequest, ImageInUse, LastDefaultImage, count_node_images, delete_node_image,
     find_default_node_image, find_node_image_by_id, find_node_image_by_model_kind_version,
     get_node_image_versions, list_node_images, list_node_images_by_ids, list_node_images_by_kind,
     update_node_image, upsert_node_image,
@@ -70,9 +70,10 @@ pub use seed::admin_user::seed_admin_user;
 
 // User CRUD operations
 pub use user::{
-    DevicePassword, UserChanged, change_user_password, create_admin_user, create_user, delete_user,
-    device_password_set, find_user, find_user_by_id, get_user, list_locked_usernames, list_users,
-    open_device_password, set_device_password, unlock_user, update_user,
+    DevicePassword, UserChanged, UsernameTaken, change_user_password, create_admin_user,
+    create_user, delete_user, device_password_set, find_user, find_user_by_id, get_user,
+    list_locked_usernames, list_users, open_device_password, set_device_password, unlock_user,
+    update_user,
 };
 
 // Login attempts and the account lockout

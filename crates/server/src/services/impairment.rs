@@ -44,20 +44,19 @@ pub async fn update_impairment(
         .into_iter()
         .find(|l| l.index == request.link_index)
         .ok_or_else(|| {
-            anyhow!(
+            ServiceError::NotFound(format!(
                 "Link with index {} not found in lab '{}'",
-                request.link_index,
-                lab_id
-            )
+                request.link_index, lab_id
+            ))
         })?;
 
     // Only P2p links support impairment
     if db_link.kind != BridgeKind::P2p {
-        return Err(anyhow!(
+        return Err(ServiceError::Invalid(format!(
             "Link impairment is only supported on P2p links (link index {} is {:?})",
-            request.link_index,
-            db_link.kind
-        ));
+            request.link_index, db_link.kind
+        ))
+        .into());
     }
 
     let host = KernelHost::new(&state.docker, &state.qemu);

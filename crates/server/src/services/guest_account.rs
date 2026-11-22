@@ -7,7 +7,7 @@
 //! template locks the owner and `admin` instead.
 use std::collections::HashSet;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use ssh_key::{Algorithm, PublicKey};
 use tracing::instrument;
 
@@ -26,6 +26,7 @@ use template::{
 };
 
 use crate::konst::NODE_NIXOS_SHELL;
+use crate::services::error::ServiceError;
 use crate::validate::validate_login_name;
 
 /// Drop-in directory for per-user doas rules (Alpine).
@@ -246,14 +247,15 @@ pub(crate) fn node_account(
         let Some(preferred) = types.first() else {
             bail!("Model '{}' accepts no SSH key types", image.model);
         };
-        bail!(
+        return Err(ServiceError::Conflict(format!(
             "Node '{node_name}' ({model_kind}) takes {} SSH keys only, and none of the keys \
              registered for '{}' is one. Make one with '{}', then add the public key on the web UI \
              Profile page or with 'sherpa server user ssh-key add'. See {SSH_KEYS_DOCS_URL}",
             names.join(" or "),
             account.username,
             keygen_command(*preferred)
-        );
+        ))
+        .into());
     }
 
     Ok(NodeAccount {
@@ -379,12 +381,14 @@ fn junos_key_kind(algorithm: &Algorithm) -> Result<&'static str> {
 /// Labs are started only by users with a key, so their account on lab nodes can be provisioned.
 #[instrument(level = "debug", skip(user), fields(username = %user.username))]
 pub(crate) fn require_ssh_key(user: &DbUser) -> Result<()> {
-    ensure!(
-        !user.ssh_keys.is_empty(),
-        "User '{}' has no SSH public key registered, and labs need one. Add a key on the web UI \
-         Profile page or with 'sherpa server user ssh-key add'. See {SSH_KEYS_DOCS_URL}",
-        user.username
-    );
+    if user.ssh_keys.is_empty() {
+        return Err(ServiceError::Conflict(format!(
+            "User '{}' has no SSH public key registered, and labs need one. Add a key on the web UI \
+             Profile page or with 'sherpa server user ssh-key add'. See {SSH_KEYS_DOCS_URL}",
+            user.username
+        ))
+        .into());
+    }
     Ok(())
 }
 
@@ -405,13 +409,14 @@ pub(crate) async fn require_device_password(
     db::open_device_password(db, id)
         .await
         .context("Failed to read the device password")?
-        .with_context(|| {
-            format!(
+        .ok_or_else(|| {
+            ServiceError::Conflict(format!(
                 "User '{}' has no device password, and labs need one: it is the password of your \
                  login on lab nodes. Set it with 'sherpa server user device-password' or on the \
                  web UI Profile page. See {DEVICE_PASSWORD_DOCS_URL}",
                 user.username
-            )
+            ))
+            .into()
         })
 }
 
@@ -426,13 +431,15 @@ pub(crate) async fn require_device_password(
 ///
 #[instrument(level = "debug", skip(user, device_password), fields(username = %user.username))]
 pub(crate) fn from_user(user: &DbUser, device_password: DevicePassword) -> Result<GuestAccount> {
-    validate_guest_username(&user.username, RESERVED_USERNAMES).with_context(|| {
-        format!(
-            "User '{}' cannot start labs: the name cannot be a login on lab nodes. Start the lab \
-             from another account",
-            user.username
-        )
-    })?;
+    validate_guest_username(&user.username, RESERVED_USERNAMES)
+        .with_context(|| {
+            format!(
+                "User '{}' cannot start labs: the name cannot be a login on lab nodes. Start the lab \
+                 from another account",
+                user.username
+            )
+        })
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     require_ssh_key(user)?;
     let mut seen = HashSet::new();
     let mut ssh_keys = Vec::new();

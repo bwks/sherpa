@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 
 use crate::services::error::ServiceError;
 use shared::data::{ModelKind, NodeConfig};
@@ -16,7 +16,8 @@ const IMAGE_VERSION_MAX_LEN: usize = 64;
 ///
 /// Fails on the first setting out of range, naming it.
 pub fn validate_node_image_update(model_kind: ModelKind, image: &NodeConfig) -> Result<()> {
-    check_ztp(model_kind, image.ztp())?;
+    check_ztp(model_kind, image.ztp())
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     validate_cpu_count(image.cpu.count)?;
     validate_memory(image.memory)?;
     if let Some(device) = image.interface_device() {
@@ -28,21 +29,23 @@ pub fn validate_node_image_update(model_kind: ModelKind, image: &NodeConfig) -> 
 
 fn validate_cpu_count(count: u8) -> Result<()> {
     if count < 1 {
-        bail!("CPU count must be at least 1");
+        return Err(ServiceError::Invalid("CPU count must be at least 1".to_owned()).into());
     }
     Ok(())
 }
 
 fn validate_memory(mb: u16) -> Result<()> {
     if mb < 64 {
-        bail!("Memory must be at least 64 MB");
+        return Err(ServiceError::Invalid("Memory must be at least 64 MB".to_owned()).into());
     }
     Ok(())
 }
 
 fn validate_interface_mtu(mtu: u16) -> Result<()> {
     if !(576..=9600).contains(&mtu) {
-        bail!("Interface MTU must be between 576 and 9600");
+        return Err(
+            ServiceError::Invalid("Interface MTU must be between 576 and 9600".to_owned()).into(),
+        );
     }
     Ok(())
 }

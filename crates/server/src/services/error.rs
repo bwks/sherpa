@@ -1,12 +1,19 @@
-//! Typed failures that services return inside `anyhow::Error`.
+//! Typed failures that services return inside `anyhow::Error`, and what a caller is told of
+//! any other error.
 //!
 //! Transports find a `ServiceError` with [`ServiceError::find`] and map it to their own status
-//! codes (REST status, RPC error code, HTML template), instead of matching on error text.
+//! codes (REST status, RPC error code, HTML template), instead of matching on error text. An
+//! error with no `ServiceError` in its chain is [`Unexpected`]: the caller is told only a
+//! reference, and the server logs the reference with the error's chain.
 
 use std::fmt;
 
 use db::{CpuPinTaken, UserChanged};
 use shared::error::{CpuPinConflict, MemoryShortfall};
+use uuid::Uuid;
+
+/// Hex digits of an [`Unexpected`] reference.
+const REFERENCE_LENGTH: usize = 8;
 
 /// A service refused a request for a reason the caller can act on.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +41,13 @@ pub enum ServiceError {
     },
 }
 
+/// An error of no `ServiceError` kind, as a caller sees it: a reference to the server log line
+/// that holds the error's chain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unexpected {
+    reference: String,
+}
+
 impl fmt::Display for ServiceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -48,6 +62,38 @@ impl fmt::Display for ServiceError {
 }
 
 impl std::error::Error for ServiceError {}
+
+impl Unexpected {
+    /// Log `error`, which `failure` describes, at error level with its chain (its alternate
+    /// form, which for an `anyhow::Error` is the chain) and a new random reference, and return
+    /// the reference for the caller.
+    pub fn log(error: &dyn fmt::Display, failure: &str) -> Self {
+        let mut reference = Uuid::new_v4().simple().to_string();
+        reference.truncate(REFERENCE_LENGTH);
+        tracing::error!(reference = %reference, error = %format!("{error:#}"), "{failure}");
+        Self { reference }
+    }
+}
+
+impl fmt::Display for Unexpected {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "internal error (ref {}); see the server log",
+            self.reference
+        )
+    }
+}
+
+/// What a caller is told of `error`, which `failure` describes: the message of the
+/// `ServiceError` in its chain, or else the reference of the [`Unexpected`] error it is logged
+/// as.
+pub fn caller_message(error: &anyhow::Error, failure: &str) -> String {
+    match ServiceError::find(error) {
+        Some(refusal) => refusal.to_string(),
+        None => Unexpected::log(error, failure).to_string(),
+    }
+}
 
 impl ServiceError {
     /// Find a `ServiceError` anywhere in an error chain.

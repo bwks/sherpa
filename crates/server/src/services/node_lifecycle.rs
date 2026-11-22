@@ -31,6 +31,7 @@ use virt::sys::{
     VIR_DOMAIN_PMSUSPENDED, VIR_DOMAIN_RUNNING, VIR_DOMAIN_SHUTDOWN, VIR_DOMAIN_SHUTOFF,
 };
 
+use crate::services::error::ServiceError;
 use crate::services::lab_operations::{LabOperation, ObservedLab};
 
 /// What libvirt and Docker reported in one query. A runtime that did not answer is `None`:
@@ -182,8 +183,8 @@ async fn query_libvirt_states(qemu: Arc<Qemu>) -> Result<HashMap<String, u32>> {
 /// node's new state.
 ///
 /// # Errors
-/// When the node's state does not allow the event, the error says why (its source is the
-/// `Refused`); also when the node does not exist or the database fails.
+/// When the node's state does not allow the event, a [`ServiceError::Conflict`] says why (the
+/// `Refused`'s message); also when the node does not exist or the database fails.
 #[instrument(skip(db, _operation), level = "debug")]
 pub async fn record(
     db: &db::Database,
@@ -193,7 +194,10 @@ pub async fn record(
 ) -> Result<NodeState> {
     let mut node = db::get_node(db, node_id.clone()).await?;
     for _ in 0..WRITE_ATTEMPTS {
-        let to = node.state.on_operation(event)?;
+        let to = node
+            .state
+            .on_operation(event)
+            .map_err(|refused| ServiceError::Conflict(refused.to_string()))?;
         match write(db, &node, to).await? {
             Some(moved) => return Ok(moved.state),
             None => node = db::get_node(db, node_id.clone()).await?,
@@ -237,7 +241,7 @@ async fn write(db: &db::Database, node: &DbNode, to: NodeState) -> Result<Option
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::services::lab_operations::{begin, try_observe};
+    use crate::services::lab_operations::{Operation, begin, try_observe};
     use db::{
         DefaultRequest, LabDetails, LabNetworks, create_lab, create_node, create_user,
         upsert_node_image,
@@ -336,7 +340,7 @@ pub(crate) mod tests {
     async fn lab_status_005_a_labs_status_changes_with_the_operations_write_to_its_node() {
         // The lab status does not wait for the scanner.
         let (db, _, nodes) = lab_of("lc-ops01", 1).await;
-        let operation = begin("lc-ops01").await;
+        let operation = begin("lc-ops01", Operation::Up).await;
         let node = &nodes[0];
 
         record(&db, &operation, node, OperationEvent::Launched)
@@ -354,8 +358,8 @@ pub(crate) mod tests {
     async fn node_state_013_an_operation_cannot_mark_running_a_node_stopped_meanwhile() {
         // `up` probed the node ready, and `down` stopped it before `up` wrote it.
         let (db, _, nodes) = lab_of("lc-ops02", 1).await;
-        let up = begin("lc-ops02").await;
-        let down = begin("lc-ops02").await;
+        let up = begin("lc-ops02", Operation::Up).await;
+        let down = begin("lc-ops02", Operation::Down).await;
         let node = &nodes[0];
         record(&db, &up, node, OperationEvent::Launched)
             .await
@@ -368,11 +372,14 @@ pub(crate) mod tests {
             .await
             .unwrap_err();
         assert_eq!(
-            error.downcast_ref::<Refused>(),
-            Some(&Refused {
-                state: NodeState::Stopped,
-                event: OperationEvent::Ready
-            })
+            ServiceError::find(&error),
+            Some(&ServiceError::Conflict(
+                Refused {
+                    state: NodeState::Stopped,
+                    event: OperationEvent::Ready
+                }
+                .to_string()
+            ))
         );
         assert_eq!(
             db::get_node(&db, node.clone()).await.unwrap().state,
@@ -386,7 +393,7 @@ pub(crate) mod tests {
         let (db, _, nodes) = lab_of("lc-obs01", 1).await;
         let stale = db::get_node(&db, nodes[0].clone()).await.unwrap();
         {
-            let operation = begin("lc-obs01").await;
+            let operation = begin("lc-obs01", Operation::Up).await;
             record(&db, &operation, &nodes[0], OperationEvent::Launched)
                 .await
                 .unwrap();
@@ -417,7 +424,7 @@ pub(crate) mod tests {
     async fn node_failure_008_a_failed_node_stays_failed_across_scans() {
         let (db, _, nodes) = lab_of("lc-obs03", 1).await;
         {
-            let operation = begin("lc-obs03").await;
+            let operation = begin("lc-obs03", Operation::Up).await;
             record(&db, &operation, &nodes[0], OperationEvent::Failed)
                 .await
                 .unwrap();

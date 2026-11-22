@@ -30,6 +30,7 @@ use super::secrets::{
     talos_admin_credentials,
 };
 use crate::konst::{KEYCLOAK_REALM, READINESS_SLEEP};
+use crate::services::error::ServiceError;
 use crate::services::keycloak::api::keycloak_address;
 use crate::services::lab_operations::LabOperation;
 use crate::services::progress::ProgressSender;
@@ -82,10 +83,11 @@ pub fn ensure_redeployable(
     membership: Option<(&TalosCluster, ClusterRole)>,
 ) -> Result<()> {
     if let Some((cluster, ClusterRole::ControlPlane)) = membership {
-        bail!(
+        return Err(ServiceError::Conflict(format!(
             "Node '{node_name}' is a controller of talos cluster '{}' and cannot be redeployed: its etcd member would have to be removed first. Redeploy workers only, or destroy and recreate the lab",
             cluster.name
-        );
+        ))
+        .into());
     }
     Ok(())
 }
@@ -107,11 +109,12 @@ pub fn ensure_same_membership(
         _ => false,
     };
     if !same {
-        bail!(
+        return Err(ServiceError::Conflict(format!(
             "node '{node_name}' is {} in this lab; the manifest says it is {}. To change a cluster, destroy the lab and run up again",
             describe_membership(stored),
             describe_membership(manifest)
-        );
+        ))
+        .into());
     }
     Ok(())
 }

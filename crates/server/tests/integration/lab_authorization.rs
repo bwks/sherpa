@@ -764,9 +764,9 @@ async fn starting_a_lab_requires_a_registered_ssh_key() -> Result<()> {
             RPC_TIMEOUT,
         )
         .await?;
-    let context = response["error"]["context"].as_str().unwrap_or_default();
+    let message = response["error"]["message"].as_str().unwrap_or_default();
     ensure!(
-        context.contains("no SSH public key") && context.contains(SSH_KEYS_DOCS_URL),
+        message.contains("no SSH public key") && message.contains(SSH_KEYS_DOCS_URL),
         "up without an SSH key was not refused with guidance: {response} {statuses:?}"
     );
     ensure!(
@@ -801,11 +801,11 @@ async fn keyed_owner_without_device_password(
 
 /// Whether `response` refused the request for want of a device password, saying how to set one.
 fn refused_for_the_device_password(response: &Value, username: &str) -> bool {
-    let context = response["error"]["context"].as_str().unwrap_or_default();
-    context.contains(&format!(
+    let message = response["error"]["message"].as_str().unwrap_or_default();
+    message.contains(&format!(
         "User '{username}' has no device password, and labs need one"
-    )) && context.contains("sherpa server user device-password")
-        && context.contains(DEVICE_PASSWORD_DOCS_URL)
+    )) && message.contains("sherpa server user device-password")
+        && message.contains(DEVICE_PASSWORD_DOCS_URL)
 }
 
 #[tokio::test]

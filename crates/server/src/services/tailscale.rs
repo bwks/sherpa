@@ -1,5 +1,5 @@
 //! Tailnet orchestration; callers authenticate and authorize the lab first.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use container::tailscale::{self, GatewayConfig};
 use shared::data::{DbLab, LabInfo, TailnetAuthKey, TailnetStatus};
 use shared::konst::TAILSCALE_GATEWAY_HOST_OFFSET;
@@ -9,6 +9,7 @@ use tracing::instrument;
 
 use crate::daemon::state::AppState;
 use crate::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
+use crate::services::error::ServiceError;
 use shared::validators::validate_tailscale_key;
 use topology::validate::validate_tailscale;
 
@@ -18,17 +19,23 @@ pub(crate) fn validate_enrollment(
     key: Option<&TailnetAuthKey>,
     tls_enabled: bool,
 ) -> Result<bool> {
-    validate_tailscale(manifest)?;
+    validate_tailscale(manifest).map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     let enabled = manifest.tailscale.as_ref().is_some_and(|c| c.enabled);
     if enabled {
-        ensure!(tls_enabled, "Tailscale enrollment requires server TLS");
-        let key = key.context("Tailscale is enabled but no auth key was supplied; use the CLI with tailscale.auth_key_env")?;
-        validate_tailscale_key(key.expose())?;
-    } else {
-        ensure!(
-            key.is_none(),
-            "Tailscale credential supplied without enabling tailscale in the manifest"
-        );
+        if !tls_enabled {
+            return Err(ServiceError::Invalid(
+                "Tailscale enrollment requires server TLS".to_owned(),
+            )
+            .into());
+        }
+        let key = key.ok_or_else(|| ServiceError::Invalid("Tailscale is enabled but no auth key was supplied; use the CLI with tailscale.auth_key_env".to_owned()))?;
+        validate_tailscale_key(key.expose())
+            .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    } else if key.is_some() {
+        return Err(ServiceError::Invalid(
+            "Tailscale credential supplied without enabling tailscale in the manifest".to_owned(),
+        )
+        .into());
     }
     Ok(enabled)
 }
@@ -105,22 +112,32 @@ pub(crate) fn resume_credential(
     tls_enabled: bool,
 ) -> Result<Option<&TailnetAuthKey>> {
     if !has_gateway {
-        ensure!(
-            key.is_none(),
-            "Tailscale credential supplied for a lab without a Tailscale gateway"
-        );
+        if key.is_some() {
+            return Err(ServiceError::Invalid(
+                "Tailscale credential supplied for a lab without a Tailscale gateway".to_owned(),
+            )
+            .into());
+        }
         return Ok(None);
     }
     if !whole_lab {
-        ensure!(
-            key.is_none(),
-            "Tailscale credential supplied for a single-node resume, which does not reconnect the gateway"
-        );
+        if key.is_some() {
+            return Err(ServiceError::Invalid(
+                "Tailscale credential supplied for a single-node resume, which does not reconnect the gateway"
+                    .to_owned(),
+            )
+            .into());
+        }
         return Ok(None);
     }
-    ensure!(tls_enabled, "Tailscale enrollment requires server TLS");
-    let key = key.context("Resuming a Tailscale lab needs an auth key; run sherpa resume in the lab folder with the variable named by tailscale.auth_key_env set")?;
-    validate_tailscale_key(key.expose())?;
+    if !tls_enabled {
+        return Err(
+            ServiceError::Invalid("Tailscale enrollment requires server TLS".to_owned()).into(),
+        );
+    }
+    let key = key.ok_or_else(|| ServiceError::Invalid("Resuming a Tailscale lab needs an auth key; run sherpa resume in the lab folder with the variable named by tailscale.auth_key_env set".to_owned()))?;
+    validate_tailscale_key(key.expose())
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     Ok(Some(key))
 }
 

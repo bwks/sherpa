@@ -12,6 +12,8 @@ use shared::data::{DbBridge, DbLink, DbNode, NodeConfig, NodeKind, RecordId};
 use shared::validators::effective_data_interface_count;
 use topology::Manifest;
 
+use crate::services::error::Unexpected;
+
 /// A node whose link ends are planned.
 pub(crate) struct PlannedNode<'a> {
     pub(crate) lab_id: &'a str,
@@ -42,8 +44,12 @@ pub(crate) fn recreated_end(
                 return None;
             }
             Some(
-                container_end(node, definition, &links, bridges)
-                    .unwrap_or_else(|error| RecreatedEnd::Unplanned(format!("{error:#}"))),
+                container_end(node, definition, &links, bridges).unwrap_or_else(|error| {
+                    RecreatedEnd::Unplanned(
+                        Unexpected::log(&error, "Failed to plan a container's link ends")
+                            .to_string(),
+                    )
+                }),
             )
         }
     }

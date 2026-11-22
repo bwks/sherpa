@@ -7,7 +7,7 @@ use serde::Serialize;
 use serde_json::Value;
 use shared::error::{CpuPinConflict, MemoryShortfall};
 
-use crate::services::error::ServiceError;
+use crate::services::error::{ServiceError, Unexpected, caller_message};
 
 /// Structured API error with consistent JSON format
 #[derive(Debug)]
@@ -43,8 +43,9 @@ pub enum ApiError {
         conflict: CpuPinConflict,
     },
 
-    /// 500 Internal Server Error - Server-side errors
-    InternalError { message: String },
+    /// 500 Internal Server Error - An error of no known kind, which the server has logged with
+    /// its chain. The caller is told only its reference.
+    InternalError(Unexpected),
 }
 
 #[derive(Serialize)]
@@ -101,21 +102,16 @@ impl ApiError {
         }
     }
 
-    /// Create an `InternalError`
-    pub fn internal(msg: impl Into<String>) -> Self {
-        Self::InternalError {
-            message: msg.into(),
-        }
+    /// Create an `InternalError` for `error`, which `failure` describes: the error is logged
+    /// with its chain and a reference, and only the reference is answered.
+    pub fn internal(error: impl Into<anyhow::Error>, failure: &str) -> Self {
+        Self::InternalError(Unexpected::log(&error.into(), failure))
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = self.status();
-        if let ApiError::InternalError { message } = &self {
-            // Log internal errors with context
-            tracing::error!("Internal API error: {}", message);
-        }
         (status, Json(ErrorResponse::from(self))).into_response()
     }
 }
@@ -130,7 +126,7 @@ impl ApiError {
             ApiError::BadRequest { .. } => StatusCode::BAD_REQUEST,
             ApiError::Conflict { .. } | ApiError::CpuPinsHeld { .. } => StatusCode::CONFLICT,
             ApiError::InsufficientMemory { .. } => StatusCode::INSUFFICIENT_STORAGE,
-            ApiError::InternalError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+            ApiError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
@@ -144,7 +140,7 @@ impl ApiError {
             ApiError::Conflict { .. } => "CONFLICT",
             ApiError::InsufficientMemory { .. } => "INSUFFICIENT_MEMORY",
             ApiError::CpuPinsHeld { .. } => "CPU_PINS_HELD",
-            ApiError::InternalError { .. } => "INTERNAL_ERROR",
+            ApiError::InternalError(_) => "INTERNAL_ERROR",
         }
     }
 }
@@ -170,10 +166,7 @@ impl From<ApiError> for ErrorResponse {
             ApiError::CpuPinsHeld { message, conflict } => {
                 (message, None, serde_json::to_value(conflict).ok())
             }
-            // Don't expose internal details to client
-            ApiError::InternalError { .. } => {
-                ("An internal error occurred".to_string(), None, None)
-            }
+            ApiError::InternalError(unexpected) => (unexpected.to_string(), None, None),
         };
         ErrorResponse {
             error: ErrorDetail {
@@ -186,11 +179,12 @@ impl From<ApiError> for ErrorResponse {
     }
 }
 
-/// The JSON of a streaming operation's SSE `error` event: the error's message chain, and for a
-/// typed service refusal the `code` and `data` its REST error would have, since the stream's
-/// HTTP status was sent before the operation failed.
+/// The JSON of a streaming operation's SSE `error` event: what the caller is told of the error,
+/// and for a typed service refusal the `code` and `data` its REST error would have, since the
+/// stream's HTTP status was sent before the operation failed.
 pub fn stream_error_event(error: &anyhow::Error) -> Value {
-    let mut event = serde_json::json!({ "error": format!("{error:#}") });
+    let mut event =
+        serde_json::json!({ "error": caller_message(error, "Streamed API operation failed") });
     if let Some(refusal) = ServiceError::find(error) {
         let api_error = ApiError::from(refusal);
         event["code"] = Value::from(api_error.code());
@@ -230,27 +224,13 @@ impl From<ServiceError> for ApiError {
     }
 }
 
-/// Convert `anyhow::Error` to `ApiError`
-///
-/// Authorization failures carry a typed `ServiceError` and map to 403 or 404. Other errors
-/// still fall back to matching on the error text.
+/// Convert `anyhow::Error` to `ApiError`: the `ServiceError` in its chain by its kind, and any
+/// other error as an `InternalError`.
 impl From<anyhow::Error> for ApiError {
     fn from(err: anyhow::Error) -> Self {
-        if let Some(access) = ServiceError::find(&err) {
-            return ApiError::from(access);
-        }
-
-        let err_str = format!("{err:#}");
-
-        // Pattern match on error messages
-        if err_str.contains("not found in database") || err_str.contains("not found") {
-            ApiError::not_found("Resource", err_str)
-        } else if err_str.contains("Invalid") || err_str.contains("missing") {
-            ApiError::bad_request(err_str)
-        } else {
-            // Log full error chain for debugging
-            tracing::error!("Converting anyhow error: {:?}", err);
-            ApiError::internal("An unexpected error occurred")
+        match ServiceError::find(&err) {
+            Some(refusal) => ApiError::from(refusal),
+            None => ApiError::internal(err, "API request failed"),
         }
     }
 }
@@ -261,8 +241,21 @@ mod tests {
     use axum::response::IntoResponse;
     use shared::error::{CpuPinConflict, CpuPinRole, MemoryShortfall};
 
+    /// The reference in `message`, which must be the answer to an unexpected error.
+    fn reference_of(message: &str) -> &str {
+        let reference = message
+            .strip_prefix("internal error (ref ")
+            .and_then(|rest| rest.strip_suffix("); see the server log"))
+            .unwrap_or_else(|| panic!("not an unexpected error's answer: {message}"));
+        assert!(
+            reference.len() == 8 && reference.chars().all(|c| c.is_ascii_hexdigit()),
+            "{reference}"
+        );
+        reference
+    }
+
     #[tokio::test]
-    async fn api_errors_002_an_internal_error_over_rest_has_a_general_message_and_no_detail() {
+    async fn api_errors_002_an_internal_error_over_rest_is_answered_with_a_ref_and_no_detail() {
         let err = anyhow::anyhow!("permission denied on /var/lib/sherpa/secret.key")
             .context("Failed to read lab key");
         let response = ApiError::from(err).into_response();
@@ -272,11 +265,42 @@ mod tests {
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["error"]["code"], "INTERNAL_ERROR");
-        assert_eq!(json["error"]["message"], "An internal error occurred");
+        reference_of(json["error"]["message"].as_str().unwrap());
         assert!(json["error"]["details"].is_null(), "{json}");
         let text = String::from_utf8(body.to_vec()).unwrap();
         assert!(!text.contains("secret.key"), "{text}");
         assert!(!text.contains("Failed to read lab key"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn api_errors_019_a_rest_refusal_of_a_known_kind_is_answered_with_its_own_message() {
+        let err = anyhow::Error::new(ServiceError::NotFound(
+            "Node 'r9' not found in lab 'abc12345'".to_owned(),
+        ))
+        .context("Failed to stop node");
+        let response = ApiError::from(err).into_response();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"]["code"], "NOT_FOUND");
+        assert_eq!(
+            json["error"]["details"],
+            "Node 'r9' not found in lab 'abc12345'"
+        );
+    }
+
+    #[test]
+    fn api_errors_021_a_streamed_rest_failure_of_no_known_kind_is_a_ref_without_its_chain() {
+        let err = anyhow::anyhow!("Docker responded with status code 500: no such image")
+            .context("Failed to pull image");
+        let event = stream_error_event(&err);
+        reference_of(event["error"].as_str().unwrap());
+        assert!(event.get("code").is_none(), "{event}");
+        let text = event.to_string();
+        assert!(!text.contains("Docker"), "{text}");
+        assert!(!text.contains("Failed to pull image"), "{text}");
     }
 
     #[test]
@@ -336,10 +360,7 @@ mod tests {
         let event = stream_error_event(&memory_refusal());
         assert_eq!(event["code"], "INSUFFICIENT_MEMORY");
         assert_eq!(event["data"]["available_mib"], 2048);
-        assert_eq!(
-            event["error"],
-            "Memory admission failed: Not enough memory on the server"
-        );
+        assert_eq!(event["error"], "Not enough memory on the server");
     }
 
     fn pin_refusal() -> anyhow::Error {

@@ -29,8 +29,9 @@ use crate::konst::{
     SHERPA_SECRETS_DIR, TAP_PREFIX,
 };
 use crate::services::console;
+use crate::services::error::Unexpected;
 use crate::services::lab_lifecycle;
-use crate::services::lab_operations::{self, LabHold, StopReason};
+use crate::services::lab_operations::{self, LabHold};
 use crate::services::node_secrets::remove_lab_secrets;
 use crate::services::progress::ProgressSender;
 
@@ -74,7 +75,7 @@ pub async fn destroy_lab(
         "Stopping operations in progress on this lab...".to_string(),
         StatusKind::Progress,
     );
-    let (was_running, stopped) = lab_operations::stop(lab_id, StopReason::Destroy).await;
+    let (was_running, stopped) = lab_operations::stop(lab_id).await;
     if was_running {
         tracing::info!(lab_id = %lab_id, "Stopped operations in progress before destruction");
         let _ = progress.send_status(
@@ -163,12 +164,21 @@ pub(crate) async fn tear_down_lab(
             if let Err(error) =
                 lab_lifecycle::record(&state.db, hold, LabEvent::DestroyStarted).await
             {
-                errors.push(DestroyError::new("database", lab_id, format!("{error:#}")));
+                errors.push(DestroyError::new(
+                    "database",
+                    lab_id,
+                    Unexpected::log(&error, "Failed to remove the lab from the database")
+                        .to_string(),
+                ));
             }
             true
         }
         Err(error) => {
-            errors.push(DestroyError::new("database", lab_id, format!("{error:#}")));
+            errors.push(DestroyError::new(
+                "database",
+                lab_id,
+                Unexpected::log(&error, "Failed to remove the lab from the database").to_string(),
+            ));
             true
         }
     };
@@ -185,7 +195,7 @@ pub(crate) async fn tear_down_lab(
         errors.push(DestroyError::new(
             "filesystem",
             console::console_dir(Path::new(SHERPA_CONSOLE_DIR), lab_id).to_string_lossy(),
-            format!("{error:#}"),
+            Unexpected::log(&error, "Failed to remove a lab folder").to_string(),
         ));
     }
 
@@ -432,7 +442,11 @@ pub(crate) async fn cleanup_lab_metadata(
     );
     if dir_exists(lab_dir) {
         if let Err(e) = fs::remove_dir_all(lab_dir) {
-            errors.push(DestroyError::new("filesystem", lab_dir, format!("{e:?}")));
+            errors.push(DestroyError::new(
+                "filesystem",
+                lab_dir,
+                Unexpected::log(&e, "Failed to remove a lab folder").to_string(),
+            ));
             tracing::error!(lab_id = %lab_id, lab_dir = %lab_dir, error = ?e, "Failed to delete lab directory; keeping the lab record");
             return;
         }
@@ -455,7 +469,11 @@ pub(crate) async fn cleanup_lab_metadata(
             tracing::info!(lab_id = %lab_id, "Database cleanup successful");
         }
         Err(e) => {
-            errors.push(DestroyError::new("database", lab_id, format!("{e:#}")));
+            errors.push(DestroyError::new(
+                "database",
+                lab_id,
+                Unexpected::log(&e, "Failed to remove the lab from the database").to_string(),
+            ));
             tracing::error!(lab_id = %lab_id, error = ?e, "Database cleanup failed");
         }
     }
@@ -466,7 +484,11 @@ pub(crate) async fn cleanup_lab_metadata(
 pub(crate) fn destroy_lab_secrets(lab_id: &str, root: &Path, errors: &mut Vec<DestroyError>) {
     if let Err(error) = remove_lab_secrets(root, lab_id) {
         tracing::error!(lab_id = %lab_id, error = %format!("{error:#}"), "Failed to remove lab secret files");
-        errors.push(DestroyError::new("secrets", lab_id, format!("{error:#}")));
+        errors.push(DestroyError::new(
+            "secrets",
+            lab_id,
+            Unexpected::log(&error, "Failed to remove the lab secret files").to_string(),
+        ));
     }
 }
 
@@ -563,7 +585,11 @@ pub(crate) async fn destroy_containers(
                     }
                     Err(e) => {
                         summary.containers_failed.push(name.to_string());
-                        errors.push(DestroyError::new("container", name, format!("{e:?}")));
+                        errors.push(DestroyError::new(
+                            "container",
+                            name,
+                            Unexpected::log(&e, "Failed to destroy a container").to_string(),
+                        ));
                         tracing::error!(
                             lab_id = %lab_id,
                             container_name = %name,
@@ -575,10 +601,11 @@ pub(crate) async fn destroy_containers(
             }
         }
         Err(e) => {
+            let reference = Unexpected::log(&e, "Failed to list containers");
             errors.push(DestroyError::new(
                 "container",
                 "list_containers",
-                format!("Failed to list containers: {e:?}"),
+                format!("Failed to list containers: {reference}"),
             ));
             tracing::error!(lab_id = %lab_id, error = ?e, "Failed to list containers");
         }
@@ -591,7 +618,8 @@ pub(crate) async fn destroy_containers(
             "tailscale",
             lab_id,
             format!(
-                "{error:#}; lab ownership and saved configuration retained for a cleanup retry"
+                "{}; lab ownership and saved configuration retained for a cleanup retry",
+                Unexpected::log(&error, "Failed to remove the Tailscale gateway")
             ),
         ));
         summary.containers_failed.push(gateway_name(lab_id));
@@ -609,12 +637,12 @@ pub(crate) fn destroy_vms_and_disks(
     let qemu_conn = match qemu.connect() {
         Ok(conn) => conn,
         Err(e) => {
+            let reference = Unexpected::log(&e, "Failed to connect to libvirt");
             errors.push(DestroyError::new(
                 "vm",
                 "libvirt",
-                format!("Failed to connect to libvirt: {e:?}"),
+                format!("Failed to connect to libvirt: {reference}"),
             ));
-            tracing::error!(lab_id = %lab_id, error = ?e, "Failed to connect to libvirt to destroy VMs");
             return;
         }
     };
@@ -623,12 +651,12 @@ pub(crate) fn destroy_vms_and_disks(
     let domains = match qemu_conn.list_all_domains(0) {
         Ok(domains) => domains,
         Err(e) => {
+            let reference = Unexpected::log(&e, "Failed to list domains");
             errors.push(DestroyError::new(
                 "vm",
                 "list_domains",
-                format!("Failed to list domains: {e:?}"),
+                format!("Failed to list domains: {reference}"),
             ));
-            tracing::error!(lab_id = %lab_id, error = ?e, "Failed to list libvirt domains");
             return;
         }
     };
@@ -637,10 +665,11 @@ pub(crate) fn destroy_vms_and_disks(
         let vm_name = match domain.get_name() {
             Ok(name) => name,
             Err(e) => {
+                let reference = Unexpected::log(&e, "Failed to get domain name");
                 errors.push(DestroyError::new(
                     "vm",
                     "unknown",
-                    format!("Failed to get domain name: {e:?}"),
+                    format!("Failed to get domain name: {reference}"),
                 ));
                 continue;
             }
@@ -668,8 +697,11 @@ pub(crate) fn destroy_vms_and_disks(
             }
             Err(e) => {
                 summary.vms_failed.push(vm_name.clone());
-                errors.push(DestroyError::new("vm", &vm_name, format!("{e:?}")));
-                tracing::error!("Failed to destroy VM {}: {:?}", vm_name, e);
+                errors.push(DestroyError::new(
+                    "vm",
+                    &vm_name,
+                    Unexpected::log(&e, "Failed to destroy a VM").to_string(),
+                ));
             }
         }
     }
@@ -685,9 +717,8 @@ pub(crate) fn destroy_vms_and_disks(
             errors.push(DestroyError::new(
                 "disk",
                 SHERPA_STORAGE_POOL,
-                format!("{e:?}"),
+                Unexpected::log(&e, "Failed to delete a disk").to_string(),
             ));
-            tracing::error!(lab_id = %lab_id, error = ?e, "Failed to list lab disks");
             return;
         }
     };
@@ -700,7 +731,11 @@ pub(crate) fn destroy_vms_and_disks(
             }
             Err(e) => {
                 summary.disks_failed.push(disk.clone());
-                errors.push(DestroyError::new("disk", disk, format!("{e:?}")));
+                errors.push(DestroyError::new(
+                    "disk",
+                    disk,
+                    Unexpected::log(&e, "Failed to delete a disk").to_string(),
+                ));
                 tracing::error!("Failed to delete disk {}: {:?}", disk, e);
             }
         }
@@ -730,7 +765,8 @@ pub(crate) async fn destroy_docker_networks(
                             errors.push(DestroyError::new(
                                 "docker_network",
                                 &network_name,
-                                format!("{e:?}"),
+                                Unexpected::log(&e, "Failed to destroy a Docker network")
+                                    .to_string(),
                             ));
                             tracing::error!(
                                 "Failed to destroy Docker network {}: {:?}",
@@ -743,10 +779,11 @@ pub(crate) async fn destroy_docker_networks(
             }
         }
         Err(e) => {
+            let reference = Unexpected::log(&e, "Failed to list Docker networks");
             errors.push(DestroyError::new(
                 "docker_network",
                 "list_networks",
-                format!("Failed to list Docker networks: {e:?}"),
+                format!("Failed to list Docker networks: {reference}"),
             ));
             tracing::error!("Failed to list Docker networks: {:?}", e);
         }
@@ -764,10 +801,11 @@ pub(crate) fn destroy_libvirt_networks(
     let qemu_conn = match qemu.connect() {
         Ok(conn) => conn,
         Err(e) => {
+            let reference = Unexpected::log(&e, "Failed to connect to libvirt");
             errors.push(DestroyError::new(
                 "libvirt_network",
                 "libvirt",
-                format!("Failed to connect to libvirt: {e:?}"),
+                format!("Failed to connect to libvirt: {reference}"),
             ));
             tracing::error!(lab_id = %lab_id, error = ?e, "Failed to connect to libvirt to destroy networks");
             return;
@@ -776,10 +814,11 @@ pub(crate) fn destroy_libvirt_networks(
     let networks = match qemu_conn.list_all_networks(0) {
         Ok(networks) => networks,
         Err(e) => {
+            let reference = Unexpected::log(&e, "Failed to list networks");
             errors.push(DestroyError::new(
                 "libvirt_network",
                 "list_networks",
-                format!("Failed to list networks: {e:?}"),
+                format!("Failed to list networks: {reference}"),
             ));
             tracing::error!(lab_id = %lab_id, error = ?e, "Failed to list libvirt networks");
             return;
@@ -790,10 +829,11 @@ pub(crate) fn destroy_libvirt_networks(
         let network_name = match network.get_name() {
             Ok(name) => name,
             Err(e) => {
+                let reference = Unexpected::log(&e, "Failed to get network name");
                 errors.push(DestroyError::new(
                     "libvirt_network",
                     "unknown",
-                    format!("Failed to get network name: {e:?}"),
+                    format!("Failed to get network name: {reference}"),
                 ));
                 continue;
             }
@@ -819,7 +859,7 @@ pub(crate) fn destroy_libvirt_networks(
                     errors.push(DestroyError::new(
                         "libvirt_network",
                         &network_name,
-                        format!("{e:?}"),
+                        Unexpected::log(&e, "Failed to destroy a libvirt network").to_string(),
                     ));
                     tracing::error!(
                         "Failed to destroy libvirt network {}: {:?}",
@@ -852,7 +892,7 @@ pub(crate) async fn destroy_interfaces(
                             errors.push(DestroyError::new(
                                 "interface",
                                 &interface,
-                                format!("{e:?}"),
+                                Unexpected::log(&e, "Failed to delete an interface").to_string(),
                             ));
                             tracing::error!("Failed to delete interface {}: {:?}", interface, e);
                         }
@@ -861,10 +901,11 @@ pub(crate) async fn destroy_interfaces(
             }
         }
         Err(e) => {
+            let reference = Unexpected::log(&e, "Failed to find interfaces");
             errors.push(DestroyError::new(
                 "interface",
                 "find_interfaces",
-                format!("Failed to find interfaces: {e:?}"),
+                format!("Failed to find interfaces: {reference}"),
             ));
             tracing::error!("Failed to find interfaces: {:?}", e);
         }
@@ -894,6 +935,33 @@ mod tests {
     const LAB_ID: &str = "fecb1a12";
     /// The lab key a lab from before 0.7.0 still has in its folder, as a file to delete.
     const OLD_LAB_KEY: &str = "sherpa_ssh_key";
+
+    #[test]
+    fn api_errors_022_a_resource_destroy_could_not_remove_is_named_with_a_ref_and_no_path() {
+        let root = tempdir().unwrap();
+        // A file where the lab's secrets folder should be cannot be removed as a folder.
+        fs::write(root.path().join(LAB_ID), "not a folder").unwrap();
+        let mut errors = Vec::new();
+        destroy_lab_secrets(LAB_ID, root.path(), &mut errors);
+        let [error] = errors.as_slice() else {
+            panic!("{errors:?}");
+        };
+        assert_eq!(error.resource_type, "secrets");
+        assert_eq!(error.resource_name, LAB_ID);
+        assert!(
+            error.error_message.starts_with("internal error (ref ")
+                && error.error_message.ends_with("); see the server log"),
+            "{}",
+            error.error_message
+        );
+        assert!(
+            !error
+                .error_message
+                .contains(&root.path().display().to_string()),
+            "{}",
+            error.error_message
+        );
+    }
 
     #[test]
     fn containers_are_the_labs_only_by_whole_name() {

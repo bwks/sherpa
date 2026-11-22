@@ -232,7 +232,7 @@ The session cookie that keeps another site's requests from acting as the user is
 | 008 | An operation that needs no login has no security requirement in the OpenAPI document | unit |
 | 009 | An admin operation is marked `x-admin-required` in the OpenAPI document | unit |
 | 010 | A path's parameters are listed for it | unit |
-| 011 | Every schema reference in the OpenAPI document points inside the document | unit |
+| 011 | Every `$ref` in the OpenAPI document, `/api/v1/openapi.json`, resolves inside the document, as a nested type's schema in `components/schemas` | unit |
 
 ## `server_status`: anyone can ask whether a server is up
 
@@ -248,18 +248,18 @@ The session cookie that keeps another site's requests from acting as the user is
 
 ## `api_errors`: a refused or failed request is answered with what went wrong
 
-**Statement:** a request the server refuses or fails is answered with the kind of failure, as a code a client can act on, and a message for the user, which for a request that does not parse is fixed, names at most the path of the field that is wrong and never the value sent; a failed CLI command prints it and exits 1.
+**Statement:** a request the server refuses or fails is answered with the kind of failure, as a code a client can act on, and a message for the user, which for a request that does not parse is fixed, names at most the path of the field that is wrong and never the value sent; a failure is classified by its error type, never its text: a refusal of a known kind (not found, denied, invalid, conflict, memory, CPU pins) is answered with its own message, and any other failure with `internal error (ref <id>); see the server log`, where `<id>` is a short random reference the server logs at error level with the error's chain; no answer, over RPC, REST or the web UI, carries a file path, libvirt or Docker text, or an error's chain; a failed CLI command prints the answer and exits 1.
 **Relied on by:** the CLI, the web UI's scripts, users' scripts and clients. **Priority:** P1.
 
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | An RPC call of a method the server does not have is answered method not found, `-32601` | integration |
-| 002 | An internal error over REST is answered with the code `INTERNAL_ERROR` and a general message, and none of its detail | unit |
-| 003 | An RPC failure of no known kind is a server error with the operation's message, the error's chain of messages as its context, not its debug form, and no data | unit |
+| 002 | An internal error over REST is answered 500 with the code `INTERNAL_ERROR`, the message `internal error (ref <id>); see the server log`, and none of its detail | unit |
+| 003 | Retired: an RPC failure of no known kind no longer carries its chain as context; see 016 | |
 | 004 | An RPC refusal of a known kind keeps its code and its own message, and has no context | unit |
 | 005 | An error code is sent as its JSON-RPC number and read back from it, and a number this version does not know is kept as it came | unit |
 | 006 | Over REST each kind of failure has its status, 401, 403, 404, 400, 409, 507 for memory and 500, in an `error` object with a code and a message (no test yet; the 403, 404 and 409 of single operations are cases of `access_control` and `user_accounts`) | integration |
-| 007 | A REST failure of no known kind whose text has `not found`, `Invalid` or `missing` in it is answered 404 or 400 with its whole chain of messages as the detail (no test yet) | unit |
+| 007 | Retired: REST failures are no longer classified by their text; see 002 and 019 | |
 | 008 | A CLI command the server refuses or fails prints the error with its causes and exits 1 (no test at this level yet) | e2e |
 | 009 | RPC parameters that do not parse, for any method, are answered invalid params with the method's message, and the context `the request is not valid at <path>`, such as `password`, `ztp_password` or `files[0].mode`, or `the request is not valid` for a missing top-level field or a field sent with a name that is not plain; never the value sent: a password sent as a number is not in it | unit |
 | 010 | A REST JSON body that does not parse is answered 400 `BAD_REQUEST`, `Invalid request`, with the details `the request is not valid at <path>`, or `the request is not valid` for a missing top-level field, never the value sent; a body that is not JSON, or not sent as JSON, says only that | unit |
@@ -268,5 +268,12 @@ The session cookie that keeps another site's requests from acting as the user is
 | 013 | A request that does not parse logs nothing of what was sent, at any level: not a password sent as a number, nor a string nested in a value of the wrong type | unit |
 | 014 | An up whose manifest does not parse is refused with the path in the manifest, such as `nodes[0].model`, never its value | unit |
 | 015 | A redeploy whose manifest does not parse is refused with the path in the manifest, such as `nodes[0].model`, never its value | unit |
+| 016 | An RPC failure of no known kind is a server error with the message `internal error (ref <id>); see the server log`, no context and no data, and none of its chain | unit |
+| 017 | A web job, made or destroyed in the web UI, that fails for no known kind shows `internal error (ref <id>); see the server log` on its job page, and none of its chain | unit |
+| 018 | The reference an unexpected failure is answered with is in the server log at error level, on one line with what failed and the error's chain | unit |
+| 019 | A REST refusal of a known kind is answered with its status and its own message, such as 404 with the node that is not in the lab | unit |
+| 020 | A web job that fails with a refusal of a known kind shows its own message on its job page | unit |
+| 021 | The `error` event of a streamed REST operation that fails for no known kind carries `internal error (ref <id>); see the server log`, no code, and none of its chain | unit |
+| 022 | An error a destroy or a clean reports for a resource it could not remove names the resource and gives the reference, never the error's text or a path | unit |
 
 Exit status 75, for a refusal for memory or held CPUs, and what those refusals carry, are `lab_preflight_007` in [lab-lifecycle.md](lab-lifecycle.md). That a request which does not parse is answered without its secrets is `provisioner_secrecy_004`. The path in the answer to a request that does not parse is given only when each of its segments is an index or a plain name of letters, digits, `_` and `-`, since a map key or an unknown field is what the client sent; serde gives none inside an internally tagged enum, such as the WebSocket message's own fields. A JSON key sent twice is refused as `the request is not valid`.

@@ -1,4 +1,7 @@
-use anyhow::{Context, Result, anyhow};
+use std::error::Error;
+use std::fmt;
+
+use anyhow::{Result, anyhow};
 use jiff::Timestamp;
 use shared::auth::password::hash_password;
 use shared::data::DbUser;
@@ -11,6 +14,20 @@ use crate::Database;
 use crate::persistence::{new_key, user_from_row, user_values};
 use crate::queries;
 use crate::sql::query_optional;
+
+/// `create_user` was given a username another user already has.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UsernameTaken {
+    pub username: String,
+}
+
+impl fmt::Display for UsernameTaken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Username '{}' is already taken", self.username)
+    }
+}
+
+impl Error for UsernameTaken {}
 
 /// Create a new user in the database
 ///
@@ -27,7 +44,7 @@ use crate::sql::query_optional;
 /// # Errors
 /// - If username validation fails
 /// - If password validation fails (see `shared::auth::password`)
-/// - If username already exists (unique constraint violation)
+/// - With [`UsernameTaken`] if username already exists (unique constraint violation)
 /// - If there's a database error during creation
 ///
 #[instrument(skip(db, password), level = "debug")]
@@ -86,7 +103,15 @@ async fn insert_user(
         user_from_row,
     )
     .await
-    .context(format!("Failed to create user: '{username}'"))?;
+    .map_err(|error| match error.downcast_ref::<turso::Error>() {
+        // The username is checked and the password hashed before the insert, and the username
+        // is the table's only unique column, so a refused constraint is a taken username.
+        Some(turso::Error::Constraint(_)) => UsernameTaken {
+            username: username.clone(),
+        }
+        .into(),
+        _ => error.context(format!("Failed to create user: '{username}'")),
+    })?;
 
     created.ok_or_else(|| anyhow!("User was not created: '{username}'"))
 }

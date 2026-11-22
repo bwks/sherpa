@@ -379,12 +379,12 @@ mod tests {
     use shared::data::NodeState;
 
     use super::*;
-    use crate::services::lab_operations::begin;
+    use crate::services::lab_operations::{Operation, begin};
     use crate::services::node_lifecycle::tests::lab_of;
 
     async fn launched_container(lab_id: &str) -> (db::Database, RecordId) {
         let (db, _, nodes) = lab_of(lab_id, 1).await;
-        let operation = begin(lab_id).await;
+        let operation = begin(lab_id, Operation::Redeploy).await;
         node_lifecycle::record(&db, &operation, &nodes[0], OperationEvent::Launched)
             .await
             .unwrap();
@@ -394,7 +394,7 @@ mod tests {
     #[tokio::test]
     async fn cluster_redeploy_004_a_container_is_not_running_before_its_services_are_restored() {
         let (db, node) = launched_container("rd-rest1").await;
-        let operation = begin("rd-rest1").await;
+        let operation = begin("rd-rest1", Operation::Redeploy).await;
         let restore = async {
             let state = db::get_node(&db, node.clone()).await?.state;
             assert_eq!(state, NodeState::Starting);
@@ -414,7 +414,7 @@ mod tests {
     #[tokio::test]
     async fn cluster_redeploy_005_a_container_whose_services_are_restored_is_running() {
         let (db, node) = launched_container("rd-rest2").await;
-        let operation = begin("rd-rest2").await;
+        let operation = begin("rd-rest2", Operation::Redeploy).await;
 
         ready_after_restore(&db, &operation, &node, async { Ok(()) })
             .await

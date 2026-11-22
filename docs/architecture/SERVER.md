@@ -154,6 +154,20 @@ progress, takes a lock or touches a resource; requests carry no username. Refusa
 `ServiceError` each transport maps to its status, never decided by error text. Who may do what is
 `tests/specs/accounts-and-auth.md`, `access_control`.
 
+### What a caller is told of an error
+
+`services::error` classifies every failure by type. A `ServiceError` (not found, denied, invalid,
+conflict, memory, CPU pins) carries the message the user is shown, so a refusal of what the user
+sent or of the current state is typed where it is raised, or where a validator that refuses only
+user input is called, with its full wording. Anything else is `Unexpected`: `Unexpected::log`
+logs what failed and the error's chain at `error` level with a short random reference, and the
+caller gets only `internal error (ref <id>); see the server log`. RPC (`service_error`), REST
+(`ApiError::from`, the SSE `error` event), the web UI's job page and fragments
+(`caller_message`), and the errors inside an answer (a destroy's `DestroyError`s, an up's
+service errors, down and resume per-node messages) all go through it, so no caller sees a path,
+libvirt or Docker text, or a chain. The outer `.context` of a typed error is not sent: only the
+`ServiceError`'s own message is. The cases are `tests/specs/inspect-and-web-ui.md`, `api_errors`.
+
 #### The admin boundary
 
 Admins see and manage every lab, but only its owner connects to its nodes: the owner is their only
@@ -202,10 +216,16 @@ otherwise the folder goes before the record, so a stuck folder still has a recor
 
 Long operations run as their own tasks and outlive their client (`run_detached` for plain HTTP, as
 axum drops a handler's future on disconnect). `services::lab_operations` gives each lab a lease and
-a cancellation token: operations share the read lease, so the lab's phase, not the lease, keeps them
-apart, and `REDEPLOY_LOCKS` serialises only a lab's redeploys with each other; destroy, clean, a requested stop and the scanner take the write lease. The token is checked
-only at safe points, as disk and VM steps run in `spawn_blocking` tasks that a dropped future would
-leave running. VM image leases end once every disk and domain exists, so a long readiness wait
+a cancellation token, and records what holds or waits for the lease as a `LeaseHolder`: an
+`Operation` (`up`, `redeploy`, `resume`, `down`, the startup recovery) shares the read lease, so
+the lab's phase, not the lease, keeps them apart, and `REDEPLOY_LOCKS` serialises only a lab's
+redeploys with each other; a destroy, a clean, a requested stop and the scanner take the write
+lease. The token is checked only at safe points, as disk and VM steps run in `spawn_blocking`
+tasks that a dropped future would leave running; `down` checks it once, before it starts, and the
+recovery never. A requested stop (`request_stop`, the `cancel` call) acts only when an `up`,
+`redeploy` or `resume` holds or waits for the lease: it cancels the token, waits for the write
+lease and answers `stopped: true`. When only a `down`, a recovery, a destroy or the scanner holds
+the lab, it cancels nothing and answers `stopped: false` at once. VM image leases end once every disk and domain exists, so a long readiness wait
 does not block image changes.
 
 ### Admission: memory and CPU pins

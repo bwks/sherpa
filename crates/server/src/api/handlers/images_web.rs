@@ -1,6 +1,5 @@
 //! The web UI's admin image pages and upload.
 
-use anyhow::{Context, anyhow, bail};
 use axum::extract::{Multipart, Path, State};
 use axum::http::header;
 use axum::response::{Html, IntoResponse, Response};
@@ -18,6 +17,7 @@ use db::{DefaultRequest, LastDefaultImage};
 
 use crate::api::request_parse::{FormBody, InvalidRequest};
 use crate::daemon::state::AppState;
+use crate::services::error::{ServiceError, caller_message};
 use crate::services::image_lifecycle::lock_image;
 use crate::services::import;
 use crate::services::progress::ProgressSender;
@@ -76,10 +76,9 @@ pub async fn admin_images_list_handler(
     tracing::debug!("Admin requesting images list");
 
     // Fetch all node images from database
-    let configs = db::list_node_images(&state.db).await.map_err(|e| {
-        tracing::error!("Failed to list images: {:?}", e);
-        ApiError::internal("Failed to load image configurations")
-    })?;
+    let configs = db::list_node_images(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(e, "Failed to load image configurations"))?;
 
     // One row per model and kind, ordered by model and then by the model's order of kinds,
     // showing the default version, or else the first one found.
@@ -217,7 +216,8 @@ fn form_choices<T: IntoEnumIterator + Display + PartialEq>(current: &T) -> Vec<F
 /// One of the form's choices, by the enum's serde name.
 fn parse_form_choice<T: DeserializeOwned>(value: &str, field_name: &str) -> anyhow::Result<T> {
     let deserializer: StrDeserializer<'_, DeError> = value.into_deserializer();
-    T::deserialize(deserializer).map_err(|_| anyhow!("Invalid {field_name}: {value}"))
+    T::deserialize(deserializer)
+        .map_err(|_| ServiceError::Invalid(format!("Invalid {field_name}: {value}")).into())
 }
 
 /// The image's new configuration from the form: the settings every kind takes, and the
@@ -232,7 +232,10 @@ fn parse_form_choice<T: DeserializeOwned>(value: &str, field_name: &str) -> anyh
 fn updated_image_config(config: NodeConfig, form: ImageForm) -> anyhow::Result<NodeConfig> {
     let kind = config.kind();
     if let Some((key, ..)) = kind_settings::first_not_taken(kind, &form.kind_fields()) {
-        bail!("The form sets `{key}`, which a {kind} image does not take");
+        return Err(ServiceError::Invalid(format!(
+            "The form sets `{key}`, which a {kind} image does not take"
+        ))
+        .into());
     }
     let settings = match &config.settings {
         KindSettings::VirtualMachine(_) => KindSettings::VirtualMachine(VmSettings {
@@ -310,7 +313,12 @@ fn updated_image_config(config: NodeConfig, form: ImageForm) -> anyhow::Result<N
 
 /// A form field an image of `kind` needs.
 fn form_field<T>(value: Option<T>, field: &str, kind: NodeKind) -> anyhow::Result<T> {
-    value.with_context(|| format!("The form has no `{field}`, which a {kind} image needs"))
+    value.ok_or_else(|| {
+        ServiceError::Invalid(format!(
+            "The form has no `{field}`, which a {kind} image needs"
+        ))
+        .into()
+    })
 }
 
 /// A choice an image of `kind` needs, by the enum's serde name.
@@ -556,10 +564,7 @@ pub async fn admin_image_update_handler(
             }
             .into_response());
         }
-        tracing::error!("Failed to update image: {:?}", error);
-        return Err(ApiError::internal(format!(
-            "Failed to update configuration: {error}"
-        )));
+        return Err(ApiError::internal(error, "Failed to update configuration"));
     }
 
     tracing::info!(
@@ -579,9 +584,8 @@ pub async fn admin_image_update_handler(
     let mut response = Html("").into_response();
     response.headers_mut().insert(
         header::HeaderName::from_static("hx-redirect"),
-        header::HeaderValue::from_str(&redirect_url).map_err(|e| {
-            ApiError::internal(format!("Failed to create redirect header value: {e}"))
-        })?,
+        header::HeaderValue::from_str(&redirect_url)
+            .map_err(|e| ApiError::internal(e, "Failed to create redirect header value"))?,
     );
 
     Ok(response)
@@ -606,10 +610,7 @@ pub async fn admin_image_versions_handler(
     // Fetch all versions for this model/kind
     let versions = db::get_node_image_versions(&state.db, &model_enum, &kind_enum)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to fetch image versions: {:?}", e);
-            ApiError::internal(format!("Failed to fetch versions: {e}"))
-        })?;
+        .map_err(|e| ApiError::internal(e, "Failed to fetch versions"))?;
 
     tracing::debug!("Found {} versions for {}", versions.len(), model);
 
@@ -800,7 +801,13 @@ pub async fn admin_image_upload_handler(
     if let Err(e) = tokio::fs::write(&temp_file, &fields.file_data).await {
         tracing::error!("Failed to write temp file {}: {:?}", temp_path, e);
         return Ok(AdminNotificationErrorTemplate {
-            message: format!("Failed to save uploaded file: {e}"),
+            message: format!(
+                "Failed to save uploaded file: {}",
+                caller_message(
+                    &anyhow::Error::from(e),
+                    "Failed to save the uploaded image file"
+                )
+            ),
         }
         .into_response());
     }
@@ -844,7 +851,10 @@ pub async fn admin_image_upload_handler(
         Err(e) => {
             tracing::error!("Image upload failed: {:?}", e);
             Ok(AdminNotificationErrorTemplate {
-                message: format!("Import failed: {e}"),
+                message: format!(
+                    "Import failed: {}",
+                    caller_message(&e, "Image import failed")
+                ),
             }
             .into_response())
         }

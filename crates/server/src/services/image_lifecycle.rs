@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use bollard::Docker;
 use dashmap::DashMap;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
@@ -104,19 +104,23 @@ pub(crate) async fn lease_image(model_kind: ModelKind, version: &str) -> ImageLe
     Arc::new(lock.read_owned().await)
 }
 
-/// Validate policy and base before any resource creation or redeploy teardown.
+/// Validate policy and base before any resource creation or redeploy teardown. A refusal
+/// names the node `node_name`.
 #[instrument(level = "debug", skip(image))]
 pub(crate) fn validate_disk_method(
+    node_name: &str,
     method: Option<DiskImageCloneMethod>,
     image: &NodeConfig,
     images_dir: &str,
     size_gb: Option<u16>,
 ) -> Result<()> {
     if image.kind() != NodeKind::VirtualMachine {
-        ensure!(
-            method != Some(DiskImageCloneMethod::Overlay),
-            "Overlay provisioning is supported only for VM boot disks"
-        );
+        if method == Some(DiskImageCloneMethod::Overlay) {
+            return Err(ServiceError::Invalid(format!(
+                "Disk provisioning validation failed for node {node_name}: Overlay provisioning is supported only for VM boot disks"
+            ))
+            .into());
+        }
         return Ok(());
     }
     if method.unwrap_or_default() == DiskImageCloneMethod::Copy {
@@ -126,9 +130,15 @@ pub(crate) fn validate_disk_method(
         .join(image.model.to_string())
         .join(&image.version)
         .join(VM_DISK_FILENAME);
-    libvirt::read_qcow2_metadata(&path)?
+    libvirt::read_qcow2_metadata(&path)
+        .with_context(|| format!("Disk provisioning validation failed for node {node_name}"))?
         .overlay_capacity(size_gb)
-        .context("VM boot image is ineligible for overlay provisioning")?;
+        .context("VM boot image is ineligible for overlay provisioning")
+        .map_err(|error| {
+            ServiceError::Invalid(format!(
+                "Disk provisioning validation failed for node {node_name}: {error:#}"
+            ))
+        })?;
     Ok(())
 }
 
@@ -149,11 +159,13 @@ pub(crate) async fn check_container_image(
     let found = container::image_exists(docker, &reference)
         .await
         .with_context(|| format!("Cannot check the container image of node '{node_name}'"))?;
-    ensure!(
-        found,
-        "Container image not found in local Docker for node '{node_name}': {reference}\n\
-         Hint: Pull the image with: sherpa server image pull --model {model} --repo {reference}"
-    );
+    if !found {
+        return Err(ServiceError::Conflict(format!(
+            "Container image not found in local Docker for node '{node_name}': {reference}\n\
+             Hint: Pull the image with: sherpa server image pull --model {model} --repo {reference}"
+        ))
+        .into());
+    }
     Ok(())
 }
 
@@ -195,9 +207,10 @@ mod tests {
     fn unsupported_kinds_do_not_fall_back_to_copy() {
         for model in [NodeModel::MysqlDb, NodeModel::NanosUnikernel] {
             let image = ModelKind::default_for(model).node_config();
-            assert!(validate_disk_method(None, &image, "/missing", None).is_ok());
+            assert!(validate_disk_method("n1", None, &image, "/missing", None).is_ok());
             assert!(
                 validate_disk_method(
+                    "n1",
                     Some(DiskImageCloneMethod::Overlay),
                     &image,
                     "/missing",
@@ -206,8 +219,14 @@ mod tests {
                 .is_err()
             );
             assert!(
-                validate_disk_method(Some(DiskImageCloneMethod::Copy), &image, "/missing", None)
-                    .is_ok()
+                validate_disk_method(
+                    "n1",
+                    Some(DiskImageCloneMethod::Copy),
+                    &image,
+                    "/missing",
+                    None
+                )
+                .is_ok()
             );
         }
     }
@@ -223,13 +242,19 @@ mod tests {
         let base = directory.join(VM_DISK_FILENAME);
         fs::write(&base, "not a QCOW2 image").unwrap();
         let images_dir = root.path().to_str().unwrap();
-        assert!(validate_disk_method(None, &image, images_dir, None).is_err());
+        assert!(validate_disk_method("n1", None, &image, images_dir, None).is_err());
         assert!(
-            validate_disk_method(Some(DiskImageCloneMethod::Copy), &image, images_dir, None)
-                .is_ok()
+            validate_disk_method(
+                "n1",
+                Some(DiskImageCloneMethod::Copy),
+                &image,
+                images_dir,
+                None
+            )
+            .is_ok()
         );
         fs::write(base, dependency_header(None)).unwrap();
-        assert!(validate_disk_method(None, &image, images_dir, None).is_ok());
+        assert!(validate_disk_method("n1", None, &image, images_dir, None).is_ok());
     }
 
     fn dependency_header(backing: Option<&Path>) -> Vec<u8> {

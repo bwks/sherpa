@@ -336,10 +336,10 @@ async fn resolve_session(state: &AppState, claims: Claims) -> Result<Authenticat
             );
             Err(ApiError::unauthorized("Missing or invalid authentication"))
         }
-        Err(error) => {
-            tracing::error!(%username, error = ?error, "Failed to resolve authenticated user");
-            Err(ApiError::internal("Failed to resolve authenticated user"))
-        }
+        Err(error) => Err(ApiError::internal(
+            error.context(format!("User '{username}'")),
+            "Failed to resolve authenticated user",
+        )),
     }
 }
 

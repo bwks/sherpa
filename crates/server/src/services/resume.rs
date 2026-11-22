@@ -17,10 +17,11 @@ use tracing::instrument;
 
 use super::admission::{self, Admission};
 use super::console;
+use super::error::Unexpected;
 use super::lab_definition::stored_definition;
 use super::lab_lifecycle;
 use super::lab_nodes::load_target_nodes;
-use super::lab_operations::{self, LabOperation};
+use super::lab_operations::{self, LabOperation, Operation};
 use super::node_lifecycle::{self, query_runtimes};
 use super::node_ops::{self, VmReadiness};
 use super::p2p_links::{
@@ -117,7 +118,7 @@ pub async fn start_lab_nodes(
     require_lab_starter(ctx)?;
     require_lab_access(ctx, &state.db, lab_id).await?;
     // Destroying the lab stops this operation; see `lab_operations`.
-    let operation = lab_operations::begin(lab_id).await;
+    let operation = lab_operations::begin(lab_id, Operation::Resume).await;
     // Check again under the lease: a destroy that finished while this waited has removed the lab,
     // and only a lab `up` has built, and no destroy has started on, has nodes to start.
     let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
@@ -169,7 +170,9 @@ pub async fn start_lab_nodes(
                     start_vm(&device_name, sockets, &state).await
                 }
                 (NodeKind::VirtualMachine | NodeKind::Unikernel, Err(error)) => {
-                    StartOutcome::Failed(format!("{error:#}"))
+                    StartOutcome::Failed(
+                        Unexpected::log(&error, "Failed to start a node").to_string(),
+                    )
                 }
                 (NodeKind::Container, _) => start_container_node(&device_name, model, &state).await,
             };
@@ -415,7 +418,10 @@ fn add_unseal_outcome(result: &mut NodeActionResult, outcome: Result<SealOutcome
         Ok(SealOutcome::Sealed(sealed)) => sealed.to_string(),
         Ok(SealOutcome::NotInitialised) => "Vault is not initialised".to_string(),
         Ok(SealOutcome::NotApplied(error)) | Err(error) => {
-            format!("Vault not unsealed: {error:#}")
+            format!(
+                "Vault not unsealed: {}",
+                Unexpected::log(&error, "Vault not unsealed")
+            )
         }
     };
     result.success = false;
@@ -690,7 +696,11 @@ async fn record_outcomes(
         {
             tracing::warn!(node = %node_name, error = %error, "Failed to record the started node");
             result.success = false;
-            result.message = format!("{}, but not recorded: {error:#}", result.message);
+            result.message = format!(
+                "{}, but not recorded: {}",
+                result.message,
+                Unexpected::log(&error, "Failed to record a node's state")
+            );
         }
         if outcome == StartOutcome::ColdBooted {
             cold_booted.push((node_name, kind));
@@ -731,23 +741,35 @@ async fn start_vm(device_name: &str, sockets: ConsoleSockets, state: &AppState) 
         };
         let code = match domain.get_state() {
             Ok((code, _reason)) => code,
-            Err(e) => return Ok(StartOutcome::Failed(format!("Failed to get state: {e}"))),
+            Err(e) => {
+                return Ok(StartOutcome::Failed(format!(
+                    "Failed to get state: {}",
+                    Unexpected::log(&e, "Failed to get state")
+                )));
+            }
         };
         let outcome = match start_step(node_lifecycle::libvirt_runtime(Some(code)), "domain") {
             Ok(StartStep::Boot) => {
                 match libvirt::move_consoles_to_sockets(&conn, &device_name, &sockets) {
                     Ok(_) => match domain.create() {
                         Ok(_) => StartOutcome::ColdBooted,
-                        Err(e) => StartOutcome::Failed(format!("Failed to start: {e}")),
+                        Err(e) => StartOutcome::Failed(format!(
+                            "Failed to start: {}",
+                            Unexpected::log(&e, "Failed to start")
+                        )),
                     },
                     Err(e) => StartOutcome::Failed(format!(
-                        "Failed to move the consoles to their sockets: {e:#}"
+                        "Failed to move the consoles to their sockets: {}",
+                        Unexpected::log(&e, "Failed to move the consoles to their sockets")
                     )),
                 }
             }
             Ok(StartStep::Resume) => match domain.resume() {
                 Ok(_) => StartOutcome::Resumed,
-                Err(e) => StartOutcome::Failed(format!("Failed to resume: {e}")),
+                Err(e) => StartOutcome::Failed(format!(
+                    "Failed to resume: {}",
+                    Unexpected::log(&e, "Failed to resume")
+                )),
             },
             Ok(StartStep::Nothing) => StartOutcome::AlreadyRunning,
             Err(reason) => StartOutcome::Failed(reason),
@@ -757,8 +779,14 @@ async fn start_vm(device_name: &str, sockets: ConsoleSockets, state: &AppState) 
     .await
     {
         Ok(Ok(outcome)) => outcome,
-        Ok(Err(e)) => StartOutcome::Failed(format!("Libvirt error: {e}")),
-        Err(e) => StartOutcome::Failed(format!("Task panicked: {e}")),
+        Ok(Err(e)) => StartOutcome::Failed(format!(
+            "Libvirt error: {}",
+            Unexpected::log(&e, "Libvirt error")
+        )),
+        Err(e) => StartOutcome::Failed(format!(
+            "Task panicked: {}",
+            Unexpected::log(&e, "Task panicked")
+        )),
     }
 }
 
@@ -772,22 +800,37 @@ async fn start_container_node(
     // As for VMs, a running node is left alone and a stopped one is started.
     let status = match container::container_status(&state.docker, device_name).await {
         Ok(status) => status,
-        Err(e) => return StartOutcome::Failed(format!("Failed to check the container: {e:#}")),
+        Err(e) => {
+            return StartOutcome::Failed(format!(
+                "Failed to check the container: {}",
+                Unexpected::log(&e, "Failed to check the container")
+            ));
+        }
     };
     match start_step(node_lifecycle::container_runtime(status), "container") {
         Ok(StartStep::Resume) => {
             match container::unpause_container(&state.docker, device_name).await {
                 Ok(()) => StartOutcome::Resumed,
-                Err(e) => StartOutcome::Failed(format!("Failed to unpause: {e:#}")),
+                Err(e) => StartOutcome::Failed(format!(
+                    "Failed to unpause: {}",
+                    Unexpected::log(&e, "Failed to unpause")
+                )),
             }
         }
         Ok(StartStep::Boot) => {
             let model_kind = match ModelKind::new(model, Some(NodeKind::Container)) {
                 Ok(model_kind) => model_kind,
-                Err(e) => return StartOutcome::Failed(format!("{e:#}")),
+                Err(e) => {
+                    return StartOutcome::Failed(
+                        Unexpected::log(&e, "Failed to start a node").to_string(),
+                    );
+                }
             };
             if let Err(e) = container::start_container(&state.docker, device_name).await {
-                return StartOutcome::Failed(format!("Failed to start: {e:#}"));
+                return StartOutcome::Failed(format!(
+                    "Failed to start: {}",
+                    Unexpected::log(&e, "Failed to start")
+                ));
             }
             match node_ops::finish_management_checksums(
                 &KernelHost::new(&state.docker, &state.qemu),
@@ -797,7 +840,9 @@ async fn start_container_node(
             .await
             {
                 Ok(_) => StartOutcome::ColdBooted,
-                Err(e) => StartOutcome::Failed(format!("{e:#}")),
+                Err(e) => {
+                    StartOutcome::Failed(Unexpected::log(&e, "Failed to start a node").to_string())
+                }
             }
         }
         Ok(StartStep::Nothing) => StartOutcome::AlreadyRunning,
@@ -826,7 +871,11 @@ async fn reattach_cold_booted(
                 .iter_mut()
                 .filter(|result| cold_booted.iter().any(|(name, _)| *name == result.name))
             {
-                result.message = format!("{}; links not re-attached: {error:#}", result.message);
+                result.message = format!(
+                    "{}; links not re-attached: {}",
+                    result.message,
+                    Unexpected::log(&error, "Failed to re-attach a node's links")
+                );
             }
             return;
         }
@@ -838,7 +887,9 @@ async fn reattach_cold_booted(
     {
         db::list_bridges(db, lab.lab_record_id)
             .await
-            .map_err(|error| format!("{error:#}"))
+            .map_err(|error| {
+                Unexpected::log(&error, "Failed to list the lab's bridges").to_string()
+            })
     } else {
         Ok(vec![])
     };
@@ -1097,9 +1148,10 @@ nodes = [{ name = "vm", model = "ubuntu_linux", ready_check = { port = 8443 } }]
         );
         assert!(!unanswered.success);
         assert!(
-            unanswered.message.ends_with(
-                "but Vault not unsealed: Vault node 'vault01' API did not answer within 120s"
-            ),
+            unanswered
+                .message
+                .starts_with("Started and ready, but Vault not unsealed: internal error (ref ")
+                && unanswered.message.ends_with("); see the server log"),
             "{}",
             unanswered.message
         );

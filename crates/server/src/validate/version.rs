@@ -1,10 +1,14 @@
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
 
 use shared::data::{KindSettings, ModelKind, NodeConfig, NodeKind, NodeModel};
 use shared::util::image_filename;
 use topology::Node;
+
+use crate::services::error::ServiceError;
+
+const VERSION_CHECK_FAILED: &str = "Manifest validation failed: version/image validation";
 
 /// Validate and resolve node versions and images
 ///
@@ -58,14 +62,14 @@ pub fn validate_and_resolve_node_versions(
 
         // Step 1: Get node_image for this model and kind
         let model_kind = ModelKind::new(node.model, node.kind)
-            .with_context(|| format!("Manifest - node: '{}'", node.name))?;
+            .with_context(|| format!("Manifest - node: '{}'", node.name))
+            .map_err(|error| ServiceError::Invalid(format!("{VERSION_CHECK_FAILED}: {error:#}")))?;
         let kind = model_kind.kind();
         let node_image = config_map.get(&(node.model, kind)).ok_or_else(|| {
-            anyhow!(
-                "Node config not found for model: {} kind: {kind} (node: {})",
-                node.model,
-                node.name
-            )
+            ServiceError::NotFound(format!(
+                "{VERSION_CHECK_FAILED}: Node config not found for model: {} kind: {kind} (node: {})",
+                node.model, node.name
+            ))
         })?;
 
         // Step 2: Resolve version (use node_image version if not set in manifest)
@@ -82,10 +86,12 @@ pub fn validate_and_resolve_node_versions(
         };
 
         // Step 3: Validate resolved version exists in database for this model
-        validate_version_in_db(model_kind, &resolved_version, node_images).context(format!(
-            "Version validation failed for node: {} (model: {})",
-            node.name, node.model
-        ))?;
+        validate_version_in_db(model_kind, &resolved_version, node_images).map_err(|error| {
+            ServiceError::NotFound(format!(
+                "{VERSION_CHECK_FAILED}: Version validation failed for node: {} (model: {}): {error}",
+                node.name, node.model
+            ))
+        })?;
 
         // Step 4: Check image/disk existence based on node kind
         match node_image.kind() {
@@ -147,9 +153,9 @@ fn validate_version_in_db(
             .collect();
 
         if available_versions.is_empty() {
-            bail!("No configurations found in database for model: {model} kind: {kind}");
+            anyhow::bail!("No configurations found in database for model: {model} kind: {kind}");
         }
-        bail!(
+        anyhow::bail!(
             "Version '{}' not found in database for model: {} kind: {}. Available versions: {}",
             version,
             model,
@@ -167,12 +173,13 @@ pub fn validate_container_repo(
     version: &str,
     repo: Option<String>,
 ) -> Result<String> {
-    repo.with_context(|| {
-        format!(
+    repo.ok_or_else(|| {
+        ServiceError::Conflict(format!(
             "Container node '{node_name}' (model: {model}) has no image repo configured: set \
              `image` on the node in the manifest, or pull the image with `sherpa server image \
              pull --model {model} --kind container --repo <image>:{version}`"
-        )
+        ))
+        .into()
     })
 }
 
@@ -198,11 +205,12 @@ fn validate_disk_image(
         );
         Ok(())
     } else {
-        bail!(
-            "Disk image not found for node '{node_name}' (model: {model}, version: {version})\n\
+        Err(ServiceError::NotFound(format!(
+            "{VERSION_CHECK_FAILED}: Disk image not found for node '{node_name}' (model: {model}, version: {version})\n\
             Expected path: {disk_path}\n\
             Hint: Ensure the image is installed in the correct directory"
-        );
+        ))
+        .into())
     }
 }
 

@@ -50,14 +50,12 @@ pub async fn admin_dashboard_handler(
     tracing::info!("Admin '{}' accessing admin users page", admin.username);
 
     // Get all users from database
-    let users = db::list_users(&state.db).await.map_err(|e| {
-        tracing::error!("Failed to list users: {:?}", e);
-        ApiError::internal("Failed to load users")
-    })?;
-    let locked = db::list_locked_usernames(&state.db).await.map_err(|e| {
-        tracing::error!("Failed to list locked accounts: {:?}", e);
-        ApiError::internal("Failed to load users")
-    })?;
+    let users = db::list_users(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(e, "Failed to list users"))?;
+    let locked = db::list_locked_usernames(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(e, "Failed to list locked accounts"))?;
 
     // Transform users into display format
     let mut user_summaries: Vec<UserSummary> = Vec::new();
@@ -109,10 +107,9 @@ pub async fn admin_labs_list_handler(
 ) -> Result<Response, ApiError> {
     tracing::info!("Admin '{}' accessing admin labs list", admin.username);
 
-    let labs = db::list_labs(&state.db).await.map_err(|e| {
-        tracing::error!("Failed to list labs: {:?}", e);
-        ApiError::internal("Failed to load labs")
-    })?;
+    let labs = db::list_labs(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(e, "Failed to list labs"))?;
 
     let mut lab_summaries: Vec<crate::templates::AdminLabSummary> = Vec::new();
 
@@ -350,11 +347,12 @@ pub async fn admin_delete_ssh_key_handler(
     );
 
     // Get user from database
-    let mut user = db::get_user(&state.db, &target_username)
+    let mut user = db::find_user(&state.db, &target_username)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to get user '{}': {:?}", target_username, e);
-            ApiError::internal("Failed to delete SSH key")
+        .map_err(|e| ApiError::internal(e, "Failed to delete SSH key"))?
+        .ok_or_else(|| {
+            tracing::warn!("User '{}' not found", target_username);
+            ApiError::not_found("User", format!("User '{target_username}' not found"))
         })?;
 
     // Validate index is in range
@@ -385,12 +383,7 @@ pub async fn admin_delete_ssh_key_handler(
             if ServiceError::find(&e).is_some() {
                 return ApiError::from(e);
             }
-            tracing::error!(
-                "Failed to update user '{}' in database: {:?}",
-                target_username,
-                e
-            );
-            ApiError::internal("Failed to delete SSH key")
+            ApiError::internal(e, "Failed to update the user to delete an SSH key")
         })?;
 
     tracing::info!(
@@ -444,8 +437,7 @@ pub async fn admin_delete_user_handler(
                 )
                     .into_response())
             } else {
-                tracing::error!("Failed to delete user '{}': {:?}", target_username, e);
-                Err(ApiError::internal("Failed to delete user"))
+                Err(ApiError::internal(e, "Failed to delete user"))
             }
         }
     }
@@ -485,8 +477,7 @@ pub async fn admin_unlock_user_handler(
                 )
                     .into_response())
             } else {
-                tracing::error!("Failed to unlock user '{}': {:?}", target_username, e);
-                Err(ApiError::internal("Failed to unlock user"))
+                Err(ApiError::internal(e, "Failed to unlock user"))
             }
         }
     }

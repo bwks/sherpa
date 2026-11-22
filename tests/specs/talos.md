@@ -192,7 +192,7 @@ A machine config reaching its node byte for byte as NoCloud `user-data` is `conf
 | 023 | A Vault kept sealed is logged at warn once when it is first found sealed, and again only when the reason changes, at info once when it is no longer sealed, and the unseal key and root token are never logged | unit |
 | 024 | A Vault found unsealed, or unsealed with its saved key, has what was kept of it cleared; an unseal that decides nothing, such as one Vault does not answer, keeps it | unit |
 | 025 | A Vault node that stops has nothing kept of it being sealed; one still running and not checked keeps it | unit |
-| 026 | A resumed Vault that resume does not unseal fails its node's result with the reason, after what the start said; one it unseals says so, and its node does not fail | unit |
+| 026 | A resumed Vault that resume does not unseal fails its node's result with the reason, after what the start said: why it is sealed, or the reference of the logged error; one it unseals says so, and its node does not fail | unit |
 
 The saved file being readable by sherpad alone is `lab_credentials_018`.
 
@@ -222,7 +222,7 @@ The saved file being readable by sherpad alone is `lab_credentials_018`.
 | 001 | `sherpa down` of a cluster shuts every member down, and none is forced off (real cluster) | e2e |
 | 002 | After `sherpa resume` every member is Ready again and `talosctl health` passes (real cluster) | e2e |
 | 003 | A worker and a controller are each asked through the Talos API, at their own address, with their cluster's secrets | unit |
-| 004 | When the lab's clusters cannot be loaded, a Talos node is powered off with the cause, and a node of another model is still shut down by the power button | unit |
+| 004 | When the lab's clusters cannot be loaded, a Talos node is powered off with the reference of the logged cause, and a node of another model is still shut down by the power button | unit |
 | 005 | A shutdown counts as accepted only when Talos answers OK; a refusal carries its code and message | unit |
 | 006 | Every controller is asked only after every worker has stopped (no test yet) | unit |
 | 007 | A member whose Talos API refuses the request, or does not answer, is powered off and reported as forced, with the cause (no test yet; needs a Talos API that answers from a script) | integration |

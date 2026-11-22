@@ -1,6 +1,6 @@
 /// CREATE operation tests for user
 use anyhow::Result;
-use db::{create_user, get_user, list_users};
+use db::{UsernameTaken, create_user, get_user, list_users};
 
 use crate::setup_db;
 
@@ -14,14 +14,13 @@ async fn test_create_user_duplicate_username_fails() -> Result<()> {
     // Try to create user with same username
     let result = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await;
 
-    assert!(result.is_err(), "Should fail on duplicate username");
-    let error_msg = result.unwrap_err().to_string();
-
-    // Verify the error is about creating the user (the underlying DB error may be masked by context)
-    println!("Duplicate username error: {error_msg}");
-    assert!(
-        error_msg.contains("Failed to create user") && error_msg.contains("charlie"),
-        "Error should mention the failed user creation, got: {error_msg}"
+    let error = result.expect_err("Should fail on duplicate username");
+    assert_eq!(
+        error.downcast_ref::<UsernameTaken>(),
+        Some(&UsernameTaken {
+            username: "charlie".to_owned()
+        }),
+        "{error:#}"
     );
 
     Ok(())
