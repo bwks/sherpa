@@ -20,7 +20,8 @@ sudo ./scripts/sherpa_install.sh
 - Installs Docker from Docker's apt repository, after checking Docker's signing key against the
   SHA-256 the script pins
 - Creates sherpa user and groups
-- Sets up directory structure at `/opt/sherpa/`
+- Sets up directory structure at `/opt/sherpa/`: the base folder and the binaries are root's,
+  and `sherpa` owns only the folders `sherpad` writes
 - Creates the blank disk templates in `/opt/sherpa/images/blank_disk/` that node ZTP disks are
   copied from, each only if it is missing (see "Blank disks" in `docs/architecture/ZTP.md`)
 - Pulls the Sherpa router container image by the digest the script pins, tagged `:latest`
@@ -112,10 +113,11 @@ All scripts can be run from the repository root:
 sudo -E ./scripts/sherpa_install.sh --version v0.3.79
 ```
 
-### Blank disks
+### Blank disks and server folders
 `sherpa_install.sh` and `sherpa_update.sh` carry the same blank disk section, between
-`# BEGIN blank disks` and `# END blank disks`, because each is fetched alone. Change both;
-`tests/bats/install_tests.bats` fails when they differ.
+`# BEGIN blank disks` and `# END blank disks`, and the same server folders section, between
+`# BEGIN server folders` and `# END server folders`, because each is fetched alone. Change both;
+`tests/bats/install_tests.bats` runs its cases against each copy.
 
 ### Testing Changes
 After modifying installation scripts, run the automated test suite:
