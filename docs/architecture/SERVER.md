@@ -293,3 +293,31 @@ See `tests/specs/consoles.md`.
 With TLS on, a separate plain listener serves only `/cert`, public by design: a client needs the
 certificate before it can trust the server. Logging and OTel start before `AppState`, so backend
 failures are logged; `[otel]` is in sherpa-docs `configuration/sherpa.md`.
+
+### Server certificate ownership
+
+`[tls] self_generate_cert` says who owns the certificate and key (`tls::CertificateManager::prepare`,
+run before the listeners bind):
+
+- On (the default), sherpad owns both. It keeps the key across starts, and makes a new one only
+  when the key file is missing or does not load. On every start it writes a new self-signed
+  certificate for that key, valid for `cert_validity_days` and naming the current SANs
+  (`certificate_sans`), so a restart renews it and follows a changed address. Both files are
+  written to a temporary file in their folder and renamed over the old one
+  (`write_file_with_permissions`), the key `0600`, so a crash never leaves one half written.
+- Off, the admin owns both and sherpad never writes them. A missing file stops startup, naming
+  it. A certificate that expires within 30 days, or does not name `server_ipv4`/`server_ipv6`
+  (unless unspecified), is served with a `warn` at start; `sherpad status` repeats the warnings
+  (`CertificateManager::report`). Expiry and SANs come from `x509-parser`, through
+  `shared::tls::certificate_scope`.
+
+### Key pinning in the client
+
+The client pins the server's public key, not its certificate. The trust store
+(`~/.sherpa/trusted_certs/<host>_<port>.pem`) keeps the certificate the user accepted, and
+`shared::tls::config::PinnedKeyVerifier` accepts a server whose certificate carries the same
+public key (`compute_key_pin`, the SHA-256 of the SPKI), whatever its names and dates. Because
+sherpad keeps its key, a renewed certificate needs no new question. A certificate with another
+key is checked against the public CAs when `validate_certs` is on, and refused otherwise; the user
+deletes the entry (`sherpa cert delete`) to be asked again. Everything that shows the server's
+identity (`sherpa cert`, the trust prompt, sherpad's start log, `sherpad status`) shows the key pin.

@@ -65,10 +65,12 @@ pub struct TlsConfig {
     /// If not provided, uses /opt/sherpa/.certs/server.key
     pub key_path: Option<String>,
 
-    /// Auto-generate self-signed certificate if none exists
-    pub auto_generate_cert: bool,
+    /// Whether sherpad owns the certificate and key: it keeps the key, or makes one when there
+    /// is none it can load, and writes a new self-signed certificate on every start. When off,
+    /// the admin provides both files and sherpad never writes them.
+    pub self_generate_cert: bool,
 
-    /// Certificate validity in days (for auto-generated certs)
+    /// Validity in days of the certificate sherpad writes when `self_generate_cert` is on
     pub cert_validity_days: u32,
 
     /// Subject Alternative Names for certificate (e.g., DNS names, IPs)
@@ -81,7 +83,7 @@ impl Default for TlsConfig {
             enabled: true,
             cert_path: None,
             key_path: None,
-            auto_generate_cert: true,
+            self_generate_cert: true,
             cert_validity_days: 365,
             san: vec![],
         }

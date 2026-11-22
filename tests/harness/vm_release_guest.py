@@ -239,7 +239,7 @@ def validate_retained_resources(before, after):
 
 
 def validate_upgrade_state(before, after):
-    required = {"config", "environment", "certificate", "users"}
+    required = {"config", "environment", "server_key", "users"}
     require(set(before) == required and set(after) == required, "Incomplete upgrade state evidence")
     for key in required - {"users"}:
         require(isinstance(before[key], str) and re.fullmatch(r"[0-9a-f]{64}", before[key]),
@@ -277,7 +277,7 @@ DATABASE_KEY_VERSION = (0, 6, 4)
 # /opt/sherpa, by its name in retained.toml: its path under /opt/sherpa, and the first release
 # that makes it.
 RETAINED_FILES = {"config": ("config/sherpa.toml", (0, 5, 0)),
-                  "certificate": (".certs/server.crt", (0, 5, 0)),
+                  "server_key": (".certs/server.key", (0, 5, 0)),
                   "database_key": (".secret/db.key", DATABASE_KEY_VERSION)}
 RETAINED_FILE = "retained.toml"
 # The settings the harness gives the installer, which it writes to sherpa.env.
@@ -839,7 +839,7 @@ class Guest:
         self.verify_retained()
         state = {"config": digest(self.base / "config/sherpa.toml"),
                  "environment": environment_fingerprint(self.base / "env/sherpa.env"),
-                 "certificate": digest(self.base / ".certs/server.crt")}
+                 "server_key": digest(self.base / ".certs/server.key")}
         admin = self.login(self.credentials["admin_username"])
         require(admin["is_admin"], "Persistent admin lost privileges")
         username = "persist-" + self.config["identity"]["nonce"][:8]
@@ -867,7 +867,7 @@ class Guest:
                 "Persistent test user was not created")
         self.write_resources(self.workspace / "upgrade-state.toml",
                              {"before": self.upgrade_state(), "baseline-binaries": self.installed_hashes()})
-        print("PASS baseline persistent users, settings and certificate recorded")
+        print("PASS baseline persistent users, settings and server key recorded")
 
     def upgrade(self):
         """Upgrade with the update script, as users do."""
@@ -899,7 +899,7 @@ class Guest:
         check_cases([(case, lambda: self.verify_upgraded(phase))])
 
     def verify_upgraded(self, phase):
-        """This release's binaries, and the users, settings and certificate the server held."""
+        """This release's binaries, and the users, settings and server key the server held."""
         self.verify_installation()
         self.verify_embedded_database()
         evidence = tomllib.loads((self.workspace / "upgrade-state.toml").read_text())
@@ -910,7 +910,7 @@ class Guest:
         if phase == "reboot":
             validate_upgrade_evidence(evidence, self.config["baseline"], self.config["candidate"])
         self.write_resources(self.workspace / "upgrade-state.toml", evidence)
-        print(f"PASS {phase}: candidate binaries and unchanged users, settings and certificate")
+        print(f"PASS {phase}: candidate binaries and unchanged users, settings and server key")
 
     def device_password_state(self, token, username):
         """Whether `username` has set a device password, read from their own record with their
@@ -1442,7 +1442,7 @@ class GuestTests(unittest.TestCase):
             self.assertNotEqual(before, environment_fingerprint(path))
 
     def test_upgrade_evidence_rejects_missing_phases_and_wrong_installed_bytes(self):
-        state = {key: "a" * 64 for key in ("config", "environment", "certificate")}
+        state = {key: "a" * 64 for key in ("config", "environment", "server_key")}
         state["users"] = ['{"username":"admin","is_admin":true}',
                           '{"username":"persisted","is_admin":false}']
         baseline = {f"{binary}_binary_sha256": "b" * 64 for binary in ("sherpa", "sherpad")}
@@ -1460,8 +1460,8 @@ class GuestTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             validate_upgrade_evidence(changed, baseline, candidate)
 
-    def test_upgrade_state_requires_unchanged_settings_certificate_and_records(self):
-        before = {key: "a" * 64 for key in ("config", "environment", "certificate")}
+    def test_upgrade_state_requires_unchanged_settings_server_key_and_records(self):
+        before = {key: "a" * 64 for key in ("config", "environment", "server_key")}
         before["users"] = ['{"username":"admin","is_admin":true}',
                            '{"username":"persisted","is_admin":false}']
         validate_upgrade_state(before, before)
@@ -1486,10 +1486,10 @@ class GuestTests(unittest.TestCase):
     def test_the_database_key_is_kept_from_the_first_release_that_makes_it(self):
         with tempfile.TemporaryDirectory() as directory:
             guest = self.retained_guest(directory, ["0.7.1", "0.7.1"])
-            # `sherpad init` makes the config; sherpad's first start the certificate and the key.
-            (guest.base / ".certs/server.crt").unlink()
+            # `sherpad init` makes the config; sherpad's first start the server key and the database key.
+            (guest.base / ".certs/server.key").unlink()
             guest.record_retained(("config",))
-            (guest.base / ".certs/server.crt").write_text("certificate")
+            (guest.base / ".certs/server.key").write_text("server key")
             guest.record_retained(RETAINED_FILES)
             self.assertEqual(set(tomllib.loads((guest.workspace / RETAINED_FILE).read_text())), set(RETAINED_FILES))
             guest.verify_retained()

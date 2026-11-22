@@ -389,7 +389,7 @@ Select one with `--scenario`:
   through the API, then upgrades the same installation with the checkout's `sherpa_update.sh`
   and the candidate archives, without reinitializing. It checks the binaries, API and CLI
   logins, both users' records, credentials and privileges, the configuration, the environment
-  file's assignments and the TLS certificate's fingerprint, again after a reboot, and records
+  file's assignments and the server's TLS key, again after a reboot, and records
   them in `upgrade-state.toml`; the database key is kept too when the baseline has one (from
   0.6.4). A last `device-password` step checks that the upgraded user, who never set one, is
   refused by `sherpa up` and is not once the harness sets a generated device password through

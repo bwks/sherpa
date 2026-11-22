@@ -75,7 +75,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 006 | Transparent hugepages are `madvise`, or `always` where the host had it, and the boot rule keeps `madvise` | e2e (fresh VM) |
 | 007 | Transparent hugepages at `never` are set to `madvise` now and by a boot rule; `always` is left, with no rule; a kernel without them is skipped with a warning | unit (bats) |
 | 008 | After `sherpad init` and a reboot, sherpad is running without anyone starting it and the first user logs in | e2e (fresh VM) |
-| 009 | Run again on a running server, it stops sherpad, installs, and leaves `sherpa.toml`, the server's certificate, the database and its key as they were: after a start, the first user logs in | e2e (fresh VM) |
+| 009 | Run again on a running server, it stops sherpad, installs, and leaves `sherpa.toml`, the server's key, the database and its key as they were: after a start, the first user logs in | e2e (fresh VM) |
 | 010 | Without `--version` it installs the latest release GitHub lists (no test yet) | e2e (fresh VM) |
 | 011 | The closing message gives the `sherpad init` command with the address and ports chosen | unit (bats) |
 | 012 | An existing `sherpa` system account with another shell is given `nologin` (no test yet) | unit (bats) |
@@ -166,21 +166,30 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 006 | The same value sealed twice gives two ciphertexts | unit |
 | 007 | After the database and the key are restored together on a new install, sherpad starts and a user's device password still opens (no test yet) | e2e (fresh VM) |
 
-## `server_certificate`: sherpad makes its own certificate once and says which one it serves
+## `server_certificate`: sherpad renews its own certificate on every start, or serves the admin's and says what is wrong with it
 
-**Statement:** with TLS on and no certificate, sherpad makes a self-signed certificate and key in `/opt/sherpa/.certs` when it starts, serves that one from then on, and logs the fingerprint a client is asked to check.
-**Relied on by:** the admin, who gives users the fingerprint; `certificate_trust`. **Priority:** P1.
+**Statement:** with TLS on and `self_generate_cert` on, sherpad keeps its key in `/opt/sherpa/.certs` (making a new one only when there is none that loads) and writes a new self-signed certificate for it on every start, valid for `cert_validity_days` and naming the server's current addresses, each file written whole or not at all; with `self_generate_cert` off it never writes either file, does not start without both, and warns at start and in `sherpad status` about a certificate that expires within 30 days or does not name the server's addresses; either way it logs the key pin a client is asked to check.
+**Relied on by:** the admin, who gives users the key pin; `certificate_trust`. **Priority:** P1.
 
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | A start with no certificate writes the certificate and its key, the key `0600` | unit |
 | 002 | The certificate names the `san` list of `sherpa.toml`, or without one the server's listen addresses (every interface's when it listens on all), the loopback names and its hostname (no test yet) | unit |
-| 003 | The fingerprint sherpad logs at start is the one the client shows for that certificate | unit |
-| 004 | A start with a certificate and key there serves them and writes nothing (no test yet) | unit |
-| 005 | With `auto_generate_cert` off and no certificate, sherpad does not start, and names the two files it looked for (no test yet) | unit |
+| 003 | The key pin sherpad logs at start is the one the client shows for that certificate | unit |
+| 004 | Retired: a start with a certificate and key there no longer serves them unchanged; see 009 | — |
+| 005 | With `self_generate_cert` off and the certificate or the key missing, sherpad does not start, and names the missing file | unit |
 | 006 | Every certificate of a file that holds a chain is served | unit |
 | 007 | A certificate file with no certificate in it is refused, naming the file | unit |
 | 008 | `GET /cert` on the HTTP port answers with the certificate, without a login (no test yet) | integration |
+| 009 | Each start writes a new certificate with the same key, so its key pin does not change | unit |
+| 010 | A start with no key file makes a new key, and a certificate for it | unit |
+| 011 | A key file that does not load is replaced by a new `0600` key | unit |
+| 012 | A start after the server's address changed writes a certificate naming the new address, not the old one | unit |
+| 013 | With `self_generate_cert` off, a start leaves the certificate and key byte for byte as they were | unit |
+| 014 | With `self_generate_cert` off, a certificate that expires within 30 days is served with a warning at start | unit |
+| 015 | With `self_generate_cert` off, a certificate that does not name the server's address is served with a warning at start naming the address | unit |
+| 016 | With `self_generate_cert` off, `sherpad status` reports the same warnings | unit |
+| 017 | Each certificate sherpad writes for its kept key has a serial number of its own | unit |
 
 ## `schema_migration`: sherpad brings the database to its schema in one step, or leaves it as it was
 
@@ -241,7 +250,7 @@ Each case builds a database at the schema version that stored the value, upgrade
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | On a server installed and set up by an earlier release, the update leaves this release's binaries in place and sherpad running; the admin and a user made before it log in, and `sherpa.toml`, `sherpa.env`, the server's certificate, the database key when the earlier release made one, and the users' records are as they were | e2e (fresh VM) |
+| 001 | On a server installed and set up by an earlier release, the update leaves this release's binaries in place and sherpad running; the admin and a user made before it log in, and `sherpa.toml`, `sherpa.env`, the server's key, the database key when the earlier release made one, and the users' records are as they were | e2e (fresh VM) |
 | 002 | After a reboot of the updated server, the same holds | e2e (fresh VM) |
 | 003 | A host with no `/opt/sherpa/bin/sherpad` is refused, pointing at the install script (no test yet) | unit (bats) |
 | 004 | A server with no database file and a `sherpa-db` container, or the data folder it kept, is refused, with or without Docker, naming the release to update to first and its command | unit (bats) |
@@ -420,12 +429,12 @@ Each case builds a database at the schema version that stored the value, upgrade
 
 ## `certificate_trust`: the CLI talks only to a server whose certificate it has reason to trust
 
-**Statement:** the CLI connects over TLS only when the server's certificate was issued by a public CA, by the CA file the user configured, or is the one the user accepted for that server after being shown its fingerprint; `--insecure` alone skips the check, and asks and saves nothing.
+**Statement:** the CLI connects over TLS only when the server's certificate was issued by a public CA, by the CA file the user configured, or carries the public key of the certificate the user accepted for that server after being shown its key pin (the SHA-256 of that key), so a certificate the server made again with the same key is trusted without a question; `--insecure` alone skips the check, and asks and saves nothing.
 **Relied on by:** every user, for the password and the secrets that cross the connection. **Priority:** P0.
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | The first connection to a server with a self-signed certificate shows its subject and SHA-256 fingerprint and asks; after yes the command runs, and the next command asks nothing (no test yet) | e2e |
+| 001 | The first connection to a server with a self-signed certificate shows its subject and key pin and asks; after yes the command runs, and the next command asks nothing (no test yet) | e2e |
 | 002 | After no, the command fails, nothing is saved, and the next command asks again; with no terminal to ask on it fails saying so (no test yet) | e2e |
 | 003 | A certificate no public CA issued is refused, and marked as the kind the user is asked about | unit |
 | 004 | With no config and no `--insecure`, the server's certificate is checked | unit |
@@ -442,7 +451,8 @@ Each case builds a database at the schema version that stored the value, upgrade
 | 015 | `sherpa cert` takes a host, a host and port, or a `ws://` or `wss://` URL, and a host alone gets the server's port, so it names the entry a connection uses | unit |
 | 016 | `sherpa cert` refuses any other URL, a path, and nothing | unit |
 | 017 | `sherpa cert list`, `show`, `trust` and `delete` print, fetch and remove the entries, asking before they change one (no test yet) | e2e |
-| 018 | A server that presents another certificate than the one saved for it is not connected to (no test yet) | integration |
+| 018 | A server that presents a certificate with another key than the one saved for it is not connected to, and the user is not asked | unit |
+| 019 | A server that presents a new certificate with the key of the one saved for it is connected to without a question | unit |
 
 ## `client_version`: a CLI of another version than the server's says so and carries on
 

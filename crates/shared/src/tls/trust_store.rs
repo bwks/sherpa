@@ -9,10 +9,13 @@ use rustls_pemfile::certs;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::BufReader;
+use std::net::IpAddr;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use url::Url;
+use x509_parser::certificate::X509Certificate;
+use x509_parser::extensions::GeneralName;
 
 /// Manages trusted server certificates
 pub struct TrustStore {
@@ -23,13 +26,22 @@ pub struct TrustStore {
 #[derive(Debug, Clone)]
 pub struct CertificateInfo {
     pub server_url: String,
-    pub fingerprint: String,
+    /// The SHA-256 key pin of the certificate's public key, which the CLI trusts.
+    pub key_pin: String,
     pub subject: String,
     pub issuer: String,
     /// Whether the certificate names itself as its issuer.
     pub self_signed: bool,
     pub valid_from: String,
     pub valid_to: String,
+}
+
+/// When a certificate expires and the names it is valid for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CertificateScope {
+    pub not_after: jiff::Timestamp,
+    pub dns_names: Vec<String>,
+    pub ip_addresses: Vec<IpAddr>,
 }
 
 impl TrustStore {
@@ -295,12 +307,9 @@ pub fn extract_cert_info(server_url: &str, cert_pem: &str) -> Result<Certificate
     let valid_from = cert.validity().not_before.to_string();
     let valid_to = cert.validity().not_after.to_string();
 
-    // Compute SHA-256 fingerprint
-    let fingerprint = compute_fingerprint(cert_der)?;
-
     Ok(CertificateInfo {
         server_url: server_url.to_string(),
-        fingerprint,
+        key_pin: key_pin_of(&cert),
         subject,
         issuer,
         self_signed,
@@ -309,19 +318,60 @@ pub fn extract_cert_info(server_url: &str, cert_pem: &str) -> Result<Certificate
     })
 }
 
-/// Compute SHA-256 fingerprint of a certificate in colon-separated hex format
+/// The key pin of a certificate: the SHA-256 of its public key (SPKI), in colon-separated
+/// hex. A certificate made again with the same key has the same pin.
 ///
 /// # Errors
 ///
-/// Never fails today; the `Result` is kept for callers.
-pub fn compute_fingerprint(cert_der: &CertificateDer) -> Result<String> {
-    let mut hasher = Sha256::new();
-    hasher.update(cert_der.as_ref());
-    let hash = hasher.finalize();
+/// Fails when `cert_der` is not an X.509 certificate.
+pub fn compute_key_pin(cert_der: &CertificateDer) -> Result<String> {
+    let (_, cert) = x509_parser::parse_x509_certificate(cert_der.as_ref())
+        .map_err(|error| anyhow!("Failed to parse X.509 certificate: {error}"))?;
+    Ok(key_pin_of(&cert))
+}
 
-    // Convert to colon-separated hex format: A1:B2:C3:...
+/// The SHA-256 of `cert`'s public key (SPKI), in colon-separated hex: `A1:B2:C3:...`.
+fn key_pin_of(cert: &X509Certificate) -> String {
+    let hash = Sha256::digest(cert.public_key().raw);
     let hex_bytes: Vec<String> = hash.iter().map(|b| format!("{b:02X}")).collect();
-    Ok(hex_bytes.join(":"))
+    hex_bytes.join(":")
+}
+
+/// The expiry and subject alternative names of the first certificate in `cert_pem`.
+///
+/// # Errors
+///
+/// Fails when `cert_pem` holds no valid certificate, or its SAN extension or expiry does not
+/// parse.
+pub fn certificate_scope(cert_pem: &str) -> Result<CertificateScope> {
+    let cert_der = parse_certificate_pem(cert_pem)?;
+    let (_, cert) = x509_parser::parse_x509_certificate(cert_der.as_ref())
+        .map_err(|error| anyhow!("Failed to parse X.509 certificate: {error}"))?;
+    let not_after = jiff::Timestamp::from_second(cert.validity().not_after.timestamp())
+        .context("The certificate's expiry is out of range")?;
+    let mut dns_names = Vec::new();
+    let mut ip_addresses = Vec::new();
+    let names = cert
+        .subject_alternative_name()
+        .map_err(|error| anyhow!("Failed to parse the subject alternative names: {error}"))?;
+    for name in names.iter().flat_map(|names| &names.value.general_names) {
+        match name {
+            GeneralName::DNSName(dns) => dns_names.push((*dns).to_owned()),
+            GeneralName::IPAddress(bytes) => {
+                if let Ok(octets) = <[u8; 4]>::try_from(*bytes) {
+                    ip_addresses.push(IpAddr::from(octets));
+                } else if let Ok(octets) = <[u8; 16]>::try_from(*bytes) {
+                    ip_addresses.push(IpAddr::from(octets));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(CertificateScope {
+        not_after,
+        dns_names,
+        ip_addresses,
+    })
 }
 
 #[cfg(test)]
