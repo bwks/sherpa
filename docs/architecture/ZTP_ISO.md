@@ -23,8 +23,9 @@ is its only dependent, so the `sherpa` CLI does not compile it.
    for a generated PAN-OS bootstrap. Network operating systems then look for their own file name.
 
 The boot files are private to `sherpad` (`0600` in `0700` folders; see `config_privacy` in
-[`tests/specs/ztp.md`](../../tests/specs/ztp.md)), and the pool copy is `0600`, handed to QEMU
-by libvirt while the VM runs. The ISO's own Rock Ridge modes are fixed read-only, owned by root,
+[`tests/specs/ztp.md`](../../tests/specs/ztp.md)), whatever the umask: `create_iso` writes the
+image `0600`, and the disk images copied from the blank disk templates are set `0600` as they are
+copied. The pool copy is `0600` too, handed to QEMU by libvirt while the VM runs. The ISO's own Rock Ridge modes are fixed read-only, owned by root,
 whatever the source files' modes.
 
 ## Names in three views

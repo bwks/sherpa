@@ -72,7 +72,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 006 | Transparent hugepages are `madvise`, or `always` where the host had it, and the boot rule keeps `madvise` | e2e (fresh VM) |
 | 007 | Transparent hugepages at `never` are set to `madvise` now and by a boot rule; `always` is left, with no rule; a kernel without them is skipped with a warning | unit (bats) |
 | 008 | After `sherpad init` and a reboot, sherpad is running without anyone starting it and the first user logs in | e2e (fresh VM) |
-| 009 | Run again on a running server, it stops sherpad, installs, and leaves `sherpa.toml` and the database as they were: after a start, the first user logs in | e2e (fresh VM) |
+| 009 | Run again on a running server, it stops sherpad, installs, and leaves `sherpa.toml`, the server's certificate, the database and its key as they were: after a start, the first user logs in | e2e (fresh VM) |
 | 010 | Without `--version` it installs the latest release GitHub lists (no test yet) | e2e (fresh VM) |
 | 011 | The closing message gives the `sherpad init` command with the address and ports chosen | unit (bats) |
 | 012 | An existing `sherpa` system account with another shell is given `nologin` (no test yet) | unit (bats) |
@@ -230,7 +230,7 @@ Each case builds a database at the schema version that stored the value, upgrade
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | On a server installed and set up by an earlier release, the update leaves this release's binaries in place and sherpad running; the admin and a user made before it log in, and `sherpa.toml`, `sherpa.env`, the server's certificate and the users' records are as they were | e2e (fresh VM) |
+| 001 | On a server installed and set up by an earlier release, the update leaves this release's binaries in place and sherpad running; the admin and a user made before it log in, and `sherpa.toml`, `sherpa.env`, the server's certificate, the database key when the earlier release made one, and the users' records are as they were | e2e (fresh VM) |
 | 002 | After a reboot of the updated server, the same holds | e2e (fresh VM) |
 | 003 | A host with no `/opt/sherpa/bin/sherpad` is refused, pointing at the install script (no test yet) | unit (bats) |
 | 004 | A server with no database file and a `sherpa-db` container, or the data folder it kept, is refused, with or without Docker, naming the release to update to first and its command | unit (bats) |
@@ -261,9 +261,9 @@ Each case builds a database at the schema version that stored the value, upgrade
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | With no option or `--keep-data`: sherpad is stopped, and the service unit, the log rotation rule, the hugepages boot rule, the `sherpad` binary and its link are gone; the database, `sherpa.toml` and the `sherpa` CLI with its link are as they were | e2e (fresh VM) |
+| 001 | With no option or `--keep-data`: sherpad is stopped, and the service unit, the log rotation rule, the hugepages boot rule, the `sherpad` binary and its link are gone; the database, its key, `sherpa.toml`, the server's certificate and the `sherpa` CLI with its link are as they were | e2e (fresh VM) |
 | 002 | Installing again after that and starting sherpad, the same admin logs in | e2e (fresh VM) |
-| 003 | `--remove-data` does the same and empties the database folder | e2e (fresh VM) |
+| 003 | `--remove-data` does the same and empties the database folder, and keeps the database key | e2e (fresh VM) |
 | 004 | Installing again after that, `sherpad init` makes a new database and its first user logs in | e2e (fresh VM) |
 | 005 | `--remove-all` also removes `/opt/sherpa` and the `sherpa` CLI's link | e2e (fresh VM) |
 | 006 | In each mode the packages, the accounts and groups (`sherpa` among them), Docker's images, volumes and containers, and libvirt's networks, pools and domains are what they were, and Docker and libvirt still run | e2e (fresh VM) |
