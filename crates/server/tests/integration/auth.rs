@@ -12,6 +12,8 @@ use crate::helpers::ws_client::TestWsClient;
 
 /// Operations the spec gives a REST binding the server does not route yet.
 const KNOWN_UNROUTED: &[&str] = &[];
+/// A password no test account has.
+const WRONG_PASSWORD: &str = "WrongPass123!";
 
 // ── JWT Authentication Tests ──
 
@@ -192,7 +194,7 @@ async fn user_login_007_the_web_login_sets_the_cookie_and_sends_each_user_to_the
     }
 
     // A refused login sets no session and sends nowhere: it shows the error in the form.
-    for (username, password) in [("admin", "WrongPass123!"), ("nobody", "WrongPass123!")] {
+    for (username, password) in [("admin", WRONG_PASSWORD), ("nobody", "WrongPass123!")] {
         let client = TestHttpClient::new(server.addr);
         let resp = client
             .post_form("/login", &[("username", username), ("password", password)])
@@ -872,6 +874,138 @@ async fn api_documents_003_the_openapi_document_and_the_swagger_page_are_public(
     ensure!(
         body.to_lowercase().contains("swagger"),
         "docs page is not the Swagger UI: {body}"
+    );
+    Ok(())
+}
+
+// ── Login limit ──
+
+/// The answer to an RPC login: its error, or `null` with its result.
+async fn rpc_login_answer(
+    ws: &mut TestWsClient,
+    username: &str,
+    password: &str,
+) -> Result<serde_json::Value> {
+    let response = ws
+        .rpc_call(
+            "auth.login",
+            json!({ "username": username, "password": password }),
+        )
+        .await?;
+    Ok(response["error"].clone())
+}
+
+/// The status and body of a REST login.
+async fn rest_login_answer(
+    server: &TestServer,
+    username: &str,
+    password: &str,
+) -> Result<(StatusCode, String)> {
+    let response = TestHttpClient::new(server.addr)
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": username, "password": password }),
+        )
+        .await?;
+    Ok((response.status(), response.text().await?))
+}
+
+/// The status, whether a session cookie was set, and the body of a web form login.
+async fn web_login_answer(
+    server: &TestServer,
+    username: &str,
+    password: &str,
+) -> Result<(StatusCode, bool, String)> {
+    let response = TestHttpClient::new(server.addr)
+        .post_form("/login", &[("username", username), ("password", password)])
+        .await?;
+    let cookie = response.headers().contains_key(header::SET_COOKIE);
+    Ok((response.status(), cookie, response.text().await?))
+}
+
+#[tokio::test]
+async fn user_login_016_a_username_with_5_failed_logins_is_refused_as_a_wrong_password_on_every_path()
+-> Result<()> {
+    let server = TestServer::start().await?;
+    db::create_user(&server.db, "bob".to_owned(), BOB_PASSWORD, false, vec![]).await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+
+    let rpc_wrong = rpc_login_answer(&mut ws, "bob", WRONG_PASSWORD).await?;
+    let rest_wrong = rest_login_answer(&server, "bob", WRONG_PASSWORD).await?;
+    let web_wrong = web_login_answer(&server, "bob", WRONG_PASSWORD).await?;
+    ensure!(!rpc_wrong.is_null(), "a wrong password logged in over RPC");
+    ensure!(rest_wrong.0 == StatusCode::UNAUTHORIZED, "{rest_wrong:?}");
+    ensure!(!web_wrong.1, "a wrong password set a cookie");
+    rpc_login_answer(&mut ws, "bob", WRONG_PASSWORD).await?;
+    rest_login_answer(&server, "bob", WRONG_PASSWORD).await?;
+
+    assert_eq!(
+        rpc_login_answer(&mut ws, "bob", BOB_PASSWORD).await?,
+        rpc_wrong
+    );
+    assert_eq!(
+        rest_login_answer(&server, "bob", BOB_PASSWORD).await?,
+        rest_wrong
+    );
+    assert_eq!(
+        web_login_answer(&server, "bob", BOB_PASSWORD).await?,
+        web_wrong
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn user_login_017_an_address_with_20_failed_logins_is_refused_as_a_wrong_password_on_every_path()
+-> Result<()> {
+    let server = TestServer::start().await?;
+    db::create_user(&server.db, "bob".to_owned(), BOB_PASSWORD, false, vec![]).await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+
+    let rpc_wrong = rpc_login_answer(&mut ws, "bob", WRONG_PASSWORD).await?;
+    let rest_wrong = rest_login_answer(&server, "bob", WRONG_PASSWORD).await?;
+    let web_wrong = web_login_answer(&server, "bob", WRONG_PASSWORD).await?;
+    ensure!(rest_wrong.0 == StatusCode::UNAUTHORIZED, "{rest_wrong:?}");
+    // 17 more, each for a username no other attempt uses, so only the address reaches its limit.
+    for n in 0..17 {
+        let username = format!("nobody{n}");
+        match n % 3 {
+            0 => drop(rpc_login_answer(&mut ws, &username, WRONG_PASSWORD).await?),
+            1 => drop(rest_login_answer(&server, &username, WRONG_PASSWORD).await?),
+            _ => drop(web_login_answer(&server, &username, WRONG_PASSWORD).await?),
+        }
+    }
+
+    // bob has failed only 3 times, so the address's limit is what refuses him.
+    assert_eq!(
+        rpc_login_answer(&mut ws, "bob", BOB_PASSWORD).await?,
+        rpc_wrong
+    );
+    assert_eq!(
+        rest_login_answer(&server, "bob", BOB_PASSWORD).await?,
+        rest_wrong
+    );
+    assert_eq!(
+        web_login_answer(&server, "bob", BOB_PASSWORD).await?,
+        web_wrong
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn user_login_018_the_builtin_admin_is_locked_after_5_failed_logins_like_any_account()
+-> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+
+    let wrong = rpc_login_answer(&mut ws, "admin", WRONG_PASSWORD).await?;
+    ensure!(!wrong.is_null(), "a wrong password logged admin in");
+    for _ in 0..4 {
+        rpc_login_answer(&mut ws, "admin", WRONG_PASSWORD).await?;
+    }
+
+    assert_eq!(
+        rpc_login_answer(&mut ws, "admin", TEST_ADMIN_PASSWORD).await?,
+        wrong
     );
     Ok(())
 }

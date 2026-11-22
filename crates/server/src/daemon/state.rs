@@ -12,6 +12,7 @@ use tracing::instrument;
 use crate::api::websocket::connection::{ConnectionRegistry, create_registry};
 use crate::auth::context::AuthContext;
 use crate::auth::jwt;
+use crate::auth::login_limit::LoginLimiter;
 use crate::auth::session::{self, SessionLookup};
 use crate::daemon::console_sessions::ConsoleSessions;
 use crate::daemon::db_key::load_or_create_db_key;
@@ -98,6 +99,8 @@ pub struct AppState {
     pub link_states: LinkStates,
     /// The node console sessions open now, one per console.
     pub console_sessions: ConsoleSessions,
+    /// The counts of failed logins, per username and per address, every login route checks.
+    pub login_limiter: LoginLimiter,
 }
 
 impl AppState {
@@ -184,6 +187,7 @@ impl AppState {
             pending_jobs: Arc::new(DashMap::new()),
             link_states: LinkStates::default(),
             console_sessions: ConsoleSessions::default(),
+            login_limiter: LoginLimiter::default(),
         })
     }
 }

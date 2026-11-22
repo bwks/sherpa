@@ -1,5 +1,7 @@
 //! Login, token validation and logout.
 
+use std::net::IpAddr;
+
 use serde_json::Value;
 
 use shared::data;
@@ -20,9 +22,21 @@ const RPC_MSG_INVALID_PARAMS_LOGIN: &str =
     "Invalid params: expected {username: string, password: string}";
 const RPC_MSG_INVALID_PARAMS_TOKEN: &str = "Invalid params: expected {token: string}";
 
-pub(super) async fn login(params: Value, state: &AppState) -> Result<Value, RpcError> {
+/// Log in over the connection from `peer`, giving a CLI session's token.
+pub(super) async fn login(
+    params: Value,
+    state: &AppState,
+    peer: IpAddr,
+) -> Result<Value, RpcError> {
     let request: data::LoginRequest = parse(&params, RPC_MSG_INVALID_PARAMS_LOGIN)?;
-    let user = match login::check_credentials(&state.db, &request.username, &request.password).await
+    let user = match login::check_credentials(
+        &state.db,
+        &state.login_limiter,
+        &request.username,
+        &request.password,
+        peer,
+    )
+    .await
     {
         Ok(Some(user)) => user,
         Ok(None) => {

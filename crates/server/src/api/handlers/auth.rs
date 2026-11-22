@@ -1,11 +1,12 @@
 //! Login, signup, logout and token validation.
 
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 
 use crate::api::request_parse::{FormBody, JsonBody, QueryParams};
 use crate::auth::{cookies, login, session};
@@ -64,19 +65,26 @@ pub async fn logout_json(
 /// # Request Body
 /// # Response (200 OK)
 /// # Errors
-/// - `401 Unauthorized` - Invalid username or password
+/// - `401 Unauthorized` - Invalid username or password, or the login limit refused the attempt
 /// - `500 Internal Server Error` - Server error during authentication
 pub async fn login(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     JsonBody(request): JsonBody<LoginRequest>,
 ) -> Result<Json<LoginResponse>, ApiError> {
-    let user = login::check_credentials(&state.db, &request.username, &request.password)
-        .await
-        .map_err(|e| {
-            tracing::error!("Login check failed: {:?}", e);
-            ApiError::internal("Authentication error")
-        })?
-        .ok_or_else(|| ApiError::unauthorized("Invalid username or password"))?;
+    let user = login::check_credentials(
+        &state.db,
+        &state.login_limiter,
+        &request.username,
+        &request.password,
+        peer.ip(),
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("Login check failed: {:?}", e);
+        ApiError::internal("Authentication error")
+    })?
+    .ok_or_else(|| ApiError::unauthorized("Invalid username or password"))?;
 
     let issued = session::start(
         &state.db,
@@ -203,9 +211,18 @@ pub async fn login_page_handler(
 /// Failure: Returns error HTML fragment for HTMX swap
 pub async fn login_form_handler(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     FormBody(form): FormBody<LoginForm>,
 ) -> impl IntoResponse {
-    let user = match login::check_credentials(&state.db, &form.username, &form.password).await {
+    let user = match login::check_credentials(
+        &state.db,
+        &state.login_limiter,
+        &form.username,
+        &form.password,
+        peer.ip(),
+    )
+    .await
+    {
         Ok(Some(user)) => user,
         Ok(None) => {
             return LoginErrorTemplate {

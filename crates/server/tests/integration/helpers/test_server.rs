@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use sherpad::api::build_router;
 use sherpad::api::websocket;
+use sherpad::auth::login_limit::LoginLimiter;
 use sherpad::daemon::console_sessions::ConsoleSessions;
 use sherpad::daemon::link_states::LinkStates;
 use sherpad::daemon::metrics::Metrics;
@@ -80,6 +81,7 @@ impl TestServer {
             pending_jobs: Arc::new(DashMap::new()),
             link_states: LinkStates::default(),
             console_sessions: ConsoleSessions::default(),
+            login_limiter: LoginLimiter::default(),
         };
 
         if state.config.scanner.enabled {
@@ -94,7 +96,12 @@ impl TestServer {
         let addr = listener.local_addr()?;
 
         tokio::spawn(async move {
-            axum::serve(listener, app).await.ok();
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            .ok();
         });
 
         Ok(Self {

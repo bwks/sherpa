@@ -194,7 +194,7 @@ async fn call(
         });
     };
     let ctx = match entry.access {
-        Access::Public => return public_call(method, params, state).await,
+        Access::Public => return public_call(method, params, state, connection).await,
         Access::User => authenticate(&params, state).await?,
         Access::Admin(denied) => require_admin(authenticate(&params, state).await?, denied)?,
     };
@@ -210,9 +210,14 @@ async fn call(
     result
 }
 
-async fn public_call(method: &str, params: Value, state: &AppState) -> Result<Value, RpcError> {
+async fn public_call(
+    method: &str,
+    params: Value,
+    state: &AppState,
+    connection: &Connection,
+) -> Result<Value, RpcError> {
     match method {
-        "auth.login" => auth::login(params, state).await,
+        "auth.login" => auth::login(params, state, connection.peer).await,
         "auth.validate" => auth::validate(params, state).await,
         _ => Err(unrouted(method)),
     }

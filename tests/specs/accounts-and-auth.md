@@ -129,7 +129,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `user_login`: a username and its password start a session
 
-**Statement:** a user who gives their username and password gets a session and its token, on the CLI, the REST API and the web UI, and a wrong password and an unknown username are refused alike.
+**Statement:** a user who gives their username and password gets a session and its token, on the CLI, the REST API and the web UI, and a wrong password and an unknown username are refused alike. Failed logins are limited per username and per source address, the same on every path, and a login the limit refuses is answered as a wrong password is.
 **Relied on by:** the user, scripts. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -149,6 +149,21 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 013 | A token is checked over REST as over RPC: a valid one names its user, admin flag and expiry, and any other is answered not valid, not an error | integration |
 | 014 | An RPC login with the right password gives a token, the username, the admin flag and the expiry, and the token names a session that lasts as long | integration |
 | 015 | The CLI reads the signed-in user's name from the saved token, and says to run `sherpa login` when the token is not one | unit |
+| 016 | After 5 failed logins for a username within 15 minutes, its right password is refused with the answer a wrong password gets, over RPC, REST and the web login form, whichever paths the failures came by | integration |
+| 017 | After 20 failed logins from an address within 15 minutes, a username that has not failed is refused from it with the answer a wrong password gets, over RPC, REST and the web login form | integration |
+| 018 | The built-in `admin` is locked after 5 failed logins, like any other account | integration |
+| 019 | A locked username is refused for 15 minutes from when it was locked, and let in after | unit |
+| 020 | A locked address is refused for 15 minutes from when it was locked, and let in after | unit |
+| 021 | Failures 15 minutes or more after a username's first counted failure start a new count | unit |
+| 022 | A successful login clears its username's count | unit |
+| 023 | A successful login does not count toward its address's limit | unit |
+| 024 | A username is counted as accounts are looked up, in any case and with surrounding space | unit |
+| 025 | An IPv4 address is counted the same whether the connection gives it as IPv4 or as IPv4-mapped IPv6 | unit |
+| 026 | Logins made at the same moment check no more passwords than the limit allows: an attempt still being checked counts | unit |
+| 027 | An attempt that ends without an answer, such as when the database cannot be read, is not counted as a failure | unit |
+| 028 | However many usernames and addresses fail, counts are kept for no more than 10,000 of each, so a flood cannot grow the server's memory without limit | unit |
+| 029 | When the counts are full, a lock is kept over a count that has not reached its limit | unit |
+| 030 | A lockout is logged once, at `warn`, with the username and the address | unit |
 
 ## `user_sessions`: a token works only while its session lasts
 

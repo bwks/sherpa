@@ -91,6 +91,11 @@ its session is active, a demotion applies on the next request, and a deleted use
 works for a new account of the same name. No authorization decision reads the token's own claims.
 What ends a session is `tests/specs/accounts-and-auth.md`, `user_sessions`.
 
+RPC, REST and web logins all check passwords through `auth::login::check_credentials`, which first
+asks `auth::login_limit::LoginLimiter` (in `AppState`, in memory, bounded) to let the attempt
+through by username and by the connection's peer address; the limits are `user_login` in
+`tests/specs/accounts-and-auth.md`.
+
 ### Services enforce authorization
 
 Every lab service checks the caller's `&AuthContext` with `auth/policy.rs` before it sends
