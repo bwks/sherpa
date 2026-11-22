@@ -38,7 +38,8 @@ use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;
 use topology::validate::{
-    check_client_read_files, check_node_kind_settings, check_ptx_platform, check_vm_tuning,
+    check_client_read_files, check_node_file_settings, check_node_kind_settings,
+    check_ptx_platform, check_vm_tuning,
 };
 
 /// The node being redeployed and its lab, loaded and checked before the node is torn down.
@@ -173,6 +174,14 @@ pub(super) async fn load_redeploy<'a>(
     )
     .await?;
     target_node.version = Some(node_image.version.clone());
+    let manifest_entry = manifest
+        .nodes
+        .iter()
+        .find(|node| node.name == node_name)
+        .ok_or_else(|| anyhow!("Node '{node_name}' not found in manifest"))?;
+    check_node_file_settings(manifest_entry, &node_image).context(format!(
+        "Node settings validation failed for node: {node_name}"
+    ))?;
 
     let LabFiles {
         lab_dir,

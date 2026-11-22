@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use super::manifest_processing::process_manifest_nodes;
+use super::manifest_processing::{check_file_settings, process_manifest_nodes};
 use shared::data::NodeCpuPins;
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -63,7 +63,8 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     for node in &nodes_expanded {
         check_node_kind_settings(node)?;
     }
-    println!("  ✓ Every node sets only what its kind takes");
+    check_file_settings(&manifest.nodes)?;
+    println!("  ✓ Every node sets only what its kind and model take");
 
     println!("→ Checking links and bridges...");
     let links = manifest.links.as_deref().unwrap_or_default();

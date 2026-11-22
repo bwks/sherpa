@@ -23,8 +23,9 @@ use shared::validators::{effective_data_interface_count, effective_ztp};
 use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
-    check_no_p2p_field, check_node_kind_settings, check_node_model_kind, check_node_names,
-    check_ptx_platform, check_text_file_modes, check_vm_tuning, validate_talos_clusters,
+    check_no_p2p_field, check_node_file_settings, check_node_kind_settings, check_node_model_kind,
+    check_node_names, check_ptx_platform, check_text_file_modes, check_vm_tuning,
+    validate_talos_clusters,
 };
 use topology::{process_manifest_bridges, process_manifest_links};
 
@@ -88,8 +89,15 @@ pub(super) async fn plan_lab(
     tracing::debug!(lab_id = %lab_id, node_images = node_images.len(), "Fetched node configs from database");
 
     let nodes_expanded = process_manifest_nodes(&validated_nodes)?;
-    for node in &nodes_expanded {
-        check_node_kind_settings(node).context("Manifest validation failed: node settings")?;
+    for (node, expanded) in validated_nodes.iter().zip(&nodes_expanded) {
+        check_node_kind_settings(expanded).context("Manifest validation failed: node settings")?;
+        let image = get_node_image(
+            expanded.model_kind,
+            expanded.version.as_deref(),
+            &node_images,
+        )?;
+        check_node_file_settings(node, &image)
+            .context("Manifest validation failed: node settings")?;
     }
     let ImageLeases {
         selected_images,

@@ -463,7 +463,7 @@ async fn access_control_018_the_server_never_reads_a_file_a_manifest_names() -> 
 
     for extra in [
         json!({ "systemd_units": [{ "name": "x.service", "source": "/etc/passwd", "enabled": true }] }),
-        json!({ "binary_files": [{ "source": "/etc/shadow" }] }),
+        json!({ "text_files": [{ "src": "/etc/shadow", "dst": "/tmp/shadow", "user": "root", "group": "root", "permissions": 644 }] }),
     ] {
         let response = up_container(&mut ws, &token, extra.clone()).await?;
         let error = response["error"].to_string();

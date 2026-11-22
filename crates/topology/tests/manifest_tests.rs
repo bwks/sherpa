@@ -4,8 +4,8 @@ use shared::data::{
     WatchdogAction, Ztp,
 };
 use topology::{
-    BinaryFile, Manifest, ManifestImpairment, Node, NodeExpanded, NodeReadyCheck, NodeZtp,
-    Provisioner, SystemdUnit, TailscaleConfig, TextFile,
+    Manifest, ManifestImpairment, Node, NodeExpanded, NodeReadyCheck, NodeZtp, Provisioner,
+    SystemdUnit, TailscaleConfig, TextFile,
 };
 
 // ============================================================================
@@ -29,7 +29,6 @@ version = "24.04"
 memory = 2048
 environment_variables = ["TERM=xterm", "LANG=en_US.UTF-8"]
 startup_scripts = ["scripts/init.sh"]
-user_scripts = ["scripts/user.sh"]
 
 [nodes.cpu]
 count = 2
@@ -70,9 +69,6 @@ dst = "/etc/app/config.json"
 user = "root"
 group = "root"
 permissions = 644
-
-[[nodes.binary_files]]
-source = "files/blob.bin"
 
 [[nodes.systemd_units]]
 name = "app.service"
@@ -153,11 +149,6 @@ const UNKNOWN_KEYS_OF_A_NODE: &[(&str, &str, &str)] = &[
     (
         "a text file",
         "[[nodes.text_files]]\nsrc = 'a'\ndst = '/b'\nuser = 'root'\ngroup = 'root'\npermissions = 644\nunknown = 1",
-        "unknown",
-    ),
-    (
-        "a binary file",
-        "[[nodes.binary_files]]\nsource = 'a'\nunknown = 1",
         "unknown",
     ),
     (
@@ -307,7 +298,6 @@ fn assert_every_vm_key_is_read(r1: &Node) {
         r1.startup_scripts,
         Some(vec!["scripts/init.sh".to_string()])
     );
-    assert_eq!(r1.user_scripts, Some(vec!["scripts/user.sh".to_string()]));
     assert_eq!(
         r1.text_files,
         Some(vec![TextFile {
@@ -316,12 +306,6 @@ fn assert_every_vm_key_is_read(r1: &Node) {
             user: "root".to_owned(),
             group: "root".to_owned(),
             permissions: 644,
-        }])
-    );
-    assert_eq!(
-        r1.binary_files,
-        Some(vec![BinaryFile {
-            source: "files/blob.bin".to_owned(),
         }])
     );
     assert_eq!(

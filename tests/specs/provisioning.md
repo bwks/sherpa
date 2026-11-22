@@ -2,7 +2,7 @@
 
 What Sherpa puts on a node beyond its first config, and how. Two ways, on two sides:
 
-- **At first boot, by the server.** A manifest's `text_files`, `binary_files`, `systemd_units`, `startup_scripts`, `user_scripts` and `environment_variables` are read by the `sherpa` CLI on the user's machine, sent to the server, and carried to a virtual machine in its cloud-init, cloudbase-init or Ignition config. The server keeps their contents with the lab, so they are not for secrets.
+- **At first boot, by the server.** A manifest's `text_files`, `startup_scripts`, `systemd_units` and `environment_variables` are read by the `sherpa` CLI on the user's machine, sent to the server, and carried to a virtual machine in its cloud-init, cloudbase-init or Ignition config: `text_files` and `startup_scripts` on cloud-init and Windows nodes, `text_files` and `systemd_units` on Flatcar. A node whose config does not carry one of the three is refused (`node_settings_014` to `019` in [manifests.md](manifests.md)). The server keeps their contents with the lab, so they are not for secrets.
 - **Once the node is up, by provisioners.** The `ssh` provisioner is run by the CLI itself, over its own SSH connection to a Linux or BSD virtual machine: it copies files and env files and runs scripts as the node's owner, and nothing of them reaches the server. The `container` provisioner's secret files are sent to the server outside the manifest, kept in its memory and mounted in the container at `/run/secrets` before it starts.
 
 How a first config reaches a node, and the certificates in it, are `config_delivery` in [ztp.md](ztp.md). The owner's account, which every step here runs as or writes for, is `owner_login` in [accounts-and-auth.md](accounts-and-auth.md). A container's `environment_variables` are `container_run_002` and `003` in [nodes.md](nodes.md). How the CLI reaches a node for a provisioner, directly or with `--ssh-jump`, a node with no route, and what it may ask for, are `ssh_access` in [client-lab-files.md](client-lab-files.md); the lab's known hosts are that area's too. Who may provision is `access_control_013` and `016`, and that the server opens no path a manifest names is `access_control_018`. Reading and validating these settings in `manifest.toml`, a provisioner's fields included, belongs to Manifests. The definition of a lab the server stores, which names a provisioner's paths and never its contents, and a redeploy from the web UI, which has no files to send, belong to Lab lifecycle.
@@ -19,23 +19,23 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 001 | A path starting with `~` is under the user's home, a relative path starts at the manifest's folder, and an absolute path is as written | unit |
 | 002 | A text file's contents are sent with its destination, owner, group and mode | unit |
 | 003 | A text file that cannot be read is refused, naming the node | unit |
-| 004 | Startup scripts and user scripts are read and sent, each under its file name | unit |
-| 005 | A script that is empty is refused, naming the node and which kind of script | unit |
-| 006 | A binary file is sent byte for byte under its file name, and a systemd unit with its name, its contents and whether it is enabled | unit |
-| 007 | A binary file that cannot be read is refused, naming the node and the path | unit |
+| 004 | Startup scripts are read and sent, each under its file name | unit |
+| 005 | A script that is empty is refused, naming the node | unit |
+| 006 | A systemd unit is sent with its name, its contents and whether it is enabled | unit |
+| 007 | Retired: binary files are no longer a setting | — |
 | 008 | An `environment_variables` value that is `$NAME` is sent as the value `NAME` has where `sherpa` runs, and any other value as written | unit |
 | 009 | A `$NAME` that is not set where `sherpa` runs is refused, naming the variable and the node | unit |
 | 010 | An `environment_variables` entry that is not `KEY=VALUE` is refused, naming the node | unit |
 | 011 | An up whose manifest lists files with no contents, as one sent to the REST API is, is refused naming the node and the setting, and says to use `sherpa up` (no test at this level yet) | integration |
-| 012 | A binary file or a systemd unit sent under a name that is not a plain file name, a path, `.`, `..` or one starting with `-`, is refused | unit |
+| 012 | A systemd unit sent under a name that is not a plain file name, a path, `.`, `..` or one starting with `-`, is refused | unit |
 | 013 | After a file a manifest names is changed, `sherpa redeploy` rebuilds the node with the new contents (no test yet) | e2e |
 
 A node's `ztp.config` is read the same way: `custom_config_002` to `004` in [ztp.md](ztp.md).
 
 ## `boot_files`: a manifest's files are on a virtual machine when its first boot ends
 
-**Statement:** a virtual machine's `text_files` are on the node when its first boot ends, each at its destination with its contents, its owner, its group and its mode, and a Flatcar node also has its `binary_files` on its data disk and its `systemd_units`.
-**Relied on by:** the user, user scripts and provisioners that read them. **Priority:** P1.
+**Statement:** a virtual machine's `text_files` are on the node when its first boot ends, each at its destination with its contents, its owner, its group and its mode, and a Flatcar node also has its `systemd_units`.
+**Relied on by:** the user, startup scripts and provisioners that read them. **Priority:** P1.
 
 | Case | What it shows | Level |
 |---|---|---|
@@ -51,21 +51,21 @@ A node's `ztp.config` is read the same way: `custom_config_002` to `004` in [ztp
 | 010 | On Flatcar, the missing folders of a text file under its owner's home are that user's, and a file outside the home or one of root's gets none | unit |
 | 011 | On Flatcar, a text file is an Ignition file with its contents, owner, group and mode (no test yet) | unit |
 | 012 | On Flatcar, a systemd unit is given with its contents and whether it is enabled | unit |
-| 013 | A Flatcar node's binary files are written byte for byte to its folder on the server, for its data disk, and a node with none gets no folder | unit |
-| 014 | A Flatcar node has its text file, its binary file at the root of its data disk, and its unit enabled (no test yet) | e2e |
+| 013 | Retired: binary files are no longer a setting | — |
+| 014 | A Flatcar node has its text file and its unit enabled (no test yet) | e2e |
 | 015 | A Windows node has its text file at its path, and one written with mode `600` is not read by an account outside Administrators (no test yet) | e2e |
 
 ## `boot_scripts`: a manifest's scripts run at the end of a virtual machine's first boot
 
-**Statement:** a cloud-init virtual machine's `startup_scripts` run as root and then its `user_scripts` as the node's owner in a login shell, each through its own shebang, after its files are in place; a Windows node runs its `startup_scripts`.
+**Statement:** a cloud-init virtual machine's `startup_scripts` run as root, each through its own shebang, after its files are in place; a Windows node runs its `startup_scripts`.
 **Relied on by:** the user. **Priority:** P1.
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | On a cloud-init VM a startup script ran as root, and then a user script as the owner, in their home, with the manifest's `environment_variables` set (no test yet) | e2e |
-| 002 | The scripts are written executable under Sherpa's script folders and run directly, never through `bash`: the startup scripts first, then the user scripts, given to the owner and run as them in a login shell | unit |
-| 003 | A node with startup scripts alone runs them, and nothing is done for user scripts | unit |
-| 004 | The steps of a first boot are in this order: files moved into place, the environment loader, startup scripts, user scripts (no test yet) | unit |
+| 001 | On a cloud-init VM a startup script ran as root (no test yet) | e2e |
+| 002 | The scripts are written executable under Sherpa's startup script folder and run directly, never through `bash`, in the order the manifest lists them | unit |
+| 003 | Retired: user scripts are no longer a setting; an ssh provisioner's `scripts` run as the owner | — |
+| 004 | The steps of a first boot are in this order: files moved into place, the environment loader, startup scripts (no test yet) | unit |
 | 005 | A Windows node's startup scripts are written under `C:\sherpa\startup_scripts` and run with PowerShell (no test yet) | unit |
 
 That a Windows node disables every other account before its startup scripts run is `owner_login_024`.
@@ -73,7 +73,7 @@ That a Windows node disables every other account before its startup scripts run 
 ## `login_environment`: a virtual machine's environment variables are set in its owner's login shells
 
 **Statement:** a virtual machine's `environment_variables` are set in its owner's login shells, from a file only the owner reads, and nowhere else on the node; on Windows they are set for the whole machine.
-**Relied on by:** the user, user scripts, ssh provisioner scripts. **Priority:** P1.
+**Relied on by:** the user, ssh provisioner scripts. **Priority:** P1.
 
 | Case | What it shows | Level |
 |---|---|---|

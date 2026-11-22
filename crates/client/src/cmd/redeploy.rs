@@ -16,6 +16,7 @@ use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
 use super::download::download;
+use super::manifest_processing::check_file_settings;
 use super::outcome::print_link_reports;
 use super::progress::print_status;
 use super::up::resolve_manifest_files;
@@ -42,6 +43,7 @@ pub async fn redeploy(
     let mut manifest = topology::Manifest::load_file(manifest_path)?;
     validate_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
     check_text_file_modes(&manifest.nodes).context("Manifest validation failed: text files")?;
+    check_file_settings(&manifest.nodes).context("Manifest validation failed: node settings")?;
     // As written, before the files and variables are resolved: what the server stores.
     let as_written = serde_json::to_value(manifest.as_written())
         .context("Failed to serialize the manifest as written to JSON")?;

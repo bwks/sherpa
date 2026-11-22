@@ -28,7 +28,7 @@ pub use link::{
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
     check_no_p2p_field,
 };
-pub use node_kind::{check_node_kind_settings, check_node_model_kind};
+pub use node_kind::{check_node_file_settings, check_node_kind_settings, check_node_model_kind};
 pub use provisioner::validate_provisioners;
 pub use ptx_platform::check_ptx_platform;
 pub use tailscale::validate_tailscale;

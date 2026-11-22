@@ -49,7 +49,7 @@ use shared::konst::{
 use shared::util;
 use shared::validators::{effective_data_interface_count, effective_ztp, mode_from_octal_digits};
 use template::CryptHash;
-use topology::{BinaryFileData, NodeReadyCheck, SystemdUnitData};
+use topology::{NodeReadyCheck, SystemdUnitData};
 use virt::error::ErrorNumber;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
@@ -103,7 +103,6 @@ const WINDOWS_AUTHORIZED_KEYS_DIR: &str = r"C:\ProgramData\ssh\authorized_keys";
 const WINDOWS_OWNER_ONLY_LOGIN_SCRIPT: &str = r"C:\sherpa\owner_only_login.ps1";
 /// [`WINDOWS_AUTHORIZED_KEYS_DIR`] as `sshd_config` names it.
 const WINDOWS_SSHD_AUTHORIZED_KEYS_DIR: &str = "__PROGRAMDATA__/ssh/authorized_keys";
-const NODE_USER_SCRIPTS_DIR: &str = "/opt/sherpa/user_scripts";
 const NODE_STARTUP_SCRIPTS_DIR: &str = "/opt/sherpa/startup_scripts";
 /// doas configuration file (OpenBSD, whose doas has no drop-in directory).
 const NODE_DOAS_CONF_FILE: &str = "/etc/doas.conf";
@@ -191,9 +190,6 @@ const CONTAINER_HASHICORP_VAULT_COMMANDS: &[&str] = &[
 ];
 const CONTAINER_HASHICORP_VAULT_CAPABILITIES: &[&str] = &["IPC_LOCK"];
 const VAULT_ZTP_CONFIG_MOUNT: &str = "/vault/config/config.hcl";
-
-/// The folder in a node's lab folder that holds its binary files before they go on its disk.
-const BINARY_FILES_DIR: &str = "binary_files";
 
 /// The folders in a lab folder that hold the lab's own files. A container named like one of them
 /// writes its config files there too, so that folder is never removed as the node's.
@@ -2027,14 +2023,11 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-/// cloud-init files and runcmd lines for a node's scripts: `startup_scripts` run as root, then
-/// `user_scripts` run as `user` in a login shell. Each script is run directly, so its shebang
-/// picks the interpreter and nodes without `bash` can run them.
+/// cloud-init files and runcmd lines for a node's `startup_scripts`, run as root. Each script
+/// is run directly, so its shebang picks the interpreter and nodes without `bash` can run them.
 fn build_cloud_init_scripts(
     node_name: &str,
     startup_scripts: Option<&[topology::StartupScript]>,
-    user_scripts: Option<&[topology::StartupScript]>,
-    user: &str,
 ) -> Result<(Vec<template::CloudInitWriteFile>, Vec<String>)> {
     let mut write_files = vec![];
     let mut runcmd = vec![];
@@ -2055,40 +2048,6 @@ fn build_cloud_init_scripts(
             encoding: None,
         });
         runcmd.push(shell_quote(&target_path));
-    }
-
-    // Files are written as root (write_files runs before users are created), then chowned
-    // once the user exists.
-    let user_scripts = user_scripts.unwrap_or_default();
-    for script in user_scripts {
-        let contents = util::base64_decode(&script.content).with_context(|| {
-            format!(
-                "Failed to decode user_script '{}' for node '{}'",
-                script.filename, node_name
-            )
-        })?;
-        write_files.push(template::CloudInitWriteFile {
-            path: format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename),
-            content: contents,
-            permissions: "0755".to_string(),
-            owner: None,
-            encoding: None,
-        });
-    }
-    if !user_scripts.is_empty() {
-        // The user's primary group: SUSE has no group named after the user.
-        let quoted_user = shell_quote(user);
-        runcmd.push(format!(
-            r#"chown -R {quoted_user}:"$(id -gn {quoted_user})" {}"#,
-            shell_quote(NODE_USER_SCRIPTS_DIR)
-        ));
-        for script in user_scripts {
-            let target_path = format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
-            runcmd.push(format!(
-                "su - {quoted_user} -c {}",
-                shell_quote(&shell_quote(&target_path))
-            ));
-        }
     }
 
     Ok((write_files, runcmd))
@@ -2377,7 +2336,7 @@ fn generate_cloud_init_ztp(
 
 /// The files cloud-init writes and the commands it runs on a Linux or BSD node: certificates,
 /// text files and the guest login's environment file, staged and moved into place first, then
-/// startup and user scripts.
+/// startup scripts.
 fn cloud_init_files(
     node: &topology::NodeExpanded,
     cert_paths: Option<&NodeCertPaths>,
@@ -2402,17 +2361,13 @@ fn cloud_init_files(
         stage_cloud_init_files(&staged_files, NODE_STAGING_DIR, NODE_PASSWD_FILE);
     write_files.extend(staged_writes);
 
-    // Load the environment file from the login shell, which user_scripts also use.
+    // Load the environment file from the owner's login shell.
     if env_vars.is_some() {
         runcmd.push(user_env_loader_runcmd(guest_username, NODE_PASSWD_FILE));
     }
 
-    let (script_files, script_runcmd) = build_cloud_init_scripts(
-        &node.name,
-        node.startup_scripts.as_deref(),
-        node.user_scripts.as_deref(),
-        guest_username,
-    )?;
+    let (script_files, script_runcmd) =
+        build_cloud_init_scripts(&node.name, node.startup_scripts.as_deref())?;
     write_files.extend(script_files);
     runcmd.extend(script_runcmd);
     Ok((write_files, runcmd))
@@ -3532,26 +3487,6 @@ fn ignition_units(units: &[SystemdUnitData]) -> Result<Vec<template::IgnitionUni
         .collect()
 }
 
-/// Write the binary files the client read into `{dir}/binary_files`, and return their paths for
-/// copying onto the node's data disk. `check_client_read_files` has checked their names.
-fn write_binary_files(dir: &str, files: &[BinaryFileData]) -> Result<Vec<String>> {
-    if files.is_empty() {
-        return Ok(Vec::new());
-    }
-    let binary_dir = format!("{dir}/{BINARY_FILES_DIR}");
-    util::create_dir_with_permissions(Path::new(&binary_dir), NODE_CONFIG_DIR_MODE)?;
-    files
-        .iter()
-        .map(|file| {
-            let contents = util::base64_decode_bytes(&file.content)
-                .with_context(|| format!("binary file '{}' contents", file.filename))?;
-            let path = format!("{binary_dir}/{}", file.filename);
-            util::write_file_with_permissions(Path::new(&path), &contents, NODE_CONFIG_FILE_MODE)?;
-            Ok(path)
-        })
-        .collect()
-}
-
 #[instrument(level = "debug", skip_all, fields(node_name = %node.name))]
 fn generate_ignition_ztp(
     node: &topology::NodeExpanded,
@@ -3627,8 +3562,8 @@ fn ignition_text_files(node: &topology::NodeExpanded) -> Result<Vec<template::Ig
         .collect()
 }
 
-/// Flatcar: its Ignition config, and a container data disk holding the binary files. Returns
-/// the config and the data disk, each in the lab folder and in the storage pool.
+/// Flatcar: its Ignition config, and a blank container data disk. Returns the config and the
+/// data disk, each in the lab folder and in the storage pool.
 fn flatcar_ignition(
     node: &topology::NodeExpanded,
     ztp: &NodeZtp<'_>,
@@ -3696,12 +3631,6 @@ fn flatcar_ignition(
     let dst_disk = format!("{dir}/{node_name_with_lab}-{CONTAINER_DISK_NAME}");
 
     util::copy_file_with_permissions(&src_data_disk, &dst_disk, NODE_CONFIG_FILE_MODE)?;
-
-    let disk_files = write_binary_files(&dir, node.binary_files.as_deref().unwrap_or_default())?;
-    if !disk_files.is_empty() {
-        let disk_files: Vec<&str> = disk_files.iter().map(String::as_str).collect();
-        util::copy_to_ext4_image(&disk_files, &dst_disk, "/")?;
-    }
 
     let dst_config_disk =
         format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-{CONTAINER_DISK_NAME}");
@@ -4742,30 +4671,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn boot_files_013_binary_files_are_written_to_the_node_folder_and_none_makes_no_folder() {
-        let dir = tempdir().expect("tempdir");
-        let node_dir = dir.path().to_string_lossy().into_owned();
-        let paths = write_binary_files(
-            &node_dir,
-            &[BinaryFileData {
-                filename: "tool".to_owned(),
-                content: util::base64_encode_bytes(&[0, 159, 146, 150]),
-            }],
-        )
-        .expect("write");
-        assert_eq!(paths, vec![format!("{node_dir}/{BINARY_FILES_DIR}/tool")]);
-        assert_eq!(fs::read(&paths[0]).expect("read"), vec![0, 159, 146, 150]);
-
-        let empty = tempdir().expect("tempdir");
-        let empty_dir = empty.path().to_string_lossy().into_owned();
-        assert_eq!(
-            write_binary_files(&empty_dir, &[]).expect("none"),
-            [] as [std::string::String; 0]
-        );
-        assert!(!empty.path().join(BINARY_FILES_DIR).exists());
-    }
-
-    #[test]
     fn node_interfaces_012_only_a_model_that_waits_for_its_interfaces_has_unused_ones_up() {
         assert_eq!(
             netns_veth_state(
@@ -5199,38 +5104,21 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn boot_scripts_002_scripts_are_written_executable_and_run_directly_startup_then_user() {
-        let (files, runcmd) = build_cloud_init_scripts(
-            "node1",
-            Some(&[script("boot.sh")]),
-            Some(&[script("user.sh")]),
-            "alice",
-        )
-        .unwrap();
+    fn boot_scripts_002_startup_scripts_are_written_executable_and_run_directly_in_order() {
+        let (files, runcmd) =
+            build_cloud_init_scripts("node1", Some(&[script("boot.sh"), script("next.sh")]))
+                .unwrap();
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].path, "/opt/sherpa/startup_scripts/boot.sh");
         assert_eq!(files[0].content, "#!/bin/sh\necho hi");
         assert_eq!(files[0].permissions, "0755");
-        assert_eq!(files[1].path, "/opt/sherpa/user_scripts/user.sh");
+        assert_eq!(files[1].path, "/opt/sherpa/startup_scripts/next.sh");
         assert_eq!(
             runcmd,
             vec![
                 r"'/opt/sherpa/startup_scripts/boot.sh'".to_string(),
-                r#"chown -R 'alice':"$(id -gn 'alice')" '/opt/sherpa/user_scripts'"#.to_string(),
-                r"su - 'alice' -c ''\''/opt/sherpa/user_scripts/user.sh'\'''".to_string(),
+                r"'/opt/sherpa/startup_scripts/next.sh'".to_string(),
             ]
-        );
-        assert!(runcmd.iter().all(|line| !line.contains("bash")));
-    }
-
-    #[test]
-    fn boot_scripts_003_startup_scripts_alone_do_nothing_for_user_scripts() {
-        let (files, runcmd) =
-            build_cloud_init_scripts("node1", Some(&[script("boot.sh")]), None, "alice").unwrap();
-        assert_eq!(files.len(), 1);
-        assert_eq!(
-            runcmd,
-            vec![r"'/opt/sherpa/startup_scripts/boot.sh'".to_string()]
         );
     }
 

@@ -8,9 +8,9 @@ use turso::{Connection, Row};
 
 use shared::data::{CpuTopology, NodeKind, NodeModel, RecordId};
 use topology::{
-    BinaryFile, Bridge, ContainerProvisioner, ContainerSecretFile, Link2, Manifest,
-    ManifestImpairment, Node, NodeContainer, NodeUnikernel, NodeVm, Provisioner, ProvisionerFile,
-    SshProvisioner, SystemdUnit, TailscaleConfig, TalosCluster, TextFile, VolumeMount,
+    Bridge, ContainerProvisioner, ContainerSecretFile, Link2, Manifest, ManifestImpairment, Node,
+    NodeContainer, NodeUnikernel, NodeVm, Provisioner, ProvisionerFile, SshProvisioner,
+    SystemdUnit, TailscaleConfig, TalosCluster, TextFile, VolumeMount,
 };
 
 use crate::Database;
@@ -539,8 +539,6 @@ async fn read_node_lists(conn: &Connection, lab_key: &str, nodes: &mut Nodes) ->
             ),
             "environment_variable" => push(&mut node.environment_variables, value),
             "startup_script" => push(&mut node.startup_scripts, value),
-            "user_script" => push(&mut node.user_scripts, value),
-            "binary_file" => push(&mut node.binary_files, BinaryFile { source: value }),
             other => bail!("Database field list is not a text list: {other}"),
         }
     }

@@ -4,10 +4,10 @@ use shared::data::{
     NumaMemoryMode, PtxPlatform, RecordId, WatchdogAction, Ztp,
 };
 use topology::{
-    BinaryFile, Bridge, ContainerProvisioner, ContainerSecretFile, Link2, Manifest,
-    ManifestImpairment, Node, NodeContainer, NodeReadyCheck, NodeUnikernel, NodeVm, NodeZtp,
-    Provisioner, ProvisionerFile, SshProvisioner, StartupScript, SystemdUnit, TailscaleConfig,
-    TalosCluster, TextFile, VolumeMount,
+    Bridge, ContainerProvisioner, ContainerSecretFile, Link2, Manifest, ManifestImpairment, Node,
+    NodeContainer, NodeReadyCheck, NodeUnikernel, NodeVm, NodeZtp, Provisioner, ProvisionerFile,
+    SshProvisioner, StartupScript, SystemdUnit, TailscaleConfig, TalosCluster, TextFile,
+    VolumeMount,
 };
 
 use super::*;
@@ -110,16 +110,12 @@ fn full_node_files() -> Node {
             group: "root".to_owned(),
             permissions: 644,
         }]),
-        binary_files: Some(vec![BinaryFile {
-            source: "files/tool.bin".to_owned(),
-        }]),
         systemd_units: Some(vec![SystemdUnit {
             name: "lab.service".to_owned(),
             source: "units/lab.service".to_owned(),
             enabled: true,
         }]),
         startup_scripts: Some(vec!["scripts/start.sh".to_owned()]),
-        user_scripts: Some(vec!["scripts/user.sh".to_owned()]),
         provisioners: Some(vec![
             Provisioner::Ssh(SshProvisioner {
                 files: vec![ProvisionerFile {
@@ -259,14 +255,10 @@ fn assert_every_node_field_set(node: &Node) {
         unikernel,
         environment_variables,
         text_files,
-        binary_files,
         systemd_units,
         startup_scripts,
         startup_scripts_data,
-        user_scripts,
-        user_scripts_data,
         text_files_data,
-        binary_files_data,
         systemd_units_data,
         provisioners,
     } = node;
@@ -317,17 +309,14 @@ fn assert_every_node_field_set(node: &Node) {
     for list in [
         environment_variables.as_ref().map(Vec::len),
         text_files.as_ref().map(Vec::len),
-        binary_files.as_ref().map(Vec::len),
         systemd_units.as_ref().map(Vec::len),
         startup_scripts.as_ref().map(Vec::len),
-        user_scripts.as_ref().map(Vec::len),
         provisioners.as_ref().map(Vec::len),
     ] {
         assert!(list.is_some_and(|len| len > 0));
     }
     // The contents the client reads are not part of the manifest as written.
-    assert!(startup_scripts_data.is_none() && user_scripts_data.is_none());
-    assert!(text_files_data.is_none() && binary_files_data.is_none());
+    assert!(startup_scripts_data.is_none() && text_files_data.is_none());
     assert!(systemd_units_data.is_none());
 }
 

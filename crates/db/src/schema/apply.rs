@@ -1683,13 +1683,13 @@ mod tests {
         assert_eq!(user.ssh_keys, Vec::<String>::new());
     }
 
-    #[tokio::test]
-    async fn upgraded_records_010_a_stored_definition_loses_node_ssh_keys_and_keeps_other_lists() {
-        // A version 36 database, from before the manifest's `ssh` group was removed, with a lab
-        // whose stored definition gave its node keys, key files and an environment variable.
-        let before = migrations_before(migrations::DELETE_MANIFEST_SSH_KEYS);
-        assert_eq!(before + 1, 36);
-        let db = database_at(before).await;
+    /// A database at the version before `migration`, with a lab whose stored definition gives
+    /// its node `fc1` each of `texts`, a `manifest_node_text` list and value, and that lab.
+    async fn definition_with_node_texts(
+        migration: &str,
+        texts: &[(&str, &str)],
+    ) -> (Database, RecordId) {
+        let db = database_at(migrations_before(migration)).await;
         let user = crate::create_user(&db, "alice".to_owned(), "TestPass123!", false, vec![])
             .await
             .unwrap();
@@ -1740,11 +1740,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            for (list, value) in [
-                ("authorized_key", "ssh-ed25519 AAAA alice"),
-                ("authorized_key_file", "keys/admin.pub"),
-                ("environment_variable", "MODE=lab"),
-            ] {
+            for &(list, value) in texts {
                 writer
                     .conn
                     .execute(
@@ -1756,9 +1752,11 @@ mod tests {
                     .unwrap();
             }
         }
+        (db, lab.id.unwrap())
+    }
 
-        apply_schema(&db).await.unwrap();
-
+    /// The rows of `manifest_node_text` whose list is `environment_variable`, and all of them.
+    async fn node_text_counts(db: &Database) -> (usize, usize) {
         let conn = db.reader().await.unwrap();
         let left = query_count(
             &conn,
@@ -1775,12 +1773,64 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!((left, total), (1, 1));
-        drop(conn);
-        let definition = read_lab_definition(&db, lab.id.as_ref().unwrap())
-            .await
-            .unwrap()
-            .unwrap();
+        (left, total)
+    }
+
+    #[tokio::test]
+    async fn upgraded_records_010_a_stored_definition_loses_node_ssh_keys_and_keeps_other_lists() {
+        // A version 36 database, from before the manifest's `ssh` group was removed, with a lab
+        // whose stored definition gave its node keys, key files and an environment variable.
+        assert_eq!(
+            migrations_before(migrations::DELETE_MANIFEST_SSH_KEYS) + 1,
+            36
+        );
+        let (db, lab) = definition_with_node_texts(
+            migrations::DELETE_MANIFEST_SSH_KEYS,
+            &[
+                ("authorized_key", "ssh-ed25519 AAAA alice"),
+                ("authorized_key_file", "keys/admin.pub"),
+                ("environment_variable", "MODE=lab"),
+            ],
+        )
+        .await;
+
+        apply_schema(&db).await.unwrap();
+
+        assert_eq!(node_text_counts(&db).await, (1, 1));
+        let definition = read_lab_definition(&db, &lab).await.unwrap().unwrap();
+        assert_eq!(
+            definition.nodes[0].environment_variables,
+            Some(vec!["MODE=lab".to_owned()])
+        );
+    }
+
+    #[tokio::test]
+    async fn upgraded_records_023_a_stored_definition_loses_user_scripts_and_binary_files_and_keeps_other_lists()
+     {
+        // A version 39 database, from before `user_scripts` and `binary_files` were removed,
+        // with a lab whose stored definition gave its node one of each, a startup script and
+        // an environment variable.
+        let migration = migrations::DELETE_MANIFEST_USER_SCRIPTS_AND_BINARY_FILES;
+        assert_eq!(migrations_before(migration) + 1, 39);
+        let (db, lab) = definition_with_node_texts(
+            migration,
+            &[
+                ("user_script", "scripts/user.sh"),
+                ("binary_file", "files/tool.bin"),
+                ("startup_script", "scripts/start.sh"),
+                ("environment_variable", "MODE=lab"),
+            ],
+        )
+        .await;
+
+        apply_schema(&db).await.unwrap();
+
+        assert_eq!(node_text_counts(&db).await, (1, 2));
+        let definition = read_lab_definition(&db, &lab).await.unwrap().unwrap();
+        assert_eq!(
+            definition.nodes[0].startup_scripts,
+            Some(vec!["scripts/start.sh".to_owned()])
+        );
         assert_eq!(
             definition.nodes[0].environment_variables,
             Some(vec!["MODE=lab".to_owned()])

@@ -351,22 +351,6 @@ fn text_lists(node: &Node) -> Vec<(&'static str, Vec<&str>)> {
                 .map(String::as_str)
                 .collect(),
         ),
-        (
-            "user_script",
-            node.user_scripts
-                .iter()
-                .flatten()
-                .map(String::as_str)
-                .collect(),
-        ),
-        (
-            "binary_file",
-            node.binary_files
-                .iter()
-                .flatten()
-                .map(|file| file.source.as_str())
-                .collect(),
-        ),
     ]
 }
 
