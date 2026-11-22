@@ -3102,7 +3102,7 @@ fn generate_disk_ztp(
             let src_disk = format!("{images_dir}/{SHERPA_BLANK_DISK_DIR}/{SHERPA_BLANK_DISK_IOSV}");
             let dst_disk = format!("{dir}/{}-cfg.img", node.name);
 
-            util::copy_file(&src_disk, &dst_disk)?;
+            util::copy_file_with_permissions(&src_disk, &dst_disk, NODE_CONFIG_FILE_MODE)?;
             util::copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
 
             let dst_final = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img");
@@ -3207,7 +3207,7 @@ fn ise_config_disk(
     let src_disk = format!("{images_dir}/{SHERPA_BLANK_DISK_DIR}/{SHERPA_BLANK_DISK_ISE}");
     let dst_disk = format!("{dir}/{node_name_with_lab}-cfg.img");
 
-    util::copy_file(&src_disk, &dst_disk)?;
+    util::copy_file_with_permissions(&src_disk, &dst_disk, NODE_CONFIG_FILE_MODE)?;
     util::copy_to_ext4_image(&[&ztp_config], &dst_disk, "/")?;
 
     let dst_final = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img");
@@ -3277,7 +3277,7 @@ fn mikrotik_config_disk(
     let src_disk = format!("{images_dir}/{SHERPA_BLANK_DISK_DIR}/{SHERPA_BLANK_DISK_FAT32}");
     let dst_disk = format!("{dir}/{}-cfg.img", node.name);
 
-    util::copy_file(&src_disk, &dst_disk)?;
+    util::copy_file_with_permissions(&src_disk, &dst_disk, NODE_CONFIG_FILE_MODE)?;
     util::copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
     for (path, content) in owner_key_files {
         util::write_file_with_permissions(
@@ -3347,7 +3347,7 @@ fn generate_usb_ztp(
             let src_usb = format!("{images_dir}/{SHERPA_BLANK_DISK_DIR}/{SHERPA_BLANK_DISK_FAT32}");
             let dst_usb = format!("{dir}/cfg.img");
 
-            util::copy_file(&src_usb, &dst_usb)?;
+            util::copy_file_with_permissions(&src_usb, &dst_usb, NODE_CONFIG_FILE_MODE)?;
             util::copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
 
             let dst_final = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img");
@@ -3385,8 +3385,8 @@ fn generate_usb_ztp(
             let src_usb = format!("{images_dir}/{SHERPA_BLANK_DISK_DIR}/{SHERPA_BLANK_DISK_JUNOS}");
             let dst_usb = format!("{dir}/cfg.img");
 
-            util::copy_file(&src_usb, &dst_usb)?;
-            util::create_config_archive(&ztp_config, &ztp_config_tgz)?;
+            util::copy_file_with_permissions(&src_usb, &dst_usb, NODE_CONFIG_FILE_MODE)?;
+            util::create_config_archive(&ztp_config, &ztp_config_tgz, NODE_CONFIG_FILE_MODE)?;
             util::copy_to_dos_image(&ztp_config_tgz, &dst_usb, "/")?;
             util::copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
 
@@ -3546,7 +3546,7 @@ fn write_binary_files(dir: &str, files: &[BinaryFileData]) -> Result<Vec<String>
             let contents = util::base64_decode_bytes(&file.content)
                 .with_context(|| format!("binary file '{}' contents", file.filename))?;
             let path = format!("{binary_dir}/{}", file.filename);
-            fs::write(&path, contents).with_context(|| format!("Failed to write {path}"))?;
+            util::write_file_with_permissions(Path::new(&path), &contents, NODE_CONFIG_FILE_MODE)?;
             Ok(path)
         })
         .collect()
@@ -3695,7 +3695,7 @@ fn flatcar_ignition(
         format!("{images_dir}/{SHERPA_BLANK_DISK_DIR}/{SHERPA_BLANK_DISK_EXT4_500MB}");
     let dst_disk = format!("{dir}/{node_name_with_lab}-{CONTAINER_DISK_NAME}");
 
-    util::copy_file(&src_data_disk, &dst_disk)?;
+    util::copy_file_with_permissions(&src_data_disk, &dst_disk, NODE_CONFIG_FILE_MODE)?;
 
     let disk_files = write_binary_files(&dir, node.binary_files.as_deref().unwrap_or_default())?;
     if !disk_files.is_empty() {
@@ -7009,9 +7009,6 @@ echo "$*" >> '{}'
     /// Marks a test process started by `under_a_permissive_umask`, and holds the umask it runs
     /// under, in octal.
     const UMASK_ENV: &str = "SHERPA_TEST_NODE_CONFIG_UMASK";
-    /// Media built from the configs in a VM's boot folder, not rendered: the folder keeps
-    /// them private until they are uploaded to the storage pool.
-    const BOOT_MEDIA: [&str; 3] = [ZTP_ISO, "-cfg.img", CONTAINER_DISK_NAME];
 
     /// Run the test `test` of this module again in a child process whose umask takes nothing
     /// away, so the modes it checks come from Sherpa and not from the umask; the umask is per
@@ -7064,15 +7061,15 @@ echo "$*" >> '{}'
         found
     }
 
-    /// Assert that every folder under `root` and `root` itself has `dir_mode`, and every file
-    /// that is not boot media has `file_mode`.
+    /// Assert that every folder under `root` and `root` itself has `dir_mode`, and every file,
+    /// config media among them, has `file_mode`.
     fn assert_modes(root: &Path, dir_mode: u32, file_mode: u32) {
         let root_mode = fs::metadata(root).unwrap().permissions().mode() & 0o7777;
         assert_eq!(root_mode, dir_mode, "{}", root.display());
         for (path, is_dir, mode) in modes_under(root) {
             if is_dir {
                 assert_eq!(mode, dir_mode, "folder {path}: {mode:o}");
-            } else if !BOOT_MEDIA.iter().any(|media| path.ends_with(media)) {
+            } else {
                 assert_eq!(mode, file_mode, "file {path}: {mode:o}");
             }
         }
