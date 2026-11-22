@@ -7,7 +7,7 @@ use super::bridge::Bridge;
 use super::link::Link2;
 use super::node::Node;
 use super::talos_cluster::TalosCluster;
-use shared::data::{NodeModel, ZtpServer};
+use shared::data::NodeModel;
 use shared::util::{generate_lab_name, load_file as load_file_util};
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
@@ -32,9 +32,6 @@ pub struct Manifest {
     pub nodes: Vec<Node>,
     pub links: Option<Vec<Link2>>,
     pub bridges: Option<Vec<Bridge>>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ztp_server: Option<ZtpServer>,
 }
 
 /// Optional per-lab tailnet enrollment. Secrets are resolved by the client.

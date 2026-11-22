@@ -12,7 +12,6 @@ use topology::{Manifest, Node, Provisioner};
 use crate::Database;
 use crate::persistence::{LAB_TABLE, NODE_TABLE, enum_text, key_of, node_from_row};
 use crate::queries::{definition, node as node_queries};
-use crate::secret::seal;
 use crate::sql::{execute, query_all};
 
 /// Refuse a `manifest` that holds the contents of its files, which a definition never stores.
@@ -27,11 +26,6 @@ fn refuse_file_contents(manifest: &Manifest) -> Result<()> {
     Ok(())
 }
 
-/// The place of a lab's sealed `ztp_server.password`, its associated data.
-pub(super) fn ztp_password_context(lab_key: &str) -> String {
-    format!("lab.ztp_server_password:{lab_key}")
-}
-
 /// Store `manifest`, a manifest as the user wrote it, as the definition of the lab `lab_id`,
 /// replacing any it had: the lab-level parameters, its links, bridges and Talos clusters, and
 /// every node's parameters. Each node of the manifest must have its record in the lab already.
@@ -40,8 +34,7 @@ pub(super) fn ztp_password_context(lab_key: &str) -> String {
 /// # Errors
 ///
 /// Fails when the manifest holds file contents (a `*_data` field), when the lab or one of the
-/// manifest's nodes has no record, when the manifest has a `ztp_server.password` and the database
-/// has no key, or when a value does not fit its column.
+/// manifest's nodes has no record, or when a value does not fit its column.
 #[instrument(skip(db, manifest), fields(%lab_id, lab_name = %manifest.name))]
 pub async fn store_lab_definition(
     db: &Database,
@@ -50,25 +43,12 @@ pub async fn store_lab_definition(
 ) -> Result<()> {
     refuse_file_contents(manifest)?;
     let lab_key = key_of(lab_id, LAB_TABLE)?;
-    let password = match manifest
-        .ztp_server
-        .as_ref()
-        .and_then(|ztp_server| ztp_server.password.as_deref())
-    {
-        Some(password) => Some(seal(
-            db.secret_key()?,
-            password.as_bytes(),
-            &ztp_password_context(&lab_key),
-        )?),
-        None => None,
-    };
     let ready_timeout = manifest
         .ready_timeout
         .map(i64::try_from)
         .transpose()
         .context("ready_timeout is too large to store")?;
     let tailscale = manifest.tailscale.as_ref();
-    let ztp_server = manifest.ztp_server.as_ref();
 
     let mut writer = db.writer().await?;
     let tx = writer
@@ -86,11 +66,6 @@ pub async fn store_lab_definition(
             tailscale
                 .and_then(|tailscale| tailscale.auth_key_env.as_deref())
                 .into(),
-            ztp_server.map(|ztp_server| ztp_server.enable).into(),
-            ztp_server
-                .and_then(|ztp_server| ztp_server.username.as_deref())
-                .into(),
-            password.into(),
         ]),
     )
     .await?;

@@ -2,27 +2,24 @@
 
 use std::collections::HashMap;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 use tracing::instrument;
 use turso::{Connection, Row};
 
-use shared::data::{CpuTopology, NodeKind, NodeModel, RecordId, ZtpServer};
+use shared::data::{CpuTopology, NodeKind, NodeModel, RecordId};
 use topology::{
     BinaryFile, Bridge, ContainerProvisioner, ContainerSecretFile, Link2, Manifest,
     ManifestImpairment, Node, NodeContainer, NodeUnikernel, NodeVm, Provisioner, ProvisionerFile,
     SshProvisioner, SystemdUnit, TailscaleConfig, TalosCluster, TextFile, VolumeMount,
 };
 
-use super::write::ztp_password_context;
 use crate::Database;
 use crate::persistence::{Cells, LAB_TABLE, key_of};
 use crate::queries::definition;
-use crate::secret::open;
 use crate::sql::{query_all, query_optional};
 
 /// The lab-level columns of the definition.
 struct LabRow {
-    key: String,
     name: String,
     description: Option<String>,
     has_definition: bool,
@@ -30,9 +27,6 @@ struct LabRow {
     provision_concurrency: Option<u8>,
     tailscale_enabled: Option<bool>,
     tailscale_auth_key_env: Option<String>,
-    ztp_server_enable: Option<bool>,
-    ztp_server_username: Option<String>,
-    ztp_server_password: Option<Vec<u8>>,
 }
 
 /// A node's key and its definition without its lists.
@@ -91,7 +85,6 @@ struct TalosMemberRow {
 fn lab_row(row: &Row) -> Result<LabRow> {
     let mut cells = Cells::new(row);
     Ok(LabRow {
-        key: cells.text("id")?,
         name: cells.text("name")?,
         description: cells.optional_text("description")?,
         has_definition: cells.boolean("has_definition")?,
@@ -99,9 +92,6 @@ fn lab_row(row: &Row) -> Result<LabRow> {
         provision_concurrency: cells.optional_integer("provision_concurrency")?,
         tailscale_enabled: cells.optional_boolean("tailscale_enabled")?,
         tailscale_auth_key_env: cells.optional_text("tailscale_auth_key_env")?,
-        ztp_server_enable: cells.optional_boolean("ztp_server_enable")?,
-        ztp_server_username: cells.optional_text("ztp_server_username")?,
-        ztp_server_password: cells.optional_blob("ztp_server_password")?,
     })
 }
 
@@ -390,13 +380,11 @@ impl Nodes {
 ///
 /// The manifest is the one stored, as the user wrote it, field for field, but for one rule: an
 /// empty list or an empty `vm`, `container` or `unikernel` table is not stored, and reads back
-/// as absent. It holds no file contents: every `*_data` field is absent. A
-/// `ztp_server.password` is opened with the database's key.
+/// as absent. It holds no file contents: every `*_data` field is absent.
 ///
 /// # Errors
 ///
-/// Fails when the lab does not exist, when a stored value is not one this build can read, and
-/// when the lab has a sealed password and the database has no key or a different one.
+/// Fails when the lab does not exist, or when a stored value is not one this build can read.
 #[instrument(skip(db), fields(%lab_id))]
 pub async fn read_lab_definition(db: &Database, lab_id: &RecordId) -> Result<Option<Manifest>> {
     let lab_key = key_of(lab_id, LAB_TABLE)?;
@@ -439,24 +427,6 @@ pub async fn read_lab_definition(db: &Database, lab_id: &RecordId) -> Result<Opt
     read_node_files(&conn, &lab_key, &mut nodes).await?;
     read_provisioners(&conn, &lab_key, &mut nodes).await?;
 
-    let ztp_server = match lab.ztp_server_enable {
-        Some(enable) => Some(ZtpServer {
-            enable,
-            username: lab.ztp_server_username,
-            password: match lab.ztp_server_password {
-                Some(sealed) => {
-                    let password =
-                        open(db.secret_key()?, &sealed, &ztp_password_context(&lab.key))?;
-                    Some(
-                        String::from_utf8(password)
-                            .context("The lab's ztp_server.password is not text")?,
-                    )
-                }
-                None => None,
-            },
-        }),
-        None => None,
-    };
     Ok(Some(Manifest {
         name: lab.name,
         description: lab.description,
@@ -470,7 +440,6 @@ pub async fn read_lab_definition(db: &Database, lab_id: &RecordId) -> Result<Opt
         nodes: nodes.nodes,
         links: non_empty(links),
         bridges: non_empty(bridges),
-        ztp_server,
     }))
 }
 

@@ -145,14 +145,6 @@ impl<'a> Cells<'a> {
         }
     }
 
-    pub(crate) fn optional_blob(&mut self, field: &str) -> Result<Option<Vec<u8>>> {
-        match self.next(field)? {
-            Value::Null => Ok(None),
-            Value::Blob(bytes) => Ok(Some(bytes)),
-            other => bail!("Database field {field} is not a blob: {other:?}"),
-        }
-    }
-
     pub(crate) fn json<T: DeserializeOwned>(&mut self, field: &str) -> Result<T> {
         let text = self.text(field)?;
         serde_json::from_str(&text)
