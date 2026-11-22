@@ -8,9 +8,10 @@ Python 3.15 that it installs on the guest with uv, never on the guest's system P
 this helper on the Sherpa host."""
 
 import fcntl
-from contextlib import suppress
+from contextlib import redirect_stdout, suppress
 import grp
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -912,8 +913,9 @@ class Guest:
         print(f"PASS {phase}: candidate binaries and unchanged users, settings and certificate")
 
     def device_password_state(self, token, username):
-        users = self.request("/api/v1/admin/users", token=token)["users"]
-        return next((user.get("device_password_set") for user in users if user["username"] == username), None)
+        """Whether `username` has set a device password, read from their own record with their
+        token: listing every user is for admins only."""
+        return self.request(f"/api/v1/admin/users/{username}", token=token)["user"].get("device_password_set")
 
     def lab_up_as(self, home, directory):
         """`sherpa up` for a one-node lab as the user whose CLI is under `home`; returns the exit
@@ -1577,8 +1579,10 @@ class GuestTests(unittest.TestCase):
 
         def request(path, payload=None, token=None):
             if path == "/api/v1/admin/users":
-                return {"users": [{"username": "persist-abcdef01", **guest.record}]}
-            posts.append((path, payload))
+                raise urllib.error.HTTPError(path, 403, "Forbidden", None, None)
+            if path == "/api/v1/admin/users/persist-abcdef01" and payload is None:
+                return {"user": {"username": "persist-abcdef01", **guest.record}}
+            posts.append((path, payload, token))
             if path.endswith("/device-password"):
                 guest.record["device_password_set"] = True
                 return {"username": "persist-abcdef01", "device_password_set": True}
@@ -1604,6 +1608,16 @@ class GuestTests(unittest.TestCase):
             guest, _, _ = self.device_password_guest(directory, [(1, "Failed to find a node image")])
             with self.assertRaisesRegex(RuntimeError, "not refused"):
                 guest.device_password()
+
+    def test_the_device_password_step_needs_no_admin_route(self):
+        refusal = "User 'persist-abcdef01' has no device password, and labs need one: " \
+                  "'sherpa server user device-password'"
+        with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()):
+            guest, posts, _ = self.device_password_guest(directory, [(1, refusal), (1, "Failed to find a node image")])
+            guest.device_password()
+        self.assertEqual([(path, token) for path, _, token in posts],
+                         [("/api/v1/admin/users/persist-abcdef01/ssh-keys", "user-token"),
+                          ("/api/v1/admin/users/persist-abcdef01/device-password", "user-token")])
 
     def test_the_update_fails_if_labs_are_still_refused_after_it_is_set(self):
         refusal = "User 'persist-abcdef01' has no device password, and labs need one: " \
