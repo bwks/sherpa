@@ -5,7 +5,7 @@
 
 use anyhow::{Result, bail};
 
-use shared::data::{DestroyResponse, LinkReport, LinkState, NodeActionResult};
+use shared::data::{DestroyResponse, LinkReport, LinkState, NodeActionResult, ScannedImage};
 use shared::util::Emoji;
 
 /// Fail unless the server destroyed every resource of the lab. `retry` is the command that
@@ -46,6 +46,25 @@ pub(crate) fn ensure_nodes_succeeded(action: &str, results: &[NodeActionResult])
     Ok(())
 }
 
+/// Fail if an image scan failed to record any version it found, naming each.
+pub(crate) fn ensure_images_recorded(scanned: &[ScannedImage]) -> Result<()> {
+    let mut failed = vec![];
+    for image in scanned {
+        if image.failed {
+            failed.push(format!("{} {} {}", image.model, image.kind, image.version));
+        }
+    }
+    if !failed.is_empty() {
+        bail!(
+            "{} of {} images found were not recorded: {}",
+            failed.len(),
+            scanned.len(),
+            failed.join(", ")
+        );
+    }
+    Ok(())
+}
+
 /// The line that tells the user about a link that is not attached, or `None` for one that is.
 fn link_note(report: &LinkReport) -> Option<String> {
     match report.state {
@@ -73,7 +92,9 @@ pub(crate) fn print_link_reports(links: &[LinkReport]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{DestroyError, DestroySummary};
+    use shared::data::{DestroyError, DestroySummary, NodeKind, NodeModel};
+
+    use crate::cmd::exit_status;
 
     #[test]
     fn link_state_008_links_that_are_not_attached_are_told_as_information_or_warning() {
@@ -176,5 +197,43 @@ mod tests {
             .to_string();
         assert!(error.contains("2 of 3 nodes were not stopped"), "{error}");
         assert!(error.contains("dev02, dev03"), "{error}");
+    }
+
+    fn scanned(version: &str, status: &str, failed: bool) -> ScannedImage {
+        ScannedImage {
+            model: NodeModel::NatsBus,
+            version: version.to_string(),
+            kind: NodeKind::Container,
+            status: status.to_string(),
+            failed,
+        }
+    }
+
+    #[test]
+    fn image_scan_020_a_scan_with_a_version_it_failed_to_record_exits_non_zero_naming_it() {
+        let scanned = [
+            scanned("2.10", "imported (default)", false),
+            scanned("2.11", "error: database is locked", true),
+        ];
+
+        let error = ensure_images_recorded(&scanned).unwrap_err();
+
+        assert_eq!(exit_status(&error), 1);
+        let message = error.to_string();
+        assert!(message.contains("1 of 2 images"), "{message}");
+        assert!(message.contains("nats_bus container 2.11"), "{message}");
+        assert!(!message.contains("2.10"), "{message}");
+    }
+
+    #[test]
+    fn image_scan_021_a_scan_that_recorded_or_found_every_version_exits_0() {
+        let scanned = [
+            scanned("2.10", "already_exists", false),
+            scanned("2.11", "imported", false),
+            scanned("2.12", "would_import", false),
+        ];
+
+        assert!(ensure_images_recorded(&scanned).is_ok());
+        assert!(ensure_images_recorded(&[]).is_ok());
     }
 }

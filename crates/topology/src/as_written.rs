@@ -92,10 +92,8 @@ impl Manifest {
                 parts.and_then(|parts| parts.environment_variables.clone());
             node.provisioners = parts.and_then(|parts| parts.provisioners.clone());
             node.text_files_data = None;
-            node.binary_files_data = None;
             node.systemd_units_data = None;
             node.startup_scripts_data = None;
-            node.user_scripts_data = None;
         }
         Ok(definition)
     }
@@ -106,10 +104,8 @@ impl Manifest {
     pub fn has_file_contents(&self) -> bool {
         self.nodes.iter().any(|node| {
             node.text_files_data.is_some()
-                || node.binary_files_data.is_some()
                 || node.systemd_units_data.is_some()
                 || node.startup_scripts_data.is_some()
-                || node.user_scripts_data.is_some()
         })
     }
 }

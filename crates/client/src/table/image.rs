@@ -217,12 +217,14 @@ mod tests {
                 version: "17.13.01a".to_string(),
                 kind: NodeKind::VirtualMachine,
                 status: "imported".to_string(),
+                failed: false,
             },
             ScannedImage {
                 model: NodeModel::AristaEos,
                 version: "4.33".to_string(),
                 kind: NodeKind::VirtualMachine,
                 status: "already present".to_string(),
+                failed: false,
             },
         ];
         let expected = "\

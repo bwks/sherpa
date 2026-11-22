@@ -47,19 +47,12 @@ pub struct Node {
     pub unikernel: Option<NodeUnikernel>,
     pub environment_variables: Option<Vec<String>>,
     pub text_files: Option<Vec<TextFile>>,
-    pub binary_files: Option<Vec<BinaryFile>>,
     pub systemd_units: Option<Vec<SystemdUnit>>,
     pub startup_scripts: Option<Vec<String>>,
     #[serde(default)]
     pub startup_scripts_data: Option<Vec<StartupScript>>,
-    pub user_scripts: Option<Vec<String>>,
-    #[serde(default)]
-    pub user_scripts_data: Option<Vec<StartupScript>>,
     #[serde(default)]
     pub text_files_data: Option<Vec<TextFileData>>,
-    /// The `binary_files` the client read, for the server.
-    #[serde(default)]
-    pub binary_files_data: Option<Vec<BinaryFileData>>,
     /// The `systemd_units` the client read, for the server.
     #[serde(default)]
     pub systemd_units_data: Option<Vec<SystemdUnitData>>,
@@ -156,10 +149,8 @@ pub struct NodeExpanded {
     pub ipv6_address: Option<Ipv6Addr>,
     pub environment_variables: Option<Vec<String>>,
     pub text_files: Option<Vec<TextFileData>>,
-    pub binary_files: Option<Vec<BinaryFileData>>,
     pub systemd_units: Option<Vec<SystemdUnitData>>,
     pub startup_scripts: Option<Vec<StartupScript>>,
-    pub user_scripts: Option<Vec<StartupScript>>,
 }
 
 impl NodeExpanded {
@@ -194,10 +185,8 @@ impl NodeExpanded {
             ipv6_address: None,
             environment_variables: node.environment_variables.clone(),
             text_files: node.text_files_data.clone(),
-            binary_files: node.binary_files_data.clone(),
             systemd_units: node.systemd_units_data.clone(),
             startup_scripts: node.startup_scripts_data.clone(),
-            user_scripts: node.user_scripts_data.clone(),
         })
     }
 }
@@ -236,23 +225,10 @@ pub struct TextFileData {
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct BinaryFile {
-    pub source: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct SystemdUnit {
     pub name: String,
     pub source: String,
     pub enabled: bool,
-}
-
-/// A binary file the client read: its file name and base64 contents.
-#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
-pub struct BinaryFileData {
-    pub filename: String,
-    pub content: String,
 }
 
 /// A systemd unit the client read: the unit name, its base64 contents and whether to enable it.

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use super::manifest_processing::process_manifest_nodes;
+use super::manifest_processing::{check_file_settings, process_manifest_nodes};
 use shared::data::NodeCpuPins;
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -9,8 +9,8 @@ use topology::validate::{
     check_duplicate_interface_link, check_interface_bounds, check_lab_description, check_lab_name,
     check_link_impairments, check_no_p2p_field, check_node_kind_settings, check_node_model_kind,
     check_node_names, check_node_ztp, check_nonzero_node_settings, check_ptx_platform,
-    check_ready_timeout, check_text_file_modes, check_vm_tuning, validate_provisioners,
-    validate_tailscale, validate_talos_clusters,
+    check_ready_timeout, check_text_file_modes, check_vm_tuning, validate_environment_variables,
+    validate_provisioners, validate_tailscale, validate_talos_clusters,
 };
 use topology::{Manifest, process_manifest_bridges, process_manifest_links};
 
@@ -61,6 +61,10 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     check_text_file_modes(&manifest.nodes)?;
     println!("  ✓ Text file modes are valid");
 
+    println!("→ Checking environment variables...");
+    validate_environment_variables(&manifest.nodes)?;
+    println!("  ✓ Environment variable keys are valid");
+
     println!("→ Checking each node's kind...");
     for node in &manifest.nodes {
         check_node_model_kind(node)?;
@@ -73,7 +77,8 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     for node in &nodes_expanded {
         check_node_kind_settings(node)?;
     }
-    println!("  ✓ Every node sets only what its kind takes");
+    check_file_settings(&manifest.nodes)?;
+    println!("  ✓ Every node sets only what its kind and model take");
 
     println!("→ Checking links and bridges...");
     let links = manifest.links.as_deref().unwrap_or_default();
@@ -171,5 +176,27 @@ links = [
 
         assert!(check("override-fail", "").is_err());
         assert!(check("override-pass", r", interfaces = { data_count = 4 }").is_ok());
+    }
+
+    #[test]
+    fn boot_settings_008_sherpa_validate_refuses_an_environment_variable_key_not_a_name() {
+        let path = write_temp_manifest(
+            "env-key",
+            r#"
+name = "env-lab"
+
+nodes = [
+  { name = "dev01", model = "ubuntu_linux", environment_variables = ["BAD-KEY=value"] },
+]
+"#,
+        );
+        let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
+        fs::remove_file(path).ok();
+
+        let message = format!("{:#}", result.unwrap_err());
+        assert!(
+            message.contains("key 'BAD-KEY' for node 'dev01'"),
+            "{message}"
+        );
     }
 }

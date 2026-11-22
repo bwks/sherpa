@@ -6,6 +6,16 @@ use shared::data::kind_settings::{
     VM_AND_CONTAINER, VM_AND_UNIKERNEL, VM_GROUP,
 };
 use shared::data::model_kinds_list;
+use shared::data::{NodeConfig, Ztp};
+use shared::validators::effective_ztp;
+
+/// The first-boot configs that take `text_files`: cloud-init (cloud-init and cloudbase-init)
+/// and Ignition.
+const TEXT_FILES_ZTP: &[Ztp] = &[Ztp::CloudInit, Ztp::Ignition];
+/// The first-boot configs that take `startup_scripts`: cloud-init and cloudbase-init.
+const STARTUP_SCRIPTS_ZTP: &[Ztp] = &[Ztp::CloudInit];
+/// The first-boot configs that take `systemd_units`: Ignition.
+const SYSTEMD_UNITS_ZTP: &[Ztp] = &[Ztp::Ignition];
 
 /// Check that a node's `kind`, when it sets one, is a kind its model takes. A node that sets
 /// none takes its model's default kind; `generic` has none, so its nodes must set one.
@@ -48,7 +58,7 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
     let cpu = &node.cpu;
     let disk = &node.boot_disk;
     // Each key the node sets, and the kinds of node that take it.
-    let settings: [KindSetting; 28] = [
+    let settings: [KindSetting; 23] = [
         ("memory", node.memory.is_some(), ALL),
         ("cpu.count", cpu.count.is_some(), ALL),
         ("cpu.mode", cpu.mode.is_some(), VM),
@@ -84,27 +94,6 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
             node.environment_variables.is_some(),
             VM_AND_CONTAINER,
         ),
-        ("text_files", node.text_files.is_some(), VM_AND_CONTAINER),
-        (
-            "binary_files",
-            node.binary_files.is_some(),
-            VM_AND_CONTAINER,
-        ),
-        (
-            "systemd_units",
-            node.systemd_units.is_some(),
-            VM_AND_CONTAINER,
-        ),
-        (
-            "startup_scripts",
-            node.startup_scripts.is_some(),
-            VM_AND_CONTAINER,
-        ),
-        (
-            "user_scripts",
-            node.user_scripts.is_some(),
-            VM_AND_CONTAINER,
-        ),
     ];
     if let Some((key, _, kinds)) = kind_settings::first_not_taken(kind, &settings) {
         let model = node.model_kind.model();
@@ -123,11 +112,89 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
     Ok(())
 }
 
+/// Check that a node sets `text_files`, `startup_scripts` and `systemd_units` only when the
+/// first-boot config Sherpa generates for it carries them. That config follows from the ZTP
+/// setting the node runs with, the manifest's or else its `image`'s, which its model data
+/// bounds: cloud-init, on Linux, BSD and Windows (cloudbase-init), takes `text_files` and
+/// `startup_scripts`, and Ignition, on Flatcar, takes `text_files` and `systemd_units`. Every
+/// other setting takes none: ZTP off, the methods of network devices and every container's. A
+/// node's own `ztp.config` replaces the generated config, so it takes none either.
+///
+/// # Errors
+///
+/// Fails on the first of these settings the node sets that its config does not take, naming
+/// the node, the setting and the model, and why when the model would take it with ZTP on or
+/// without its own config; or when `image` is of a kind its model does not take.
+pub fn check_node_file_settings(node: &Node, image: &NodeConfig) -> Result<()> {
+    let ztp = effective_ztp(node.ztp.method, image);
+    let own_config = node.ztp.config.is_some();
+    let settings: [(&str, bool, &[Ztp]); 3] = [
+        ("text_files", node.text_files.is_some(), TEXT_FILES_ZTP),
+        (
+            "startup_scripts",
+            node.startup_scripts.is_some(),
+            STARTUP_SCRIPTS_ZTP,
+        ),
+        (
+            "systemd_units",
+            node.systemd_units.is_some(),
+            SYSTEMD_UNITS_ZTP,
+        ),
+    ];
+    let Some((key, _, takes)) = settings
+        .iter()
+        .find(|(_, set, takes)| *set && (own_config || !takes.contains(&ztp)))
+    else {
+        return Ok(());
+    };
+    let name = &node.name;
+    let model = image.model;
+    let kind = image.kind();
+    let uses = if model.kinds().len() > 1 {
+        format!("{model} does not use as a {kind}")
+    } else {
+        format!("{model} does not use")
+    };
+    if own_config {
+        bail!("Manifest - node: '{name}' sets {key}, which {uses} with its own `ztp.config`");
+    }
+    let model_takes_it = image
+        .model_kind()?
+        .ztp_methods()
+        .iter()
+        .any(|method| takes.contains(method));
+    if ztp == Ztp::Disabled && model_takes_it {
+        bail!("Manifest - node: '{name}' sets {key}, which {uses} with ZTP disabled");
+    }
+    bail!("Manifest - node: '{name}' sets {key}, which {uses}");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{Manifest, NodeContainer};
     use shared::data::{ModelKind, NodeKind, NodeModel};
+
+    /// Each of the settings, as a node's TOML lines.
+    const FILE_SETTINGS: [(&str, &str); 3] = [
+        (
+            "text_files",
+            r#"[[nodes.text_files]]
+src = "motd"
+dst = "/etc/motd"
+user = "root"
+group = "root"
+permissions = 644"#,
+        ),
+        ("startup_scripts", r#"startup_scripts = ["boot.sh"]"#),
+        (
+            "systemd_units",
+            r#"[[nodes.systemd_units]]
+name = "app.service"
+source = "app.service"
+enabled = true"#,
+        ),
+    ];
 
     /// The one node of a manifest written in TOML, as read.
     fn manifest_node(node: &str) -> Node {
@@ -139,6 +206,24 @@ mod tests {
         ))
         .expect("the manifest reads");
         manifest.nodes[0].clone()
+    }
+
+    /// The refusal of `check_node_file_settings` for a node of `model` and `kind` with `lines`
+    /// and the `setting` in it, or `None` when it is taken, checked against the model and
+    /// kind's built-in image.
+    fn file_setting_error(model_kind: ModelKind, lines: &str, setting: &str) -> Option<String> {
+        let node = manifest_node(&format!(
+            r#"name = "n1"
+model = "{}"
+kind = "{}"
+{lines}
+{setting}"#,
+            model_kind.model(),
+            model_kind.kind(),
+        ));
+        check_node_file_settings(&node, &model_kind.node_config())
+            .err()
+            .map(|error| error.to_string())
     }
 
     fn node(model: NodeModel) -> NodeExpanded {
@@ -230,6 +315,127 @@ kind = "{kind}""#
             ));
             check_node_model_kind(&node).unwrap();
             assert_eq!(NodeExpanded::new(1, &node).unwrap().model_kind.kind(), kind);
+        }
+    }
+
+    #[test]
+    fn node_settings_016_file_settings_on_a_container_are_refused_naming_the_node_the_setting_and_the_model()
+     {
+        let container = ModelKind::new(NodeModel::Generic, Some(NodeKind::Container)).unwrap();
+        for (key, setting) in FILE_SETTINGS {
+            assert_eq!(
+                file_setting_error(container, "", setting).as_deref(),
+                Some(format!("Manifest - node: 'n1' sets {key}, which generic does not use as a container").as_str()),
+            );
+        }
+    }
+
+    #[test]
+    fn node_settings_017_file_settings_on_a_network_device_vm_are_refused() {
+        let veos = ModelKind::default_for(NodeModel::AristaEos);
+        for (key, setting) in FILE_SETTINGS {
+            assert_eq!(
+                file_setting_error(veos, "", setting).as_deref(),
+                Some(format!("Manifest - node: 'n1' sets {key}, which arista_eos does not use as a virtual_machine").as_str()),
+            );
+        }
+        let srx = ModelKind::default_for(NodeModel::JuniperSrxv3);
+        let error = file_setting_error(srx, "", FILE_SETTINGS[0].1);
+        assert_eq!(
+            error.as_deref(),
+            Some("Manifest - node: 'n1' sets text_files, which juniper_srxv3 does not use"),
+        );
+    }
+
+    #[test]
+    fn node_settings_018_file_settings_on_a_node_with_ztp_off_are_refused() {
+        let off = r#"ztp = { method = "disabled" }"#;
+        let [text_files, startup_scripts, systemd_units] = FILE_SETTINGS;
+        let used_with_ztp_on = [
+            (NodeModel::UbuntuLinux, text_files),
+            (NodeModel::UbuntuLinux, startup_scripts),
+            (NodeModel::FlatcarLinux, systemd_units),
+        ];
+        for (model, (key, setting)) in used_with_ztp_on {
+            assert_eq!(
+                file_setting_error(ModelKind::default_for(model), off, setting).as_deref(),
+                Some(
+                    format!(
+                        "Manifest - node: 'n1' sets {key}, which {model} does not use with ZTP disabled"
+                    )
+                    .as_str()
+                ),
+            );
+        }
+    }
+
+    #[test]
+    fn node_settings_019_file_settings_on_a_node_with_its_own_ztp_config_are_refused() {
+        let own = r#"ztp = { config = "user-data.yaml" }"#;
+        let [text_files, startup_scripts, systemd_units] = FILE_SETTINGS;
+        let used_without_it = [
+            (NodeModel::UbuntuLinux, text_files),
+            (NodeModel::UbuntuLinux, startup_scripts),
+            (NodeModel::FlatcarLinux, systemd_units),
+        ];
+        for (model, (key, setting)) in used_without_it {
+            assert_eq!(
+                file_setting_error(ModelKind::default_for(model), own, setting).as_deref(),
+                Some(
+                    format!(
+                        "Manifest - node: 'n1' sets {key}, which {model} does not use with its own `ztp.config`"
+                    )
+                    .as_str()
+                ),
+            );
+        }
+    }
+
+    #[test]
+    fn node_settings_020_file_settings_are_taken_where_the_first_boot_config_carries_them() {
+        let [text_files, startup_scripts, systemd_units] = FILE_SETTINGS.map(|(_, lines)| lines);
+        let taken = [
+            (NodeModel::UbuntuLinux, text_files),
+            (NodeModel::UbuntuLinux, startup_scripts),
+            (NodeModel::AlpineLinux, startup_scripts),
+            (NodeModel::FreeBsd, text_files),
+            (NodeModel::WindowsServer, text_files),
+            (NodeModel::WindowsServer, startup_scripts),
+            (NodeModel::FlatcarLinux, text_files),
+            (NodeModel::FlatcarLinux, systemd_units),
+        ];
+        for (model, setting) in taken {
+            assert_eq!(
+                file_setting_error(ModelKind::default_for(model), "", setting),
+                None,
+                "{model}: {setting}"
+            );
+        }
+        let generic_vm =
+            ModelKind::new(NodeModel::Generic, Some(NodeKind::VirtualMachine)).unwrap();
+        assert_eq!(file_setting_error(generic_vm, "", text_files), None);
+    }
+
+    #[test]
+    fn node_settings_021_startup_scripts_on_flatcar_and_systemd_units_on_cloud_init_are_refused() {
+        let [_, startup_scripts, systemd_units] = FILE_SETTINGS.map(|(_, lines)| lines);
+        assert_eq!(
+            file_setting_error(
+                ModelKind::default_for(NodeModel::FlatcarLinux),
+                "",
+                startup_scripts
+            )
+            .as_deref(),
+            Some("Manifest - node: 'n1' sets startup_scripts, which flatcar_linux does not use"),
+        );
+        for model in [NodeModel::UbuntuLinux, NodeModel::WindowsServer] {
+            assert_eq!(
+                file_setting_error(ModelKind::default_for(model), "", systemd_units).as_deref(),
+                Some(
+                    format!("Manifest - node: 'n1' sets systemd_units, which {model} does not use")
+                        .as_str()
+                ),
+            );
         }
     }
 }

@@ -13,6 +13,14 @@ at first boot: generated in `server::services::node_ops` and `guest_account`, re
 | Ignition | Flatcar | JSON in the storage pool, named by the domain's `<sysinfo type='fwcfg'>` entry, so libvirt labels it and adds it to the VM's AppArmor profile, which a raw `-fw_cfg` argument would not |
 | cloudbase-init | Windows | NoCloud ISO with cloudbase-init `user-data` |
 
+Each method carries only some of a manifest's files and scripts: cloud-init and cloudbase-init
+take `text_files` and `startup_scripts`, and Ignition takes `text_files` and `systemd_units`.
+`topology::validate::check_node_file_settings` refuses the others, and all three on any node whose
+ZTP setting is another method or off, or that has its own `ztp.config`. The ZTP setting is the
+node's or its image's (`effective_ztp`), so the client checks a node against its model's built-in
+image at `sherpa validate`, `up` and `redeploy`, and the server checks it again against the image
+it builds from, in `up`'s plan and before a redeploy tears the node down.
+
 All of it is readable by `sherpa`, its group and QEMU in the storage pool (see [`SERVER.md`](SERVER.md#lab-and-database-storage-permissions)),
 so none of it is for secrets: those go through the [provisioners](PROVISIONERS.md).
 
@@ -53,14 +61,16 @@ primary group (SUSE shares `users`). Each file has its own command, so one bad o
 the others, and no value appears in `runcmd`. Root-owned entries leave `owner` unset, as the BSDs
 have no `root` group and a `root:root` owner fails the whole module.
 
-`runcmd` runs, in order: staged moves, the environment loader, `startup_scripts`, `user_scripts`.
+`runcmd` runs, in order: staged moves, the environment loader, `startup_scripts` as root. Scripts
+that run as the owner are an ssh provisioner's (see [`PROVISIONERS.md`](PROVISIONERS.md)).
 Environment variables go to the owner's login only (`~/.sherpa_env`, sourced from the login file
 bash reads), never system-wide; Windows sets them machine-wide, each with a PowerShell command
 passed as `-EncodedCommand` (base64 of its UTF-16LE bytes), so the `cmd` that runs `runcmd` never
 parses a key or a value: a `"` cannot end an argument and `%NAME%` is not expanded. A Windows
 startup script's file name does go into a `cmd` line, so one with `"` or `%` is refused at
 validation, as a private file's path is. Scripts run through their shebang,
-not `bash`, because Alpine and the BSDs ship none. Flatcar runs no manifest scripts. Ignition takes
+not `bash`, because Alpine and the BSDs ship none. Flatcar takes no `startup_scripts`; its
+`systemd_units` are Ignition units. Ignition takes
 file modes as decimal numbers, so `template::FileMode` holds the bits and serialises them that way.
 
 ## Windows (cloudbase-init)

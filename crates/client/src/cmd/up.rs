@@ -7,11 +7,11 @@ use std::time::Duration;
 
 use shared::data::{ClientConfig, NodeInfo, StatusMessage, UpResponse};
 use shared::util::{
-    Emoji, LabFolder, base64_encode, base64_encode_bytes, get_cwd, load_file, term_msg_surround,
-    term_msg_underline,
+    Emoji, LabFolder, base64_encode, get_cwd, load_file, term_msg_surround, term_msg_underline,
 };
-use topology::{BinaryFile, BinaryFileData, StartupScript, SystemdUnit, SystemdUnitData};
+use topology::{StartupScript, SystemdUnit, SystemdUnitData};
 
+use super::manifest_processing::check_manifest;
 use super::progress::status_emoji;
 use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
@@ -25,10 +25,7 @@ use crate::ssh_client::SshAccess;
 use crate::table::{render_lab_info_table, render_nodes_table, render_tailnet_table};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
-use topology::validate::{
-    check_lab_description, check_lab_name, check_nonzero_node_settings, check_ready_timeout,
-    check_text_file_modes, check_windows_startup_script_names, validate_provisioners,
-};
+use topology::validate::{check_lab_description, check_windows_startup_script_names};
 
 /// Helper struct for deserializing log messages
 #[derive(Deserialize)]
@@ -65,15 +62,9 @@ pub async fn up(
 
     let mut manifest = topology::Manifest::load_file(manifest_path)
         .with_context(|| format!("Failed to parse manifest: {manifest_path}"))?;
-    check_lab_name(&manifest.name).context("Manifest validation failed: lab name")?;
-    check_ready_timeout(manifest.ready_timeout)
-        .context("Manifest validation failed: ready timeout")?;
-    check_nonzero_node_settings(&manifest.nodes)
-        .context("Manifest validation failed: node settings")?;
-    validate_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
+    check_manifest(&manifest)?;
     check_lab_description(manifest.description.as_deref())
         .context("Manifest validation failed: description")?;
-    check_text_file_modes(&manifest.nodes).context("Manifest validation failed: text files")?;
 
     let tailscale_auth_key = resolve_tailscale_key(&manifest, server_url, config)?;
 
@@ -248,8 +239,8 @@ pub(crate) fn resolve_ztp_configs(
     Ok(())
 }
 
-/// Read each node's `startup_scripts` and `user_scripts`, base64-encode them, and fill in
-/// `startup_scripts_data` and `user_scripts_data` for the server. Paths may start with `~`;
+/// Read each node's `startup_scripts`, base64-encode them, and fill in `startup_scripts_data`
+/// for the server. Paths may start with `~`;
 /// relative paths start at the manifest's folder.
 pub(crate) fn resolve_scripts(
     manifest: &mut topology::Manifest,
@@ -262,47 +253,28 @@ pub(crate) fn resolve_scripts(
             .as_deref()
             .filter(|paths| !paths.is_empty())
         {
-            node.startup_scripts_data = Some(read_scripts(
-                &node.name,
-                paths,
-                "startup_script",
-                manifest_dir,
-            )?);
-        }
-        if let Some(paths) = node
-            .user_scripts
-            .as_deref()
-            .filter(|paths| !paths.is_empty())
-        {
-            node.user_scripts_data = Some(read_scripts(
-                &node.name,
-                paths,
-                "user_script",
-                manifest_dir,
-            )?);
+            node.startup_scripts_data = Some(read_scripts(&node.name, paths, manifest_dir)?);
         }
     }
     Ok(())
 }
 
-/// Read and encode the scripts at `paths` for node `node`; `kind` names them in errors.
-fn read_scripts(
-    node: &str,
-    paths: &[String],
-    kind: &str,
-    manifest_dir: &Path,
-) -> Result<Vec<StartupScript>> {
+/// Read and encode the startup scripts at `paths` for node `node`.
+fn read_scripts(node: &str, paths: &[String], manifest_dir: &Path) -> Result<Vec<StartupScript>> {
     let mut scripts = Vec::with_capacity(paths.len());
     for path in paths {
         let resolved = resolve_client_path(manifest_dir, path);
         let contents = fs::read_to_string(&resolved).with_context(|| {
             format!(
-                "Failed to read {kind} for node '{node}': {}",
+                "Failed to read startup_script for node '{node}': {}",
                 resolved.display()
             )
         })?;
         if contents.is_empty() {
-            bail!("{kind} for node '{node}' is empty: {}", resolved.display());
+            bail!(
+                "startup_script for node '{node}' is empty: {}",
+                resolved.display()
+            );
         }
         let filename = resolved
             .file_name()
@@ -367,8 +339,7 @@ pub(crate) fn resolve_text_files(
     Ok(())
 }
 
-/// Read each node's `binary_files` and `systemd_units` and fill in
-/// their `*_data` fields. The server never opens manifest paths: it uses what the client read.
+/// Read each node's `systemd_units` and fill in `systemd_units_data`. The server never opens manifest paths: it uses what the client read.
 /// Paths may start with `~`; relative paths start at the manifest's folder.
 pub(crate) fn resolve_node_files(
     manifest: &mut topology::Manifest,
@@ -376,42 +347,11 @@ pub(crate) fn resolve_node_files(
 ) -> Result<()> {
     let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
     for node in &mut manifest.nodes {
-        if let Some(files) = node.binary_files.as_deref() {
-            node.binary_files_data = Some(read_binary_files(&node.name, files, manifest_dir)?);
-        }
         if let Some(units) = node.systemd_units.as_deref() {
             node.systemd_units_data = Some(read_systemd_units(&node.name, units, manifest_dir)?);
         }
     }
     Ok(())
-}
-
-fn read_binary_files(
-    node: &str,
-    files: &[BinaryFile],
-    manifest_dir: &Path,
-) -> Result<Vec<BinaryFileData>> {
-    files
-        .iter()
-        .map(|file| {
-            let path = resolve_client_path(manifest_dir, &file.source);
-            let contents = fs::read(&path).with_context(|| {
-                format!(
-                    "Failed to read binary_file for node '{node}': {}",
-                    path.display()
-                )
-            })?;
-            let filename = path
-                .file_name()
-                .with_context(|| format!("binary_file for node '{node}' has no file name"))?
-                .to_string_lossy()
-                .into_owned();
-            Ok(BinaryFileData {
-                filename,
-                content: base64_encode_bytes(&contents),
-            })
-        })
-        .collect()
 }
 
 fn read_systemd_units(
@@ -562,15 +502,13 @@ mod tests {
     }
 
     #[test]
-    fn client_content_004_startup_and_user_scripts_are_read_and_sent_under_their_file_names() {
+    fn client_content_004_startup_scripts_are_read_and_sent_under_their_file_names() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("boot.sh"), "echo boot").unwrap();
-        fs::write(dir.path().join("user.sh"), "echo user").unwrap();
         let mut manifest = topology::Manifest {
             nodes: vec![topology::Node {
                 name: "dev01".into(),
                 startup_scripts: Some(vec!["boot.sh".into()]),
-                user_scripts: Some(vec!["user.sh".into()]),
                 ..Default::default()
             }],
             ..Default::default()
@@ -582,19 +520,16 @@ mod tests {
         let startup = manifest.nodes[0].startup_scripts_data.as_ref().unwrap();
         assert_eq!(startup[0].filename, "boot.sh");
         assert_eq!(startup[0].content, base64_encode("echo boot"));
-        let user = manifest.nodes[0].user_scripts_data.as_ref().unwrap();
-        assert_eq!(user[0].filename, "user.sh");
-        assert_eq!(user[0].content, base64_encode("echo user"));
     }
 
     #[test]
-    fn client_content_005_an_empty_script_is_refused_naming_its_node_and_kind() {
+    fn client_content_005_an_empty_script_is_refused_naming_its_node() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("empty.sh"), "").unwrap();
         let mut manifest = topology::Manifest {
             nodes: vec![topology::Node {
                 name: "dev01".into(),
-                user_scripts: Some(vec!["empty.sh".into()]),
+                startup_scripts: Some(vec!["empty.sh".into()]),
                 ..Default::default()
             }],
             ..Default::default()
@@ -605,7 +540,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .starts_with("user_script for node 'dev01' is empty"),
+                .starts_with("startup_script for node 'dev01' is empty"),
             "{error}"
         );
     }
@@ -746,7 +681,8 @@ mod tests {
     }
 
     #[test]
-    fn client_content_006_binary_files_and_systemd_units_are_sent_with_their_contents() {
+    fn client_content_006_a_systemd_unit_is_sent_with_its_name_contents_and_whether_it_is_enabled()
+    {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         fs::create_dir(dir.path().join("units")).expect("mkdir");
         fs::write(
@@ -754,15 +690,11 @@ mod tests {
             "[Unit]\nDescription=app\n",
         )
         .expect("unit");
-        fs::write(dir.path().join("tool"), [0_u8, 159, 146, 150]).expect("binary");
         let manifest_path = dir.path().join("manifest.toml");
 
         let mut manifest = test_manifest(vec![topology::Node {
             name: "fc1".to_string(),
             model: NodeModel::FlatcarLinux,
-            binary_files: Some(vec![BinaryFile {
-                source: "tool".to_string(),
-            }]),
             systemd_units: Some(vec![SystemdUnit {
                 name: "app.service".to_string(),
                 source: "units/app.service".to_string(),
@@ -775,12 +707,6 @@ mod tests {
             .expect("resolve should succeed");
 
         let node = &manifest.nodes[0];
-        let binaries = node.binary_files_data.as_ref().expect("binary_files_data");
-        assert_eq!(binaries[0].filename, "tool");
-        assert_eq!(
-            shared::util::base64_decode_bytes(&binaries[0].content).expect("decode"),
-            vec![0_u8, 159, 146, 150]
-        );
         let units = node
             .systemd_units_data
             .as_ref()
@@ -790,28 +716,6 @@ mod tests {
         assert_eq!(
             base64_decode(&units[0].content).expect("decode"),
             "[Unit]\nDescription=app\n"
-        );
-    }
-
-    #[test]
-    fn client_content_007_an_unreadable_binary_file_is_refused_naming_the_node_and_path() {
-        let dir = tempfile::tempdir().expect("Failed to create temp dir");
-        let manifest_path = dir.path().join("manifest.toml");
-        let mut manifest = test_manifest(vec![topology::Node {
-            name: "fc1".to_string(),
-            model: NodeModel::FlatcarLinux,
-            binary_files: Some(vec![BinaryFile {
-                source: "missing".to_string(),
-            }]),
-            ..Default::default()
-        }]);
-
-        let error = resolve_node_files(&mut manifest, manifest_path.to_str().expect("path"))
-            .expect_err("missing file read");
-        let message = format!("{error:#}");
-        assert!(
-            message.contains("fc1") && message.contains("missing"),
-            "{message}"
         );
     }
 

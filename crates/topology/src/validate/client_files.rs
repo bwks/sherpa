@@ -10,8 +10,8 @@ use crate::Node;
 ///
 /// # Errors
 ///
-/// Fails when a node lists files the client did not send, or sends a binary file or systemd
-/// unit whose name is not a plain file name.
+/// Fails when a node lists files the client did not send, or sends a systemd unit whose name
+/// is not a plain file name.
 pub fn check_client_read_files(nodes: &[Node]) -> Result<()> {
     for node in nodes {
         let lists = [
@@ -19,11 +19,6 @@ pub fn check_client_read_files(nodes: &[Node]) -> Result<()> {
                 "text_files",
                 count(node.text_files.as_ref()),
                 count(node.text_files_data.as_ref()),
-            ),
-            (
-                "binary_files",
-                count(node.binary_files.as_ref()),
-                count(node.binary_files_data.as_ref()),
             ),
             (
                 "systemd_units",
@@ -35,11 +30,6 @@ pub fn check_client_read_files(nodes: &[Node]) -> Result<()> {
                 count(node.startup_scripts.as_ref()),
                 count(node.startup_scripts_data.as_ref()),
             ),
-            (
-                "user_scripts",
-                count(node.user_scripts.as_ref()),
-                count(node.user_scripts_data.as_ref()),
-            ),
         ];
         for (field, listed, read) in lists {
             if listed != read {
@@ -50,18 +40,8 @@ pub fn check_client_read_files(nodes: &[Node]) -> Result<()> {
                 );
             }
         }
-        let binary_names = node
-            .binary_files_data
-            .iter()
-            .flatten()
-            .map(|file| &file.filename);
-        let unit_names = node
-            .systemd_units_data
-            .iter()
-            .flatten()
-            .map(|unit| &unit.name);
-        for name in binary_names.chain(unit_names) {
-            check_file_name(&node.name, name)?;
+        for unit in node.systemd_units_data.iter().flatten() {
+            check_file_name(&node.name, &unit.name)?;
         }
     }
     Ok(())
@@ -88,7 +68,7 @@ fn check_file_name(node: &str, name: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BinaryFile, SystemdUnit, SystemdUnitData, TextFile};
+    use crate::{SystemdUnit, SystemdUnitData, TextFile};
 
     fn node() -> Node {
         Node {
@@ -116,13 +96,6 @@ mod tests {
                 },
             ),
             (
-                "binary_files",
-                Node {
-                    binary_files: Some(vec![BinaryFile::default()]),
-                    ..node()
-                },
-            ),
-            (
                 "systemd_units",
                 Node {
                     systemd_units: Some(vec![SystemdUnit::default()]),
@@ -133,13 +106,6 @@ mod tests {
                 "startup_scripts",
                 Node {
                     startup_scripts: Some(vec!["boot.sh".to_owned()]),
-                    ..node()
-                },
-            ),
-            (
-                "user_scripts",
-                Node {
-                    user_scripts: Some(vec!["user.sh".to_owned()]),
                     ..node()
                 },
             ),
