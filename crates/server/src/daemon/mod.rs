@@ -9,6 +9,7 @@ pub(crate) mod removed_settings;
 pub(crate) mod server;
 pub mod state;
 pub(crate) mod storage;
+pub mod vault_seals;
 
 pub use crate::services::scanner::run_scanner;
 pub use pidfile::SHERPAD_PID_FILE_PATH;

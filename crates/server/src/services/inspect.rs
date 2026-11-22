@@ -29,6 +29,8 @@ use crate::services::node_ops;
 ///   (`reported_state`); the record is left to the scanner
 /// - the server's in-memory link states (`AppState::link_states`) for each P2p link's last
 ///   state: none before the scanner first checks the lab
+/// - the server's in-memory Vault seals (`AppState::vault_seals`) for each Vault node Sherpa
+///   manages that is sealed and that it cannot unseal
 ///
 /// The caller must own the lab or be an admin.
 #[instrument(skip(ctx, state), fields(username = %ctx.username, %lab_id))]
@@ -157,7 +159,8 @@ async fn inspect_lab_inner(
     })
 }
 
-/// Each node's details, with a container's state as Docker reports it (`reported_state`). When
+/// Each node's details, with a container's state as Docker reports it (`reported_state`), and why
+/// a Vault node is sealed when the server last found it sealed and could not unseal it. When
 /// Docker does not answer, containers are reported as recorded.
 #[instrument(skip_all, fields(lab_id = %lab_info.id), level = "debug")]
 async fn devices(
@@ -181,6 +184,7 @@ async fn devices(
         None
     };
 
+    let vault_seals = state.vault_seals.of_lab(&lab_info.id);
     let mut devices = Vec::new();
     for node in db_nodes {
         let node_image = find_node_image(node_images, &node.image)
@@ -188,6 +192,7 @@ async fn devices(
 
         let mut device = device_info(node, node_image, volumes, lab_info);
         device.state = reported_state(node, node_image.kind(), &lab_info.id, containers.as_ref());
+        device.vault_sealed = vault_seals.get(&node.name).cloned();
         if device.state != node.state {
             tracing::debug!(node = %node.name, recorded = %node.state, reported = %device.state, "Reporting the container's state from Docker");
         }
@@ -221,6 +226,7 @@ fn device_info(
         disks,
         cpu_count: node.cpu_count,
         memory: node.memory,
+        vault_sealed: None,
     }
 }
 

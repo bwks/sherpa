@@ -55,6 +55,9 @@
                 <td class="px-6 py-4 whitespace-nowrap">
                     {% let badge = row.state_badge %}
                     {% include "snippets/badge.html.jinja" %}
+                    {% if let Some(sealed) = row.vault_sealed %}
+                    <p class="mt-1 text-xs text-warning-text">{{ sealed }}</p>
+                    {% endif %}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-body font-mono">
                     {% if device.mgmt_ipv4 != "" %}{{ device.mgmt_ipv4 }}{% else %}-{% endif %}

@@ -319,8 +319,8 @@ async fn create_data_networks(
     Ok(attachments)
 }
 
-/// A redeployed Vault starts with empty storage: initialise and unseal it again, and let the
-/// clusters that use it log in again. The client's `sherpa download` after the redeploy writes
+/// A redeployed Vault starts with empty storage: initialise and unseal it again, clear what was
+/// kept of it being sealed, and let the clusters that use it log in again. The client's `sherpa download` after the redeploy writes
 /// its new credentials. A redeployed Keycloak starts with an empty database: make the realm
 /// again, with the users' saved passwords.
 #[instrument(skip_all, fields(lab_id = %redeploy.lab_id, node_name = %redeploy.node_name), level = "debug")]
@@ -338,6 +338,12 @@ async fn restore_node_services(redeploy: &Redeploy<'_>, initialises_vault: bool)
             redeploy.progress,
         )
         .await?;
+        vault::record_seal_outcome(
+            &redeploy.state.vault_seals,
+            lab_id,
+            node_name,
+            &vault::SealOutcome::Unsealed,
+        );
         talos::grant_vault_access(
             &talos::load_clusters(
                 &redeploy.state.db,

@@ -19,6 +19,17 @@ NoCloud `network-config` statically, with no DHCP, and ignores the `search` doma
 - **Keycloak and Vault.** The API server retries OIDC discovery while Keycloak is missing, so
   there is no start order. Vault checks workload tokens offline against the cluster's service
   account key, so it never calls the cluster.
+- **Vault unsealing.** Vault seals itself whenever it restarts, and a sealed Vault serves no
+  secrets. One key share, saved `0600` with the lab, unseals it, and `up`, redeploy, resume and the
+  scanner share one unseal step (`vault::lab::apply_unseal_key`). Only `up` and redeploy
+  initialise, as Vault hands out the key once and a second init would lose it. A Vault node with
+  its own `ztp.config` is the user's: Sherpa never initialises, unseals or reports it. The scanner
+  reads the unauthenticated seal status outside the lab's hold and unseals under it, in a `Ready`
+  lab only, so it never races an `up` or redeploy initialising the same node. Why a managed Vault
+  stays sealed (no saved key, an unreadable key file, a refused key) is kept in memory
+  (`AppState::vault_seals`), like link states, as Vault holds the real state; it is logged when it
+  changes, never on every scan, and its message never quotes the key file, as a TOML error quotes
+  the line it is on.
 - **Machine configs.** Talos decodes strictly, so the documents follow `talosctl gen config` for
   one pinned minor version exactly, and other versions are refused. Every key is PKCS#8. The API
   certificate holds `127.0.0.1` only if it is in `machine.certSANs`, which Sherpa leaves empty.

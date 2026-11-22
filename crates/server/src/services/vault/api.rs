@@ -3,10 +3,12 @@
 //! the node's management address and trusts only the lab CA.
 
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -75,6 +77,33 @@ struct MountList {
 struct UnsealRequest<'a> {
     key: &'a str,
 }
+
+/// A request Vault answered with an error status.
+#[derive(Debug)]
+pub struct VaultRefusal {
+    address: String,
+    status: reqwest::StatusCode,
+    body: String,
+}
+
+impl VaultRefusal {
+    /// Whether Vault refused the request itself (a 4xx status), not failed to serve it.
+    pub fn refused_request(&self) -> bool {
+        self.status.is_client_error()
+    }
+}
+
+impl fmt::Display for VaultRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Vault API at {} answered {}: {}",
+            self.address, self.status, self.body
+        )
+    }
+}
+
+impl Error for VaultRefusal {}
 
 /// The API address of a Vault node.
 pub fn vault_address(node_address: Ipv4Addr) -> String {
@@ -209,11 +238,12 @@ impl VaultClient {
             .await
             .context("Failed to read the Vault API response")?;
         if !status.is_success() {
-            bail!(
-                "Vault API at {} answered {status}: {}",
-                self.address,
-                String::from_utf8_lossy(&body)
-            );
+            return Err(VaultRefusal {
+                address: self.address.clone(),
+                status,
+                body: String::from_utf8_lossy(&body).into_owned(),
+            }
+            .into());
         }
         Ok(body.to_vec())
     }
