@@ -38,27 +38,17 @@ pub fn cert_list() -> Result<()> {
 
             // Extract certificate info
             match extract_cert_info(server_url, cert_pem) {
-                Ok(info) => {
-                    // Parse valid_to date to extract just the date part
-                    let valid_until = info
-                        .valid_to
-                        .split_whitespace()
-                        .take(4)
-                        .collect::<Vec<_>>()
-                        .join(" ");
-
-                    CertificateTableInfo {
-                        server: server_display,
-                        subject: info.subject.clone(),
-                        valid_until,
-                    }
-                }
+                Ok(info) => CertificateTableInfo {
+                    server: server_display,
+                    subject: info.subject,
+                    key_pin: info.key_pin,
+                },
                 Err(e) => {
                     tracing::warn!("Failed to parse certificate for {}: {}", server_url, e);
                     CertificateTableInfo {
                         server: server_display,
                         subject: "<parse error>".to_string(),
-                        valid_until: String::new(),
+                        key_pin: String::new(),
                     }
                 }
             }
@@ -141,7 +131,7 @@ pub async fn cert_trust(server_url: &str, http_port: u16) -> Result<()> {
 
     print_certificate_info(&cert_info);
     println!(
-        "{} WARNING: Verify the fingerprint matches what you expect to prevent",
+        "{} WARNING: Verify the key pin matches what you expect to prevent",
         Emoji::Warning
     );
     println!("   man-in-the-middle attacks.");
@@ -184,7 +174,7 @@ pub fn cert_delete(server_url: &str) -> Result<()> {
         );
         println!();
         println!("  Subject:     {}", cert_info.subject);
-        println!("  Fingerprint: {}", cert_info.fingerprint);
+        println!("  Key pin:     {}", cert_info.key_pin);
         println!();
     }
 

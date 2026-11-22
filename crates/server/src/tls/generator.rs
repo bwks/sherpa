@@ -1,124 +1,88 @@
 use anyhow::{Context, Result};
+use rand::RngCore;
 use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, IsCa,
-    KeyPair, KeyUsagePurpose, PKCS_ECDSA_P256_SHA256, PKCS_ED25519, SanType,
+    KeyPair, KeyUsagePurpose, PKCS_ECDSA_P256_SHA256, PKCS_ED25519, SanType, SerialNumber,
 };
 use shared::util::write_file_with_permissions;
 use std::net::IpAddr;
 use std::path::Path;
+use tracing::instrument;
 
-/// Generate a self-signed certificate with the given parameters
-pub fn generate_self_signed_certificate(
+/// Write a self-signed server certificate for `key_pair` to `cert_path`, valid from now for
+/// `validity_days` and naming `san` (entries `IP:<address>`, `DNS:<name>` or a bare DNS name),
+/// localhost and 127.0.0.1. The file is written to a temporary file and renamed over the old one,
+/// so it is never left half written.
+#[instrument(level = "debug", skip(key_pair), fields(cert_path = %cert_path.display()))]
+pub fn write_self_signed_certificate(
     cert_path: &Path,
-    key_path: &Path,
+    key_pair: &KeyPair,
     san: &[String],
     validity_days: u32,
 ) -> Result<()> {
-    tracing::info!("Generating self-signed TLS certificate");
-
-    // Generate key pair first
-    let key_pair = KeyPair::generate().context("Failed to generate key pair")?;
-
-    // Create certificate parameters
     let mut params =
         CertificateParams::new(vec![]).context("Failed to create certificate parameters")?;
 
-    // Set distinguished name
     let mut dn = DistinguishedName::new();
     dn.push(DnType::CommonName, "Sherpa Server");
     dn.push(DnType::OrganizationName, "Sherpa");
     params.distinguished_name = dn;
 
-    // Add Subject Alternative Names
     for san_entry in san {
         if let Some(ip_str) = san_entry.strip_prefix("IP:") {
             if let Ok(ip) = ip_str.parse() {
                 params.subject_alt_names.push(SanType::IpAddress(ip));
-                tracing::debug!("Added IP SAN: {}", ip_str);
             } else {
                 tracing::warn!("Invalid IP in SAN: {}", ip_str);
             }
-        } else if let Some(dns) = san_entry.strip_prefix("DNS:") {
+        } else {
+            let dns = san_entry.strip_prefix("DNS:").unwrap_or(san_entry);
             params.subject_alt_names.push(SanType::DnsName(
                 dns.to_string()
                     .try_into()
-                    .context(format!("Invalid DNS SAN: {dns}"))?,
+                    .with_context(|| format!("Invalid DNS SAN: {dns}"))?,
             ));
-            tracing::debug!("Added DNS SAN: {}", dns);
-        } else {
-            // Assume it's a DNS name if no prefix
-            params.subject_alt_names.push(SanType::DnsName(
-                san_entry
-                    .clone()
-                    .try_into()
-                    .context(format!("Invalid DNS SAN: {san_entry}"))?,
-            ));
-            tracing::debug!("Added DNS SAN: {}", san_entry);
         }
     }
 
-    // Add localhost and 127.0.0.1 if not already present
-    let has_localhost = san.iter().any(|s| s.contains("localhost"));
-    let has_loopback = san.iter().any(|s| s.contains("127.0.0.1"));
-
-    if !has_localhost {
+    if !san.iter().any(|s| s.contains("localhost")) {
         params.subject_alt_names.push(SanType::DnsName(
             "localhost"
                 .to_string()
                 .try_into()
                 .context("Failed to create localhost SAN")?,
         ));
-        tracing::debug!("Added default DNS SAN: localhost");
+    }
+    if !san.iter().any(|s| s.contains("127.0.0.1")) {
+        params
+            .subject_alt_names
+            .push(SanType::IpAddress(IpAddr::from([127, 0, 0, 1])));
     }
 
-    if !has_loopback {
-        params.subject_alt_names.push(SanType::IpAddress(
-            "127.0.0.1"
-                .parse()
-                .context("Failed to parse loopback address")?,
-        ));
-        tracing::debug!("Added default IP SAN: 127.0.0.1");
-    }
+    set_validity(&mut params, validity_days)?;
+    params.serial_number = Some(random_serial_number());
 
-    // Set validity period using jiff for time calculation
-    // Note: Timestamp only supports units of hours or smaller, so convert days to hours
-    let now = jiff::Timestamp::now();
-    let validity_hours = i64::from(validity_days) * 24;
-    let future = now
-        .checked_add(jiff::Span::new().hours(validity_hours))
-        .context("Failed to calculate certificate expiration date")?;
-
-    // Convert jiff timestamps to time::OffsetDateTime for rcgen
-    // rcgen requires time::OffsetDateTime, so we convert via Unix timestamp
-    let not_before = time::OffsetDateTime::from_unix_timestamp(now.as_second())
-        .context("Failed to convert start time to OffsetDateTime")?;
-    let not_after = time::OffsetDateTime::from_unix_timestamp(future.as_second())
-        .context("Failed to convert end time to OffsetDateTime")?;
-
-    params.not_before = not_before;
-    params.not_after = not_after;
-
-    // Generate certificate
     let cert = params
-        .self_signed(&key_pair)
+        .self_signed(key_pair)
         .context("Failed to generate self-signed certificate")?;
-
-    // Write certificate to file
-    let cert_pem = cert.pem();
-    write_file_with_permissions(cert_path, cert_pem.as_bytes(), 0o644)
+    write_file_with_permissions(cert_path, cert.pem().as_bytes(), 0o644)
         .context("Failed to write certificate file")?;
-
-    tracing::info!("Certificate written to: {}", cert_path.display());
-
-    // Write private key to file
-    let key_pem = key_pair.serialize_pem();
-    write_file_with_permissions(key_path, key_pem.as_bytes(), 0o600)
-        .context("Failed to write private key file")?;
-
-    tracing::info!("Private key written to: {}", key_path.display());
-    tracing::info!("Certificate valid for {} days", validity_days);
-
+    tracing::info!(
+        cert_path = %cert_path.display(),
+        validity_days,
+        "Wrote a new self-signed server certificate"
+    );
     Ok(())
+}
+
+/// A random positive 128-bit serial number. Without one, rcgen derives the serial from the
+/// public key, so every certificate sherpad made for its kept key would share one serial, which
+/// RFC 5280 forbids and browsers refuse.
+fn random_serial_number() -> SerialNumber {
+    let mut bytes = [0_u8; 16];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    bytes[0] &= 0x7F;
+    SerialNumber::from_slice(&bytes)
 }
 
 /// Key algorithm for generated keys and certificates.
@@ -307,33 +271,6 @@ pub fn issue_server_certificate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-    use tempfile::TempDir;
-
-    #[test]
-    fn server_certificate_001_a_start_with_no_certificate_writes_it_with_a_0600_key() {
-        let temp_dir = TempDir::new().unwrap();
-        let cert_path = temp_dir.path().join("test.crt");
-        let key_path = temp_dir.path().join("test.key");
-
-        let san = vec!["DNS:example.com".to_string(), "IP:192.168.1.1".to_string()];
-
-        let result = generate_self_signed_certificate(&cert_path, &key_path, &san, 365);
-        assert!(result.is_ok());
-
-        // Verify files exist
-        assert!(cert_path.exists());
-        assert!(key_path.exists());
-
-        // Verify key file permissions (Unix only)
-        #[cfg(unix)]
-        {
-            let metadata = fs::metadata(&key_path).unwrap();
-            let permissions = metadata.permissions();
-            assert_eq!(permissions.mode() & 0o777, 0o600);
-        }
-    }
 
     fn parse(pem: &str) -> x509_parser::pem::Pem {
         let (_, pem) = x509_parser::pem::parse_x509_pem(pem.as_bytes()).unwrap();

@@ -1119,9 +1119,9 @@ Next Steps:
      --management-prefix-ipv6 <prefix> (or SHERPA_MANAGEMENT_PREFIX_IPV4 / _IPV6).
   3. Start the service:
        sudo systemctl start sherpad
-  4. Note the server certificate's fingerprint. Clients show it on their first connect
-     and ask you to check it, so give it to your users:
-       sudo openssl x509 -in ${SHERPA_BASE_DIR}/.certs/server.crt -noout -fingerprint -sha256
+  4. Note the server's key pin, the SHA-256 of its public key. Clients show it on their
+     first connect and ask you to check it, so give it to your users:
+       sudo -u sherpa -H sherpad status
 
 EOF
 

@@ -34,7 +34,7 @@ use crate::services::console;
 use crate::services::lab_lifecycle::{self, Recovery};
 use crate::services::node_resources;
 use crate::services::scanner::run_scanner;
-use crate::tls::CertificateManager;
+use crate::tls::{CertificateManager, server_addresses};
 use shared::data::{Config, OtelConfig};
 use shared::util::{
     get_fqdn, get_hostname, get_non_loopback_ipv4_addresses, get_non_loopback_ipv6_addresses,
@@ -519,10 +519,9 @@ async fn serve_tls(listening: Listening<'_>, http_state: AppState) -> Result<()>
         shutdown_handle.graceful_shutdown(Some(Duration::from_secs(10)));
     });
 
-    // Ensure certificates exist (generate if needed)
     cert_mgr
-        .ensure_certificates(&certificate_sans(config))
-        .context("Failed to ensure TLS certificates exist")?;
+        .prepare(&certificate_sans(config), &server_addresses(config))
+        .context("Failed to prepare the TLS certificate")?;
 
     // Load TLS configuration
     let tls_config = cert_mgr

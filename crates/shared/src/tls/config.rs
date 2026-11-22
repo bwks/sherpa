@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use rustls::client::WebPkiServerVerifier;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::aws_lc_rs;
+use rustls::crypto::{WebPkiSupportedAlgorithms, verify_tls12_signature, verify_tls13_signature};
 use rustls::pki_types::{CertificateDer, ServerName};
 use rustls::{CertificateError, ClientConfig, RootCertStore};
 use std::io::{self, IsTerminal};
@@ -12,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::data::ServerConnection;
 use crate::tls::cert_fetch::fetch_server_certificate;
 use crate::tls::trust_store::{
-    CertificateInfo, TrustStore, extract_cert_info, parse_certificate_pem,
+    CertificateInfo, TrustStore, compute_key_pin, extract_cert_info, parse_certificate_pem,
 };
 use crate::util::{Emoji, confirm, term_msg_surround, term_msg_underline};
 
@@ -57,8 +58,9 @@ impl TlsConfigBuilder {
 
     /// Build the TLS configuration for `server_url`:
     /// 1. Insecure mode skips validation; a custom CA is the only one trusted.
-    /// 2. A certificate already in the trust store is trusted, along with the public CAs when
-    ///    `validate_certs` is on.
+    /// 2. A server whose public key is the key of the certificate saved for it in the trust store
+    ///    is trusted, whatever certificate it now presents for that key; otherwise, when
+    ///    `validate_certs` is on, a certificate a public CA issued is.
     /// 3. Otherwise, with `validate_certs` on, only the public CAs are trusted; if the handshake
     ///    then refuses the certificate (`ServerTls::refused_unknown_issuer`), the caller runs
     ///    `trust_on_first_use`.
@@ -144,7 +146,7 @@ impl TlsConfigBuilder {
             "{} WARNING: This is the first time connecting to this server.",
             Emoji::Warning
         );
-        println!("   Verify the fingerprint matches what you expect to prevent");
+        println!("   Verify the key pin matches what you expect to prevent");
         println!("   man-in-the-middle attacks.");
         println!();
 
@@ -168,19 +170,13 @@ impl TlsConfigBuilder {
         self.trusted_config(&fetched_cert)
     }
 
-    /// A configuration trusting `cert_pem`, and the public CAs when `validate_certs` is on.
+    /// A configuration trusting a server that presents the public key of `cert_pem`, and the
+    /// public CAs when `validate_certs` is on.
     fn trusted_config(&self, cert_pem: &str) -> Result<Arc<ClientConfig>> {
-        let mut root_store = RootCertStore::empty();
-        let cert =
-            parse_certificate_pem(cert_pem).context("Failed to parse trusted certificate")?;
-        root_store
-            .add(cert)
-            .context("Failed to add trusted certificate to root store")?;
-        if self.validate_certs {
-            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        }
+        let verifier = PinnedKeyVerifier::new(cert_pem, self.validate_certs)?;
         let config = ClientConfig::builder()
-            .with_root_certificates(root_store)
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(verifier))
             .with_no_client_auth();
         Ok(Arc::new(config))
     }
@@ -207,6 +203,98 @@ impl TlsConfigBuilder {
     }
 }
 
+/// Trusts a server whose certificate carries the public key the user trusted (its key pin),
+/// whatever its names and dates, so a certificate the server made again with the same key needs
+/// no new question. Any other certificate is checked against the public CAs when `public_cas`
+/// is set, and refused otherwise.
+#[derive(Debug)]
+struct PinnedKeyVerifier {
+    key_pin: String,
+    public_cas: Option<Arc<WebPkiServerVerifier>>,
+    algorithms: WebPkiSupportedAlgorithms,
+}
+
+impl PinnedKeyVerifier {
+    /// A verifier pinning the public key of `cert_pem`, falling back to the public CAs when
+    /// `validate_certs` is on.
+    fn new(cert_pem: &str, validate_certs: bool) -> Result<Self> {
+        let cert =
+            parse_certificate_pem(cert_pem).context("Failed to parse trusted certificate")?;
+        let key_pin = compute_key_pin(&cert)?;
+        let public_cas = if validate_certs {
+            Some(public_ca_verifier()?)
+        } else {
+            None
+        };
+        Ok(Self {
+            key_pin,
+            public_cas,
+            algorithms: aws_lc_rs::default_provider().signature_verification_algorithms,
+        })
+    }
+}
+
+impl ServerCertVerifier for PinnedKeyVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: rustls::pki_types::UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        if compute_key_pin(end_entity).is_ok_and(|pin| pin == self.key_pin) {
+            return Ok(ServerCertVerified::assertion());
+        }
+        match &self.public_cas {
+            Some(public_cas) => public_cas.verify_server_cert(
+                end_entity,
+                intermediates,
+                server_name,
+                ocsp_response,
+                now,
+            ),
+            None => Err(rustls::Error::InvalidCertificate(
+                CertificateError::ApplicationVerificationFailure,
+            )),
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls12_signature(message, cert, dss, &self.algorithms)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls13_signature(message, cert, dss, &self.algorithms)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.algorithms.supported_schemes()
+    }
+}
+
+/// A verifier of certificates against the public CAs (webpki roots).
+fn public_ca_verifier() -> Result<Arc<WebPkiServerVerifier>> {
+    let mut roots = RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    WebPkiServerVerifier::builder_with_provider(
+        Arc::new(roots),
+        Arc::new(aws_lc_rs::default_provider()),
+    )
+    .build()
+    .context("Failed to build the public CA verifier")
+}
+
 /// Verifies the server's certificate against the public CAs (webpki roots), recording when it
 /// is refused for having no public issuer, so the caller can fall back to trust on first use.
 #[derive(Debug)]
@@ -217,16 +305,8 @@ struct PublicCaVerifier {
 
 impl PublicCaVerifier {
     fn new(unknown_issuer: Arc<AtomicBool>) -> Result<Self> {
-        let mut roots = RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let webpki = WebPkiServerVerifier::builder_with_provider(
-            Arc::new(roots),
-            Arc::new(aws_lc_rs::default_provider()),
-        )
-        .build()
-        .context("Failed to build the public CA verifier")?;
         Ok(Self {
-            webpki,
+            webpki: public_ca_verifier()?,
             unknown_issuer,
         })
     }
@@ -321,7 +401,7 @@ impl ServerCertVerifier for NoCertificateVerification {
     }
 }
 
-/// Show a certificate's server, subject, issuer, validity and SHA-256 fingerprint.
+/// Show a certificate's server, subject, issuer, validity and the key pin of its public key.
 pub fn print_certificate_info(cert_info: &CertificateInfo) {
     term_msg_surround("Certificate Information");
     println!();
@@ -335,8 +415,8 @@ pub fn print_certificate_info(cert_info: &CertificateInfo) {
     println!("  Valid From:  {}", cert_info.valid_from);
     println!("  Valid To:    {}", cert_info.valid_to);
     println!();
-    term_msg_underline("Certificate Fingerprint (SHA-256)");
-    println!("  {}", cert_info.fingerprint);
+    term_msg_underline("Key Pin (SHA-256 of the server's public key)");
+    println!("  {}", cert_info.key_pin);
     println!();
 }
 
@@ -385,6 +465,32 @@ mod tests {
 
         assert!(outcome.is_err());
         assert!(unknown_issuer.load(Ordering::Relaxed), "{outcome:?}");
+    }
+
+    /// Two certificates the server made with one key, as on two starts, and one with another key.
+    const FIRST_START: &str = include_str!("testdata/same_key_first.crt");
+    const SECOND_START: &str = include_str!("testdata/same_key_second.crt");
+
+    /// Whether a client that trusted `trusted` connects to a server presenting `presented`.
+    fn connects(trusted: &str, presented: &str) -> bool {
+        let verifier = PinnedKeyVerifier::new(trusted, true).unwrap();
+        let cert = parse_certificate_pem(presented).unwrap();
+        let name = ServerName::try_from("192.0.2.10").unwrap();
+        verifier
+            .verify_server_cert(&cert, &[], &name, &[], rustls::pki_types::UnixTime::now())
+            .is_ok()
+    }
+
+    #[test]
+    fn certificate_trust_018_a_server_presenting_another_key_than_the_one_trusted_is_refused() {
+        assert!(!connects(FIRST_START, SELF_SIGNED));
+    }
+
+    #[test]
+    fn certificate_trust_019_a_certificate_made_again_with_the_trusted_key_is_trusted_without_a_question()
+     {
+        assert_ne!(FIRST_START, SECOND_START);
+        assert!(connects(FIRST_START, SECOND_START));
     }
 
     #[tokio::test]

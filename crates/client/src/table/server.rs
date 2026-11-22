@@ -3,7 +3,7 @@
 use shared::data::BackupResponse;
 use shared::util::{TableLayout, render_table, ssh_key_fingerprint};
 
-const CERTIFICATE_HEADERS: [&str; 3] = ["Server", "Subject", "Valid Until"];
+const CERTIFICATE_HEADERS: [&str; 3] = ["Server", "Subject", "Key Pin (SHA-256 of the public key)"];
 const SSH_KEY_HEADERS: [&str; 4] = ["#", "Type", "Fingerprint", "Comment"];
 const SERVER_STATUS_HEADERS: [&str; 3] = ["Server", "Status", "TLS"];
 const BACKUP_HEADERS: [&str; 2] = ["Backup", "Details"];
@@ -12,7 +12,8 @@ const BACKUP_HEADERS: [&str; 2] = ["Backup", "Details"];
 pub struct CertificateTableInfo {
     pub server: String,
     pub subject: String,
-    pub valid_until: String,
+    /// The SHA-256 key pin of the trusted certificate's public key.
+    pub key_pin: String,
 }
 
 /// Renders a table of trusted certificates
@@ -33,7 +34,7 @@ fn certificate_cells(cert: &CertificateTableInfo) -> [String; 3] {
     [
         cert.server.clone(),
         cert.subject.clone(),
-        cert.valid_until.clone(),
+        cert.key_pin.clone(),
     ]
 }
 

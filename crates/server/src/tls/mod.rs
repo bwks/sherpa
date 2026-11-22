@@ -3,4 +3,4 @@ pub mod generator;
 pub mod lab_ca;
 mod loader;
 
-pub use certificate_manager::CertificateManager;
+pub use certificate_manager::{CertificateManager, CertificateReport, server_addresses};

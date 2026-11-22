@@ -13,6 +13,9 @@ use super::pidfile::{
     write_pid,
 };
 use super::server::run_server;
+use crate::konst::SHERPA_CONFIG_FILE_PATH;
+use crate::tls::{CertificateManager, CertificateReport, server_addresses};
+use shared::util::load_config;
 
 /// Start the sherpad daemon
 ///
@@ -208,6 +211,7 @@ pub fn status_daemon() -> Result<()> {
     if let Some(pid) = read_pid(SHERPAD_PID_FILE_PATH)? {
         if is_process_running(pid) {
             println!("sherpad is running (pid: {pid})");
+            print_certificate_status();
             Ok(())
         } else {
             eprintln!("sherpad is not running (stale PID file found)");
@@ -217,6 +221,52 @@ pub fn status_daemon() -> Result<()> {
         eprintln!("sherpad is not running");
         std::process::exit(1);
     }
+}
+
+/// Print the server certificate's path, key pin and expiry, and any warning about a certificate
+/// the admin provides. A certificate that cannot be read is reported, and status still succeeds.
+fn print_certificate_status() {
+    let config = match load_config(SHERPA_CONFIG_FILE_PATH) {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("Cannot read {SHERPA_CONFIG_FILE_PATH} for the certificate: {error:#}");
+            return;
+        }
+    };
+    if !config.tls.enabled {
+        println!("TLS is off");
+        return;
+    }
+    let manager = CertificateManager::new(&config.tls);
+    match manager.report(&server_addresses(&config), jiff::Timestamp::now()) {
+        Ok(report) => {
+            for line in certificate_status_lines(&report) {
+                println!("{line}");
+            }
+        }
+        Err(error) => eprintln!("Cannot read the server certificate: {error:#}"),
+    }
+}
+
+/// The lines `sherpad status` prints about the server certificate.
+fn certificate_status_lines(report: &CertificateReport) -> Vec<String> {
+    let owner = if report.self_generated {
+        "written by sherpad at each start"
+    } else {
+        "provided by the admin"
+    };
+    let mut lines = vec![
+        format!("Certificate: {} ({owner})", report.cert_path.display()),
+        format!("Key pin (SHA-256 of the public key): {}", report.key_pin),
+        format!("Valid until: {}", report.not_after),
+    ];
+    lines.extend(
+        report
+            .warnings
+            .iter()
+            .map(|warning| format!("Warning: {warning}")),
+    );
+    lines
 }
 
 /// Show the logs of the sherpad daemon
