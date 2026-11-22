@@ -219,28 +219,3 @@ pub fn get_mgmt_ip(conn: &Connect, vm_name: &str) -> Result<Option<String>> {
         .and_then(|interface| interface.addrs.first())
         .map(|ip| ip.addr.clone()))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn vm_start_010_a_nodes_disks_and_config_media_are_private() {
-        for (path, format) in [
-            ("/pool/dev01-lab-hdd.qcow2", "qcow2"),
-            ("/pool/dev01-lab.ISO", "raw"),
-            ("/pool/dev01-lab.elf", "raw"),
-            // libvirt hands Flatcar's Ignition file to QEMU from the domain's fwcfg sysinfo
-            // entry, like every other volume, so it needs no wider mode.
-            ("/pool/flatcar01-lab-cfg.ign", "raw"),
-        ] {
-            let xml = copy_volume_xml(path).unwrap();
-            assert!(xml.contains(&format!("<path>{path}</path>")), "{xml}");
-            assert!(xml.contains(&format!("<format type='{format}'/>")), "{xml}");
-            assert!(
-                xml.contains("<permissions><mode>0600</mode></permissions>"),
-                "{xml}"
-            );
-        }
-    }
-}

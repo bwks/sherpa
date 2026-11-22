@@ -1,10 +1,9 @@
 use std::env;
-use std::fs::{self, File};
+use std::fs;
 #[cfg(unix)]
-use std::fs::{DirBuilder, OpenOptions};
+use std::fs::{DirBuilder, File, OpenOptions};
 #[cfg(unix)]
-use std::io::ErrorKind;
-use std::io::{self, BufReader, BufWriter, Write};
+use std::io::{self, BufReader, BufWriter, ErrorKind, Write};
 #[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
@@ -165,16 +164,27 @@ pub fn expand_path(path: &str) -> String {
     full_path.display().to_string()
 }
 
-/// Copy a file from a source to a destination.
-/// This will overwrite the destination file if it exists.
+/// Copy the file `src` to `dst`, with permission bits `mode` whatever the umask, replacing any
+/// file at `dst` and its mode.
 ///
 /// # Errors
 ///
-/// Fails when `src` cannot be read or `dst` written.
-pub fn copy_file(src: &str, dst: &str) -> Result<()> {
+/// Fails when `src` cannot be read, or `dst` written or its mode set.
+#[cfg(unix)]
+#[instrument(level = "debug", fields(mode = format!("{mode:o}")))]
+pub fn copy_file_with_permissions(src: &str, dst: &str, mode: u32) -> Result<()> {
     let source = File::open(src).with_context(|| format!("Error loading src file: {src}"))?;
-    let destination =
-        File::create(dst).with_context(|| format!("Error creating dst file: {dst}"))?;
+    let destination = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(mode)
+        .open(dst)
+        .with_context(|| format!("Error creating dst file: {dst}"))?;
+    // The umask may have narrowed `mode`, and a file that was there keeps its own; set it.
+    destination
+        .set_permissions(fs::Permissions::from_mode(mode))
+        .with_context(|| format!("Failed to set permissions on {dst}"))?;
 
     let mut reader = BufReader::new(source);
     let mut writer = BufWriter::new(destination);
@@ -273,15 +283,16 @@ pub fn copy_to_ext4_image(src_files: &[&str], dst_image: &str, dst_dir: &str) ->
     Ok(())
 }
 
-/// Create a config archive using the `tar` command.
+/// Create a config archive using the `tar` command, with permission bits `mode` whatever the
+/// umask.
 ///
 /// `tar` must be installed on the system.
 ///
 /// # Errors
 ///
-/// Fails when `tar` cannot be run or exits with an error.
+/// Fails when `tar` cannot be run or exits with an error, or the archive's mode cannot be set.
 #[cfg(unix)]
-pub fn create_config_archive(src_path: &str, dst_path: &str) -> Result<()> {
+pub fn create_config_archive(src_path: &str, dst_path: &str, mode: u32) -> Result<()> {
     let path = Path::new(src_path);
     let dir = path
         .parent()
@@ -307,6 +318,8 @@ pub fn create_config_archive(src_path: &str, dst_path: &str) -> Result<()> {
             src_path
         );
     }
+    fs::set_permissions(dst_path, fs::Permissions::from_mode(mode))
+        .with_context(|| format!("Failed to set permissions on {dst_path}"))?;
     tracing::debug!(source = %src_path, archive = %dst_path, "Archive created");
     Ok(())
 }

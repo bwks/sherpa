@@ -20,7 +20,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 007 | A base image that cannot back an overlay (encrypted, an external data file, itself an overlay, or a damaged header) is refused, not booted | unit |
 | 008 | A VM runs with the manifest's `memory` and `cpu.count`, else its image's (no test at this level yet) | integration |
 | 009 | A lab whose VM image cannot back an overlay is refused by up before anything is created, and comes up with `clone_method = "copy"` (no test yet) | integration |
-| 010 | A node's disks and config media are private, mode 0600 (no test at this level yet) | integration |
+| 010 | A node's disks in the storage pool, an overlay or a copy, and its config media there are private, mode 0600, whatever the mode of their source | integration |
 | 011 | The manifest's `boot_disk.clone_method` reaches each VM node through up, with copy, overlay and the default kept apart | unit |
 
 ## `unikernel_start`: a unikernel boots its own copy of its image
