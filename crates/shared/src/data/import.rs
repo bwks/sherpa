@@ -120,6 +120,9 @@ pub struct ScannedImage {
     pub version: String,
     pub kind: NodeKind,
     pub status: String,
+    /// Whether the scan failed to record the version; `status` says why.
+    #[serde(default)]
+    pub failed: bool,
 }
 
 /// A model an image scan could not match images to, and why.
@@ -211,8 +214,10 @@ pub struct ContainerPullRequest {
     /// default kind.
     #[serde(default)]
     pub kind: Option<NodeKind>,
-    /// Container image repository (e.g., ghcr.io/nokia/srlinux)
-    pub repo: String,
+    /// Container image repository (e.g., ghcr.io/nokia/srlinux). Absent, the model's built-in
+    /// repo; a model with none is refused.
+    #[serde(default)]
+    pub repo: Option<String>,
     /// Container image tag (e.g., 1.2.3)
     pub tag: String,
     /// Set this image as the default version

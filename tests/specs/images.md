@@ -76,9 +76,11 @@ Only an Ubuntu release, downloaded without `--url`, publishes a SHA-256 (its `SH
 | 003 | A version pulled again from another repo is recorded with the repo pulled last (no test yet) | integration |
 | 004 | `--repo` is split at its tag: a short name, a full Docker Hub name, and a registry with a port | unit |
 | 005 | A `--repo` with no tag, an empty tag or a digest is refused, naming the forms that are taken | unit |
-| 006 | Without `--repo`, a model with a known public repo is pulled from it at `--version`; any other model is refused, saying to give `--repo` (no test yet) | unit |
+| 006 | Retired: the CLI no longer keeps its own list of built-in repos; see 009 and 010 | — |
 | 007 | A pull for a model or kind that is not a container is refused by the server (no test yet) | integration |
 | 008 | A pull that fails records nothing (no test yet) | integration |
+| 009 | Without `--repo`, the server pulls the model's built-in repo at `--version`, for a model the CLI's old list lacked, such as `nats_bus` | unit |
+| 010 | Without `--repo`, a model with no built-in repo is refused, naming the model and saying to pass `--repo` | unit |
 
 ## `image_scan`: scan records the images on the server that are not recorded
 
@@ -106,6 +108,8 @@ Only an Ubuntu release, downloaded without `--url`, publishes a SHA-256 (its `SH
 | 017 | A folder that is not a model's, and a symlinked version folder, is skipped (no test yet) | integration |
 | 018 | `--kind` scans that kind only (no test yet) | integration |
 | 019 | The CLI lists each image found with its status, and each skipped model with the reason | unit |
+| 020 | A scan that fails to record a version it found exits non-zero, naming each such version, after the table lists every row | unit |
+| 021 | A scan that records, would record or already has every version it found exits 0 | unit |
 
 ## `image_default`: each model and kind with images has one default version
 

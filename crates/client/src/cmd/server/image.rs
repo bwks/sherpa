@@ -2,14 +2,11 @@ use anyhow::{Context, Result, bail, ensure};
 use clap::{Args, Subcommand};
 
 use shared::data::{self, ModelKind, NodeKind, NodeModel, ServerConnection, StatusMessage};
-use shared::konst::{
-    CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO, CONTAINER_HASHICORP_VAULT_REPO,
-    CONTAINER_KEYCLOAK_REPO, CONTAINER_MONGO_DB_REPO, CONTAINER_NOKIA_SRLINUX_REPO,
-};
 use shared::util::emoji_success;
 
 use super::OutputFormat;
 use super::{rpc_call, rpc_call_streaming};
+use crate::cmd::outcome::ensure_images_recorded;
 use crate::cmd::progress::status_emoji;
 use crate::table::{
     render_image_detail_table, render_images_table, render_scanned_images_table,
@@ -60,10 +57,12 @@ pub struct PullArgs {
     /// the model's default kind
     #[arg(long, value_enum)]
     kind: Option<NodeKind>,
-    /// Version of the image (required for known-repo containers and VMs)
+    /// Version of the image: the tag pulled from the model's built-in repo when --repo is left
+    /// out, and required for VMs
     #[arg(short, long)]
     version: Option<String>,
-    /// Container image reference with its tag (e.g., nats:2.11 or registry.io/account/image:version)
+    /// Container image reference with its tag (e.g., nats:2.11 or
+    /// registry.io/account/image:version). Without it, the server's built-in repo for the model
     #[arg(short, long)]
     repo: Option<String>,
     /// VM image download URL
@@ -374,7 +373,7 @@ async fn scan_images(
         }
     }
 
-    Ok(())
+    ensure_images_recorded(&response.scanned)
 }
 
 async fn import_image(
@@ -511,38 +510,22 @@ async fn pull_container_image(
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    let (pull_repo, pull_tag) = if let Some(reference) = repo {
+    let (repo, tag) = if let Some(reference) = repo {
         let (repo, tag) = split_image_reference(reference)?;
-        (repo.to_string(), tag.to_string())
+        (Some(repo.to_string()), tag.to_string())
     } else {
-        // Known public repos — resolve from constants, version is the tag
-        let model = model_kind.model();
-        let known_repo = match model {
-            NodeModel::NokiaSrlinux => Some(CONTAINER_NOKIA_SRLINUX_REPO),
-            NodeModel::FrrLinux => Some(CONTAINER_FRR_REPO),
-            NodeModel::GitlabCe => Some(CONTAINER_GITLAB_CE_REPO),
-            NodeModel::HashicorpVault => Some(CONTAINER_HASHICORP_VAULT_REPO),
-            NodeModel::KeycloakServer => Some(CONTAINER_KEYCLOAK_REPO),
-            NodeModel::MongoDb => Some(CONTAINER_MONGO_DB_REPO),
-            _ => None,
-        };
-
-        if let Some(repo) = known_repo {
-            let tag = version
-                .ok_or_else(|| anyhow::anyhow!("--version is required for model '{model}'"))?;
-            (repo.to_string(), tag.to_string())
-        } else {
-            bail!(
-                "--repo is required for model '{model}'. Provide the image reference with its tag (e.g., nats:2.11 or registry.io/account/image:version)"
-            )
-        }
+        let tag = version.context(
+            "--version is required without --repo: it is the tag pulled from the model's \
+             built-in repo",
+        )?;
+        (None, tag.to_string())
     };
 
     let request = data::ContainerPullRequest {
         model: model_kind.model(),
         kind: Some(model_kind.kind()),
-        repo: pull_repo.clone(),
-        tag: pull_tag.clone(),
+        repo,
+        tag,
         default,
     };
 

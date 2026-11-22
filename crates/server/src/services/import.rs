@@ -463,12 +463,14 @@ impl ModelScan {
         })
     }
 
-    fn scanned(&self, version: String, status: String) -> ScannedImage {
+    /// The scan's row for `version` of this model and kind. `failed` when it was not recorded.
+    fn scanned(&self, version: String, status: String, failed: bool) -> ScannedImage {
         ScannedImage {
             model: self.model_kind.model(),
             version,
             kind: self.model_kind.kind(),
             status,
+            failed,
         }
     }
 }
@@ -673,7 +675,7 @@ async fn scan_version(
     if existing.is_some() {
         tally
             .scanned
-            .push(scan.scanned(version, "already_exists".to_string()));
+            .push(scan.scanned(version, "already_exists".to_string(), false));
         return Ok(());
     }
 
@@ -686,7 +688,7 @@ async fn scan_version(
         scan.has_default = true;
         tally
             .scanned
-            .push(scan.scanned(version, status.to_string()));
+            .push(scan.scanned(version, status.to_string(), false));
         tally.total_imported += 1;
         return Ok(());
     }
@@ -695,35 +697,37 @@ async fn scan_version(
     db_config.version.clone_from(&version);
     db_config.id = None;
 
-    let status = match db::upsert_node_image(database, db_config, DefaultRequest::Keep).await {
-        Ok(recorded) => {
-            tracing::info!(
-                "Scanned and imported {} for model={} version={} default={}",
-                scan.label,
-                scan.model_kind.model(),
-                version,
-                recorded.default
-            );
-            scan.has_default = true;
-            tally.total_imported += 1;
-            if recorded.default {
-                "imported (default)".to_string()
-            } else {
-                "imported".to_string()
+    let (status, failed) =
+        match db::upsert_node_image(database, db_config, DefaultRequest::Keep).await {
+            Ok(recorded) => {
+                tracing::info!(
+                    "Scanned and imported {} for model={} version={} default={}",
+                    scan.label,
+                    scan.model_kind.model(),
+                    version,
+                    recorded.default
+                );
+                scan.has_default = true;
+                tally.total_imported += 1;
+                let status = if recorded.default {
+                    "imported (default)"
+                } else {
+                    "imported"
+                };
+                (status.to_string(), false)
             }
-        }
-        Err(e) => {
-            tracing::error!(
-                "Failed to upsert node_image for model={} version={}: {:?}",
-                scan.model_kind.model(),
-                version,
-                e
-            );
-            format!("error: {e:#}")
-        }
-    };
+            Err(e) => {
+                tracing::error!(
+                    "Failed to upsert node_image for model={} version={}: {:?}",
+                    scan.model_kind.model(),
+                    version,
+                    e
+                );
+                (format!("error: {e:#}"), true)
+            }
+        };
 
-    tally.scanned.push(scan.scanned(version, status));
+    tally.scanned.push(scan.scanned(version, status, failed));
     Ok(())
 }
 
