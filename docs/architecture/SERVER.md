@@ -49,7 +49,8 @@ binary another account wrote root's. The modes are `install-and-update.md`,
 ### Config, env and log file permissions
 
 `sherpa.toml` and the env files can hold secrets, so only `sherpa` reads them, not its group.
-`sherpad init` runs as `sherpa` and refuses any other account, root included. The update script
+`sherpad init` and `sherpad user unlock` run as `sherpa` and refuse any other account, root
+included. The update script
 changes owner and mode only, and skips symlinks, so root never follows one planted by `sherpa`.
 
 ## Transport architecture
@@ -133,8 +134,17 @@ An attempt on a locked account and one for an unknown username are logged with t
 address and not stored; neither checks a real hash. Passwords are never logged or stored. An admin
 unlocks an account with `services::user_unlock` (RPC `user.unlock`, REST
 `POST /api/v1/admin/users/{username}/unlock`, the users page's Unlock button), which sets the
-count back to 0. A password reset leaves the lock as it is. Root unlocks the built-in `admin`,
-with `sherpad` stopped, by the `UPDATE` in the user docs. The cases are
+count back to 0. A password reset leaves the lock as it is.
+
+When no admin can log in, root unlocks an account, the built-in `admin` included, on the host
+with `sherpad user unlock <username>` (`crates/server/src/user.rs`), with no channel into the
+server. It calls the same `db::unlock_user` on the database file, so it needs `sherpad` stopped:
+it reads the PID file as `sherpad status` does (`daemon::pidfile::read_pid`, then
+`is_process_running`), and while that names a running process it refuses before opening the
+database. Like `sherpad init` it runs as `sherpa` only (`validate::validate_service_account`),
+since the database is that account's, and an unknown username is an error. It logs
+`user.unlocked` at `info` on stderr. The steps are `systemctl stop sherpad`,
+`sudo -u sherpa sherpad user unlock admin`, `systemctl start sherpad`. The cases are
 `tests/specs/accounts-and-auth.md`, `user_login`.
 
 ### Services enforce authorization

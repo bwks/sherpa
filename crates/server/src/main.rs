@@ -7,10 +7,12 @@ use anyhow::Result;
 use clap::Parser;
 use rustls::crypto::aws_lc_rs;
 use shared::konst::SHERPA_DB_FILE_PATH;
-use sherpad::cli::{Cli, Commands};
+use sherpad::cli::{Cli, Commands, UserCommands};
+use sherpad::daemon::SHERPAD_PID_FILE_PATH;
 use sherpad::daemon::manager::{
     logs_daemon, restart_daemon, run_background_child, start_daemon, status_daemon, stop_daemon,
 };
+use sherpad::host_account::running_account_name;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -58,5 +60,21 @@ async fn main() -> Result<()> {
             sherpad::check_database::check_database(Path::new(SHERPA_DB_FILE_PATH)).await
         }
         Commands::Doctor { boxes } => sherpad::doctor::doctor(boxes),
+        Commands::User {
+            command: UserCommands::Unlock { username },
+        } => {
+            tracing_subscriber::fmt()
+                .with_writer(std::io::stderr)
+                .with_target(false)
+                .compact()
+                .init();
+            sherpad::user::unlock(
+                &running_account_name()?,
+                &username,
+                Path::new(SHERPA_DB_FILE_PATH),
+                SHERPAD_PID_FILE_PATH,
+            )
+            .await
+        }
     }
 }

@@ -130,7 +130,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `user_login`: a username and its password start a session
 
-**Statement:** a user who gives their username and password gets a session and its token, on the CLI, the REST API and the web UI; a wrong password, an unknown username and a locked account are refused alike, and 3 failed logins in a row lock an account until an admin unlocks it.
+**Statement:** a user who gives their username and password gets a session and its token, on the CLI, the REST API and the web UI; a wrong password, an unknown username and a locked account are refused alike, and 3 failed logins in a row lock an account until an admin, or root on the host with `sherpad user unlock`, unlocks it.
 **Relied on by:** the user, scripts. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -163,7 +163,10 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 026 | An admin unlocks an account over RPC and REST, and an unknown username is answered not found | integration |
 | 027 | A user who is not an admin is refused unlock over RPC, REST and the web UI, and the account stays locked | integration |
 | 028 | An admin's reset of a user's password does not unlock the account | integration |
-| 029 | The SQL the user docs give root unlocks `admin` in the database of a stopped server, which `admin` then logs in to | integration |
+| 029 | `sherpad user unlock` unlocks an account, `admin` included, while the server is stopped | integration |
+| 030 | `sherpad user unlock` is refused while the server is running, and the database is as it was | integration |
+| 031 | `sherpad user unlock` of an unknown username fails, saying the user is not found, and unlocks no other account | integration |
+| 032 | `sherpad user unlock` run as any account but `sherpa`, root included, is refused with the command to run, and the database is as it was | integration |
 
 ## `user_sessions`: a token works only while its session lasts
 
