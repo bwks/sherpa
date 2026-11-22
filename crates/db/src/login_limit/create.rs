@@ -116,7 +116,7 @@ async fn make_room(
     expiry: LoginExpiry,
     max_per_kind: usize,
 ) -> Result<bool> {
-    let kind = key.kind.as_str();
+    let kind = key.kind().as_str();
     if rows_of_kind(conn, key).await? < max_per_kind {
         return Ok(true);
     }
@@ -143,7 +143,7 @@ async fn make_room(
 async fn rows_of_kind(conn: &Connection, key: &LoginKey) -> Result<usize> {
     query_count(
         conn,
-        queries::login_limit::COUNT_BY_KIND.bind([key.kind.as_str().into()]),
+        queries::login_limit::COUNT_BY_KIND.bind([key.kind().as_str().into()]),
     )
     .await
     .context("Failed to count login counts")
