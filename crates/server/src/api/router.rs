@@ -1,11 +1,11 @@
 use axum::Router;
+use axum::extract::Path;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use rust_embed::Embed;
 use tower_http::trace::TraceLayer;
 
-use crate::api::request_parse::PathParams;
 use crate::daemon::state::AppState;
 
 use super::handlers::{
@@ -47,7 +47,7 @@ async fn api_docs_handler() -> Response {
     }
 }
 
-async fn embedded_asset_handler(PathParams(path): PathParams<String>) -> Response {
+async fn embedded_asset_handler(Path(path): Path<String>) -> Response {
     match StaticAssets::get(&path) {
         Some(file) => {
             let mime = match path.rsplit_once('.').map(|(_, ext)| ext) {

@@ -1,11 +1,11 @@
 //! The signed-in user's profile: password, device password and SSH keys.
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 
-use crate::api::request_parse::{FormBody, PathParams};
+use crate::api::request_parse::FormBody;
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
 use crate::services::{user_device_password, user_password};
@@ -267,7 +267,7 @@ pub async fn add_ssh_key_handler(
 pub async fn delete_ssh_key_handler(
     State(state): State<AppState>,
     auth: AuthenticatedUserFromCookie,
-    PathParams(index): PathParams<usize>,
+    Path(index): Path<usize>,
 ) -> impl IntoResponse {
     // 1. Get user from database
     let mut user = match db::get_user(&state.db, &auth.username).await {

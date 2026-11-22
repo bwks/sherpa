@@ -2,9 +2,9 @@
 
 use super::labs_api::require_admin_auth;
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, State};
 
-use crate::api::request_parse::{JsonBody, PathParams};
+use crate::api::request_parse::JsonBody;
 use crate::daemon::state::AppState;
 use crate::services::{user_delete, user_device_password, user_password, user_ssh_keys};
 
@@ -73,7 +73,7 @@ pub async fn list_users_json(
 pub async fn delete_user_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams(username): PathParams<String>,
+    Path(username): Path<String>,
 ) -> Result<Json<DeleteUserResponse>, ApiError> {
     let response = user_delete::delete_user(&auth.into_context(), &username, &state)
         .await
@@ -89,7 +89,7 @@ pub async fn delete_user_json(
 pub async fn change_password_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams(username): PathParams<String>,
+    Path(username): Path<String>,
     JsonBody(payload): JsonBody<ChangePasswordRequest>,
 ) -> Result<Json<ChangePasswordResponse>, ApiError> {
     let response = user_password::change_password(
@@ -110,7 +110,7 @@ pub async fn change_password_json(
 pub async fn set_device_password_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams(username): PathParams<String>,
+    Path(username): Path<String>,
     JsonBody(payload): JsonBody<SetDevicePasswordRequest>,
 ) -> Result<Json<SetDevicePasswordResponse>, ApiError> {
     let response = user_device_password::set_device_password(
@@ -131,7 +131,7 @@ pub async fn set_device_password_json(
 pub async fn add_ssh_key_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams(username): PathParams<String>,
+    Path(username): Path<String>,
     JsonBody(payload): JsonBody<AddSshKeyRequest>,
 ) -> Result<Json<UserSshKeysResponse>, ApiError> {
     let response =
@@ -147,7 +147,7 @@ pub async fn add_ssh_key_json(
 pub async fn remove_ssh_key_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams(username): PathParams<String>,
+    Path(username): Path<String>,
     JsonBody(payload): JsonBody<RemoveSshKeyRequest>,
 ) -> Result<Json<UserSshKeysResponse>, ApiError> {
     let response =
@@ -163,7 +163,7 @@ pub async fn remove_ssh_key_json(
 pub async fn get_user_info_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams(username): PathParams<String>,
+    Path(username): Path<String>,
 ) -> Result<Json<GetUserInfoResponse>, ApiError> {
     // Admins can view any user; users can only view themselves
     if !auth.is_admin && auth.username != normalize_username(&username) {

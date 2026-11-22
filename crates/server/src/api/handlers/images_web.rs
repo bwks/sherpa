@@ -1,7 +1,7 @@
 //! The web UI's admin image pages and upload.
 
 use anyhow::{Context, anyhow, bail};
-use axum::extract::{Multipart, State};
+use axum::extract::{Multipart, Path, State};
 use axum::http::header;
 use axum::response::{Html, IntoResponse, Response};
 use serde::Deserialize;
@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 
 use db::{DefaultRequest, LastDefaultImage};
 
-use crate::api::request_parse::{FormBody, InvalidRequest, PathParams};
+use crate::api::request_parse::{FormBody, InvalidRequest};
 use crate::daemon::state::AppState;
 use crate::services::image_lifecycle::lock_image;
 use crate::services::import;
@@ -325,7 +325,7 @@ fn form_choice<T: DeserializeOwned>(
 /// Admin handler to view a single image configuration detail
 pub async fn admin_image_detail_handler(
     State(state): State<AppState>,
-    PathParams(params): PathParams<ImagePath>,
+    Path(params): Path<ImagePath>,
     admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     tracing::debug!(
@@ -350,7 +350,7 @@ pub async fn admin_image_detail_handler(
 /// Admin handler to render the edit page for an image configuration
 pub async fn admin_image_edit_page_handler(
     State(state): State<AppState>,
-    PathParams(params): PathParams<ImagePath>,
+    Path(params): Path<ImagePath>,
     admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     tracing::debug!(
@@ -500,7 +500,7 @@ impl ImageForm {
 /// with a field it does not take, is refused with a notification naming the problem.
 pub async fn admin_image_update_handler(
     State(state): State<AppState>,
-    PathParams(params): PathParams<ImagePath>,
+    Path(params): Path<ImagePath>,
     _admin: AdminUser,
     form: Result<FormBody<ImageForm>, InvalidRequest>,
 ) -> Result<Response, ApiError> {
@@ -591,7 +591,7 @@ pub async fn admin_image_update_handler(
 pub async fn admin_image_versions_handler(
     State(state): State<AppState>,
     AdminUser { username, .. }: AdminUser,
-    PathParams(ImageVersionsPath { model, kind }): PathParams<ImageVersionsPath>,
+    Path(ImageVersionsPath { model, kind }): Path<ImageVersionsPath>,
 ) -> Result<Response, ApiError> {
     tracing::debug!(
         "Node config versions list request: model={}, kind={}",
@@ -1252,7 +1252,7 @@ mod tests {
             .await
             .err()
             .expect("version was accepted");
-        assert_eq!(rejection.message, "the request is not valid");
+        assert_eq!(rejection.message, "the request is not valid at version");
     }
 
     #[test]

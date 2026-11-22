@@ -2,13 +2,13 @@
 
 use anyhow::Context;
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::response::{IntoResponse, sse};
 use serde::Deserialize;
 use std::future::Future;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::api::request_parse::{JsonBody, PathParams, QueryParams};
+use crate::api::request_parse::{JsonBody, QueryParams};
 use crate::api::sse::json_progress_stream;
 use crate::auth::policy::{require_lab_access, require_lab_owner, require_lab_starter};
 use crate::daemon::state::AppState;
@@ -52,7 +52,7 @@ use shared::data::{
 ///
 pub async fn get_lab(
     State(state): State<AppState>,
-    PathParams(lab_id): PathParams<String>,
+    Path(lab_id): Path<String>,
     auth: AuthenticatedUser,
 ) -> Result<Json<InspectResponse>, ApiError> {
     let auth = auth.into_context();
@@ -188,7 +188,7 @@ pub async fn create_lab_json(
 pub async fn delete_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams(lab_id): PathParams<String>,
+    Path(lab_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let auth = auth.into_context();
     // Checked before the stream opens so a refusal is a 403, not an error event.
@@ -212,7 +212,7 @@ pub async fn delete_lab_json(
 pub async fn down_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams(lab_id): PathParams<String>,
+    Path(lab_id): Path<String>,
     JsonBody(payload): JsonBody<NodeActionPayload>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
@@ -231,7 +231,7 @@ pub async fn down_lab_json(
 pub async fn cancel_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams(lab_id): PathParams<String>,
+    Path(lab_id): Path<String>,
 ) -> Result<Json<CancelLabResponse>, ApiError> {
     let auth = auth.into_context();
     let response =
@@ -248,7 +248,7 @@ pub async fn cancel_lab_json(
 pub async fn resume_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams(lab_id): PathParams<String>,
+    Path(lab_id): Path<String>,
     JsonBody(payload): JsonBody<NodeActionPayload>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
@@ -275,7 +275,7 @@ pub async fn resume_lab_json(
 pub async fn redeploy_node_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams((lab_id, node_name)): PathParams<(String, String)>,
+    Path((lab_id, node_name)): Path<(String, String)>,
     JsonBody(payload): JsonBody<serde_json::Value>,
 ) -> Result<impl IntoResponse, ApiError> {
     let auth = auth.into_context();
@@ -325,7 +325,7 @@ pub async fn redeploy_node_json(
 pub async fn clean_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams(lab_id): PathParams<String>,
+    Path(lab_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let auth = auth.into_context();
     let response = run_detached(async move { clean::clean_lab(&auth, &lab_id, &state).await })
@@ -345,7 +345,7 @@ pub async fn clean_lab_json(
 pub async fn update_impairment_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams((lab_id, link_index)): PathParams<(String, u16)>,
+    Path((lab_id, link_index)): Path<(String, u16)>,
     JsonBody(payload): JsonBody<UpdateImpairmentRequest>,
 ) -> Result<Json<UpdateImpairmentResponse>, ApiError> {
     let request = UpdateImpairmentRequest {

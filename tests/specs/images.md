@@ -175,7 +175,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 003 | A node built after an edit runs with the edited settings (no test yet) | integration |
 | 004 | A form with a field of another kind is refused naming the field | unit |
 | 005 | A form without a field its kind needs is refused naming the field | unit |
-| 006 | A form with a field the server does not take, as a page loaded from an older server sends, is refused, not saved without it | unit |
+| 006 | A form with a field the server does not take, as a page loaded from an older server sends, is refused naming the field, not saved without it | unit |
 | 007 | An edit cannot change the image's model, kind, version, management interface or, for a unikernel, boot mode | unit |
 | 008 | A CPU count under 1, memory under 64 MB or an interface MTU outside 576 to 9600 is refused naming the setting, and values in range are taken | unit |
 | 009 | A container image has no interface MTU to check | unit |

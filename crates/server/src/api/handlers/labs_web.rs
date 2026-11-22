@@ -2,7 +2,7 @@
 
 use super::labs_api::run_detached;
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{Html, IntoResponse, Response, sse};
 use serde_json::json;
@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 use strum::IntoEnumIterator;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::api::request_parse::{FormBody, PathParams};
+use crate::api::request_parse::FormBody;
 use crate::api::sse::{destroy_progress_stream, up_progress_stream};
 use crate::auth::policy::{
     LabRule, check_lab_rule, require_lab_access, require_lab_owner, require_lab_starter,
@@ -156,7 +156,7 @@ pub async fn get_labs_html(
 pub async fn lab_stop_handler(
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
-    PathParams(lab_id): PathParams<String>,
+    Path(lab_id): Path<String>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
     let response =
@@ -174,7 +174,7 @@ pub async fn lab_stop_handler(
 pub async fn lab_start_handler(
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
-    PathParams(lab_id): PathParams<String>,
+    Path(lab_id): Path<String>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
     let response = run_detached(async move {
@@ -193,7 +193,7 @@ pub async fn lab_start_handler(
 pub async fn node_stop_handler(
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
-    PathParams((lab_id, node_name)): PathParams<(String, String)>,
+    Path((lab_id, node_name)): Path<(String, String)>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
     let response = run_detached(async move {
@@ -212,7 +212,7 @@ pub async fn node_stop_handler(
 pub async fn node_start_handler(
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
-    PathParams((lab_id, node_name)): PathParams<(String, String)>,
+    Path((lab_id, node_name)): Path<(String, String)>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
     let response = run_detached(async move {
@@ -231,7 +231,7 @@ pub async fn node_start_handler(
 pub async fn node_redeploy_handler(
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
-    PathParams((lab_id, node_name)): PathParams<(String, String)>,
+    Path((lab_id, node_name)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let auth = auth.into_context();
     // Checked before reading the definition so a non-owner gets 403, not a refusal.
@@ -297,7 +297,7 @@ pub async fn node_redeploy_handler(
 /// - `500 Internal Server Error` - Server error while fetching lab details
 ///
 pub async fn lab_detail_handler(
-    PathParams(lab_id): PathParams<String>,
+    Path(lab_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
@@ -465,7 +465,7 @@ fn lab_error_fragment(error: &anyhow::Error, failure_message: &str) -> Response 
 /// GET `/labs/{lab_id}/nodes/{node_name}`
 #[tracing::instrument(skip(state), fields(%lab_id, %node_name))]
 pub async fn node_detail_handler(
-    PathParams((lab_id, node_name)): PathParams<(String, String)>,
+    Path((lab_id, node_name)): Path<(String, String)>,
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
@@ -596,7 +596,7 @@ fn defined_node_ztp(definition: Option<&Manifest>, node_name: &str) -> Option<Zt
 ///
 /// GET `/labs/{lab_id}/nodes`
 pub async fn lab_nodes_handler(
-    PathParams(lab_id): PathParams<String>,
+    Path(lab_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
@@ -624,7 +624,7 @@ pub async fn lab_nodes_handler(
 /// so only the lab's owner may download it, admins included.
 #[tracing::instrument(skip(state), fields(%lab_id))]
 pub async fn lab_download_handler(
-    PathParams(lab_id): PathParams<String>,
+    Path(lab_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> Result<Response, ApiError> {
@@ -680,7 +680,7 @@ pub async fn lab_download_handler(
 ///
 /// GET `/labs/{lab_id}/destroy/confirm`
 pub async fn lab_destroy_confirm_handler(
-    PathParams(lab_id): PathParams<String>,
+    Path(lab_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
@@ -699,7 +699,7 @@ pub async fn lab_destroy_confirm_handler(
 ///
 /// GET `/labs/{lab_id}/destroy/button`
 pub async fn lab_destroy_button_handler(
-    PathParams(lab_id): PathParams<String>,
+    Path(lab_id): Path<String>,
     _auth: AuthenticatedUserFromCookie,
 ) -> impl IntoResponse {
     LabDestroyButtonFragment { lab_id }
@@ -709,7 +709,7 @@ pub async fn lab_destroy_button_handler(
 ///
 /// POST `/labs/{lab_id}/destroy`
 pub async fn lab_destroy_post_handler(
-    PathParams(lab_id): PathParams<String>,
+    Path(lab_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> Result<Response, ApiError> {
@@ -746,7 +746,7 @@ pub async fn lab_destroy_post_handler(
 ///
 /// GET `/jobs/{job_id}`
 pub async fn job_page_handler(
-    PathParams(job_id): PathParams<String>,
+    Path(job_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
@@ -796,7 +796,7 @@ pub async fn job_page_handler(
 ///
 /// GET `/jobs/{job_id}/stream`
 pub async fn job_stream_handler(
-    PathParams(job_id): PathParams<String>,
+    Path(job_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> impl IntoResponse {

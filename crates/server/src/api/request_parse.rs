@@ -1,16 +1,19 @@
-//! Reading a request's JSON body, form, query string or path parameters into its type. A
-//! request that does not parse is answered `400` with a fixed message and, for JSON, the path of
-//! the field that is wrong; never serde's or axum's message, which can quote what was sent.
+//! Reading a request's JSON body, form or query string into its type. A request that does not
+//! parse is answered `400` with a fixed message and the path of the field that is wrong; never
+//! serde's or axum's message, which can quote what was sent.
+
+use std::future::ready;
 
 use axum::body::Bytes;
-use axum::extract::rejection::FormRejection;
-use axum::extract::{FromRequest, FromRequestParts, Request};
+use axum::extract::rejection::RawFormRejection;
+use axum::extract::{FromRequest, FromRequestParts, RawForm, Request};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, header};
 use axum::response::{IntoResponse, Response};
+use mime::Mime;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use serde_path_to_error::{Path, Segment};
+use serde_path_to_error::Segment;
 
 use super::errors::ApiError;
 
@@ -39,10 +42,6 @@ pub(crate) struct FormBody<T>(pub T);
 /// A request's query string, read as `T`.
 #[derive(Debug)]
 pub(crate) struct QueryParams<T>(pub T);
-
-/// A request's path parameters, read as `T`.
-#[derive(Debug)]
-pub(crate) struct PathParams<T>(pub T);
 
 impl InvalidRequest {
     fn new(message: impl Into<String>) -> Self {
@@ -85,38 +84,27 @@ impl<T: DeserializeOwned, S: Send + Sync> FromRequest<S> for FormBody<T> {
     type Rejection = InvalidRequest;
 
     async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
-        axum::Form::<T>::from_request(request, state)
+        let RawForm(bytes) = RawForm::from_request(request, state)
             .await
-            .map(|axum::Form(form)| Self(form))
             .map_err(|rejection| match rejection {
-                FormRejection::InvalidFormContentType(_) => {
+                RawFormRejection::InvalidFormContentType(_) => {
                     InvalidRequest::new(MSG_NOT_FORM_CONTENT_TYPE)
                 }
-                FormRejection::BytesRejection(_) => InvalidRequest::new(MSG_UNREADABLE),
-                _ => InvalidRequest::new(MSG_INVALID),
-            })
+                _ => InvalidRequest::new(MSG_UNREADABLE),
+            })?;
+        parse_urlencoded(&bytes).map(Self)
     }
 }
 
-impl<T: DeserializeOwned, S: Send + Sync> FromRequestParts<S> for QueryParams<T> {
+impl<T: DeserializeOwned + Send, S: Send + Sync> FromRequestParts<S> for QueryParams<T> {
     type Rejection = InvalidRequest;
 
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        axum::extract::Query::<T>::from_request_parts(parts, state)
-            .await
-            .map(|axum::extract::Query(query)| Self(query))
-            .map_err(|_| InvalidRequest::new(MSG_INVALID))
-    }
-}
-
-impl<T: DeserializeOwned + Send, S: Send + Sync> FromRequestParts<S> for PathParams<T> {
-    type Rejection = InvalidRequest;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        axum::extract::Path::<T>::from_request_parts(parts, state)
-            .await
-            .map(|axum::extract::Path(params)| Self(params))
-            .map_err(|_| InvalidRequest::new(MSG_INVALID))
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        let query = parts.uri.query().unwrap_or_default();
+        ready(parse_urlencoded(query.as_bytes()).map(Self))
     }
 }
 
@@ -149,29 +137,31 @@ pub(crate) fn parse_value<T: DeserializeOwned>(value: &Value) -> Result<T, Inval
     serde_path_to_error::deserialize(value).map_err(|error| invalid_at(error.path()))
 }
 
+/// Read the `application/x-www-form-urlencoded` `bytes`, a form body or a query string, as `T`.
+fn parse_urlencoded<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, InvalidRequest> {
+    serde_path_to_error::deserialize(serde_urlencoded::Deserializer::new(form_urlencoded::parse(
+        bytes,
+    )))
+    .map_err(|error| invalid_at(error.path()))
+}
+
 /// Whether `headers` say the body is JSON: `application/json` or `application/*+json`.
 fn is_json(headers: &HeaderMap) -> bool {
-    let Some(content_type) = headers
+    headers
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
-    else {
-        return false;
-    };
-    let essence = content_type
-        .split(';')
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase();
-    essence
-        .strip_prefix("application/")
-        .is_some_and(|subtype| subtype == "json" || subtype.ends_with("+json"))
+        .and_then(|value| value.parse::<Mime>().ok())
+        .is_some_and(|content_type| {
+            content_type.type_() == mime::APPLICATION
+                && (content_type.subtype() == mime::JSON
+                    || content_type.suffix() == Some(mime::JSON))
+        })
 }
 
 /// The fixed message of a request that is not valid at `path`. The path is named only when
 /// every segment is an index or a plain name, since a map key or an unknown field is what the
 /// client sent.
-fn invalid_at(path: &Path) -> InvalidRequest {
+fn invalid_at(path: &serde_path_to_error::Path) -> InvalidRequest {
     let plain = path.iter().all(|segment| match segment {
         Segment::Seq { .. } => true,
         Segment::Map { key } => is_name(key),
@@ -261,10 +251,6 @@ mod tests {
             .route(
                 "/query",
                 get(|QueryParams(_): QueryParams<ListImagesRequest>| async { "ok" }),
-            )
-            .route(
-                "/path/{name}/{port}",
-                get(|PathParams(_): PathParams<(String, u16)>| async { "ok" }),
             );
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -327,19 +313,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn api_errors_011_a_form_query_or_path_that_does_not_parse_says_so_never_the_value() {
+    async fn api_errors_011_a_form_or_query_that_does_not_parse_names_the_path_never_the_value() {
         let url = serve().await;
         let client = reqwest::Client::new();
-        let invalid = (StatusCode::BAD_REQUEST, MSG_INVALID.to_string());
+        let invalid_at = |path: &str| (StatusCode::BAD_REQUEST, format!("{MSG_INVALID} at {path}"));
 
-        let form = client
-            .post(format!("{url}/form"))
-            .header(
-                header::CONTENT_TYPE.as_str(),
-                "application/x-www-form-urlencoded",
-            )
-            .body(format!("name=r1&port={SENT}"));
-        assert_eq!(refusal_of(form).await, invalid);
+        let form = |body: String| {
+            client
+                .post(format!("{url}/form"))
+                .header(
+                    header::CONTENT_TYPE.as_str(),
+                    "application/x-www-form-urlencoded",
+                )
+                .body(body)
+        };
+        assert_eq!(
+            refusal_of(form(format!("name=r1&port={SENT}"))).await,
+            invalid_at("port")
+        );
+        assert_eq!(
+            refusal_of(form(format!("name={SENT}"))).await,
+            (StatusCode::BAD_REQUEST, MSG_INVALID.to_string())
+        );
 
         let form = client
             .post(format!("{url}/form"))
@@ -354,10 +349,7 @@ mod tests {
         );
 
         let query = client.get(format!("{url}/query?model={SENT}"));
-        assert_eq!(refusal_of(query).await, invalid);
-
-        let path = client.get(format!("{url}/path/r1/{SENT}"));
-        assert_eq!(refusal_of(path).await, invalid);
+        assert_eq!(refusal_of(query).await, invalid_at("model"));
 
         let json = client
             .post(format!("{url}/json"))

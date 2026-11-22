@@ -62,22 +62,24 @@ access and whether it streams; `dispatch` authenticates as it says, and a test h
 API spec. Long operations report through a `ProgressSender`, so a service never knows whether its
 progress goes to SSE, the web UI or a WebSocket.
 
-Every request is read through `api/request_parse.rs`: handlers take `JsonBody`, `FormBody`,
-`QueryParams` and `PathParams` instead of axum's extractors, RPC parameters go through
-`dispatch::parse`, and the WebSocket message and the manifests of `up` and `redeploy` through
-`parse_json` and `parse_value`. serde's and axum's messages quote the value they failed on, a
-password or a secret file among them, so their text is never read, logged or kept. A JSON body or
-WebSocket message is deserialized straight into its type with `serde_path_to_error` over
-`serde_json::Deserializer::from_slice`, and a `serde_json::Value` (RPC parameters, a manifest)
-with `serde_path_to_error` over the value itself; the error keeps only the path. A form, a query
-string and path parameters are read by axum's `Form`, `Query` and `Path`, whose rejections are
-dropped, so they give no path: `serde_urlencoded`'s deserializer is not reachable through axum
-and is not a dependency of `sherpad`. The answer is `400` with `the request is not valid at
-<path>`, or `the request is not valid` when the path is empty (a missing top-level field) or has
-a segment that is not an index or a plain name, since map keys and unknown fields are what the
-client sent. Only a body that is not JSON, the wrong content type and a body that cannot be read
-keep their own fixed messages. axum's rejections are never turned into responses, so their trace
-logging, which carries serde's text, never runs.
+Every request body and query string is read through `api/request_parse.rs`: handlers take
+`JsonBody`, `FormBody` and `QueryParams` instead of axum's `Json`, `Form` and `Query`, RPC
+parameters go through `dispatch::parse`, and the WebSocket message and the manifests of `up` and
+`redeploy` through `parse_json` and `parse_value`. serde's and axum's messages quote the value
+they failed on, a password or a secret file among them, so their text is never read, logged or
+kept. A JSON body or WebSocket message is deserialized straight into its type with
+`serde_path_to_error` over `serde_json::Deserializer::from_slice`, and a `serde_json::Value` (RPC
+parameters, a manifest) with `serde_path_to_error` over the value itself. A form body, taken as
+bytes by axum's `RawForm`, and a query string, taken from the URI, are deserialized the same way
+over `serde_urlencoded::Deserializer` on `form_urlencoded::parse`. The error keeps only the
+path. The answer is `400` with `the request is not valid at <path>`, or `the request is not
+valid` when the path is empty (a missing top-level field) or has a segment that is not an index
+or a plain name, since map keys and unknown fields are what the client sent. Only a body that is
+not JSON, the wrong content type and a body that cannot be read keep their own fixed messages. A
+JSON body must be sent as `application/json` or `application/*+json`, which stops a cross-site
+form post: the `Content-Type` header is parsed as a `mime::Mime` and its type, subtype and suffix
+compared. A form must be sent as `application/x-www-form-urlencoded`, which `RawForm` checks.
+Path parameters are read by axum's own `Path`: they come from the URL, which is not secret.
 
 ## Authentication and authorization architecture
 

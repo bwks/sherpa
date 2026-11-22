@@ -3,12 +3,12 @@
 use super::images_web::parse_upload_fields;
 use super::labs_api::require_admin_auth;
 use axum::Json;
-use axum::extract::{Multipart, State};
+use axum::extract::{Multipart, Path, State};
 use axum::response::{IntoResponse, sse};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::api::request_parse::{JsonBody, PathParams, QueryParams};
+use crate::api::request_parse::{JsonBody, QueryParams};
 use crate::api::sse::json_progress_stream;
 use crate::daemon::state::AppState;
 use crate::services::progress::ProgressSender;
@@ -56,7 +56,7 @@ pub async fn list_images_json(
 pub async fn show_image_json(
     _auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams((model, kind)): PathParams<(String, String)>,
+    Path((model, kind)): Path<(String, String)>,
     QueryParams(params): QueryParams<HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let model_kind = path_model_kind(&model, &kind)?;
@@ -159,7 +159,7 @@ pub async fn upload_image_multipart(
 pub async fn delete_image_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams((model, kind, version)): PathParams<(String, String, String)>,
+    Path((model, kind, version)): Path<(String, String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin_auth(&auth)?;
 
@@ -186,7 +186,7 @@ pub async fn delete_image_json(
 pub async fn set_default_image_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
-    PathParams((model, kind, version)): PathParams<(String, String, String)>,
+    Path((model, kind, version)): Path<(String, String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin_auth(&auth)?;
 
