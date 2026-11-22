@@ -11,6 +11,9 @@ NoCloud `network-config` statically, with no DHCP, and ignores the `search` doma
 
 - **Controllers.** One or three: two are refused, as etcd needs a majority and two members
   tolerate no failure. A controller cannot be redeployed: its etcd member would need removing.
+- **Redeploy membership.** A redeployed node's cluster and role come from the lab's stored
+  definition. A redeploy whose manifest gives the node another cluster or role is refused before
+  teardown, so a manifest edited to drop a cluster cannot rebuild a member without its config.
 - **State.** Only what the server works out (endpoint, VIP, load balancer range) is stored as the
   plan; the rest is the lab's definition. Generated secrets stay on disk, `0600`, with the lab.
 - **Cilium.** The Gateway API CRDs go in `extraManifests`, because Cilium enables its Gateway

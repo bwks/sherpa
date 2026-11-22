@@ -25,7 +25,7 @@ use topology::validate::{
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
     check_no_p2p_field, check_node_file_settings, check_node_kind_settings, check_node_model_kind,
     check_node_names, check_nonzero_node_settings, check_ptx_platform, check_text_file_modes,
-    check_vm_tuning, validate_talos_clusters,
+    check_vm_tuning, check_windows_startup_script_names, validate_talos_clusters,
 };
 use topology::{process_manifest_bridges, process_manifest_links};
 
@@ -234,6 +234,8 @@ fn check_manifest_nodes(manifest: &topology::Manifest) -> Result<()> {
                 .context("Manifest validation failed: environment variables")?;
         }
     }
+    check_windows_startup_script_names(&manifest.nodes)
+        .context("Manifest validation failed: startup scripts")?;
     Ok(())
 }
 

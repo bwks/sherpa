@@ -25,7 +25,7 @@ use crate::ssh_client::SshAccess;
 use crate::table::{render_lab_info_table, render_nodes_table, render_tailnet_table};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
-use topology::validate::check_lab_description;
+use topology::validate::{check_lab_description, check_windows_startup_script_names};
 
 /// Helper struct for deserializing log messages
 #[derive(Deserialize)]
@@ -287,7 +287,8 @@ fn read_scripts(node: &str, paths: &[String], manifest_dir: &Path) -> Result<Vec
     Ok(scripts)
 }
 
-/// Resolve every client file and `$VAR` value the server needs, for `up` and `redeploy`.
+/// Resolve every client file and `$VAR` value the server needs, for `up` and `redeploy`, and
+/// check the names of the Windows startup scripts read, which the server puts in a `cmd` line.
 pub(crate) fn resolve_manifest_files(
     manifest: &mut topology::Manifest,
     manifest_path: &str,
@@ -296,6 +297,8 @@ pub(crate) fn resolve_manifest_files(
     resolve_text_files(manifest, manifest_path)?;
     resolve_node_files(manifest, manifest_path)?;
     resolve_scripts(manifest, manifest_path)?;
+    check_windows_startup_script_names(&manifest.nodes)
+        .context("Manifest validation failed: startup scripts")?;
     resolve_environment_variables(manifest, client_variable)
 }
 

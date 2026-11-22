@@ -2182,15 +2182,26 @@ fn build_ignition_user_env(env_vars: &[String], username: &str) -> Vec<template:
     ]
 }
 
-/// Build PowerShell commands to set machine-level environment variables on Windows.
+/// Build the commands that set each of `env_vars` as a machine-level environment variable on
+/// Windows.
+///
+/// cloudbase-init runs each command through `cmd`, so the PowerShell command is passed with
+/// `-EncodedCommand`, as base64 of its UTF-16LE bytes: `cmd` never sees the key or the value,
+/// so a `"` in them cannot end an argument and a `%NAME%` is not expanded. Inside the
+/// PowerShell command the key and value are single-quoted strings, with `'` written `''`.
 fn build_windows_env_commands(env_vars: &[String]) -> Vec<String> {
     let mut commands = Vec::new();
     for entry in env_vars {
         if let Some((key, value)) = entry.split_once('=') {
-            // Escape single quotes for PowerShell: ' → ''
-            let escaped_value = value.replace('\'', "''");
+            let command = format!(
+                "[System.Environment]::SetEnvironmentVariable('{}', '{}', 'Machine')",
+                key.replace('\'', "''"),
+                value.replace('\'', "''")
+            );
+            let utf16le: Vec<u8> = command.encode_utf16().flat_map(u16::to_le_bytes).collect();
             commands.push(format!(
-                r#"powershell -Command "[System.Environment]::SetEnvironmentVariable('{key}', '{escaped_value}', 'Machine')""#
+                "powershell -NoProfile -EncodedCommand {}",
+                util::base64_encode_bytes(&utf16le)
             ));
         }
     }
@@ -5159,16 +5170,59 @@ echo "$*" >> '{}'
         );
     }
 
+    /// The PowerShell command a `powershell -NoProfile -EncodedCommand` line runs: its base64
+    /// argument decoded as UTF-16LE.
+    fn encoded_powershell(line: &str) -> String {
+        let encoded = line
+            .strip_prefix("powershell -NoProfile -EncodedCommand ")
+            .unwrap_or_else(|| panic!("not an encoded PowerShell command: {line}"));
+        let bytes = util::base64_decode_bytes(encoded).unwrap();
+        let (pairs, rest) = bytes.as_chunks::<2>();
+        assert!(rest.is_empty(), "an odd number of UTF-16LE bytes: {line}");
+        let units: Vec<u16> = pairs.iter().copied().map(u16::from_le_bytes).collect();
+        String::from_utf16(&units).unwrap()
+    }
+
     #[test]
     fn login_environment_007_on_windows_each_variable_is_set_machine_wide_quotes_kept() {
         let env_vars = vec!["EDITOR=vim".to_string(), "MSG=it's here".to_string()];
-        let commands = build_windows_env_commands(&env_vars);
+        let commands: Vec<String> = build_windows_env_commands(&env_vars)
+            .iter()
+            .map(String::as_str)
+            .map(encoded_powershell)
+            .collect();
         assert_eq!(
             commands,
             [
-                r#"powershell -Command "[System.Environment]::SetEnvironmentVariable('EDITOR', 'vim', 'Machine')""#,
-                r#"powershell -Command "[System.Environment]::SetEnvironmentVariable('MSG', 'it''s here', 'Machine')""#,
+                "[System.Environment]::SetEnvironmentVariable('EDITOR', 'vim', 'Machine')",
+                "[System.Environment]::SetEnvironmentVariable('MSG', 'it''s here', 'Machine')",
             ]
+        );
+    }
+
+    #[test]
+    fn login_environment_008_on_windows_cmd_sees_no_percent_or_quote_of_a_value() {
+        let env_vars = vec![r#"TOKEN=%PATH% "a" & calc & 'b'"#.to_string()];
+        let commands = build_windows_env_commands(&env_vars);
+        assert_eq!(commands.len(), 1);
+        assert!(
+            !commands[0].contains(['%', '"', '\'', '&']),
+            "{}",
+            commands[0]
+        );
+        assert_eq!(
+            encoded_powershell(&commands[0]),
+            r#"[System.Environment]::SetEnvironmentVariable('TOKEN', '%PATH% "a" & calc & ''b''', 'Machine')"#
+        );
+    }
+
+    #[test]
+    fn login_environment_009_on_windows_a_key_and_value_round_trip_through_the_encoding() {
+        let env_vars = vec!["GREETING_1=café ☕ 日本 =x".to_string()];
+        let commands = build_windows_env_commands(&env_vars);
+        assert_eq!(
+            encoded_powershell(&commands[0]),
+            "[System.Environment]::SetEnvironmentVariable('GREETING_1', 'café ☕ 日本 =x', 'Machine')"
         );
     }
 
