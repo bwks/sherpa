@@ -157,24 +157,31 @@ forgotten one. Who may set it is in [`SERVER.md`](SERVER.md#device-passwords).
 
 ### Login limit
 
-`login_limit` is the only store of the login limit's counts and locks, so a lock outlives a
-restart. A row is one key, `(kind, username, address)`. `kind` is `pair`, `address` or `username`,
-held by a `CHECK`. An address row has an empty `username` and a username row an empty `address`.
-The address is an IPv4 address or an IPv6 `/64` prefix as the limiter writes it. `failures` is the
-attempts counted, `window_start` the first of them and `locked_until` the end of the lock, `NULL`
-while there is none. Times are Unix seconds, as `session.expires_at` is. No password, nor anything
-made from one, is stored.
+The login limit's counts and locks are kept only in three tables, so a lock outlives a restart.
+`login_limit_pair` holds one row per username and address, keyed `(username, address)`,
+`login_limit_address` one per address and `login_limit_username` one per username, each keyed by
+its one column. `address` is a `BLOB`: the 4 bytes of an IPv4 address, or the first 8 bytes of an
+IPv6 address, its `/64` prefix. The length tells them apart, and a `CHECK` refuses any other.
+`db::LoginAddress` is the one place that builds the bytes, from `Ipv4Addr::octets` and
+`Ipv6Addr::octets`; nothing reads an address back. `failures` is the attempts counted,
+`window_start` the first of them and `locked_until` the end of the lock, `NULL` while there is
+none. Times are Unix seconds, as `session.expires_at` is. No password, nor anything made from one,
+is stored.
 
 - Each step of an attempt runs under the write lock. `begin_login_attempt` checks and counts all
   three keys in one transaction, so logins made at the same moment cannot count past a limit.
-  `give_back_login_attempt` clears and gives back in one transaction. `lock_full_login_keys` locks
-  each key in a single `UPDATE ... RETURNING` that checks and sets the lock together.
-- `login_limit_size` holds each kind's row count, kept by the triggers `login_limit_size_insert`
-  and `login_limit_size_delete`, so the cap of 100,000 keys per kind is checked without a `COUNT`.
-- The only secondary index, `login_limit_window_start`, is not led by `kind`. Turso takes an
-  index led by `kind` over the primary key for a lookup by key, which scans the whole kind.
+  `give_back_login_attempt` clears or gives back each key, as its `LoginRelease` says, in one
+  transaction. `lock_full_login_keys` locks each key in a single `UPDATE ... RETURNING` that checks
+  and sets the lock together. Each takes and returns a `LoginKeys`, one named field for the pair,
+  the address and the username.
+- `login_limit_size` has one row whose `pairs`, `addresses` and `usernames` are each table's row
+  count, kept by an insert and a delete trigger on each table, so the cap of 100,000 keys per
+  table is checked without a `COUNT`.
+- Each table's only secondary index is on `window_start`, for the eviction of its oldest row. No
+  index holds a key column, so a lookup by key always takes the primary key; Turso took an index
+  led by another column over the primary key, which scanned the table.
 - `delete_expired_login_limits` is the sweep: it deletes ended locks, and counts with no lock
-  whose window has passed. It never deletes a lock that has not ended.
+  whose window has passed, from each table. It never deletes a lock that has not ended.
 
 The rules are in [`SERVER.md`](SERVER.md#login-limit).
 

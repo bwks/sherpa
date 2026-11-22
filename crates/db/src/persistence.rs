@@ -21,7 +21,7 @@ use shared::data::{
 };
 use shared::konst::{SHERPA_DB_KEY_CHARSET, SHERPA_DB_KEY_LENGTH};
 
-use crate::login_limit::LoginCount;
+use crate::login_limit::{LoginCount, LoginKeys};
 
 pub(crate) const USER_TABLE: &str = "user";
 pub(crate) const LAB_TABLE: &str = "lab";
@@ -269,6 +269,16 @@ pub(crate) fn login_count_from_row(row: &Row) -> Result<LoginCount> {
             .map(Timestamp::from_second)
             .transpose()
             .context("Database field locked_until is not a valid time")?,
+    })
+}
+
+/// The rows of each login limit table, from the one row of `login_limit_size`.
+pub(crate) fn login_limit_sizes_from_row(row: &Row) -> Result<LoginKeys<usize>> {
+    let mut cells = Cells::new(row);
+    Ok(LoginKeys {
+        pair: cells.integer("pairs")?,
+        address: cells.integer("addresses")?,
+        username: cells.integer("usernames")?,
     })
 }
 

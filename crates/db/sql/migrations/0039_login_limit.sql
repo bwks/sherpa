@@ -1,33 +1,53 @@
--- The login limit's counts (#756): one row per username and address pair, per address and per
--- username that has attempts counted against it, so a lock outlives a restart of sherpad.
--- `username` is empty on an address row and `address` on a username row. `address` is an IPv4
--- address or an IPv6 /64 prefix such as `2001:db8::/64`. Times are Unix seconds: `window_start`
--- is the row's first counted attempt and `locked_until` when its lock ends, NULL while it is not
--- locked. No password, nor anything made from one, is stored. A periodic sweep in sherpad
--- deletes the rows that limit nothing any more.
-CREATE TABLE login_limit (
-    kind TEXT NOT NULL CHECK (kind IN ('pair', 'address', 'username')),
+-- The login limit's counts (#756), so a lock outlives a restart of sherpad: one table per key,
+-- a username and address pair, an address for every username, and a username from every
+-- address. `address` is 4 bytes, an IPv4 address, or 8, the /64 prefix of an IPv6 address.
+-- Times are Unix seconds: `window_start` is the row's first counted attempt and `locked_until`
+-- when its lock ends, NULL while it is not locked. No password, nor anything made from one, is
+-- stored. A periodic sweep in sherpad deletes the rows that limit nothing any more.
+CREATE TABLE login_limit_pair (
     username TEXT NOT NULL,
-    address TEXT NOT NULL,
+    address BLOB NOT NULL CHECK (length(address) IN (4, 8)),
     failures INTEGER NOT NULL CHECK (failures >= 0),
     window_start INTEGER NOT NULL,
     locked_until INTEGER,
-    PRIMARY KEY (kind, username, address),
-    CHECK ((kind = 'pair' AND address != '')
-        OR (kind = 'address' AND username = '' AND address != '')
-        OR (kind = 'username' AND address = ''))
+    PRIMARY KEY (username, address)
 ) STRICT;
--- Not led by `kind`: an index that is would be taken over the primary key for a lookup by key.
-CREATE INDEX login_limit_window_start ON login_limit (window_start);
+CREATE INDEX login_limit_pair_window_start ON login_limit_pair (window_start);
 
--- How many rows of each kind `login_limit` holds, kept by its triggers, so the cap on each kind
--- is checked without counting the rows.
-CREATE TABLE login_limit_size (
-    kind TEXT PRIMARY KEY CHECK (kind IN ('pair', 'address', 'username')),
-    keys INTEGER NOT NULL CHECK (keys >= 0)
+CREATE TABLE login_limit_address (
+    address BLOB PRIMARY KEY CHECK (length(address) IN (4, 8)),
+    failures INTEGER NOT NULL CHECK (failures >= 0),
+    window_start INTEGER NOT NULL,
+    locked_until INTEGER
 ) STRICT;
-INSERT INTO login_limit_size (kind, keys) VALUES ('pair', 0), ('address', 0), ('username', 0);
-CREATE TRIGGER login_limit_size_insert AFTER INSERT ON login_limit
-    BEGIN UPDATE login_limit_size SET keys = keys + 1 WHERE kind = NEW.kind; END;
-CREATE TRIGGER login_limit_size_delete AFTER DELETE ON login_limit
-    BEGIN UPDATE login_limit_size SET keys = keys - 1 WHERE kind = OLD.kind; END;
+CREATE INDEX login_limit_address_window_start ON login_limit_address (window_start);
+
+CREATE TABLE login_limit_username (
+    username TEXT PRIMARY KEY,
+    failures INTEGER NOT NULL CHECK (failures >= 0),
+    window_start INTEGER NOT NULL,
+    locked_until INTEGER
+) STRICT;
+CREATE INDEX login_limit_username_window_start ON login_limit_username (window_start);
+
+-- How many rows each login limit table holds, in its one row, kept by the triggers below, so
+-- the cap on each table is checked without counting its rows.
+CREATE TABLE login_limit_size (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    pairs INTEGER NOT NULL CHECK (pairs >= 0),
+    addresses INTEGER NOT NULL CHECK (addresses >= 0),
+    usernames INTEGER NOT NULL CHECK (usernames >= 0)
+) STRICT;
+INSERT INTO login_limit_size (id, pairs, addresses, usernames) VALUES (1, 0, 0, 0);
+CREATE TRIGGER login_limit_pair_insert AFTER INSERT ON login_limit_pair
+    BEGIN UPDATE login_limit_size SET pairs = pairs + 1; END;
+CREATE TRIGGER login_limit_pair_delete AFTER DELETE ON login_limit_pair
+    BEGIN UPDATE login_limit_size SET pairs = pairs - 1; END;
+CREATE TRIGGER login_limit_address_insert AFTER INSERT ON login_limit_address
+    BEGIN UPDATE login_limit_size SET addresses = addresses + 1; END;
+CREATE TRIGGER login_limit_address_delete AFTER DELETE ON login_limit_address
+    BEGIN UPDATE login_limit_size SET addresses = addresses - 1; END;
+CREATE TRIGGER login_limit_username_insert AFTER INSERT ON login_limit_username
+    BEGIN UPDATE login_limit_size SET usernames = usernames + 1; END;
+CREATE TRIGGER login_limit_username_delete AFTER DELETE ON login_limit_username
+    BEGIN UPDATE login_limit_size SET usernames = usernames - 1; END;

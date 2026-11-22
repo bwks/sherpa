@@ -20,22 +20,21 @@
 //! An IPv4 address is counted alone. An IPv6 address is counted by its /64 prefix, the smallest
 //! block a host is usually given, so changing the low 64 bits does not give a client a new count.
 //!
-//! The counts and locks are kept in the database's `login_limit` table only, so they outlive a
-//! restart. Each step that reads and then changes them runs in one transaction under the
-//! database's write lock (`db::login_limit`). [`run_sweeper`] deletes the rows that limit nothing
-//! any more. Each kind of key holds at most [`MAX_TRACKED`] rows. A new key of a full kind makes
-//! room by deleting expired rows, then the oldest row that is not locked; a lock is never
-//! deleted. When every row is a lock, the new key is not counted for that kind until one
-//! expires. A full table never refuses a login. No password, nor anything made from one, is
-//! stored.
+//! The counts and locks are kept only in the database's `login_limit_pair`, `login_limit_address`
+//! and `login_limit_username` tables, so they outlive a restart. Each step that reads and then
+//! changes them runs in one transaction under the database's write lock (`db::login_limit`).
+//! [`run_sweeper`] deletes the rows that limit nothing any more. Each table holds at most
+//! [`MAX_TRACKED`] rows. A new key of a full table makes room by deleting expired rows, then the
+//! oldest row that is not locked; a lock is never deleted. When every row is a lock, the new key is
+//! not counted in that table until one expires. A full table never refuses a login. No password,
+//! nor anything made from one, is stored.
 
-use std::fmt;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
-use db::{Database, LimitedKey, LoginExpiry, LoginKey};
+use anyhow::{Context, Result};
+use db::{Database, LoginAddress, LoginExpiry, LoginKeys, LoginRelease, LoginSubject};
 use jiff::Timestamp;
 use shared::util::normalize_username;
 use tokio::time::{self, MissedTickBehavior};
@@ -53,29 +52,31 @@ pub const USERNAME_FAILURE_LIMIT: u32 = 50;
 pub const FAILURE_WINDOW: Duration = Duration::from_mins(15);
 /// How long a locked key is refused.
 pub const LOCKOUT: Duration = Duration::from_mins(15);
-/// The most keys of each kind, pairs, addresses and usernames, the table keeps counts for: the
-/// cap.
+/// The most keys of each kind, pairs, addresses and usernames, the limiter keeps counts for: the
+/// cap on each table.
 pub const MAX_TRACKED: usize = 100_000;
 /// The characters of a normalised username the limiter keys on. Longer names cannot be
 /// accounts, so a request cannot make one row take more space than this.
 const MAX_USERNAME_KEY_CHARS: usize = 64;
-/// The prefix length an IPv6 address is counted under.
-const IPV6_PREFIX_LEN: u32 = 64;
-/// The bits of an IPv6 address that are its counted prefix.
-const IPV6_PREFIX_MASK: u128 = u128::MAX << (128 - IPV6_PREFIX_LEN);
+/// The failures that lock the pair, the address and the username.
+const LIMITS: LoginKeys<u32> = LoginKeys {
+    pair: PAIR_FAILURE_LIMIT,
+    address: ADDRESS_FAILURE_LIMIT,
+    username: USERNAME_FAILURE_LIMIT,
+};
 
 /// Where the limiter reads the time from, so tests can move it.
 pub(crate) trait Clock: Send + Sync {
     fn now(&self) -> Timestamp;
 }
 
-/// The limit on failed logins for every login route, over the database's `login_limit` table.
+/// The limit on failed logins for every login route, over the database's login limit tables.
 /// Cloning it shares its database.
 #[derive(Clone)]
 pub struct LoginLimiter {
     db: Database,
     clock: Arc<dyn Clock>,
-    /// The most keys of each kind the table keeps counts for: [`MAX_TRACKED`].
+    /// The most keys of each kind the limiter keeps counts for: [`MAX_TRACKED`].
     max_tracked: usize,
 }
 
@@ -85,28 +86,15 @@ pub struct LoginLimiter {
 #[must_use]
 pub(crate) struct Attempt {
     limiter: LoginLimiter,
-    /// The normalised username, as the keys hold it.
-    username: String,
-    /// The address as it is counted, an IPv4 address or an IPv6 /64 prefix.
-    address: AddressKey,
+    /// The normalised username and the address as it is counted, an IPv4 address or an IPv6
+    /// /64 prefix.
+    subject: LoginSubject,
     /// The peer's own address.
     peer: IpAddr,
-    pair_key: LoginKey,
-    address_key: LoginKey,
-    username_key: LoginKey,
-    /// Which of the pair, the address and the username counted this attempt: a kind full of
+    /// Which of the pair, the address and the username counted this attempt: a table full of
     /// locks may not have.
-    counted: [bool; 3],
+    counted: LoginKeys<bool>,
     ended: bool,
-}
-
-/// The key a source address is counted under.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AddressKey {
-    /// An IPv4 address, counted alone.
-    V4(Ipv4Addr),
-    /// The /64 prefix of an IPv6 address, its host bits zero.
-    V6Prefix(Ipv6Addr),
 }
 
 /// The time of the real system.
@@ -115,15 +103,6 @@ struct SystemClock;
 impl Clock for SystemClock {
     fn now(&self) -> Timestamp {
         Timestamp::now()
-    }
-}
-
-impl fmt::Display for AddressKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::V4(address) => address.fmt(f),
-            Self::V6Prefix(prefix) => write!(f, "{prefix}/{IPV6_PREFIX_LEN}"),
-        }
     }
 }
 
@@ -160,29 +139,21 @@ impl LoginLimiter {
     #[instrument(level = "debug", skip(self), fields(%username, %address))]
     pub(crate) async fn begin(&self, username: &str, address: IpAddr) -> Result<Option<Attempt>> {
         let peer = address.to_canonical();
-        let username = username_key(username);
-        let address = address_key(peer);
-        let address_text = address.to_string();
-        let pair_key = LoginKey::pair(&username, &address_text);
-        let address_key = LoginKey::address(&address_text);
-        let username_key = LoginKey::username(&username);
-        let keys = limited_keys(&pair_key, &address_key, &username_key);
-        let counted = db::begin_login_attempt(&self.db, &keys, self.expiry()?, self.max_tracked)
-            .await
-            .context("Failed to count the login attempt")?;
+        let subject = LoginSubject {
+            username: username_key(username),
+            address: LoginAddress::of(peer),
+        };
+        let counted =
+            db::begin_login_attempt(&self.db, &subject, LIMITS, self.expiry()?, self.max_tracked)
+                .await
+                .context("Failed to count the login attempt")?;
         let Some(counted) = counted else {
             return Ok(None);
         };
-        let counted = <[bool; 3]>::try_from(counted)
-            .map_err(|counted| anyhow!("Counted {} login keys, not 3", counted.len()))?;
         Ok(Some(Attempt {
             limiter: self.clone(),
-            username,
-            address,
+            subject,
             peer,
-            pair_key,
-            address_key,
-            username_key,
             counted,
             ended: false,
         }))
@@ -203,8 +174,11 @@ impl Attempt {
     /// Fails when the counts cannot be written; they are left as they were.
     pub(crate) async fn succeeded(mut self) -> Result<()> {
         self.ended = true;
-        let given_back = self.counted_keys(false);
-        db::give_back_login_attempt(&self.limiter.db, &[&self.pair_key], &given_back)
+        let releases = LoginKeys {
+            pair: LoginRelease::Clear,
+            ..self.counted.map(LoginRelease::give_back_if)
+        };
+        db::give_back_login_attempt(&self.limiter.db, &self.subject, releases)
             .await
             .context("Failed to clear the login count")
     }
@@ -224,31 +198,31 @@ impl Attempt {
             .now()
             .checked_add(LOCKOUT)
             .context("The lockout ends out of range")?;
-        let keys = limited_keys(&self.pair_key, &self.address_key, &self.username_key);
-        let locked = db::lock_full_login_keys(&self.limiter.db, &keys, locked_until)
-            .await
-            .context("Failed to lock the login")?;
-        if locked[0] {
+        let locked =
+            db::lock_full_login_keys(&self.limiter.db, &self.subject, LIMITS, locked_until)
+                .await
+                .context("Failed to lock the login")?;
+        if locked.pair {
             tracing::warn!(
-                username = %self.username,
-                address = %self.address,
+                username = %self.subject.username,
+                address = %self.subject.address,
                 failures = PAIR_FAILURE_LIMIT,
                 lockout_seconds = LOCKOUT.as_secs(),
                 "Login locked for this username from this address: too many failed logins"
             );
         }
-        if locked[1] {
+        if locked.address {
             tracing::warn!(
-                username = %self.username,
-                address = %self.address,
+                username = %self.subject.username,
+                address = %self.subject.address,
                 failures = ADDRESS_FAILURE_LIMIT,
                 lockout_seconds = LOCKOUT.as_secs(),
                 "Login locked for this address: too many failed logins"
             );
         }
-        if locked[2] {
+        if locked.username {
             tracing::warn!(
-                username = %self.username,
+                username = %self.subject.username,
                 address = %self.peer,
                 failures = USERNAME_FAILURE_LIMIT,
                 lockout_seconds = LOCKOUT.as_secs(),
@@ -266,23 +240,10 @@ impl Attempt {
     /// Fails when the counts cannot be written; the attempt then stays counted.
     pub(crate) async fn unanswered(mut self) -> Result<()> {
         self.ended = true;
-        let given_back = self.counted_keys(true);
-        db::give_back_login_attempt(&self.limiter.db, &[], &given_back)
+        let releases = self.counted.map(LoginRelease::give_back_if);
+        db::give_back_login_attempt(&self.limiter.db, &self.subject, releases)
             .await
             .context("Failed to give back the login attempt")
-    }
-
-    /// The keys that counted this attempt: the address and the username, and the pair first
-    /// when `with_pair`.
-    fn counted_keys(&self, with_pair: bool) -> Vec<&LoginKey> {
-        [
-            (with_pair && self.counted[0], &self.pair_key),
-            (self.counted[1], &self.address_key),
-            (self.counted[2], &self.username_key),
-        ]
-        .into_iter()
-        .filter_map(|(counted, key)| counted.then_some(key))
-        .collect()
     }
 }
 
@@ -299,10 +260,10 @@ impl Drop for Attempt {
         };
         self.ended = true;
         let db = self.limiter.db.clone();
-        let given_back: Vec<LoginKey> = self.counted_keys(true).into_iter().cloned().collect();
+        let subject = self.subject.clone();
+        let releases = self.counted.map(LoginRelease::give_back_if);
         runtime.spawn(async move {
-            let given_back: Vec<&LoginKey> = given_back.iter().collect();
-            if let Err(error) = db::give_back_login_attempt(&db, &[], &given_back).await {
+            if let Err(error) = db::give_back_login_attempt(&db, &subject, releases).await {
                 tracing::warn!(
                     error = format!("{error:#}"),
                     "Failed to give back a dropped login attempt"
@@ -355,28 +316,6 @@ pub async fn run_sweeper(db: Database, cancel: CancellationToken, interval: Dura
     }
 }
 
-/// The pair, the address and the username keys with their limits, in that order.
-fn limited_keys<'a>(
-    pair: &'a LoginKey,
-    address: &'a LoginKey,
-    username: &'a LoginKey,
-) -> [LimitedKey<'a>; 3] {
-    [
-        LimitedKey {
-            key: pair,
-            limit: PAIR_FAILURE_LIMIT,
-        },
-        LimitedKey {
-            key: address,
-            limit: ADDRESS_FAILURE_LIMIT,
-        },
-        LimitedKey {
-            key: username,
-            limit: USERNAME_FAILURE_LIMIT,
-        },
-    ]
-}
-
 /// Which rows have expired at `now`: locks ended by then, and counts not locked whose window
 /// started [`FAILURE_WINDOW`] or more before.
 fn expiry_at(now: Timestamp) -> Result<LoginExpiry> {
@@ -397,22 +336,11 @@ fn username_key(username: &str) -> String {
         .collect()
 }
 
-/// The key `address` is counted under: an IPv4 address itself, an IPv6 address its /64 prefix.
-/// `address` is already canonical, so an IPv4-mapped IPv6 address arrives as IPv4.
-fn address_key(address: IpAddr) -> AddressKey {
-    match address {
-        IpAddr::V4(v4) => AddressKey::V4(v4),
-        IpAddr::V6(v6) => {
-            AddressKey::V6Prefix(Ipv6Addr::from_bits(v6.to_bits() & IPV6_PREFIX_MASK))
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::net::{Ipv4Addr, Ipv6Addr};
     use std::sync::Mutex;
 
-    use db::LoginKeyKind;
     use tokio::runtime::Runtime;
     use tokio::time::{Instant, sleep, timeout};
 
@@ -505,18 +433,17 @@ mod tests {
     }
 
     /// How many pairs, addresses and usernames have counts kept.
-    async fn tracked(limiter: &LoginLimiter) -> (usize, usize, usize) {
-        let mut counts = [0; 3];
-        for (count, kind) in counts.iter_mut().zip([
-            LoginKeyKind::Pair,
-            LoginKeyKind::Address,
-            LoginKeyKind::Username,
-        ]) {
-            *count = db::count_login_limits(&limiter.db, kind)
-                .await
-                .expect("count");
+    async fn tracked(limiter: &LoginLimiter) -> LoginKeys<usize> {
+        db::count_login_limits(&limiter.db).await.expect("count")
+    }
+
+    /// The same count of keys kept for pairs, addresses and usernames.
+    fn each(keys: usize) -> LoginKeys<usize> {
+        LoginKeys {
+            pair: keys,
+            address: keys,
+            username: keys,
         }
-        (counts[0], counts[1], counts[2])
     }
 
     /// The address of the `n`th distinct client in a test, 10.x.y.z.
@@ -648,7 +575,7 @@ mod tests {
             );
         }
         let deadline = Instant::now() + Duration::from_secs(10);
-        while tracked(&limiter).await != (0, 0, 0) {
+        while tracked(&limiter).await != each(0) {
             assert!(
                 Instant::now() < deadline,
                 "dropped attempts were not given back"
@@ -667,7 +594,7 @@ mod tests {
         for n in 0..TEST_CAP + 10 {
             fail(&limiter, &format!("user{n}"), nth_address(n), 1).await;
         }
-        assert_eq!(tracked(&limiter).await, (TEST_CAP, TEST_CAP, TEST_CAP));
+        assert_eq!(tracked(&limiter).await, each(TEST_CAP));
     }
 
     #[tokio::test]
@@ -766,14 +693,14 @@ mod tests {
         for n in 0..TEST_CAP {
             fail(&limiter, &format!("user{n}"), nth_address(n), 5).await;
         }
-        assert_eq!(tracked(&limiter).await.0, TEST_CAP);
+        assert_eq!(tracked(&limiter).await.pair, TEST_CAP);
 
         let attempt = limiter
             .begin("alice", ADDRESS)
             .await
             .expect("begin")
             .expect("attempt let through");
-        assert_eq!(tracked(&limiter).await.0, TEST_CAP);
+        assert_eq!(tracked(&limiter).await.pair, TEST_CAP);
         attempt.succeeded().await.expect("succeeded");
         for n in 0..TEST_CAP {
             assert!(!admits(&limiter, &format!("user{n}"), nth_address(n)).await);
@@ -822,7 +749,7 @@ mod tests {
         fail(&old, "bob", OTHER_ADDRESS, 1).await;
         let live = LoginLimiter::with_clock(db.clone(), ManualClock::at(now));
         fail(&live, "carol", nth_address(1), 5).await;
-        assert_eq!(tracked(&live).await, (3, 3, 3));
+        assert_eq!(tracked(&live).await, each(3));
 
         let cancel = CancellationToken::new();
         let sweeper = tokio::spawn(run_sweeper(
@@ -831,7 +758,7 @@ mod tests {
             Duration::from_secs(3600),
         ));
         let deadline = Instant::now() + Duration::from_secs(10);
-        while tracked(&live).await != (1, 1, 1) {
+        while tracked(&live).await != each(1) {
             assert!(
                 Instant::now() < deadline,
                 "the sweeper did not sweep at start"

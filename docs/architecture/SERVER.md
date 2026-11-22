@@ -113,23 +113,24 @@ flowchart TD
     verify -- right --> success["succeeded: clear its own pair,<br/>give back address and username"]
     verify -- "wrong or unknown user" --> failure["failed: lock each key<br/>at its limit for 15 minutes"]
     verify -- "database error" --> unanswered["unanswered: give the counts back"]
-    begin -. reads and writes .-> table[("login_limit table")]
+    begin -. reads and writes .-> table[("login_limit_pair,<br/>login_limit_address and<br/>login_limit_username tables")]
     success -.-> table
     failure -.-> table
     unanswered -.-> table
 ```
 
-The counts and locks are kept only in the database's `login_limit` table, so a lock outlives a
-restart of sherpad ([`DATABASE.md`](DATABASE.md#login-limit)). Each step that reads and then
-changes them is one transaction or single statements under the write lock, so logins made at the
-same moment cannot check more passwords than a limit allows. An attempt dropped without an
-outcome, such as a cancelled request, gives its counts back in a task of its own. An IPv4 peer is
-counted by its address and an IPv6 peer by its /64 prefix (`AddressKey`). A periodic sweep in
-sherpad (`login_limit::run_sweeper`, at startup and every 15 minutes) deletes ended locks and
-counts whose window has passed. Each kind holds at most 100,000 keys. A new key of a full kind
-deletes expired rows, then the oldest count that is not a lock. A lock is never deleted, and when
-every row is one, the attempt is let through uncounted for that kind. A full table never refuses a
-login. No password, nor anything made from one, is stored.
+The counts and locks are kept only in the database's `login_limit_pair`, `login_limit_address` and
+`login_limit_username` tables, so a lock outlives a restart of sherpad
+([`DATABASE.md`](DATABASE.md#login-limit)). Each step that reads and then changes them is one
+transaction or single statements under the write lock, so logins made at the same moment cannot
+check more passwords than a limit allows. An attempt dropped without an outcome, such as a cancelled
+request, gives its counts back in a task of its own. An IPv4 peer is counted by its address and an
+IPv6 peer by its /64 prefix (`db::LoginAddress`). A periodic sweep in sherpad
+(`login_limit::run_sweeper`, at startup and every 15 minutes) deletes ended locks and counts whose
+window has passed. Each table holds at most 100,000 keys. A new key of a full table deletes its
+expired rows, then its oldest count that is not a lock. A lock is never deleted, and when every row
+is one, the attempt is let through uncounted in that table. A full table never refuses a login. No
+password, nor anything made from one, is stored.
 
 ### Services enforce authorization
 
