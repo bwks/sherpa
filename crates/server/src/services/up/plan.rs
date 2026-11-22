@@ -13,9 +13,7 @@ use crate::services::image_lifecycle::{
     ImageLease, check_container_image, lease_image, validate_disk_method,
 };
 use crate::services::progress::ProgressSender;
-use crate::validate::{
-    validate_and_resolve_node_versions, validate_environment_variables, validate_node_ztp,
-};
+use crate::validate::{validate_and_resolve_node_versions, validate_node_ztp};
 
 use shared::data;
 use shared::data::{NodeCpuPins, NodeKind, NodeSshUsername, StatusKind};
@@ -25,7 +23,8 @@ use topology::validate::{
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
     check_no_p2p_field, check_node_file_settings, check_node_kind_settings, check_node_model_kind,
     check_node_names, check_nonzero_node_settings, check_ptx_platform, check_text_file_modes,
-    check_vm_tuning, check_windows_startup_script_names, validate_talos_clusters,
+    check_vm_tuning, check_windows_startup_script_names, validate_environment_variables,
+    validate_talos_clusters,
 };
 use topology::{process_manifest_bridges, process_manifest_links};
 
@@ -228,12 +227,8 @@ fn check_manifest_nodes(manifest: &topology::Manifest) -> Result<()> {
         .context("Manifest validation failed: node settings")?;
     validate_talos_clusters(manifest).context("Manifest validation failed: talos clusters")?;
 
-    for node in &manifest.nodes {
-        if let Some(ref env_vars) = node.environment_variables {
-            validate_environment_variables(env_vars, &node.name)
-                .context("Manifest validation failed: environment variables")?;
-        }
-    }
+    validate_environment_variables(&manifest.nodes)
+        .context("Manifest validation failed: environment variables")?;
     check_windows_startup_script_names(&manifest.nodes)
         .context("Manifest validation failed: startup scripts")?;
     Ok(())
