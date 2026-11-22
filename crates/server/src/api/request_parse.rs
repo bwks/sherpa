@@ -1,32 +1,26 @@
-//! Reading a request's JSON body, form, query string or path parameters into its type. When
-//! one does not parse, the reply and the log get a fixed message: the field that is wrong and
-//! the kind of fault, never the value sent. The request is deserialized through
-//! `serde_path_to_error`, which gives the field's path as data, with an error type that keeps
-//! the kind of fault serde reports and none of its message, which can quote what was sent.
+//! Reading a request's JSON body, form, query string or path parameters into its type. A
+//! request that does not parse is answered `400` with a fixed message and, for JSON, the path of
+//! the field that is wrong; never serde's or axum's message, which can quote what was sent.
 
-mod deserializer;
-
-use axum::extract::rejection::{FormRejection, JsonRejection};
-use axum::extract::{FromRequest, FromRequestParts, RawPathParams, Request};
+use axum::body::Bytes;
+use axum::extract::rejection::FormRejection;
+use axum::extract::{FromRequest, FromRequestParts, Request};
 use axum::http::request::Parts;
+use axum::http::{HeaderMap, header};
 use axum::response::{IntoResponse, Response};
-use serde::Deserializer;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use serde_path_to_error::{Path, Segment};
 
-use self::deserializer::{Fault, JsonValue, PathValues, TextPairs};
 use super::errors::ApiError;
 
+const MSG_INVALID: &str = "the request is not valid";
 const MSG_NOT_JSON: &str = "the body is not valid JSON";
 const MSG_NOT_JSON_CONTENT_TYPE: &str =
     "the body must be sent with `Content-Type: application/json`";
 const MSG_NOT_FORM_CONTENT_TYPE: &str = "the form must be sent with \
      `Content-Type: application/x-www-form-urlencoded`";
 const MSG_UNREADABLE: &str = "the request could not be read";
-const MSG_PATH: &str = "the path does not name what this route takes";
-const MSG_WRONG_SHAPE: &str = "the request has the wrong type or value";
-const MSG_UNKNOWN_FIELD: &str = "the request has a field it does not take";
 
 /// A request that did not parse, with the fixed message it is answered with.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,10 +71,13 @@ impl<T: DeserializeOwned, S: Send + Sync> FromRequest<S> for JsonBody<T> {
     type Rejection = InvalidRequest;
 
     async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let axum::Json(value) = axum::Json::<Value>::from_request(request, state)
+        if !is_json(request.headers()) {
+            return Err(InvalidRequest::new(MSG_NOT_JSON_CONTENT_TYPE));
+        }
+        let bytes = Bytes::from_request(request, state)
             .await
-            .map_err(|rejection| json_rejection(&rejection))?;
-        from_json(value).map(Self)
+            .map_err(|_| InvalidRequest::new(MSG_UNREADABLE))?;
+        parse_json(&bytes).map(Self)
     }
 }
 
@@ -88,10 +85,16 @@ impl<T: DeserializeOwned, S: Send + Sync> FromRequest<S> for FormBody<T> {
     type Rejection = InvalidRequest;
 
     async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let axum::Form(pairs) = axum::Form::<Vec<(String, String)>>::from_request(request, state)
+        axum::Form::<T>::from_request(request, state)
             .await
-            .map_err(|rejection| form_rejection(&rejection))?;
-        from_text_pairs(pairs).map(Self)
+            .map(|axum::Form(form)| Self(form))
+            .map_err(|rejection| match rejection {
+                FormRejection::InvalidFormContentType(_) => {
+                    InvalidRequest::new(MSG_NOT_FORM_CONTENT_TYPE)
+                }
+                FormRejection::BytesRejection(_) => InvalidRequest::new(MSG_UNREADABLE),
+                _ => InvalidRequest::new(MSG_INVALID),
+            })
     }
 }
 
@@ -99,11 +102,10 @@ impl<T: DeserializeOwned, S: Send + Sync> FromRequestParts<S> for QueryParams<T>
     type Rejection = InvalidRequest;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let axum::extract::Query(pairs) =
-            axum::extract::Query::<Vec<(String, String)>>::from_request_parts(parts, state)
-                .await
-                .map_err(|_| InvalidRequest::new(MSG_UNREADABLE))?;
-        from_text_pairs(pairs).map(Self)
+        axum::extract::Query::<T>::from_request_parts(parts, state)
+            .await
+            .map(|axum::extract::Query(query)| Self(query))
+            .map_err(|_| InvalidRequest::new(MSG_INVALID))
     }
 }
 
@@ -111,28 +113,31 @@ impl<T: DeserializeOwned + Send, S: Send + Sync> FromRequestParts<S> for PathPar
     type Rejection = InvalidRequest;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let params: Vec<(String, String)> = RawPathParams::from_request_parts(parts, state)
+        axum::extract::Path::<T>::from_request_parts(parts, state)
             .await
-            .map_err(|_| InvalidRequest::new(MSG_PATH))?
-            .iter()
-            .map(|(name, value)| (name.to_string(), value.to_string()))
-            .collect();
-        let names: Vec<String> = params.iter().map(|(name, _)| name.clone()).collect();
-        serde_path_to_error::deserialize(PathValues(params))
-            .map(Self)
-            .map_err(|error| path_fault(error.path(), &names))
+            .map(|axum::extract::Path(params)| Self(params))
+            .map_err(|_| InvalidRequest::new(MSG_INVALID))
     }
 }
 
-/// Read the JSON `bytes` as `T`, for a request that comes as a WebSocket message or as RPC
-/// parameters rather than an HTTP body.
+/// Read the JSON `bytes` as `T`, for a request body or a WebSocket message.
 ///
 /// # Errors
 ///
 /// Fails, with the fixed message of [`InvalidRequest`], when `bytes` are not JSON or not a `T`.
 pub(crate) fn parse_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, InvalidRequest> {
-    let value = serde_json::from_slice(bytes).map_err(|_| InvalidRequest::new(MSG_NOT_JSON))?;
-    from_json(value)
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    let parsed = serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
+        if error.inner().is_data() {
+            invalid_at(error.path())
+        } else {
+            InvalidRequest::new(MSG_NOT_JSON)
+        }
+    })?;
+    deserializer
+        .end()
+        .map_err(|_| InvalidRequest::new(MSG_NOT_JSON))?;
+    Ok(parsed)
 }
 
 /// Read `value`, a part of a request already read as JSON, as `T`.
@@ -141,119 +146,47 @@ pub(crate) fn parse_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, Invalid
 ///
 /// Fails, with the fixed message of [`InvalidRequest`], when `value` is not a `T`.
 pub(crate) fn parse_value<T: DeserializeOwned>(value: &Value) -> Result<T, InvalidRequest> {
-    from_json(value.clone())
+    serde_path_to_error::deserialize(value).map_err(|error| invalid_at(error.path()))
 }
 
-/// Read the JSON `value` as `T`.
-fn from_json<T: DeserializeOwned>(value: Value) -> Result<T, InvalidRequest> {
-    deserialize(JsonValue(value))
-}
-
-/// Read the name and value `pairs` of a form or a query string as `T`.
-fn from_text_pairs<T: DeserializeOwned>(pairs: Vec<(String, String)>) -> Result<T, InvalidRequest> {
-    deserialize(TextPairs(pairs))
-}
-
-/// Read `T` from `deserializer`, answering a fault with its fixed message.
-fn deserialize<'de, T, D>(deserializer: D) -> Result<T, InvalidRequest>
-where
-    T: DeserializeOwned,
-    D: Deserializer<'de, Error = Fault>,
-{
-    serde_path_to_error::deserialize(deserializer)
-        .map_err(|error| fault_message(error.path(), error.inner()))
-}
-
-/// The fixed message of a JSON body that was refused before it was read as its type.
-fn json_rejection(rejection: &JsonRejection) -> InvalidRequest {
-    match rejection {
-        JsonRejection::MissingJsonContentType(_) => InvalidRequest::new(MSG_NOT_JSON_CONTENT_TYPE),
-        JsonRejection::BytesRejection(_) => InvalidRequest::new(MSG_UNREADABLE),
-        _ => InvalidRequest::new(MSG_NOT_JSON),
-    }
-}
-
-/// The fixed message of a form that was refused before it was read as its type.
-fn form_rejection(rejection: &FormRejection) -> InvalidRequest {
-    match rejection {
-        FormRejection::InvalidFormContentType(_) => InvalidRequest::new(MSG_NOT_FORM_CONTENT_TYPE),
-        _ => InvalidRequest::new(MSG_UNREADABLE),
-    }
-}
-
-/// The fixed message of `fault`, found at `path` in a body, a form or a query string.
-fn fault_message(path: &Path, fault: &Fault) -> InvalidRequest {
-    let at = field_path(path);
-    let message = match fault {
-        Fault::Missing(name) => format!("field `{}` is missing", field_in(at, name)),
-        Fault::Duplicate(name) => format!("field `{}` is given more than once", field_in(at, name)),
-        Fault::Unknown(name) if is_name(name) => format!(
-            "field `{}` is not a field this request takes",
-            field_in(at, name)
-        ),
-        Fault::Unknown(_) => MSG_UNKNOWN_FIELD.to_string(),
-        Fault::Invalid => match at {
-            Some(at) => format!("field `{at}` has the wrong type or value"),
-            None => MSG_WRONG_SHAPE.to_string(),
-        },
+/// Whether `headers` say the body is JSON: `application/json` or `application/*+json`.
+fn is_json(headers: &HeaderMap) -> bool {
+    let Some(content_type) = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return false;
     };
-    InvalidRequest::new(message)
+    let essence = content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    essence
+        .strip_prefix("application/")
+        .is_some_and(|subtype| subtype == "json" || subtype.ends_with("+json"))
 }
 
-/// The fixed message of path parameters that did not parse at `path`, naming the parameter by
-/// its name or by its place among the route's parameter `names`, or the lone one.
-fn path_fault(path: &Path, names: &[String]) -> InvalidRequest {
-    let name = match path.iter().next() {
-        Some(Segment::Seq { index }) => names.get(*index),
-        Some(Segment::Map { key }) => names.iter().find(|name| *name == key),
-        _ if names.len() == 1 => names.first(),
-        _ => None,
-    };
-    match name.filter(|name| is_name(name)) {
-        Some(name) => InvalidRequest::new(format!(
-            "path parameter `{name}` has the wrong type or value"
-        )),
-        None => InvalidRequest::new(MSG_PATH),
+/// The fixed message of a request that is not valid at `path`. The path is named only when
+/// every segment is an index or a plain name, since a map key or an unknown field is what the
+/// client sent.
+fn invalid_at(path: &Path) -> InvalidRequest {
+    let plain = path.iter().all(|segment| match segment {
+        Segment::Seq { .. } => true,
+        Segment::Map { key } => is_name(key),
+        Segment::Enum { variant } => is_name(variant),
+        Segment::Unknown => false,
+    });
+    if plain && path.iter().next().is_some() {
+        InvalidRequest::new(format!("{MSG_INVALID} at {path}"))
+    } else {
+        InvalidRequest::new(MSG_INVALID)
     }
 }
 
-/// `path` written as a field path, `files[0].mode`, up to the first segment that is not a
-/// field's name or a list position: a map's keys are what was sent, and are named only when
-/// they are plain names. `None` when the path is the request as a whole.
-fn field_path(path: &Path) -> Option<String> {
-    let mut written = String::new();
-    for segment in path {
-        match segment {
-            Segment::Seq { index } => {
-                written.push('[');
-                written.push_str(&index.to_string());
-                written.push(']');
-            }
-            Segment::Map { key } if is_name(key) => {
-                if !written.is_empty() {
-                    written.push('.');
-                }
-                written.push_str(key);
-            }
-            Segment::Enum { .. } => {}
-            Segment::Map { .. } | Segment::Unknown => break,
-        }
-    }
-    (!written.is_empty()).then_some(written)
-}
-
-/// The path of field `name`, which serde reports at the path `at`: the path itself when it
-/// already ends at the field, and the field inside it otherwise.
-fn field_in(at: Option<String>, name: &str) -> String {
-    match at {
-        Some(at) if at == name || at.ends_with(&format!(".{name}")) => at,
-        Some(at) => format!("{at}.{name}"),
-        None => name.to_string(),
-    }
-}
-
-/// Whether `name`, sent by a client, is a plain field name of letters, digits, `_` and `-`,
-/// which can be named back without quoting anything else.
+/// Whether `name`, sent by a client, is a plain name of letters, digits, `_` and `-`, which
+/// can be named back without quoting anything else.
 fn is_name(name: &str) -> bool {
     !name.is_empty()
         && name
@@ -263,9 +196,11 @@ fn is_name(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Debug;
+
     use axum::Router;
     use axum::body::Body;
-    use axum::http::{Method, StatusCode, header};
+    use axum::http::{Method, StatusCode};
     use axum::routing::{get, post};
     use http_body_util::BodyExt;
     use serde::Deserialize;
@@ -278,6 +213,8 @@ mod tests {
 
     /// A value a client sent where it does not belong, which must never come back.
     const SENT: &str = "hunter2-s3cret";
+    /// A password sent as a number, which must never come back either.
+    const SENT_NUMBER: &str = "73104729561";
 
     #[derive(Debug, Deserialize)]
     struct Lookup {
@@ -291,6 +228,13 @@ mod tests {
             builder = builder.header(header::CONTENT_TYPE, content_type);
         }
         builder.body(Body::from(body.to_string())).unwrap()
+    }
+
+    /// The refusal of `body` posted as JSON and read as `T`.
+    async fn json_refusal<T: DeserializeOwned + Debug>(body: &str) -> InvalidRequest {
+        JsonBody::<T>::from_request(json_request(body, Some("application/json")), &())
+            .await
+            .expect_err("parsed")
     }
 
     /// The status and the `error` object of `response`.
@@ -328,7 +272,7 @@ mod tests {
         format!("http://{address}")
     }
 
-    /// The status and error message the server at `url` answers `request` with.
+    /// The status and error message the server answers `request` with.
     async fn refusal_of(request: reqwest::RequestBuilder) -> (StatusCode, String) {
         let response = request.send().await.unwrap();
         let status = StatusCode::from_u16(response.status().as_u16()).unwrap();
@@ -343,48 +287,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn api_errors_010_a_rest_json_body_that_does_not_parse_names_the_field_never_its_value() {
+    async fn api_errors_010_a_rest_json_body_that_does_not_parse_names_the_path_never_the_value() {
         let cases = [
             (
                 format!(r#"{{"username":"dev","password":{{"x":"{SENT}"}}}}"#),
-                "field `password` has the wrong type or value",
+                "the request is not valid at password",
             ),
             (
-                r#"{"username":"dev"}"#.to_string(),
-                "field `password` is missing",
+                format!(r#"{{"username":"dev","password":{SENT_NUMBER}}}"#),
+                "the request is not valid at password",
             ),
+            (r#"{"username":"dev"}"#.to_string(), MSG_INVALID),
             (
                 format!(r#"{{"username":"dev","password":"{SENT}""#),
                 MSG_NOT_JSON,
             ),
         ];
         for (body, expected) in cases {
-            let rejection = JsonBody::<LoginRequest>::from_request(
-                json_request(&body, Some("application/json")),
-                &(),
-            )
-            .await
-            .expect_err("parsed");
+            let rejection = json_refusal::<LoginRequest>(&body).await;
             let (status, error) = error_of(rejection.into_response()).await;
             assert_eq!(status, StatusCode::BAD_REQUEST);
             assert_eq!(error["code"], "BAD_REQUEST");
             assert_eq!(error["message"], "Invalid request");
             assert_eq!(error["details"], expected, "{body}");
             assert!(!error.to_string().contains(SENT));
+            assert!(!error.to_string().contains(SENT_NUMBER));
         }
 
         let body =
             format!(r#"{{"username":"dev","password":"p","is_admin":"{SENT}","token":"t"}}"#);
-        let rejection = JsonBody::<CreateUserRequest>::from_request(
-            json_request(&body, Some("application/json")),
-            &(),
-        )
-        .await
-        .expect_err("parsed");
-        assert_eq!(
-            rejection.message,
-            "field `is_admin` has the wrong type or value"
-        );
+        let rejection = json_refusal::<CreateUserRequest>(&body).await;
+        assert_eq!(rejection.message, "the request is not valid at is_admin");
 
         let body = format!(r#"{{"username":"dev","password":"{SENT}"}}"#);
         let rejection = JsonBody::<LoginRequest>::from_request(json_request(&body, None), &())
@@ -394,10 +327,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn api_errors_011_a_form_query_or_path_that_does_not_parse_names_the_field_never_its_value()
-     {
+    async fn api_errors_011_a_form_query_or_path_that_does_not_parse_says_so_never_the_value() {
         let url = serve().await;
         let client = reqwest::Client::new();
+        let invalid = (StatusCode::BAD_REQUEST, MSG_INVALID.to_string());
 
         let form = client
             .post(format!("{url}/form"))
@@ -406,46 +339,25 @@ mod tests {
                 "application/x-www-form-urlencoded",
             )
             .body(format!("name=r1&port={SENT}"));
-        assert_eq!(
-            refusal_of(form).await,
-            (
-                StatusCode::BAD_REQUEST,
-                "field `port` has the wrong type or value".to_string()
-            )
-        );
+        assert_eq!(refusal_of(form).await, invalid);
 
         let form = client
             .post(format!("{url}/form"))
-            .header(
-                header::CONTENT_TYPE.as_str(),
-                "application/x-www-form-urlencoded",
-            )
-            .body(format!("name={SENT}&name=r2&port=22"));
+            .header(header::CONTENT_TYPE.as_str(), "text/plain")
+            .body(format!("name=r1&port={SENT}"));
         assert_eq!(
             refusal_of(form).await,
             (
                 StatusCode::BAD_REQUEST,
-                "field `name` is given more than once".to_string()
+                MSG_NOT_FORM_CONTENT_TYPE.to_string()
             )
         );
 
         let query = client.get(format!("{url}/query?model={SENT}"));
-        assert_eq!(
-            refusal_of(query).await,
-            (
-                StatusCode::BAD_REQUEST,
-                "field `model` has the wrong type or value".to_string()
-            )
-        );
+        assert_eq!(refusal_of(query).await, invalid);
 
         let path = client.get(format!("{url}/path/r1/{SENT}"));
-        assert_eq!(
-            refusal_of(path).await,
-            (
-                StatusCode::BAD_REQUEST,
-                "path parameter `port` has the wrong type or value".to_string()
-            )
-        );
+        assert_eq!(refusal_of(path).await, invalid);
 
         let json = client
             .post(format!("{url}/json"))
@@ -457,6 +369,26 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn api_errors_012_a_websocket_message_that_is_not_a_request_is_refused_without_what_was_sent()
+     {
+        let cases = [
+            (
+                format!(r#"{{"type":"{SENT}","id":"1","method":"m","params":{{}}}}"#),
+                "the request is not valid at type",
+            ),
+            (
+                format!(r#"{{"type":"rpc_request","id":["{SENT}"],"method":"m","params":{{}}}}"#),
+                MSG_INVALID,
+            ),
+            (SENT.to_string(), MSG_NOT_JSON),
+        ];
+        for (text, expected) in cases {
+            let error = parse_json::<ClientMessage>(text.as_bytes()).expect_err("parsed");
+            assert_eq!(error.message, expected, "{text}");
+        }
+    }
+
     #[test]
     fn api_errors_013_a_request_that_does_not_parse_logs_nothing_of_what_was_sent() {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -465,14 +397,12 @@ mod tests {
             .unwrap();
         let ((), log) = capture_log(|| {
             runtime.block_on(async {
-                let body = format!(r#"{{"username":"dev","password":["{SENT}"]}}"#);
-                let rejection = JsonBody::<LoginRequest>::from_request(
-                    json_request(&body, Some("application/json")),
-                    &(),
-                )
-                .await
-                .expect_err("parsed");
-                drop(rejection.into_response());
+                for body in [
+                    format!(r#"{{"username":"dev","password":{SENT_NUMBER}}}"#),
+                    format!(r#"{{"username":"dev","password":{{"x":["{SENT}"]}}}}"#),
+                ] {
+                    drop(json_refusal::<LoginRequest>(&body).await.into_response());
+                }
 
                 let form = Request::builder()
                     .method(Method::POST)
@@ -490,24 +420,6 @@ mod tests {
             "nothing was logged: {log}"
         );
         assert!(!log.contains(SENT), "{log}");
-    }
-
-    #[test]
-    fn api_errors_012_a_websocket_message_that_is_not_a_request_is_refused_without_what_was_sent() {
-        let cases = [
-            (
-                format!(r#"{{"type":"{SENT}","id":"1","method":"m","params":{{}}}}"#),
-                "field `type` has the wrong type or value",
-            ),
-            (
-                format!(r#"{{"type":"rpc_request","id":["{SENT}"],"method":"m","params":{{}}}}"#),
-                "the request has the wrong type or value",
-            ),
-            (SENT.to_string(), MSG_NOT_JSON),
-        ];
-        for (text, expected) in cases {
-            let error = parse_json::<ClientMessage>(text.as_bytes()).expect_err("parsed");
-            assert_eq!(error.message, expected, "{text}");
-        }
+        assert!(!log.contains(SENT_NUMBER), "{log}");
     }
 }

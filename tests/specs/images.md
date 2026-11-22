@@ -27,7 +27,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 012 | A VM and a unikernel of one model imported at the same version each keep their own file in the one version folder (no test yet) | integration |
 | 013 | An import with `--kind container` loads a tar archive into Docker and records the version (no test yet) | integration |
 | 014 | A container archive that cannot be read through is a failed import | integration |
-| 015 | An import request with a field the server does not take, such as an image setting an older client sends, is refused naming the field | unit |
+| 015 | An import request with a field the server does not take, such as an image setting an older client sends, is refused naming its path | unit |
 | 016 | An upload, in the web UI or by `POST /api/v1/images/upload`, imports its file as import does (no test yet) | integration |
 | 017 | An upload without its model, version or file, with an empty version, an unknown model or a kind the model does not take, is refused saying which | unit |
 | 018 | An upload without a kind takes the model's default kind, and with one takes that kind | unit |
@@ -175,7 +175,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 003 | A node built after an edit runs with the edited settings (no test yet) | integration |
 | 004 | A form with a field of another kind is refused naming the field | unit |
 | 005 | A form without a field its kind needs is refused naming the field | unit |
-| 006 | A form with a field the server does not take, as a page loaded from an older server sends, is refused naming the field, not saved without it | unit |
+| 006 | A form with a field the server does not take, as a page loaded from an older server sends, is refused, not saved without it | unit |
 | 007 | An edit cannot change the image's model, kind, version, management interface or, for a unikernel, boot mode | unit |
 | 008 | A CPU count under 1, memory under 64 MB or an interface MTU outside 576 to 9600 is refused naming the setting, and values in range are taken | unit |
 | 009 | A container image has no interface MTU to check | unit |

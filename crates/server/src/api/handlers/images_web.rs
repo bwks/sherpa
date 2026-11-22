@@ -1247,16 +1247,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn image_settings_006_a_form_with_a_field_the_server_does_not_take_is_refused_naming_it()
-    {
+    async fn image_settings_006_a_form_with_a_field_the_server_does_not_take_is_refused() {
         let rejection = posted_form("cloud-init&version=1")
             .await
             .err()
             .expect("version was accepted");
-        assert_eq!(
-            rejection.message,
-            "field `version` is not a field this request takes"
-        );
+        assert_eq!(rejection.message, "the request is not valid");
     }
 
     #[test]

@@ -124,7 +124,8 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn image_import_015_an_import_with_a_field_the_server_does_not_take_is_refused_naming_it() {
+    fn image_import_015_an_import_with_a_field_the_server_does_not_take_is_refused_naming_its_path()
+    {
         let request = import_request(json!({
             "model": "generic",
             "kind": "unikernel",
@@ -145,7 +146,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error.context.as_deref(),
-            Some("field `ztp_password` is not a field this request takes")
+            Some("the request is not valid at ztp_password")
         );
     }
 }

@@ -937,7 +937,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn api_errors_014_an_up_whose_manifest_does_not_parse_names_the_field_never_its_value() {
+    fn api_errors_014_an_up_whose_manifest_does_not_parse_names_the_path_never_the_value() {
         let ctx = AuthContext::new("dev".to_string(), false, "s".to_string());
         let manifest = serde_json::json!({
             "name": "core",
@@ -949,7 +949,7 @@ mod tests {
         };
         assert_eq!(
             format!("{error:#}"),
-            "Failed to deserialize manifest: field `nodes[0].model` has the wrong type or value"
+            "Failed to deserialize manifest: the request is not valid at nodes[0].model"
         );
     }
 }

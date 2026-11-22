@@ -248,7 +248,7 @@ The session cookie that keeps another site's requests from acting as the user is
 
 ## `api_errors`: a refused or failed request is answered with what went wrong
 
-**Statement:** a request the server refuses or fails is answered with the kind of failure, as a code a client can act on, and a message for the user, which for a request that does not parse names the field that is wrong and never the value sent; a failed CLI command prints it and exits 1.
+**Statement:** a request the server refuses or fails is answered with the kind of failure, as a code a client can act on, and a message for the user, which for a request that does not parse is fixed, names at most the path of the field that is wrong and never the value sent; a failed CLI command prints it and exits 1.
 **Relied on by:** the CLI, the web UI's scripts, users' scripts and clients. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -261,12 +261,12 @@ The session cookie that keeps another site's requests from acting as the user is
 | 006 | Over REST each kind of failure has its status, 401, 403, 404, 400, 409, 507 for memory and 500, in an `error` object with a code and a message (no test yet; the 403, 404 and 409 of single operations are cases of `access_control` and `user_accounts`) | integration |
 | 007 | A REST failure of no known kind whose text has `not found`, `Invalid` or `missing` in it is answered 404 or 400 with its whole chain of messages as the detail (no test yet) | unit |
 | 008 | A CLI command the server refuses or fails prints the error with its causes and exits 1 (no test at this level yet) | e2e |
-| 009 | RPC parameters that do not parse, for any method, are answered invalid params with the method's message, and a context that names the field and says whether it is missing, not taken or of the wrong type or value, never the value sent: a password sent as a number is not in it | unit |
-| 010 | A REST JSON body that does not parse is answered 400 `BAD_REQUEST`, `Invalid request`, with details that name the field and what is wrong with it, never the value sent; a body that is not JSON, or not sent as JSON, says only that | unit |
-| 011 | A REST form, query string or path parameter that does not parse is answered 400 `BAD_REQUEST` naming the field or parameter and whether it is of the wrong type or value or given twice, never the value sent | unit |
-| 012 | A WebSocket message that is not a request is answered with a fixed message, naming the field where serde gives its path, never what was sent | unit |
-| 013 | A request that does not parse logs nothing of what was sent, at any level | unit |
-| 014 | An up whose manifest does not parse is refused naming the manifest's field, never its value | unit |
-| 015 | A redeploy whose manifest does not parse is refused naming the manifest's field, never its value | unit |
+| 009 | RPC parameters that do not parse, for any method, are answered invalid params with the method's message, and the context `the request is not valid at <path>`, such as `password`, `ztp_password` or `files[0].mode`, or `the request is not valid` for a missing top-level field or a field sent with a name that is not plain; never the value sent: a password sent as a number is not in it | unit |
+| 010 | A REST JSON body that does not parse is answered 400 `BAD_REQUEST`, `Invalid request`, with the details `the request is not valid at <path>`, or `the request is not valid` for a missing top-level field, never the value sent; a body that is not JSON, or not sent as JSON, says only that | unit |
+| 011 | A REST form, query string or path parameter that does not parse is answered 400 `BAD_REQUEST`, `the request is not valid`, with no path and never the value sent; a form not sent as one says only that | unit |
+| 012 | A WebSocket message that is not a request is answered `the request is not valid`, with the path where serde gives one, such as `type`, or that it is not JSON, never what was sent | unit |
+| 013 | A request that does not parse logs nothing of what was sent, at any level: not a password sent as a number, nor a string nested in a value of the wrong type | unit |
+| 014 | An up whose manifest does not parse is refused with the path in the manifest, such as `nodes[0].model`, never its value | unit |
+| 015 | A redeploy whose manifest does not parse is refused with the path in the manifest, such as `nodes[0].model`, never its value | unit |
 
-Exit status 75, for a refusal for memory or held CPUs, and what those refusals carry, are `lab_preflight_007` in [lab-lifecycle.md](lab-lifecycle.md). That a request which does not parse is answered without its secrets is `provisioner_secrecy_004`. A field named in the answer to a request that does not parse is its path, such as `nodes[0].model`; serde gives none inside an internally tagged enum, such as the WebSocket message's own fields, and the answer then says only that the request has the wrong type or value.
+Exit status 75, for a refusal for memory or held CPUs, and what those refusals carry, are `lab_preflight_007` in [lab-lifecycle.md](lab-lifecycle.md). That a request which does not parse is answered without its secrets is `provisioner_secrecy_004`. The path in the answer to a request that does not parse is given only when each of its segments is an index or a plain name of letters, digits, `_` and `-`, since a map key or an unknown field is what the client sent; serde gives none inside an internally tagged enum, such as the WebSocket message's own fields. A JSON key sent twice is refused as `the request is not valid`.

@@ -336,8 +336,8 @@ async fn send(connection: &Arc<Connection>, response: &ServerMessage) {
 }
 
 /// Parse `params` into a request; `message` names what was expected. When they do not parse,
-/// the context names the field that is wrong and what is wrong with it, never the value sent,
-/// which may be a password or a secret file's contents.
+/// the context is a fixed message with the path of the field that is wrong, never the value
+/// sent, which may be a password or a secret file's contents.
 pub(super) fn parse<T: DeserializeOwned>(params: &Value, message: &str) -> Result<T, RpcError> {
     parse_value(params).map_err(|error| RpcError {
         code: RpcErrorCode::InvalidParams,
@@ -472,11 +472,11 @@ mod tests {
     }
 
     #[test]
-    fn api_errors_009_rpc_params_that_do_not_parse_name_the_field_never_its_value() {
+    fn api_errors_009_rpc_params_that_do_not_parse_name_the_path_never_the_value() {
         const SENT: i64 = 271_828_182;
         let cases: [(&str, Result<(), RpcError>); 4] = [
             (
-                "field `password` has the wrong type or value",
+                "the request is not valid at password",
                 parse::<shared::data::LoginRequest>(
                     &serde_json::json!({ "username": "dev", "password": SENT }),
                     "bad login",
@@ -484,7 +484,7 @@ mod tests {
                 .map(drop),
             ),
             (
-                "field `password` has the wrong type or value",
+                "the request is not valid at password",
                 parse::<shared::data::CreateUserRequest>(
                     &serde_json::json!({
                         "username": "dev", "password": SENT, "is_admin": false, "token": "t",
@@ -494,7 +494,7 @@ mod tests {
                 .map(drop),
             ),
             (
-                "field `new_password` has the wrong type or value",
+                "the request is not valid at new_password",
                 parse::<shared::data::ChangePasswordRequest>(
                     &serde_json::json!({ "username": "dev", "new_password": SENT, "token": "t" }),
                     "bad passwd",
@@ -502,7 +502,7 @@ mod tests {
                 .map(drop),
             ),
             (
-                "field `device_password` is missing",
+                "the request is not valid",
                 parse::<shared::data::SetDevicePasswordRequest>(
                     &serde_json::json!({
                         "username": "dev", "login_password": SENT.to_string(), "token": "t",
@@ -532,7 +532,7 @@ mod tests {
         .expect_err("parsed");
         assert_eq!(
             error.context.as_deref(),
-            Some("field `files[0].mode` has the wrong type or value")
+            Some("the request is not valid at files[0].mode")
         );
 
         let error = parse::<shared::data::NodeSecretsRequest>(
@@ -545,7 +545,7 @@ mod tests {
         .expect_err("parsed");
         assert_eq!(
             error.context.as_deref(),
-            Some("field `files[0].mode` is missing")
+            Some("the request is not valid at files[0]")
         );
 
         let import = |extra: &str| {
@@ -557,13 +557,10 @@ mod tests {
         };
         assert_eq!(
             import("ztp_password").context.as_deref(),
-            Some("field `ztp_password` is not a field this request takes")
+            Some("the request is not valid at ztp_password")
         );
         let error = import(&format!("{SENT} key"));
-        assert_eq!(
-            error.context.as_deref(),
-            Some("the request has a field it does not take")
-        );
+        assert_eq!(error.context.as_deref(), Some("the request is not valid"));
         assert!(
             !format!("{error:?}").contains(&SENT.to_string()),
             "{error:?}"
