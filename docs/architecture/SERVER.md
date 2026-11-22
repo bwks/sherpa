@@ -93,9 +93,15 @@ What ends a session is `tests/specs/accounts-and-auth.md`, `user_sessions`.
 
 RPC, REST and web logins all check passwords through `auth::login::check_credentials`, which first
 asks `auth::login_limit::LoginLimiter` (in `AppState`, in memory, bounded) to let the attempt
-through by username and by the connection's peer address; the limits are `user_login` in
+through. It keeps three tables: username and peer address together (5 failures), peer address
+(20) and username from any address (50), each locking for 15 minutes. The pair limit is the
+tight one so that failures from one address cannot lock a user out from another. A successful
+login clears its username's pairs and username count. The limits are `user_login` in
 `tests/specs/accounts-and-auth.md`.
 An IPv4 peer is counted by its address and an IPv6 peer by its /64 prefix (`AddressKey`).
+Each table holds at most 100,000 keys. A new key in a full table drops expired entries, then the
+oldest count that is not a lock; a lock is never dropped, and when every entry is one the attempt
+is let through uncounted in that table. A full table never refuses a login.
 
 ### Services enforce authorization
 

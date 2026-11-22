@@ -924,7 +924,7 @@ async fn web_login_answer(
 }
 
 #[tokio::test]
-async fn user_login_016_a_username_with_5_failed_logins_is_refused_as_a_wrong_password_on_every_path()
+async fn user_login_016_a_username_with_5_failed_logins_from_an_address_is_refused_from_it_as_a_wrong_password_on_every_path()
 -> Result<()> {
     let server = TestServer::start().await?;
     db::create_user(&server.db, "bob".to_owned(), BOB_PASSWORD, false, vec![]).await?;
@@ -992,7 +992,7 @@ async fn user_login_017_an_address_with_20_failed_logins_is_refused_as_a_wrong_p
 }
 
 #[tokio::test]
-async fn user_login_018_the_builtin_admin_is_locked_after_5_failed_logins_like_any_account()
+async fn user_login_018_the_builtin_admin_is_locked_from_an_address_after_5_failed_logins_from_it_like_any_account()
 -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
