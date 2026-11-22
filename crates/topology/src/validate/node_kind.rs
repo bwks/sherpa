@@ -319,7 +319,7 @@ kind = "{kind}""#
     }
 
     #[test]
-    fn node_settings_014_file_settings_on_a_container_are_refused_naming_the_node_the_setting_and_the_model()
+    fn node_settings_016_file_settings_on_a_container_are_refused_naming_the_node_the_setting_and_the_model()
      {
         let container = ModelKind::new(NodeModel::Generic, Some(NodeKind::Container)).unwrap();
         for (key, setting) in FILE_SETTINGS {
@@ -331,7 +331,7 @@ kind = "{kind}""#
     }
 
     #[test]
-    fn node_settings_015_file_settings_on_a_network_device_vm_are_refused() {
+    fn node_settings_017_file_settings_on_a_network_device_vm_are_refused() {
         let veos = ModelKind::default_for(NodeModel::AristaEos);
         for (key, setting) in FILE_SETTINGS {
             assert_eq!(
@@ -348,7 +348,7 @@ kind = "{kind}""#
     }
 
     #[test]
-    fn node_settings_016_file_settings_on_a_node_with_ztp_off_are_refused() {
+    fn node_settings_018_file_settings_on_a_node_with_ztp_off_are_refused() {
         let off = r#"ztp = { method = "disabled" }"#;
         let [text_files, startup_scripts, systemd_units] = FILE_SETTINGS;
         let used_with_ztp_on = [
@@ -370,7 +370,7 @@ kind = "{kind}""#
     }
 
     #[test]
-    fn node_settings_017_file_settings_on_a_node_with_its_own_ztp_config_are_refused() {
+    fn node_settings_019_file_settings_on_a_node_with_its_own_ztp_config_are_refused() {
         let own = r#"ztp = { config = "user-data.yaml" }"#;
         let [text_files, startup_scripts, systemd_units] = FILE_SETTINGS;
         let used_without_it = [
@@ -392,7 +392,7 @@ kind = "{kind}""#
     }
 
     #[test]
-    fn node_settings_018_file_settings_are_taken_where_the_first_boot_config_carries_them() {
+    fn node_settings_020_file_settings_are_taken_where_the_first_boot_config_carries_them() {
         let [text_files, startup_scripts, systemd_units] = FILE_SETTINGS.map(|(_, lines)| lines);
         let taken = [
             (NodeModel::UbuntuLinux, text_files),
@@ -417,7 +417,7 @@ kind = "{kind}""#
     }
 
     #[test]
-    fn node_settings_019_startup_scripts_on_flatcar_and_systemd_units_on_cloud_init_are_refused() {
+    fn node_settings_021_startup_scripts_on_flatcar_and_systemd_units_on_cloud_init_are_refused() {
         let [_, startup_scripts, systemd_units] = FILE_SETTINGS.map(|(_, lines)| lines);
         assert_eq!(
             file_setting_error(

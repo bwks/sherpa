@@ -5,7 +5,10 @@ use std::time::Duration;
 
 use shared::data::{ClientConfig, RedeployResponse};
 use shared::util::{Emoji, term_msg_surround};
-use topology::validate::{check_text_file_modes, validate_provisioners};
+use topology::validate::{
+    check_lab_name, check_nonzero_node_settings, check_ready_timeout, check_text_file_modes,
+    validate_provisioners,
+};
 
 use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
@@ -41,6 +44,11 @@ pub async fn redeploy(
 
     // Load the manifest and resolve its client files, as `up` does.
     let mut manifest = topology::Manifest::load_file(manifest_path)?;
+    check_lab_name(&manifest.name).context("Manifest validation failed: lab name")?;
+    check_ready_timeout(manifest.ready_timeout)
+        .context("Manifest validation failed: ready timeout")?;
+    check_nonzero_node_settings(&manifest.nodes)
+        .context("Manifest validation failed: node settings")?;
     validate_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
     check_text_file_modes(&manifest.nodes).context("Manifest validation failed: text files")?;
     check_file_settings(&manifest.nodes).context("Manifest validation failed: node settings")?;

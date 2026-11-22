@@ -24,8 +24,8 @@ use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
     check_no_p2p_field, check_node_file_settings, check_node_kind_settings, check_node_model_kind,
-    check_node_names, check_ptx_platform, check_text_file_modes, check_vm_tuning,
-    validate_talos_clusters,
+    check_node_names, check_nonzero_node_settings, check_ptx_platform, check_text_file_modes,
+    check_vm_tuning, validate_talos_clusters,
 };
 use topology::{process_manifest_bridges, process_manifest_links};
 
@@ -142,12 +142,6 @@ pub(super) async fn plan_lab(
     )?;
     let admission = admit_nodes(build, requester, &nodes_expanded, &node_images).await?;
 
-    // Connection Validators
-    if !links_detailed.is_empty() {
-        check_duplicate_interface_link(&links_detailed, &bridges_detailed)
-            .context("Duplicate interface link validation failed")?;
-    }
-
     let _ = progress.send_status("Manifest validation complete".to_string(), StatusKind::Done);
     tracing::info!(lab_id = %lab_id, "Manifest validation completed successfully");
     Ok(LabPlan {
@@ -230,6 +224,8 @@ fn check_manifest_nodes(manifest: &topology::Manifest) -> Result<()> {
     check_duplicate_device(&manifest.nodes)
         .context("Manifest validation failed: duplicate devices")?;
     check_device_count(&manifest.nodes).context("Manifest validation failed: node count")?;
+    check_nonzero_node_settings(&manifest.nodes)
+        .context("Manifest validation failed: node settings")?;
     validate_talos_clusters(manifest).context("Manifest validation failed: talos clusters")?;
 
     for node in &manifest.nodes {
@@ -394,7 +390,8 @@ fn check_node_limits(
     Ok(())
 }
 
-/// The manifest's links and bridges, checked and expanded against the nodes.
+/// The manifest's links and bridges, checked and expanded against the nodes, with no interface
+/// used by two of them.
 fn process_links(
     manifest: &topology::Manifest,
     nodes_expanded: &[topology::NodeExpanded],
@@ -416,6 +413,8 @@ fn process_links(
         lab_id,
     )
     .context("Failed to process manifest bridges")?;
+    check_duplicate_interface_link(&links_detailed, &bridges_detailed)
+        .context("Duplicate interface link validation failed")?;
 
     tracing::info!(
         lab_id = %lab_id,
@@ -485,6 +484,37 @@ mod tests {
             logins,
             [("vm1", "alice"), ("eos1", "alice"), ("fw1", "admin")]
         );
+    }
+
+    #[test]
+    fn manifest_links_014_up_refuses_a_manifest_of_bridges_alone_with_one_interface_on_two_bridges()
+    {
+        let nodes = [
+            node("r1", NodeModel::UbuntuLinux),
+            node("r2", NodeModel::UbuntuLinux),
+        ];
+        let manifest = topology::Manifest {
+            name: "lab1".to_owned(),
+            bridges: Some(vec![
+                topology::Bridge {
+                    name: "b1".to_owned(),
+                    links: vec!["r1::eth1".to_owned(), "r2::eth1".to_owned()],
+                },
+                topology::Bridge {
+                    name: "b2".to_owned(),
+                    links: vec!["r1::eth1".to_owned(), "r2::eth2".to_owned()],
+                },
+            ]),
+            ..Default::default()
+        };
+
+        let error = format!(
+            "{:#}",
+            process_links(&manifest, &nodes, "abcd1234").unwrap_err()
+        );
+
+        assert!(error.contains("device 'r1' interface index"), "{error}");
+        assert!(error.contains("is already in use"), "{error}");
     }
 
     #[test]
