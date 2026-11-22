@@ -153,23 +153,25 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 016 | After 5 failed logins for a username from an address within 15 minutes, its right password from that address is refused with the answer a wrong password gets, over RPC, REST and the web login form, whichever paths the failures came by | integration |
 | 017 | After 20 failed logins from an address within 15 minutes, a username that has not failed is refused from it with the answer a wrong password gets, over RPC, REST and the web login form | integration |
 | 018 | The built-in `admin` is locked from an address after 5 failed logins from it, like any other account | integration |
-| 019 | A locked username and address pair is refused for 15 minutes from when it was locked, and let in after | unit |
-| 020 | A locked address is refused for 15 minutes from when it was locked, and let in after | unit |
-| 021 | Failures 15 minutes or more after a pair's first counted failure start a new count | unit |
-| 022 | A successful login clears the count of its own username and address pair, IPv6 per /64, and of no other pair | unit |
-| 023 | A successful login does not count toward its address's limit | unit |
-| 024 | A username is counted as accounts are looked up, in any case and with surrounding space | unit |
-| 025 | An IPv4 address is counted the same whether the connection gives it as IPv4 or as IPv4-mapped IPv6 | unit |
-| 026 | Logins made at the same moment check no more passwords than the limit allows: an attempt still being checked counts | unit |
-| 027 | An attempt that ends without an answer, such as when the database cannot be read, is not counted as a failure | unit |
-| 028 | However many usernames and addresses fail, counts are kept for no more than 100,000 pairs, 100,000 addresses and 100,000 usernames, so a flood cannot grow the server's memory without limit | unit |
-| 029 | When the counts are full, a lock is kept over a count that has not reached its limit | unit |
-| 030 | A lockout is logged once, at `warn`, with the username and the address | unit |
-| 031 | IPv6 addresses are counted by their /64 prefix: two addresses in one /64 share one count and are locked together, an address in another /64 is not, and the lock is logged under the prefix, such as `2001:db8:1:2::/64` | unit |
-| 032 | A locked pair leaves its username able to log in from another address | unit |
-| 033 | 50 failed logins for a username within 15 minutes, from any addresses, lock it from every address for 15 minutes, and leave other usernames free to log in from those addresses | unit |
-| 034 | When a table is full of locks, a new attempt drops none of them, is not counted there, and is let through to log in | unit |
-| 035 | After a successful login from one address, the username's pair locked from another address is still refused, and its count from any address is unchanged | unit |
+| 019 | A locked username and address pair is refused for 15 minutes from when it was locked, and let in after | integration |
+| 020 | A locked address is refused for 15 minutes from when it was locked, and let in after | integration |
+| 021 | Failures 15 minutes or more after a pair's first counted failure start a new count | integration |
+| 022 | A successful login clears the count of its own username and address pair, IPv6 per /64, and of no other pair | integration |
+| 023 | A successful login does not count toward its address's limit | integration |
+| 024 | A username is counted as accounts are looked up, in any case and with surrounding space | integration |
+| 025 | An IPv4 address is counted the same whether the connection gives it as IPv4 or as IPv4-mapped IPv6 | integration |
+| 026 | Logins made at the same moment check no more passwords than the limit allows: an attempt still being checked counts | integration |
+| 027 | An attempt that ends without an answer, such as when the database cannot be read or its request is cancelled, is not counted as a failure | integration |
+| 028 | However many usernames and addresses fail, counts are kept for no more than the cap (100,000) of pairs, of addresses and of usernames, so a flood cannot grow the table without limit | integration |
+| 029 | When the counts are at the cap (100,000), a lock is kept over a count that has not reached its limit | integration |
+| 030 | A lockout is logged once, at `warn`, with the username and the address | integration |
+| 031 | IPv6 addresses are counted by their /64 prefix: two addresses in one /64 share one count and are locked together, an address in another /64 is not, and the lock is logged under the prefix, such as `2001:db8:1:2::/64` | integration |
+| 032 | A locked pair leaves its username able to log in from another address | integration |
+| 033 | 50 failed logins for a username within 15 minutes, from any addresses, lock it from every address for 15 minutes, and leave other usernames free to log in from those addresses | integration |
+| 034 | When a kind's keys are at the cap (100,000) and all locks, a new attempt drops none of them, is not counted there, and is let through to log in | integration |
+| 035 | After a successful login from one address, the username's pair locked from another address is still refused, and its count from any address is unchanged | integration |
+| 036 | A lock is kept in the database, so a limiter started again over the same database, as after a restart of sherpad, still refuses the locked key until its lock ends | integration |
+| 037 | The sweep deletes the counts whose window has passed and the locks that have ended, and never a lock that has not, when sherpad starts and at each interval, and stops when sherpad shuts down | integration |
 
 ## `user_sessions`: a token works only while its session lasts
 

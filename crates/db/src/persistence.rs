@@ -21,6 +21,8 @@ use shared::data::{
 };
 use shared::konst::{SHERPA_DB_KEY_CHARSET, SHERPA_DB_KEY_LENGTH};
 
+use crate::login_limit::LoginCount;
+
 pub(crate) const USER_TABLE: &str = "user";
 pub(crate) const LAB_TABLE: &str = "lab";
 pub(crate) const NODE_TABLE: &str = "node";
@@ -254,6 +256,19 @@ pub(crate) fn session_user_from_row(row: &Row) -> Result<DbSessionUser> {
         session: session_from_cells(&mut cells)?,
         username: cells.text("username")?,
         is_admin: cells.boolean("is_admin")?,
+    })
+}
+
+/// A login count's `failures` and `locked_until`.
+pub(crate) fn login_count_from_row(row: &Row) -> Result<LoginCount> {
+    let mut cells = Cells::new(row);
+    Ok(LoginCount {
+        failures: cells.integer("failures")?,
+        locked_until: cells
+            .optional_integer("locked_until")?
+            .map(Timestamp::from_second)
+            .transpose()
+            .context("Database field locked_until is not a valid time")?,
     })
 }
 

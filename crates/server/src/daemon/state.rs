@@ -99,7 +99,7 @@ pub struct AppState {
     pub link_states: LinkStates,
     /// The node console sessions open now, one per console.
     pub console_sessions: ConsoleSessions,
-    /// The counts of failed logins, per username and per address, every login route checks.
+    /// The limit on failed logins every login route checks, over the database's counts.
     pub login_limiter: LoginLimiter,
 }
 
@@ -178,6 +178,7 @@ impl AppState {
 
         Ok(Self {
             connections: create_registry(),
+            login_limiter: LoginLimiter::new(db.clone()),
             db,
             qemu: Arc::new(qemu),
             docker: Arc::new(docker),
@@ -187,7 +188,6 @@ impl AppState {
             pending_jobs: Arc::new(DashMap::new()),
             link_states: LinkStates::default(),
             console_sessions: ConsoleSessions::default(),
-            login_limiter: LoginLimiter::default(),
         })
     }
 }

@@ -81,7 +81,7 @@ impl TestServer {
             pending_jobs: Arc::new(DashMap::new()),
             link_states: LinkStates::default(),
             console_sessions: ConsoleSessions::default(),
-            login_limiter: LoginLimiter::default(),
+            login_limiter: LoginLimiter::new(db.clone()),
         };
 
         if state.config.scanner.enabled {

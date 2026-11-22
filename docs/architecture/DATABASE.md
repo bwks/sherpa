@@ -155,6 +155,29 @@ listing or editing users never touches it. Opened, it is a `DevicePassword`, whi
 in `Debug` and has no `Serialize`, so no response can carry it. There is no clear: a user replaces a
 forgotten one. Who may set it is in [`SERVER.md`](SERVER.md#device-passwords).
 
+### Login limit
+
+`login_limit` is the only store of the login limit's counts and locks, so a lock outlives a
+restart. A row is one key, `(kind, username, address)`. `kind` is `pair`, `address` or `username`,
+held by a `CHECK`. An address row has an empty `username` and a username row an empty `address`.
+The address is an IPv4 address or an IPv6 `/64` prefix as the limiter writes it. `failures` is the
+attempts counted, `window_start` the first of them and `locked_until` the end of the lock, `NULL`
+while there is none. Times are Unix seconds, as `session.expires_at` is. No password, nor anything
+made from one, is stored.
+
+- Each step of an attempt runs under the write lock. `begin_login_attempt` checks and counts all
+  three keys in one transaction, so logins made at the same moment cannot count past a limit.
+  `give_back_login_attempt` clears and gives back in one transaction. `lock_full_login_keys` locks
+  each key in a single `UPDATE ... RETURNING` that checks and sets the lock together.
+- `login_limit_size` holds each kind's row count, kept by the triggers `login_limit_size_insert`
+  and `login_limit_size_delete`, so the cap of 100,000 keys per kind is checked without a `COUNT`.
+- The only secondary index, `login_limit_window_start`, is not led by `kind`. Turso takes an
+  index led by `kind` over the primary key for a lookup by key, which scans the whole kind.
+- `delete_expired_login_limits` is the sweep: it deletes ended locks, and counts with no lock
+  whose window has passed. It never deletes a lock that has not ended.
+
+The rules are in [`SERVER.md`](SERVER.md#login-limit).
+
 ### Enum values and triggers
 
 Enum columns are checked by the types, not the database: every value is serialized from its enum,

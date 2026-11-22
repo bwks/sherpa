@@ -29,7 +29,8 @@ static DUMMY_HASH: LazyLock<Option<String>> =
 ///
 /// # Errors
 ///
-/// Fails when the database cannot be read or a stored hash cannot be checked.
+/// Fails when the database cannot be read, a stored hash cannot be checked, or the login limit's
+/// counts cannot be read or written.
 #[instrument(skip(db, limiter, password), fields(%username, %address))]
 pub async fn check_credentials(
     db: &Database,
@@ -38,16 +39,27 @@ pub async fn check_credentials(
     password: &str,
     address: IpAddr,
 ) -> Result<Option<DbUser>> {
-    let Some(attempt) = limiter.begin(username, address) else {
+    let Some(attempt) = limiter.begin(username, address).await? else {
         check_dummy_hash(password);
         tracing::debug!("Login attempt refused by the login limit");
         return Ok(None);
     };
-    let user = match_password(db, username, password).await?;
+    let user = match match_password(db, username, password).await {
+        Ok(user) => user,
+        Err(error) => {
+            if let Err(give_back) = attempt.unanswered().await {
+                tracing::warn!(
+                    error = format!("{give_back:#}"),
+                    "Login attempt stays counted"
+                );
+            }
+            return Err(error);
+        }
+    };
     if user.is_some() {
-        attempt.succeeded();
+        attempt.succeeded().await?;
     } else {
-        attempt.failed();
+        attempt.failed().await?;
     }
     Ok(user)
 }

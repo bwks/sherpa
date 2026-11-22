@@ -91,17 +91,45 @@ its session is active, a demotion applies on the next request, and a deleted use
 works for a new account of the same name. No authorization decision reads the token's own claims.
 What ends a session is `tests/specs/accounts-and-auth.md`, `user_sessions`.
 
+### Login limit
+
 RPC, REST and web logins all check passwords through `auth::login::check_credentials`, which first
-asks `auth::login_limit::LoginLimiter` (in `AppState`, in memory, bounded) to let the attempt
-through. It keeps three tables: username and peer address together (5 failures), peer address
-(20) and username from any address (50), each locking for 15 minutes. The pair limit is the
-tight one so that failures from one address cannot lock a user out from another. A successful
-login clears only its own pair, not other addresses' pairs or the username count. The limits are
-`user_login` in `tests/specs/accounts-and-auth.md`.
-An IPv4 peer is counted by its address and an IPv6 peer by its /64 prefix (`AddressKey`).
-Each table holds at most 100,000 keys. A new key in a full table drops expired entries, then the
-oldest count that is not a lock; a lock is never dropped, and when every entry is one the attempt
-is let through uncounted in that table. A full table never refuses a login.
+asks `auth::login_limit::LoginLimiter` (in `AppState`) to let the attempt through. It counts three
+kinds of key: username and peer address together (5 failures), peer address (20) and username from
+any address (50), each locking for 15 minutes. The pair limit is the tight one, so that failures
+from one address cannot lock a user out from another. A successful login clears only its own pair,
+not other addresses' pairs or the username count. The limits are `user_login` in
+`tests/specs/accounts-and-auth.md`.
+
+```mermaid
+flowchart TD
+    rpc["RPC auth.login"] --> check
+    rest["REST POST /api/v1/auth/login"] --> check
+    web["Web POST /login"] --> check
+    check["check_credentials(username, password, peer)"] --> begin{"LoginLimiter::begin:<br/>pair, address and username<br/>each unlocked and under its limit?"}
+    begin -- no --> refused["check the dummy hash,<br/>answer as a wrong password"]
+    begin -- yes --> count["count the attempt for the pair,<br/>the address and the username"]
+    count --> verify{"check the password"}
+    verify -- right --> success["succeeded: clear its own pair,<br/>give back address and username"]
+    verify -- "wrong or unknown user" --> failure["failed: lock each key<br/>at its limit for 15 minutes"]
+    verify -- "database error" --> unanswered["unanswered: give the counts back"]
+    begin -. reads and writes .-> table[("login_limit table")]
+    success -.-> table
+    failure -.-> table
+    unanswered -.-> table
+```
+
+The counts and locks are kept only in the database's `login_limit` table, so a lock outlives a
+restart of sherpad ([`DATABASE.md`](DATABASE.md#login-limit)). Each step that reads and then
+changes them is one transaction or single statements under the write lock, so logins made at the
+same moment cannot check more passwords than a limit allows. An attempt dropped without an
+outcome, such as a cancelled request, gives its counts back in a task of its own. An IPv4 peer is
+counted by its address and an IPv6 peer by its /64 prefix (`AddressKey`). A periodic sweep in
+sherpad (`login_limit::run_sweeper`, at startup and every 15 minutes) deletes ended locks and
+counts whose window has passed. Each kind holds at most 100,000 keys. A new key of a full kind
+deletes expired rows, then the oldest count that is not a lock. A lock is never deleted, and when
+every row is one, the attempt is let through uncounted for that kind. A full table never refuses a
+login. No password, nor anything made from one, is stored.
 
 ### Services enforce authorization
 

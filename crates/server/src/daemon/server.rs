@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use axum::Router;
 use axum::routing::get;
+use db::Database;
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithExportConfig;
@@ -24,7 +25,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use crate::api::build_router;
 use crate::api::handlers::get_certificate_handler;
 use crate::api::websocket;
-use crate::auth::session;
+use crate::auth::{login_limit, session};
 use crate::daemon::metrics::Metrics;
 use crate::daemon::pidfile::{SHERPAD_LOG_FILE_PATH, open_log_file};
 use crate::daemon::removed_settings::warn_on_removed_settings;
@@ -44,6 +45,9 @@ use shared::util::{
 const OTEL_METRIC_EXPORT_INTERVAL_SECS: u64 = 60;
 /// How often sherpad deletes expired login sessions, in seconds. It also sweeps once at startup.
 const SESSION_SWEEP_INTERVAL_SECS: u64 = 3600;
+/// How often sherpad deletes expired login counts and locks, in seconds: as often as a count's
+/// window and a lock last. It also sweeps once at startup.
+const LOGIN_LIMIT_SWEEP_INTERVAL_SECS: u64 = 15 * 60;
 
 /// Custom time formatter that outputs UTC time with millisecond precision
 /// Format: 2026-02-17T00:59:15.920Z
@@ -198,6 +202,21 @@ fn init_meter_provider(otel_config: &OtelConfig) -> Result<SdkMeterProvider> {
     Ok(provider)
 }
 
+/// Start the tasks that delete expired login sessions and expired login counts and locks, each
+/// at startup and then periodically, until `cancel` fires.
+fn spawn_sweepers(db: &Database, cancel: &CancellationToken) {
+    tokio::spawn(session::run_sweeper(
+        db.clone(),
+        cancel.child_token(),
+        Duration::from_secs(SESSION_SWEEP_INTERVAL_SECS),
+    ));
+    tokio::spawn(login_limit::run_sweeper(
+        db.clone(),
+        cancel.child_token(),
+        Duration::from_secs(LOGIN_LIMIT_SWEEP_INTERVAL_SECS),
+    ));
+}
+
 /// Run the sherpad server
 pub async fn run_server(foreground: bool) -> Result<()> {
     // Load configuration before tracing init so OTel can be configured
@@ -290,12 +309,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         tracing::info!("Scanner service is disabled");
     }
 
-    // Delete expired login sessions at startup and then periodically.
-    tokio::spawn(session::run_sweeper(
-        state.db.clone(),
-        cancel_token.child_token(),
-        Duration::from_secs(SESSION_SWEEP_INTERVAL_SECS),
-    ));
+    spawn_sweepers(&state.db, &cancel_token);
 
     // Clone state for HTTP /cert endpoints before moving into main router
     let http_state = state.clone();
