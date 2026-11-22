@@ -186,6 +186,7 @@ pub(crate) async fn tear_down_lab(
     destroy_lab_resources(lab_id, state, summary, errors, progress).await;
     // Its links are gone with its interfaces.
     state.link_states.forget_lab(lab_id);
+    state.unreadable_ends.forget_lab(lab_id);
     state.vault_seals.forget_lab(lab_id);
     // Its domains are gone, so nothing binds a socket in its console folder. A folder that
     // cannot be removed keeps the record, as the lab folder does.

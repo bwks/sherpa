@@ -68,9 +68,23 @@ impl Unexpected {
     /// form, which for an `anyhow::Error` is the chain) and a new random reference, and return
     /// the reference for the caller.
     pub fn log(error: &dyn fmt::Display, failure: &str) -> Self {
+        let unexpected = Self::new();
+        tracing::error!(reference = %unexpected.reference, error = %format!("{error:#}"), "{failure}");
+        unexpected
+    }
+
+    /// Log `error`, which `failure` describes, as [`Unexpected::log`] does but at warn level:
+    /// for a problem that the server works around and logs once, not on each try.
+    pub fn warn(error: &dyn fmt::Display, failure: &str) -> Self {
+        let unexpected = Self::new();
+        tracing::warn!(reference = %unexpected.reference, error = %format!("{error:#}"), "{failure}");
+        unexpected
+    }
+
+    /// A new random reference.
+    fn new() -> Self {
         let mut reference = Uuid::new_v4().simple().to_string();
         reference.truncate(REFERENCE_LENGTH);
-        tracing::error!(reference = %reference, error = %format!("{error:#}"), "{failure}");
         Self { reference }
     }
 }

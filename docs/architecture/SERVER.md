@@ -161,7 +161,9 @@ conflict, memory, CPU pins) carries the message the user is shown, so a refusal 
 sent or of the current state is typed where it is raised, or where a validator that refuses only
 user input is called, with its full wording. Anything else is `Unexpected`: `Unexpected::log`
 logs what failed and the error's chain at `error` level with a short random reference, and the
-caller gets only `internal error (ref <id>); see the server log`. RPC (`service_error`), REST
+caller gets only `internal error (ref <id>); see the server log`. A problem the server meets on
+each scan and works around logs once instead, with `Unexpected::warn` at `warn` level, and keeps
+its reference (see the scanner's unreadable link ends in `P2P-ARCHITECTURE.md`). RPC (`service_error`), REST
 (`ApiError::from`, the SSE `error` event), the web UI's job page and fragments
 (`caller_message`), and the errors inside an answer (a destroy's `DestroyError`s, an up's
 service errors, down and resume per-node messages) all go through it, so no caller sees a path,

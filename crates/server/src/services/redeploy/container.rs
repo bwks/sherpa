@@ -196,6 +196,7 @@ async fn attach_links(
         &HashSet::from([redeploy.node_record_id.clone()]),
         &query_runtimes(&redeploy.state.docker, &redeploy.state.qemu).await,
         &redeploy.state.link_states,
+        &redeploy.state.unreadable_ends,
     )
     .await;
     reports

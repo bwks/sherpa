@@ -227,7 +227,7 @@ async fn repair_links(
         .collect();
 
     let host = KernelHost::new(&state.docker, &state.qemu);
-    let mut check = check_lab_links(&host, &lab_links, &running).await;
+    let mut check = check_lab_links(&host, &lab_links, &running, &state.unreadable_ends).await;
     let broken: Vec<&ScannedNode<'_>> = check
         .broken_nodes()
         .into_iter()

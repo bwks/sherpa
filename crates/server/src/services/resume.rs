@@ -956,6 +956,7 @@ async fn follow_started(lab: &ResumedLab<'_>, started: &HashSet<RecordId>) {
         started,
         &runtimes,
         &lab.state.link_states,
+        &lab.state.unreadable_ends,
     )
     .await;
 }
