@@ -2,8 +2,12 @@
 //! relaxed names and Rock Ridge, and a Joliet tree, both over the same file data.
 
 use std::ffi::OsString;
+#[cfg(unix)]
+use std::fs::OpenOptions;
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use jiff::Timestamp;
@@ -14,6 +18,9 @@ use crate::error::IsoError;
 
 /// ISO 9660 logical block size, as the volume descriptors record it.
 const ISO_BLOCK_SIZE: u16 = 2048;
+/// Mode of an image on Unix: it carries a node's config, so only its owner reads it.
+#[cfg(unix)]
+const ISO_IMAGE_MODE: u32 = 0o600;
 /// ISO 9660 logical sector size, the same as the block size.
 const ISO_SECTOR_SIZE: usize = ISO_BLOCK_SIZE as usize;
 /// Sectors before the volume descriptors, left zeroed.
@@ -129,7 +136,8 @@ struct SectorWriter {
 ///
 /// `iso_dst` may be inside `src_dir`; it is left out of the image. The image is written to a
 /// hidden partial file beside `iso_dst` and renamed over it once complete, so a failure leaves
-/// any previous `iso_dst` in place. Names keep their case,
+/// any previous `iso_dst` in place. On Unix the image is readable and writable by its owner
+/// alone (`0600`), whatever the umask: it carries a node's config. Names keep their case,
 /// hyphens and dots in the primary tree, files are read-only and owned by root in Rock Ridge,
 /// and Joliet carries the names unchanged. Symlinks and special files are refused.
 ///
@@ -185,7 +193,7 @@ pub fn create_iso(
     let er = su_entry(*b"ER", &er_data()?)?;
     let er_len = u32::try_from(er.len()).map_err(|_| IsoError::TooLarge("ER entry"))?;
 
-    let file = File::create(&partial).map_err(|source| IsoError::Create {
+    let file = create_private(&partial).map_err(|source| IsoError::Create {
         path: partial.clone(),
         source,
     })?;
@@ -251,6 +259,26 @@ fn output_path(iso_dst: &Path) -> Result<PathBuf, IsoError> {
         source,
     })?;
     Ok(parent.join(name))
+}
+
+/// Create, or empty, the file at `path`, on Unix readable and writable by its owner alone
+/// (`ISO_IMAGE_MODE`) whatever the umask, and whatever mode a file left there had.
+fn create_private(path: &Path) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(ISO_IMAGE_MODE)
+            .open(path)?;
+        file.set_permissions(fs::Permissions::from_mode(ISO_IMAGE_MODE))?;
+        Ok(file)
+    }
+    #[cfg(not(unix))]
+    {
+        File::create(path)
+    }
 }
 
 /// The hidden file beside `output` the image is written to first, then renamed over `output`.

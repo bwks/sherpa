@@ -19,7 +19,7 @@ build = "20260927"
 sha256 = "8800651811af9a85465ad1d552add729947bb16488dddb4a9b5305a3d97332b2"
 
 [candidate]
-version = "v0.5.35"
+version = "v0.7.1"
 # Optional directory containing the two normal release tarballs.
 artifact_directory = ""
 target = "x86_64-unknown-linux-gnu"

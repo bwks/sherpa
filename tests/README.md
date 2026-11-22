@@ -239,8 +239,8 @@ environment images. For each release it:
    the whole workspace, and each integration crate's test executables are run from that build:
    `cargo test -p <crate>` would resolve dependency features for that crate alone and rebuild
    them (about 8 minutes for `db`),
-4. fails on any failed or skipped required test and on Docker, libvirt or network resources
-   left behind.
+4. fails on any failed test, a VM test on a guest without `/dev/kvm` included, and on Docker,
+   libvirt or network resources left behind.
 
 The live tailnet enrollment test joins a real tailnet, so it runs only when the run starts
 with an auth key in `SHERPA_TEST_TAILSCALE_AUTH_KEY` on the host; without one it is skipped and
@@ -377,21 +377,22 @@ Select one with `--scenario`:
   `--remove-all` and a repeat uninstall. Each uninstall compares packages, users and groups,
   Docker images, volumes and unrelated containers, and libvirt domains, networks and pools
   before and after, and keeps those inventories with the result; the server's journal and
-  database logs are captured before it. `--keep-data` keeps the database, configuration, SSH
-  identity and CLI; `--remove-data` empties the database and keeps the rest; `--remove-all`
-  removes `/opt/sherpa` and the binary symlinks. Every mode keeps the Docker and libvirt
-  packages, images, users, groups and libvirt definitions; only a fresh guest is a fresh
-  baseline.
+  log are captured before it. `--keep-data` keeps the database, its key, the configuration,
+  the TLS certificate and the CLI; `--remove-data` empties the database and keeps the rest;
+  `--remove-all` removes `/opt/sherpa` and the binary symlinks. Every mode keeps the Docker
+  and libvirt packages, images, users, groups and libvirt definitions; only a fresh guest is a
+  fresh baseline.
 - `preflight`: only the baseline and the argument and error checks.
 - `upgrade`: installs a baseline release with that release's own installer
   (`git show <baseline>:scripts/sherpa_install.sh`), initializes it and adds a non-admin user
   through the API, then upgrades the same installation with the checkout's `sherpa_update.sh`
   and the candidate archives, without reinitializing. It checks the binaries, API and CLI
   logins, both users' records, credentials and privileges, the configuration, the environment
-  file's assignments, the SSH identity and the TLS certificate's fingerprint, again after a
-  reboot, and records them in `upgrade-state.toml`. A last `device-password` step checks that
-  the upgraded user, who never set one, is refused by `sherpa up` and is not once the harness
-  sets a generated device password through the API.
+  file's assignments and the TLS certificate's fingerprint, again after a reboot, and records
+  them in `upgrade-state.toml`; the database key is kept too when the baseline has one (from
+  0.6.4). A last `device-password` step checks that the upgraded user, who never set one, is
+  refused by `sherpa up` and is not once the harness sets a generated device password through
+  the API.
 - `failure-checks`: a timed-out command, a SIGTERM while a guest command runs and incomplete
   provisioning after a readiness timeout, each in its own fresh guest. Each must give a failed
   receipt and a nonzero exit, keep the resource identity and diagnostics, stop its guest
