@@ -189,7 +189,7 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 | 006 | An unused container interface is down at both ends, except on a model that needs its interfaces up, where it is up in the container with no carrier | integration |
 | 007 | An unused interface of a container on no link gets a Docker network of its own, named and down | unit |
 | 008 | A node's data interfaces number as many as its manifest or image says, after its reserved ones, and a count past the model's range is an error | unit |
-| 009 | A VM's interfaces are named `eth0`, `eth1` and up in a guest that keeps kernel names (no test with its ID yet; `tests/labs/nixos-linux` shows it) | e2e |
+| 009 | A VM's interfaces are named `eth0`, `eth1` and up in a guest that keeps kernel names | e2e |
 | 010 | A VM's reserved interfaces are on a network of the node's own with their link up, and its unused ones on another with ports kept apart | integration |
 | 011 | An interface name reaches the command that renames it in a container as an argument, never as script | unit |
 | 012 | Only a model that waits for its interfaces at boot (cJunosEvolved) has its unused interfaces up in the container, and a linked interface is up on every model | unit |
