@@ -23,12 +23,12 @@ CLI_CA_CERT="${HOME}/.sherpa/config/server.crt"
 ACCOUNT_ENV="${HOME}/.env.d/sherpa-account.env"
 SHERPA_ACCOUNT="dev"
 SERVER_IP=""
-# The host's labs, these servers among them, use the defaults 172.31.0.0/16 and fd00:b00b::/48. A
-# lab on this server given the same subnet as one of the host's would put the host's address,
-# such as the agent bus, on a bridge here, and the server could no longer reach it.
-# `init` writes them only with a new config; an existing config keeps its prefixes.
-MANAGEMENT_PREFIX_IPV4="172.30.0.0/16"
-MANAGEMENT_PREFIX_IPV6="fd00:b00a::/48"
+# Each dev server's lab management ranges, from its own provision/<node>.env, apart from the
+# host's defaults (172.31.0.0/16, fd00:b00b::/48) and from each other's, so no two overlap on
+# the host or on a tailnet. `init` writes them only with a new config.
+MANAGEMENT_PREFIX_IPV4="${SHERPA_MANAGEMENT_PREFIX_IPV4:?set by provision/<node>.env}"
+MANAGEMENT_PREFIX_IPV6="${SHERPA_MANAGEMENT_PREFIX_IPV6:?set by provision/<node>.env}"
+SHERPA_CONFIG="${SHERPA_BASE}/config/sherpa.toml"
 # System libraries and compilers. Developer tools come from mise, set in provision/mise.toml.
 APT_PACKAGES=(
     build-essential pkg-config libvirt-dev clang llvm libelf-dev
@@ -330,6 +330,21 @@ init_sherpa_server() {
     )
     rm -f "${staged_key}"
     sudo systemctl start sherpad
+    assert_management_prefixes
+}
+
+# Fails unless the server's config holds this dev server's management prefixes: `init` keeps an
+# existing config, so a server set up before keeps whatever prefixes it had.
+assert_management_prefixes() {
+    local expected
+    for expected in "management_prefix_ipv4 = \"${MANAGEMENT_PREFIX_IPV4}\"" \
+        "management_prefix_ipv6 = \"${MANAGEMENT_PREFIX_IPV6}\""; do
+        if ! sudo grep -qxF "${expected}" "${SHERPA_CONFIG}"; then
+            echo "${SHERPA_CONFIG} does not have: ${expected}" >&2
+            echo "Destroy this server's labs, set it, and restart sherpad." >&2
+            exit 1
+        fi
+    done
 }
 
 # The SSH config Sherpa writes for each lab reaches its nodes through the server as the Sherpa
