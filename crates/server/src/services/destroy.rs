@@ -928,18 +928,13 @@ pub(crate) async fn destroy_interfaces(
 mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Mutex};
 
-    use axum::http::{Method, StatusCode, Uri};
-    use axum::{Json, Router};
-    use bollard::Docker;
-    use serde_json::{Value, json};
+    use serde_json::json;
     use tempfile::tempdir;
-    use tokio::net::TcpListener;
-    use tokio::task::JoinHandle;
 
     use super::*;
     use crate::konst::LAB_CERTS_DIR;
+    use crate::services::docker_mock::{DockerMock, Fault};
 
     /// A libvirt URI whose socket does not exist, so connecting always fails.
     const UNREACHABLE_QEMU_URI: &str = "qemu+unix:///system?socket=/nonexistent/sherpa-test.sock";
@@ -1014,100 +1009,6 @@ mod tests {
             "vnet3",
         ] {
             assert!(!is_lab_interface(name, LAB_ID), "{name}");
-        }
-    }
-
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    enum Fault {
-        Gateway,
-        Volume,
-        Logout,
-    }
-
-    struct DockerMock {
-        docker: Docker,
-        requests: Arc<Mutex<Vec<String>>>,
-        task: JoinHandle<()>,
-    }
-
-    impl DockerMock {
-        async fn new(containers: Value, fault: Option<Fault>) -> Self {
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let address = listener.local_addr().unwrap();
-            let requests = Arc::new(Mutex::new(Vec::new()));
-            let captured = Arc::clone(&requests);
-            let router = Router::new().fallback(move |method: Method, uri: Uri| {
-                let captured = Arc::clone(&captured);
-                let containers = containers.clone();
-                async move {
-                    captured.lock().unwrap().push(format!("{method} {uri}"));
-                    let path = uri.path();
-                    let (status, body) = if path.ends_with("/containers/json") {
-                        (StatusCode::OK, containers)
-                    } else if method == Method::GET
-                        && path.ends_with("/containers/sherpa-tailnet-test1234/json")
-                        && matches!(fault, Some(Fault::Gateway | Fault::Logout))
-                    {
-                        (
-                            StatusCode::OK,
-                            json!({"Id":"gateway-id",
-                                "State":{"Running":fault == Some(Fault::Logout)},
-                                "Config":{"Labels":{
-                                "sh.erpa.tailscale.lab":"test1234",
-                                "sh.erpa.role":"tailnet-gateway"
-                            }}}),
-                        )
-                    } else if method == Method::GET
-                        && path.ends_with("/volumes/sherpa-tailnet-state-test1234")
-                        && matches!(fault, Some(Fault::Volume | Fault::Logout))
-                    {
-                        (
-                            StatusCode::OK,
-                            json!({"Name":"sherpa-tailnet-state-test1234",
-                                "Driver":"local","Mountpoint":"/mock/volume",
-                                "Options":{},"Scope":"local","Labels":{
-                                "sh.erpa.tailscale.lab":"test1234",
-                                "sh.erpa.role":"tailnet-gateway"
-                            }}),
-                        )
-                    } else if method == Method::DELETE
-                        && ((path.ends_with("/containers/gateway-id")
-                            && fault == Some(Fault::Gateway))
-                            || (path.ends_with("/volumes/sherpa-tailnet-state-test1234")
-                                && fault == Some(Fault::Volume)))
-                    {
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            json!({"message":"cleanup failed"}),
-                        )
-                    } else if method == Method::DELETE || path.ends_with("/kill") {
-                        (StatusCode::NO_CONTENT, Value::Null)
-                    } else {
-                        (StatusCode::NOT_FOUND, json!({"message":"missing"}))
-                    };
-                    (status, Json(body))
-                }
-            });
-            let task = tokio::spawn(async move {
-                axum::serve(listener, router).await.unwrap();
-            });
-            let docker = Docker::connect_with_http(
-                &format!("http://{address}"),
-                5,
-                bollard::API_DEFAULT_VERSION,
-            )
-            .unwrap();
-            Self {
-                docker,
-                requests,
-                task,
-            }
-        }
-    }
-
-    impl Drop for DockerMock {
-        fn drop(&mut self) {
-            self.task.abort();
         }
     }
 

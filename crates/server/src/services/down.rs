@@ -526,13 +526,9 @@ async fn shutdown_container(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
-
-    use axum::http::{Method, StatusCode, Uri};
-    use axum::{Json, Router};
     use serde_json::json;
-    use tokio::net::TcpListener;
 
+    use crate::services::docker_mock::{DockerMock, Fault};
     use crate::services::talos::lab::tests::cluster_plans;
     use crate::services::talos::secrets::generate_cluster_secrets;
 
@@ -660,71 +656,30 @@ mod tests {
     #[tokio::test]
     async fn tailnet_suspend_016_down_reports_a_gateway_whose_logout_fails_as_failed_and_stops_it()
     {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let requests = Arc::new(Mutex::new(Vec::new()));
-        let captured = Arc::clone(&requests);
-        let router = Router::new().fallback(move |method: Method, uri: Uri| {
-            let captured = Arc::clone(&captured);
-            async move {
-                captured
-                    .lock()
-                    .unwrap()
-                    .push(format!("{method} {}", uri.path()));
-                let path = uri.path();
-                if path.ends_with("/containers/gateway-id/json") {
-                    (
-                        StatusCode::OK,
-                        Json(
-                            json!({"Id":"gateway-id","State":{"Running":true},"Config":{"Labels":{
-                                "sh.erpa.tailscale.lab":"test1234",
-                                "sh.erpa.role":"tailnet-gateway"
-                            }}}),
-                        ),
-                    )
-                } else if path.ends_with("/containers/gateway-id/stop") {
-                    (StatusCode::NO_CONTENT, Json(serde_json::Value::Null))
-                } else {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({"message":"exec unavailable"})),
-                    )
-                }
-            }
-        });
-        let server = tokio::spawn(async move {
-            axum::serve(listener, router).await.unwrap();
-        });
-        let docker = Docker::connect_with_http(
-            &format!("http://{address}"),
-            5,
-            bollard::API_DEFAULT_VERSION,
-        )
-        .unwrap();
+        let mock = DockerMock::new(json!([]), Some(Fault::Logout)).await;
         let result = stop_tailscale_gateway(
-            &docker,
+            &mock.docker,
             &TailscaleGatewaySettings::default(),
             "gateway-id",
             "test1234",
         )
         .await;
-        server.abort();
         assert!(!result.success);
         assert!(
             result.message.contains("not logged out"),
             "{}",
             result.message
         );
-        let requests = requests.lock().unwrap();
+        let requests = mock.requests.lock().unwrap();
         assert!(
             requests
                 .iter()
-                .any(|r| r.ends_with("/containers/gateway-id/exec"))
+                .any(|r| r.contains("/containers/gateway-id/exec"))
         );
         assert!(
             requests
                 .iter()
-                .any(|r| r.ends_with("/containers/gateway-id/stop"))
+                .any(|r| r.contains("/containers/gateway-id/stop"))
         );
     }
 }
