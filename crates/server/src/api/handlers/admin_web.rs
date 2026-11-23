@@ -134,6 +134,7 @@ pub async fn admin_labs_list_handler(
             owner_username,
             node_count,
             lab.phase,
+            lab.tailscale_container_id.is_some(),
         ));
     }
 

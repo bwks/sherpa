@@ -330,7 +330,11 @@ pub async fn lab_detail_handler(
                     response.lab_state,
                     BadgeSize::Large,
                 ),
-                actions: LabActions::for_lab(response.lab_phase, response.lab_state),
+                actions: LabActions::for_lab(
+                    response.lab_phase,
+                    response.lab_state,
+                    response.tailscale.is_some(),
+                ),
                 offers_download: lab_offers_download(owns_lab, response.lab_state),
                 nodes: response.devices.into_iter().map(NodeRow::from).collect(),
                 device_count,

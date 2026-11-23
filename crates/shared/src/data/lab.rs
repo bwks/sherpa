@@ -286,6 +286,9 @@ pub struct LabSummary {
     /// show instead of the status.
     #[serde(default)]
     pub phase: LabPhase,
+    /// Whether the lab has a Tailscale gateway, which only `sherpa resume` reconnects.
+    #[serde(default)]
+    pub tailnet_gateway: bool,
 }
 
 /// Response for listing labs

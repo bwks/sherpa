@@ -235,6 +235,16 @@
         Start Lab
     </button>
     {% endif %}
+    {% if actions.resume_with_cli %}
+    <div class="flex flex-col">
+        <button disabled class="btn-primary opacity-50 cursor-not-allowed">
+            Start Lab
+        </button>
+        <p class="mt-2 text-sm text-muted">
+            Resume this lab with <code class="font-mono">sherpa resume</code> in its lab folder: the Tailscale auth key comes from the CLI.
+        </p>
+    </div>
+    {% endif %}
     {% if actions.stop %}
     <button
         id="lab-stop-btn"

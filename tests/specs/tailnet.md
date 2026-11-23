@@ -56,7 +56,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `tailnet_status`: Sherpa reports the gateway's connection and route approval
 
-**Statement:** up, a whole-lab resume and `sherpa inspect` report the gateway's state, whether its routes are approved, the routes, its tailnet addresses and any warning, in one Tailscale table; routes that are not approved are a warning, not a failure.
+**Statement:** up, a whole-lab down, a whole-lab resume and `sherpa inspect` report the gateway's state, whether its routes are approved, the routes, its tailnet addresses and any warning, in one Tailscale table; routes that are not approved are a warning, not a failure.
 **Relied on by:** the user, to know whether the lab is reachable and what to do when it is not. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -73,6 +73,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 010 | When the gateway's status cannot be read, inspect still answers, with the gateway unavailable and a warning (no test yet) | integration |
 | 011 | An up whose routes are not yet approved succeeds with the warning, and once they are approved `sherpa inspect` shows them approved with nothing restarted (no test yet; real tailnet) | e2e |
 | 012 | `sherpa inspect` of a lab with a gateway prints the Tailscale table (no test yet; real tailnet) | e2e |
+| 013 | `sherpa down` prints the Tailscale table the server sends, before the nodes' outcomes, and no table when the server sends none | unit |
 
 ## `tailnet_suspend`: down takes the gateway off the tailnet and resume enrolls it again
 
@@ -94,13 +95,14 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 011 | `sherpa down --node` and `sherpa resume --node` leave the gateway connected, and the resume needs no key (no test yet; real tailnet) | e2e |
 | 012 | A redeploy of a node leaves the gateway connected (no test yet; real tailnet) | e2e |
 | 013 | A whole-lab resume whose enrollment fails starts no node (no test yet; real tailnet) | e2e |
-| 014 | A whole-lab resume from the web UI of a lab with a gateway is refused, saying to run `sherpa resume` in the lab folder (no test yet; real tailnet) | e2e |
+| 014 | A whole-lab resume request to the web UI's route of a lab with a gateway is refused, saying to run `sherpa resume` in the lab folder; the web UI does not offer one (021) (no test yet; real tailnet) | e2e |
 | 015 | A whole-lab down lists the gateway beside the nodes as stopped, and a gateway that cannot be stopped as failed (no test yet) | integration |
 | 016 | Down reports a gateway whose logout fails as a failed result, saying it was stopped but not logged out, and still stops it (mock Docker) | unit |
 | 017 | A resume of a gateway still logged in from an unplanned stop, once its daemon has loaded its state, logs it out, then enrolls it with the key (mock Docker) | unit |
 | 018 | A resume whose logout of the gateway's old identity fails is refused, and nothing is enrolled; that no node starts is 013 (mock Docker) | unit |
 | 019 | After `systemctl restart docker` with the lab up, `sherpa resume` brings the gateway back as a new device, not its old identity (no test yet; real tailnet) | e2e |
 | 020 | A resume of a gateway whose logout at down failed, which reports needing login but still holds its node key, logs it out, then enrolls it with the key (mock Docker) | unit |
+| 021 | The web UI's labs list, the admin's list and the lab's page offer a lab with a gateway no start: a disabled start that says to resume the lab with `sherpa resume` in its lab folder, and stop as for any lab; a lab without a gateway offers start | unit |
 
 ## `tailnet_removal`: destroy takes the gateway and its identity away, and only its own
 

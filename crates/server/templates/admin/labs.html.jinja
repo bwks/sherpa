@@ -41,13 +41,23 @@
                     <td class="p-4 text-sm text-body text-center">{{ lab.node_count }}</td>
                     <td class="p-4 text-sm text-body">
                         <div class="flex items-center justify-end space-x-2">
-                            {% if lab.offers_start_stop %}
+                            {% if lab.offers_start %}
                             <button
                                 data-lab-action="start" data-lab-id="{{ lab.lab_id }}"
                                 class="text-accent hover:text-accent-hover transition-colors cursor-pointer"
                                 title="Start all nodes">
                                 {% call icons::play() %}
                             </button>
+                            {% endif %}
+                            {% if lab.resume_with_cli %}
+                            <button
+                                disabled
+                                class="text-muted opacity-50 cursor-not-allowed"
+                                title="Resume this lab with sherpa resume in its lab folder: the Tailscale auth key comes from the CLI">
+                                {% call icons::play() %}
+                            </button>
+                            {% endif %}
+                            {% if lab.offers_stop %}
                             <button
                                 data-lab-action="stop" data-lab-id="{{ lab.lab_id }}"
                                 class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
