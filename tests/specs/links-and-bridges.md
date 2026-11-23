@@ -66,7 +66,7 @@ Cases 016, 018 and 019 show a repair on a real host. Cases 030 to 032 show what 
 | 023 | A new, bare end whose peer is down is left until the peer runs | unit |
 | 024 | A repair that fails does not stop the repair of other nodes, and is tried again at the next scan | unit |
 | 025 | A running VM whose tap is missing, and an end that cannot be read, fail the link, and nothing is made in their place | unit |
-| 026 | A link between a container stopped outside Sherpa and its peer works again after `sherpa resume` (no test with its ID yet; `tests/labs/cisco-iol` shows it) | e2e |
+| 026 | A link between a container stopped outside Sherpa and its peer works again after `sherpa resume` | e2e |
 | 027 | A redeployed container's interface is made again while the removed container's old one, of the same name, is still on the host | integration |
 | 028 | Only a filter running Sherpa's redirect counts as a link's redirect, so an end with another filter is still found bare | unit |
 | 029 | A new interface has no redirect until a link is attached to it | integration |
@@ -203,7 +203,7 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | TCP across a link into a `cisco_iol` node works, at up and after a cold boot (no test with its ID yet; `tests/labs/cisco-iol` shows it) | e2e |
+| 001 | TCP across a link into a `cisco_iol` node works, at up and after a cold boot | e2e |
 | 002 | Turning transmit checksum offload off on a host end turns checksum and segmentation offload off, and it reads as off | integration |
 | 003 | A new interface reads as offload on until it is turned off | integration |
 | 004 | Offload reads as on while any transmit checksum feature is active, and off with none | unit |

@@ -153,8 +153,9 @@ Cases 001 to 020 are up, 021 to 026 resume, 027 and 028 redeploy, 029 to 035 the
 | 001 | Resume boots a node that is shut off or exited, unpauses a paused one and leaves a running one alone | unit |
 | 002 | Resume refuses a crashed VM and a dead container, saying to redeploy it, and a node between states, saying which | unit |
 | 003 | Resume of a `missing` node is refused, saying to redeploy it | integration |
-| 004 | A container stopped outside Sherpa is started by resume and reachable again (no test with its ID yet; `tests/labs/cisco-iol` shows it) | e2e |
+| 004 | A container stopped outside Sherpa is started by resume and reachable again | e2e |
 | 005 | `--node` resumes that node alone (no test with its ID yet; `tests/labs/talos-linux` uses it) | e2e |
+| 006 | A `cisco_iol` container keeps a config saved with `write memory` across a cold boot, and one with nothing saved comes back with its startup config | e2e |
 
 ## `node_failure`: a failed node stays failed, with the reason
 

@@ -16,21 +16,6 @@ flowchart LR
     r1 ---|"Ethernet0/2 10.47.1.1 ⟷ eth1 10.47.1.10"| linux01["linux01 · Alpine"]
 ```
 
-## What it checks
-
-1. `sherpa up`, then, for each router: SSH as the lab owner answers on the management address, and
-   the running config has the generated hostname, the owner's `username <owner> privilege 15`
-   login (and no `sherpa` login) and the management interface. The link addresses are then configured over SSH.
-2. Pings: each router to its peer and to the host, and the host to both routers, across a link
-   and routed through r1.
-3. TCP: the host reads both routers' SSH banners across the links. This fails if transmit
-   checksum offload is on at the host end of IOL's veths, while ping still works.
-4. `write memory` on r1, then a cold boot of both routers: `sherpa down`, the containers stopped
-   (`sherpa down` pauses containers, so it alone is not a cold boot), and `sherpa resume`. r1
-   must come back with its saved config and r2, which saved nothing, with its startup config.
-   r2 is configured again and the pings and TCP checks run again.
-5. `sherpa destroy`, and no container, Docker network or host interface of the lab is left.
-
 ## Running it
 
 It runs on the Sherpa server, with the CLI logged in and a device password set
@@ -44,11 +29,43 @@ namespace, through Docker. The IOL image is built from your own CML image, so th
 2. Pull the host image: `sherpa server image pull --model generic --kind container --repo alpine:3.22`,
    or `docker pull alpine:3.22` and a scan.
 
-```
+The runner is a pytest module; `uv run` installs the pytest version pinned in its script header
+and runs pytest on it, passing on any other arguments:
+
+```sh
 uv run tests/labs/cisco-iol/cisco_iol_lab_test.py
 uv run tests/labs/cisco-iol/cisco_iol_lab_test.py --keep-failed   # leave a failed lab for debugging
-uv run tests/labs/cisco-iol/cisco_iol_lab_test.py --self-test     # the runner's own unit tests
+uv run tests/labs/cisco-iol/cisco_iol_lab_test.py -k config_delivery_002
+uv run tests/labs/cisco-iol/cisco_iol_lab_test.py --self-test     # the runner's own unit tests, seconds
 ```
+
+pytest runs it directly too, for example `uvx --python 3.15 pytest==9.2.0
+tests/labs/cisco-iol/cisco_iol_lab_test.py`. `--keep-failed` is defined in `conftest.py` next to
+the runner. What the lab runners share, such as running and logging a command, is in
+[`../labkit.py`](../labkit.py).
+
+The module-scoped `prepared` fixture checks the requirements and writes the run's manifest under a
+unique lab name; the `lab` fixture brings the lab up once and destroys it at the end, even when a
+case fails, unless `--keep-failed` is given and something failed. Its teardown also checks that
+`sherpa inspect` no longer finds the lab and that no container, Docker network or host interface
+whose name holds the lab's ID is left. The `configured` fixture configures both routers' link
+addresses over SSH and addresses the host; the `cold_booted` fixture saves r1's config with
+`write memory` and cold-boots both routers: `sherpa down`, the containers stopped (`sherpa down`
+pauses containers, so it alone is not a cold boot) and `sherpa resume`. The `reconfigured` fixture
+then configures r2, which saved nothing, again. Each runs once for the module. The cases are the
+functions named `test_<case_id>_*`, in the order below, the order the lab goes through; every
+case runs even when one fails. The runner's own unit tests, under `--self-test`, are not
+collected by pytest.
 
 The preflight stops with a message when either image is missing. Logs are under
 `.tmp/lab-tests/cisco-iol-<run>/`. A run takes about 3–5 minutes.
+
+## What it checks
+
+| Case | Check |
+|---|---|
+| [`config_delivery_002`](../../specs/ztp.md) | After up, each router's SSH answers the lab owner on its management address, and its running config has the generated hostname, the management interface and the owner's `username <owner> privilege 15` login |
+| [`veth_checksums_001`](../../specs/links-and-bridges.md) | After up, the host reads both routers' SSH banners across the links; after the cold boot, r1's, retrying while it boots. This fails if transmit checksum offload is on at the host end of IOL's veths, while ping still works, so the case first checks the pings of `link_reattach_026` after up: each router to its peer and to the host, and the host to both routers, across a link and routed through r1 |
+| [`node_resume_004`](../../specs/nodes.md) | After the cold boot, `sherpa resume` has started both stopped routers and each answers the owner's SSH again |
+| [`node_resume_006`](../../specs/nodes.md) | After the cold boot, r1 has the link addresses it saved with `write memory`, and r2, which saved nothing, has none of them |
+| [`link_reattach_026`](../../specs/links-and-bridges.md) | Once r2 is configured again after the cold boot, every ping above passes again across both links |

@@ -11,7 +11,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 | [container-ztp](container-ztp/README.md) | The `ztp` setting on cEOS, SR Linux and FRR containers: config mounts and the lab owner's login with ZTP on, neither with it off, after up and after a redeploy | about 5–15 min |
 | [manifest-commands](manifest-commands/README.md) | What `sherpa validate`, `sherpa new` and a refused `sherpa up` print and exit with: no manifest, an unknown key, a failing check, no login or server, an existing manifest and `--force`. Brings no lab up. A pytest module | seconds |
 | [account-lockout](account-lockout/README.md) | Failed logins locking a throwaway account and `admin`, and `sherpa server user unlock` and, with `--stop-server` on the server host, `sherpad user unlock` unlocking them. Brings no lab up. Needs a CLI logged in as an admin. A pytest module | seconds |
-| [cisco-iol](cisco-iol/README.md) | `cisco_iol` routers built from your own CML image: generated config and SSH, P2p links, TCP into IOL, `write memory` across a cold boot. Needs the IOL image | about 3–5 min |
+| [cisco-iol](cisco-iol/README.md) | `cisco_iol` routers built from your own CML image: generated config and SSH, P2p links, TCP into IOL, `write memory` across a cold boot. Needs the IOL image. A pytest module | about 3–5 min |
 | [p2p-links](p2p-links/README.md) | P2p (eBPF) link requirements on VM ⟷ VM, VM ⟷ container and container ⟷ container: L2 protocols, LLDP and LACP bundles, capture, per-direction impairment, jumbo frames, lifecycle | about 15–20 min |
 | [nixos-linux](nixos-linux/README.md) | `nixos_linux` VMs built from [bwks/nixos-image](https://github.com/bwks/nixos-image): lab owner login, sudo, text files, cloud-init, a P2p link | about 5 min |
 | [console](console/README.md) | `sherpa console` in a pseudo-terminal and `sherpa vnc` with a scripted viewer, through sherpad, with no system `telnet` or `ssh`: login prompt, `Ctrl+]` and `~.`, the RFB banner and Ctrl+C, a console in use naming its holder, `--force`, another user and an admin refused, a container refused. A pytest module | about 1–5 min |
@@ -49,7 +49,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 - What the runners share lives in [`labkit.py`](labkit.py): the failure and outcome types,
   running and logging a command, masking the run's secrets, the manifest TOML, the device
   password preflight, generated passwords and a command in a pseudo-terminal whose prompts
-  the runner answers. The console, owner-login, p2p-containers, manifest-commands and account-lockout runners import it; its own
+  the runner answers. The console, owner-login, p2p-containers, cisco-iol, manifest-commands and account-lockout runners import it; its own
   unit tests run with `uv run tests/labs/labkit.py`.
 
 Lab tests are started by hand. How and when end-to-end tests run is being planned in
