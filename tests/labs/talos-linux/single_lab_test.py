@@ -126,7 +126,7 @@ def test_cluster_bootstrap_001_a_cluster_with_one_controller_comes_up_healthy(la
 
 
 def test_cluster_bootstrap_003_on_flannel_pods_on_different_workers_all_answer_through_one_nodes_port(lab):
-    require_none(lab.node_port_problems(lab.deploy_workload()), "after up")
+    require_none(lab.node_port_problems(lab.deploy_workload(), lab.workers[:1]), "after up")
 
 
 def test_lab_credentials_001_the_kubeconfig_and_talosconfig_are_saved_readable_by_the_user_alone(lab):

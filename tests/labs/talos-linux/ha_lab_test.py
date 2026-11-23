@@ -1,18 +1,19 @@
 """End-to-end test of the `ha` Talos lab through the sherpa CLI (Python 3.15+, pytest).
 
-Three controllers sharing a VIP and one worker, with Cilium, a Keycloak node users log in
+Three controllers sharing a VIP and two workers, with Cilium, a Keycloak node users log in
 through and a Vault node workloads read secrets from, and a util node that runs `kubectl`,
 `talosctl` and `curl` inside the lab. Checks the `ha` cases of tests/specs/talos.md, with the
 Keycloak and Vault credential files from tests/specs/client-lab-files.md. See README.md.
 
 A pytest module: the `prepared` fixture checks the server and writes the lab's manifest, and the
 `lab` fixture brings the lab up once for the module and destroys it at the end, checking nothing
-of it is left. The `workload` fixture deploys the workload the Gateway and the Vault secret use,
-and `oidc_logins` gives the util node a kubeconfig for each Keycloak user. Losing a controller
-is a fixture that stops one, records what the API answers, resumes it and records the cluster's
-health, without asserting anything; its case asserts on that record. The cases are the
-`test_<case_id>_*` functions, in case order, the controller loss last. `talos_lab_test.py` runs
-this module and `single_lab_test.py` at the same time.
+of it is left. The `workload` fixture deploys the workload, one pod per worker, that the
+NodePort, the Gateway and the Vault secret use, and `oidc_logins` gives the util node a
+kubeconfig for each Keycloak user. Losing a controller is a fixture that stops one, records
+what the API answers, resumes it and records the cluster's health, without asserting anything;
+its case asserts on that record. The cases are the `test_<case_id>_*` functions, in case order,
+the controller loss last. `talos_lab_test.py` runs this module and `single_lab_test.py` at the
+same time.
 """
 
 import json
@@ -114,7 +115,8 @@ def lab(request, prepared):
 
 @pytest.fixture(scope="module")
 def workload(lab):
-    """The workload and its namespace, which the Gateway's route and the Vault secret use."""
+    """The workload, one pod per worker, and its namespace, which the NodePort, the Gateway's route
+    and the Vault secret use."""
     return lab.deploy_workload()
 
 
@@ -163,7 +165,7 @@ def controller_lost(lab):
 # -- cases ---------------------------------------------------------------------------------------
 
 
-def test_cluster_bootstrap_002_three_controllers_and_a_worker_with_cilium_keycloak_and_vault_come_up_healthy(lab):
+def test_cluster_bootstrap_002_three_controllers_and_two_workers_with_cilium_keycloak_and_vault_come_up_healthy(lab):
     require_none(lab.health_problems(), "after up")
 
 
@@ -187,6 +189,12 @@ def test_cluster_cilium_001_cilium_runs_with_no_kube_proxy_or_flannel_and_its_in
     if job.stdout.strip() != "1":
         problems.append(f"cilium-install job did not succeed: {job.stdout.strip()!r}")
     require_none(problems, "after up")
+
+
+def test_cluster_cilium_002_pods_on_both_workers_answer_through_every_nodes_port(lab, workload):
+    require(workload.nodes == set(lab.workers), f"workload pods run on {sorted(workload.nodes)}, "
+            f"not one on each worker {lab.workers}")
+    require_none(lab.node_port_problems(workload, lab.controllers + lab.workers), "after up")
 
 
 def test_cluster_cilium_003_up_prints_the_gateway_and_a_workload_with_an_httproute_answers_there(lab, workload):

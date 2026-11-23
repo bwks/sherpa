@@ -1,10 +1,10 @@
-# Three controllers sharing a VIP and one worker, with Cilium, Keycloak login (kc01) and Vault
+# Three controllers sharing a VIP and two workers, with Cilium, Keycloak login (kc01) and Vault
 # secrets (vault01), plus a util node with kubectl, talosctl and the kubelogin plugin.
 name = "talos-ha"
 ready_timeout = 900
 
 talos_clusters = [
-  { name = "k8s", controllers = ["cp1", "cp2", "cp3"], workers = ["w1"], cni = "cilium", oidc = "kc01", vault = "vault01" },
+  { name = "k8s", controllers = ["cp1", "cp2", "cp3"], workers = ["w1", "w2"], cni = "cilium", oidc = "kc01", vault = "vault01" },
 ]
 
 nodes = [
@@ -12,6 +12,7 @@ nodes = [
   { name = "cp2", model = "talos_linux", version = "1.14.4" },
   { name = "cp3", model = "talos_linux", version = "1.14.4" },
   { name = "w1", model = "talos_linux", version = "1.14.4" },
+  { name = "w2", model = "talos_linux", version = "1.14.4" },
   { name = "kc01", model = "keycloak_server", version = "26.4" },
   { name = "vault01", model = "hashicorp_vault", version = "1.21" },
   { name = "util", model = "ubuntu_linux", version = "26.04", startup_scripts = ["../install-tools.sh"] },

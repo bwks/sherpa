@@ -17,7 +17,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 | [console](console/README.md) | `sherpa console` in a pseudo-terminal and `sherpa vnc` with a scripted viewer, through sherpad, with no system `telnet` or `ssh`: login prompt, `Ctrl+]` and `~.`, the RFB banner and Ctrl+C, a console in use naming its holder, `--force`, another user and an admin refused, a container refused. A pytest module | about 1–5 min |
 | [ssh-access](ssh-access/README.md) | How `sherpa ssh` and SSH provisioners reach a node: directly, or through the Sherpa server with `--ssh-jump`, told apart by which process holds the connection the node sees. Needs a route to the lab's management network | about 2 min |
 | [owner-login](owner-login/README.md) | A throwaway owner's login on a Linux VM and a network OS container, by key and by device password, with admin rights; no keys refused at up and redeploy; a rotated key not pushed on resume; down and resume, redeploy; what an admin who does not own the lab may and may not do. Needs a CLI logged in as an admin and a route to the lab's management network | about 5 min |
-| [talos-linux](talos-linux/README.md) | Sherpa-built Talos Kubernetes clusters: a one-controller Flannel lab and a three-controller Cilium lab with Keycloak login and Vault secrets, through up, redeploy, down and resume, a stopped controller and destroy. Two pytest modules, run at once | about 25–35 min |
+| [talos-linux](talos-linux/README.md) | Sherpa-built Talos Kubernetes clusters: a one-controller Flannel lab and a three-controller Cilium lab with Keycloak login and Vault secrets, through up, redeploy, down and resume, a stopped controller and destroy. Two pytest modules, run at once | about 30–40 min |
 
 ## Rules
 

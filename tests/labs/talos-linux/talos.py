@@ -476,20 +476,30 @@ class Lab:
                         nodes={pod["spec"]["nodeName"] for pod in pods},
                         node_port=json.loads(service.stdout)["spec"]["ports"][0]["nodePort"])
 
-    def node_port_problems(self, workload):
-        """Why the workload's pods do not all answer through one node's NodePort: pods sharing a
-        node, so no request need cross nodes, or pods that never answered."""
+    def node_port_problems(self, workload, entry_nodes):
+        """Why the workload's pods do not all answer through the NodePort of each of the entry
+        nodes: pods sharing a node, so no request need cross nodes, requests through a node not
+        answered, or pods that never answered through a node."""
         if len(workload.nodes) != workload.replicas:
             return [f"workload pods share nodes: {sorted(workload.nodes)}"]
-        entry_ip = self.nodes()[(self.workers or self.controllers)[0]][1]
-        loop = (f"for i in $(seq {ECHO_REQUESTS}); do curl -fsS --max-time 5 "
-                f"http://{entry_ip}:{workload.node_port}/hostname; echo; done")
-        replies = self.util("requests through one node's NodePort", loop, timeout=600, check=False)
-        answered = {line.strip() for line in replies.stdout.splitlines() if line.strip()}
-        missing = workload.pods - answered
-        if missing:
-            return [f"pods never answered through {entry_ip}:{workload.node_port}: {sorted(missing)}"]
-        return []
+        nodes = self.nodes()
+        problems = []
+        for entry in entry_nodes:
+            if entry not in nodes:
+                problems.append(f"{entry} is not a Kubernetes node")
+                continue
+            address = f"{nodes[entry][1]}:{workload.node_port}"
+            loop = (f"for i in $(seq {ECHO_REQUESTS}); do curl -fsS --max-time 5 "
+                    f"http://{address}/hostname; echo; done")
+            replies = self.util(f"requests through {entry}'s NodePort", loop, timeout=600, check=False)
+            answers = [line.strip() for line in replies.stdout.splitlines() if line.strip()]
+            if len(answers) != ECHO_REQUESTS:
+                problems.append(f"{len(answers)} of {ECHO_REQUESTS} requests through {entry} ({address}) "
+                                "answered")
+            missing = workload.pods - set(answers)
+            if missing:
+                problems.append(f"pods never answered through {entry} ({address}): {sorted(missing)}")
+        return problems
 
     def answers(self, label, url):
         """Whether the URL answers from the util node within a few minutes."""

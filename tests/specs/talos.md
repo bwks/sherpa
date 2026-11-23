@@ -86,7 +86,7 @@ A machine config reaching its node byte for byte as NoCloud `user-data` is `conf
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | A cluster of one controller and three workers comes up with every node Ready, and `talosctl health` passes (real cluster) | e2e |
-| 002 | A cluster of three controllers and a worker, with Cilium, a Keycloak and a Vault, comes up with every node Ready, and `talosctl health` passes (real cluster) | e2e |
+| 002 | A cluster of three controllers and two workers, with Cilium, a Keycloak and a Vault, comes up with every node Ready, and `talosctl health` passes (real cluster) | e2e |
 | 003 | On a Flannel cluster, pods on different workers all answer through one node's port (real cluster) | e2e |
 | 004 | A bootstrap Talos accepts, or answers as already done, counts as bootstrapped; any other answer is refused with its code and message, and so is an answer with no status | unit |
 | 005 | Only a node whose `Ready` condition is true counts as ready | unit |
@@ -120,7 +120,7 @@ A machine config reaching its node byte for byte as NoCloud `user-data` is `conf
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | Cilium runs on the cluster with no kube-proxy and no Flannel, and its install Job succeeded (real cluster) | e2e |
-| 002 | On a Cilium cluster, pods on different nodes all answer through one node's port (no test yet; real cluster, and the `ha` lab's one worker holds every pod, so no request crosses nodes) | e2e |
+| 002 | On a Cilium cluster, pods on different workers all answer through the port of every node, controllers included (real cluster) | e2e |
 | 003 | Up prints the Gateway's address, `.13`, and a workload with an `HTTPRoute` answers there from another node of the lab (real cluster) | e2e |
 | 004 | Up prints Hubble UI's address, `.14`, and it answers there (real cluster) | e2e |
 | 005 | A Cilium cluster's controllers carry no Flannel document, turn kube-proxy off, fetch the Gateway API CRDs and carry the three Cilium manifests | unit |
@@ -250,9 +250,9 @@ A redeployed Keycloak node keeping its administrator and users is `lab_credentia
 
 ## Cases that need a real cluster
 
-`talos_node_003`, `cluster_addresses_001` and `013`, `cluster_secrets_005`, `cluster_bootstrap_001` to `003`, `007` and `010`, `cluster_credentials_001`, `cluster_cilium_001` to `004` and `011`, `cluster_oidc_001`, `002` and `007`, `cluster_vault_001` and `007`, `cluster_shutdown_001`, `002` and `008`, and `cluster_redeploy_001`, `002`, `006` and `007` need Talos VMs. `keycloak_realm_001` and `vault_init_012` to `014` are e2e too, and need only a Keycloak or a Vault container. All run on the host, in `tests/labs/talos-linux`, which holds two labs: `single`, one controller and three workers on Flannel, and `ha`, three controllers and a worker with Cilium, a Keycloak and a Vault. They need:
+`talos_node_003`, `cluster_addresses_001` and `013`, `cluster_secrets_005`, `cluster_bootstrap_001` to `003`, `007` and `010`, `cluster_credentials_001`, `cluster_cilium_001` to `004` and `011`, `cluster_oidc_001`, `002` and `007`, `cluster_vault_001` and `007`, `cluster_shutdown_001`, `002` and `008`, and `cluster_redeploy_001`, `002`, `006` and `007` need Talos VMs. `keycloak_realm_001` and `vault_init_012` to `014` are e2e too, and need only a Keycloak or a Vault container. All run on the host, in `tests/labs/talos-linux`, which holds two labs: `single`, one controller and three workers on Flannel, and `ha`, three controllers and two workers with Cilium, a Keycloak and a Vault. They need:
 
-- a Sherpa server with KVM and the `talos_linux` 1.14, `ubuntu_linux`, `keycloak_server` and `hashicorp_vault` images. A Talos node is a 4 GB VM, so the two labs together take about 40 GB of memory;
+- a Sherpa server with KVM and the `talos_linux` 1.14, `ubuntu_linux`, `keycloak_server` and `hashicorp_vault` images. A Talos node is a 4 GB VM, so the two labs together take about 44 GB of memory;
 - a route from the lab's nodes to the internet: Talos pulls the Kubernetes, Cilium and operator images, the Gateway API CRDs and the operator's Helm chart when the cluster starts;
 - a node inside the lab to run `kubectl`, `talosctl` and `curl` from, as the cluster's addresses are on the lab's management network: the labs' `util` node, an Ubuntu VM that installs the tools at first boot;
 - for `cluster_secrets_005`, a shell on the server to read the lab's folder; for `cluster_addresses_013`, a third lab or a second cluster in `ha`, about 12 GB more.

@@ -5,7 +5,7 @@ Tests Sherpa-built Talos Kubernetes clusters end to end through the `sherpa` CLI
 | Lab | Nodes |
 |---|---|
 | [`single`](single/manifest.toml) | 1 controller, 3 workers, util |
-| [`ha`](ha/manifest.toml) | 3 controllers sharing a VIP, 1 worker, Keycloak `kc01`, Vault `vault01`, util; Cilium, Keycloak login (`oidc`) and Vault secrets (`vault`) |
+| [`ha`](ha/manifest.toml) | 3 controllers sharing a VIP, 2 workers, Keycloak `kc01`, Vault `vault01`, util; Cilium, Keycloak login (`oidc`) and Vault secrets (`vault`) |
 
 The `util` node is Ubuntu with `talosctl`, `kubectl` and the kubelogin plugin
 (`kubectl oidc-login`) installed by [`install-tools.sh`](install-tools.sh) (pinned versions,
@@ -19,8 +19,9 @@ and tokens go to it on stdin, so they are in no command line or log.
   `26.4` and `hashicorp_vault` `1.21` images, KVM, and internet access from labs (tool
   downloads, Kubernetes and workload images). The run fails early if the Talos image is missing.
 - The `sherpa` CLI logged in, with a device password set (`sherpa server user device-password`), plus `ssh` and `scp`.
-- About 40 GB of RAM: both labs run at the same time, each with four 4 GB Talos nodes and the
-  util node, and `ha` also with Keycloak and Vault, about 3 GB more. On a smaller server run
+- About 44 GB of RAM: both labs run at the same time, `single` with four 4 GB Talos nodes and
+  `ha` with five, each with the util node, and `ha` also with Keycloak and Vault, about 3 GB
+  more. On a smaller server run
   the labs one at a time.
 
 ## Running
@@ -61,7 +62,7 @@ collected by pytest.
 Ctrl-C reaches both pytest processes, and the runner passes SIGTERM on to them, so each lab is
 still destroyed. Each run logs every command and its output under
 `.tmp/lab-tests/talos-linux-<id>/<lab>/commands.log`. The run directory also holds the cluster
-credentials, so keep it private. A run of both labs takes about 25–35 minutes.
+credentials, so keep it private. A run of both labs takes about 30–40 minutes.
 
 ## What it checks
 
@@ -86,6 +87,7 @@ credentials, so keep it private. A run of both labs takes about 25–35 minutes.
 | `cluster_bootstrap_002` | Every node is Ready, and `talosctl health` passes |
 | `cluster_credentials_001` | The kubeconfig's server is the cluster VIP, management offset `.11` |
 | `cluster_cilium_001` | Cilium runs with no kube-proxy or Flannel daemonset, and its install Job succeeded |
+| `cluster_cilium_002` | The workload, one pod on each of `w1` and `w2`, answers every request through the NodePort of each node, controllers included, and from both pods through each, so requests cross nodes over Cilium |
 | `cluster_cilium_003` | `sherpa up` printed the Gateway (`.13`), and the workload answers there through the `sherpa` Gateway with an HTTPRoute, from the util node |
 | `cluster_cilium_004` | `sherpa up` printed Hubble UI (`.14`), and it answers there from the util node |
 | `cluster_oidc_001` | The lab owner, a `sherpa` realm user in `cluster-admins`, logs in with `kubectl oidc-login` (its password grant, non-interactively, with Sherpa's `oidc@k8s` settings), is `oidc:<owner>` in `oidc:cluster-admins`, and lists the nodes and every namespace's pods |
@@ -94,10 +96,10 @@ credentials, so keep it private. A run of both labs takes about 25–35 minutes.
 | `lab_credentials_003` | `.sherpa/keycloak/keycloak-kc01.toml` and `.sherpa/vault/vault-vault01.toml` are there, readable only by the owner |
 | `cluster_addresses_001` | With cp1 stopped by `sherpa down --node`, the API through the VIP reports it not Ready and answers `/readyz`; after `sherpa resume --node` every node is Ready and `talosctl health` passes |
 
-The workload is deployed on `ha` too, by the `workload` fixture: `cluster_cilium_003` routes to
-it, and `cluster_vault_001` syncs the secret into its namespace. `ha` does not show
-`cluster_cilium_002`, pods on different nodes answering through one node's port: its controllers
-are tainted against workloads, so its one worker holds every pod.
+The workload is deployed on `ha` too, by the `workload` fixture, one pod per worker, as the
+controllers are tainted against workloads: `cluster_cilium_002` sends requests through its
+NodePort, `cluster_cilium_003` routes to it, and `cluster_vault_001` syncs the secret into its
+namespace.
 
 The lab uses `sherpa down --node` and `sherpa resume --node` but does not check that they leave
 the other nodes alone (`node_down_006`, `node_resume_005`). It does not show `talos_node_003`,
