@@ -59,7 +59,6 @@ PROVISION_SCRIPT = "provision.sh"
 PROVISION_SCRIPT_CONTENT = '#!/bin/sh\necho "$(id -un)@$(hostname)" > "$HOME/provisioned.txt"\n'
 # The interfaces every node has: management, then the link.
 INTERFACES = ("eth0", "eth1")
-IFF_UP = 0x1
 AFTER_UP = "after up"
 
 UP_TIMEOUT = 900
@@ -113,22 +112,14 @@ def with_owner(manifest, owner):
 
 
 def interfaces_script(interfaces):
-    """A node command printing each interface's name and sysfs flags, or `missing`."""
-    return "; ".join(f"echo {name} $(cat /sys/class/net/{name}/flags 2>/dev/null || echo missing)"
-                     for name in interfaces)
+    """A node command printing the name of each of the interfaces the node has."""
+    return "; ".join(f"[ -e /sys/class/net/{name} ] && echo {name}" for name in interfaces) + "; true"
 
 
-def interface_problems(output, interfaces):
-    """What is wrong with the named interfaces, from `interfaces_script` output: missing or down."""
-    flags = dict(line.split(maxsplit=1) for line in output.splitlines() if len(line.split()) == 2)
-    problems = []
-    for name in interfaces:
-        value = flags.get(name, "missing")
-        if value == "missing":
-            problems.append(f"{name} missing")
-        elif not int(value, 16) & IFF_UP:
-            problems.append(f"{name} down")
-    return problems
+def missing_interfaces(output, interfaces):
+    """The named interfaces that `interfaces_script` output does not list."""
+    present = set(output.split())
+    return [name for name in interfaces if name not in present]
 
 
 def leftovers(listing, lab_id):
@@ -334,11 +325,11 @@ def test_owner_login_027_on_a_nixos_vm_the_owner_has_the_system_bash_a_group_of_
         require(sudo == "sudo-ok", f"{node}: lab owner has no passwordless sudo")
 
 
-def test_node_interfaces_009_a_vm_has_its_interfaces_named_eth0_eth1_and_up(ready):
+def test_node_interfaces_009_a_vm_has_its_interfaces_named_eth0_eth1(ready):
     problems = []
     for node in ready.nodes:
         outcome = ready.node(f"{node} interfaces", node, interfaces_script(INTERFACES))
-        problems += [f"{node} {problem}" for problem in interface_problems(outcome.stdout, INTERFACES)]
+        problems += [f"{node} {name} missing" for name in missing_interfaces(outcome.stdout, INTERFACES)]
     require(not problems, f"{AFTER_UP}, {'; '.join(problems)}")
 
 
@@ -381,11 +372,10 @@ class SelfTest(unittest.TestCase):
     # The runner's own checks, run with --self-test; pytest must not collect them as lab cases.
     __test__ = False
 
-    def test_interfaces_must_be_there_and_up(self):
-        self.assertEqual(interface_problems("eth0 0x1003\neth1 0x1003\n", INTERFACES), [])
-        self.assertEqual(interface_problems("eth0 0x1003\neth1 0x1002\n", INTERFACES), ["eth1 down"])
-        self.assertEqual(interface_problems("eth0 0x1003\neth1 missing\n", INTERFACES), ["eth1 missing"])
-        self.assertEqual(interface_problems("", INTERFACES), ["eth0 missing", "eth1 missing"])
+    def test_interfaces_must_be_there(self):
+        self.assertEqual(missing_interfaces("eth0\neth1\n", INTERFACES), [])
+        self.assertEqual(missing_interfaces("eth0\n", INTERFACES), ["eth1"])
+        self.assertEqual(missing_interfaces("", INTERFACES), ["eth0", "eth1"])
 
     def test_a_partly_created_lab_keeps_its_id_for_cleanup(self):
         # `sherpa up` exits 1 on a partly created lab after writing lab-info.toml; the run must

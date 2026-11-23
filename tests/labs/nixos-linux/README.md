@@ -57,6 +57,6 @@ On each node, as the lab owner:
 | [`config_delivery_003`](../../specs/ztp.md) | `cloud-init status --wait` finishes cleanly: exit 0, no warnings |
 | [`node_host_keys_001`](../../specs/client-lab-files.md) | The SSH host key Sherpa pinned in `.sherpa/ssh/known_hosts` is the node's ed25519 key on disk, so it survives an sshd restart |
 | [`owner_login_027`](../../specs/accounts-and-auth.md) | The lab owner's shell is `/run/current-system/sw/bin/bash` (NixOS has no `/bin/bash`), they have a group of their own, are in `wheel` and have passwordless sudo |
-| [`node_interfaces_009`](../../specs/links-and-bridges.md) | The interfaces are named `eth0` and `eth1`, and both are up as the node booted, before anything configures them |
+| [`node_interfaces_009`](../../specs/links-and-bridges.md) | The interfaces are named `eth0` and `eth1`. Sherpa does not configure a guest's data interfaces, and the image leaves an unconfigured one down, so the case checks the names only |
 | [`boot_files_001`](../../specs/provisioning.md) | nix01's text file is owned by the lab owner and the owner's own group (`<owner>:<owner>`) with mode 600. The runner fills the manifest's `{owner}` with the owner's name, which needs the per-user groups the image turns on |
 | [`provisioner_scripts_001`](../../specs/provisioning.md) | `sherpa up` ran nix01's SSH provisioner script as the lab owner, in their home. The provisioner first waits on `cloud-init status --wait`, which needs the `cloud-init` command the image installs |
