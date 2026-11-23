@@ -18,15 +18,11 @@ pub(super) struct P2pContainerVeth {
     pub(super) veth: ContainerVeth,
 }
 
-/// What attaching the ready P2p links came to.
 pub(super) struct ReadyLinksAttached {
-    /// How many links were attached.
     pub(super) count: usize,
-    /// Ends that were made but are no longer on the host, whose links were left unattached.
     pub(super) gone_ends: Vec<String>,
 }
 
-/// A P2p link end gone from the host, and the container node it was made for.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct GoneEnd<'a> {
     pub(super) end: &'a str,
@@ -34,14 +30,7 @@ pub(super) struct GoneEnd<'a> {
 }
 
 /// Attach the eBPF redirect, and any impairment, on each P2p link not yet in `attached` whose
-/// ends both exist, by name in `ready`. An end that is in `ready` but no longer on the host, at
-/// its lookup or when its link is attached, leaves its link unattached and is returned in
-/// `gone_ends`: a container's ends go with its network namespace when it exits.
-///
-/// # Errors
-///
-/// Fails when an end cannot be looked up, or when attaching a link whose ends are both still
-/// there fails.
+/// ends both exist, by name in `ready`. Returns the count attached and the ends gone.
 #[instrument(skip_all, fields(%lab_id), level = "debug")]
 pub(super) async fn attach_ready_p2p_links(
     host: &impl LinkHost,
@@ -125,11 +114,7 @@ async fn look_up_end(host: &impl LinkHost, end: &str) -> Result<Option<u32>> {
         .with_context(|| format!("failed to look up P2p link end {end}"))
 }
 
-/// The container node whose P2p link end each of `gone` is, as `GoneEnd`s.
-///
-/// # Errors
-///
-/// Fails, naming the end, on an end that is no container's: a VM's or unikernel's tap.
+/// The container node that owns each P2p link end in `gone`.
 pub(super) fn gone_end_owners<'a>(
     gone: &'a [String],
     veths: &'a [P2pContainerVeth],
@@ -148,13 +133,7 @@ pub(super) fn gone_end_owners<'a>(
         .collect()
 }
 
-/// The nodes of `owners` to fail as exited containers, given the nodes whose containers are
-/// `running`. An exited container's ends went with its network namespace.
-///
-/// # Errors
-///
-/// Fails, naming the end and its node, on an end gone while its container still runs: the end
-/// went for another reason, and its link cannot be attached.
+/// The nodes of `owners` whose containers are not `running`.
 pub(super) fn exited_owners<'a>(
     owners: &[GoneEnd<'a>],
     running: &HashSet<&str>,
@@ -555,8 +534,6 @@ mod tests {
         }
     }
 
-    /// Link `index` from `node_a::eth1` to `node_b::eth1`, its ends `tpa<index>` and
-    /// `tpb<index>`.
     fn link(index: u16, node_a: &str, node_b: &str) -> data::LabLinkData {
         data::LabLinkData {
             index,
@@ -584,8 +561,6 @@ mod tests {
         }
     }
 
-    /// Containers c1, c2 and c3, with the links c1 <-> c2 (0) and c1 <-> c3 (1), every end
-    /// made, and the veths that made them.
     fn three_containers() -> (FakeHost, Vec<data::LabLinkData>, Vec<P2pContainerVeth>) {
         let host = FakeHost::default();
         host.make(&["tpa0", "tpb0", "tpa1", "tpb1"]);
@@ -607,7 +582,6 @@ mod tests {
     async fn p2p_link_017_a_container_whose_end_is_gone_at_its_lookup_fails_as_a_node_and_up_carries_on()
      {
         let (host, links, veths) = three_containers();
-        // c1 exited after its ends were made, and c2 is attached once c3 has started.
         host.remove(&["tpa0", "tpa1"]);
         host.make(&["tpa2", "tpb2"]);
         let links: Vec<data::LabLinkData> =
@@ -642,7 +616,6 @@ mod tests {
     async fn p2p_link_018_a_container_whose_end_goes_while_its_link_is_attached_fails_as_a_node_and_up_carries_on()
      {
         let (mut host, links, veths) = three_containers();
-        // c1 exits between the lookup of its end and the attach: "No such device".
         host.vanishing_redirects.insert("tpa0".to_string());
         let link_refs: Vec<&data::LabLinkData> = links.iter().take(1).collect();
         let mut attached = HashSet::new();

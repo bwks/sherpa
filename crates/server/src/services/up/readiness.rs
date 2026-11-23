@@ -513,8 +513,7 @@ impl Readiness<'_, '_> {
     }
 
     /// Report a container node that stopped running, with its exit code and last log lines,
-    /// and record it `Failed`. Its P2p link ends went with it, so they are no longer ready.
-    /// Returns its new state.
+    /// and record it `Failed`. Returns its new state.
     async fn fail_exited_container(
         &mut self,
         container: &topology::NodeExpanded,
@@ -597,15 +596,7 @@ impl Readiness<'_, '_> {
             .await
     }
 
-    /// Fail, as exited containers, the nodes whose P2p link ends in `gone` went with their
-    /// network namespaces. The ends of a container that exited go with it, so its links stay
-    /// unattached and the rest of the lab carries on.
-    ///
-    /// # Errors
-    ///
-    /// Fails on an end gone while its container still runs, naming the end and its node, and
-    /// when `starting`, the container being started, is one of the exited: `start_container`
-    /// reports that as the container's failure.
+    /// Fail the exited containers that own the P2p link ends in `gone`.
     async fn fail_exited_owners(
         &mut self,
         starting: &topology::NodeExpanded,
@@ -645,8 +636,7 @@ impl Readiness<'_, '_> {
         Ok(())
     }
 
-    /// Record the container `container`, started earlier in this polling, failed: it exited,
-    /// as the loss of its P2p link ends showed. It is polled no more.
+    /// Record the exited container `container` failed and stop polling it.
     async fn fail_exited_peer(&mut self, container: &topology::NodeExpanded) -> Result<()> {
         let container_name = format!("{}-{}", container.name, self.build.lab_id);
         let state = self

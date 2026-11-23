@@ -22,9 +22,6 @@ pub(crate) struct FakeHost {
     pub(crate) netem: RefCell<HashMap<u32, LinkImpairment>>,
     pub(crate) failing_lookups: HashSet<String>,
     pub(crate) failing_redirects: HashSet<String>,
-    /// Interfaces that go from the host when their redirect is attached, as a container's end
-    /// goes with its network namespace when the container exits between the end's lookup and
-    /// its attach.
     pub(crate) vanishing_redirects: HashSet<String>,
     pub(crate) failing_veths: HashSet<String>,
     /// Interfaces whose netem cannot be changed.
