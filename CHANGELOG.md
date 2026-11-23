@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0] - 2026-11-23
+
+### Upgrade notes
+
+This is a breaking release. Update the CLI and the server together.
+
+- **Back up first.** The update runs database migration 41. Back up with `sherpa server backup`.
+- **The built-in admin account is renamed `sherpa-admin`.** Migration 41 renames `admin` in place, so its password, SSH keys, lock state and labs stay with it.
+  - Log in again as `sherpa-admin` with the same password.
+  - Recovery is `sudo -u sherpa sherpad user unlock sherpa-admin`.
+  - `sherpa-admin` can't start labs, as before. Labs `admin` owned now belong to `sherpa-admin` until they're destroyed.
+  - The update refuses to run, leaving the database unchanged, if a user named `sherpa-admin` already exists.
+  - `sherpa-admin`, `superuser`, `sysadmin` and any name starting `sherpa-` are reserved, and `admin` stays reserved.
+- **Containers join private bridges through veths.** Before, they joined through Docker macvlan networks, which left a bridge with only containers on it without carrier, and stopped Cisco IOL getting unicast traffic.
+  - In labs made before 0.9.0, a container on a private bridge keeps its old interface until the node is redeployed (`sherpa redeploy -n <node>`) or the lab is rebuilt.
+  - Until then the scanner leaves it alone and logs once per lab that it's from an older release.
+
+### Bug Fixes
+
+- Leave older releases' bridge members alone in the scanner by @bwks ([8e63f1f](https://github.com/bwks/sherpa/commit/8e63f1f4a00ce2217af6ef4f098793aebd431c59))
+
+### Documentation
+
+- Cut the comments #910 adds to one-sentence function docs by @bwks ([7747eec](https://github.com/bwks/sherpa/commit/7747eecaf57b8d4bfd813d726cfb7e33c652021f))
+
+### Features
+
+- Join containers to private bridges through veths by @bwks ([6e9b7d9](https://github.com/bwks/sherpa/commit/6e9b7d9abb2f89e4e6122a92a6f430304a9f8a45))
+- Rename the built-in admin account to sherpa-admin by @bwks ([87cbbde](https://github.com/bwks/sherpa/commit/87cbbdefbd8cd641512ffcca4fc608b002b3c525))
+
+### Testing
+
+- Convert cisco-iol to pytest with case IDs by @bwks ([bce4c89](https://github.com/bwks/sherpa/commit/bce4c8978b502bbc7074584013dfb1ceaccf2b6a))
+
 ## [0.8.1] - 2026-11-23
 
 ### Upgrade notes
