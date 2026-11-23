@@ -67,9 +67,7 @@ def authenticate_case(previous_step, upgrade):
 
 
 def built_in_admin(baseline_version, previous_step):
-    """The built-in admin account of the release installed after `previous_step`: an upgrade
-    run's baseline, given by `baseline_version`, until its `upgrade` step, otherwise the
-    candidate's."""
+    """The built-in admin account of the release installed after `previous_step`."""
     if baseline_version is None or previous_step not in BASELINE_STEPS:
         return BUILT_IN_ADMIN
     release = tuple(int(part) for part in baseline_version.lstrip("v").split(".")[:3])

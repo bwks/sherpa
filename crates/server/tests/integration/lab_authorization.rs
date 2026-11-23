@@ -115,9 +115,6 @@ fn cookie(token: &str) -> String {
 }
 
 /// Log in alice and bob (regular users) and dana (a personal admin account).
-///
-/// The built-in `sherpa-admin` account cannot start lab work, so the matrix uses a personal admin;
-/// `builtin_admin_007_built_in_admin_cannot_start_lab_work_on_any_transport` covers `admin` itself.
 async fn login_callers(
     server: &TestServer,
     ws: &mut TestWsClient,

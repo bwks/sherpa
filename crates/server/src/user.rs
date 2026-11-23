@@ -72,8 +72,6 @@ mod tests {
 
     const LIMIT: u32 = 3;
 
-    /// A stopped server's database at `sherpa.sqlite` in a new folder, with `sherpa-admin` and
-    /// `bob` locked, and the path of a PID file there that does not exist yet.
     async fn stopped_server_with_locked_accounts() -> (TempDir, PathBuf, String) {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("sherpa.sqlite");

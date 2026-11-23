@@ -1702,8 +1702,6 @@ mod tests {
         assert_eq!(user.ssh_keys, Vec::<String>::new());
     }
 
-    /// A database at the version before the built-in admin's rename, with `admin` locked and
-    /// holding a key, and with `others` as users who are not admins.
     async fn database_before_the_admin_rename(others: &[&str]) -> Database {
         let db = database_at(migrations_before(migrations::RENAME_BUILTIN_ADMIN)).await;
         {
@@ -1735,7 +1733,6 @@ mod tests {
         db
     }
 
-    /// The usernames in the database, in order.
     async fn usernames(db: &Database) -> Vec<String> {
         list_users(db)
             .await

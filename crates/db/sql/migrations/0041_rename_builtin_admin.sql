@@ -1,8 +1,4 @@
--- The built-in admin account is renamed `sherpa-admin` (#895). The row keeps its id, so its
--- password, SSH keys, lock state, sessions and labs stay with it. The update trigger refuses
--- this rename, so the protecting triggers are dropped, the row renamed, and the triggers made
--- again for the new name. sherpad refuses this migration while a `sherpa-admin` user exists.
--- The message is ADMIN_PROTECTED_MESSAGE.
+-- Rename the built-in `admin` account to `sherpa-admin` and recreate its protecting triggers.
 DROP TRIGGER IF EXISTS user_protect_admin_insert;
 DROP TRIGGER IF EXISTS user_protect_admin_update;
 DROP TRIGGER IF EXISTS user_protect_admin_delete;
