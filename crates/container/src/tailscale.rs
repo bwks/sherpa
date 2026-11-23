@@ -20,13 +20,23 @@ use tokio::io::AsyncWriteExt;
 use tokio::time::{sleep, timeout};
 use tracing::instrument;
 
-use shared::data::{TailnetAuthKey, TailnetState, TailnetStatus, TailscaleGatewaySettings};
+use shared::data::{
+    DaemonLogin, TailnetAuthKey, TailnetState, TailnetStatus, TailscaleGatewaySettings,
+    daemon_login,
+};
 use shared::konst::TAILNET_DOCS_URL;
 
 use crate::status::is_missing;
 
 const LAB_LABEL: &str = "sh.erpa.tailscale.lab";
 const ROLE_LABEL: &str = "sh.erpa.role";
+
+/// Whether stopping or removing a gateway logged it out of the tailnet.
+#[derive(Debug)]
+pub enum Logout {
+    Done,
+    Failed(Error),
+}
 
 #[derive(Debug)]
 pub struct GatewayConfig {
@@ -265,6 +275,28 @@ async fn wait_for_socket(
     .context("Tailscale daemon did not become ready")?
 }
 
+/// Wait for the daemon to load its state, then report whether it holds a tailnet identity.
+async fn wait_for_login_state(
+    docker: &Docker,
+    id: &str,
+    settings: &TailscaleGatewaySettings,
+) -> Result<DaemonLogin> {
+    timeout(
+        Duration::from_secs(settings.daemon_ready_timeout_secs.into()),
+        async {
+            loop {
+                let raw = exec(docker, id, status_command(settings), None, settings).await?;
+                match daemon_login(&raw)? {
+                    DaemonLogin::Loading => sleep(Duration::from_millis(250)).await,
+                    login => return Ok::<DaemonLogin, Error>(login),
+                }
+            }
+        },
+    )
+    .await
+    .context("Tailscale daemon did not load its state")?
+}
+
 fn enrollment_command(routes: &[String], settings: &TailscaleGatewaySettings) -> Vec<String> {
     let script = r#"umask 077; trap 'rm -f /run/enrollment-key' EXIT; cat > /run/enrollment-key; tailscale "$1" up --auth-key=file:/run/enrollment-key --timeout="$3" --accept-dns=false --accept-routes=false --snat-subnet-routes=true --stateful-filtering=true --advertise-routes="$2""#;
     vec![
@@ -278,12 +310,12 @@ fn enrollment_command(routes: &[String], settings: &TailscaleGatewaySettings) ->
     ]
 }
 
-/// Start the gateway and log it in with `key`. Also used on resume, as stopping logs out.
+/// Start the gateway, log out any identity it kept, and log it in with `key`.
 ///
 /// # Errors
 ///
-/// Fails when the gateway belongs to another lab, does not start, cannot be enrolled with
-/// `key`, or does not connect in time.
+/// Fails when the gateway belongs to another lab, does not start, cannot be logged out or
+/// enrolled with `key`, or does not connect in time.
 #[instrument(skip(docker, key, settings))]
 pub async fn enroll_gateway(
     docker: &Docker,
@@ -307,6 +339,11 @@ pub async fn enroll_gateway(
         settings,
     )
     .await?;
+    if wait_for_login_state(docker, id, settings).await? == DaemonLogin::LoggedIn {
+        logout(docker, id, settings)
+            .await
+            .context("Unable to log the gateway's previous Tailscale identity out")?;
+    }
     exec(
         docker,
         id,
@@ -362,21 +399,18 @@ pub async fn gateway_status(
         status.warnings.clear();
         return Ok(status);
     }
-    let raw = exec(
-        docker,
-        id,
-        vec![
-            "tailscale".into(),
-            format!("--socket={}", settings.socket_path),
-            "status".into(),
-            "--json".into(),
-            "--peers=false".into(),
-        ],
-        None,
-        settings,
-    )
-    .await?;
+    let raw = exec(docker, id, status_command(settings), None, settings).await?;
     TailnetStatus::from_daemon(&raw, routes)
+}
+
+fn status_command(settings: &TailscaleGatewaySettings) -> Vec<String> {
+    vec![
+        "tailscale".into(),
+        format!("--socket={}", settings.socket_path),
+        "status".into(),
+        "--json".into(),
+        "--peers=false".into(),
+    ]
 }
 
 fn logout_command(settings: &TailscaleGatewaySettings) -> Vec<String> {
@@ -388,17 +422,16 @@ fn logout_command(settings: &TailscaleGatewaySettings) -> Vec<String> {
 }
 
 /// Log a running gateway out, which removes an ephemeral device from the tailnet at once.
-/// A failure is only logged: Tailscale removes an offline ephemeral device by itself later.
-async fn logout(docker: &Docker, id: &str, settings: &TailscaleGatewaySettings) {
-    match exec(docker, id, logout_command(settings), None, settings).await {
-        Ok(_) => tracing::info!("Logged Tailscale gateway out"),
-        Err(error) => {
-            tracing::warn!(error = ?error, "Unable to log Tailscale gateway out; continuing");
-        }
-    }
+#[instrument(skip(docker, settings), level = "debug")]
+async fn logout(docker: &Docker, id: &str, settings: &TailscaleGatewaySettings) -> Result<()> {
+    exec(docker, id, logout_command(settings), None, settings)
+        .await
+        .context("Unable to log Tailscale gateway out")?;
+    tracing::info!("Logged Tailscale gateway out");
+    Ok(())
 }
 
-/// Log a running gateway out, then stop it. The next resume enrolls it again.
+/// Log a running gateway out, then stop it even when the logout fails.
 ///
 /// # Errors
 ///
@@ -409,14 +442,17 @@ pub async fn stop_gateway(
     id: &str,
     lab_id: &str,
     settings: &TailscaleGatewaySettings,
-) -> Result<()> {
+) -> Result<Logout> {
     let details = inspect_owned(docker, id, lab_id).await?;
+    let mut logged_out = Logout::Done;
     if details
         .state
         .as_ref()
         .is_some_and(|s| s.running == Some(true))
     {
-        logout(docker, id, settings).await;
+        if let Err(error) = logout(docker, id, settings).await {
+            logged_out = Logout::Failed(error);
+        }
         match docker
             .stop_container(
                 id,
@@ -438,10 +474,10 @@ pub async fn stop_gateway(
             Err(error) => return Err(error).context("Unable to stop Tailscale gateway"),
         }
     }
-    Ok(())
+    Ok(logged_out)
 }
 
-/// Cleanup uses exact names plus ownership labels, including partially created labs.
+/// Log out and remove the lab's gateway and identity volume, found by exact name and labels.
 ///
 /// # Errors
 ///
@@ -451,8 +487,9 @@ pub async fn remove_gateway(
     docker: &Docker,
     lab_id: &str,
     settings: &TailscaleGatewaySettings,
-) -> Result<()> {
+) -> Result<Logout> {
     let name = gateway_name(lab_id);
+    let mut logged_out = Logout::Done;
     match docker
         .inspect_container(&name, None::<InspectContainerOptions>)
         .await
@@ -473,8 +510,9 @@ pub async fn remove_gateway(
                 .state
                 .as_ref()
                 .is_some_and(|s| s.running == Some(true))
+                && let Err(error) = logout(docker, &id, settings).await
             {
-                logout(docker, &id, settings).await;
+                logged_out = Logout::Failed(error);
             }
             match docker
                 .remove_container(
@@ -515,7 +553,7 @@ pub async fn remove_gateway(
         Err(error) if is_missing(&error) => {}
         Err(error) => return Err(error).context("Unable to inspect Tailscale identity volume"),
     }
-    Ok(())
+    Ok(logged_out)
 }
 
 #[cfg(test)]
@@ -525,23 +563,34 @@ mod tests {
     use bollard::query_parameters::{InspectNetworkOptions, LogsOptions};
     use shared::util::load_config;
     use std::io::{Read, Write};
-    use std::net::TcpListener;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::net::{TcpListener, TcpStream};
     use std::sync::mpsc::{Sender, channel};
     use std::sync::{Mutex, PoisonError};
     use std::thread;
     use tokio::runtime::Runtime;
 
-    /// A scripted Docker API: answers each expected request in turn, and fails the test on any
-    /// request beyond them.
+    const RUNNING_GATEWAY: &str = r#"{"Id":"exact-id","State":{"Running":true},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#;
+    const NO_STATE: &str = r#"{"BackendState":"NoState"}"#;
+    const LOGGED_OUT_WITH_NODE_KEY: &str = r#"{"BackendState":"NeedsLogin","HaveNodeKey":true}"#;
+    const CONNECTED: &str = r#"{"BackendState":"Running","TailscaleIPs":["100.64.0.1"],"Self":{"AllowedIPs":["192.0.2.0/24"]}}"#;
+    const TEST: &str = r#""test","-S""#;
+    const CHMOD: &str = r#""chmod""#;
+    const STATUS: &str = r#""status","--json""#;
+    const LOGOUT: &str = r#""logout""#;
+    const ENROLL: &str = r#""enroll""#;
+
+    enum Reply {
+        Json(&'static str, &'static str, &'static str),
+        Exec(&'static str, &'static str, i64),
+        Hang(&'static str),
+    }
+
     struct MockDocker {
         handle: thread::JoinHandle<()>,
         done: Sender<()>,
     }
 
     impl MockDocker {
-        /// Check that every scripted request arrived and no other did.
         fn finish(self) {
             self.done.send(()).unwrap();
             self.handle.join().unwrap();
@@ -586,39 +635,13 @@ mod tests {
 
     #[tokio::test]
     async fn tailnet_settings_005_a_gateway_command_past_the_command_timeout_fails_as_timed_out() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let mock = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
-                .unwrap();
-            let mut headers = Vec::new();
-            let mut byte = [0];
-            while !headers.ends_with(b"\r\n\r\n") {
-                stream.read_exact(&mut byte).unwrap();
-                headers.push(byte[0]);
-            }
-            thread::sleep(Duration::from_millis(1300));
-            let body = r#"{"message":"delayed response"}"#;
-            let _ = write!(
-                stream,
-                "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
-        });
-        let docker = Docker::connect_with_http(
-            &format!("http://{address}"),
-            5,
-            bollard::API_DEFAULT_VERSION,
-        )
-        .unwrap();
+        let (docker, mock) = mock_docker(vec![Reply::Hang("/containers/gateway-id/exec")]);
         let settings = TailscaleGatewaySettings {
             exec_timeout_secs: 1,
             ..Default::default()
         };
         let result = exec(&docker, "gateway-id", vec!["test".into()], None, &settings).await;
-        mock.join().unwrap();
+        mock.finish();
         assert!(
             result
                 .unwrap_err()
@@ -627,18 +650,16 @@ mod tests {
         );
     }
 
-    const RUNNING_GATEWAY: &str = r#"{"Id":"exact-id","State":{"Running":true},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#;
-
     #[tokio::test]
     async fn tailnet_settings_006_the_stop_timeout_is_the_grace_period_docker_is_given() {
         let (docker, mock) = mock_docker(vec![
-            ("/containers/exact-id/json", "200 OK", RUNNING_GATEWAY),
-            (
+            Reply::Json("/containers/exact-id/json", "200 OK", RUNNING_GATEWAY),
+            Reply::Json(
                 "/containers/exact-id/exec",
                 "500 Internal Server Error",
                 r#"{"message":"exec unavailable"}"#,
             ),
-            ("/containers/exact-id/stop?t=17", "204 No Content", ""),
+            Reply::Json("/containers/exact-id/stop?t=17", "204 No Content", ""),
         ]);
         let settings = TailscaleGatewaySettings {
             stop_timeout_secs: 17,
@@ -650,78 +671,192 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tailnet_suspend_004_a_gateway_whose_logout_fails_is_still_stopped() {
+    async fn tailnet_removal_002_a_running_gateway_is_logged_out_before_it_is_removed() {
         let (docker, mock) = mock_docker(vec![
-            ("/containers/exact-id/json", "200 OK", RUNNING_GATEWAY),
-            (
-                "/containers/exact-id/exec",
-                "500 Internal Server Error",
-                r#"{"message":"exec unavailable"}"#,
-            ),
-            ("/containers/exact-id/stop", "204 No Content", ""),
-        ]);
-        let result = stop_gateway(
-            &docker,
-            "exact-id",
-            "test1234",
-            &TailscaleGatewaySettings::default(),
-        )
-        .await;
-        mock.finish();
-        result.unwrap();
-    }
-
-    #[tokio::test]
-    async fn tailnet_removal_002_a_running_gateway_is_logged_out_and_removed_even_when_logout_fails()
-     {
-        let (docker, mock) = mock_docker(vec![
-            (
+            Reply::Json(
                 "/containers/sherpa-tailnet-test1234/json",
                 "200 OK",
                 RUNNING_GATEWAY,
             ),
-            (
-                "/containers/exact-id/exec",
-                "500 Internal Server Error",
-                r#"{"message":"exec unavailable"}"#,
-            ),
-            ("/containers/exact-id?", "204 No Content", ""),
-            (
+            Reply::Exec(LOGOUT, "", 0),
+            Reply::Json("/containers/exact-id?", "204 No Content", ""),
+            Reply::Json(
                 "/volumes/sherpa-tailnet-state-test1234",
                 "404 Not Found",
                 r#"{"message":"missing"}"#,
             ),
         ]);
-        remove_gateway(&docker, "test1234", &TailscaleGatewaySettings::default())
+        let removed = remove_gateway(&docker, "test1234", &TailscaleGatewaySettings::default())
             .await
             .unwrap();
         mock.finish();
+        assert!(matches!(removed, Logout::Done));
     }
 
-    fn mock_docker(
-        responses: Vec<(&'static str, &'static str, &'static str)>,
-    ) -> (Docker, MockDocker) {
+    #[tokio::test]
+    async fn tailnet_suspend_017_a_resume_logs_out_an_identity_kept_from_an_unplanned_stop_then_enrolls()
+     {
+        let (docker, mock) = mock_docker(vec![
+            Reply::Json("/containers/exact-id/json", "200 OK", RUNNING_GATEWAY),
+            Reply::Json("/containers/exact-id/start", "204 No Content", ""),
+            Reply::Exec(TEST, "", 0),
+            Reply::Exec(CHMOD, "", 0),
+            Reply::Exec(STATUS, NO_STATE, 0),
+            Reply::Exec(STATUS, CONNECTED, 0),
+            Reply::Exec(LOGOUT, "", 0),
+            Reply::Exec(ENROLL, "", 0),
+            Reply::Json("/containers/exact-id/json", "200 OK", RUNNING_GATEWAY),
+            Reply::Exec(STATUS, CONNECTED, 0),
+        ]);
+        let status = enroll_gateway(
+            &docker,
+            "exact-id",
+            "test1234",
+            &["192.0.2.0/24".into()],
+            &TailnetAuthKey::new("tskey-auth-fixture".into()),
+            &TailscaleGatewaySettings::default(),
+        )
+        .await
+        .unwrap();
+        mock.finish();
+        assert_eq!(status.state, TailnetState::Connected);
+    }
+
+    #[tokio::test]
+    async fn tailnet_suspend_020_a_resume_after_a_failed_logout_logs_out_the_node_key_kept_then_enrolls()
+     {
+        let (docker, mock) = mock_docker(vec![
+            Reply::Json("/containers/exact-id/json", "200 OK", RUNNING_GATEWAY),
+            Reply::Json("/containers/exact-id/start", "204 No Content", ""),
+            Reply::Exec(TEST, "", 0),
+            Reply::Exec(CHMOD, "", 0),
+            Reply::Exec(STATUS, LOGGED_OUT_WITH_NODE_KEY, 0),
+            Reply::Exec(LOGOUT, "", 0),
+            Reply::Exec(ENROLL, "", 0),
+            Reply::Json("/containers/exact-id/json", "200 OK", RUNNING_GATEWAY),
+            Reply::Exec(STATUS, CONNECTED, 0),
+        ]);
+        enroll_gateway(
+            &docker,
+            "exact-id",
+            "test1234",
+            &["192.0.2.0/24".into()],
+            &TailnetAuthKey::new("tskey-auth-fixture".into()),
+            &TailscaleGatewaySettings::default(),
+        )
+        .await
+        .unwrap();
+        mock.finish();
+    }
+
+    #[tokio::test]
+    async fn tailnet_suspend_018_a_resume_whose_stale_identity_logout_fails_is_refused_unenrolled()
+    {
+        let (docker, mock) = mock_docker(vec![
+            Reply::Json("/containers/exact-id/json", "200 OK", RUNNING_GATEWAY),
+            Reply::Json("/containers/exact-id/start", "204 No Content", ""),
+            Reply::Exec(TEST, "", 0),
+            Reply::Exec(CHMOD, "", 0),
+            Reply::Exec(STATUS, CONNECTED, 0),
+            Reply::Exec(LOGOUT, "", 1),
+        ]);
+        let result = enroll_gateway(
+            &docker,
+            "exact-id",
+            "test1234",
+            &["192.0.2.0/24".into()],
+            &TailnetAuthKey::new("tskey-auth-fixture".into()),
+            &TailscaleGatewaySettings::default(),
+        )
+        .await;
+        mock.finish();
+        assert!(result.is_err());
+    }
+
+    fn accept(listener: &TcpListener) -> (TcpStream, String, String) {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut head = Vec::new();
+        let mut byte = [0];
+        while !head.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).unwrap();
+            head.push(byte[0]);
+        }
+        let head = String::from_utf8(head).unwrap();
+        let length = head
+            .lines()
+            .filter_map(|line| line.split_once(':'))
+            .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+            .map_or(0, |(_, value)| value.trim().parse().unwrap());
+        let mut body = vec![0; length];
+        stream.read_exact(&mut body).unwrap();
+        let request = head.lines().next().unwrap().to_owned();
+        (stream, request, String::from_utf8(body).unwrap())
+    }
+
+    fn respond(stream: &mut TcpStream, status: &str, body: &str) {
+        write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+    }
+
+    fn mock_docker(replies: Vec<Reply>) -> (Docker, MockDocker) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let (done, finished) = channel();
         let handle = thread::spawn(move || {
-            for (path, status, body) in responses {
-                let (mut stream, _) = listener.accept().unwrap();
-                stream
-                    .set_read_timeout(Some(Duration::from_secs(5)))
-                    .unwrap();
-                let mut request = Vec::new();
-                let mut byte = [0];
-                while !request.ends_with(b"\r\n\r\n") {
-                    stream.read_exact(&mut byte).unwrap();
-                    request.push(byte[0]);
+            let mut unanswered = Vec::new();
+            for reply in replies {
+                match reply {
+                    Reply::Json(path, status, body) => {
+                        let (mut stream, request, _) = accept(&listener);
+                        assert!(request.contains(path), "unexpected request: {request}");
+                        respond(&mut stream, status, body);
+                    }
+                    Reply::Hang(path) => {
+                        let (stream, request, _) = accept(&listener);
+                        assert!(request.contains(path), "unexpected request: {request}");
+                        unanswered.push(stream);
+                    }
+                    Reply::Exec(command, output, exit) => {
+                        let (mut stream, request, created) = accept(&listener);
+                        assert!(
+                            request.contains("/exec ") && created.contains(command),
+                            "unexpected request: {request} {created}"
+                        );
+                        respond(&mut stream, "201 Created", r#"{"Id":"exec-id"}"#);
+                        let (mut stream, request, _) = accept(&listener);
+                        assert!(
+                            request.contains("/exec/exec-id/start"),
+                            "unexpected request: {request}"
+                        );
+                        stream
+                            .write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n")
+                            .unwrap();
+                        if created.contains(r#""AttachStdin":true"#) {
+                            stream.read_to_end(&mut Vec::new()).unwrap();
+                        }
+                        if !output.is_empty() {
+                            let mut frame = vec![1, 0, 0, 0];
+                            frame.extend_from_slice(
+                                &u32::try_from(output.len()).unwrap().to_be_bytes(),
+                            );
+                            frame.extend_from_slice(output.as_bytes());
+                            stream.write_all(&frame).unwrap();
+                        }
+                        drop(stream);
+                        let (mut stream, request, _) = accept(&listener);
+                        assert!(
+                            request.contains("/exec/exec-id/json"),
+                            "unexpected request: {request}"
+                        );
+                        respond(
+                            &mut stream,
+                            "200 OK",
+                            &format!(r#"{{"Running":false,"ExitCode":{exit}}}"#),
+                        );
+                    }
                 }
-                let request = String::from_utf8(request).unwrap();
-                assert!(
-                    request.lines().next().unwrap().contains(path),
-                    "unexpected request: {request}"
-                );
-                write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
             }
             finished.recv().unwrap();
             listener.set_nonblocking(true).unwrap();
@@ -753,12 +888,12 @@ mod tests {
     #[tokio::test]
     async fn tailnet_removal_003_removing_the_gateway_of_a_lab_that_has_none_succeeds() {
         let (docker, mock) = mock_docker(vec![
-            (
+            Reply::Json(
                 "/containers/sherpa-tailnet-test1234/json",
                 "404 Not Found",
                 r#"{"message":"missing"}"#,
             ),
-            (
+            Reply::Json(
                 "/volumes/sherpa-tailnet-state-test1234",
                 "404 Not Found",
                 r#"{"message":"missing"}"#,
@@ -773,7 +908,7 @@ mod tests {
     #[tokio::test]
     async fn tailnet_removal_004_a_gateway_with_another_labs_labels_is_refused_and_nothing_removed()
     {
-        let (docker, mock) = mock_docker(vec![(
+        let (docker, mock) = mock_docker(vec![Reply::Json(
             "/containers/sherpa-tailnet-test1234/json",
             "200 OK",
             r#"{"Id":"foreign","Config":{"Labels":{"sh.erpa.tailscale.lab":"another","sh.erpa.role":"tailnet-gateway"}}}"#,
@@ -790,7 +925,7 @@ mod tests {
 
     #[tokio::test]
     async fn tailnet_suspend_005_a_stopped_gateway_is_neither_logged_out_nor_stopped_again() {
-        let (docker, mock) = mock_docker(vec![(
+        let (docker, mock) = mock_docker(vec![Reply::Json(
             "/containers/exact-id/json",
             "200 OK",
             r#"{"Id":"exact-id","State":{"Running":false},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#,
@@ -809,12 +944,12 @@ mod tests {
     #[tokio::test]
     async fn tailnet_removal_005_the_identity_volume_stays_when_the_gateway_cannot_be_removed() {
         let (docker, mock) = mock_docker(vec![
-            (
+            Reply::Json(
                 "/containers/sherpa-tailnet-test1234/json",
                 "200 OK",
                 r#"{"Id":"exact-id","Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#,
             ),
-            (
+            Reply::Json(
                 "/containers/exact-id?",
                 "500 Internal Server Error",
                 r#"{"message":"daemon failure"}"#,
@@ -834,7 +969,6 @@ mod tests {
             socket_path: "/run/overridden/status.sock".into(),
             ..Default::default()
         };
-        let own_output = r#"{"BackendState":"Running","TailscaleIPs":["100.64.0.1"],"Self":{"AllowedIPs":["192.0.2.0/24"]}}"#;
         let capabilities = [r#""https://tailscale.com/cap/file-sharing""#; 10].join(",");
         let peers = (0..3000)
             .map(|index| {
@@ -844,78 +978,23 @@ mod tests {
             .join(",");
         let full_output = format!(
             r#"{},"Peer":{{{peers}}}}}"#,
-            own_output.trim_end().strip_suffix('}').unwrap()
+            CONNECTED.strip_suffix('}').unwrap()
         );
         assert!(full_output.len() > 1024 * 1024);
         TailnetStatus::from_daemon(&full_output, vec!["192.0.2.0/24".into()]).unwrap();
 
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let stop = Arc::new(AtomicBool::new(false));
-        let server_stop = Arc::clone(&stop);
-        let mock = thread::spawn(move || {
-            let mut own_only = false;
-            while !server_stop.load(Ordering::SeqCst) {
-                let (mut stream, _) = match listener.accept() {
-                    Ok(connection) => connection,
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        thread::sleep(Duration::from_millis(5));
-                        continue;
-                    }
-                    Err(error) => panic!("Unable to accept mock Docker request: {error}"),
-                };
-                stream
-                    .set_read_timeout(Some(Duration::from_secs(5)))
-                    .unwrap();
-                let mut headers = Vec::new();
-                let mut byte = [0];
-                while !headers.ends_with(b"\r\n\r\n") {
-                    stream.read_exact(&mut byte).unwrap();
-                    headers.push(byte[0]);
-                }
-                let headers = String::from_utf8(headers).unwrap();
-                let length = headers
-                    .lines()
-                    .filter_map(|line| line.split_once(':'))
-                    .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
-                    .map_or(0, |(_, value)| value.trim().parse::<usize>().unwrap());
-                let mut body = vec![0; length];
-                stream.read_exact(&mut body).unwrap();
-                let request = headers.lines().next().unwrap();
-                let response = if request.contains("/containers/gateway-id/json") {
-                    r#"{"Id":"gateway-id","State":{"Running":true},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#
-                } else if request.contains("/containers/gateway-id/exec") {
-                    let body = String::from_utf8(body).unwrap();
-                    own_only = body.contains(r#""--peers=false""#)
-                        && body.contains("--socket=/run/overridden/status.sock");
-                    r#"{"Id":"status-id"}"#
-                } else if request.contains("/exec/status-id/start") {
-                    stream
-                        .write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n")
-                        .unwrap();
-                    let output = if own_only { own_output } else { &full_output };
-                    let mut frame = vec![1, 0, 0, 0];
-                    frame.extend_from_slice(&u32::try_from(output.len()).unwrap().to_be_bytes());
-                    frame.extend_from_slice(output.as_bytes());
-                    // The original bug closes the stream upon reaching the response limit.
-                    let _ = stream.write_all(&frame);
-                    continue;
-                } else if request.contains("/exec/status-id/json") {
-                    r#"{"Running":false,"ExitCode":0}"#
-                } else {
-                    panic!("Unexpected mock Docker request: {request}");
-                };
-                let body = response;
-                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
-            }
-        });
-        let docker = Docker::connect_with_http(
-            &format!("http://{address}"),
-            5,
-            bollard::API_DEFAULT_VERSION,
-        )
-        .unwrap();
+        let (docker, mock) = mock_docker(vec![
+            Reply::Json(
+                "/containers/gateway-id/json",
+                "200 OK",
+                r#"{"Id":"gateway-id","State":{"Running":true},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#,
+            ),
+            Reply::Exec(
+                r#""--socket=/run/overridden/status.sock","status","--json","--peers=false""#,
+                CONNECTED,
+                0,
+            ),
+        ]);
         let result = gateway_status(
             &docker,
             "gateway-id",
@@ -924,11 +1003,10 @@ mod tests {
             &settings,
         )
         .await;
-        stop.store(true, Ordering::SeqCst);
-        mock.join().unwrap();
+        mock.finish();
         let status = result.expect("a large tailnet must not prevent gateway status checks");
         assert_eq!(status.state, TailnetState::Connected);
-        assert_eq!(status.warnings, [] as [std::string::String; 0]);
+        assert_eq!(status.warnings, [] as [String; 0]);
         assert_eq!(status.tailscale_ips, vec!["100.64.0.1"]);
     }
 
@@ -995,7 +1073,10 @@ mod tests {
         async fn remove(self, result: Result<()>) -> Result<()> {
             let cleanup = remove_gateway(&self.docker, &self.config.lab_id, &self.settings).await;
             result?;
-            cleanup
+            match cleanup? {
+                Logout::Done => Ok(()),
+                Logout::Failed(error) => Err(error),
+            }
         }
     }
 
@@ -1186,7 +1267,9 @@ mod tests {
             let cleanup = remove_gateway(&self.docker, &self.config.lab_id, &self.settings).await;
             let network_cleanup = self.docker.remove_network(&self.network_id).await;
             result?;
-            cleanup?;
+            if let Logout::Failed(error) = cleanup? {
+                return Err(error);
+            }
             network_cleanup?;
             Ok(())
         }

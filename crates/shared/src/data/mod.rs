@@ -129,4 +129,6 @@ pub use ws::ConnectedMsg;
 pub use ztp::ZtpRecord;
 
 pub mod tailscale;
-pub use tailscale::{RouteApproval, TailnetAuthKey, TailnetState, TailnetStatus};
+pub use tailscale::{
+    DaemonLogin, RouteApproval, TailnetAuthKey, TailnetState, TailnetStatus, daemon_login,
+};

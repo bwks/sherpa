@@ -17,8 +17,8 @@ pub(crate) fn resolve_tailscale_key(
     })
 }
 
-/// The key a resume sends. `down` logs the gateway out, so a whole-lab resume of a Tailscale
-/// lab enrolls it again; a single-node resume leaves the gateway alone and sends none.
+/// The key a resume sends. A whole-lab resume of a Tailscale lab enrolls the gateway as a new
+/// device; a single-node resume leaves the gateway alone and sends none.
 /// Without the lab's manifest there is no key to send, and the server explains if one is needed.
 #[tracing::instrument(skip(manifest, config), level = "debug")]
 pub(crate) fn resolve_resume_tailscale_key(

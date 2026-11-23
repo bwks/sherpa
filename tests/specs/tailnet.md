@@ -74,7 +74,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `tailnet_suspend`: down takes the gateway off the tailnet and resume enrolls it again
 
-**Statement:** a whole-lab down logs the gateway out of the tailnet and stops it; a whole-lab resume enrolls it again, with a key read as up reads it, before any node starts; stopping, resuming or redeploying one node leaves the gateway as it is.
+**Statement:** a whole-lab down logs the gateway out of the tailnet and stops it, and reports a logout that fails as a failure; a whole-lab resume logs out any identity the gateway kept and enrolls it as a new device, with a key read as up reads it, before any node starts; stopping, resuming or redeploying one node leaves the gateway as it is.
 **Relied on by:** the user; the tailnet's admin, who expects no device for a lab that is down. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -82,7 +82,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 001 | After `sherpa down` the gateway is stopped, its device is gone from the tailnet when the key was ephemeral, and the nodes no longer answer from the tailnet (no test yet; real tailnet) | e2e |
 | 002 | `sherpa resume` in the lab folder with the variable set prints the gateway connected again, and a node answers from the tailnet again (no test yet; real tailnet) | e2e |
 | 003 | A gateway that was stopped reports stopped, and enrolled again reports connected (real tailnet) | integration |
-| 004 | A gateway whose logout fails is still stopped (mock Docker) | unit |
+| 004 | Retired: a failed logout is now a failure of down; see 016 | — |
 | 005 | A gateway that is already stopped is neither logged out nor stopped again (mock Docker) | unit |
 | 006 | The server refuses a whole-lab resume of a lab with a gateway that has no key, a malformed key, or TLS off | unit |
 | 007 | The server refuses a key it would not use: for a lab with no gateway, and for a single-node resume; without a key both go on | unit |
@@ -94,16 +94,21 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 013 | A whole-lab resume whose enrollment fails starts no node (no test yet; real tailnet) | e2e |
 | 014 | A whole-lab resume from the web UI of a lab with a gateway is refused, saying to run `sherpa resume` in the lab folder (no test yet; real tailnet) | e2e |
 | 015 | A whole-lab down lists the gateway beside the nodes as stopped, and a gateway that cannot be stopped as failed (no test yet) | integration |
+| 016 | Down reports a gateway whose logout fails as a failed result, saying it was stopped but not logged out, and still stops it (mock Docker) | unit |
+| 017 | A resume of a gateway still logged in from an unplanned stop, once its daemon has loaded its state, logs it out, then enrolls it with the key (mock Docker) | unit |
+| 018 | A resume whose logout of the gateway's old identity fails is refused, and nothing is enrolled; that no node starts is 013 (mock Docker) | unit |
+| 019 | After `systemctl restart docker` with the lab up, `sherpa resume` brings the gateway back as a new device, not its old identity (no test yet; real tailnet) | e2e |
+| 020 | A resume of a gateway whose logout at down failed, which reports needing login but still holds its node key, logs it out, then enrolls it with the key (mock Docker) | unit |
 
 ## `tailnet_removal`: destroy takes the gateway and its identity away, and only its own
 
-**Statement:** destroy, an admin's clean and the rollback of a failed up log a running gateway out, then remove the gateway container and its identity volume; they touch only a gateway and a volume labelled as the lab's, and when either cannot be removed the lab keeps its record so the removal can be run again.
+**Statement:** destroy, an admin's clean and the rollback of a failed up log a running gateway out, then remove the gateway container and its identity volume; they touch only a gateway and a volume labelled as the lab's, and when the logout fails or either cannot be removed the lab keeps its record so the removal can be run again.
 **Relied on by:** the user and the tailnet's admin: no device and no identity outlive the lab; the other labs on the server. **Priority:** P0.
 
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | After `sherpa destroy` the lab's gateway container and identity volume are gone, and its device is gone from the tailnet when the key was ephemeral (no test yet; real tailnet) | e2e |
-| 002 | A running gateway is logged out before it is removed, and is removed even when the logout fails (mock Docker) | unit |
+| 002 | A running gateway is logged out before it is removed (mock Docker) | unit |
 | 003 | Removing the gateway of a lab that has none succeeds (mock Docker) | unit |
 | 004 | A container with the gateway's name but another lab's labels is refused, and nothing is removed (mock Docker) | unit |
 | 005 | When the gateway container cannot be removed, its identity volume is left in place (mock Docker) | unit |
@@ -113,6 +118,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 009 | An identity volume that cannot be removed is reported and retried the same way (mock Docker) | unit |
 | 010 | On real Docker, a gateway and its volume are both gone after removal, and a volume another container still holds fails the removal until it is let go (no test yet) | integration |
 | 011 | `sherpa server clean <lab_id>` removes a lab's gateway and identity volume as destroy does (no test yet; real tailnet) | e2e |
+| 012 | A logout that fails is reported by destroy as a Tailscale failure saying the device may remain on the tailnet; the gateway and its volume are still removed, the lab's folder and record are kept, and a second destroy finishes (mock Docker) | unit |
 
 A lab keeping its record after any resource fails to be removed is `lab_destroy_004` in [lab lifecycle](lab-lifecycle.md).
 
@@ -134,7 +140,7 @@ A lab keeping its record after any resource fails to be removed is `lab_destroy_
 
 ## Cases that need a real tailnet
 
-`tailnet_join_001` to `003`, `tailnet_key_010`, `tailnet_routes_003` to `005`, `tailnet_status_011` and `012`, `tailnet_suspend_001` to `003` and `011` to `014`, and `tailnet_removal_001` and `011` join a tailnet at Tailscale. `tailnet_join_004` needs a route to Tailscale but no tailnet, as the key it uses is refused. They need:
+`tailnet_join_001` to `003`, `tailnet_key_010`, `tailnet_routes_003` to `005`, `tailnet_status_011` and `012`, `tailnet_suspend_001` to `003`, `011` to `014` and `019`, and `tailnet_removal_001` and `011` join a tailnet at Tailscale. `tailnet_join_004` needs a route to Tailscale but no tailnet, as the key it uses is refused. They need:
 
 - a tailnet kept for tests, and an auth key for it that is reusable, ephemeral, pre-approved and tagged, given to the run in `SHERPA_TEST_TAILSCALE_AUTH_KEY` as the VM code suite takes it today;
 - a server with TLS on and a CLI that reaches it over `wss://` with the certificate checked, as nothing enrolls otherwise;

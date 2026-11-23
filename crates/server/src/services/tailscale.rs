@@ -102,8 +102,8 @@ pub(crate) async fn inspect(state: &AppState, lab: &DbLab) -> Option<TailnetStat
     }
 }
 
-/// The key a resume enrolls the gateway with. `down` logs the gateway out, so resuming a
-/// whole lab that has one needs a key; resuming one node leaves the gateway alone.
+/// The key a resume enrolls the gateway with. A whole-lab resume enrolls the gateway as a new
+/// device, so it needs a key; resuming one node leaves the gateway alone.
 #[instrument(skip(key), level = "debug")]
 pub(crate) fn resume_credential(
     has_gateway: bool,
@@ -141,7 +141,7 @@ pub(crate) fn resume_credential(
     Ok(Some(key))
 }
 
-/// Enroll the gateway again, as `down` logged it out.
+/// Enroll the gateway as a new device, logging out any identity it kept.
 #[instrument(skip(state, lab, key), fields(lab_id = %lab.lab_id))]
 pub(crate) async fn resume(
     state: &AppState,

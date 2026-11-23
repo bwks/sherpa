@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use opentelemetry::KeyValue;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
-use container::tailscale::{gateway_name, is_gateway, remove_gateway};
+use container::tailscale::{Logout, gateway_name, is_gateway, remove_gateway};
 use container::{
     Docker, delete_network, kill_container, list_containers, list_networks, remove_container,
 };
@@ -614,16 +614,27 @@ pub(crate) async fn destroy_containers(
 
     // Remove ordinary nodes first, including nodes named like the gateway.
     // Gateway cleanup still runs if listing or removing ordinary nodes fails.
-    if let Err(error) = remove_gateway(docker, lab_id, settings).await {
-        errors.push(DestroyError::new(
+    match remove_gateway(docker, lab_id, settings).await {
+        Ok(Logout::Done) => {}
+        Ok(Logout::Failed(error)) => errors.push(DestroyError::new(
             "tailscale",
             lab_id,
             format!(
-                "{}; lab ownership and saved configuration retained for a cleanup retry",
-                Unexpected::log(&error, "Failed to remove the Tailscale gateway")
+                "Tailscale gateway removed, but not logged out of the tailnet: {}; its device may remain on the tailnet. Lab ownership and saved configuration retained; destroy again to finish",
+                Unexpected::log(&error, "Unable to log the Tailscale gateway out")
             ),
-        ));
-        summary.containers_failed.push(gateway_name(lab_id));
+        )),
+        Err(error) => {
+            errors.push(DestroyError::new(
+                "tailscale",
+                lab_id,
+                format!(
+                    "{}; lab ownership and saved configuration retained for a cleanup retry",
+                    Unexpected::log(&error, "Failed to remove the Tailscale gateway")
+                ),
+            ));
+            summary.containers_failed.push(gateway_name(lab_id));
+        }
     }
 }
 
@@ -917,18 +928,13 @@ pub(crate) async fn destroy_interfaces(
 mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Mutex};
 
-    use axum::http::{Method, StatusCode, Uri};
-    use axum::{Json, Router};
-    use bollard::Docker;
-    use serde_json::{Value, json};
+    use serde_json::json;
     use tempfile::tempdir;
-    use tokio::net::TcpListener;
-    use tokio::task::JoinHandle;
 
     use super::*;
     use crate::konst::LAB_CERTS_DIR;
+    use crate::services::docker_mock::{DockerMock, Fault};
 
     /// A libvirt URI whose socket does not exist, so connecting always fails.
     const UNREACHABLE_QEMU_URI: &str = "qemu+unix:///system?socket=/nonexistent/sherpa-test.sock";
@@ -1006,90 +1012,6 @@ mod tests {
         }
     }
 
-    struct DockerMock {
-        docker: Docker,
-        requests: Arc<Mutex<Vec<String>>>,
-        task: JoinHandle<()>,
-    }
-
-    impl DockerMock {
-        async fn new(containers: Value, gateway_failure: bool, volume_failure: bool) -> Self {
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let address = listener.local_addr().unwrap();
-            let requests = Arc::new(Mutex::new(Vec::new()));
-            let captured = Arc::clone(&requests);
-            let router = Router::new().fallback(move |method: Method, uri: Uri| {
-                let captured = Arc::clone(&captured);
-                let containers = containers.clone();
-                async move {
-                    captured.lock().unwrap().push(format!("{method} {uri}"));
-                    let path = uri.path();
-                    let (status, body) = if path.ends_with("/containers/json") {
-                        (StatusCode::OK, containers)
-                    } else if method == Method::GET
-                        && path.ends_with("/containers/sherpa-tailnet-test1234/json")
-                        && gateway_failure
-                    {
-                        (
-                            StatusCode::OK,
-                            json!({"Id":"gateway-id","Config":{"Labels":{
-                                "sh.erpa.tailscale.lab":"test1234",
-                                "sh.erpa.role":"tailnet-gateway"
-                            }}}),
-                        )
-                    } else if method == Method::GET
-                        && path.ends_with("/volumes/sherpa-tailnet-state-test1234")
-                        && volume_failure
-                    {
-                        (
-                            StatusCode::OK,
-                            json!({"Name":"sherpa-tailnet-state-test1234",
-                                "Driver":"local","Mountpoint":"/mock/volume",
-                                "Options":{},"Scope":"local","Labels":{
-                                "sh.erpa.tailscale.lab":"test1234",
-                                "sh.erpa.role":"tailnet-gateway"
-                            }}),
-                        )
-                    } else if method == Method::DELETE
-                        && ((path.ends_with("/containers/gateway-id") && gateway_failure)
-                            || (path.ends_with("/volumes/sherpa-tailnet-state-test1234")
-                                && volume_failure))
-                    {
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            json!({"message":"cleanup failed"}),
-                        )
-                    } else if method == Method::DELETE || path.ends_with("/kill") {
-                        (StatusCode::NO_CONTENT, Value::Null)
-                    } else {
-                        (StatusCode::NOT_FOUND, json!({"message":"missing"}))
-                    };
-                    (status, Json(body))
-                }
-            });
-            let task = tokio::spawn(async move {
-                axum::serve(listener, router).await.unwrap();
-            });
-            let docker = Docker::connect_with_http(
-                &format!("http://{address}"),
-                5,
-                bollard::API_DEFAULT_VERSION,
-            )
-            .unwrap();
-            Self {
-                docker,
-                requests,
-                task,
-            }
-        }
-    }
-
-    impl Drop for DockerMock {
-        fn drop(&mut self) {
-            self.task.abort();
-        }
-    }
-
     #[tokio::test]
     async fn tailnet_removal_006_node_containers_named_like_a_gateway_are_removed_as_nodes() {
         let mock = DockerMock::new(
@@ -1097,8 +1019,7 @@ mod tests {
                 {"Id":"node-id","Names":["/sherpa-tailnet-app-test1234"],"Labels":{}},
                 {"Id":"exact-name-node","Names":["/sherpa-tailnet-test1234"],"Labels":{}}
             ]),
-            false,
-            false,
+            None,
         )
         .await;
         let mut summary = DestroySummary::default();
@@ -1129,8 +1050,7 @@ mod tests {
                 "sh.erpa.tailscale.lab":"another",
                 "sh.erpa.role":"tailnet-gateway"
             }}]),
-            false,
-            false,
+            None,
         )
         .await;
         let mut summary = DestroySummary::default();
@@ -1154,14 +1074,14 @@ mod tests {
         );
     }
 
-    async fn assert_gateway_cleanup_can_be_retried(gateway_failure: bool, volume_failure: bool) {
+    async fn assert_gateway_cleanup_can_be_retried(fault: Fault) -> Vec<DestroyError> {
         let root = tempdir().unwrap();
         let lab_dir = root.path().join("test1234");
         fs::create_dir(&lab_dir).unwrap();
         let lab_file = lab_dir.join(OLD_LAB_KEY);
         fs::write(&lab_file, "lab key").unwrap();
         let database_deleted = AtomicBool::new(false);
-        let mock = DockerMock::new(json!([]), gateway_failure, volume_failure).await;
+        let mock = DockerMock::new(json!([]), Some(fault)).await;
         let mut summary = DestroySummary::default();
         let mut errors = Vec::new();
         destroy_containers(
@@ -1174,17 +1094,22 @@ mod tests {
         .await;
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].resource_type, "tailscale");
-        let failed_resource = if gateway_failure {
-            "/containers/gateway-id"
-        } else {
-            "/volumes/sherpa-tailnet-state-test1234"
-        };
-        assert!(
+        let deleted = |resource: &str| {
             mock.requests
                 .lock()
                 .unwrap()
                 .iter()
-                .any(|request| request.starts_with("DELETE ") && request.contains(failed_resource))
+                .any(|request| request.starts_with("DELETE ") && request.contains(resource))
+        };
+        assert_eq!(
+            deleted("/containers/gateway-id"),
+            fault != Fault::Volume,
+            "gateway removal"
+        );
+        assert_eq!(
+            deleted("/volumes/sherpa-tailnet-state-test1234"),
+            fault != Fault::Gateway,
+            "volume removal"
         );
         cleanup_lab_metadata(
             "test1234",
@@ -1203,7 +1128,8 @@ mod tests {
         assert!(!summary.lab_directory_deleted);
         assert_eq!(fs::read_to_string(&lab_file).unwrap(), "lab key");
 
-        let retry = DockerMock::new(json!([]), false, false).await;
+        let first_errors = errors;
+        let retry = DockerMock::new(json!([]), None).await;
         let mut summary = DestroySummary::default();
         let mut errors = Vec::new();
         destroy_containers(
@@ -1231,17 +1157,31 @@ mod tests {
         assert!(summary.lab_directory_deleted);
         assert!(!lab_dir.exists());
         assert!(errors.is_empty());
+        first_errors
     }
 
     #[tokio::test]
     async fn tailnet_removal_008_a_gateway_that_cannot_be_removed_keeps_the_lab_until_a_retry() {
-        assert_gateway_cleanup_can_be_retried(true, false).await;
+        assert_gateway_cleanup_can_be_retried(Fault::Gateway).await;
     }
 
     #[tokio::test]
     async fn tailnet_removal_009_an_identity_volume_that_cannot_be_removed_keeps_the_lab_until_a_retry()
      {
-        assert_gateway_cleanup_can_be_retried(false, true).await;
+        assert_gateway_cleanup_can_be_retried(Fault::Volume).await;
+    }
+
+    #[tokio::test]
+    async fn tailnet_removal_012_a_failed_logout_is_a_tailscale_error_that_keeps_the_lab_until_a_retry()
+     {
+        let errors = assert_gateway_cleanup_can_be_retried(Fault::Logout).await;
+        assert!(
+            errors[0]
+                .error_message
+                .contains("may remain on the tailnet"),
+            "{}",
+            errors[0].error_message
+        );
     }
     #[tokio::test]
     async fn any_resource_cleanup_failure_retains_metadata_until_retry() {

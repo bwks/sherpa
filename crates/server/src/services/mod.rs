@@ -10,6 +10,8 @@ pub mod container_pull;
 pub(crate) mod container_scan;
 pub mod delete;
 pub mod destroy;
+#[cfg(test)]
+pub(crate) mod docker_mock;
 pub mod down;
 pub mod download;
 pub mod error;
