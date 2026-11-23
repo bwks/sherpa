@@ -37,7 +37,7 @@ queues = 4
 
 [[nodes.provisioners]]
 type = "ssh"
-env_files = ["provision/github.env", "provision/sccache.env"]
+env_files = ["provision/github.env", "provision/sccache.env", "provision/tailscale.env"]
 scripts = ["provision/setup.sh"]
 
 [[nodes.provisioners.files]]
@@ -77,7 +77,7 @@ queues = 4
 
 [[nodes.provisioners]]
 type = "ssh"
-env_files = ["provision/github.env", "provision/sccache.env"]
+env_files = ["provision/github.env", "provision/sccache.env", "provision/tailscale.env"]
 scripts = ["provision/setup.sh"]
 
 [[nodes.provisioners.files]]

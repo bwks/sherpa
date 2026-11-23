@@ -245,8 +245,8 @@ assert_service_account() {
     if sudo test -e "${home}/.ssh/authorized_keys"; then
         problems+=("has ${home}/.ssh/authorized_keys")
     fi
-    if [ "$(stat -c %U "${SHERPA_BASE}")" != "${SERVICE_ACCOUNT}" ]; then
-        problems+=("does not own ${SHERPA_BASE}")
+    if [ "$(stat -c %U "${SHERPA_BASE}/db")" != "${SERVICE_ACCOUNT}" ]; then
+        problems+=("does not own ${SHERPA_BASE}/db")
     fi
     if [ "${#problems[@]}" -gt 0 ]; then
         echo "${SERVICE_ACCOUNT} is not the server's service account:" >&2
