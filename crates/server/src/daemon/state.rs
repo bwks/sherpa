@@ -196,7 +196,7 @@ impl AppState {
     }
 }
 
-/// Make sure the built-in `admin` account exists before the server starts.
+/// Make sure the built-in `sherpa-admin` account exists before the server starts.
 ///
 /// With `admin_password` (from `SHERPA_ADMIN_PASSWORD`) a missing account is created; without
 /// it, a missing account is an error, so the server never runs without its recovery account.
@@ -227,7 +227,7 @@ pub async fn ensure_admin_account(db: &db::Database, admin_password: Option<&str
         if admin.is_none() {
             tracing::error!(
                 username = ADMIN_USERNAME,
-                "The built-in admin account does not exist"
+                "The built-in sherpa-admin account does not exist"
             );
             bail!(
                 "The built-in '{ADMIN_USERNAME}' account does not exist. Run 'sudo -u sherpa -H \

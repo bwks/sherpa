@@ -11,7 +11,7 @@ are one registry, `shared::api_spec`, published at `/api/v1/spec`; the user's vi
 
 `daemon::server::run_server` installs the signal handlers before any listener binds, so a server
 that could not shut down cleanly does not start. `AppState::new` loads the JWT secret, opens and
-migrates the database, loads its key, requires the built-in `admin` (created only from
+migrates the database, loads its key, requires the built-in `sherpa-admin` (created only from
 `SHERPA_ADMIN_PASSWORD`), restricts storage and moves renamed models' image folders. A secret or key
 that is damaged stops startup and is never replaced: a new secret would end every session, a new
 key would open nothing sealed. Before anything takes requests, `lab_lifecycle::recover` marks what
@@ -136,15 +136,15 @@ unlocks an account with `services::user_unlock` (RPC `user.unlock`, REST
 `POST /api/v1/admin/users/{username}/unlock`, the users page's Unlock button), which sets the
 count back to 0. A password reset leaves the lock as it is.
 
-When no admin can log in, root unlocks an account, the built-in `admin` included, on the host
-with `sherpad user unlock <username>` (`crates/server/src/user.rs`), with no channel into the
+When no admin can log in, root unlocks an account, the built-in `sherpa-admin` included, on the
+host with `sherpad user unlock <username>` (`crates/server/src/user.rs`), with no channel into the
 server. It calls the same `db::unlock_user` on the database file, so it needs `sherpad` stopped:
 it reads the PID file as `sherpad status` does (`daemon::pidfile::read_pid`, then
 `is_process_running`), and while that names a running process it refuses before opening the
 database. Like `sherpad init` it runs as `sherpa` only (`validate::validate_service_account`),
 since the database is that account's, and an unknown username is an error. It logs
 `user.unlocked` at `info` on stderr. The steps are `systemctl stop sherpad`,
-`sudo -u sherpa sherpad user unlock admin`, `systemctl start sherpad`. The cases are
+`sudo -u sherpa sherpad user unlock sherpa-admin`, `systemctl start sherpad`. The cases are
 `tests/specs/accounts-and-auth.md`, `user_login`.
 
 ### Services enforce authorization
@@ -177,6 +177,13 @@ login, and download, host keys, consoles and redeploy are owner-only. What remai
 admin who resets a password can sign in as that user (logged, ending their sessions), and an admin
 may start privileged containers and host mounts, which is root. The boundary is the admin role
 through Sherpa's interfaces, with an audit trail, not a defence against root.
+
+The built-in `sherpa-admin` (`shared::konst::ADMIN_USERNAME`) runs the server and owns no new
+labs: `auth::policy::require_lab_starter` refuses it up, resume and redeploy, and it keeps every
+other admin power, destroy, stop and clean included. Its name is in Sherpa's reserved `sherpa-`
+namespace, which no other user can take (`shared::validators::username`). An earlier release
+named it `admin`; the migration that renames it is in [`DATABASE.md`](DATABASE.md#versions). The
+cases are `tests/specs/accounts-and-auth.md`, `builtin_admin`.
 
 ### Device passwords
 

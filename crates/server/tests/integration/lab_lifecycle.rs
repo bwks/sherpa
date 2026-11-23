@@ -1759,7 +1759,7 @@ async fn lab_preflight_003_a_lab_id_already_in_use_is_refused() -> Result<()> {
     let token = ws.login_lab_admin(&server).await?;
 
     // Seed a lab record directly in the DB to simulate an already-running lab
-    let admin_user = db::get_user(&server.db, "admin").await?;
+    let admin_user = db::get_user(&server.db, "sherpa-admin").await?;
     let lab_id = "dupetest";
     db::create_lab(
         &server.db,

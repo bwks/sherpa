@@ -3,10 +3,38 @@
 //! - `username` is unique and follows the guest-safe username rules: 3 to 32 characters of
 //!   `a-z`, `0-9`, `_` and `-`, starting with a letter or `_`.
 //! - A user who owns labs cannot be deleted (`lab.user` is `ON DELETE RESTRICT`).
-//! - Triggers protect the built-in `admin` account (`sql/migrations/0008_static_triggers.sql`): it
-//!   cannot be deleted, renamed or lose its administrator flag, and no `admin` row can exist
-//!   without the flag.
+//! - Triggers protect the built-in `sherpa-admin` account
+//!   (`sql/migrations/0041_rename_builtin_admin.sql`): it cannot be deleted, renamed or lose its
+//!   administrator flag, and no `sherpa-admin` row can exist without the flag.
+
+use anyhow::{Result, bail};
+use shared::konst::ADMIN_USERNAME;
+use tracing::instrument;
+use turso::Connection;
+
+use crate::queries;
+use crate::sql::query_count;
+
 pub(crate) const TABLES: &str = include_str!("../../sql/schema/user.sql");
+
+/// Refuse to rename the built-in `admin` account while another user already has its new name.
+#[instrument(skip(conn), level = "debug")]
+pub(crate) async fn refuse_builtin_admin_name_taken(conn: &Connection) -> Result<()> {
+    let taken = query_count(
+        conn,
+        queries::user::COUNT_BY_USERNAME.bind([ADMIN_USERNAME.into()]),
+    )
+    .await?;
+    if taken > 0 {
+        bail!(
+            "This release renames the built-in 'admin' account to '{ADMIN_USERNAME}', but a user \
+             named '{ADMIN_USERNAME}' already exists. Delete that user with the Sherpa release \
+             this server ran before, destroying its labs first, then start this release again. \
+             The database is unchanged."
+        );
+    }
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
@@ -50,9 +78,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn builtin_admin_005_the_database_refuses_to_delete_rename_or_demote_admin() -> Result<()>
-    {
-        // A statement that covers every user, and single writes, are refused for `admin`.
+    async fn builtin_admin_005_the_database_refuses_to_delete_rename_or_demote_sherpa_admin()
+    -> Result<()> {
         let db = setup().await?;
         let admin = create_admin_user(&db, "AdminPass123!").await?;
         create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
@@ -65,8 +92,8 @@ mod tests {
         assert_eq!(user_count(&db).await?, 2, "No user may be deleted");
 
         for statement in [
-            "UPDATE user SET is_admin = 0 WHERE username = 'admin'",
-            "UPDATE user SET username = 'former_admin' WHERE username = 'admin'",
+            "UPDATE user SET is_admin = 0 WHERE username = 'sherpa-admin'",
+            "UPDATE user SET username = 'former_admin' WHERE username = 'sherpa-admin'",
         ] {
             let error = execute_raw(&db, statement).await.unwrap_err();
             assert!(
@@ -77,8 +104,10 @@ mod tests {
         let conn = db.reader().await?;
         let admins = query_count(
             &conn,
-            Query::new("SELECT count(*) FROM user WHERE username = 'admin' AND is_admin = 1")
-                .bind([]),
+            Query::new(
+                "SELECT count(*) FROM user WHERE username = 'sherpa-admin' AND is_admin = 1",
+            )
+            .bind([]),
         )
         .await?;
         assert_eq!(admins, 1);
@@ -101,19 +130,17 @@ mod tests {
         let stored = get_user(&db, ADMIN_USERNAME).await?;
         assert!(stored.is_admin);
 
-        // The row cannot be created without the admin flag.
         let db = setup().await?;
-        let error = insert_raw(&db, "admin", false).await.unwrap_err();
+        let error = insert_raw(&db, "sherpa-admin", false).await.unwrap_err();
         assert!(
             error.to_string().contains(ADMIN_PROTECTED_MESSAGE),
             "{error}"
         );
         assert_eq!(user_count(&db).await?, 0);
 
-        insert_raw(&db, "admin", true).await?;
+        insert_raw(&db, "sherpa-admin", true).await?;
         assert_eq!(user_count(&db).await?, 1);
 
-        // Any other admin is left alone.
         let db = setup().await?;
         create_admin_user(&db, "AdminPass123!").await?;
         let mut dana = create_user(&db, "dana".to_string(), "TestPass123!", true, vec![]).await?;

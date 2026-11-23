@@ -19,8 +19,7 @@ use tracing::instrument;
 use crate::auth::context::AuthContext;
 use crate::services::error::ServiceError;
 
-const ADMIN_LAB_START_MESSAGE: &str =
-    "the built-in admin account cannot start, resume or redeploy labs; use a personal account";
+const ADMIN_LAB_START_MESSAGE: &str = "the built-in sherpa-admin account cannot start, resume or redeploy labs; use a personal account";
 
 /// Which callers may act on a lab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,10 +66,10 @@ pub fn require_admin(ctx: &AuthContext) -> Result<(), ServiceError> {
     Err(ServiceError::Denied("admin privileges required".to_owned()))
 }
 
-/// Refuse lab-starting work (`up`, `resume`, `redeploy`) for the built-in `admin` account.
+/// Refuse lab-starting work (`up`, `resume`, `redeploy`) for the built-in `sherpa-admin` account.
 ///
-/// `admin` is the server's recovery account and gets no personal account on lab nodes, so lab
-/// work is done from personal accounts. `admin` may still destroy, stop and clean up labs.
+/// `sherpa-admin` is the server's recovery account and gets no personal account on lab nodes, so
+/// lab work is done from personal accounts. It may still destroy, stop and clean up labs.
 pub fn require_lab_starter(ctx: &AuthContext) -> Result<(), ServiceError> {
     if ctx.username != ADMIN_USERNAME {
         return Ok(());
@@ -78,7 +77,7 @@ pub fn require_lab_starter(ctx: &AuthContext) -> Result<(), ServiceError> {
     tracing::warn!(
         event = "auth.access_denied",
         username = %ctx.username,
-        "The built-in admin account attempted to start lab work"
+        "The built-in sherpa-admin account attempted to start lab work"
     );
     Err(ServiceError::Denied(ADMIN_LAB_START_MESSAGE.to_owned()))
 }

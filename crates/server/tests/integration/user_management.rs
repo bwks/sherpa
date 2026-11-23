@@ -281,7 +281,11 @@ async fn user_accounts_010_an_admin_lists_users() -> Result<()> {
         .filter_map(|user| user["username"].as_str())
         .collect();
     usernames.sort_unstable();
-    assert_eq!(usernames, ["admin", "listuser1", "listuser2"], "{response}");
+    assert_eq!(
+        usernames,
+        ["listuser1", "listuser2", "sherpa-admin"],
+        "{response}"
+    );
 
     Ok(())
 }
@@ -418,7 +422,7 @@ async fn user_accounts_002_a_user_created_as_an_admin_is_one_and_one_created_wit
     }
 
     for (username, is_admin) in [
-        ("admin", true),
+        ("sherpa-admin", true),
         ("dbverify", false),
         ("rpcadmin", true),
         ("httprestuser", false),
@@ -445,7 +449,10 @@ async fn user_accounts_011_an_admin_reads_another_accounts_details() -> Result<(
 
     // Verify admin is accessible via user.info
     let admin_resp = ws
-        .rpc_call("user.info", json!({ "token": token, "username": "admin" }))
+        .rpc_call(
+            "user.info",
+            json!({ "token": token, "username": "sherpa-admin" }),
+        )
         .await?;
     let admin = admin_resp
         .get("result")
@@ -453,7 +460,7 @@ async fn user_accounts_011_an_admin_reads_another_accounts_details() -> Result<(
         .expect("admin user.info should return a result");
     assert_eq!(
         admin.get("username").and_then(|v| v.as_str()),
-        Some("admin")
+        Some("sherpa-admin")
     );
 
     // Create a user via RPC
@@ -985,7 +992,7 @@ async fn builtin_admin_004_built_in_admin_delete_is_refused_on_all_transports() 
     let response = ws
         .rpc_call(
             "user.delete",
-            json!({ "token": token, "username": "admin" }),
+            json!({ "token": token, "username": "sherpa-admin" }),
         )
         .await?;
     ensure!(
@@ -994,7 +1001,10 @@ async fn builtin_admin_004_built_in_admin_delete_is_refused_on_all_transports() 
     );
 
     let response = Client::new()
-        .delete(format!("http://{}/api/v1/admin/users/admin", server.addr))
+        .delete(format!(
+            "http://{}/api/v1/admin/users/sherpa-admin",
+            server.addr
+        ))
         .bearer_auth(&token)
         .send()
         .await?;
@@ -1005,13 +1015,20 @@ async fn builtin_admin_004_built_in_admin_delete_is_refused_on_all_transports() 
     );
 
     ensure_web_refusal(
-        web_request(&server, &token, Method::DELETE, "/admin/users/admin", &[]).await?,
-        "built-in admin account",
+        web_request(
+            &server,
+            &token,
+            Method::DELETE,
+            "/admin/users/sherpa-admin",
+            &[],
+        )
+        .await?,
+        "built-in sherpa-admin account",
     )
     .await?;
 
     ensure!(
-        db::find_user(&server.db, "admin").await?.is_some(),
+        db::find_user(&server.db, "sherpa-admin").await?.is_some(),
         "a refused delete removed the admin account"
     );
     Ok(())
@@ -1036,7 +1053,7 @@ async fn builtin_admin_002_startup_creates_admin_from_a_password_and_leaves_it_a
     let db = empty_database().await?;
 
     ensure_admin_account(&db, Some(TEST_ADMIN_PASSWORD)).await?;
-    let admin = db::find_user(&db, "admin").await?;
+    let admin = db::find_user(&db, "sherpa-admin").await?;
     ensure!(
         admin.is_some_and(|admin| admin.is_admin),
         "SHERPA_ADMIN_PASSWORD should seed the admin account"

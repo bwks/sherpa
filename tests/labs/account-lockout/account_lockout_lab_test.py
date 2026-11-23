@@ -7,8 +7,8 @@
 
 Checks the e2e cases of `user_login` in tests/specs/accounts-and-auth.md: failed logins in a row
 lock a throwaway account, which `sherpa server user unlock` unlocks (024), and root on the server
-host unlocks a locked account, `admin` included, with `sherpad user unlock` while the server is
-stopped (033). Brings no lab up. Runs wherever the `sherpa` CLI is logged in as an admin; 033
+host unlocks a locked account, `sherpa-admin` included, with `sherpad user unlock` while the
+server is stopped (033). Brings no lab up. Runs wherever the `sherpa` CLI is logged in as an admin; 033
 also needs the server host, passwordless sudo and `--stop-server`, as it stops sherpad; see
 README.md.
 
@@ -64,7 +64,7 @@ REFUSED = "username and/or password is incorrect"
 
 # Case 033 stops sherpad, so it runs only when this is set, by `--stop-server`.
 STOP_SERVER_ENV = "SHERPA_TEST_STOP_SERVER"
-BUILT_IN_ADMIN = "admin"
+BUILT_IN_ADMIN = "sherpa-admin"
 SHERPAD_AS_SHERPA = ("sudo", "-n", "-u", "sherpa", "sherpad")
 SHERPAD_AS_ROOT = ("sudo", "-n", "sherpad")
 SYSTEMCTL = ("sudo", "-n", "systemctl")
@@ -226,14 +226,14 @@ def start_and_wait(account):
 
 @pytest.mark.skipif(os.environ.get(STOP_SERVER_ENV) != "1",
                     reason=f"stops sherpad on the server host; run with --stop-server or {STOP_SERVER_ENV}=1")
-def test_user_login_033_root_unlocks_a_locked_account_admin_included_with_sherpad_user_unlock_while_the_server_is_stopped(
+def test_user_login_033_root_unlocks_a_locked_account_sherpa_admin_included_with_sherpad_user_unlock_while_the_server_is_stopped(
         account):
     require(shutil.which("sherpad"), "sherpad is not on PATH: this case runs on the server host")
     unknown = f"{USER_PREFIX}unknown{uuid.uuid4().hex[:8]}"
     account.lock()
     account.require_locked("sherpa login, locked")
     account.lock(BUILT_IN_ADMIN)
-    require(locked_on_admin_page(account.log, BUILT_IN_ADMIN), "admin is not locked after 3 wrong passwords")
+    require(locked_on_admin_page(account.log, BUILT_IN_ADMIN), "sherpa-admin is not locked after 3 wrong passwords")
     stopped = False
     try:
         running = unlock_on_host(account, "sherpad user unlock, server running", account.username)
@@ -252,7 +252,7 @@ def test_user_login_033_root_unlocks_a_locked_account_admin_included_with_sherpa
         start_and_wait(account)
         stopped = False
         account.require_locked("sherpa login, locked after the refused unlocks")
-        require(locked_on_admin_page(account.log, BUILT_IN_ADMIN), "a refused unlock unlocked admin")
+        require(locked_on_admin_page(account.log, BUILT_IN_ADMIN), "a refused unlock unlocked sherpa-admin")
 
         systemctl(account, "stop")
         stopped = True
@@ -264,12 +264,12 @@ def test_user_login_033_root_unlocks_a_locked_account_admin_included_with_sherpa
         stopped = False
         logged_in = account.login(account.password, "sherpa login, unlocked")
         require(logged_in.code == 0, f"the unlocked account could not log in: {logged_in.output.strip()}")
-        require(not locked_on_admin_page(account.log, BUILT_IN_ADMIN), "admin is still locked")
+        require(not locked_on_admin_page(account.log, BUILT_IN_ADMIN), "sherpa-admin is still locked")
     finally:
         if stopped:
             start_and_wait(account)
         if locked_on_admin_page(account.log, BUILT_IN_ADMIN):
-            admin(account.log, account.root, "sherpa server user unlock admin, cleanup",
+            admin(account.log, account.root, "sherpa server user unlock sherpa-admin, cleanup",
                   ["server", "user", "unlock", BUILT_IN_ADMIN])
 
 

@@ -204,8 +204,8 @@ mod tests {
             .await
             .expect("admin");
         let error = set_device_password(
-            &caller("admin", true),
-            "admin",
+            &caller("sherpa-admin", true),
+            "sherpa-admin",
             LOGIN_PASSWORD,
             DEVICE_PASSWORD,
             &db,
@@ -213,7 +213,7 @@ mod tests {
         .await
         .expect_err("the built-in admin set a device password");
         assert!(matches!(refusal(&error), Some(ServiceError::Denied(_))));
-        assert_eq!(stored(&db, "admin").await, None);
+        assert_eq!(stored(&db, "sherpa-admin").await, None);
     }
 
     #[tokio::test]

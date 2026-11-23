@@ -9,7 +9,7 @@ use crate::user::{create_admin_user, find_user};
 /// Seed the database with an admin user
 ///
 /// This function creates an admin user with the provided password if no user
-/// with username "admin" exists.
+/// with username `sherpa-admin` exists.
 /// It's designed to run during initial server setup to bootstrap the authentication system.
 ///
 /// # Arguments
@@ -58,16 +58,15 @@ mod tests {
     use crate::user::{create_user, get_user, list_users};
 
     #[tokio::test]
-    async fn test_seed_admin_user_creates_when_empty() -> Result<()> {
+    async fn builtin_admin_009_the_built_in_account_is_sherpa_admin() -> Result<()> {
         let db = crate::open_in_memory().await?;
         crate::schema::apply_schema(&db).await?;
 
         let created = seed_admin_user(&db, "AdminPass123!").await?;
         assert!(created, "Should create admin user when database is empty");
 
-        // Verify admin user exists
-        let admin = get_user(&db, "admin").await?;
-        assert_eq!(admin.username, "admin");
+        let admin = get_user(&db, "sherpa-admin").await?;
+        assert_eq!(admin.username, "sherpa-admin");
         assert!(admin.is_admin, "User should have admin privileges");
 
         Ok(())
@@ -89,7 +88,10 @@ mod tests {
         users.sort();
         assert_eq!(
             users,
-            [("admin".to_string(), true), ("alice".to_string(), true)]
+            [
+                ("alice".to_string(), true),
+                ("sherpa-admin".to_string(), true)
+            ]
         );
 
         Ok(())

@@ -60,14 +60,14 @@ pub async fn create_user(
     insert_user(db, username, password, is_admin, ssh_keys).await
 }
 
-/// Create the built-in `admin` account.
+/// Create the built-in `sherpa-admin` account.
 ///
-/// `admin` is reserved, so `create_user` refuses it. Only server bootstrap (`sherpad init` and
-/// startup seeding) calls this.
+/// `sherpa-admin` is reserved, so `create_user` refuses it. Only server bootstrap (`sherpad init`
+/// and startup seeding) calls this.
 ///
 /// # Errors
 /// - If password validation fails
-/// - If `admin` already exists (unique constraint violation)
+/// - If `sherpa-admin` already exists (unique constraint violation)
 /// - If there's a database error during creation
 #[instrument(skip(db, password), level = "debug")]
 pub async fn create_admin_user(db: &Database, password: &str) -> Result<DbUser> {

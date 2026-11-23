@@ -66,6 +66,14 @@ def authenticate_case(previous_step, upgrade):
     return None if upgrade else AUTHENTICATE_CASES.get(previous_step)
 
 
+def built_in_admin(baseline_version, previous_step):
+    """The built-in admin account of the release installed after `previous_step`."""
+    if baseline_version is None or previous_step not in BASELINE_STEPS:
+        return BUILT_IN_ADMIN
+    release = tuple(int(part) for part in baseline_version.lstrip("v").split(".")[:3])
+    return "admin" if release < BUILT_IN_ADMIN_RELEASE else BUILT_IN_ADMIN
+
+
 def account_exists(name):
     try:
         pwd.getpwnam(name)
@@ -145,6 +153,11 @@ AUTHENTICATE_CASES = {"initialize": "server_init_001", "reboot": "install_host_0
 # The steps after which the guest records no previous step: they test nothing of Sherpa.
 UNRECORDED_STEPS = ("diagnostics", "diagnostics-live", "fault-wait", "cancel")
 PREVIOUS_STEP_FILE = "previous-step"
+# The built-in admin account, and the release that renamed it from `admin`.
+BUILT_IN_ADMIN = "sherpa-admin"
+BUILT_IN_ADMIN_RELEASE = (0, 9, 0)
+# The steps of the upgrade scenario that run before its `upgrade` step installs the candidate.
+BASELINE_STEPS = ("install-baseline", "initialize")
 # Each blank disk template as (name, bytes, file system, label, FAT version): what the ZTP code in
 # crates/server expects. None is none.
 BLANK_DISKS = (("base.img", 67108864, None, None, None),
@@ -606,7 +619,8 @@ class Guest:
     def initialize(self):
         command = self.init_command()
         # The built-in admin account, then the first user account, a personal administrator.
-        prompts = [(b"Password for admin: ", self.credentials["admin_password"]),
+        prompts = [(f"Password for {self.built_in_admin()}: ".encode(),
+                    self.credentials["admin_password"]),
                    (b"Confirm password: ", self.credentials["admin_password"]),
                    (b"Username: ", self.credentials["admin_username"]),
                    (f"Password for {self.credentials['admin_username']}: ".encode(),
@@ -717,6 +731,10 @@ class Guest:
             f"ca_cert_path = {json.dumps(str(self.base / '.certs/server.crt'))}\n")
         return url
 
+    def built_in_admin(self):
+        """The built-in admin account of the release installed now."""
+        return built_in_admin(self.config.get("baseline", {}).get("version"), self.previous_step())
+
     def previous_step(self):
         path = self.workspace / PREVIOUS_STEP_FILE
         return path.read_text().strip() if path.exists() else None
@@ -809,7 +827,8 @@ class Guest:
                 users = self.request("/api/v1/admin/users", token=token)["users"]
                 require(any(user["username"] == self.credentials["admin_username"] for user in users),
                         "Persistent test user missing")
-                require(any(user["username"] == "admin" and user["is_admin"] for user in users),
+                built_in = self.built_in_admin()
+                require(any(user["username"] == built_in and user["is_admin"] for user in users),
                         "Built-in admin account missing")
                 url = self.write_client_files(Path.home(), token)
                 _, output = self.command([str(self.base / "bin/sherpa"), "whoami", "--server-url", url])
@@ -1430,6 +1449,13 @@ class GuestTests(unittest.TestCase):
         self.assertIsNone(authenticate_case("initialize", upgrade=True))
         self.assertIsNone(authenticate_case("authenticate", upgrade=False))
         self.assertIsNone(authenticate_case(None, upgrade=False))
+
+    def test_the_built_in_admin_is_the_installed_releases(self):
+        self.assertEqual(built_in_admin(None, "install"), "sherpa-admin")
+        self.assertEqual(built_in_admin("v0.8.1", "install-baseline"), "admin")
+        self.assertEqual(built_in_admin("v0.8.1", "initialize"), "admin")
+        self.assertEqual(built_in_admin("v0.8.1", "upgrade"), "sherpa-admin")
+        self.assertEqual(built_in_admin("v0.9.0", "initialize"), "sherpa-admin")
 
     def test_environment_fingerprint_ignores_comments_but_detects_changed_settings(self):
         with tempfile.TemporaryDirectory() as directory:

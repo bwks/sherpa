@@ -44,8 +44,8 @@ Sherpa makes no `sherpa` login on a node, so the installer creates the real one.
 an older Sherpa has a first-boot `sherpa` login (uid 1000, with a home and `sudo`); setup deletes
 it before the install.
 
-The lab must be brought up by a Sherpa user whose name can be a login on lab nodes. A reserved
-name such as `admin` cannot start labs, and a user named `dev` would clash with the guest's own
+The lab must be brought up by a Sherpa user whose name can be a login on lab nodes. The built-in
+`sherpa-admin` and reserved names cannot start labs, and a user named `dev` would clash with the guest's own
 jump account (see step 14 below). Setup refuses a login named `dev` or `sherpa` before it changes
 anything.
 
@@ -98,7 +98,7 @@ It is safe to run again with `sherpa provision`. It:
    not in `sudo`, no sudoers rule, no `authorized_keys`, and the owner of `/opt/sherpa`. If not,
    it stops and says what is wrong; it does not fix it;
 11. adds the login to the `docker`, `libvirt` and `kvm` groups, from its next session on;
-12. initializes the server unattended: it generates the `admin` password, a `dev` user (an
+12. initializes the server unattended: it generates the `sherpa-admin` password, a `dev` user (an
    administrator) with its own password, and an SSH key `~/.ssh/id_ed25519` for it, kept in
    `~/.env.d/sherpa-account.env` (mode `600`). It runs `sherpad init` as `sherpa` with them,
    giving it a copy of the public key outside the login's home, which `sherpa` cannot read, and

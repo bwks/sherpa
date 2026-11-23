@@ -37,6 +37,7 @@ pub const SCHEMA_VERSION: usize = 1 + migrations::ALL.len();
 ///   downgrade of Sherpa
 /// - If a lab still uses the server's shared SSH key when the migration that drops
 ///   `lab.ssh_key` is next; each one is named, and nothing is migrated
+/// - If a user named `sherpa-admin` exists when the built-in `admin` is to be renamed to it
 /// - If any statement fails
 ///
 #[instrument(skip(db), level = "debug")]
@@ -65,6 +66,9 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
             if *batch == migrations::DROP_LAB_SSH_KEY {
                 server_key::refuse_server_key_labs(&server_key::server_key_labs(&tx).await?)?;
             }
+            if *batch == migrations::RENAME_BUILTIN_ADMIN {
+                user::refuse_builtin_admin_name_taken(&tx).await?;
+            }
             tx.execute_batch(batch)
                 .await
                 .context(format!("Failed to migrate the schema to version {target}"))?;
@@ -87,6 +91,7 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
 ///
 /// - If the database has a newer schema version than this build knows
 /// - If a lab still uses the server's shared SSH key, which this build removes; each one is named
+/// - If a user named `sherpa-admin` exists before the built-in `admin` is renamed to it
 /// - If the database cannot be read
 #[instrument(skip(db), level = "debug")]
 pub async fn check_schema_upgrade(db: &Database) -> Result<()> {
@@ -95,7 +100,20 @@ pub async fn check_schema_upgrade(db: &Database) -> Result<()> {
         .await
         .context("Failed to read the database schema version")?;
     refuse_newer_version(version)?;
-    server_key::refuse_server_key_labs(&server_key::server_key_labs(&conn).await?)
+    server_key::refuse_server_key_labs(&server_key::server_key_labs(&conn).await?)?;
+    if (1..version_after(migrations::RENAME_BUILTIN_ADMIN)?).contains(&version) {
+        user::refuse_builtin_admin_name_taken(&conn).await?;
+    }
+    Ok(())
+}
+
+/// The schema version `migration` takes the database to.
+fn version_after(migration: &str) -> Result<usize> {
+    migrations::ALL
+        .iter()
+        .position(|batch| *batch == migration)
+        .map(|index| index + 2)
+        .context("The migration is not in this build")
 }
 
 /// Refuse a database whose schema `version` is newer than this build knows, for example after a
@@ -129,8 +147,9 @@ mod tests {
     use crate::{
         DefaultRequest, LabDetails, LabNetworks, count_nodes_by_ssh_username, create_lab,
         create_user, device_password_set, find_lab, find_node_image_by_id, find_user, get_user,
-        list_cpu_pins, list_node_images, list_nodes_by_lab, open_in_memory, read_lab_definition,
-        update_node_image, upsert_node_image,
+        list_cpu_pins, list_labs_by_user, list_locked_usernames, list_node_images,
+        list_nodes_by_lab, list_users, open_in_memory, read_lab_definition, update_node_image,
+        upsert_node_image,
     };
 
     /// The eleven ZTP methods a release before the one `ztp` column could store.
@@ -1681,6 +1700,110 @@ mod tests {
         assert!(!device_password_set(&db, &id).await.unwrap());
         let user = get_user(&db, "alice").await.unwrap();
         assert_eq!(user.ssh_keys, Vec::<String>::new());
+    }
+
+    async fn database_before_the_admin_rename(others: &[&str]) -> Database {
+        let db = database_at(migrations_before(migrations::RENAME_BUILTIN_ADMIN)).await;
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute(
+                    "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys, \
+                     created_at, updated_at, failed_logins, locked_at) VALUES ('a1', 'admin', \
+                     'admin-hash', 1, ?1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 3, \
+                     '2026-02-01T00:00:00Z')",
+                    [r#"["ssh-ed25519 AAAAadmin"]"#],
+                )
+                .await
+                .unwrap();
+            for other in others {
+                writer
+                    .conn
+                    .execute(
+                        "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys, \
+                         created_at, updated_at) VALUES (?1, ?1, 'x', 0, '[]', \
+                         '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                        [*other],
+                    )
+                    .await
+                    .unwrap();
+            }
+        }
+        db
+    }
+
+    async fn usernames(db: &Database) -> Vec<String> {
+        list_users(db)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|user| user.username)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn builtin_admin_010_the_upgrade_renames_admin_to_sherpa_admin_keeping_its_account() {
+        let db = database_before_the_admin_rename(&[]).await;
+        let admin = get_user(&db, "admin").await.unwrap();
+        let networks = LabNetworks {
+            management_network: "172.31.1.0/24".to_owned(),
+            gateway_ipv4: "172.31.1.1".to_owned(),
+            router_ipv4: "172.31.1.2".to_owned(),
+            management_network_v6: None,
+            loopback_network_v6: None,
+            gateway_ipv6: None,
+            router_ipv6: None,
+        };
+        create_lab(
+            &db,
+            "Old",
+            "lab-0001",
+            &admin,
+            &networks,
+            &LabDetails::default(),
+        )
+        .await
+        .unwrap();
+
+        apply_schema(&db).await.unwrap();
+
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+        assert_eq!(usernames(&db).await, ["sherpa-admin"]);
+        let renamed = get_user(&db, "sherpa-admin").await.unwrap();
+        assert_eq!(renamed.id, admin.id);
+        assert_eq!(renamed.password_hash, "admin-hash");
+        assert_eq!(renamed.ssh_keys, ["ssh-ed25519 AAAAadmin"]);
+        assert!(renamed.is_admin);
+        assert_eq!(list_locked_usernames(&db).await.unwrap(), ["sherpa-admin"]);
+        let labs = list_labs_by_user(&db, renamed.id.unwrap()).await.unwrap();
+        assert_eq!(
+            labs.iter()
+                .map(|lab| lab.lab_id.as_str())
+                .collect::<Vec<_>>(),
+            ["lab-0001"]
+        );
+    }
+
+    #[tokio::test]
+    async fn builtin_admin_011_an_upgrade_with_a_sherpa_admin_user_is_refused_and_changes_nothing()
+    {
+        let db = database_before_the_admin_rename(&["sherpa-admin"]).await;
+        let before = version(&db).await;
+
+        let check = format!("{:#}", check_schema_upgrade(&db).await.unwrap_err());
+        let upgrade = format!("{:#}", apply_schema(&db).await.unwrap_err());
+
+        for error in [check, upgrade] {
+            assert!(
+                error.contains("a user named 'sherpa-admin' already exists"),
+                "{error}"
+            );
+        }
+        assert_eq!(version(&db).await, before);
+        assert_eq!(usernames(&db).await, ["admin", "sherpa-admin"]);
+        assert!(get_user(&db, "admin").await.unwrap().is_admin);
+        assert!(!get_user(&db, "sherpa-admin").await.unwrap().is_admin);
     }
 
     /// A database at the version before `migration`, with a lab whose stored definition gives

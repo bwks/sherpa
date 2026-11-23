@@ -116,11 +116,11 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum UserCommands {
-    /// Unlock an account that failed logins locked, the built-in admin included
+    /// Unlock an account that failed logins locked, the built-in sherpa-admin included
     ///
     /// Sets the account's failed login count back to 0. sherpad holds the database while it
     /// runs, so stop it first, and run this as the sherpa user:
-    /// sudo -u sherpa sherpad user unlock <USERNAME>
+    /// sudo -u sherpa sherpad user unlock sherpa-admin
     Unlock {
         /// Username of the account to unlock
         username: String,

@@ -115,9 +115,6 @@ fn cookie(token: &str) -> String {
 }
 
 /// Log in alice and bob (regular users) and dana (a personal admin account).
-///
-/// The built-in `admin` account cannot start lab work, so the matrix uses a personal admin;
-/// `builtin_admin_007_built_in_admin_cannot_start_lab_work_on_any_transport` covers `admin` itself.
 async fn login_callers(
     server: &TestServer,
     ws: &mut TestWsClient,
@@ -743,6 +740,49 @@ async fn builtin_admin_007_built_in_admin_cannot_start_lab_work_on_any_transport
         body.contains("cannot start, resume or redeploy labs"),
         "web create was not refused for admin: {body}"
     );
+    remove_lab(&server, &lab_id).await
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and libvirt"]
+async fn builtin_admin_012_built_in_admin_stops_cleans_and_destroys_another_users_lab() -> Result<()>
+{
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let (_, owners) = login_callers(&server, &mut ws).await?;
+    let admin = ws.login_admin().await?;
+    let http = http_client()?;
+    let base = format!("http://{}", server.addr);
+    let alice = owner(&owners, "alice")?;
+    let lab_id = seed_lab(&server, alice, 1).await?;
+
+    let params = json!({ "token": admin, "lab_id": lab_id });
+    check_rpc(&mut ws, "down", params, true, "RPC down, admin").await?;
+    let response = http
+        .post(format!("{base}/api/v1/labs/{lab_id}/down"))
+        .bearer_auth(&admin)
+        .json(&json!({}))
+        .send()
+        .await?;
+    check_http(&response, true, "REST down, admin")?;
+    for path in [
+        format!("/labs/{lab_id}/stop"),
+        format!("/labs/{lab_id}/nodes/vm/stop"),
+    ] {
+        let response = http
+            .post(format!("{base}{path}"))
+            .header(header::COOKIE, cookie(&admin))
+            .send()
+            .await?;
+        check_http(&response, true, &format!("web POST {path}, admin"))?;
+    }
+    let params = json!({ "token": admin, "lab_id": lab_id });
+    check_rpc(&mut ws, "destroy", params, true, "RPC destroy, admin").await?;
+    remove_lab(&server, &lab_id).await?;
+
+    let lab_id = seed_lab(&server, alice, 2).await?;
+    let params = json!({ "token": admin, "lab_id": lab_id });
+    check_rpc(&mut ws, "clean", params, true, "RPC clean, admin").await?;
     remove_lab(&server, &lab_id).await
 }
 

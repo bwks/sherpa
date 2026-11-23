@@ -67,7 +67,6 @@ fn is_reserved(username: &str, reserved: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::konst::{ADMIN_USERNAME, SHERPA_USERNAME};
 
     #[test]
     fn user_accounts_005_server_usernames_follow_the_guest_rules() {
@@ -101,8 +100,23 @@ mod tests {
 
     #[test]
     fn user_accounts_006_server_usernames_reject_reserved_names() {
-        for name in [ADMIN_USERNAME, SHERPA_USERNAME, "root", "systemd-resolve"] {
+        for name in ["sherpa", "root", "systemd-resolve"] {
             assert!(validate_username(name).is_err(), "{name:?}");
+        }
+    }
+
+    #[test]
+    fn user_accounts_022_sherpa_admin_sherpa_names_and_admin_names_are_refused() {
+        for name in [
+            "sherpa-admin",
+            "sherpa-ops",
+            "admin",
+            "administrator",
+            "superuser",
+            "sysadmin",
+        ] {
+            let error = validate_username(name).unwrap_err().to_string();
+            assert!(error.contains("is reserved"), "{name:?}: {error}");
         }
     }
 }
