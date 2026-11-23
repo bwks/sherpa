@@ -14,8 +14,8 @@ use crate::validate::validate_service_account;
 /// The subcommand named when `user unlock` runs as the wrong account.
 const UNLOCK_COMMAND: &str = "user unlock";
 
-/// Unlock the account `username`, `admin` included, in the database at `db_path`, and set its
-/// failed login count back to 0, with `db::unlock_user` as the admin unlock does. `account` is
+/// Unlock the account `username`, `sherpa-admin` included, in the database at `db_path`, and set
+/// its failed login count back to 0, with `db::unlock_user` as the admin unlock does. `account` is
 /// the host account this runs as, which must be `sherpa`. The server holds the database file
 /// while it runs, so this refuses, changing nothing, while the PID file at `pid_path` names a
 /// running process, as `sherpad status` reads it. An account that is not locked is not an
@@ -72,8 +72,8 @@ mod tests {
 
     const LIMIT: u32 = 3;
 
-    /// A stopped server's database at `sherpa.sqlite` in a new folder, with `admin` and `bob`
-    /// locked, and the path of a PID file there that does not exist yet.
+    /// A stopped server's database at `sherpa.sqlite` in a new folder, with `sherpa-admin` and
+    /// `bob` locked, and the path of a PID file there that does not exist yet.
     async fn stopped_server_with_locked_accounts() -> (TempDir, PathBuf, String) {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("sherpa.sqlite");
@@ -83,7 +83,7 @@ mod tests {
         db::create_user(&db, "bob".to_owned(), "BobPass123!", false, vec![])
             .await
             .unwrap();
-        for username in ["admin", "bob"] {
+        for username in ["bob", "sherpa-admin"] {
             for _ in 0..LIMIT {
                 db::claim_login(&db, username, LIMIT)
                     .await
@@ -93,7 +93,7 @@ mod tests {
         }
         assert_eq!(
             db::list_locked_usernames(&db).await.unwrap(),
-            ["admin", "bob"]
+            ["bob", "sherpa-admin"]
         );
         drop(db);
         let pid_path = dir.path().join("sherpad.pid").to_str().unwrap().to_owned();
@@ -106,11 +106,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn user_login_029_sherpad_user_unlock_unlocks_an_account_admin_included_while_the_server_is_stopped()
+    async fn user_login_029_sherpad_user_unlock_unlocks_an_account_sherpa_admin_included_while_the_server_is_stopped()
      {
         let (_dir, db_path, pid_path) = stopped_server_with_locked_accounts().await;
 
-        unlock("sherpa", "admin", &db_path, &pid_path)
+        unlock("sherpa", "sherpa-admin", &db_path, &pid_path)
             .await
             .unwrap();
         assert_eq!(locked_usernames(&db_path).await, ["bob"]);
@@ -118,7 +118,7 @@ mod tests {
         assert_eq!(locked_usernames(&db_path).await, Vec::<String>::new());
 
         let db = db::open(&db_path).await.unwrap();
-        for username in ["admin", "bob"] {
+        for username in ["bob", "sherpa-admin"] {
             assert!(
                 db::claim_login(&db, username, LIMIT)
                     .await
@@ -135,7 +135,7 @@ mod tests {
         fs::write(&pid_path, std::process::id().to_string()).unwrap();
         let before = fs::read(&db_path).unwrap();
 
-        let error = unlock("sherpa", "admin", &db_path, &pid_path)
+        let error = unlock("sherpa", "sherpa-admin", &db_path, &pid_path)
             .await
             .unwrap_err()
             .to_string();
@@ -143,7 +143,7 @@ mod tests {
         assert!(error.contains("sherpad is running"), "{error}");
         assert!(error.contains("sudo systemctl stop sherpad"), "{error}");
         assert_eq!(fs::read(&db_path).unwrap(), before);
-        assert_eq!(locked_usernames(&db_path).await, ["admin", "bob"]);
+        assert_eq!(locked_usernames(&db_path).await, ["bob", "sherpa-admin"]);
     }
 
     #[tokio::test]
@@ -156,7 +156,7 @@ mod tests {
             .to_string();
 
         assert!(error.contains("User not found: nobody"), "{error}");
-        assert_eq!(locked_usernames(&db_path).await, ["admin", "bob"]);
+        assert_eq!(locked_usernames(&db_path).await, ["bob", "sherpa-admin"]);
     }
 
     #[tokio::test]
@@ -166,7 +166,7 @@ mod tests {
         let before = fs::read(&db_path).unwrap();
 
         for account in ["root", "bradmin"] {
-            let error = unlock(account, "admin", &db_path, &pid_path)
+            let error = unlock(account, "sherpa-admin", &db_path, &pid_path)
                 .await
                 .unwrap_err()
                 .to_string();
@@ -176,6 +176,6 @@ mod tests {
             );
         }
         assert_eq!(fs::read(&db_path).unwrap(), before);
-        assert_eq!(locked_usernames(&db_path).await, ["admin", "bob"]);
+        assert_eq!(locked_usernames(&db_path).await, ["bob", "sherpa-admin"]);
     }
 }

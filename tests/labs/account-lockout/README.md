@@ -2,7 +2,7 @@
 
 Tests the account lockout through the `sherpa` CLI: failed logins in a row lock a throwaway
 account, and `sherpa server user unlock` unlocks it; on the server host, root unlocks a locked
-account and `admin` with `sherpad user unlock` while the server is stopped. It brings no lab up,
+account and `sherpa-admin` with `sherpad user unlock` while the server is stopped. It brings no lab up,
 so it needs no node image and runs in seconds.
 
 ## Requirements
@@ -13,10 +13,10 @@ so it needs no node image and runs in seconds.
   its own under the run's folder, so the admin's token is never touched. Each case has a user of
   its own.
 - For `user_login_033` only, given `--stop-server`: the server host, with `sherpad` on `PATH` and
-  passwordless `sudo`. The case stops and starts sherpad twice and locks the built-in `admin` with
-  wrong passwords, so run it only where stopping the server is fine. It reads `admin`'s state from
-  the admin users page, with the CLI's admin token, so it needs no password of `admin`, and it
-  leaves `admin` unlocked, even when it fails. Without the flag the case is skipped.
+  passwordless `sudo`. The case stops and starts sherpad twice and locks the built-in
+  `sherpa-admin` with wrong passwords, so run it only where stopping the server is fine. It reads
+  `sherpa-admin`'s state from the admin users page, with the CLI's admin token, so it needs no
+  password of `sherpa-admin`, and it leaves `sherpa-admin` unlocked, even when it fails. Without the flag the case is skipped.
 
 ## Running
 
@@ -41,6 +41,6 @@ It holds the e2e cases of `user_login` in
 | Case | What it checks |
 |---|---|
 | `user_login_024` | Three wrong passwords lock the user, the right one is then refused with "username and/or password is incorrect", `sherpa server user unlock` unlocks it, and the user logs in again |
-| `user_login_033` | The user and `admin` are locked with three wrong passwords each. `sudo -u sherpa sherpad user unlock` is refused while sherpad runs; with it stopped, the same as root is refused and an unknown username fails, and after a restart both are still locked. With sherpad stopped again, it unlocks the user and `admin`, printing `Unlocked <name>`; after the restart the user logs in and the admin users page no longer offers to unlock `admin` |
+| `user_login_033` | The user and `sherpa-admin` are locked with three wrong passwords each. `sudo -u sherpa sherpad user unlock` is refused while sherpad runs; with it stopped, the same as root is refused and an unknown username fails, and after a restart both are still locked. With sherpad stopped again, it unlocks the user and `sherpa-admin`, printing `Unlocked <name>`; after the restart the user logs in and the admin users page no longer offers to unlock `sherpa-admin` |
 
 The other `user_login` cases are integration tests in `crates/server` and `crates/db`.

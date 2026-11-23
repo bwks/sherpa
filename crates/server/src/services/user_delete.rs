@@ -96,7 +96,7 @@ pub fn check_user_delete(
     }
     if target.username == ADMIN_USERNAME {
         return Err(ServiceError::Denied(
-            "the built-in admin account cannot be deleted".to_owned(),
+            "the built-in sherpa-admin account cannot be deleted".to_owned(),
         ));
     }
     if target.is_admin && admin_count <= 1 {
@@ -165,7 +165,7 @@ mod tests {
         assert_eq!(
             check_user_delete(&admin("dana"), &user(ADMIN_USERNAME, true), 3, &[]),
             Err(ServiceError::Denied(
-                "the built-in admin account cannot be deleted".to_owned()
+                "the built-in sherpa-admin account cannot be deleted".to_owned()
             ))
         );
     }

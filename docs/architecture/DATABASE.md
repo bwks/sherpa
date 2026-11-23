@@ -77,6 +77,10 @@ release in place.
   cannot read back when it re-reads a `STRICT` table's schema, as `VACUUM INTO` does.
 - A migration that would drop what a lab still uses refuses to run while such a lab exists, naming
   it (`schema::server_key`).
+- Migration 41 renames the built-in `admin` to `sherpa-admin` in place, so its id, password,
+  keys, lock state, sessions and labs stay with it. It drops the triggers that protect the account,
+  renames the row and makes them again for the new name. It refuses to run while a user named
+  `sherpa-admin` exists (`schema::user`), rather than merge two accounts.
 
 ### CPU pins
 
@@ -177,5 +181,5 @@ Enum columns are checked by the types, not the database: every value is serializ
 and one a newer release stored fails when its row is read, naming the row. The lifecycle states
 (`node.state`, `lab.phase`) decode an unknown value as `unknown` instead, so one row does not fail a
 whole listing. Triggers enforce only rules the types cannot express, all as fixed text in
-migrations: the built-in `admin` cannot be deleted, renamed or demoted; an interface is used by one
+migrations: the built-in `sherpa-admin` cannot be deleted, renamed or demoted; an interface is used by one
 link or bridge; and the CPU pin rules above.

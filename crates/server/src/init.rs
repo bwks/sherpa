@@ -176,10 +176,10 @@ fn write_server_config(config: &Config, path: &Path) -> Result<()> {
         .context("Failed to write the server config")
 }
 
-/// Create the built-in `admin` account unless it already exists.
+/// Create the built-in `sherpa-admin` account unless it already exists.
 ///
 /// The password comes from `SHERPA_ADMIN_PASSWORD` in the environment, or is prompted for. An
-/// existing `admin` is left untouched, so `init` is safe to re-run.
+/// existing `sherpa-admin` is left untouched, so `init` is safe to re-run.
 #[instrument(skip(db))]
 async fn create_admin_account(db: &Database) -> Result<()> {
     term_msg_underline("Creating Admin Account");
@@ -208,9 +208,9 @@ async fn create_admin_account(db: &Database) -> Result<()> {
 
 /// Create the first personal user account, unless one already exists.
 ///
-/// Lab work is done from personal accounts; `admin` cannot start labs. Each answer comes from its
-/// `SHERPA_USER_*` environment variable when that is set, otherwise it is prompted for, so `init`
-/// can run unattended. These are not read from the env file, which would keep the password.
+/// Lab work is done from personal accounts; `sherpa-admin` cannot start labs. Each answer comes
+/// from its `SHERPA_USER_*` environment variable when that is set, otherwise it is prompted for,
+/// so `init` can run unattended. These are not read from the env file, which would keep the password.
 #[instrument(skip(db))]
 async fn create_first_user(db: &Database) -> Result<()> {
     term_msg_underline("Creating First User Account");

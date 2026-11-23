@@ -1112,6 +1112,8 @@ Next Steps:
        exec sg libvirt -c "newgrp \$(id -gn)"
   2. Initialize the server environment as sherpa, with the address and ports chosen above:
        sudo -u sherpa -H sherpad init --server-ipv4 ${SERVER_IP} --ws-port ${WS_PORT} --http-port ${HTTP_PORT}
+     It creates the built-in sherpa-admin account, which runs the server and starts no labs,
+     and your first personal account, for labs.
      It writes ${SHERPA_CONFIG_DIR}/sherpa.toml readable by sherpa only. sherpa cannot read
      your home folder, so paste the SSH public key itself when asked for it.
      Lab management subnets come from 172.31.0.0/16 and fd00:b00b::/48. If either is in

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
+use shared::konst::ADMIN_USERNAME;
 use std::time::Duration;
 use tokio::time::timeout;
 use tokio_tungstenite::connect_async;
@@ -141,7 +142,7 @@ impl TestWsClient {
 
     /// Login as admin and return the token
     pub async fn login_admin(&mut self) -> Result<String> {
-        self.login("admin", TEST_ADMIN_PASSWORD).await
+        self.login(ADMIN_USERNAME, TEST_ADMIN_PASSWORD).await
     }
 
     /// Create the personal admin account `labadmin`, with an SSH key and a device password, and

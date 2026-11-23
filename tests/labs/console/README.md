@@ -20,7 +20,7 @@ The runner writes the manifest for each run itself; there is no manifest file he
 - The `alpine_linux` image and the `generic` container `alpine` 3.22 image. On a server without
   the container image, `--no-container` leaves `ctr01` out and skips its two cases.
 - `sherpa` not in the same directory as `telnet` or `ssh`.
-- An admin who is not the owner, such as the built-in `admin`. It is logged in
+- An admin who is not the owner, such as the built-in `sherpa-admin`. It is logged in
   non-interactively to a `HOME` of its own (the owner's client config and trusted server
   certificate are copied there), so the owner's login is never touched:
 

@@ -25,7 +25,7 @@ async fn user_login_014_an_rpc_login_gives_a_token_the_username_admin_flag_and_e
         .rpc_call(
             "auth.login",
             json!({
-                "username": "admin",
+                "username": "sherpa-admin",
                 "password": TEST_ADMIN_PASSWORD,
             }),
         )
@@ -35,7 +35,7 @@ async fn user_login_014_an_rpc_login_gives_a_token_the_username_admin_flag_and_e
     assert!(result.get("token").is_some(), "should have token");
     assert_eq!(
         result.get("username").and_then(|v| v.as_str()),
-        Some("admin")
+        Some("sherpa-admin")
     );
     assert_eq!(
         result.get("is_admin").and_then(serde_json::Value::as_bool),
@@ -53,7 +53,10 @@ async fn user_login_005_a_wrong_password_and_an_unknown_user_get_the_same_refusa
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
 
-    for (username, password) in [("admin", "WrongPassword123!"), ("nobody", "SomePass123!")] {
+    for (username, password) in [
+        ("sherpa-admin", "WrongPassword123!"),
+        ("nobody", "SomePass123!"),
+    ] {
         let response = ws
             .rpc_call(
                 "auth.login",
@@ -110,7 +113,7 @@ async fn user_login_013_a_token_is_checked_over_rest_as_over_rpc() -> Result<()>
     );
     assert_eq!(
         result.get("username").and_then(|v| v.as_str()),
-        Some("admin")
+        Some("sherpa-admin")
     );
     assert_eq!(
         result.get("is_admin").and_then(serde_json::Value::as_bool),
@@ -124,7 +127,7 @@ async fn user_login_013_a_token_is_checked_over_rest_as_over_rpc() -> Result<()>
         .json()
         .await?;
     assert_eq!(valid["valid"], true, "{valid}");
-    assert_eq!(valid["username"], "admin", "{valid}");
+    assert_eq!(valid["username"], "sherpa-admin", "{valid}");
 
     let response = ws
         .rpc_call("auth.validate", json!({ "token": "invalid.jwt.token" }))
@@ -176,7 +179,7 @@ async fn user_login_007_the_web_login_sets_the_cookie_and_sends_each_user_to_the
 
     // Login uses the HTMX pattern: 200 OK with an hx-redirect header, not a 3xx redirect.
     for (username, password, page) in [
-        ("admin", TEST_ADMIN_PASSWORD, "/admin/users"),
+        ("sherpa-admin", TEST_ADMIN_PASSWORD, "/admin/users"),
         ("bob", BOB_PASSWORD, "/"),
     ] {
         let client = TestHttpClient::new(server.addr);
@@ -192,7 +195,10 @@ async fn user_login_007_the_web_login_sets_the_cookie_and_sends_each_user_to_the
     }
 
     // A refused login sets no session and sends nowhere: it shows the error in the form.
-    for (username, password) in [("admin", "WrongPass123!"), ("nobody", "WrongPass123!")] {
+    for (username, password) in [
+        ("sherpa-admin", "WrongPass123!"),
+        ("nobody", "WrongPass123!"),
+    ] {
         let client = TestHttpClient::new(server.addr);
         let resp = client
             .post_form("/login", &[("username", username), ("password", password)])
@@ -271,7 +277,10 @@ async fn user_login_011_the_login_page_is_served_and_sends_on_a_signed_in_browse
     let login_response = client
         .post_form(
             "/login",
-            &[("username", "admin"), ("password", TEST_ADMIN_PASSWORD)],
+            &[
+                ("username", "sherpa-admin"),
+                ("password", TEST_ADMIN_PASSWORD),
+            ],
         )
         .await?;
     assert_eq!(login_response.status().as_u16(), 200);
@@ -359,7 +368,10 @@ async fn a_stale_and_a_valid_cookie_together_are_served_the_valid_one() -> Resul
     let login_response = client
         .post_form(
             "/login",
-            &[("username", "admin"), ("password", TEST_ADMIN_PASSWORD)],
+            &[
+                ("username", "sherpa-admin"),
+                ("password", TEST_ADMIN_PASSWORD),
+            ],
         )
         .await?;
     assert_eq!(login_response.status().as_u16(), 200);
@@ -551,7 +563,7 @@ async fn user_sessions_003_a_rest_logout_ends_the_bearer_session() -> Result<()>
     let response = client
         .post_json(
             "/api/v1/auth/login",
-            &json!({ "username": "admin", "password": TEST_ADMIN_PASSWORD }),
+            &json!({ "username": "sherpa-admin", "password": TEST_ADMIN_PASSWORD }),
         )
         .await?;
     let body: serde_json::Value = response.json().await?;
@@ -603,7 +615,10 @@ async fn user_sessions_004_a_web_logout_ends_the_cookie_session_and_clears_the_c
     let response = client
         .post_form(
             "/login",
-            &[("username", "admin"), ("password", TEST_ADMIN_PASSWORD)],
+            &[
+                ("username", "sherpa-admin"),
+                ("password", TEST_ADMIN_PASSWORD),
+            ],
         )
         .await?;
     let token = cookie_token(&response)?;
@@ -802,7 +817,7 @@ async fn user_login_006_a_rest_login_issues_a_token_only_for_the_right_password(
     let response = client
         .post_json(
             "/api/v1/auth/login",
-            &json!({ "username": "admin", "password": "wrong-password" }),
+            &json!({ "username": "sherpa-admin", "password": "wrong-password" }),
         )
         .await?;
     ensure!(
@@ -814,7 +829,7 @@ async fn user_login_006_a_rest_login_issues_a_token_only_for_the_right_password(
     let response = client
         .post_json(
             "/api/v1/auth/login",
-            &json!({ "username": "admin", "password": TEST_ADMIN_PASSWORD }),
+            &json!({ "username": "sherpa-admin", "password": TEST_ADMIN_PASSWORD }),
         )
         .await?;
     ensure!(
@@ -824,7 +839,7 @@ async fn user_login_006_a_rest_login_issues_a_token_only_for_the_right_password(
     );
     let body: serde_json::Value = response.json().await?;
     ensure!(
-        body["username"] == "admin" && body["is_admin"] == true,
+        body["username"] == "sherpa-admin" && body["is_admin"] == true,
         "login response: {body}"
     );
     let token = body["token"].as_str().unwrap_or_default().to_owned();

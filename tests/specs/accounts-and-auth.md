@@ -112,22 +112,27 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 019 | With signup on, the signup page is served and the login page links to it | integration |
 | 020 | Signing up makes an account that is not an admin and signs it in (no test yet) | integration |
 | 021 | Signup refuses passwords that differ, a taken name, a name that breaks the rule and a weak password, each with its reason (no test yet) | integration |
+| 022 | `sherpa-admin`, any name starting `sherpa-`, `admin`, `administrator`, `superuser` and `sysadmin` are refused as new usernames, as reserved | unit |
 
-## `builtin_admin`: the built-in `admin` account always exists and runs the server, not labs
+## `builtin_admin`: the built-in `sherpa-admin` account always exists and runs the server, not labs
 
-**Statement:** the built-in `admin` account always exists and stays an admin, whatever is asked of the server or written to its database, and it cannot start lab work.
+**Statement:** the built-in account is `sherpa-admin`; it always exists and stays an admin, whatever is asked of the server or written to its database, and it cannot start lab work but can stop, clean up and destroy labs.
 **Relied on by:** the admin. **Priority:** P0.
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | sherpad refuses to start when the `admin` account does not exist and it is given no password to create it, naming both ways to create it | integration |
-| 002 | Given an admin password at startup, sherpad creates `admin` when it is missing, even when another admin exists, and leaves an existing `admin` and its password alone | integration |
-| 003 | An admin password that breaks the password rule creates no `admin` account | integration |
-| 004 | Deleting `admin` is refused, over RPC, REST and the web UI | integration |
-| 005 | The database itself refuses to delete, rename or demote `admin`, or to create it without admin rights, by a single write or one that covers every user, and leaves any other admin alone | integration |
-| 006 | The password and SSH keys of `admin` can be changed | integration |
-| 007 | `admin` is refused up, resume and redeploy, over RPC, REST and the web UI, and told to use a personal account | integration |
-| 008 | `admin` has no device password: setting one is refused | integration |
+| 001 | sherpad refuses to start when the `sherpa-admin` account does not exist and it is given no password to create it, naming both ways to create it | integration |
+| 002 | Given an admin password at startup, sherpad creates `sherpa-admin` when it is missing, even when another admin exists, and leaves an existing `sherpa-admin` and its password alone | integration |
+| 003 | An admin password that breaks the password rule creates no `sherpa-admin` account | integration |
+| 004 | Deleting `sherpa-admin` is refused, over RPC, REST and the web UI | integration |
+| 005 | The database itself refuses to delete, rename or demote `sherpa-admin`, or to create it without admin rights, by a single write or one that covers every user, and leaves any other admin alone | integration |
+| 006 | The password and SSH keys of `sherpa-admin` can be changed | integration |
+| 007 | `sherpa-admin` is refused up, resume and redeploy, over RPC, REST and the web UI, and told to use a personal account | integration |
+| 008 | `sherpa-admin` has no device password: setting one is refused | integration |
+| 009 | The built-in account sherpad creates is `sherpa-admin`, an admin | integration |
+| 010 | The upgrade renames the built-in `admin` of an earlier release to `sherpa-admin`, keeping its password, SSH keys, lock state and labs | integration |
+| 011 | An upgrade of a database that already has a user `sherpa-admin` is refused, by the upgrade and by its check, saying why, and the database is unchanged | integration |
+| 012 | `sherpa-admin` stops, cleans up and destroys a lab another user owns, over RPC, REST and the web UI | integration |
 
 ## `user_login`: a username and its password start a session
 
@@ -164,11 +169,11 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 026 | An admin unlocks an account over RPC and REST, and an unknown username is answered not found | integration |
 | 027 | A user who is not an admin is refused unlock over RPC, REST and the web UI, and the account stays locked | integration |
 | 028 | An admin's reset of a user's password does not unlock the account | integration |
-| 029 | `sherpad user unlock` unlocks an account, `admin` included, while the server is stopped | integration |
+| 029 | `sherpad user unlock` unlocks an account, `sherpa-admin` included, while the server is stopped | integration |
 | 030 | `sherpad user unlock` is refused while the server is running, and the database is as it was | integration |
 | 031 | `sherpad user unlock` of an unknown username fails, saying the user is not found, and unlocks no other account | integration |
 | 032 | `sherpad user unlock` run as any account but `sherpa`, root included, is refused with the command to run, and the database is as it was | integration |
-| 033 | Root unlocks a locked account, `admin` included, with `sherpad user unlock` while the server is stopped: refused while it runs, as root and for an unknown username, changing nothing, and after the restart the account logs in and `admin` is no longer locked | e2e |
+| 033 | Root unlocks a locked account, `sherpa-admin` included, with `sherpad user unlock` while the server is stopped: refused while it runs, as root and for an unknown username, changing nothing, and after the restart the account logs in and `sherpa-admin` is no longer locked | e2e |
 
 ## `user_sessions`: a token works only while its session lasts
 

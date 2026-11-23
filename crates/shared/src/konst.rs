@@ -38,7 +38,7 @@ pub const TAILSCALE_GATEWAY_HOST_OFFSET: u32 = 3;
 /// the offset `start + n - 1`.
 pub const MANAGEMENT_NODE_HOST_OFFSETS: RangeInclusive<u32> = 21..=254;
 pub const SHERPA_USERNAME: &str = "sherpa";
-pub const ADMIN_USERNAME: &str = "admin";
+pub const ADMIN_USERNAME: &str = "sherpa-admin";
 /// User documentation on generating and registering SSH keys, linked from errors.
 pub const SSH_KEYS_DOCS_URL: &str = "https://docs.sherpalabs.net/architecture/ssh-keys/";
 /// The documentation of the device password, the password of a user's login on lab nodes.
@@ -50,7 +50,7 @@ pub const TAILNET_DOCS_URL: &str = "https://docs.sherpalabs.net/architecture/net
 pub const SHERPA_USER_NAME_ENV: &str = "SHERPA_USER_NAME";
 pub const SHERPA_USER_PASSWORD_ENV: &str = "SHERPA_USER_PASSWORD";
 pub const ADMIN_PROTECTED_MESSAGE: &str =
-    "The built-in admin account cannot be deleted, renamed or lose administrator rights";
+    "The built-in sherpa-admin account cannot be deleted, renamed or lose administrator rights";
 pub const USERNAME_MIN_LENGTH: usize = 3;
 pub const USERNAME_MAX_LENGTH: usize = 32;
 /// Names users cannot take: Sherpa's own accounts, privileged and system accounts, and the
@@ -60,7 +60,10 @@ pub const RESERVED_USERNAMES: &[&str] = &[
     "root",
     SHERPA_USERNAME,
     ADMIN_USERNAME,
+    "admin",
     "administrator",
+    "superuser",
+    "sysadmin",
     "toor",
     "operator",
     "wheel",
@@ -110,8 +113,8 @@ pub const RESERVED_USERNAMES: &[&str] = &[
     "netadmin",
     "linuxadmin",
 ];
-/// Prefixes of reserved system account names.
-pub const RESERVED_USERNAME_PREFIXES: &[&str] = &["systemd-"];
+/// Prefixes of reserved names: Sherpa's own namespace and system accounts.
+pub const RESERVED_USERNAME_PREFIXES: &[&str] = &["sherpa-", "systemd-"];
 pub const SHERPA_SSH_CONFIG_FILE: &str = "sherpa_ssh_config";
 pub const SHERPA_KNOWN_HOSTS_FILE: &str = "sherpa_known_hosts";
 /// The lab CA certificate, saved in the lab folder for clients to trust lab nodes.
