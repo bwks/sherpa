@@ -47,6 +47,7 @@ fn generated_config_020_nokia_srlinux() {
         json!([{
             "name": "mgmt",
             "network-instance": "mgmt",
+            "search-list": ["sherpa.lab.local"],
             "server-list": ["172.20.0.2"],
         }])
     );
@@ -154,5 +155,14 @@ fn config_name_server_014_nokia_srlinux_names_the_boot_server_on_ipv4_and_ipv6()
     assert_eq!(
         value[SYSTEM]["srl_nokia-dns:dns-instance"][0]["server-list"],
         json!(["172.20.0.2", "fd00::2"])
+    );
+}
+
+#[test]
+fn config_name_server_015_nokia_srlinux_searches_the_lab_domain() {
+    let (_, value) = config("srl01", "Rand0mPass-1", true, false);
+    assert_eq!(
+        value[SYSTEM]["srl_nokia-dns:dns-instance"][0]["search-list"],
+        json!(["sherpa.lab.local"])
     );
 }

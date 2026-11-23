@@ -232,6 +232,7 @@ cloud-init, cloudbase-init, Ignition, FTDv, ISE and PAN-OS take the boot server 
 | 012 | Cumulus Linux | unit |
 | 013 | MikroTik RouterOS | unit |
 | 014 | Nokia SR Linux, with the boot server's IPv4 and IPv6 addresses in a lab with IPv6 | unit |
+| 015 | Nokia SR Linux searches the lab's domain, so a node's bare name resolves | unit |
 
 ## `device_accounts`: a generated config makes the owner's account and the model's fixed ones, no other
 
