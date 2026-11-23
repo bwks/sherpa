@@ -1,32 +1,50 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.15"
-# dependencies = []
+# dependencies = ["pytest==9.2.0"]
 # ///
-"""End-to-end test of NixOS lab nodes through the sherpa CLI (Python 3.15+, stdlib only).
+"""End-to-end test of NixOS lab nodes through the sherpa CLI (Python 3.15+, pytest).
 
-Brings up two `nixos_linux` VMs built from bwks/nixos-image, and checks what NixOS does differently
-from the other distros: the lab owner's login with NixOS's bash, sudo through wheel, per-user
-groups for text-file ownership, cloud-init finishing cleanly, an SSH provisioner, eth interface
-names, password login allowed by the image, and a P2p link. Always destroys the lab. See README.md.
+Brings up two `nixos_linux` VMs built from bwks/nixos-image, and checks the cases NixOS shows
+because it does things differently from the other distros: cloud-init finishing cleanly, the SSH
+host key Sherpa pinned being the one on disk, the lab owner's login with NixOS's bash, a group of
+their own and sudo through wheel, eth interface names, a text file owned by the owner's own group,
+and an SSH provisioner run as the owner. Always destroys the lab. See README.md.
+
+A pytest module: the `prepared` fixture checks the server and writes the lab's manifest and
+files, the `lab` fixture brings the lab up once for the module and destroys it at the end, and
+the `ready` fixture waits until every node takes SSH and has finished cloud-init. The cases are
+the `test_<case_id>_*` functions, in the order the lab goes through. Run as a script, it runs
+pytest on itself; `--self-test` runs the runner's own unit tests instead.
 """
 
 import argparse
-import json
 from pathlib import Path
-import re
 import shlex
 import shutil
 import signal
-import subprocess
 import sys
 import tempfile
 import time
 import tomllib
-from typing import NamedTuple
 import unittest
 from unittest import mock
 import uuid
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from labkit import (
+    COMMAND_TIMEOUT,
+    Outcome,
+    TestFailure,
+    require,
+    require_device_password,
+    run_logged,
+    stop_on_sigterm,
+    value_toml,
+)
 
 
 LAB = Path(__file__).resolve().parent
@@ -39,83 +57,22 @@ TEXT_FILE_CONTENT = "written by the nixos-linux lab test\n"
 # The SSH provisioner's script records who ran it and where, in the login's home.
 PROVISION_SCRIPT = "provision.sh"
 PROVISION_SCRIPT_CONTENT = '#!/bin/sh\necho "$(id -un)@$(hostname)" > "$HOME/provisioned.txt"\n'
-# Link `n` (0-based) uses this /24 with `n` as its third octet.
-SUBNET_PREFIX = "10.46"
+# The interfaces every node has: management, then the link.
+INTERFACES = ("eth0", "eth1")
+AFTER_UP = "after up"
 
-COMMAND_TIMEOUT = 180
 UP_TIMEOUT = 900
 READY_TIMEOUT = 600
 POLL_INTERVAL = 10
-PING_ATTEMPTS = 5
 
 # OpenSSH options for lab nodes: no prompts, and no host key notices mixed into command output.
 SSH_OPTIONS = ("-F", ".sherpa/ssh/config", "-o", "BatchMode=yes", "-o", "LogLevel=ERROR")
-
-
-class TestFailure(Exception):
-    """A check failed; the message says which and why."""
-
-
-class Outcome(NamedTuple):
-    """A finished command. Parse `stdout`; search `output` for messages, which may be on either stream."""
-
-    code: int | None
-    stdout: str
-    stderr: str
-
-    @property
-    def output(self):
-        return self.stdout + self.stderr
-
-
-class Address(NamedTuple):
-    node: str
-    interface: str
-    address: str
-
-
-def require(condition, message):
-    if not condition:
-        raise TestFailure(message)
-
-
-def run_logged(log, label, arguments, cwd, timeout=COMMAND_TIMEOUT):
-    """Run a command, record it and its output in the log, and return its Outcome."""
-    print(f"[{cwd.name}] {label}", flush=True)
-    try:
-        result = subprocess.run(arguments, cwd=cwd, capture_output=True, text=True, timeout=timeout,
-                                stdin=subprocess.DEVNULL)
-        outcome = Outcome(result.returncode, result.stdout, result.stderr)
-    except subprocess.TimeoutExpired as error:
-        partial = [part.decode(errors="replace") if isinstance(part, bytes) else part or ""
-                   for part in (error.stdout, error.stderr)]
-        outcome = Outcome(None, partial[0], f"{partial[1]}\ntimed out after {timeout}s")
-    except KeyboardInterrupt:
-        log.write(f"=== {label}: {shlex.join(arguments)}\n--- interrupted\n")
-        log.flush()
-        raise
-    log.write(f"=== {label}: {shlex.join(arguments)}\n--- exit {outcome.code}\n"
-              f"--- stdout\n{outcome.stdout}\n--- stderr\n{outcome.stderr}\n")
-    log.flush()
-    return outcome
-
-
-def stop_on_sigterm(_signal, _frame):
-    raise KeyboardInterrupt("SIGTERM")
-
-
-def value_toml(value):
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, str):
-        return json.dumps(value)
-    if isinstance(value, list):
-        return "[" + ", ".join(value_toml(item) for item in value) + "]"
-    if isinstance(value, dict):
-        return "{ " + ", ".join(f"{key} = {value_toml(item)}" for key, item in value.items()) + " }"
-    raise TypeError(f"Unsupported TOML value: {value!r}")
+# What a destroyed lab must not leave on the Sherpa server, and how to list it. A leftover is a
+# line that holds the lab's ID. A listing whose tool is missing, off the server, is skipped.
+HOST_LISTINGS = (
+    ("libvirt domains", ["virsh", "-c", "qemu:///system", "list", "--all", "--name"]),
+    ("host interfaces", ["ip", "-brief", "link"]),
+)
 
 
 def render_manifest(manifest, name):
@@ -130,35 +87,6 @@ def render_manifest(manifest, name):
             lines.append(f"  {value_toml(entry)},")
         lines.append("]")
     return "\n".join(lines) + "\n"
-
-
-def endpoint(text):
-    node, interface = text.split("::")
-    return node, interface
-
-
-def link_plan(manifest):
-    """Addresses for both ends of every link, and the pings that check them."""
-    addresses = []
-    pings = []
-    for index, link in enumerate(manifest.get("links", [])):
-        subnet = f"{SUBNET_PREFIX}.{index}"
-        ends = [Address(*endpoint(link["src"]), f"{subnet}.1/24"),
-                Address(*endpoint(link["dst"]), f"{subnet}.2/24")]
-        addresses += ends
-        pings += [(ends[0], ends[1]), (ends[1], ends[0])]
-    return addresses, pings
-
-
-def host(address):
-    return address.address.split("/")[0]
-
-
-def configure_command(addresses):
-    """One remote command that brings up and addresses a node's interfaces."""
-    return " && ".join(f"sudo -n ip link set {item.interface} up && "
-                       f"sudo -n ip addr replace {item.address} dev {item.interface}"
-                       for item in addresses)
 
 
 def provisioned_nodes(manifest):
@@ -183,14 +111,35 @@ def with_owner(manifest, owner):
     return {**manifest, "nodes": nodes}
 
 
-class LabRun:
-    def __init__(self, run_root, keep_failed, owner):
+def interfaces_script(interfaces):
+    """A node command printing the name of each of the interfaces the node has."""
+    return "; ".join(f"[ -e /sys/class/net/{name} ] && echo {name}" for name in interfaces) + "; true"
+
+
+def missing_interfaces(output, interfaces):
+    """The named interfaces that `interfaces_script` output does not list."""
+    present = set(output.split())
+    return [name for name in interfaces if name not in present]
+
+
+def leftovers(listing, lab_id):
+    """The first word of each line of a host listing that holds the lab's ID."""
+    return [line.split()[0] for line in listing.splitlines() if lab_id in line]
+
+
+# -- the lab -------------------------------------------------------------------------------------
+
+
+class Lab:
+    """The lab every case uses: its manifest written by `prepare`, brought up once by `up` and
+    destroyed by `destroy` in the `lab` fixture's teardown."""
+
+    def __init__(self, run_root, owner):
         self.owner = owner
         self.manifest = with_owner(tomllib.loads((LAB / "manifest.toml").read_text()), owner)
         self.name = f"{self.manifest['name']}-{run_root.name[-6:]}"
         self.directory = run_root / "lab"
-        self.keep_failed = keep_failed
-        self.addresses, self.pings = link_plan(self.manifest)
+        self.nodes = [node["name"] for node in self.manifest["nodes"]]
         self.started = False
         self.lab_id = None
         self.log = None
@@ -210,31 +159,14 @@ class LabRun:
         return self.command(label, ["ssh", *SSH_OPTIONS, f"{node}.{self.lab_id}", remote_command],
                             timeout, check)
 
-    # -- lab ---------------------------------------------------------------------------------
+    # -- lifecycle ---------------------------------------------------------------------------
 
-    def run(self):
+    def prepare(self):
         self.directory.mkdir(parents=True)
-        with (self.directory / "commands.log").open("w") as self.log:
-            (self.directory / "manifest.toml").write_text(render_manifest(self.manifest, self.name))
-            (self.directory / TEXT_FILE).write_text(TEXT_FILE_CONTENT)
-            (self.directory / PROVISION_SCRIPT).write_text(PROVISION_SCRIPT_CONTENT)
-            failure = None
-            try:
-                self.up()
-                self.checks()
-            except (TestFailure, OSError, KeyError, ValueError) as error:
-                failure = error
-            except BaseException:
-                # Interrupted: never leave the lab behind, then stop.
-                self.destroy()
-                raise
-            if failure and self.keep_failed:
-                print(f"keeping failed lab {self.name} ({self.lab_id}) in {self.directory}")
-            else:
-                cleanup = self.destroy()
-                failure = failure or cleanup
-        if failure:
-            raise TestFailure(str(failure))
+        self.log = (self.directory / "commands.log").open("w")
+        (self.directory / "manifest.toml").write_text(render_manifest(self.manifest, self.name))
+        (self.directory / TEXT_FILE).write_text(TEXT_FILE_CONTENT)
+        (self.directory / PROVISION_SCRIPT).write_text(PROVISION_SCRIPT_CONTENT)
 
     def up(self):
         self.started = True
@@ -249,128 +181,20 @@ class LabRun:
         require(outcome.code == 0, f"sherpa up failed (exit {outcome.code}); see {self.log.name}")
         require(self.lab_id is not None, "sherpa up wrote no .sherpa/lab-info.toml")
 
-    def checks(self):
-        for node in self.manifest["nodes"]:
-            name = node["name"]
-            self.wait_for_node(name)
-            self.check_cloud_init(name)
-            self.check_host_key(name)
-            self.check_account(name)
-            self.check_system(name)
-        for node, dst, expected in text_file_targets(self.manifest):
-            self.check_text_file(node, dst, expected)
-        for node in provisioned_nodes(self.manifest):
-            self.check_provisioned(node)
-        for node in self.manifest["nodes"]:
-            self.configure(node["name"])
-        self.check_pings()
-
-    def wait_for_node(self, node, timeout=READY_TIMEOUT):
-        deadline = time.monotonic() + timeout
-        while self.node(f"{node} reachable", node, "true", check=False).code != 0:
-            require(time.monotonic() < deadline, f"{node} not reachable over SSH after {timeout}s")
-            time.sleep(POLL_INTERVAL)
-
-    def check_cloud_init(self, node):
-        # Exit 0 is a clean finish; 2 would mean warnings, which the image is built to avoid.
-        outcome = self.node(f"{node} cloud-init finished", node, "cloud-init status --wait --long",
-                            timeout=READY_TIMEOUT, check=False)
-        require(outcome.code == 0, f"{node}: cloud-init did not finish cleanly "
-                f"(exit {outcome.code}): {outcome.output.strip()}")
-
-    def check_host_key(self, node):
-        """The host key Sherpa pinned is the node's key on disk, so it survives an sshd restart."""
-        outcome = self.node(f"{node} host key on disk", node,
-                            "cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub")
-        on_disk = outcome.stdout.strip()
-        known_hosts = (self.directory / ".sherpa" / "ssh" / "known_hosts").read_text().splitlines()
-        pinned = [line.split(None, 1)[1] for line in known_hosts if line.strip()]
-        require(on_disk and on_disk in pinned,
-                f"{node}: the pinned host key is not the key on disk ({on_disk!r})")
-
-    def check_account(self, node):
-        """The lab owner logs in with NixOS's bash, has its own group, and gets sudo from wheel."""
-        outcome = self.node(f"{node} lab owner account", node,
-                            'u=$(id -un); getent passwd "$u" | cut -d: -f7; id -gn; id -Gn; '
-                            'sudo -n true && echo sudo-ok')
-        shell, primary, groups, sudo = (outcome.stdout.splitlines() + [""] * 4)[:4]
-        require(shell == NIXOS_SHELL, f"{node}: lab owner's shell is {shell!r}, not {NIXOS_SHELL}")
-        require("wheel" in groups.split(), f"{node}: lab owner is not in wheel: {groups!r}")
-        require(primary not in ("users", "wheel", ""),
-                f"{node}: lab owner has no group of its own: {primary!r}")
-        require(sudo == "sudo-ok", f"{node}: lab owner has no passwordless sudo")
-
-    def check_system(self, node):
-        """eth names, password logins allowed by the image, and no failed units."""
-        outcome = self.node(f"{node} system", node,
-                            "ip -o link show eth0 >/dev/null && echo eth0-ok; "
-                            "sudo -n sshd -T | grep -i '^passwordauthentication '; "
-                            "systemctl --failed --no-legend --plain | wc -l")
-        # sshd -T prints keywords in lower case on some builds and as configured on others.
-        lines = outcome.stdout.lower().splitlines()
-        require("eth0-ok" in lines, f"{node}: no eth0 interface")
-        require("passwordauthentication yes" in lines,
-                f"{node}: the image does not allow password logins: {outcome.stdout.strip()!r}")
-        require(lines and lines[-1].strip() == "0", f"{node}: failed systemd units: {lines[-1:]}")
-
-    def check_provisioned(self, node):
-        """`sherpa up` ran the SSH provisioner's script as the lab owner, after cloud-init."""
-        outcome = self.node(f"{node} provisioned", node, 'echo "$(id -un)@$(hostname)"; cat ~/provisioned.txt')
-        lines = outcome.stdout.splitlines()
-        require(len(lines) == 2 and lines[0] == lines[1],
-                f"{node}: the SSH provisioner's script did not run as the lab owner: {lines!r}")
-
-    def check_text_file(self, node, dst, expected):
-        outcome = self.node(f"{node} text file {dst}", node, f"sudo -n stat -c '%U:%G %a' {shlex.quote(dst)}")
-        require(outcome.stdout.strip() == expected,
-                f"{node}: {dst} is {outcome.stdout.strip()!r}, not {expected!r}")
-
-    def configure(self, node):
-        addresses = [item for item in self.addresses if item.node == node]
-        if not addresses:
-            return
-        outcome = self.node(f"address {node}", node, configure_command(addresses), check=False)
-        require(outcome.code == 0, f"could not address {node} {[a.interface for a in addresses]}: "
-                f"{outcome.output.strip()}")
-
-    def check_pings(self):
-        failed = [f"{source.node}:{source.interface} -> {target.node}:{target.interface} ({host(target)})"
-                  for source, target in self.pings if not self.ping(source, target)]
-        require(not failed, f"no reply on: {'; '.join(failed)}")
-
-    def ping(self, source, target):
-        for attempt in range(PING_ATTEMPTS):
-            outcome = self.node(f"ping {source.node} -> {target.node} {host(target)}", source.node,
-                                f"ping -c 1 -W 2 -I {source.interface} {host(target)}", check=False)
-            if outcome.code == 0:
-                return True
-            time.sleep(1 + attempt)
-        return False
-
     def destroy(self):
-        """Destroy the lab and check nothing is left. Returns a failure, or None."""
+        """Destroy the lab and check `sherpa inspect` no longer finds it and, on the Sherpa server,
+        nothing of it is left on the host. Does nothing when the lab was never started."""
         if not self.started:
-            return None
-        if not (self.directory / ".sherpa" / "lab-info.toml").exists():
+            return
+        if self.lab_id is None:
             # `sherpa up` failed early; destroy whatever it created, found by the manifest's lab name.
             self.sherpa("sherpa destroy (after failed up)", ["destroy", "--yes"], UP_TIMEOUT, check=False)
-            return None
-        try:
-            self.sherpa("sherpa destroy", ["destroy", "--yes"], UP_TIMEOUT)
-            inspect = self.sherpa("lab gone", ["inspect"], check=False)
-            require(inspect.code != 0, f"lab {self.lab_id} still exists after destroy")
-            self.no_host_leftovers()
-        except TestFailure as error:
-            return error
-        return None
-
-    def no_host_leftovers(self):
-        """When run on the Sherpa server, check its libvirt domains and host interfaces."""
-        checks = (
-            ("libvirt domains", ["virsh", "-c", "qemu:///system", "list", "--all", "--name"]),
-            ("host interfaces", ["ip", "-brief", "link"]),
-        )
-        for kind, arguments in checks:
+            return
+        self.sherpa("sherpa destroy", ["destroy", "--yes"], UP_TIMEOUT)
+        inspect = self.sherpa("lab gone", ["inspect"], check=False)
+        require(inspect.code != 0, f"lab {self.lab_id} still exists after destroy")
+        found = {}
+        for kind, arguments in HOST_LISTINGS:
             if not shutil.which(arguments[0]):
                 self.log.write(f"=== {kind} leftover check skipped: {arguments[0]} not found\n")
                 continue
@@ -378,25 +202,26 @@ class LabRun:
             if listing.code != 0:
                 self.log.write(f"=== {kind} leftover check skipped: exit {listing.code}\n")
                 continue
-            leftovers = [line.split()[0] for line in listing.stdout.splitlines()
-                         if self.lab_id in line]
-            require(not leftovers, f"{kind} left after destroy: {leftovers}")
+            left = leftovers(listing.stdout, self.lab_id)
+            if left:
+                found[kind] = left
+        require(not found, "left after destroy: " + "; ".join(f"{kind} {names}" for kind, names in found.items()))
+
+    # -- nodes -------------------------------------------------------------------------------
+
+    def wait_for_node(self, node, timeout=READY_TIMEOUT):
+        deadline = time.monotonic() + timeout
+        while self.node(f"{node} reachable", node, "true", check=False).code != 0:
+            require(time.monotonic() < deadline, f"{node} not reachable over SSH after {timeout}s")
+            time.sleep(POLL_INTERVAL)
+
+    def cloud_init_status(self, node):
+        """Wait for cloud-init to finish on the node and return its status command's outcome."""
+        return self.node(f"{node} cloud-init finished", node, "cloud-init status --wait --long",
+                         timeout=READY_TIMEOUT, check=False)
 
 
-DEVICE_PASSWORD_SET = re.compile(r"^\s*Device password:\s*set\s*$", re.MULTILINE)
-INFO_USERNAME = re.compile(r"^\s*Username:\s*(\S+)\s*$", re.MULTILINE)
-
-
-def require_device_password(log, run_root):
-    """Stop unless the lab owner has a device password, which `sherpa up` needs; return the owner."""
-    info = run_logged(log, "sherpa server user info", ["sherpa", "server", "user", "info"], run_root)
-    require(info.code == 0, "could not read the user's details (`sherpa server user info`)")
-    require(DEVICE_PASSWORD_SET.search(info.stdout),
-            "the user has no device password, which `sherpa up` needs: "
-            "run `sherpa server user device-password`")
-    owner = INFO_USERNAME.search(info.stdout)
-    require(owner, "`sherpa server user info` did not name the user")
-    return owner.group(1)
+# -- the fixtures --------------------------------------------------------------------------------
 
 
 def preflight(run_root):
@@ -416,58 +241,167 @@ def preflight(run_root):
     return owner
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--keep-failed", action="store_true", help="Leave a failed lab running for debugging")
-    parser.add_argument("--self-test", action="store_true", help="Run the runner's own unit tests")
-    args = parser.parse_args()
-    if args.self_test:
-        sys.argv = sys.argv[:1]
-        unittest.main()
-        return 0
+@pytest.fixture(scope="module")
+def prepared():
+    """The lab before it is up: the server checked and the run's manifest and files written."""
     signal.signal(signal.SIGTERM, stop_on_sigterm)
     run_root = RUNS / f"nixos-linux-{uuid.uuid4().hex[:12]}"
     run_root.mkdir(parents=True)
     print(f"Logs: {run_root}", flush=True)
+    lab = Lab(run_root, preflight(run_root))
+    lab.prepare()
     try:
-        owner = preflight(run_root)
-        LabRun(run_root, args.keep_failed, owner).run()
-    except TestFailure as error:
-        print(f"FAIL {error}. Logs: {run_root}", file=sys.stderr)
-        return 1
-    print(f"PASS. Logs: {run_root}")
-    return 0
+        yield lab
+    finally:
+        lab.log.close()
+
+
+@pytest.fixture(scope="module")
+def lab(request, prepared):
+    """The lab every case uses: brought up once and destroyed at the end, even when a case fails,
+    unless `--keep-failed` is given and something failed. The teardown also checks nothing of
+    the lab is left on the host."""
+    keep_failed = request.config.getoption("keep_failed")
+    keep = False
+    try:
+        try:
+            prepared.up()
+        except Exception:
+            keep = keep_failed
+            raise
+        yield prepared
+        keep = keep_failed and request.session.testsfailed > 0
+    finally:
+        if keep:
+            print(f"keeping failed lab {prepared.name} ({prepared.lab_id}) in {prepared.directory}", flush=True)
+        else:
+            prepared.destroy()
+
+
+@pytest.fixture(scope="module")
+def ready(lab):
+    """The lab once every node takes SSH and has finished cloud-init, however it finished, once
+    for the module: the text files and the provisioner come after cloud-init."""
+    for node in lab.nodes:
+        lab.wait_for_node(node)
+        lab.cloud_init_status(node)
+    return lab
+
+
+# -- cases ---------------------------------------------------------------------------------------
+
+
+def test_config_delivery_003_a_cloud_init_vm_finishes_cloud_init_without_an_error(ready):
+    # Exit 0 is a clean finish; 2 would mean warnings, which the image is built to avoid.
+    failed = []
+    for node in ready.nodes:
+        outcome = ready.cloud_init_status(node)
+        if outcome.code != 0:
+            failed.append(f"{node} (exit {outcome.code}): {outcome.output.strip()}")
+    require(not failed, f"cloud-init did not finish cleanly on {'; '.join(failed)}")
+
+
+def test_node_host_keys_001_the_pinned_key_of_a_vm_is_the_host_key_on_its_disk(ready):
+    known_hosts = (ready.directory / ".sherpa" / "ssh" / "known_hosts").read_text().splitlines()
+    pinned = [line.split(None, 1)[1] for line in known_hosts if line.strip()]
+    for node in ready.nodes:
+        outcome = ready.node(f"{node} host key on disk", node,
+                             "cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub")
+        on_disk = outcome.stdout.strip()
+        require(on_disk and on_disk in pinned,
+                f"{node}: the pinned host key is not the key on disk ({on_disk!r})")
+
+
+def test_owner_login_027_on_a_nixos_vm_the_owner_has_the_system_bash_a_group_of_their_own_and_sudo_through_wheel(ready):
+    for node in ready.nodes:
+        outcome = ready.node(f"{node} lab owner account", node,
+                             'u=$(id -un); getent passwd "$u" | cut -d: -f7; id -gn; id -Gn; '
+                             'sudo -n true && echo sudo-ok')
+        shell, primary, groups, sudo = (outcome.stdout.splitlines() + [""] * 4)[:4]
+        require(shell == NIXOS_SHELL, f"{node}: lab owner's shell is {shell!r}, not {NIXOS_SHELL}")
+        require(primary not in ("users", "wheel", ""),
+                f"{node}: lab owner has no group of its own: {primary!r}")
+        require("wheel" in groups.split(), f"{node}: lab owner is not in wheel: {groups!r}")
+        require(sudo == "sudo-ok", f"{node}: lab owner has no passwordless sudo")
+
+
+def test_node_interfaces_009_a_vm_has_its_interfaces_named_eth0_eth1(ready):
+    problems = []
+    for node in ready.nodes:
+        outcome = ready.node(f"{node} interfaces", node, interfaces_script(INTERFACES))
+        problems += [f"{node} {name} missing" for name in missing_interfaces(outcome.stdout, INTERFACES)]
+    require(not problems, f"{AFTER_UP}, {'; '.join(problems)}")
+
+
+def test_boot_files_001_a_text_file_in_the_owners_home_has_its_owner_group_and_mode(ready):
+    targets = text_file_targets(ready.manifest)
+    require(targets, "the manifest writes no text file")
+    for node, dst, expected in targets:
+        outcome = ready.node(f"{node} text file {dst}", node, f"sudo -n stat -c '%U:%G %a' {shlex.quote(dst)}")
+        require(outcome.stdout.strip() == expected,
+                f"{node}: {dst} is {outcome.stdout.strip()!r}, not {expected!r}")
+
+
+def test_provisioner_scripts_001_at_up_a_script_runs_as_the_owner_in_their_home(ready):
+    nodes = provisioned_nodes(ready.manifest)
+    require(nodes, "the manifest has no SSH provisioner")
+    for node in nodes:
+        outcome = ready.node(f"{node} provisioned", node, 'echo "$(id -un)@$(hostname)"; cat ~/provisioned.txt')
+        lines = outcome.stdout.splitlines()
+        require(len(lines) == 2 and lines[0] == lines[1],
+                f"{node}: the SSH provisioner's script did not run as the lab owner: {lines!r}")
+
+
+# -- running -------------------------------------------------------------------------------------
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     epilog="Other arguments, such as --keep-failed or -k, are passed to pytest.")
+    parser.add_argument("--self-test", action="store_true", help="Run the runner's own unit tests")
+    args, pytest_args = parser.parse_known_args()
+    if args.self_test:
+        sys.argv = sys.argv[:1]
+        unittest.main()
+        return 0
+    return pytest.main(["-v", "-p", "no:cacheprovider", __file__, *pytest_args])
 
 
 class SelfTest(unittest.TestCase):
     # The runner's own checks, run with --self-test; pytest must not collect them as lab cases.
     __test__ = False
 
+    def test_interfaces_must_be_there(self):
+        self.assertEqual(missing_interfaces("eth0\neth1\n", INTERFACES), [])
+        self.assertEqual(missing_interfaces("eth0\n", INTERFACES), ["eth1"])
+        self.assertEqual(missing_interfaces("", INTERFACES), ["eth0", "eth1"])
+
     def test_a_partly_created_lab_keeps_its_id_for_cleanup(self):
         # `sherpa up` exits 1 on a partly created lab after writing lab-info.toml; the run must
-        # still know the lab's ID, so destroy checks for leftovers instead of crashing.
+        # still know the lab's ID, so destroy checks for leftovers instead of skipping them.
         with tempfile.TemporaryDirectory() as temp:
-            run = LabRun(Path(temp) / "nixos-linux-000000abcdef", keep_failed=False, owner="alice")
-            (run.directory / ".sherpa").mkdir(parents=True)
-            (run.directory / ".sherpa" / "lab-info.toml").write_text(
-                f'id = "4ed6360e"\nname = "{run.name}"\n')
-            run.log = (run.directory / "commands.log").open("w")
-            self.addCleanup(run.log.close)
+            lab = Lab(Path(temp) / "nixos-linux-000000abcdef", owner="alice")
+            lab.prepare()
+            self.addCleanup(lab.log.close)
+            (lab.directory / ".sherpa").mkdir()
+            (lab.directory / ".sherpa" / "lab-info.toml").write_text(
+                f'id = "4ed6360e"\nname = "{lab.name}"\n')
 
-            def failing_up(log, label, arguments, *rest):
+            def failing_up(log, label, arguments, *rest, **options):
                 return Outcome(1 if arguments[:2] == ["sherpa", "up"] else 0, "", "")
 
             with mock.patch(f"{__name__}.run_logged", failing_up), self.assertRaises(TestFailure):
-                run.up()
-            self.assertEqual(run.lab_id, "4ed6360e")
+                lab.up()
+            self.assertEqual(lab.lab_id, "4ed6360e")
 
-            def leftover(log, label, arguments, *rest):
+            def leftover(log, label, arguments, *rest, **options):
                 return Outcome(1 if "inspect" in arguments else 0, "node-4ed6360e-x\n", "")
 
             with (mock.patch(f"{__name__}.run_logged", leftover),
-                  mock.patch("shutil.which", return_value="/usr/bin/true")):
-                self.assertIsInstance(run.destroy(), TestFailure)
+                  mock.patch("shutil.which", return_value="/usr/bin/true"),
+                  self.assertRaises(TestFailure)):
+                lab.destroy()
 
 
 if __name__ == "__main__":
