@@ -605,13 +605,6 @@ class Runner:
                 self.save()
                 raise MemoryRefused(f"The server refused the lab: {refusal}")
             raise RuntimeError(f"up exited {up_code}; see {up_log}")
-        _, expanded = self.command("ssh-settings", ["ssh", "-G", "-F",
-                       str(self.directory / ".sherpa" / "ssh" / "config"), f"{self.node_name}.{self.lab_id}"],
-                       self.config["timeouts"]["command"])
-        settings = dict(line.split(" ", 1) for line in expanded.splitlines() if " " in line)
-        self.jump_host = self.config["host"]["ssh_destination"] or settings["proxyjump"]
-        if self.jump_host == "none" or "," in self.jump_host:
-            raise ValueError("A single Sherpa SSH jump host is required")
         self.bind_vm()
         self.oom_kills_before = self.machine_oom_kills()
 
@@ -954,8 +947,7 @@ class Runner:
         self.report["run"]["resource_state"] = "removed"
         self.report["run"]["cleanup_verified"] = True
         # Delete only local test credentials, retaining logs, inputs and the run receipt.
-        for name in ("guest.toml", ".sherpa/ssh/key"):
-            (self.directory / name).unlink(missing_ok=True)
+        (self.directory / "guest.toml").unlink(missing_ok=True)
 
     def run(self, scenario):
         success = False

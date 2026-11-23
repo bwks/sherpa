@@ -35,7 +35,7 @@ use shared::konst::{
 };
 use shared::util::{
     Emoji, LabFolder, get_cwd, get_user_ssh_dir, keycloak_file_name, kubeconfig_file_name,
-    replace_lab_ssh_include, talosconfig_file_name, vault_file_name,
+    replace_lab_ssh_include, ssh_config_path, talosconfig_file_name, vault_file_name,
 };
 
 use crate::lab_files::ensure_lab_subdir;
@@ -157,7 +157,7 @@ pub(crate) fn migrate_lab_folder(lab_dir: &Path, ssh_dir: &Path) -> Result<Migra
             .with_context(|| format!("Failed to read {}", legacy_config.display()))?;
         ensure_lab_subdir(&folder, &folder.ssh_dir())?;
         let new_config = folder.ssh_config();
-        fs::write(&new_config, rewrite_legacy_ssh_config(&config, &folder))
+        fs::write(&new_config, rewrite_legacy_ssh_config(&config, &folder)?)
             .with_context(|| format!("Failed to write {}", new_config.display()))?;
         fs::remove_file(&legacy_config)
             .with_context(|| format!("Failed to remove {}", legacy_config.display()))?;
@@ -332,8 +332,10 @@ fn is_file(path: &Path) -> bool {
 
 /// Point an old SSH config's `UserKnownHostsFile` lines, which named the loose
 /// `sherpa_known_hosts` (by absolute path, or relative in the oldest clients), at `folder`'s
-/// `.sherpa/ssh/known_hosts`. Other lines are left as they are.
-fn rewrite_legacy_ssh_config(config: &str, folder: &LabFolder) -> String {
+/// `.sherpa/ssh/known_hosts`, in double quotes when its path holds whitespace. Other lines
+/// are left as they are. Fails when that path has a double quote, which ssh cannot read.
+fn rewrite_legacy_ssh_config(config: &str, folder: &LabFolder) -> Result<String> {
+    let known_hosts = ssh_config_path(&folder.known_hosts().to_string_lossy())?;
     let mut rewritten: String = config
         .lines()
         .map(|line| {
@@ -349,10 +351,7 @@ fn rewrite_legacy_ssh_config(config: &str, folder: &LabFolder) -> String {
             if directive.eq_ignore_ascii_case("UserKnownHostsFile")
                 && names(SHERPA_KNOWN_HOSTS_FILE)
             {
-                format!(
-                    "{indent}UserKnownHostsFile {}",
-                    folder.known_hosts().display()
-                )
+                format!("{indent}UserKnownHostsFile {known_hosts}")
             } else {
                 line.to_string()
             }
@@ -362,7 +361,7 @@ fn rewrite_legacy_ssh_config(config: &str, folder: &LabFolder) -> String {
     if config.ends_with('\n') {
         rewritten.push('\n');
     }
-    rewritten
+    Ok(rewritten)
 }
 
 /// Show what a migration moved.
@@ -522,7 +521,8 @@ users = []
 
         let by_name =
             "Host x\n  IdentityFile sherpa_ssh_key\n  UserKnownHostsFile sherpa_known_hosts\n";
-        let rewritten = rewrite_legacy_ssh_config(by_name, &LabFolder::new(Path::new("/labs/a")));
+        let rewritten =
+            rewrite_legacy_ssh_config(by_name, &LabFolder::new(Path::new("/labs/a"))).unwrap();
         assert_eq!(
             rewritten,
             format!(
