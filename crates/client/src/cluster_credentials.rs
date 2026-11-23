@@ -1,19 +1,14 @@
-use std::path::PathBuf;
-
-use anyhow::Result;
-
 use shared::data::ClusterInfo;
 use shared::util::{Emoji, LabFolder};
 
-use crate::lab_files::ensure_lab_subdir;
-use crate::secret_file::write_secret_file;
+use crate::lab_files::LabFile;
 
-/// Files written for one cluster.
+/// The credentials files of one cluster.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ClusterFiles {
     pub name: String,
-    pub kubeconfig: PathBuf,
-    pub talosconfig: PathBuf,
+    pub kubeconfig: LabFile,
+    pub talosconfig: LabFile,
     /// Addresses of a Cilium cluster's Gateway and Hubble UI.
     pub gateway: Option<String>,
     pub hubble_ui: Option<String>,
@@ -26,13 +21,13 @@ pub(crate) fn print_cluster_files(files: &[ClusterFiles]) {
             "{} Cluster {} credentials: {} and {}",
             Emoji::Success,
             cluster.name,
-            cluster.kubeconfig.display(),
-            cluster.talosconfig.display()
+            cluster.kubeconfig.path.display(),
+            cluster.talosconfig.path.display()
         );
         println!(
             "   export KUBECONFIG={} TALOSCONFIG={}",
-            cluster.kubeconfig.display(),
-            cluster.talosconfig.display()
+            cluster.kubeconfig.path.display(),
+            cluster.talosconfig.path.display()
         );
         if let Some(gateway) = &cluster.gateway {
             println!("   Gateway: http://{gateway}");
@@ -43,37 +38,38 @@ pub(crate) fn print_cluster_files(files: &[ClusterFiles]) {
     }
 }
 
-/// Write each cluster's kubeconfig and talosconfig into `folder`, readable only by the current
-/// user, as `.sherpa/k8s/kubeconfig-<cluster>` and `.sherpa/talos/talosconfig-<cluster>`.
-#[tracing::instrument(level = "debug", skip_all, fields(folder = %folder.root().display(), clusters = clusters.len()))]
-pub(crate) fn write_cluster_credentials(
+/// Each cluster's kubeconfig and talosconfig as its files in `folder`,
+/// `.sherpa/k8s/kubeconfig-<cluster>` and `.sherpa/talos/talosconfig-<cluster>`, secrets.
+/// Writes nothing.
+pub(crate) fn cluster_credential_files(
     folder: &LabFolder,
     clusters: &[ClusterInfo],
-) -> Result<Vec<ClusterFiles>> {
-    if !clusters.is_empty() {
-        ensure_lab_subdir(folder, &folder.k8s_dir())?;
-        ensure_lab_subdir(folder, &folder.talos_dir())?;
-    }
-    let mut written = Vec::with_capacity(clusters.len());
-    for cluster in clusters {
-        let kubeconfig = folder.kubeconfig(&cluster.name);
-        let talosconfig = folder.talosconfig(&cluster.name);
-        write_secret_file(&kubeconfig, &cluster.kubeconfig, "kubeconfig")?;
-        write_secret_file(&talosconfig, &cluster.talosconfig, "talosconfig")?;
-        written.push(ClusterFiles {
+) -> Vec<ClusterFiles> {
+    clusters
+        .iter()
+        .map(|cluster| ClusterFiles {
             name: cluster.name.clone(),
-            kubeconfig,
-            talosconfig,
+            kubeconfig: LabFile {
+                path: folder.kubeconfig(&cluster.name),
+                content: cluster.kubeconfig.clone(),
+                secret: Some("kubeconfig"),
+            },
+            talosconfig: LabFile {
+                path: folder.talosconfig(&cluster.name),
+                content: cluster.talosconfig.clone(),
+                secret: Some("talosconfig"),
+            },
             gateway: cluster.gateway.clone(),
             hubble_ui: cluster.hubble_ui.clone(),
-        });
-    }
-    Ok(written)
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::lab_files::write_lab_file;
 
     #[test]
     fn lab_credentials_005_each_cluster_s_files_are_saved_under_its_name() {
@@ -86,8 +82,13 @@ mod tests {
             gateway: None,
             hubble_ui: None,
         });
-        let written = write_cluster_credentials(&LabFolder::new(dir.path()), &clusters).unwrap();
+        let folder = LabFolder::new(dir.path());
+        let written = cluster_credential_files(&folder, &clusters);
         assert_eq!(written.len(), 2);
+        for cluster in &written {
+            write_lab_file(&folder, &cluster.kubeconfig).unwrap();
+            write_lab_file(&folder, &cluster.talosconfig).unwrap();
+        }
         assert_eq!(
             std::fs::read_to_string(dir.path().join(".sherpa/k8s/kubeconfig-edge")).unwrap(),
             "kube-edge"
@@ -97,7 +98,7 @@ mod tests {
             "talos-k8s"
         );
         assert_eq!(
-            written[0].kubeconfig,
+            written[0].kubeconfig.path,
             dir.path().join(".sherpa/k8s/kubeconfig-k8s")
         );
     }

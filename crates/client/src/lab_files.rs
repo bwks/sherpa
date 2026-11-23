@@ -10,13 +10,15 @@ use shared::data::{
     ClusterInfo, DownloadLabResponse, KeycloakInfo, LabInfo, SurrealDbInfo, UpResponse, VaultInfo,
 };
 use shared::konst::SHERPA_KNOWN_HOSTS_FILE;
-use shared::util::{Emoji, LabFolder, add_lab_ssh_include};
+use shared::util::{Emoji, LabFolder, add_lab_ssh_include, ssh_config_path};
 
-use crate::cluster_credentials::{print_cluster_files, write_cluster_credentials};
-use crate::keycloak_credentials::{print_keycloak_files, write_keycloak_credentials};
+use crate::cluster_credentials::{ClusterFiles, cluster_credential_files, print_cluster_files};
+use crate::keycloak_credentials::{KeycloakFile, keycloak_credential_files, print_keycloak_files};
 use crate::secret_file::{ensure_private_dir, write_secret_file};
-use crate::surreal_db_credentials::{print_surreal_db_files, write_surreal_db_credentials};
-use crate::vault_credentials::{print_vault_files, write_vault_credentials};
+use crate::surreal_db_credentials::{
+    SurrealDbFile, print_surreal_db_files, surreal_db_credential_files,
+};
+use crate::vault_credentials::{VaultFile, print_vault_files, vault_credential_files};
 
 /// The lab files the server sends with `sherpa up` and `sherpa download`.
 pub(crate) struct LabFiles<'a> {
@@ -60,62 +62,141 @@ impl<'a> From<&'a DownloadLabResponse> for LabFiles<'a> {
     }
 }
 
-/// Save `files` in `folder`'s `.sherpa` folder, showing each one saved, and return the path of
-/// the SSH config. Stops at the first file that cannot be saved.
+/// A file of a lab that `save_lab_files` writes in the lab folder.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct LabFile {
+    pub path: PathBuf,
+    pub content: String,
+    /// What the file holds when it is a secret, readable by the user alone, as the error names
+    /// it; `None` for a file written as the user's other files are.
+    pub secret: Option<&'static str>,
+}
+
+/// Every file `save_lab_files` writes for a lab, built from what the server sent and not yet
+/// written.
+pub(crate) struct LabFileSet {
+    ssh_config: LabFile,
+    known_hosts: Option<LabFile>,
+    lab_info: LabFile,
+    lab_ca: Option<LabFile>,
+    vaults: Vec<VaultFile>,
+    keycloaks: Vec<KeycloakFile>,
+    surreal_dbs: Vec<SurrealDbFile>,
+    clusters: Vec<ClusterFiles>,
+}
+
+impl LabFileSet {
+    /// The files of `files` at their paths in `folder`. Writes nothing.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the SSH config cannot name the folder's known hosts file, or a credentials
+    /// file cannot be serialized.
+    pub(crate) fn new(folder: &LabFolder, files: &LabFiles) -> Result<Self> {
+        Ok(Self {
+            ssh_config: LabFile {
+                path: folder.ssh_config(),
+                content: rewrite_ssh_config_for_client(files.ssh_config, folder)?,
+                secret: None,
+            },
+            known_hosts: known_hosts_file(folder, files.known_hosts),
+            lab_info: LabFile {
+                path: folder.lab_info(),
+                content: files.lab_info.to_string(),
+                secret: None,
+            },
+            lab_ca: lab_ca_file(folder, files.lab_ca),
+            vaults: vault_credential_files(folder, files.vaults)
+                .context("Failed to build Vault credentials")?,
+            keycloaks: keycloak_credential_files(folder, files.keycloaks)
+                .context("Failed to build Keycloak credentials")?,
+            surreal_dbs: surreal_db_credential_files(folder, files.surreal_dbs)
+                .context("Failed to build SurrealDB credentials")?,
+            clusters: cluster_credential_files(folder, files.clusters),
+        })
+    }
+
+    /// Every file of the set, in the order they are written.
+    pub(crate) fn files(&self) -> impl Iterator<Item = &LabFile> {
+        [&self.ssh_config]
+            .into_iter()
+            .chain(&self.known_hosts)
+            .chain([&self.lab_info])
+            .chain(&self.lab_ca)
+            .chain(self.vaults.iter().map(|vault| &vault.file))
+            .chain(self.keycloaks.iter().map(|keycloak| &keycloak.file))
+            .chain(self.surreal_dbs.iter().map(|surreal_db| &surreal_db.file))
+            .chain(
+                self.clusters
+                    .iter()
+                    .flat_map(|cluster| [&cluster.kubeconfig, &cluster.talosconfig]),
+            )
+    }
+
+    /// The first file of the set that is already in the lab folder, a symlink or a folder
+    /// where it belongs included.
+    pub(crate) fn first_existing(&self) -> Option<&Path> {
+        self.files()
+            .map(|file| file.path.as_path())
+            .find(|path| fs::symlink_metadata(path).is_ok())
+    }
+}
+
+/// Save `files` in `folder`'s `.sherpa` folder, then show each one saved, and return the path
+/// of the SSH config. Stops at the first file that cannot be saved.
 #[tracing::instrument(level = "debug", skip_all, fields(folder = %folder.root().display()))]
-pub(crate) fn save_lab_files(folder: &LabFolder, files: &LabFiles) -> Result<PathBuf> {
-    ensure_lab_subdir(folder, &folder.ssh_dir())?;
-    let ssh_config = folder.ssh_config();
-    fs::write(
-        &ssh_config,
-        rewrite_ssh_config_for_client(files.ssh_config, folder),
-    )
-    .with_context(|| format!("Failed to write {}", ssh_config.display()))?;
+pub(crate) fn save_lab_files(folder: &LabFolder, files: &LabFileSet) -> Result<PathBuf> {
+    for file in files.files() {
+        write_lab_file(folder, file)?;
+    }
     println!(
         "{} SSH config created: {}",
         Emoji::Success,
-        ssh_config.display()
+        files.ssh_config.path.display()
     );
-
-    if let Some(path) = write_known_hosts(folder, files.known_hosts)? {
+    if let Some(known_hosts) = &files.known_hosts {
         println!(
             "{} Node host keys saved: {}",
             Emoji::Success,
-            path.display()
+            known_hosts.path.display()
         );
     }
-
-    let lab_info = folder.lab_info();
-    fs::write(&lab_info, files.lab_info.to_string())
-        .with_context(|| format!("Failed to write {}", lab_info.display()))?;
     println!(
         "{} Lab info created: {}",
         Emoji::Success,
-        lab_info.display()
+        files.lab_info.path.display()
     );
-
-    let lab_ca = write_lab_ca(folder, files.lab_ca)?;
-    if let Some(path) = &lab_ca {
-        println!("{} Lab CA certificate: {}", Emoji::Success, path.display());
+    if let Some(lab_ca) = &files.lab_ca {
+        println!(
+            "{} Lab CA certificate: {}",
+            Emoji::Success,
+            lab_ca.path.display()
+        );
     }
     print_vault_files(
-        &write_vault_credentials(folder, files.vaults)
-            .context("Failed to write Vault credentials")?,
-        lab_ca.as_deref(),
+        &files.vaults,
+        files.lab_ca.as_ref().map(|lab_ca| lab_ca.path.as_path()),
     );
-    print_keycloak_files(
-        &write_keycloak_credentials(folder, files.keycloaks)
-            .context("Failed to write Keycloak credentials")?,
-    );
-    print_surreal_db_files(
-        &write_surreal_db_credentials(folder, files.surreal_dbs)
-            .context("Failed to write SurrealDB credentials")?,
-    );
-    print_cluster_files(
-        &write_cluster_credentials(folder, files.clusters)
-            .context("Failed to write cluster credentials")?,
-    );
-    Ok(ssh_config)
+    print_keycloak_files(&files.keycloaks);
+    print_surreal_db_files(&files.surreal_dbs);
+    print_cluster_files(&files.clusters);
+    Ok(files.ssh_config.path.clone())
+}
+
+/// Write `file` in `folder`, making the folder it goes in, which only its owner can enter. A
+/// secret is readable by the user alone.
+#[tracing::instrument(level = "debug", skip_all, fields(path = %file.path.display()))]
+pub(crate) fn write_lab_file(folder: &LabFolder, file: &LabFile) -> Result<()> {
+    let dir = file
+        .path
+        .parent()
+        .with_context(|| format!("{} has no folder", file.path.display()))?;
+    ensure_lab_subdir(folder, dir)?;
+    match file.secret {
+        Some(what) => write_secret_file(&file.path, &file.content, what),
+        None => fs::write(&file.path, &file.content)
+            .with_context(|| format!("Failed to write {}", file.path.display())),
+    }
 }
 
 /// Make `folder`'s `.sherpa` folder and its sub-folder `dir`, both only for their owner.
@@ -144,20 +225,42 @@ pub(crate) fn register_ssh_config(ssh_config: &Path) {
 /// Rewrite server-generated SSH config for client-side use.
 ///
 /// - Replaces the server's relative `UserKnownHostsFile sherpa_known_hosts` with the absolute
-///   path of `folder`'s `.sherpa/ssh/known_hosts`, so the config works from anywhere, as
-///   through the `~/.ssh/config` include or `ssh -F .sherpa/ssh/config`. The config names no
-///   key file: nodes take the user's own keys.
+///   path of `folder`'s `.sherpa/ssh/known_hosts`, in double quotes when it holds whitespace,
+///   so the config works from anywhere, as through the `~/.ssh/config` include or
+///   `ssh -F .sherpa/ssh/config`. The config names no key file: nodes take the user's own keys.
 /// - On Windows, replaces `UserKnownHostsFile /dev/null` with `UserKnownHostsFile NUL`
-pub(crate) fn rewrite_ssh_config_for_client(ssh_config: &str, folder: &LabFolder) -> String {
+///
+/// # Errors
+///
+/// Fails when the lab folder's path has a double quote, which ssh cannot read.
+pub(crate) fn rewrite_ssh_config_for_client(
+    ssh_config: &str,
+    folder: &LabFolder,
+) -> Result<String> {
+    let known_hosts = ssh_config_path(&folder.known_hosts().to_string_lossy())?;
     let result = ssh_config.replace(
         &format!("UserKnownHostsFile {SHERPA_KNOWN_HOSTS_FILE}"),
-        &format!("UserKnownHostsFile {}", folder.known_hosts().display()),
+        &format!("UserKnownHostsFile {known_hosts}"),
     );
 
     #[cfg(windows)]
     let result = result.replace("UserKnownHostsFile /dev/null", "UserKnownHostsFile NUL");
 
-    result
+    Ok(result)
+}
+
+/// The lab's `known_hosts` file in `folder`, a secret. `None` when the server recorded no host
+/// keys.
+fn known_hosts_file(folder: &LabFolder, known_hosts: &str) -> Option<LabFile> {
+    if known_hosts.is_empty() {
+        tracing::debug!("The server recorded no node host keys");
+        return None;
+    }
+    Some(LabFile {
+        path: folder.known_hosts(),
+        content: known_hosts.to_owned(),
+        secret: Some("node host keys"),
+    })
 }
 
 /// Save the lab's `known_hosts` file in `folder`, and return its path. Nothing is written when
@@ -165,28 +268,25 @@ pub(crate) fn rewrite_ssh_config_for_client(ssh_config: &str, folder: &LabFolder
 /// provisioned at the same time read it while another node refreshes it.
 #[tracing::instrument(level = "debug", skip_all, fields(folder = %folder.root().display()))]
 pub(crate) fn write_known_hosts(folder: &LabFolder, known_hosts: &str) -> Result<Option<PathBuf>> {
-    if known_hosts.is_empty() {
-        tracing::debug!("The server recorded no node host keys");
+    let Some(file) = known_hosts_file(folder, known_hosts) else {
         return Ok(None);
-    }
-    ensure_lab_subdir(folder, &folder.ssh_dir())?;
-    let path = folder.known_hosts();
-    write_secret_file(&path, known_hosts, "node host keys")?;
-    Ok(Some(path))
+    };
+    write_lab_file(folder, &file)?;
+    Ok(Some(file.path))
 }
 
-/// Save the lab CA certificate in `folder`, and return its path. Nothing is written when the
-/// server sent none (a lab created before the lab CA, or an older server).
-#[tracing::instrument(level = "debug", skip_all, fields(folder = %folder.root().display()))]
-pub(crate) fn write_lab_ca(folder: &LabFolder, lab_ca: &str) -> Result<Option<PathBuf>> {
+/// The lab CA certificate in `folder`. `None` when the server sent none (a lab created before
+/// the lab CA, or an older server).
+fn lab_ca_file(folder: &LabFolder, lab_ca: &str) -> Option<LabFile> {
     if lab_ca.is_empty() {
         tracing::debug!("The server sent no lab CA certificate");
-        return Ok(None);
+        return None;
     }
-    ensure_lab_subdir(folder, &folder.ca_dir())?;
-    let path = folder.lab_ca();
-    fs::write(&path, lab_ca).with_context(|| format!("Failed to write {}", path.display()))?;
-    Ok(Some(path))
+    Some(LabFile {
+        path: folder.lab_ca(),
+        content: lab_ca.to_owned(),
+        secret: None,
+    })
 }
 
 #[cfg(test)]
@@ -225,7 +325,11 @@ ipv4_router = "172.31.3.2"
         let folder = LabFolder::new(dir.path());
         let lab_info: LabInfo = LAB_INFO.parse().unwrap();
 
-        let ssh_config = save_lab_files(&folder, &lab_files(&lab_info)).unwrap();
+        let ssh_config = save_lab_files(
+            &folder,
+            &LabFileSet::new(&folder, &lab_files(&lab_info)).unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(ssh_config, dir.path().join(".sherpa/ssh/config"));
         for path in [
@@ -259,12 +363,23 @@ ipv4_router = "172.31.3.2"
     fn saved_lab_files_003_the_lab_ca_is_saved_only_when_the_server_sends_one() {
         let dir = tempfile::tempdir().unwrap();
         let folder = LabFolder::new(dir.path());
-        assert_eq!(write_lab_ca(&folder, "").unwrap(), None);
-        assert!(!folder.state_dir().exists());
+        let lab_info: LabInfo = LAB_INFO.parse().unwrap();
+        let without_ca = LabFiles {
+            lab_ca: "",
+            ..lab_files(&lab_info)
+        };
+        save_lab_files(&folder, &LabFileSet::new(&folder, &without_ca).unwrap()).unwrap();
+        assert!(!folder.ca_dir().exists());
         let pem = "-----BEGIN CERTIFICATE-----\nlab\n-----END CERTIFICATE-----\n";
-        let path = write_lab_ca(&folder, pem).unwrap().unwrap();
-        assert_eq!(path, dir.path().join(".sherpa/ca/lab-ca.crt"));
-        assert_eq!(fs::read_to_string(path).unwrap(), pem);
+        let with_ca = LabFiles {
+            lab_ca: pem,
+            ..lab_files(&lab_info)
+        };
+        save_lab_files(&folder, &LabFileSet::new(&folder, &with_ca).unwrap()).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.path().join(".sherpa/ca/lab-ca.crt")).unwrap(),
+            pem
+        );
     }
 
     #[cfg(unix)]
@@ -275,7 +390,11 @@ ipv4_router = "172.31.3.2"
         let folder = LabFolder::new(dir.path());
         let lab_info: LabInfo = LAB_INFO.parse().unwrap();
 
-        save_lab_files(&folder, &lab_files(&lab_info)).unwrap();
+        save_lab_files(
+            &folder,
+            &LabFileSet::new(&folder, &lab_files(&lab_info)).unwrap(),
+        )
+        .unwrap();
 
         for path in [folder.state_dir(), folder.ssh_dir(), folder.ca_dir()] {
             assert_eq!(mode(&path), 0o700, "{}", path.display());
@@ -297,7 +416,9 @@ ipv4_router = "172.31.3.2"
         let dir = tempfile::tempdir().unwrap();
         let elsewhere = open_folder();
         symlink(elsewhere.path(), dir.path().join(".sherpa")).unwrap();
-        let error = save_lab_files(&LabFolder::new(dir.path()), &lab_files(&lab_info)).unwrap_err();
+        let folder = LabFolder::new(dir.path());
+        let files = LabFileSet::new(&folder, &lab_files(&lab_info)).unwrap();
+        let error = save_lab_files(&folder, &files).unwrap_err();
         assert!(format!("{error:#}").contains("symlink"), "{error:#}");
         assert_eq!(fs::read_dir(elsewhere.path()).unwrap().count(), 0);
         assert_eq!(mode(elsewhere.path()), 0o755);
@@ -306,7 +427,9 @@ ipv4_router = "172.31.3.2"
         let elsewhere = open_folder();
         fs::create_dir(dir.path().join(".sherpa")).unwrap();
         symlink(elsewhere.path(), dir.path().join(".sherpa/ssh")).unwrap();
-        let error = save_lab_files(&LabFolder::new(dir.path()), &lab_files(&lab_info)).unwrap_err();
+        let folder = LabFolder::new(dir.path());
+        let files = LabFileSet::new(&folder, &lab_files(&lab_info)).unwrap();
+        let error = save_lab_files(&folder, &files).unwrap_err();
         assert!(format!("{error:#}").contains("symlink"), "{error:#}");
         assert_eq!(fs::read_dir(elsewhere.path()).unwrap().count(), 0);
         assert_eq!(mode(elsewhere.path()), 0o755);
@@ -328,7 +451,7 @@ Host 172.31.1.12 sw01.abc123
         let dir = tempfile::tempdir().unwrap();
         let folder = LabFolder::new(dir.path());
 
-        let result = rewrite_ssh_config_for_client(server_config, &folder);
+        let result = rewrite_ssh_config_for_client(server_config, &folder).unwrap();
 
         let known_hosts = format!("    UserKnownHostsFile {}", folder.known_hosts().display());
         let expected: Vec<&str> = server_config
@@ -346,6 +469,24 @@ Host 172.31.1.12 sw01.abc123
         assert_eq!(lines, expected);
         #[cfg(not(unix))]
         assert_eq!(lines[..lines.len() - 1], expected[..expected.len() - 1]);
+    }
+
+    #[test]
+    fn ssh_config_hosts_009_a_lab_folder_with_a_space_names_its_known_hosts_file_in_quotes() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = LabFolder::new(&dir.path().join("my labs"));
+
+        let result = rewrite_ssh_config_for_client(
+            "Host dev\n    UserKnownHostsFile sherpa_known_hosts\n",
+            &folder,
+        )
+        .unwrap();
+
+        let expected = format!(
+            r#"    UserKnownHostsFile "{}""#,
+            folder.known_hosts().display()
+        );
+        assert_eq!(result.lines().nth(1), Some(expected.as_str()));
     }
 
     #[test]
