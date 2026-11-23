@@ -120,7 +120,7 @@ A machine config reaching its node byte for byte as NoCloud `user-data` is `conf
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | Cilium runs on the cluster with no kube-proxy and no Flannel, and its install Job succeeded (real cluster) | e2e |
-| 002 | On a Cilium cluster, pods on different nodes all answer through one node's port (real cluster) | e2e |
+| 002 | On a Cilium cluster, pods on different nodes all answer through one node's port (no test yet; real cluster, and the `ha` lab's one worker holds every pod, so no request crosses nodes) | e2e |
 | 003 | Up prints the Gateway's address, `.13`, and a workload with an `HTTPRoute` answers there from another node of the lab (real cluster) | e2e |
 | 004 | Up prints Hubble UI's address, `.14`, and it answers there (real cluster) | e2e |
 | 005 | A Cilium cluster's controllers carry no Flannel document, turn kube-proxy off, fetch the Gateway API CRDs and carry the three Cilium manifests | unit |

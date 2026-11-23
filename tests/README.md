@@ -34,7 +34,7 @@ instead of repeating these instructions.
 | SSH access lab test | `uv run tests/labs/ssh-access/ssh_access_lab_test.py` | A route to the lab's management network (the Sherpa server), `ss`, the `alpine_linux` image, logged-in CLI; for `--ssh-jump`, a host account named as the Sherpa user | about 2 min |
 | Owner login lab test | `uv run tests/labs/owner-login/owner_login_lab_test.py` | A route to the lab's management network (the Sherpa server), a CLI logged in as an admin, which creates and deletes the run's admin and owner, the `ubuntu_linux` 24.04 and `nokia_srlinux` 26.7.2 images | about 5 min |
 | Console lab test | `uv run tests/labs/console/console_lab_test.py --admin-user NAME` | Logged-in CLI with an SSH key; an admin, such as `admin`, its password in `SHERPA_LAB_TEST_ADMIN_PASSWORD`, who creates and deletes the run's other user; the `alpine_linux` and `generic` container `alpine` 3.22 images | about 1–5 min |
-| Talos lab test | `uv run tests/labs/talos-linux/talos_lab_test.py` | Sherpa host with the Talos, Ubuntu, Keycloak and Vault images, logged-in CLI, internet | about 25–35 min |
+| Talos lab test | `uv run tests/labs/talos-linux/talos_lab_test.py`, or `... single` or `... ha` for one lab | Sherpa host with KVM, about 40 GB of RAM for both labs at once, the Talos, Ubuntu, Keycloak and Vault images, logged-in CLI with a device password, internet from labs | about 25–35 min |
 | Web UI JavaScript | `node tests/web/test_theme.cjs` | Node.js | seconds |
 | Harness self-tests | `uv run tests/harness/<script>.py --self-test` | Python 3.15+ | seconds |
 
@@ -463,15 +463,17 @@ uv run tests/labs/cisco-iol/cisco_iol_lab_test.py            # Cisco IOL: config
 uv run tests/labs/console/console_lab_test.py --admin-user NAME  # sherpa console and sherpa vnc: prompt, escapes, in use, --force, other accounts, containers
 uv run tests/labs/ssh-access/ssh_access_lab_test.py         # sherpa ssh and provisioners: direct, and --ssh-jump
 uv run tests/labs/owner-login/owner_login_lab_test.py --admin-user NAME  # owner logins on nodes, admin refusals, down/resume and redeploy
-uv run tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: single and ha labs in parallel; ha with Keycloak login and Vault secrets
+uv run tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: the single and ha modules in parallel; ha with Keycloak login and Vault secrets
 ```
 
 See [labs/README.md](labs/README.md) for the rules and each lab's README for what it checks.
 
-The SSH access, owner login, container ZTP, manifest commands, console and P2p containers lab tests are pytest modules (see
+The SSH access, owner login, container ZTP, manifest commands, console, P2p containers and Talos lab tests are pytest modules (see
 `tests/specs/README.md`): their script headers pin pytest, so `uv run` runs pytest on them and
 passes on pytest arguments such as `-k` and `--keep-failed`;
 `uvx --python 3.15 pytest==9.2.0 tests/labs/ssh-access/ssh_access_lab_test.py` runs one directly.
+The Talos runner holds no cases itself: it starts one pytest process per lab module,
+`single_lab_test.py` and `ha_lab_test.py`, both at once; name `single` or `ha` first to run one.
 
 ## Harness self-tests
 
