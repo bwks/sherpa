@@ -1501,7 +1501,7 @@ mod tests {
     }
 
     #[test]
-    fn tailnet_suspend_021_the_web_ui_offers_sherpa_resume_in_place_of_start_for_a_lab_with_a_gateway()
+    fn tailnet_suspend_026_the_web_ui_offers_sherpa_resume_in_place_of_start_for_a_lab_with_a_gateway()
      {
         let grid = LabsGridTemplate {
             labs: vec![LabRow::from(LabSummary {

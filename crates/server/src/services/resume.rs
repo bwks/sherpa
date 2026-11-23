@@ -100,8 +100,9 @@ struct ReadinessTarget {
 /// ready within the timeout is reported in its result message; it is not an error, as with
 /// `up`.
 ///
-/// A whole-lab resume of a lab with a Tailscale gateway enrolls the gateway as a new device
-/// with `tailscale_auth_key`. The key is used, never stored.
+/// A whole-lab resume of a lab whose Tailscale gateway is not connected enrolls the gateway as
+/// a new device with `tailscale_auth_key` before any node starts, and stops it again when the
+/// enrollment fails; a connected gateway is left as it is. The key is never stored.
 ///
 /// The caller must own the lab or be an admin, and may not be the built-in `admin` account.
 #[instrument(skip(ctx, tailscale_auth_key, state, progress), fields(username = %ctx.username, %lab_id))]
@@ -140,8 +141,16 @@ pub async fn start_lab_nodes(
         }
     }
 
-    let tailscale =
-        resume_tailscale(state, &db_lab, node_name, tailscale_auth_key, progress).await?;
+    let definition = stored_definition(&state.db, &lab_record_id, lab_id).await;
+    let tailscale = resume_tailscale(
+        state,
+        &db_lab,
+        definition.as_ref(),
+        node_name,
+        tailscale_auth_key,
+        progress,
+    )
+    .await?;
     // A lab started before consoles moved behind sherpad has no console folder yet.
     console::create_console_dir(lab_id)?;
 
@@ -192,7 +201,6 @@ pub async fn start_lab_nodes(
         .collect();
     let mut results = immediate_results;
     let cold_booted = record_outcomes(state, &operation, concurrent_results, &mut results).await;
-    let definition = stored_definition(&state.db, &lab_record_id, lab_id).await;
     let lab = ResumedLab {
         lab_id,
         lab_record_id: &lab_record_id,
@@ -257,18 +265,24 @@ async fn admit_stopped_nodes(
     .await
 }
 
-/// Enroll the lab's Tailscale gateway as a new device on a whole-lab resume with a key;
-/// otherwise report its current status.
+/// Enroll the lab's Tailscale gateway as a new device on a whole-lab resume when it is not
+/// connected; otherwise report its current status.
 #[instrument(skip_all, fields(lab_id = %db_lab.lab_id), level = "debug")]
 async fn resume_tailscale(
     state: &AppState,
     db_lab: &DbLab,
+    definition: Option<&Manifest>,
     node_name: Option<&str>,
     tailscale_auth_key: Option<&TailnetAuthKey>,
     progress: Option<&ProgressSender>,
 ) -> Result<Option<TailnetStatus>> {
+    let status = super::tailscale::inspect(state, db_lab).await;
+    let auth_key_env = definition
+        .and_then(|definition| definition.tailscale.as_ref())
+        .and_then(|tailscale| tailscale.auth_key_env.as_deref());
     let credential = super::tailscale::resume_credential(
-        db_lab.tailscale_container_id.is_some(),
+        status.as_ref().map(|status| &status.state),
+        auth_key_env,
         node_name.is_none(),
         tailscale_auth_key,
         state.config.tls.enabled,
@@ -283,7 +297,7 @@ async fn resume_tailscale(
             }
             super::tailscale::resume(state, db_lab, key).await
         }
-        None => Ok(super::tailscale::inspect(state, db_lab).await),
+        None => Ok(status),
     }
 }
 

@@ -32,7 +32,6 @@ pub async fn resume(
     };
     term_msg_surround(&action_msg);
 
-    // `down` logged the Tailscale gateway out, so a whole-lab resume enrolls it again.
     let manifest = if file_exists(SHERPA_MANIFEST_FILE) {
         Some(Manifest::load_file(SHERPA_MANIFEST_FILE)?)
     } else {
