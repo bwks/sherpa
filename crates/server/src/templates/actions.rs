@@ -8,6 +8,7 @@ use shared::data::{LabPhase, LabState, NodeState};
 pub struct LabActions {
     pub start: bool,
     pub stop: bool,
+    pub resume_with_cli: bool,
 }
 
 /// The buttons a node view shows.
@@ -19,23 +20,36 @@ pub struct NodeActions {
 }
 
 impl LabActions {
+    /// The lab's actions, with `sherpa resume` in place of start for a lab with a Tailscale gateway.
+    pub fn for_lab(phase: LabPhase, state: LabState, has_gateway: bool) -> Self {
+        let actions = Self::for_phase(phase, state);
+        Self {
+            start: actions.start && !has_gateway,
+            resume_with_cli: actions.start && has_gateway,
+            ..actions
+        }
+    }
+
     /// Only a ready lab can be started or stopped; any other can only be destroyed. A ready lab
     /// offers stop while any node runs or starts, and start while any node is not running.
-    pub fn for_lab(phase: LabPhase, state: LabState) -> Self {
+    fn for_phase(phase: LabPhase, state: LabState) -> Self {
         match phase {
             LabPhase::Ready => match state {
                 LabState::Running | LabState::Starting => Self {
                     start: false,
                     stop: true,
+                    resume_with_cli: false,
                 },
                 LabState::Partial => Self {
                     start: true,
                     stop: true,
+                    resume_with_cli: false,
                 },
                 LabState::Stopped | LabState::Failed | LabState::Empty | LabState::Unknown => {
                     Self {
                         start: true,
                         stop: false,
+                        resume_with_cli: false,
                     }
                 }
             },

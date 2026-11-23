@@ -68,6 +68,7 @@ fn summarize_labs(labs: Vec<DbLab>, node_states: &[(RecordId, NodeState)]) -> Ve
                 node_count: states.len(),
                 status: LabState::derive(&states),
                 phase: lab.phase,
+                tailnet_gateway: lab.tailscale_container_id.is_some(),
             }
         })
         .collect()

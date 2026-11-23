@@ -23,7 +23,7 @@ They show the same answer of the server, `lab_details`, differently. The cases b
 | The lab's status | not printed; only each node's state | a badge on the labs list and the lab page |
 | A lab that is not ready | a `Not ready:` line that says what to do | the phase as a badge, and no start or stop |
 | A link's state | the State column of the Links table | not shown |
-| The Tailscale gateway | the Tailscale table | not shown |
+| The Tailscale gateway | the Tailscale table | not shown; a lab with one offers `sherpa resume` in place of start (`tailnet_suspend_026`) |
 | A node's vCPUs and memory | columns of Active Nodes; `-` for none | on the node's page only; `Not limited` or `Unknown` for none |
 | A node's disks | one per line | on one line, separated by commas |
 | A node's MAC address, image version, ZTP setting and image settings | not shown | on the node's page |
@@ -104,7 +104,7 @@ Each node's state in the answer is `node_state_004` to `009`, each link's state 
 | 011 | The labs list loads when its page opens and again every 30 seconds (no test yet) | e2e (browser) |
 | 012 | The node count is the number of the lab's own nodes, another lab's not counted | integration |
 
-Each lab's status is `lab_status_006`. Whose labs a list holds is `access_control_011`.
+Each lab's status is `lab_status_006`. Whose labs a list holds is `access_control_011`. A lab with a Tailscale gateway offers the `sherpa resume` instruction in place of start in both lists: `tailnet_suspend_026`.
 
 ## `lab_page`: a lab's page shows the lab, its nodes and what can be done with it now
 
@@ -129,7 +129,7 @@ Each lab's status is `lab_status_006`. Whose labs a list holds is `access_contro
 | 014 | An error page is served as HTML with its own status, 404 or 403 | unit |
 | 015 | A lab that does not exist is a 404 page saying so, and any other failure to load a lab is a 404 page too, with a general message (no test yet) | integration |
 
-That another user's lab is refused is `access_control_009`. Which actions a node's row offers is `node_state_020`.
+That another user's lab is refused is `access_control_009`. A lab with a Tailscale gateway offers the `sherpa resume` instruction in place of start: `tailnet_suspend_026`. Which actions a node's row offers is `node_state_020`.
 
 ## `node_page`: a node's page shows the node as it was built
 

@@ -1,4 +1,6 @@
-use anyhow::{Result, ensure};
+use anyhow::{Result, bail, ensure};
+use shared::data::NodeKind;
+use shared::konst::TAILSCALE_GATEWAY_NAME;
 use tracing::instrument;
 
 use crate::Manifest;
@@ -7,7 +9,8 @@ use crate::Manifest;
 ///
 /// # Errors
 ///
-/// Fails when an enabled tailnet does not name a valid environment variable for its key.
+/// Fails when an enabled tailnet does not name a valid environment variable for its key, or a
+/// container node's name would give it the gateway's container name.
 #[instrument(skip(manifest), level = "debug")]
 pub fn validate_tailscale(manifest: &Manifest) -> Result<()> {
     let Some(config) = &manifest.tailscale else {
@@ -21,6 +24,16 @@ pub fn validate_tailscale(manifest: &Manifest) -> Result<()> {
         valid_env_name(name),
         "tailscale.auth_key_env must name an environment variable (letters, digits, underscores; not starting with a digit)"
     );
+    for node in &manifest.nodes {
+        if node.name == TAILSCALE_GATEWAY_NAME
+            && node.kind.or(node.model.default_kind()) == Some(NodeKind::Container)
+        {
+            bail!(
+                "Manifest - node: '{}' is a container node with the Tailscale gateway's name; rename it, or disable [tailscale]",
+                node.name
+            );
+        }
+    }
     Ok(())
 }
 
@@ -35,7 +48,8 @@ fn valid_env_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::TailscaleConfig;
+    use crate::{Node, TailscaleConfig};
+    use shared::data::NodeModel;
 
     fn enabled(auth_key_env: Option<&str>) -> Manifest {
         Manifest {
@@ -66,5 +80,57 @@ mod tests {
             );
         }
         validate_tailscale(&enabled(Some("SHERPA_TAILSCALE_KEY"))).unwrap();
+    }
+
+    #[test]
+    fn node_naming_005_a_container_node_with_the_gateway_name_is_refused_in_a_tailnet_lab() {
+        let node = |name: &str, model: NodeModel, kind: Option<NodeKind>| Node {
+            name: name.to_owned(),
+            model,
+            kind,
+            ..Node::default()
+        };
+        let lab = |nodes: Vec<Node>, enabled: bool| Manifest {
+            nodes,
+            tailscale: Some(TailscaleConfig {
+                enabled,
+                auth_key_env: Some("SHERPA_TAILSCALE_KEY".to_owned()),
+            }),
+            ..Manifest::default()
+        };
+        let clashing = [
+            node("sherpa-tailnet", NodeModel::FrrLinux, None),
+            node(
+                "sherpa-tailnet",
+                NodeModel::Generic,
+                Some(NodeKind::Container),
+            ),
+        ];
+        for clash in clashing {
+            let error = validate_tailscale(&lab(vec![clash], true))
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains("'sherpa-tailnet'") && error.contains("gateway"),
+                "{error}"
+            );
+        }
+        let taken = [
+            lab(
+                vec![node("sherpa-tailnet-app", NodeModel::FrrLinux, None)],
+                true,
+            ),
+            lab(
+                vec![node("sherpa-tailnet", NodeModel::AlpineLinux, None)],
+                true,
+            ),
+            lab(
+                vec![node("sherpa-tailnet", NodeModel::FrrLinux, None)],
+                false,
+            ),
+        ];
+        for manifest in taken {
+            validate_tailscale(&manifest).unwrap();
+        }
     }
 }

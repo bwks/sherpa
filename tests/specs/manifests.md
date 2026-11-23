@@ -21,7 +21,7 @@ A manifest is checked in five places, and they do not run the same checks. `sher
 | Check | `sherpa validate` | CLI at up | CLI at redeploy | Server at up | Server at redeploy |
 |---|---|---|---|---|---|
 | Parsing: unknown keys, types, required keys | yes | yes | yes | yes | yes |
-| `[tailscale]` `auth_key_env` | yes | yes | | yes | |
+| `[tailscale]` `auth_key_env`, and a container node with the gateway's name | yes | yes | | yes | |
 | The lab's `name`, `ready_timeout` and node settings that cannot be 0 | yes | yes | yes | yes | yes |
 | Node names, duplicate names, node count | yes | | | yes | |
 | A node's `kind` against its model | yes | | | yes | yes |
@@ -81,7 +81,7 @@ What `sherpa validate` does not check, because only the server knows it: whether
 
 ## `node_naming`: a node's name is a plain name, used once
 
-**Statement:** a node's name is 1 to 63 ASCII letters, digits, `-` or `_`, starting with a letter or digit, no two nodes of a lab share one, and a lab has at most 234 nodes.
+**Statement:** a node's name is 1 to 63 ASCII letters, digits, `-` or `_`, starting with a letter or digit, no two nodes of a lab share one, a lab has at most 234 nodes, and in a lab with `[tailscale]` enabled no container node is named `sherpa-tailnet`, which would give it the gateway's container name.
 **Relied on by:** the host names, container and domain names, file names in the lab folder, DNS names and web pages a node's name is put in; the lab's address block, which has 234 node addresses. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -90,6 +90,7 @@ What `sherpa validate` does not check, because only the server knows it: whether
 | 002 | An empty name, one that starts with `-` or `_`, one with a path separator, a dot, a space, a quote, markup or a non-ASCII letter, and one of 64 characters, are refused, naming the name and the rule | unit |
 | 003 | Two nodes with one name are refused, naming it | unit |
 | 004 | A manifest with 235 nodes is refused, saying a lab takes at most 234 | unit |
+| 005 | With `[tailscale]` enabled, a container node named `sherpa-tailnet`, by its own `kind` or its model's default, is refused, naming the node; a container node named `sherpa-tailnet-app`, a virtual machine named `sherpa-tailnet` and a container node of that name in a lab with `[tailscale]` not enabled are taken | unit |
 
 The server runs these at up before anything is created (`lab_preflight_002`). The lab's own `name` follows the same rule: `lab_settings_006` and `007`.
 

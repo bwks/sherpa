@@ -62,7 +62,7 @@ impl From<LabSummary> for LabRow {
     fn from(lab: LabSummary) -> Self {
         Self {
             status_badge: Badge::for_lab(lab.phase, lab.status, BadgeSize::Small),
-            actions: LabActions::for_lab(lab.phase, lab.status),
+            actions: LabActions::for_lab(lab.phase, lab.status, lab.tailnet_gateway),
             lab,
         }
     }
@@ -352,7 +352,9 @@ pub struct AdminLabSummary {
     /// Which operation owns the lab.
     pub phase_badge: Badge,
     /// Only a ready lab can be started or stopped; any other can only be destroyed or cleaned.
-    pub offers_start_stop: bool,
+    pub offers_stop: bool,
+    pub offers_start: bool,
+    pub resume_with_cli: bool,
 }
 
 impl AdminLabSummary {
@@ -364,6 +366,7 @@ impl AdminLabSummary {
         owner_username: String,
         node_count: usize,
         phase: LabPhase,
+        has_gateway: bool,
     ) -> Self {
         Self {
             lab_id,
@@ -372,7 +375,9 @@ impl AdminLabSummary {
             owner_username,
             node_count,
             phase_badge: Badge::for_phase(phase, BadgeSize::Small),
-            offers_start_stop: phase.is_ready(),
+            offers_stop: phase.is_ready(),
+            offers_start: phase.is_ready() && !has_gateway,
+            resume_with_cli: phase.is_ready() && has_gateway,
         }
     }
 }
@@ -955,6 +960,7 @@ mod tests {
                 status: LabState::Unknown,
                 node_count: 3,
                 phase: LabPhase::Ready,
+                tailnet_gateway: false,
             })],
         }
         .render()
@@ -1014,6 +1020,7 @@ mod tests {
                     status: LabState::Stopped,
                     node_count: 2,
                     phase,
+                    tailnet_gateway: false,
                 })],
             };
             let html = tpl.render().expect("template should render");
@@ -1143,6 +1150,7 @@ mod tests {
                 "alice".to_string(),
                 3,
                 LabPhase::Interrupted,
+                false,
             )],
         };
         let html = tpl.render().expect("template should render");
@@ -1157,7 +1165,7 @@ mod tests {
         assert!(!html.contains("data-lab-action"), "{html}");
     }
 
-    fn lab_detail(lab_state: LabState, lab_phase: LabPhase) -> String {
+    fn lab_detail(lab_state: LabState, lab_phase: LabPhase, has_gateway: bool) -> String {
         let lab_info: LabInfo = "id='abcd1234'\nname='test-lab'\nuser='alice'\n\
             ipv4_network='192.0.2.0/24'\nipv4_gateway='192.0.2.1'\n\
             ipv4_router='192.0.2.2'"
@@ -1170,7 +1178,7 @@ mod tests {
             lab_id: "abcd1234".to_string(),
             lab_info,
             state_badge: Badge::for_lab(lab_phase, lab_state, BadgeSize::Large),
-            actions: LabActions::for_lab(lab_phase, lab_state),
+            actions: LabActions::for_lab(lab_phase, lab_state, has_gateway),
             offers_download: lab_offers_download(true, lab_state),
             nodes: vec![],
             device_count: 0,
@@ -1209,7 +1217,7 @@ mod tests {
                 r#"<span class="badge-danger-lg">Unknown</span>"#,
             ),
         ] {
-            let html = lab_detail(LabState::Stopped, phase);
+            let html = lab_detail(LabState::Stopped, phase, false);
             assert!(html.contains(badge), "{phase:?}: {html}");
             assert!(!html.contains(">Stopped<"), "{phase:?}: {html}");
         }
@@ -1225,7 +1233,7 @@ mod tests {
             LabPhase::Unknown,
         ] {
             for state in [LabState::Running, LabState::Partial, LabState::Stopped] {
-                let html = lab_detail(state, phase);
+                let html = lab_detail(state, phase, false);
                 assert!(
                     !html.contains("data-lab-detail-action"),
                     "{phase:?}: {html}"
@@ -1239,16 +1247,16 @@ mod tests {
     fn lab_page_007_the_download_is_offered_only_for_a_lab_with_nodes_in_a_known_state() {
         let download = r#"href="/labs/abcd1234/download""#;
         for state in [LabState::Unknown, LabState::Empty] {
-            let html = lab_detail(state, LabPhase::Ready);
+            let html = lab_detail(state, LabPhase::Ready, false);
             assert!(!html.contains(download), "{state:?}: {html}");
         }
-        let html = lab_detail(LabState::Running, LabPhase::Ready);
+        let html = lab_detail(LabState::Running, LabPhase::Ready, false);
         assert!(html.contains(download), "{html}");
     }
 
     #[test]
     fn lab_page_004_once_the_lab_is_ready_the_header_shows_its_status() {
-        let html = lab_detail(LabState::Running, LabPhase::Ready);
+        let html = lab_detail(LabState::Running, LabPhase::Ready, false);
         assert!(html.contains(">Running<"), "{html}");
         assert!(!html.contains(">Ready<"), "{html}");
     }
@@ -1490,5 +1498,70 @@ mod tests {
             })
             .collect();
         assert!(offenders.is_empty(), "inline JavaScript: {offenders:#?}");
+    }
+
+    #[test]
+    fn tailnet_suspend_026_the_web_ui_offers_sherpa_resume_in_place_of_start_for_a_lab_with_a_gateway()
+     {
+        let grid = LabsGridTemplate {
+            labs: vec![LabRow::from(LabSummary {
+                id: "a10736e8".to_string(),
+                name: "test-lab".to_string(),
+                description: None,
+                status: LabState::Partial,
+                node_count: 2,
+                phase: LabPhase::Ready,
+                tailnet_gateway: true,
+            })],
+        }
+        .render()
+        .expect("template should render");
+        let admin = AdminLabsTemplate {
+            username: "admin".to_string(),
+            is_admin: true,
+            nav: NavPage::AdminLabs.into(),
+            labs: vec![AdminLabSummary::new(
+                "a10736e8".to_string(),
+                "test-lab".to_string(),
+                None,
+                "alice".to_string(),
+                2,
+                LabPhase::Ready,
+                true,
+            )],
+        }
+        .render()
+        .expect("template should render");
+        for html in [&grid, &admin] {
+            assert!(!html.contains(r#"data-lab-action="start""#), "{html}");
+            assert!(html.contains(r#"data-lab-action="stop""#), "{html}");
+            assert!(
+                html.contains("Resume this lab with sherpa resume in its lab folder"),
+                "{html}"
+            );
+        }
+
+        let page = lab_detail(LabState::Partial, LabPhase::Ready, true);
+        assert!(
+            !page.contains(r#"data-lab-detail-action="start""#),
+            "{page}"
+        );
+        assert!(page.contains(r#"data-lab-detail-action="stop""#), "{page}");
+        assert!(
+            page.contains(
+                r#"Resume this lab with <code class="font-mono">sherpa resume</code> in its lab folder"#
+            ),
+            "{page}"
+        );
+
+        let without_gateway = lab_detail(LabState::Partial, LabPhase::Ready, false);
+        assert!(
+            without_gateway.contains(r#"data-lab-detail-action="start""#),
+            "{without_gateway}"
+        );
+        assert!(
+            !without_gateway.contains("sherpa resume"),
+            "{without_gateway}"
+        );
     }
 }

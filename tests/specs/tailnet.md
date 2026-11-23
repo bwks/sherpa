@@ -1,6 +1,6 @@
 # Tailnet
 
-Connecting a lab to its owner's Tailscale tailnet: the gateway container a lab with `[tailscale]` enabled gets on its management network, the auth key that enrolls it, from the variable on the user's machine to the gateway, the routes the gateway advertises and what it forwards, the gateway status Sherpa reports, what a whole-lab down, a resume, a single-node operation, a destroy, a clean and a failed up do to the gateway, and the server's `[tailscale]` settings. The gateway is made, enrolled, stopped and removed by the server through Docker; the client's part is reading the key and printing the status. Parsing `[tailscale]` in `manifest.toml` and checking the name in `auth_key_env` are in the Manifests spec; the gateway's address at offset 3 is `lab_addressing_007` in [lab lifecycle](lab-lifecycle.md), and the lab operations themselves are there too; the lab keeping its record when anything cannot be removed is `lab_destroy`; the rest of what `sherpa inspect` shows is in the Inspect and web UI spec; a client with no route to a node being told to join the tailnet is `ssh_access_006` in [client lab files](client-lab-files.md).
+Connecting a lab to its owner's Tailscale tailnet: the gateway container a lab with `[tailscale]` enabled gets on its management network, the auth key that enrolls it, from the variable on the user's machine to the gateway, the routes the gateway advertises and what it forwards, the gateway status Sherpa reports, what a whole-lab down, a resume, a single-node operation, a destroy, a clean and a failed up do to the gateway, and the server's `[tailscale]` settings. The gateway is made, enrolled, stopped and removed by the server through Docker; the client's part is reading the key and printing the status. Parsing `[tailscale]` in `manifest.toml`, checking the name in `auth_key_env` and refusing a container node with the gateway's name (`node_naming_005`) are in the Manifests spec; the gateway's address at offset 3 is `lab_addressing_007` in [lab lifecycle](lab-lifecycle.md), and the lab operations themselves are there too; the lab keeping its record when anything cannot be removed is `lab_destroy`; the rest of what `sherpa inspect` shows is in the Inspect and web UI spec; a client with no route to a node being told to join the tailnet is `ssh_access_006` in [client lab files](client-lab-files.md).
 
 Each behaviour lists its cases. A case is one test, whose name is its ID: `<behaviour>_<NNN>_<description>`, such as `tailnet_key_002_an_unset_variable_is_refused_naming_it`. The level is the highest that can show the case: e2e through the `sherpa` CLI, integration against real libvirt, Docker and the database, unit only for logic with too many branches to cover above. Unit cases marked "mock Docker" run the gateway code against a Docker API that answers from a script. Cases marked "real tailnet" join a tailnet at Tailscale; what they need is at the end.
 
@@ -19,6 +19,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 006 | The gateway container is not privileged and not on the host's network: it has `NET_ADMIN` and `NET_RAW`, the one TUN device, one network, the lab's management network, and its lab's labels | unit |
 | 007 | The gateway's container stays recorded on the lab through the lab's phase changes, so down, resume and inspect find it | integration |
 | 008 | An up of a lab ID that already has a gateway identity volume is refused, and the volume is left as it is (no test yet) | integration |
+| 009 | In a lab of a virtual machine and a container node, from another device on the tailnet that accepts routes, once the routes are approved, both nodes' management addresses answer SSH with no `--ssh-jump` (no test yet; real tailnet) | e2e |
+| 010 | In a lab with an IPv6 management network, from another device on the tailnet that accepts routes, once the routes are approved, a node answers SSH on its IPv4 and its IPv6 management address (no test yet; real tailnet) | e2e |
 
 ## `tailnet_key`: the auth key goes from the user's shell to the gateway and nowhere else
 
@@ -54,7 +56,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `tailnet_status`: Sherpa reports the gateway's connection and route approval
 
-**Statement:** up, a whole-lab resume and `sherpa inspect` report the gateway's state, whether its routes are approved, the routes, its tailnet addresses and any warning, in one Tailscale table; routes that are not approved are a warning, not a failure.
+**Statement:** up, a whole-lab down, a whole-lab resume and `sherpa inspect` report the gateway's state, whether its routes are approved, the routes, its tailnet addresses and any warning, in one Tailscale table; routes that are not approved are a warning, not a failure.
 **Relied on by:** the user, to know whether the lab is reachable and what to do when it is not. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -71,6 +73,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 010 | When the gateway's status cannot be read, inspect still answers, with the gateway unavailable and a warning (no test yet) | integration |
 | 011 | An up whose routes are not yet approved succeeds with the warning, and once they are approved `sherpa inspect` shows them approved with nothing restarted (no test yet; real tailnet) | e2e |
 | 012 | `sherpa inspect` of a lab with a gateway prints the Tailscale table (no test yet; real tailnet) | e2e |
+| 013 | `sherpa down` prints the Tailscale table the server sends, before the nodes' outcomes, and no table when the server sends none | unit |
 
 ## `tailnet_suspend`: down takes the gateway off the tailnet and resume enrolls it again
 
@@ -92,7 +95,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 011 | `sherpa down --node` and `sherpa resume --node` leave the gateway connected, and the resume needs no key (no test yet; real tailnet) | e2e |
 | 012 | A redeploy of a node leaves the gateway connected (no test yet; real tailnet) | e2e |
 | 013 | A whole-lab resume whose enrollment fails starts no node and leaves the gateway stopped, and the next resume with a valid key enrolls it (no test yet; real tailnet) | e2e |
-| 014 | A whole-lab resume from the web UI of a lab whose gateway is not connected is refused, saying to run `sherpa resume` in the lab folder; one whose gateway is connected resumes (no test yet; real tailnet) | e2e |
+| 014 | A whole-lab resume from the web UI of a lab whose gateway is not connected is refused, saying to run `sherpa resume` in the lab folder; one whose gateway is connected resumes. The web UI itself greys start out for every lab with a gateway (026) on purpose, as it does not check each gateway's live state when it lists labs (no test yet; real tailnet) | e2e |
 | 015 | A whole-lab down lists the gateway beside the nodes as stopped, and a gateway that cannot be stopped as failed (no test yet) | integration |
 | 016 | Down reports a gateway whose logout fails as a failed result, saying it was stopped but not logged out, and still stops it (mock Docker) | unit |
 | 017 | A resume of a gateway still logged in from an unplanned stop, once its daemon has loaded its state, logs it out, then enrolls it with the key (mock Docker) | unit |
@@ -104,6 +107,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 023 | A resume whose enrollment fails and whose gateway then cannot be stopped fails with both errors (mock Docker) | unit |
 | 024 | Down of a running gateway whose daemon holds no identity stops it without a logout and reports it stopped (mock Docker) | unit |
 | 025 | After `sherpa down --node` on every node, a whole-lab `sherpa resume` with the variable unset succeeds, and the gateway is the same tailnet device as before (no test yet; real tailnet) | e2e |
+| 026 | The web UI's labs list, the admin's list and the lab's page offer a lab with a gateway no start: a disabled start that says to resume the lab with `sherpa resume` in its lab folder, and stop as for any lab; a lab without a gateway offers start | unit |
 
 ## `tailnet_removal`: destroy takes the gateway and its identity away, and only its own
 
@@ -146,10 +150,10 @@ A lab keeping its record after any resource fails to be removed is `lab_destroy_
 
 ## Cases that need a real tailnet
 
-`tailnet_join_001` to `003`, `tailnet_key_010`, `tailnet_routes_003` to `005`, `tailnet_status_011` and `012`, `tailnet_suspend_001` to `003`, `011` to `014`, `019` and `025`, and `tailnet_removal_001` and `011` join a tailnet at Tailscale. `tailnet_join_004` needs a route to Tailscale but no tailnet, as the key it uses is refused. They need:
+`tailnet_join_001` to `003`, `009` and `010`, `tailnet_key_010`, `tailnet_routes_003` to `005`, `tailnet_status_011` and `012`, `tailnet_suspend_001` to `003`, `011` to `014`, `019` and `025`, and `tailnet_removal_001` and `011` join a tailnet at Tailscale. `tailnet_join_004` needs a route to Tailscale but no tailnet, as the key it uses is refused. They need:
 
 - a tailnet kept for tests, and an auth key for it that is reusable, ephemeral, pre-approved and tagged, given to the run in `SHERPA_TEST_TAILSCALE_AUTH_KEY` as the VM code suite takes it today;
 - a server with TLS on and a CLI that reaches it over `wss://` with the certificate checked, as nothing enrolls otherwise;
 - a route from the test server to Tailscale's coordination and relay servers;
-- for the cases that reach a node or fail to (`tailnet_join_002`, `tailnet_routes_003` and `004`, `tailnet_suspend_001`, `002` and `011`): a second device on the tailnet that accepts routes, such as a Tailscale container on the test host with a network namespace of its own, an access rule that lets it reach the test server's management ranges, and `autoApprovers` for those ranges on the key's tag;
+- for the cases that reach a node or fail to (`tailnet_join_002`, `009` and `010`, `tailnet_routes_003` and `004`, `tailnet_suspend_001`, `002` and `011`): a second device on the tailnet that accepts routes, such as a Tailscale container on the test host with a network namespace of its own, an access rule that lets it reach the test server's management ranges, and `autoApprovers` for those ranges on the key's tag;
 - for the cases about approval and about devices leaving the tailnet (`tailnet_status_011`, `tailnet_suspend_001`, `tailnet_removal_001` and `011`): a Tailscale API credential for the test tailnet, to approve a route and to list devices. `tailnet_status_011` also needs a key whose tag has no automatic approval.

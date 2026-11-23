@@ -1,10 +1,12 @@
 use anyhow::{Context, Result};
+use std::io::{self, Write};
 use std::time::Duration;
 
 use shared::data::{ClientConfig, LabNodeActionResponse};
 use shared::util::{Emoji, term_msg_surround};
 
 use crate::cmd::outcome::ensure_nodes_succeeded;
+use crate::table::render_tailnet_table;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -65,23 +67,99 @@ pub async fn down(
     // Handle response
     let action_response: LabNodeActionResponse = response.into_result("Down operation failed")?;
 
-    for node_result in &action_response.results {
+    write_down_report(
+        &action_response,
+        &mut io::stdout().lock(),
+        &mut io::stderr().lock(),
+    )?;
+
+    ensure_nodes_succeeded("stopped", &action_response.results)
+}
+
+/// Write down's Tailscale table and each node's outcome, failures to `err`.
+fn write_down_report(
+    response: &LabNodeActionResponse,
+    out: &mut impl Write,
+    err: &mut impl Write,
+) -> io::Result<()> {
+    if let Some(status) = &response.tailscale {
+        writeln!(out, "{}", render_tailnet_table(status))?;
+    }
+    for node_result in &response.results {
         if node_result.success {
-            println!(
+            writeln!(
+                out,
                 "{} {}: {}",
                 Emoji::Success,
                 node_result.name,
                 node_result.message
-            );
+            )?;
         } else {
-            eprintln!(
+            writeln!(
+                err,
                 "{} {}: {}",
                 Emoji::Error,
                 node_result.name,
                 node_result.message
-            );
+            )?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::data::{NodeActionResult, RouteApproval, TailnetState, TailnetStatus};
+
+    fn node_result(name: &str, success: bool) -> NodeActionResult {
+        NodeActionResult {
+            name: name.to_owned(),
+            success,
+            message: if success { "stopped" } else { "not stopped" }.to_owned(),
+            links: Vec::new(),
         }
     }
 
-    ensure_nodes_succeeded("stopped", &action_response.results)
+    fn report(response: &LabNodeActionResponse) -> (String, String) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        write_down_report(response, &mut out, &mut err).unwrap();
+        (
+            String::from_utf8(out).unwrap(),
+            String::from_utf8(err).unwrap(),
+        )
+    }
+
+    #[test]
+    fn tailnet_status_013_down_prints_the_tailscale_table_the_server_sends() {
+        let status = TailnetStatus {
+            state: TailnetState::Stopped,
+            routes: vec!["172.31.3.0/24".into()],
+            approval: RouteApproval::Unknown,
+            tailscale_ips: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let with_gateway = LabNodeActionResponse {
+            tailscale: Some(status.clone()),
+            results: vec![node_result("r1", true), node_result("tailscale", false)],
+        };
+        let (out, err) = report(&with_gateway);
+        assert_eq!(
+            out,
+            format!(
+                "{}\n{} r1: stopped\n",
+                render_tailnet_table(&status),
+                Emoji::Success
+            )
+        );
+        assert_eq!(err, format!("{} tailscale: not stopped\n", Emoji::Error));
+
+        let without_gateway = LabNodeActionResponse {
+            tailscale: None,
+            results: vec![node_result("r1", true)],
+        };
+        let (out, err) = report(&without_gateway);
+        assert_eq!(out, format!("{} r1: stopped\n", Emoji::Success));
+        assert_eq!(err, "");
+    }
 }
