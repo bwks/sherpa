@@ -74,7 +74,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `tailnet_suspend`: down takes the gateway off the tailnet and resume enrolls it again
 
-**Statement:** a whole-lab down logs the gateway out of the tailnet and stops it, and reports a logout that fails as a failure; a whole-lab resume logs out any identity the gateway kept and enrolls it as a new device, with a key read as up reads it, before any node starts; stopping, resuming or redeploying one node leaves the gateway as it is.
+**Statement:** a whole-lab down logs the gateway out of the tailnet when its daemon holds an identity and stops it, and reports a logout that fails as a failure; a whole-lab resume of a lab whose gateway is not connected logs out any identity the gateway kept and enrolls it as a new device, with the key the client sends when the variable is set, before any node starts, and stops the gateway again when the enrollment fails; a whole-lab resume leaves a connected gateway as it is and needs no key; stopping, resuming or redeploying one node leaves the gateway as it is.
 **Relied on by:** the user; the tailnet's admin, who expects no device for a lab that is down. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -84,21 +84,26 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 003 | A gateway that was stopped reports stopped, and enrolled again reports connected (real tailnet) | integration |
 | 004 | Retired: a failed logout is now a failure of down; see 016 | — |
 | 005 | A gateway that is already stopped is neither logged out nor stopped again (mock Docker) | unit |
-| 006 | The server refuses a whole-lab resume of a lab with a gateway that has no key, a malformed key, or TLS off | unit |
-| 007 | The server refuses a key it would not use: for a lab with no gateway, and for a single-node resume; without a key both go on | unit |
-| 008 | A whole-lab `sherpa resume` in a folder whose manifest enables `[tailscale]` reads the key as up does: an unset variable is refused naming it, and a server that is not `wss://` is refused | unit |
+| 006 | The server refuses a whole-lab resume of a lab whose gateway is not connected that has no key, naming the variable `auth_key_env` names and saying to run `sherpa resume` in the lab folder, a malformed key, or TLS off | unit |
+| 007 | The server refuses a key sent for a lab with no gateway, and one sent with a single-node resume; without a key both go on | unit |
+| 008 | A whole-lab `sherpa resume` in a folder whose manifest enables `[tailscale]` sends the key when the variable is set, checked as up checks it: a malformed key, a server that is not `wss://` and an `insecure` connection are refused; with the variable unset it sends no key and the server decides | unit |
 | 009 | A single-node resume, and a resume in a folder with no manifest, send no key over any connection | unit |
 | 010 | A gateway stopped and started again has its daemon up and its forwarding rules in place | integration |
 | 011 | `sherpa down --node` and `sherpa resume --node` leave the gateway connected, and the resume needs no key (no test yet; real tailnet) | e2e |
 | 012 | A redeploy of a node leaves the gateway connected (no test yet; real tailnet) | e2e |
-| 013 | A whole-lab resume whose enrollment fails starts no node (no test yet; real tailnet) | e2e |
-| 014 | A whole-lab resume from the web UI of a lab with a gateway is refused, saying to run `sherpa resume` in the lab folder (no test yet; real tailnet) | e2e |
+| 013 | A whole-lab resume whose enrollment fails starts no node and leaves the gateway stopped, and the next resume with a valid key enrolls it (no test yet; real tailnet) | e2e |
+| 014 | A whole-lab resume from the web UI of a lab whose gateway is not connected is refused, saying to run `sherpa resume` in the lab folder; one whose gateway is connected resumes (no test yet; real tailnet) | e2e |
 | 015 | A whole-lab down lists the gateway beside the nodes as stopped, and a gateway that cannot be stopped as failed (no test yet) | integration |
 | 016 | Down reports a gateway whose logout fails as a failed result, saying it was stopped but not logged out, and still stops it (mock Docker) | unit |
 | 017 | A resume of a gateway still logged in from an unplanned stop, once its daemon has loaded its state, logs it out, then enrolls it with the key (mock Docker) | unit |
 | 018 | A resume whose logout of the gateway's old identity fails is refused, and nothing is enrolled; that no node starts is 013 (mock Docker) | unit |
 | 019 | After `systemctl restart docker` with the lab up, `sherpa resume` brings the gateway back as a new device, not its old identity (no test yet; real tailnet) | e2e |
 | 020 | A resume of a gateway whose logout at down failed, which reports needing login but still holds its node key, logs it out, then enrolls it with the key (mock Docker) | unit |
+| 021 | The server needs no key for a whole-lab resume of a lab whose gateway reads connected, and a key sent anyway, even malformed or with TLS off, is not refused and not used | unit |
+| 022 | A resume whose enrollment fails logs the gateway out when its daemon holds an identity, stops it and fails; the next down leaves it as it is, and the next resume enrolls it (mock Docker) | unit |
+| 023 | A resume whose enrollment fails and whose gateway then cannot be stopped fails with both errors (mock Docker) | unit |
+| 024 | Down of a running gateway whose daemon holds no identity stops it without a logout and reports it stopped (mock Docker) | unit |
+| 025 | After `sherpa down --node` on every node, a whole-lab `sherpa resume` with the variable unset succeeds, and the gateway is the same tailnet device as before (no test yet; real tailnet) | e2e |
 
 ## `tailnet_removal`: destroy takes the gateway and its identity away, and only its own
 
@@ -137,10 +142,11 @@ A lab keeping its record after any resource fails to be removed is `lab_destroy_
 | 006 | The stop timeout that is set is the grace period Docker is given when the gateway is stopped (mock Docker) | unit |
 | 007 | A gateway whose socket path is not the default starts, reports its status and stops (no test yet) | integration |
 | 008 | A gateway image the server does not have is pulled when the first gateway is created (no test yet) | integration |
+| 009 | A command timeout not longer than the enrollment timeout is refused at start, naming both settings | unit |
 
 ## Cases that need a real tailnet
 
-`tailnet_join_001` to `003`, `tailnet_key_010`, `tailnet_routes_003` to `005`, `tailnet_status_011` and `012`, `tailnet_suspend_001` to `003`, `011` to `014` and `019`, and `tailnet_removal_001` and `011` join a tailnet at Tailscale. `tailnet_join_004` needs a route to Tailscale but no tailnet, as the key it uses is refused. They need:
+`tailnet_join_001` to `003`, `tailnet_key_010`, `tailnet_routes_003` to `005`, `tailnet_status_011` and `012`, `tailnet_suspend_001` to `003`, `011` to `014`, `019` and `025`, and `tailnet_removal_001` and `011` join a tailnet at Tailscale. `tailnet_join_004` needs a route to Tailscale but no tailnet, as the key it uses is refused. They need:
 
 - a tailnet kept for tests, and an auth key for it that is reusable, ephemeral, pre-approved and tagged, given to the run in `SHERPA_TEST_TAILSCALE_AUTH_KEY` as the VM code suite takes it today;
 - a server with TLS on and a CLI that reaches it over `wss://` with the certificate checked, as nothing enrolls otherwise;
