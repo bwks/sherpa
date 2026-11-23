@@ -6,7 +6,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 
 | Lab | Covers | Time |
 |---|---|---|
-| [private-bridge](private-bridge/README.md) | `[[bridges]]` with a VM and containers, through up, redeploy and destroy | about 5–10 min |
+| [private-bridge](private-bridge/README.md) | `[[bridges]]` with a VM and containers, through up, redeploy and destroy. A pytest module | about 5–10 min |
 | [p2p-containers](p2p-containers/README.md) | P2p links on network OS, application and OS containers, some without `ip` or a shell, through up, redeploy and destroy. A pytest module | about 2–5 min |
 | [container-ztp](container-ztp/README.md) | The `ztp` setting on cEOS, SR Linux and FRR containers: config mounts and the lab owner's login with ZTP on, neither with it off, after up and after a redeploy | about 5–15 min |
 | [manifest-commands](manifest-commands/README.md) | What `sherpa validate`, `sherpa new` and a refused `sherpa up` print and exit with: no manifest, an unknown key, a failing check, no login or server, an existing manifest and `--force`. Brings no lab up. A pytest module | seconds |
@@ -49,7 +49,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 - What the runners share lives in [`labkit.py`](labkit.py): the failure and outcome types,
   running and logging a command, masking the run's secrets, the manifest TOML, the device
   password preflight, generated passwords and a command in a pseudo-terminal whose prompts
-  the runner answers. The console, owner-login, p2p-containers, nixos-linux, manifest-commands and account-lockout runners import it; its own
+  the runner answers. The console, owner-login, p2p-containers, nixos-linux, private-bridge, manifest-commands and account-lockout runners import it; its own
   unit tests run with `uv run tests/labs/labkit.py`.
 
 Lab tests are started by hand. How and when end-to-end tests run is being planned in

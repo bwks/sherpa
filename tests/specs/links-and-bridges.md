@@ -162,9 +162,9 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | A VM, containers on a link and a container on no link, all members of one bridge, each ping every other member from their member interface (no test with its ID yet; `tests/labs/private-bridge` shows it) | e2e |
-| 002 | The same after redeploying a member container on a link, one on no link, and the member VM (no test with its ID yet; `tests/labs/private-bridge` shows it) | e2e |
-| 003 | A node with a bridge member interface and a link has both working, each on its own interface (no test with its ID yet; `tests/labs/private-bridge` shows it) | e2e |
+| 001 | A VM, containers on a link and a container on no link, all members of one bridge, each ping every other member from their member interface | e2e |
+| 002 | The same after redeploying a member container on a link, one on no link, and the member VM | e2e |
+| 003 | A node with a bridge member interface and a link has both working, each on its own interface | e2e |
 | 004 | The members of one bridge are not reachable from another bridge of the lab, from the management network or from another lab (no test yet) | e2e |
 | 005 | A bridge on the host is up with MTU 9600 | integration |
 | 006 | A member container on a link joins through an interface made in its namespace, and its host end is in the bridge | integration |
@@ -239,7 +239,7 @@ Which ranges a lab's management network takes, and which addresses its nodes get
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | After destroying a lab of VM and container links, no host interface, Docker network or libvirt network of the lab is left (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
-| 002 | After destroying a lab with a private bridge and containers on no link, no bridge, Docker network or libvirt network of the lab is left (no test with its ID yet; `tests/labs/private-bridge` shows it) | e2e |
+| 002 | After destroying a lab with a private bridge and containers on no link, no bridge, Docker network or libvirt network of the lab is left | e2e |
 | 003 | Only the lab's own host interfaces are deleted: one of another lab is left, also when its name contains this lab's ID | unit |
 | 004 | A redeploy takes only its own node's Docker networks: those of a node whose name starts with this node's name are left | unit |
 | 005 | Deleting an interface that is already gone succeeds, so a destroy can be run again | integration |
