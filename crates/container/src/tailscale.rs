@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use anyhow::{Context, Error, Result, bail, ensure};
 use bollard::Docker;
-use bollard::errors::Error as DockerError;
 use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::models::{
     ContainerCreateBody, ContainerInspectResponse, DeviceMapping, EndpointIpamConfig,
@@ -24,7 +23,7 @@ use shared::data::{
     DaemonLogin, TailnetAuthKey, TailnetState, TailnetStatus, TailscaleGatewaySettings,
     daemon_login,
 };
-use shared::konst::TAILNET_DOCS_URL;
+use shared::konst::{TAILNET_DOCS_URL, TAILSCALE_GATEWAY_NAME};
 
 use crate::status::is_missing;
 
@@ -50,7 +49,7 @@ pub struct GatewayConfig {
 /// The gateway container's name for the lab `lab_id`.
 #[must_use]
 pub fn gateway_name(lab_id: &str) -> String {
-    format!("sherpa-tailnet-{lab_id}")
+    format!("{TAILSCALE_GATEWAY_NAME}-{lab_id}")
 }
 
 fn volume_name(lab_id: &str) -> String {
@@ -453,7 +452,7 @@ pub async fn stop_gateway(
         if let Err(error) = logout(docker, id, settings).await {
             logged_out = Logout::Failed(error);
         }
-        match docker
+        docker
             .stop_container(
                 id,
                 Some(StopContainerOptions {
@@ -465,14 +464,7 @@ pub async fn stop_gateway(
                 }),
             )
             .await
-        {
-            // 304: the gateway had stopped meanwhile.
-            Ok(())
-            | Err(DockerError::DockerResponseServerError {
-                status_code: 304, ..
-            }) => {}
-            Err(error) => return Err(error).context("Unable to stop Tailscale gateway"),
-        }
+            .context("Unable to stop Tailscale gateway")?;
     }
     Ok(logged_out)
 }

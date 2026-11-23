@@ -34,6 +34,8 @@ pub const MANAGEMENT_GATEWAY_HOST_OFFSET: u32 = 1;
 pub const SHERPA_MANAGEMENT_IP_INDEX: u32 = 2;
 /// Lab Tailscale gateway container host offset.
 pub const TAILSCALE_GATEWAY_HOST_OFFSET: u32 = 3;
+/// The Tailscale gateway container's name before its lab ID.
+pub const TAILSCALE_GATEWAY_NAME: &str = "sherpa-tailnet";
 /// Lab management host offsets for nodes and the DHCP range. Node `n` (1-based index) gets
 /// the offset `start + n - 1`.
 pub const MANAGEMENT_NODE_HOST_OFFSETS: RangeInclusive<u32> = 21..=254;
