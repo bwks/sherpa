@@ -29,6 +29,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 014 | A container interface whose host end's name is held by an interface that is not a removed container's is refused, and that interface is left | integration |
 | 015 | A container interface asked for a container that is gone fails, and leaves no host end behind | integration |
 | 016 | A unikernel's link interface is the link's host end with the link's MTU | unit |
+| 017 | During `up`, a container that exits after its link ends are made, whose end is gone when a peer's link is looked up, fails as a node with its exit code, its links stay unattached, and the rest of the lab is attached and `up` carries on | unit |
+| 018 | During `up`, a container whose end goes between its lookup and its attach (`No such device`) fails as a node, its link stays unattached, and `up` carries on | unit |
+| 019 | During `up`, a link end gone while its container still runs fails `up`, naming the end and its node | unit |
 
 ## `link_reattach`: a link works again after one of its ends is made again
 
