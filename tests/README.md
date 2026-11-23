@@ -30,6 +30,7 @@ instead of repeating these instructions.
 | Manifest commands test | `uv run tests/labs/manifest-commands/manifest_commands_lab_test.py` | The `sherpa` CLI, logged in with an SSH key and a device password for the refused `sherpa up`; brings no lab up | seconds |
 | Account lockout test | `uv run tests/labs/account-lockout/account_lockout_lab_test.py`, with `--stop-server` for `user_login_033` | The `sherpa` CLI, logged in as an admin, which creates and deletes the run's throwaway users; brings no lab up. `--stop-server` runs on the server host with passwordless sudo, and stops and starts sherpad | seconds |
 | Cisco IOL lab test | `uv run tests/labs/cisco-iol/cisco_iol_lab_test.py` | On the Sherpa server: the `cisco_iol` image built with docker-cisco-iol, `alpine:3.22`, Docker access, logged-in CLI | about 3–5 min |
+| NixOS lab test | `uv run tests/labs/nixos-linux/nixos_linux_lab_test.py` | The `nixos_linux` 26.05 image built from bwks/nixos-image, logged-in CLI with an SSH key, `ssh` | about 5 min |
 | P2p links lab test | `uv run tests/labs/p2p-links/p2p_links_lab_test.py` | On the Sherpa server: the node images, `nicolaka/netshoot:v0.14`, Docker access, logged-in CLI | about 15–20 min |
 | SSH access lab test | `uv run tests/labs/ssh-access/ssh_access_lab_test.py` | A route to the lab's management network (the Sherpa server), `ss`, the `alpine_linux` image, logged-in CLI; for `--ssh-jump`, a host account named as the Sherpa user | about 2 min |
 | Owner login lab test | `uv run tests/labs/owner-login/owner_login_lab_test.py` | A route to the lab's management network (the Sherpa server), a CLI logged in as an admin, which creates and deletes the run's admin and owner, the `ubuntu_linux` 24.04 and `nokia_srlinux` 26.7.2 images | about 5 min |
@@ -460,6 +461,7 @@ uv run tests/labs/container-ztp/container_ztp_lab_test.py    # ZTP on and off on
 uv run tests/labs/manifest-commands/manifest_commands_lab_test.py  # sherpa validate, sherpa new and a refused sherpa up; no lab
 uv run tests/labs/p2p-links/p2p_links_lab_test.py            # P2p link requirements on every pair of node kinds
 uv run tests/labs/cisco-iol/cisco_iol_lab_test.py            # Cisco IOL: config, SSH, links, TCP, write memory
+uv run tests/labs/nixos-linux/nixos_linux_lab_test.py        # NixOS VMs: cloud-init, host keys, owner login, eth names, text files, provisioner
 uv run tests/labs/console/console_lab_test.py --admin-user NAME  # sherpa console and sherpa vnc: prompt, escapes, in use, --force, other accounts, containers
 uv run tests/labs/ssh-access/ssh_access_lab_test.py         # sherpa ssh and provisioners: direct, and --ssh-jump
 uv run tests/labs/owner-login/owner_login_lab_test.py --admin-user NAME  # owner logins on nodes, admin refusals, down/resume and redeploy
@@ -468,7 +470,7 @@ uv run tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: the si
 
 See [labs/README.md](labs/README.md) for the rules and each lab's README for what it checks.
 
-The SSH access, owner login, container ZTP, manifest commands, console, P2p containers and Talos lab tests are pytest modules (see
+The SSH access, owner login, container ZTP, manifest commands, console, P2p containers, NixOS, private bridge and Talos lab tests are pytest modules (see
 `tests/specs/README.md`): their script headers pin pytest, so `uv run` runs pytest on them and
 passes on pytest arguments such as `-k` and `--keep-failed`;
 `uvx --python 3.15 pytest==9.2.0 tests/labs/ssh-access/ssh_access_lab_test.py` runs one directly.
