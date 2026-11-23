@@ -17,7 +17,7 @@ use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::node_secrets::write_node_secrets;
-use crate::services::p2p_links::{KernelHost, LinkHost};
+use crate::services::p2p_links::{KernelHost, LinkHost, make_veth};
 use crate::services::talos;
 
 use container::ContainerSpec;
@@ -578,7 +578,7 @@ impl Readiness<'_, '_> {
         let host = KernelHost::new(self.build.docker_conn, self.build.qemu);
         let pid = host.container_pid(container_name).await?;
         for P2pContainerVeth { veth, .. } in veths {
-            host.create_veth(veth, pid).await.with_context(|| {
+            make_veth(&host, veth, pid).await.with_context(|| {
                 format!("Failed to create a P2p interface in container {container_name}")
             })?;
             self.p2p.ready_ends.insert(veth.host_veth.clone());

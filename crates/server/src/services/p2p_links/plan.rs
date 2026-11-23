@@ -1,6 +1,8 @@
 //! How a node's link ends are made again, planned from the database and the lab's stored
 //! definition: what a cold boot by resume and the scanner's repair hand to re-attach.
 
+use std::collections::HashMap;
+
 use anyhow::{Result, anyhow};
 
 use super::reattach::{LabLinks, RecreatedEnd};
@@ -28,8 +30,8 @@ pub(crate) struct PlannedNode<'a> {
 /// libvirt makes a VM's or a unikernel's taps when it boots the domain. A container started
 /// from exited, or restarted, has a new network namespace with none of its veths, so each of
 /// its data interfaces is planned again, as redeploy does, with the interface count of the lab's
-/// stored definition (`definition`), or the image's without one. A container on no link has
-/// Docker networks, which Docker connects again.
+/// stored definition (`definition`), or the image's without one. A container on no link and no
+/// private bridge has Docker networks, which Docker connects again.
 pub(crate) fn recreated_end(
     node: &PlannedNode<'_>,
     definition: Option<&Manifest>,
@@ -40,34 +42,39 @@ pub(crate) fn recreated_end(
         NodeKind::VirtualMachine | NodeKind::Unikernel => Some(RecreatedEnd::Domain),
         NodeKind::Container => {
             let links = node_links(lab_links.links(), node.node_id);
-            if links.is_empty() {
+            let bridge_interfaces =
+                bridges.map(|bridges| node_bridge_interfaces(bridges, node.node_id));
+            if links.is_empty() && bridge_interfaces.as_ref().is_ok_and(HashMap::is_empty) {
                 return None;
             }
             Some(
-                container_end(node, definition, &links, bridges).unwrap_or_else(|error| {
-                    RecreatedEnd::Unplanned(
-                        Unexpected::log(&error, "Failed to plan a container's link ends")
-                            .to_string(),
-                    )
-                }),
+                container_end(node, definition, &links, bridge_interfaces).unwrap_or_else(
+                    |error| {
+                        RecreatedEnd::Unplanned(
+                            Unexpected::log(&error, "Failed to plan a container's link ends")
+                                .to_string(),
+                        )
+                    },
+                ),
             )
         }
     }
 }
 
-/// The container's veths, planned from its links and bridges in the database and its data
-/// interface count.
+/// The container's veths, planned from its links and bridge interfaces in the database and its
+/// data interface count.
 fn container_end(
     node: &PlannedNode<'_>,
     definition: Option<&Manifest>,
     links: &[&DbLink],
-    bridges: Result<&[DbBridge], &String>,
+    bridge_interfaces: Result<HashMap<String, String>, &String>,
 ) -> Result<RecreatedEnd> {
     let name = node.node.name.as_str();
     let image = node
         .image
         .ok_or_else(|| anyhow!("Node image of {name} not found"))?;
-    let bridges = bridges.map_err(|error| anyhow!("Failed to list the lab's bridges: {error}"))?;
+    let bridge_interfaces =
+        bridge_interfaces.map_err(|error| anyhow!("Failed to list the lab's bridges: {error}"))?;
     let defined_count = definition
         .and_then(|definition| definition.nodes.iter().find(|n| n.name == name))
         .and_then(|n| n.interfaces.data_count);
@@ -81,7 +88,7 @@ fn container_end(
             record: node.node_id,
         },
         links,
-        &node_bridge_interfaces(bridges, node.node_id),
+        &bridge_interfaces,
         data_interface_indices(image, count, name)?,
     )?;
     Ok(RecreatedEnd::Container {
@@ -99,7 +106,9 @@ pub(crate) mod tests {
 
     use std::collections::HashMap;
 
-    use shared::data::{BridgeKind, LinkImpairment, NodeModel, NodeState};
+    use super::super::fake::FakeHost;
+    use super::super::reattach::reattach_node_links;
+    use shared::data::{BridgeKind, BridgeMember, LinkImpairment, NodeModel, NodeState};
 
     fn db_node(name: &str) -> DbNode {
         DbNode {
@@ -211,7 +220,8 @@ data_count = 2
     }
 
     #[tokio::test]
-    async fn link_reattach_009_a_started_container_on_no_link_keeps_its_docker_networks() {
+    async fn link_reattach_009_a_started_container_on_no_link_or_bridge_keeps_its_docker_networks()
+    {
         let definition = definition().await;
         let image = ModelKind::default_for(NodeModel::FrrLinux).node_config();
         assert!(
@@ -223,5 +233,83 @@ data_count = 2
             )
             .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn veth_checksums_012_an_iol_container_on_a_bridge_and_no_link_gets_veths_with_offload_off()
+     {
+        let image = ModelKind::default_for(NodeModel::CiscoIol).node_config();
+        let node = db_node("r1");
+        let node_id = RecordId::new("node", "r1");
+        let bridges = vec![DbBridge {
+            id: None,
+            index: 0,
+            bridge_name: "brs0-lab1".to_string(),
+            network_name: "sherpa-bridge0-private-lab1".to_string(),
+            lab: RecordId::new("lab", "x"),
+            members: vec![BridgeMember {
+                node: node_id.clone(),
+                interface: "Ethernet0/1".to_string(),
+            }],
+        }];
+        let lab = LabLinks::new("lab1", vec![], &[], HashMap::new());
+        let end = recreated_end(
+            &PlannedNode {
+                lab_id: "lab1",
+                node: &node,
+                node_id: &node_id,
+                kind: &NodeKind::Container,
+                image: Some(&image),
+            },
+            None,
+            &lab,
+            Ok(&bridges),
+        )
+        .expect("a container on a bridge has its interfaces made again");
+
+        let host = FakeHost::default();
+        reattach_node_links(&host, &lab, &node_id, end).await;
+        assert_eq!(
+            host.bridge_ports
+                .borrow()
+                .get("cb3i1-lab1")
+                .map(String::as_str),
+            Some("brs0-lab1")
+        );
+        let made: Vec<String> = host.interfaces.borrow().keys().cloned().collect();
+        assert_eq!(
+            made.len(),
+            usize::from(image.interfaces.data_count),
+            "{made:?}"
+        );
+        for iface in &made {
+            let index = host.index(iface).unwrap();
+            assert!(!host.offload_on.borrow().contains(&index), "{iface}");
+        }
+
+        let frr = ModelKind::default_for(NodeModel::FrrLinux).node_config();
+        let host = FakeHost::default();
+        let end = recreated_end(
+            &PlannedNode {
+                lab_id: "lab1",
+                node: &node,
+                node_id: &node_id,
+                kind: &NodeKind::Container,
+                image: Some(&frr),
+            },
+            None,
+            &lab,
+            Ok(&[DbBridge {
+                members: vec![BridgeMember {
+                    node: node_id.clone(),
+                    interface: "eth1".to_string(),
+                }],
+                ..bridges[0].clone()
+            }]),
+        )
+        .unwrap();
+        reattach_node_links(&host, &lab, &node_id, end).await;
+        let index = host.index("cb3i1-lab1").unwrap();
+        assert!(host.offload_on.borrow().contains(&index));
     }
 }

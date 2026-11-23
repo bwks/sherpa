@@ -11,10 +11,10 @@ containers in the same bridge.
 | `fr03` | `frr_linux` 10.5.2 container | eth1 in the bridge, eth2 link to dev01 |
 | `fr04` | `frr_linux` 10.5.2 container | eth1 in the bridge, no link |
 
-Every link is a P2p (eBPF) link. A container with a link takes all its data interfaces as
-veths created in its namespace, its bridge member included (fr01, fr02, fr03). fr04 has no
-link, so its bridge member and disabled interfaces are Docker networks, attached in interface
-order: a bridge member left out would rename every interface after it.
+Every link is a P2p (eBPF) link. A container on a link or a bridge takes all its data
+interfaces as veths created in its namespace, its bridge member included, whose host end is a
+port of the bridge. fr04 is on the bridge with no link, so it covers a container that has
+veths only because of its bridge.
 
 ## Requirements
 
@@ -61,6 +61,6 @@ addresses are learnt at once; every ping is sent from the source's own interface
 | Case | Check |
 |---|---|
 | `private_bridge_001` | After up, every bridge member (dev01, fr01, fr02, fr03 and fr04) pings every other member from its eth1 |
-| `private_bridge_002` | fr01 and fr03 (veths), fr04 (Docker networks) and dev01 (VM) are redeployed in turn. After each, the redeployed node is addressed again, and every bridge ping of `private_bridge_001` and every link ping passes again |
+| `private_bridge_002` | fr01 and fr03 (on links), fr04 (on no link) and dev01 (VM) are redeployed in turn. After each, the redeployed node is addressed again, and every bridge ping of `private_bridge_001` and every link ping passes again |
 | `private_bridge_003` | fr01, fr02, fr03 and dev01, each with a bridge member on eth1 and a link on eth2, ping every other bridge member from eth1 and their link peer from eth2 |
 | `link_cleanup_002` | `sherpa destroy` succeeds, `sherpa inspect` no longer finds the lab, and no libvirt domain or network, Docker network or host interface whose name holds the lab's ID is left. When a listing cannot run here, such as `virsh` off the Sherpa server, the case is skipped after the others pass, naming what was not checked. It is skipped when `--keep-failed` is given and an earlier case failed |

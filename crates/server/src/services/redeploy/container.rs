@@ -1,7 +1,7 @@
 //! Stages 4 and 5 for a container: its configuration, its data networks or P2p veths, and
 //! starting it; then the services a container node runs.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ops::RangeInclusive;
 use std::path::Path;
 
@@ -11,7 +11,7 @@ use tracing::instrument;
 use super::context::Redeploy;
 use super::ready::{ReadyWait, ready_wait, wait_until_ready};
 use crate::konst::{SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR};
-use crate::services::container_networks::{self, ContainerDataInterface};
+use crate::services::container_networks;
 use crate::services::keycloak;
 use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle::{self, query_runtimes};
@@ -35,9 +35,9 @@ use shared::util;
 /// A container's data interfaces, and the lab's links they were planned from.
 struct DataInterfaces {
     lab_links: LabLinks,
-    /// Its Docker data networks, for a container on no link.
+    /// Its Docker data networks, for a container on no link and no private bridge.
     networks: Vec<data::ContainerNetworkAttachment>,
-    /// Its veths, for a container on a P2p link.
+    /// Its veths, for a container on a P2p link or a private bridge.
     veths: Vec<ContainerVeth>,
 }
 
@@ -159,7 +159,7 @@ pub(super) async fn redeploy_container(
 }
 
 /// Make the redeployed container's veths in its namespace, then attach its links, and report
-/// what each link was left in. A container on no link has none.
+/// what each link was left in. A container on no link and no private bridge has none.
 async fn attach_links(
     redeploy: &Redeploy<'_>,
     lab_links: &LabLinks,
@@ -202,9 +202,9 @@ async fn attach_links(
     reports
 }
 
-/// The data interfaces of a container: Docker networks, made now, for one on no link, or, for
-/// one on a P2p link, a veth for every data interface, made once it has started; Docker then
-/// only handles its management network.
+/// The data interfaces of a container: Docker networks, made now, for one on no link and no
+/// private bridge, or, for one on a P2p link or a private bridge, a veth for every data
+/// interface, made once it has started; Docker then only handles its management network.
 async fn plan_data_interfaces(redeploy: &Redeploy<'_>) -> Result<DataInterfaces> {
     let db = &redeploy.state.db;
     let lab_links = LabLinks::load(db, &redeploy.lab_id, &redeploy.lab_record_id).await?;
@@ -216,8 +216,8 @@ async fn plan_data_interfaces(redeploy: &Redeploy<'_>) -> Result<DataInterfaces>
         redeploy.data_interface_count,
         &redeploy.node_name,
     )?;
-    let (networks, veths) = if links.is_empty() {
-        let networks = create_data_networks(redeploy, &bridge_interfaces, data_indices).await?;
+    let (networks, veths) = if links.is_empty() && bridge_interfaces.is_empty() {
+        let networks = create_data_networks(redeploy, data_indices).await?;
         (networks, vec![])
     } else {
         let node = ContainerNode {
@@ -274,46 +274,32 @@ fn configure_container(
     )
 }
 
-/// Create the Docker macvlan network of each data interface of a container with no links: on
-/// its private bridge for a bridge member, otherwise on the node's isolated bridge, disabled.
+/// Create the Docker macvlan network of each data interface of a container on no link and no
+/// private bridge, on the node's isolated bridge, disabled.
 #[instrument(skip_all, fields(lab_id = %redeploy.lab_id, node_name = %redeploy.node_name), level = "debug")]
 async fn create_data_networks(
     redeploy: &Redeploy<'_>,
-    bridge_interfaces: &HashMap<String, String>,
     data_indices: RangeInclusive<u8>,
 ) -> Result<Vec<data::ContainerNetworkAttachment>> {
     let lab_id = redeploy.lab_id.as_str();
     let node_name = redeploy.node_name.as_str();
     let model_kind = redeploy.target_node.model_kind;
-    let docker = &redeploy.state.docker;
     let isolated = node_ops::node_isolated_network_data(node_name, redeploy.db_node.index, lab_id);
     let mut attachments = vec![];
 
     for idx in data_indices {
         let iface_name = util::interface_from_idx(model_kind, idx)?;
-        let connection = if let Some(bridge_name) = bridge_interfaces.get(&iface_name) {
-            container::create_docker_macvlan_bridge_network(
-                docker,
-                bridge_name,
-                &container_networks::bridge_member_network_name(node_name, idx, lab_id),
-            )
-            .await?;
-            ContainerDataInterface::Bridged
-        } else {
-            container::create_docker_macvlan_bridge_network(
-                docker,
-                &isolated.bridge_name,
-                &container_networks::isolated_network_name(node_name, idx, lab_id),
-            )
-            .await?;
-            ContainerDataInterface::Disabled
-        };
+        container::create_docker_macvlan_bridge_network(
+            &redeploy.state.docker,
+            &isolated.bridge_name,
+            &container_networks::isolated_network_name(node_name, idx, lab_id),
+        )
+        .await?;
         attachments.push(container_networks::data_attachment(
             node_name,
             model_kind,
             &iface_name,
             idx,
-            connection,
             lab_id,
         )?);
     }

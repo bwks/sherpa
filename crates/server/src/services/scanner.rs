@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use shared::data::{
-    DbLab, DbNode, LabPhase, ModelKind, NodeConfig, NodeKind, NodeModel, NodeState, Observation,
-    Probe, RecordId, Runtime,
+    DbBridge, DbLab, DbNode, LabPhase, ModelKind, NodeConfig, NodeKind, NodeModel, NodeState,
+    Observation, Probe, RecordId, Runtime,
 };
 use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
 use tokio_util::sync::CancellationToken;
@@ -21,8 +21,8 @@ use crate::services::lab_operations;
 use crate::services::node_lifecycle::{self, Runtimes, query_runtimes};
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::p2p_links::{
-    KernelHost, LabLinks, LinkHost, PlannedNode, check_lab_links, follow_carrier, recreated_end,
-    repair_node,
+    BridgeEnd, ContainerNode, KernelHost, LabLinks, LinkHost, PlannedNode, bridge_ends,
+    check_lab_links, follow_carrier, recreated_end, repair_node,
 };
 use crate::services::ssh_config;
 use crate::services::vault::api::{SealStatus, VaultClient};
@@ -190,8 +190,9 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
     Ok(())
 }
 
-/// Check the lab's P2p links in the kernel, repair the ends of running nodes that were made
-/// again outside Sherpa (see `p2p_links::repair`), make each link's carrier follow its state
+/// Check the lab's P2p links and its containers' private bridge members in the kernel, repair
+/// the ends of running nodes that were made again outside Sherpa (see `p2p_links::repair`),
+/// make each link's carrier follow its state
 /// (see `p2p_links::carrier`), and keep each link's state for `inspect`.
 ///
 /// Called under the scanner's hold on the lab, so it never runs beside an operation that makes
@@ -209,7 +210,17 @@ async fn repair_links(
     let links = db::list_links_by_lab(&state.db, lab_record_id.clone())
         .await
         .context("Failed to list the lab's links")?;
-    if links.is_empty() {
+    let bridges = db::list_bridges(&state.db, lab_record_id)
+        .await
+        .map_err(|error| format!("{error:#}"));
+    let bridge_ends = match &bridges {
+        Ok(bridges) => container_bridge_ends(&lab.lab_id, scanned, bridges),
+        Err(error) => {
+            tracing::warn!(%error, "Failed to list the lab's bridges");
+            vec![]
+        }
+    };
+    if links.is_empty() && bridge_ends.is_empty() {
         return Ok(());
     }
     let kinds = scanned
@@ -227,7 +238,14 @@ async fn repair_links(
         .collect();
 
     let host = KernelHost::new(&state.docker, &state.qemu);
-    let mut check = check_lab_links(&host, &lab_links, &running, &state.unreadable_ends).await;
+    let mut check = check_lab_links(
+        &host,
+        &lab_links,
+        &bridge_ends,
+        &running,
+        &state.unreadable_ends,
+    )
+    .await;
     let broken: Vec<&ScannedNode<'_>> = check
         .broken_nodes()
         .into_iter()
@@ -245,13 +263,6 @@ async fn repair_links(
             stored_definition(&state.db, lab_record_id, &lab.lab_id).await
         } else {
             None
-        };
-        let bridges = if has_container {
-            db::list_bridges(&state.db, lab_record_id)
-                .await
-                .map_err(|error| format!("{error:#}"))
-        } else {
-            Ok(vec![])
         };
         let images = db::list_node_images_by_ids(
             &state.db,
@@ -292,6 +303,40 @@ async fn repair_links(
     follow_carrier(&host, &lab_links, &previous, &states, &fresh).await;
     state.link_states.replace_lab(&lab.lab_id, states);
     Ok(())
+}
+
+/// The host ends of the private bridge member veths of the lab's containers whose model is known.
+fn container_bridge_ends(
+    lab_id: &str,
+    scanned: &[ScannedNode<'_>],
+    bridges: &[DbBridge],
+) -> Vec<BridgeEnd> {
+    let mut ends = vec![];
+    for node in scanned {
+        let (Some(record), Some(model)) = (&node.node.id, node.model) else {
+            continue;
+        };
+        if node.kind != NodeKind::Container {
+            continue;
+        }
+        let Ok(model_kind) = ModelKind::new(model, Some(node.kind)) else {
+            continue;
+        };
+        let container = ContainerNode {
+            lab_id,
+            name: &node.node.name,
+            index: node.node.index,
+            model_kind,
+            record,
+        };
+        match bridge_ends(&container, bridges) {
+            Ok(node_ends) => ends.extend(node_ends),
+            Err(error) => {
+                tracing::warn!(node = %node.node.name, error = %format!("{error:#}"), "Failed to name a container's bridge member ends");
+            }
+        }
+    }
+    ends
 }
 
 /// Turn transmit checksum offload off on the management veth of each running container whose

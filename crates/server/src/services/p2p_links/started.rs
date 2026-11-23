@@ -55,7 +55,7 @@ pub(crate) async fn follow_started_links(
         return HashMap::new();
     }
     let states: HashMap<u16, LinkState> =
-        check_lab_links(host, lab, &lab.running(runtimes), unreadable_ends)
+        check_lab_links(host, lab, &[], &lab.running(runtimes), unreadable_ends)
             .await
             .into_states()
             .into_iter()
@@ -210,7 +210,7 @@ pub(crate) mod tests {
         running: &HashSet<RecordId>,
         link_states: &LinkStates,
     ) -> Vec<(EndDevice, bool)> {
-        let check = check_lab_links(host, lab, running, &UnreadableEnds::default()).await;
+        let check = check_lab_links(host, lab, &[], running, &UnreadableEnds::default()).await;
         let fresh = check.fresh_ends();
         let states = check.into_states();
         follow_carrier(host, lab, &link_states.of_lab("lab"), &states, &fresh).await;

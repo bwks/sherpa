@@ -9,12 +9,10 @@ use tracing::instrument;
 
 use super::context::LabBuild;
 use super::links::P2pContainerVeth;
-use crate::konst::{
-    BRIDGE_MEMBER_HOST_VETH_PREFIX, SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME,
-};
+use crate::konst::{SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME};
 use crate::services::container_networks;
 use crate::services::error::ServiceError;
-use crate::services::p2p_links::ContainerVeth;
+use crate::services::p2p_links::{ContainerVeth, bridge_member_host_veth};
 
 use shared::data;
 use shared::data::{LabPhase, LabSubnets, RecordId, StatusKind};
@@ -270,13 +268,13 @@ pub(super) fn lab_id_taken(
 }
 
 /// Create a Docker macvlan network, on the node's isolated bridge, for each disabled interface of
-/// a container not on a P2p link.
+/// a container on no P2p link and no private bridge.
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn create_isolated_container_networks(
     build: &LabBuild<'_>,
     node_setup_data: &[data::NodeSetupData],
     lab_node_data: &[data::LabNodeData],
-    p2p_container_names: &HashSet<String>,
+    veth_container_names: &HashSet<String>,
 ) -> Result<()> {
     let LabBuild {
         lab_id,
@@ -293,12 +291,11 @@ pub(super) async fn create_isolated_container_networks(
             continue;
         };
 
-        // Only process container nodes (skip P2p containers — they use veth+netns)
         let node_data = match lab_node_data.iter().find(|n| n.name == nsd.name) {
             Some(n) if n.model_kind.kind() == data::NodeKind::Container => n,
             _ => continue,
         };
-        if p2p_container_names.contains(&nsd.name) {
+        if veth_container_names.contains(&nsd.name) {
             continue;
         }
 
@@ -335,16 +332,14 @@ pub(super) async fn create_isolated_container_networks(
     Ok(())
 }
 
-/// Create each `[[bridges]]` private bridge and record it. A container member on a P2p link
-/// joins through a veth, added to `p2p_container_veths`; other container members get a Docker
-/// macvlan network on the bridge, and VMs join through libvirt.
+/// Create each `[[bridges]]` private bridge and record it. A container member joins through a
+/// veth, added to `p2p_container_veths`, and VMs join through libvirt.
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn create_shared_bridges(
     build: &LabBuild<'_>,
     lab_record_id: &RecordId,
     bridges_detailed: &[topology::BridgeDetailed],
     lab_node_data: &[data::LabNodeData],
-    p2p_container_names: &HashSet<String>,
     p2p_container_veths: &mut Vec<P2pContainerVeth>,
 ) -> Result<()> {
     let LabBuild {
@@ -388,14 +383,8 @@ pub(super) async fn create_shared_bridges(
             "Created bridge infrastructure"
         );
 
-        let bridge_members = join_bridge_members(
-            build,
-            bridge,
-            lab_node_data,
-            p2p_container_names,
-            p2p_container_veths,
-        )
-        .await?;
+        let bridge_members =
+            join_bridge_members(lab_id, bridge, lab_node_data, p2p_container_veths)?;
 
         db::create_bridge(
             db,
@@ -417,18 +406,14 @@ pub(super) async fn create_shared_bridges(
     Ok(())
 }
 
-/// The bridge's members, for its record. A container member on a P2p link joins through a veth,
-/// added to `p2p_container_veths`; another container member gets a Docker macvlan network on the
-/// bridge now. VMs join through libvirt.
-#[instrument(skip_all, fields(lab_id = %build.lab_id, bridge = %bridge.bridge_name), level = "debug")]
-async fn join_bridge_members(
-    build: &LabBuild<'_>,
+/// The bridge's members, for its record. A container member joins through a veth whose host end
+/// joins the bridge, added to `p2p_container_veths`; VMs join through libvirt.
+fn join_bridge_members(
+    lab_id: &str,
     bridge: &topology::BridgeDetailed,
     lab_node_data: &[data::LabNodeData],
-    p2p_container_names: &HashSet<String>,
     p2p_container_veths: &mut Vec<P2pContainerVeth>,
 ) -> Result<Vec<data::BridgeMember>> {
-    let lab_id = build.lab_id;
     let mut bridge_members = vec![];
     for link in &bridge.links {
         let node_data = lab_node_data
@@ -449,49 +434,20 @@ async fn join_bridge_members(
         if node_data.model_kind.kind() != data::NodeKind::Container {
             continue;
         }
-
-        if p2p_container_names.contains(&link.node_name) {
-            // P2p containers take every data interface as a veth created into their
-            // netns. The host end of a bridge member's veth joins the bridge.
-            // Format: cb{node_idx}i{iface_idx}-{lab_id}
-            p2p_container_veths.push(P2pContainerVeth {
-                node_name: link.node_name.clone(),
-                veth: ContainerVeth {
-                    host_veth: format!(
-                        "{BRIDGE_MEMBER_HOST_VETH_PREFIX}{}i{}-{lab_id}",
-                        node_data.index, link.interface_index
-                    ),
-                    host_alias: format!(
-                        "{}-bridge-host-{}::{}",
-                        lab_id, link.node_name, link.interface_name
-                    ),
-                    interface_idx: link.interface_index,
-                    model_kind: node_data.model_kind,
-                    admin_down: false,
-                    bridge: Some(bridge.bridge_name.clone()),
-                },
-            });
-        } else {
-            let docker_net_name = container_networks::bridge_member_network_name(
-                &link.node_name,
-                link.interface_index,
-                lab_id,
-            );
-            tracing::info!(
-                lab_id = %lab_id,
-                node = %link.node_name,
-                interface = %link.interface_name,
-                network = %docker_net_name,
-                bridge = %bridge.bridge_name,
-                "Creating Docker macvlan bridge-mode network for bridge member"
-            );
-            container::create_docker_macvlan_bridge_network(
-                build.docker_conn,
-                &bridge.bridge_name,
-                &docker_net_name,
-            )
-            .await?;
-        }
+        p2p_container_veths.push(P2pContainerVeth {
+            node_name: link.node_name.clone(),
+            veth: ContainerVeth {
+                host_veth: bridge_member_host_veth(lab_id, node_data.index, link.interface_index),
+                host_alias: format!(
+                    "{}-bridge-host-{}::{}",
+                    lab_id, link.node_name, link.interface_name
+                ),
+                interface_idx: link.interface_index,
+                model_kind: node_data.model_kind,
+                admin_down: false,
+                bridge: Some(bridge.bridge_name.clone()),
+            },
+        });
     }
     Ok(bridge_members)
 }
@@ -516,33 +472,25 @@ pub(super) async fn set_isolated_bridges_down(
     Ok(())
 }
 
-/// Each container's Docker data network attachments, in interface order: linked interfaces
-/// active, disabled ones admin down. Containers on a P2p link get none; their data interfaces
-/// are veths in their network namespace.
+/// Each container's Docker data network attachments, in interface order, admin down. Containers
+/// on a P2p link or a private bridge get none; their data interfaces are veths in their network
+/// namespace.
 pub(super) fn container_data_attachments(
     lab_id: &str,
     node_setup_data: &[data::NodeSetupData],
     lab_node_data: &[data::LabNodeData],
-    p2p_container_names: &HashSet<String>,
+    veth_container_names: &HashSet<String>,
 ) -> Result<HashMap<String, Vec<data::ContainerNetworkAttachment>>> {
-    // Build container network mappings from the full interface list.
-    // This ensures all defined data interfaces appear in model-index order,
-    // with linked interfaces active and disabled interfaces admin-down.
     let mut container_link_networks: HashMap<String, Vec<data::ContainerNetworkAttachment>> =
         HashMap::new();
 
-    // Walk each container node's interfaces in index order.
-    // For each data interface, produce a ContainerNetworkAttachment with
-    // the correct docker network name and linux_interface_name.
     for nsd in node_setup_data {
         let node_data = match lab_node_data.iter().find(|n| n.name == nsd.name) {
             Some(n) if n.model_kind.kind() == data::NodeKind::Container => n,
             _ => continue,
         };
 
-        // P2p containers handle ALL data interfaces via veth+netns move,
-        // so they get no Docker network attachments for data interfaces.
-        if p2p_container_names.contains(&nsd.name) {
+        if veth_container_names.contains(&nsd.name) {
             container_link_networks.insert(nsd.name.clone(), vec![]);
             continue;
         }

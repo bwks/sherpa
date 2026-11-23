@@ -16,7 +16,7 @@ mod transition;
 mod veths;
 
 pub(crate) use carrier::follow_carrier;
-pub(crate) use host::{KernelHost, LinkHost};
+pub(crate) use host::{KernelHost, LinkHost, make_veth};
 pub(crate) use plan::{PlannedNode, recreated_end};
 pub(crate) use reattach::{
     LabLinks, LinkWiring, RecreatedEnd, attach_link, reattach_node_links, report_links,
@@ -24,6 +24,6 @@ pub(crate) use reattach::{
 pub(crate) use repair::{check_lab_links, repair_node};
 pub(crate) use started::follow_started_links;
 pub(crate) use veths::{
-    ContainerNode, ContainerVeth, container_veths, data_interface_indices, node_bridge_interfaces,
-    node_links,
+    BridgeEnd, ContainerNode, ContainerVeth, bridge_ends, bridge_member_host_veth, container_veths,
+    data_interface_indices, node_bridge_interfaces, node_links,
 };

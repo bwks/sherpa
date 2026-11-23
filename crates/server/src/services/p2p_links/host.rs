@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use bollard::Docker;
 use libvirt::Qemu;
 use tracing::instrument;
@@ -31,7 +31,7 @@ pub(crate) enum EndDevice {
 /// The host operations that re-attach a link: look up an end and whether it has its redirect,
 /// point its redirect at its peer, set its impairment, make a container's veths, and read and
 /// set an end's carrier. Also those that keep transmit checksum offload off on a container's
-/// management veth.
+/// veths.
 pub(crate) trait LinkHost {
     /// The index of interface `iface`, or `None` when it does not exist.
     async fn ifindex(&self, iface: &str) -> Result<Option<u32>>;
@@ -52,8 +52,7 @@ pub(crate) trait LinkHost {
     async fn container_pid(&self, container: &str) -> Result<u32>;
 
     /// Make `veth` in the network namespace of process `pid`, and join its host end to its
-    /// bridge, if it has one. For a model whose container needs finished checksums, transmit
-    /// checksum offload goes off on the host end.
+    /// bridge, if it has one.
     async fn create_veth(&self, veth: &ContainerVeth, pid: u32) -> Result<()>;
 
     /// Whether end `end` has carrier, or `None` when it does not exist: a veth that is not
@@ -71,6 +70,26 @@ pub(crate) trait LinkHost {
 
     /// Turn transmit checksum offload off on the interface with index `ifindex`.
     fn disable_tx_checksum_offload(&self, ifindex: u32) -> Result<()>;
+}
+
+/// Make `veth` in the network namespace of process `pid`, with transmit checksum offload off on
+/// its host end for a model whose container needs finished checksums.
+#[instrument(skip(host, veth), fields(host_veth = %veth.host_veth), level = "debug")]
+pub(crate) async fn make_veth(host: &impl LinkHost, veth: &ContainerVeth, pid: u32) -> Result<()> {
+    host.create_veth(veth, pid).await?;
+    if !veth.model_kind.needs_host_checksums() {
+        return Ok(());
+    }
+    let ifindex = host
+        .ifindex(&veth.host_veth)
+        .await?
+        .ok_or_else(|| anyhow!("veth {} is gone after it was made", veth.host_veth))?;
+    host.disable_tx_checksum_offload(ifindex).with_context(|| {
+        format!(
+            "failed to turn transmit checksum offload off on {}",
+            veth.host_veth
+        )
+    })
 }
 
 /// The real host: the kernel through `network`, Docker, and libvirt.
@@ -120,15 +139,6 @@ impl LinkHost for KernelHost<'_> {
             .with_context(|| {
                 format!("failed to create interface {target_name} in the container")
             })?;
-        if veth.model_kind.needs_host_checksums() {
-            let ifindex = network::get_ifindex(&veth.host_veth).await?;
-            network::disable_tx_checksum_offload(ifindex).with_context(|| {
-                format!(
-                    "failed to turn transmit checksum offload off on {}",
-                    veth.host_veth
-                )
-            })?;
-        }
         if let Some(bridge_name) = &veth.bridge {
             network::enslave_to_bridge(&veth.host_veth, bridge_name).await?;
         }
