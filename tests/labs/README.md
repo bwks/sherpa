@@ -17,6 +17,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 | [console](console/README.md) | `sherpa console` in a pseudo-terminal and `sherpa vnc` with a scripted viewer, through sherpad, with no system `telnet` or `ssh`: login prompt, `Ctrl+]` and `~.`, the RFB banner and Ctrl+C, a console in use naming its holder, `--force`, another user and an admin refused, a container refused. A pytest module | about 1–5 min |
 | [ssh-access](ssh-access/README.md) | How `sherpa ssh` and SSH provisioners reach a node: directly, or through the Sherpa server with `--ssh-jump`, told apart by which process holds the connection the node sees. Needs a route to the lab's management network | about 2 min |
 | [owner-login](owner-login/README.md) | A throwaway owner's login on a Linux VM and a network OS container, by key and by device password, with admin rights; no keys refused at up and redeploy; a rotated key not pushed on resume; down and resume, redeploy; what an admin who does not own the lab may and may not do. Needs a CLI logged in as an admin and a route to the lab's management network | about 5 min |
+| [tailnet](tailnet/README.md) | A lab's Tailscale gateway on a real tailnet, checked from a probe device: joining, nodes answering, routes not opened or taken, the key nowhere on the server, down, resume, redeploy, a refused key, a Docker restart (opt-in), destroy and `sherpa server clean`. Runs on the Sherpa server with Docker. A pytest module | about 5–10 min |
 | [talos-linux](talos-linux/README.md) | Sherpa-built Talos Kubernetes clusters: a one-controller Flannel lab and a three-controller Cilium lab with Keycloak login and Vault secrets, through up, redeploy, down and resume, a stopped controller and destroy. Two pytest modules, run at once | about 30–40 min |
 
 ## Rules
@@ -24,7 +25,9 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 - A lab test uses only the `sherpa` CLI and tools inside the lab. It never calls server
   internals or reads the server's database. The exception is a lab whose nodes cannot be
   reached that way (no shell, no SSH server): its runner runs on the Sherpa server and uses
-  Docker to reach them, and its README says so.
+  Docker to reach them, and its README says so. The tailnet runner also runs on the server: it uses
+  Docker for its probe device and to read the gateways, the web UI for the web UI's start, and
+  `sudo -n` to search the server's database, lab folders and log for the key, which it never prints.
 - Every run works in its own directory under `.tmp/lab-tests/` and gives each lab a unique name,
   so the checked-in manifests are never modified.
 - A run always destroys its labs, including on failure, Ctrl-C and SIGTERM, unless
@@ -49,7 +52,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 - What the runners share lives in [`labkit.py`](labkit.py): the failure and outcome types,
   running and logging a command, masking the run's secrets, the manifest TOML, the device
   password preflight, generated passwords and a command in a pseudo-terminal whose prompts
-  the runner answers. The console, owner-login, p2p-containers, p2p-links, nixos-linux, private-bridge, cisco-iol, manifest-commands, account-lockout and talos-linux runners import it; its own
+  the runner answers. The console, owner-login, p2p-containers, p2p-links, nixos-linux, private-bridge, cisco-iol, manifest-commands, account-lockout, tailnet and talos-linux runners import it; its own
   unit tests run with `uv run tests/labs/labkit.py`.
 
 Lab tests are started by hand. How and when end-to-end tests run is being planned in
