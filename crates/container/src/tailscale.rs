@@ -356,6 +356,38 @@ pub async fn enroll_gateway(
     wait_connected(docker, id, lab_id, routes.to_vec(), settings).await
 }
 
+/// Enroll the gateway on a resume, and stop it again when the enrollment fails.
+///
+/// # Errors
+///
+/// Fails when the enrollment fails, with the rollback's failure too when the gateway cannot be
+/// logged out or stopped.
+#[instrument(skip(docker, key, settings))]
+pub async fn resume_gateway(
+    docker: &Docker,
+    id: &str,
+    lab_id: &str,
+    routes: &[String],
+    key: &TailnetAuthKey,
+    settings: &TailscaleGatewaySettings,
+) -> Result<TailnetStatus> {
+    let enrollment = match enroll_gateway(docker, id, lab_id, routes, key, settings).await {
+        Ok(status) => return Ok(status),
+        Err(error) => error,
+    };
+    Err(match stop_gateway(docker, id, lab_id, settings).await {
+        Ok(Logout::Done) => {
+            enrollment.context("Tailscale gateway stopped after a failed enrollment")
+        }
+        Ok(Logout::Failed(rollback)) => enrollment.context(format!(
+            "Tailscale gateway stopped after a failed enrollment, but not logged out: {rollback:#}"
+        )),
+        Err(rollback) => enrollment.context(format!(
+            "Unable to stop the Tailscale gateway after a failed enrollment: {rollback:#}"
+        )),
+    })
+}
+
 async fn wait_connected(
     docker: &Docker,
     id: &str,
@@ -431,7 +463,8 @@ async fn logout(docker: &Docker, id: &str, settings: &TailscaleGatewaySettings) 
     Ok(())
 }
 
-/// Log a running gateway out, then stop it even when the logout fails.
+/// Log a running gateway out if its daemon holds an identity, then stop it even when the
+/// logout fails.
 ///
 /// # Errors
 ///
@@ -450,7 +483,10 @@ pub async fn stop_gateway(
         .as_ref()
         .is_some_and(|s| s.running == Some(true))
     {
-        if let Err(error) = logout(docker, id, settings).await {
+        let login = wait_for_login_state(docker, id, settings).await;
+        if !matches!(login, Ok(DaemonLogin::LoggedOut))
+            && let Err(error) = logout(docker, id, settings).await
+        {
             logged_out = Logout::Failed(error);
         }
         match docker
@@ -570,7 +606,9 @@ mod tests {
     use tokio::runtime::Runtime;
 
     const RUNNING_GATEWAY: &str = r#"{"Id":"exact-id","State":{"Running":true},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#;
+    const STOPPED_GATEWAY: &str = r#"{"Id":"exact-id","State":{"Running":false},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#;
     const NO_STATE: &str = r#"{"BackendState":"NoState"}"#;
+    const LOGGED_OUT: &str = r#"{"BackendState":"NeedsLogin","HaveNodeKey":false}"#;
     const LOGGED_OUT_WITH_NODE_KEY: &str = r#"{"BackendState":"NeedsLogin","HaveNodeKey":true}"#;
     const CONNECTED: &str = r#"{"BackendState":"Running","TailscaleIPs":["100.64.0.1"],"Self":{"AllowedIPs":["192.0.2.0/24"]}}"#;
     const TEST: &str = r#""test","-S""#;
@@ -654,6 +692,11 @@ mod tests {
     async fn tailnet_settings_006_the_stop_timeout_is_the_grace_period_docker_is_given() {
         let (docker, mock) = mock_docker(vec![
             Reply::Json("/containers/exact-id/json", "200 OK", RUNNING_GATEWAY),
+            Reply::Json(
+                "/containers/exact-id/exec",
+                "500 Internal Server Error",
+                r#"{"message":"exec unavailable"}"#,
+            ),
             Reply::Json(
                 "/containers/exact-id/exec",
                 "500 Internal Server Error",
@@ -771,6 +814,103 @@ mod tests {
         .await;
         mock.finish();
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn tailnet_suspend_022_a_failed_enrollment_stops_the_gateway_and_the_next_down_and_resume_behave_normally()
+     {
+        let (docker, mock) = mock_docker(vec![
+            Reply::Json("/containers/exact-id/json", "200 OK", STOPPED_GATEWAY),
+            Reply::Json("/containers/exact-id/start", "204 No Content", ""),
+            Reply::Exec(TEST, "", 0),
+            Reply::Exec(CHMOD, "", 0),
+            Reply::Exec(STATUS, LOGGED_OUT, 0),
+            Reply::Exec(ENROLL, "", 1),
+            Reply::Json("/containers/exact-id/json", "200 OK", RUNNING_GATEWAY),
+            Reply::Exec(STATUS, LOGGED_OUT_WITH_NODE_KEY, 0),
+            Reply::Exec(LOGOUT, "", 0),
+            Reply::Json("/containers/exact-id/stop", "204 No Content", ""),
+            Reply::Json("/containers/exact-id/json", "200 OK", STOPPED_GATEWAY),
+            Reply::Json("/containers/exact-id/json", "200 OK", STOPPED_GATEWAY),
+            Reply::Json("/containers/exact-id/start", "204 No Content", ""),
+            Reply::Exec(TEST, "", 0),
+            Reply::Exec(CHMOD, "", 0),
+            Reply::Exec(STATUS, LOGGED_OUT, 0),
+            Reply::Exec(ENROLL, "", 0),
+            Reply::Json("/containers/exact-id/json", "200 OK", RUNNING_GATEWAY),
+            Reply::Exec(STATUS, CONNECTED, 0),
+        ]);
+        let routes = ["192.0.2.0/24".to_owned()];
+        let key = TailnetAuthKey::new("tskey-auth-fixture".into());
+        let settings = TailscaleGatewaySettings::default();
+        let failed =
+            resume_gateway(&docker, "exact-id", "test1234", &routes, &key, &settings).await;
+        let down = stop_gateway(&docker, "exact-id", "test1234", &settings).await;
+        let resumed =
+            resume_gateway(&docker, "exact-id", "test1234", &routes, &key, &settings).await;
+        mock.finish();
+        let error = format!("{:#}", failed.unwrap_err());
+        assert!(
+            error.contains("stopped after a failed enrollment"),
+            "{error}"
+        );
+        assert!(matches!(down.unwrap(), Logout::Done));
+        assert_eq!(resumed.unwrap().state, TailnetState::Connected);
+    }
+
+    #[tokio::test]
+    async fn tailnet_suspend_023_a_rollback_that_fails_reports_the_enrollment_and_rollback_errors()
+    {
+        let (docker, mock) = mock_docker(vec![
+            Reply::Json("/containers/exact-id/json", "200 OK", STOPPED_GATEWAY),
+            Reply::Json("/containers/exact-id/start", "204 No Content", ""),
+            Reply::Exec(TEST, "", 0),
+            Reply::Exec(CHMOD, "", 0),
+            Reply::Exec(STATUS, LOGGED_OUT, 0),
+            Reply::Exec(ENROLL, "", 1),
+            Reply::Json("/containers/exact-id/json", "200 OK", RUNNING_GATEWAY),
+            Reply::Exec(STATUS, LOGGED_OUT, 0),
+            Reply::Json(
+                "/containers/exact-id/stop",
+                "500 Internal Server Error",
+                r#"{"message":"stop refused"}"#,
+            ),
+        ]);
+        let result = resume_gateway(
+            &docker,
+            "exact-id",
+            "test1234",
+            &["192.0.2.0/24".into()],
+            &TailnetAuthKey::new("tskey-auth-fixture".into()),
+            &TailscaleGatewaySettings::default(),
+        )
+        .await;
+        mock.finish();
+        let error = format!("{:#}", result.unwrap_err());
+        assert!(
+            error.contains("Unable to stop Tailscale gateway"),
+            "{error}"
+        );
+        assert!(error.contains("Tailscale enrollment failed"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn tailnet_suspend_024_down_of_a_running_gateway_with_no_identity_stops_it_without_a_logout()
+     {
+        let (docker, mock) = mock_docker(vec![
+            Reply::Json("/containers/exact-id/json", "200 OK", RUNNING_GATEWAY),
+            Reply::Exec(STATUS, LOGGED_OUT, 0),
+            Reply::Json("/containers/exact-id/stop", "204 No Content", ""),
+        ]);
+        let stopped = stop_gateway(
+            &docker,
+            "exact-id",
+            "test1234",
+            &TailscaleGatewaySettings::default(),
+        )
+        .await;
+        mock.finish();
+        assert!(matches!(stopped.unwrap(), Logout::Done));
     }
 
     fn accept(listener: &TcpListener) -> (TcpStream, String, String) {
@@ -928,7 +1068,7 @@ mod tests {
         let (docker, mock) = mock_docker(vec![Reply::Json(
             "/containers/exact-id/json",
             "200 OK",
-            r#"{"Id":"exact-id","State":{"Running":false},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#,
+            STOPPED_GATEWAY,
         )]);
         stop_gateway(
             &docker,

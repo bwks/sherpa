@@ -1,4 +1,6 @@
 //! The Tailscale auth key, read from the client environment and never written to the manifest.
+use std::env;
+
 use anyhow::{Context, Result, bail};
 use shared::data::{ClientConfig, TailnetAuthKey};
 use shared::validators::validate_tailscale_key;
@@ -12,14 +14,10 @@ pub(crate) fn resolve_tailscale_key(
     server_url: &str,
     config: &ClientConfig,
 ) -> Result<Option<TailnetAuthKey>> {
-    resolve_tailscale_key_using(manifest, server_url, config, |name| {
-        std::env::var(name).ok()
-    })
+    resolve_tailscale_key_using(manifest, server_url, config, |name| env::var(name).ok())
 }
 
-/// The key a resume sends. A whole-lab resume of a Tailscale lab enrolls the gateway as a new
-/// device; a single-node resume leaves the gateway alone and sends none.
-/// Without the lab's manifest there is no key to send, and the server explains if one is needed.
+/// The key a whole-lab resume sends when the variable the manifest names is set.
 #[tracing::instrument(skip(manifest, config), level = "debug")]
 pub(crate) fn resolve_resume_tailscale_key(
     node_name: Option<&str>,
@@ -27,10 +25,32 @@ pub(crate) fn resolve_resume_tailscale_key(
     server_url: &str,
     config: &ClientConfig,
 ) -> Result<Option<TailnetAuthKey>> {
-    match (node_name, manifest) {
-        (None, Some(manifest)) => resolve_tailscale_key(manifest, server_url, config),
-        (Some(_), _) | (None, None) => Ok(None),
+    resolve_resume_tailscale_key_using(node_name, manifest, server_url, config, |name| {
+        env::var(name).ok()
+    })
+}
+
+fn resolve_resume_tailscale_key_using(
+    node_name: Option<&str>,
+    manifest: Option<&Manifest>,
+    server_url: &str,
+    config: &ClientConfig,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Result<Option<TailnetAuthKey>> {
+    let (None, Some(manifest)) = (node_name, manifest) else {
+        return Ok(None);
+    };
+    validate_tailscale(manifest)?;
+    let variable_set = manifest
+        .tailscale
+        .as_ref()
+        .filter(|c| c.enabled)
+        .and_then(|c| c.auth_key_env.as_deref())
+        .is_some_and(|name| lookup(name).is_some());
+    if !variable_set {
+        return Ok(None);
     }
+    resolve_tailscale_key_using(manifest, server_url, config, lookup)
 }
 
 fn resolve_tailscale_key_using(
@@ -143,17 +163,46 @@ mod tests {
     }
 
     #[test]
-    fn tailnet_suspend_008_a_whole_lab_resume_reads_the_key_as_up_does() {
+    fn tailnet_suspend_008_a_whole_lab_resume_checks_a_set_variable_as_up_does_and_sends_none_when_unset()
+     {
         let manifest: Manifest = toml::from_str(TAILNET_MANIFEST).unwrap();
         let config = ClientConfig::default();
-        let error =
-            resolve_resume_tailscale_key(None, Some(&manifest), "wss://example.invalid", &config)
-                .unwrap_err();
-        assert!(error.to_string().contains("SHERPA_TEST_NEVER_SET"));
-        assert!(
-            resolve_resume_tailscale_key(None, Some(&manifest), "ws://example.invalid", &config)
+        let mut insecure = ClientConfig::default();
+        insecure.server_connection.insecure = true;
+        let variable_holds = |key: &'static str| move |_: &str| Some(key.to_owned());
+        let sent = resolve_resume_tailscale_key_using(
+            None,
+            Some(&manifest),
+            "wss://example.invalid",
+            &config,
+            variable_holds("tskey-auth-testfixture"),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(sent.expose(), "tskey-auth-testfixture");
+        for (url, config, key) in [
+            ("wss://example.invalid", &config, "not-a-key"),
+            ("ws://example.invalid", &config, "tskey-auth-testfixture"),
+            ("wss://example.invalid", &insecure, "tskey-auth-testfixture"),
+        ] {
+            assert!(
+                resolve_resume_tailscale_key_using(
+                    None,
+                    Some(&manifest),
+                    url,
+                    config,
+                    variable_holds(key)
+                )
                 .is_err()
-        );
+            );
+        }
+        for url in ["wss://example.invalid", "ws://example.invalid"] {
+            assert!(
+                resolve_resume_tailscale_key_using(None, Some(&manifest), url, &config, |_| None)
+                    .unwrap()
+                    .is_none()
+            );
+        }
     }
 
     #[test]
