@@ -88,6 +88,9 @@ it, and the peer's ifindex in the other end's map, which nothing updates. The sc
 broken ends of running nodes from the kernel alone: an end that does not exist (a restarted
 container's veths, its bridge members' host ends included, so a container on a bridge and no link
 is repaired too), or one with no redirect filter whose peer exists (libvirt's new, bare tap).
+A bridge member from an older release is a macvlan: the container has the interface and its host
+end does not exist. The scanner leaves it alone, logs its lab once at info level, and the node
+gets a veth when it is redeployed.
 `repair_node` then runs `reattach_node_links`, making only the missing interfaces. The map is
 never read back, so a filter that survived with a stale peer ifindex cannot be seen. Each scan of
 a `Ready` lab runs, under the lab hold, the management checksum offload, this repair, then carrier.

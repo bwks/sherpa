@@ -1,5 +1,4 @@
-//! A node's links and private bridge memberships from the database, and the veths a container
-//! on a P2p link or a private bridge has: one in its network namespace for every data interface.
+//! A node's links and bridge memberships from the database, and the veths a container takes.
 
 use std::collections::{HashMap, HashSet};
 use std::ops::RangeInclusive;
@@ -11,8 +10,7 @@ use shared::util;
 
 use crate::konst::{BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_HOST_VETH_PREFIX};
 
-/// A data interface of a container on a P2p link or a private bridge: a veth made into the
-/// container's network namespace once it has started, with its host end named `host_veth`.
+/// A container data interface made as a veth in its network namespace.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ContainerVeth {
     pub(crate) host_veth: String,
@@ -33,14 +31,16 @@ pub(crate) struct ContainerNode<'a> {
     pub(crate) record: &'a RecordId,
 }
 
-/// The host end of a container's private bridge member veth, as the scanner checks it.
+/// The host end of a container's private bridge member veth.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BridgeEnd {
     pub(crate) node: RecordId,
     pub(crate) host_veth: String,
+    pub(crate) container: String,
+    pub(crate) interface: String,
 }
 
-/// The host end name of the veth of interface `iface_idx` of node `node_idx` in a private bridge.
+/// The host end name of a private bridge member veth.
 pub(crate) fn bridge_member_host_veth(lab_id: &str, node_idx: u16, iface_idx: u8) -> String {
     format!("{BRIDGE_MEMBER_HOST_VETH_PREFIX}{node_idx}i{iface_idx}-{lab_id}")
 }
@@ -56,6 +56,8 @@ pub(crate) fn bridge_ends(
         ends.push(BridgeEnd {
             node: node.record.clone(),
             host_veth: bridge_member_host_veth(node.lab_id, node.index, iface_idx),
+            container: format!("{}-{}", node.name, node.lab_id),
+            interface: util::container_interface_name(node.model_kind, iface_idx)?,
         });
     }
     ends.sort_by(|a, b| a.host_veth.cmp(&b.host_veth));
@@ -106,9 +108,7 @@ pub(crate) fn data_interface_indices(
     Ok(first..=last)
 }
 
-/// The veths of a container on a P2p link or a private bridge, one for every data interface: its
-/// links, its private bridge memberships, whose host end joins the bridge, and its disabled
-/// interfaces, admin down.
+/// The veths of a container on a P2p link or a private bridge, one for each data interface.
 pub(crate) fn container_veths(
     node: &ContainerNode<'_>,
     links: &[&DbLink],

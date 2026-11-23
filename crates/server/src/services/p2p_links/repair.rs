@@ -11,10 +11,6 @@
 //! its links wait for it. An end with no filter is only repaired when its peer's end exists, as
 //! nothing can be attached before that.
 //!
-//! A container's private bridge member ends are checked too: a missing one has its container
-//! repaired, as a missing link end does, so a container on a bridge and no link gets its
-//! interfaces back after a restart outside Sherpa.
-//!
 //! The check also gives the ends it found made again, missing or with no filter, so their
 //! carrier is set whatever the link's state was (see `carrier`).
 
@@ -62,6 +58,15 @@ enum Seen {
     Unreadable(EndRead, anyhow::Error),
 }
 
+/// What the kernel shows of a running container's private bridge member.
+enum Member {
+    Veth,
+    Missing,
+    /// The container has the interface but its host end is gone: an older release's macvlan.
+    Older,
+    Unreadable(anyhow::Error),
+}
+
 impl fmt::Display for EndFault {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -96,10 +101,7 @@ impl LinkCheck {
     }
 }
 
-/// Check each of the lab's links and containers' private bridge member ends (`bridge_ends`) in
-/// the kernel. `running` holds the nodes whose runtime reports them running: only their ends are
-/// checked. A link with an end to repair is `Failed` until the repair's outcome is recorded.
-/// Which ends could not be read is kept in `unreadable` (see `record_end_read`).
+/// Check the lab's links and private bridge member ends of the `running` nodes in the kernel.
 #[instrument(skip_all, level = "debug")]
 pub(crate) async fn check_lab_links(
     host: &impl LinkHost,
@@ -127,8 +129,7 @@ pub(crate) async fn check_lab_links(
     check
 }
 
-/// Check one private bridge member end of a running container, and add its node to `check` when
-/// the end is missing.
+/// Check one private bridge member end of a running container.
 async fn check_bridge_end(
     host: &impl LinkHost,
     lab: &LabLinks,
@@ -136,14 +137,42 @@ async fn check_bridge_end(
     unreadable: &UnreadableEnds,
     check: &mut LinkCheck,
 ) {
-    let found = host.ifindex(&end.host_veth).await;
-    let failure = found.as_ref().err().map(|error| (EndRead::LookUp, error));
+    let member = see_member(host, end).await;
+    let failure = match &member {
+        Member::Unreadable(error) => Some((EndRead::LookUp, error)),
+        Member::Veth | Member::Missing | Member::Older => None,
+    };
     let _ = record_end_read(unreadable, lab.lab_id(), &end.host_veth, failure);
-    if matches!(found, Ok(None)) {
-        tracing::info!(node = %lab.name(&end.node), iface = %end.host_veth, fault = %EndFault::Missing, "Private bridge member end needs repair");
-        if !check.broken.contains(&end.node) {
-            check.broken.push(end.node.clone());
+    match member {
+        Member::Missing => {
+            tracing::info!(node = %lab.name(&end.node), iface = %end.host_veth, fault = %EndFault::Missing, "Private bridge member end needs repair");
+            if !check.broken.contains(&end.node) {
+                check.broken.push(end.node.clone());
+            }
         }
+        Member::Older => {
+            if unreadable.note_older_member(lab.lab_id()) {
+                tracing::info!(lab_id = %lab.lab_id(), node = %lab.name(&end.node), iface = %end.interface, "Private bridge member is from an older release; redeploy the node to make it a veth");
+            }
+        }
+        Member::Veth | Member::Unreadable(_) => {}
+    }
+}
+
+/// What the kernel shows of private bridge member `end`.
+async fn see_member(host: &impl LinkHost, end: &BridgeEnd) -> Member {
+    match host.ifindex(&end.host_veth).await {
+        Ok(Some(_)) => return Member::Veth,
+        Ok(None) => {}
+        Err(error) => return Member::Unreadable(error),
+    }
+    match host
+        .container_has_interface(&end.container, &end.interface)
+        .await
+    {
+        Ok(true) => Member::Older,
+        Ok(false) => Member::Missing,
+        Err(error) => Member::Unreadable(error),
     }
 }
 
@@ -603,6 +632,8 @@ mod tests {
         vec![BridgeEnd {
             node: id("ctr1"),
             host_veth: "cb1i1-lab".to_string(),
+            container: "ctr1-lab".to_string(),
+            interface: "eth1".to_string(),
         }]
     }
 
@@ -659,6 +690,39 @@ mod tests {
         )
         .await;
         assert_eq!(stopped.broken_nodes(), Vec::<RecordId>::new());
+    }
+
+    #[test]
+    fn private_bridge_016_an_older_releases_member_is_not_repaired_and_is_logged_once() {
+        let lab = bridged_ctr1_lab();
+        let ends = bridged_ctr1_ends();
+        let mut host = FakeHost::default();
+        host.container_interfaces
+            .insert(("ctr1-lab".to_string(), "eth1".to_string()));
+        let unreadable = UnreadableEnds::default();
+        let all = running(&["ctr1"]);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (broken, log) = capture_log(|| {
+            (0..3)
+                .map(|_| {
+                    let check =
+                        runtime.block_on(check_lab_links(&host, &lab, &ends, &all, &unreadable));
+                    check.broken_nodes()
+                })
+                .collect::<Vec<Vec<RecordId>>>()
+        });
+        assert_eq!(broken, vec![Vec::<RecordId>::new(); 3]);
+        assert_eq!(host.writes.get(), 0);
+        let older: Vec<&str> = log
+            .lines()
+            .filter(|line| line.contains("older release"))
+            .collect();
+        assert_eq!(older.len(), 1, "{log}");
+        assert!(older[0].contains(" INFO "), "{log}");
+        assert!(!log.contains(" WARN "), "{log}");
     }
 
     #[tokio::test]
@@ -1106,10 +1170,14 @@ mod tests {
                     BridgeEnd {
                         node: id("ctr1"),
                         host_veth: "it-cb1".to_string(),
+                        container: BR_CTR_A.to_string(),
+                        interface: "eth1".to_string(),
                     },
                     BridgeEnd {
                         node: id("ctr2"),
                         host_veth: "it-cb2".to_string(),
+                        container: BR_CTR_B.to_string(),
+                        interface: "eth1".to_string(),
                     },
                 ],
             };

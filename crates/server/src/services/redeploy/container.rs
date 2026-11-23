@@ -35,9 +35,9 @@ use shared::util;
 /// A container's data interfaces, and the lab's links they were planned from.
 struct DataInterfaces {
     lab_links: LabLinks,
-    /// Its Docker data networks, for a container on no link and no private bridge.
+    /// Docker data networks, for a container on no link and no bridge.
     networks: Vec<data::ContainerNetworkAttachment>,
-    /// Its veths, for a container on a P2p link or a private bridge.
+    /// Veths, for a container on a P2p link or a private bridge.
     veths: Vec<ContainerVeth>,
 }
 
@@ -158,8 +158,7 @@ pub(super) async fn redeploy_container(
     Ok(link_reports)
 }
 
-/// Make the redeployed container's veths in its namespace, then attach its links, and report
-/// what each link was left in. A container on no link and no private bridge has none.
+/// Make the redeployed container's veths, attach its links, and report each link's state.
 async fn attach_links(
     redeploy: &Redeploy<'_>,
     lab_links: &LabLinks,
@@ -202,9 +201,7 @@ async fn attach_links(
     reports
 }
 
-/// The data interfaces of a container: Docker networks, made now, for one on no link and no
-/// private bridge, or, for one on a P2p link or a private bridge, a veth for every data
-/// interface, made once it has started; Docker then only handles its management network.
+/// Plan a container's data interfaces: Docker networks, or veths when it is on a link or bridge.
 async fn plan_data_interfaces(redeploy: &Redeploy<'_>) -> Result<DataInterfaces> {
     let db = &redeploy.state.db;
     let lab_links = LabLinks::load(db, &redeploy.lab_id, &redeploy.lab_record_id).await?;
@@ -274,8 +271,7 @@ fn configure_container(
     )
 }
 
-/// Create the Docker macvlan network of each data interface of a container on no link and no
-/// private bridge, on the node's isolated bridge, disabled.
+/// Create the disabled Docker macvlan networks of a container on no link and no bridge.
 #[instrument(skip_all, fields(lab_id = %redeploy.lab_id, node_name = %redeploy.node_name), level = "debug")]
 async fn create_data_networks(
     redeploy: &Redeploy<'_>,

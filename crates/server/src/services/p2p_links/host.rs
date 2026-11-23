@@ -28,10 +28,7 @@ pub(crate) enum EndDevice {
     Tap { domain: String, tap: String },
 }
 
-/// The host operations that re-attach a link: look up an end and whether it has its redirect,
-/// point its redirect at its peer, set its impairment, make a container's veths, and read and
-/// set an end's carrier. Also those that keep transmit checksum offload off on a container's
-/// veths.
+/// The host operations that re-attach links, make container veths and set carrier.
 pub(crate) trait LinkHost {
     /// The index of interface `iface`, or `None` when it does not exist.
     async fn ifindex(&self, iface: &str) -> Result<Option<u32>>;
@@ -51,8 +48,10 @@ pub(crate) trait LinkHost {
     /// The PID of container `container`, whose network namespace its veths go in.
     async fn container_pid(&self, container: &str) -> Result<u32>;
 
-    /// Make `veth` in the network namespace of process `pid`, and join its host end to its
-    /// bridge, if it has one.
+    /// Whether container `container` has interface `iface` in its network namespace.
+    async fn container_has_interface(&self, container: &str, iface: &str) -> Result<bool>;
+
+    /// Make `veth` in process `pid`'s network namespace and join its host end to its bridge.
     async fn create_veth(&self, veth: &ContainerVeth, pid: u32) -> Result<()>;
 
     /// Whether end `end` has carrier, or `None` when it does not exist: a veth that is not
@@ -72,8 +71,7 @@ pub(crate) trait LinkHost {
     fn disable_tx_checksum_offload(&self, ifindex: u32) -> Result<()>;
 }
 
-/// Make `veth` in the network namespace of process `pid`, with transmit checksum offload off on
-/// its host end for a model whose container needs finished checksums.
+/// Make `veth` in process `pid`'s namespace, with offload off when its model needs it.
 #[instrument(skip(host, veth), fields(host_veth = %veth.host_veth), level = "debug")]
 pub(crate) async fn make_veth(host: &impl LinkHost, veth: &ContainerVeth, pid: u32) -> Result<()> {
     host.create_veth(veth, pid).await?;
@@ -128,6 +126,12 @@ impl LinkHost for KernelHost<'_> {
 
     async fn container_pid(&self, container: &str) -> Result<u32> {
         container::get_container_pid(self.docker, container).await
+    }
+
+    #[instrument(skip(self), level = "debug")]
+    async fn container_has_interface(&self, container: &str, iface: &str) -> Result<bool> {
+        let pid = container::get_container_pid(self.docker, container).await?;
+        network::container_has_interface(pid, iface).await
     }
 
     #[instrument(skip(self, veth), fields(host_veth = %veth.host_veth, pid), level = "debug")]

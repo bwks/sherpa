@@ -30,8 +30,7 @@ pub(crate) struct PlannedNode<'a> {
 /// libvirt makes a VM's or a unikernel's taps when it boots the domain. A container started
 /// from exited, or restarted, has a new network namespace with none of its veths, so each of
 /// its data interfaces is planned again, as redeploy does, with the interface count of the lab's
-/// stored definition (`definition`), or the image's without one. A container on no link and no
-/// private bridge has Docker networks, which Docker connects again.
+/// stored definition (`definition`), or the image's without one.
 pub(crate) fn recreated_end(
     node: &PlannedNode<'_>,
     definition: Option<&Manifest>,
@@ -61,8 +60,7 @@ pub(crate) fn recreated_end(
     }
 }
 
-/// The container's veths, planned from its links and bridge interfaces in the database and its
-/// data interface count.
+/// The container's veths, planned from its links, bridge interfaces and data interface count.
 fn container_end(
     node: &PlannedNode<'_>,
     definition: Option<&Manifest>,

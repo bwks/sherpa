@@ -1,5 +1,4 @@
-//! Point-to-point links, the veths of the containers on a link or a private bridge, and
-//! attaching the links' eBPF redirects.
+//! Point-to-point links, container veths, and attaching the links' eBPF redirects.
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -13,8 +12,7 @@ use crate::services::p2p_links::{ContainerVeth, KernelHost, LinkHost, LinkWiring
 use shared::data;
 use shared::data::{LinkImpairment, RecordId, StatusKind};
 
-/// A data interface of the container `node_name`, on a link or a private bridge, made once the
-/// container has started.
+/// A data interface of container `node_name`, made once the container has started.
 pub(super) struct P2pContainerVeth {
     pub(super) node_name: String,
     pub(super) veth: ContainerVeth,
@@ -216,15 +214,11 @@ pub(super) fn find_bridge_interface(
 pub(super) struct LinkRecords {
     pub(super) lab_link_data: Vec<data::LabLinkData>,
     pub(super) p2p_container_veths: Vec<P2pContainerVeth>,
-    /// Containers on a P2p link or a private bridge. They take every data interface as a veth
-    /// in their network namespace, so they get no Docker data networks.
+    /// Containers on a P2p link or a private bridge, which take veths and no Docker networks.
     pub(super) veth_container_names: HashSet<String>,
 }
 
-/// Record every P2p link with the manifest's impairment, and plan the link ends and disabled
-/// interfaces of the containers that take veths: those on a link or a private bridge. Bridge
-/// member veths are planned with the bridges. Creates no interfaces: libvirt makes VM taps, and
-/// container veths are made once the containers start.
+/// Record every P2p link, and plan the link end and disabled interface veths of containers.
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn create_links(
     build: &LabBuild<'_>,
@@ -320,8 +314,7 @@ pub(super) async fn create_links(
     })
 }
 
-/// The containers that take every data interface as a veth: each with an end of a P2p link or
-/// a member of a private bridge.
+/// The containers that take every data interface as a veth: those on a link or bridge.
 fn veth_container_names(
     links_detailed: &[topology::LinkDetailed],
     bridges_detailed: &[topology::BridgeDetailed],
@@ -430,10 +423,7 @@ async fn record_link(
     })
 }
 
-/// A veth for each disabled interface of the containers on a P2p link or a private bridge.
-/// Those containers take every data interface as a veth in their netns, not a Docker network,
-/// so Docker and the container's init cannot both name `ethN`. A disabled interface's veth
-/// stays down, with no eBPF.
+/// A veth, kept down, for each disabled interface of the containers on a link or bridge.
 fn disabled_container_veths(
     lab_id: &str,
     node_setup_data: &[data::NodeSetupData],

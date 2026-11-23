@@ -571,9 +571,7 @@ impl LabUp<'_> {
         })
     }
 
-    /// Record the point-to-point links (phase 5), create Docker networks for the disabled
-    /// interfaces of containers on no link and no bridge (phase 6), and create the shared
-    /// bridges (phase 7).
+    /// Record the links (phase 5), make isolated container networks (6) and the bridges (7).
     async fn link_nodes(&mut self, records: &NodeRecords) -> Result<LinkRecords> {
         self.start_phase(
             data::UpPhase::LinkCreation,

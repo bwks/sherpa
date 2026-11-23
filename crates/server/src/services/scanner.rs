@@ -190,10 +190,7 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
     Ok(())
 }
 
-/// Check the lab's P2p links and its containers' private bridge members in the kernel, repair
-/// the ends of running nodes that were made again outside Sherpa (see `p2p_links::repair`),
-/// make each link's carrier follow its state
-/// (see `p2p_links::carrier`), and keep each link's state for `inspect`.
+/// Repair the lab's P2p links and private bridge members, set carrier, and keep link states.
 ///
 /// Called under the scanner's hold on the lab, so it never runs beside an operation that makes
 /// ends itself. Only nodes the runtime reports running, and that no operation is building, are
@@ -305,7 +302,7 @@ async fn repair_links(
     Ok(())
 }
 
-/// The host ends of the private bridge member veths of the lab's containers whose model is known.
+/// The private bridge member host ends of the lab's containers.
 fn container_bridge_ends(
     lab_id: &str,
     scanned: &[ScannedNode<'_>],

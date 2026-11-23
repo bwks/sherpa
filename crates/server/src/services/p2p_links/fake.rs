@@ -43,6 +43,7 @@ pub(crate) struct FakeHost {
     /// Interfaces whose carrier cannot be read or set.
     pub(crate) failing_carrier: HashSet<String>,
     pub(crate) bridge_ports: RefCell<HashMap<String, String>>,
+    pub(crate) container_interfaces: HashSet<(String, String)>,
 }
 
 impl FakeHost {
@@ -259,6 +260,18 @@ impl LinkHost for FakeHost {
 
     fn container_pid(&self, container: &str) -> impl Future<Output = Result<u32>> {
         ready(self.pid_of(container))
+    }
+
+    fn container_has_interface(
+        &self,
+        container: &str,
+        iface: &str,
+    ) -> impl Future<Output = Result<bool>> {
+        let key = (container.to_string(), iface.to_string());
+        ready(
+            self.pid_of(container)
+                .map(|_| self.container_interfaces.contains(&key)),
+        )
     }
 
     fn create_veth(&self, veth: &ContainerVeth, _pid: u32) -> impl Future<Output = Result<()>> {

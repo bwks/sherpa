@@ -1,6 +1,4 @@
-//! Docker network attachments for the data interfaces of a container on no link and no private
-//! bridge: each is disabled, on the node's isolated network. A container on a link or a bridge
-//! takes its data interfaces as veths instead.
+//! Docker networks for the disabled data interfaces of a container on no link and no bridge.
 //!
 //! Docker names a container's interfaces in the order networks are attached, unless an
 //! attachment names its interface. Every data interface must therefore get an attachment, in
@@ -16,8 +14,7 @@ pub(crate) fn isolated_network_name(node_name: &str, interface_idx: u8, lab_id: 
     format!("{node_name}-iso{interface_idx}-{lab_id}")
 }
 
-/// Whether the Docker network `network` is one of `node_name`'s data networks in the lab
-/// `lab_id`: `<node>-iso<n>-<lab_id>`.
+/// Whether Docker network `network` is a data network of `node_name` in lab `lab_id`.
 ///
 /// The whole name is checked, so redeploying node `r1` never takes the networks of a node
 /// named `r1-x`.
@@ -35,7 +32,7 @@ pub(crate) fn is_node_network(network: &str, node_name: &str, lab_id: &str) -> b
         .is_some_and(|index| !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()))
 }
 
-/// The Docker attachment for one disabled container data interface: named, so it stays down.
+/// The Docker attachment for one disabled container data interface.
 pub(crate) fn data_attachment(
     node_name: &str,
     model_kind: data::ModelKind,
@@ -61,8 +58,7 @@ pub(crate) fn data_attachment(
     })
 }
 
-/// The Docker attachments for the data interfaces of a container on no link and no private
-/// bridge, in interface order.
+/// The Docker attachments for a container's disabled data interfaces, in interface order.
 pub(crate) fn data_attachments(
     node_name: &str,
     model_kind: data::ModelKind,

@@ -267,8 +267,7 @@ pub(super) fn lab_id_taken(
     ServiceError::Conflict(message).into()
 }
 
-/// Create a Docker macvlan network, on the node's isolated bridge, for each disabled interface of
-/// a container on no P2p link and no private bridge.
+/// Create the Docker networks of the disabled interfaces of containers on no link or bridge.
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn create_isolated_container_networks(
     build: &LabBuild<'_>,
@@ -332,8 +331,7 @@ pub(super) async fn create_isolated_container_networks(
     Ok(())
 }
 
-/// Create each `[[bridges]]` private bridge and record it. A container member joins through a
-/// veth, added to `p2p_container_veths`, and VMs join through libvirt.
+/// Create each `[[bridges]]` private bridge and record it.
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn create_shared_bridges(
     build: &LabBuild<'_>,
@@ -406,8 +404,7 @@ pub(super) async fn create_shared_bridges(
     Ok(())
 }
 
-/// The bridge's members, for its record. A container member joins through a veth whose host end
-/// joins the bridge, added to `p2p_container_veths`; VMs join through libvirt.
+/// The bridge's members, for its record; container members' veths go to `p2p_container_veths`.
 fn join_bridge_members(
     lab_id: &str,
     bridge: &topology::BridgeDetailed,
@@ -472,9 +469,7 @@ pub(super) async fn set_isolated_bridges_down(
     Ok(())
 }
 
-/// Each container's Docker data network attachments, in interface order, admin down. Containers
-/// on a P2p link or a private bridge get none; their data interfaces are veths in their network
-/// namespace.
+/// Each container's Docker data network attachments, in interface order, admin down.
 pub(super) fn container_data_attachments(
     lab_id: &str,
     node_setup_data: &[data::NodeSetupData],
