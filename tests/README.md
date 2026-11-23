@@ -468,7 +468,7 @@ uv run tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: single
 
 See [labs/README.md](labs/README.md) for the rules and each lab's README for what it checks.
 
-The SSH access, owner login, container ZTP, manifest commands, console and P2p containers lab tests are pytest modules (see
+The SSH access, owner login, container ZTP, manifest commands, console, P2p containers and private bridge lab tests are pytest modules (see
 `tests/specs/README.md`): their script headers pin pytest, so `uv run` runs pytest on them and
 passes on pytest arguments such as `-k` and `--keep-failed`;
 `uvx --python 3.15 pytest==9.2.0 tests/labs/ssh-access/ssh_access_lab_test.py` runs one directly.
