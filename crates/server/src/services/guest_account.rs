@@ -37,8 +37,6 @@ const ANY_DEVICE_KEY: &[KeyType] = &[KeyType::Ed25519, KeyType::Ecdsa, KeyType::
 const RSA_KEY: &[KeyType] = &[KeyType::Rsa];
 const ECDSA_OR_RSA_KEY: &[KeyType] = &[KeyType::Ecdsa, KeyType::Rsa];
 const ED25519_OR_RSA_KEY: &[KeyType] = &[KeyType::Ed25519, KeyType::Rsa];
-/// The largest RSA key, in bits, a Cisco IOS or IOS XE login takes: IOL 17.18 accepts a 4096-bit
-/// key and drops the connection at the signature of an 8192-bit one.
 const IOS_MAX_RSA_BITS: u32 = 4096;
 
 /// The lab owner's login on lab nodes. Its `Debug` shows nothing of the device password.
@@ -75,13 +73,12 @@ enum AcceptedKeys {
     Only(&'static [KeyType]),
 }
 
-/// The owner keys a model takes: their types, how many, and the largest RSA key.
+/// The owner keys a model takes.
 #[derive(Debug, Clone, Copy)]
 struct KeyRules {
     accepted: AcceptedKeys,
     /// The most keys one login can have; the owner's first accepted keys are used.
     max_keys: usize,
-    /// The largest RSA key, in bits, a login takes, or `None` for any size.
     max_rsa_bits: Option<u32>,
 }
 
@@ -148,7 +145,6 @@ pub(crate) fn provisions_owner(node: &topology::NodeExpanded, image: &NodeConfig
 /// The owner keys a model takes, from each vendor's documentation of user public keys.
 fn key_rules(model: NodeModel) -> KeyRules {
     let (accepted, max_keys, max_rsa_bits) = match model {
-        // IOS `key-hash` and IOS XE take RSA only, two keys per user, of up to 4096 bits.
         NodeModel::CiscoIos
         | NodeModel::CiscoIosl2
         | NodeModel::CiscoIol
@@ -221,14 +217,12 @@ fn key_type_name(key_type: KeyType) -> &'static str {
 }
 
 /// The owner's account as `image`'s model takes it: the login, and only the keys the model
-/// accepts, of a size it takes, up to the number it takes. On Cisco ISE it is the single administrator, with the
+/// accepts, up to the number it takes. On Cisco ISE it is the single administrator, with the
 /// owner's first RSA key.
 ///
 /// # Errors
 ///
 /// - If the model cannot take the owner's name as a login (`validate_login_name`)
-/// - If none of the owner's keys is a type and size the model accepts. The error names the
-///   accepted types, the largest RSA key and the command that makes one.
 /// - If a registered key cannot be parsed
 ///
 #[instrument(level = "debug", skip(account, image), fields(username = %account.username))]
@@ -698,9 +692,7 @@ pub(crate) mod tests {
             .clone()
     }
 
-    /// A 4096-bit RSA public key, the largest Cisco IOS takes.
     pub(crate) const RSA_4096_KEY: &str = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDeH4lTaqXAgMx8IUFOg6Ii8subrmy305gjK51ioFW6A/tZxDDhLv6Kyd2hOoPQ6As1iY8a5bP1msDM/GQqcsH8prsEAqXNSwzqlmBdzCBHhiEgbHYdFwcuGYWaZO8Avo2bnRDamv8o05c0C6rzHVRx84cSW7/VmRIcI0buqg07WWj2p11aGRyT85aM17mBI+4NK/YdtYqhqobPOnBbwH6ygq6MWv5ZYOsgPXnUkLNF9SNri7khUkJ0NFqF1QEzyPOW0ofeIX7QHFgt/GJONuUAzT0Zy3OBCXEioccnvMsQ2Lmeik7+i+kFMstKj4/930x7fEoNB8fqAEplrQ8TkKtJZo6hShb55+7BrFempbzMhQgJCyPJMr0+ZjmFUTmijFCUK0pi77qtA338OK/Huh7nelW1mcJGyFVHjuPa1ockn8uu6VffVaS/vm45Ig93nb5tPqRpUC1ksMrgvneMIMzvCqS5BDchJh8k+k/rwUs1I8LJPVYht3iMPM49jzVJ2O6EekHizoelV2UssnWL3wRsrJOsDvJsTe5SAxhVNe6wQ/RVj4mRz+E0hcwtOyjbyu39ZTPZoe6dr2Ev1pAeU0NCV/XIHE1WYmsgoBKkULwBvjt7mxdEwszl3lvzdvLZfq2bnV62wqxUaMe9KvK6kXq7+wRYj55Jlc7p0nAef2dyrQ==";
-    /// An 8192-bit RSA public key, larger than Cisco IOS takes.
     pub(crate) const RSA_8192_KEY: &str = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAEAQDjNkRsVBuv716famI7LpD3zWeEo7eeLMuRey4iM9+csql2GxhpKXpSOEsmI4rmUCIQjyVJi4G7Pj3//+A115lHuoyDw845NgcGajAr/OCJI7NwWHcamqplz+VtraIEcsJ9WvBOlhZ2oHaSTpOs/ZzRy+UG8j1yxXyOYy9d8KYno0DL/yc9qBikhgnDbw2iZM6GEv30ElGWnSlctQrAAd6cZqTRqQQDMe05IPzltyZdB8xsePHEtSq7abPJzhj+8NZoLnEAkNG7UUz+KaD1aIbMAUZWhYHPJOLo7B5zfYUUK120jSjJSeOSeR0WSXInvia2PnL4HtER/VatVC9/cFe168k+LuEztHHB170eI99TilJTlLL5tEo0o8APxKFmwikkWVxAkd1Aar0xHa60xYrCrzR7MmT1xK1uRo+hHNcK9tQl8FkCnhoWVB9D9FR9scbanz1YP3MhqKW9su09ruCEpLIkUojSrXkZS527CYu6xiuXx5ggfZo4v/v8bpZw/n0fiM+jstO6z5NswM8E530DAI2RwaZV+RjKsluIr7U46d/EX2y1VuPjSw5Flq4qHZqig8xxleb/rXShD6vgD+Vsfv0yeRyiyCFfZtYyT+3AdZ+Z6hragMTZN1sCC7pg6I3+mwj+PZ6G+A+VEg+5W6fRDsGxZQlKQ2VtUy7Wis6SZEnIpluoOSDeR1Yh5JIsv/qYVdX+eGWQIAyJErahpThiqiuT//yWhEHX4s/RjpD4fpZjYVhF0J53B+2Q9nwXQ0EEYFpKTbRlJKAXh8kYPMdpY17EzxbQYbDEGnhZgwN3f1I8/GjKMKBBE1V+QLZk9SRXGqH4cX3Co2/Z+NjviQDuExqJlgeYfrYkOXhwzoqDiuWqkHXeOv/ZZ9oTKDwZm638lG0fkDGAjk/twVCAh1Rt6jb6+Yz1rDjSgzYAxJc7o0nwehgefFNmFT1rGKIUlgrOpEiKCDnR8FsZMMWJrioPk/qTSO2iwTe/aYPLTC6D3Hw1XzKrCRM+h3Z2+ZXA8rooeSnWEjodwp+lENobF4gs9niu79v/mpRSU9xobJNkyb4N6wwmVG04Q4gcNQAGlzTBpekBfpOPeU+CdgNwTfTp6Nq6kARDvlOvVvBI/YF5fw2oEE56iZj959IWM9K2fTVbC8eC6hFs/WKFPpVLyH2syB/RYeWhvOAduKPjxzOMtnA8pqWR6JHqVW4eUxYw0j6ppOSpuPRRYajquSRTT4AfL0XUoUBOHrQmHUPiNUNAY/f5lO1gnU5QBxG2xWea2CWQk/c4P+tGdJYjc9V6iW4VMJzIrZiUuWz2btdmoFlMU6dMAAq67QLaKlAK6ClDdRARImkafjgwPC0uUexTdN5P";
 
     /// The account of the owner `username`, with `keys` and `DEVICE_PASSWORD`.
