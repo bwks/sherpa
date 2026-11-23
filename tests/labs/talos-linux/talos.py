@@ -64,9 +64,9 @@ POLL_INTERVAL = 10
 ECHO_REQUESTS = 60
 READYZ_ATTEMPTS = 3
 # Keycloak login (`oidc` on the cluster): the realm Sherpa makes, its admin group, and the user
-# the test adds outside that group.
+# the test adds outside that group. The `master` realm admin is the credentials file's `[admin]`
+# table, apart from the realm users.
 KEYCLOAK_REALM = "sherpa"
-KEYCLOAK_ADMIN = "sherpa"
 CLUSTER_ADMINS_GROUP = "cluster-admins"
 OIDC_CLAIM_PREFIX = "oidc:"
 OUTSIDER = "sherpa-e2e-outsider"
@@ -156,10 +156,9 @@ def vault_credentials_path(node):
 
 
 def realm_member(users):
-    """The lab owner from a Keycloak credentials file's users: the one that is not Sherpa's admin."""
-    owners = [user for user in users if user["username"] != KEYCLOAK_ADMIN]
-    require(owners, f"Keycloak credentials list no user besides {KEYCLOAK_ADMIN}")
-    return owners[0]
+    """The lab owner from a Keycloak credentials file's users: a new node's only realm user."""
+    require(len(users) == 1, f"Keycloak credentials list {len(users)} realm users, not the owner alone")
+    return users[0]
 
 
 def password_grant_kubeconfig(kubeconfig, cluster, username, password):
@@ -514,7 +513,7 @@ class Lab:
         self.util(f"kubeconfig for {username}", f"umask 077 && cat > oidc-{username}.kubeconfig",
                   stdin=json.dumps(document))
 
-    def add_outsider(self, keycloak, admin_password):
+    def add_outsider(self, keycloak, admin):
         """Add a realm user in no group through Keycloak's admin API, from the util node, and return
         its password."""
         password = secrets.token_urlsafe(18)
@@ -527,10 +526,10 @@ class Lab:
             "curl -sS -o /dev/null -w '%{{http_code}}' -X POST {users_url} "
             "-H \"Authorization: Bearer $token\" -H 'Content-Type: application/json' -d \"$user\""
         ).format(token_url=shlex.quote(f"{keycloak}/realms/master/protocol/openid-connect/token"),
-                 admin=shlex.quote(KEYCLOAK_ADMIN),
+                 admin=shlex.quote(admin["username"]),
                  users_url=shlex.quote(f"{keycloak}/admin/realms/{KEYCLOAK_REALM}/users"))
         created = self.util("keycloak: add a user outside cluster-admins", script,
-                            stdin=f"{admin_password}\n{json.dumps(outsider_user(password))}")
+                            stdin=f"{admin['password']}\n{json.dumps(outsider_user(password))}")
         require(created.stdout.strip() == "201", f"Keycloak user create answered {created.stdout.strip()!r}")
         return password
 

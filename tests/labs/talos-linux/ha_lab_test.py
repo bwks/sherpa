@@ -35,7 +35,6 @@ from talos import (
     FIRST_VIP_HOST_OFFSET,
     GATEWAY_HOST_OFFSET,
     HUBBLE_UI_HOST_OFFSET,
-    KEYCLOAK_ADMIN,
     OIDC_CLAIM_PREFIX,
     OUTSIDER,
     POLL_INTERVAL,
@@ -124,9 +123,9 @@ def oidc_logins(lab):
     """The util node given a kubeconfig that logs in through Keycloak for the lab's owner, a realm
     user in cluster-admins, and for a user the fixture adds in no group. Returns the owner's name."""
     credentials = tomllib.loads((lab.directory / keycloak_credentials_path(lab.oidc_node)).read_text())
-    passwords = {user["username"]: user["password"] for user in credentials["users"]}
+    require("admin" in credentials, "Keycloak credentials have no [admin], the master realm admin")
     member = realm_member(credentials["users"])
-    outsider_password = lab.add_outsider(credentials["address"], passwords[KEYCLOAK_ADMIN])
+    outsider_password = lab.add_outsider(credentials["address"], credentials["admin"])
     lab.write_oidc_kubeconfig(member["username"], member["password"])
     lab.write_oidc_kubeconfig(OUTSIDER, outsider_password)
     return member["username"]

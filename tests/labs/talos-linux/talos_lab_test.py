@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from unittest import mock
 
@@ -28,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from labkit import Outcome, TestFailure, stop_on_sigterm
-from talos import LAB_NAMES, LABS, Lab, new_run_root, node_conditions, owner_only
+from talos import LAB_NAMES, LABS, Lab, new_run_root, node_conditions, owner_only, realm_member
 
 
 MODULES = {lab: LABS / f"{lab}_lab_test.py" for lab in LAB_NAMES}
@@ -133,6 +134,18 @@ class SelfTest(unittest.TestCase):
                   mock.patch("shutil.which", return_value="/usr/bin/true"),
                   self.assertRaises(TestFailure)):
                 lab.destroy()
+
+    def test_the_keycloak_owner_is_the_only_realm_user_and_the_admin_is_apart(self):
+        # The layout the client writes (crates/client/src/keycloak_credentials.rs): the master
+        # realm admin is its own table, not one of the realm users.
+        credentials = tomllib.loads(
+            'address = "https://172.31.1.23:8443"\nrealm = "sherpa"\n'
+            '[admin]\nusername = "admin"\npassword = "kc-admin-pw"\n'
+            '[[users]]\nusername = "alice"\npassword = "s3cret"\n')
+        self.assertEqual(realm_member(credentials["users"])["username"], "alice")
+        self.assertEqual(credentials["admin"]["username"], "admin")
+        with self.assertRaises(TestFailure):
+            realm_member([])
 
     def test_node_conditions(self):
         nodes = node_conditions({"items": [
