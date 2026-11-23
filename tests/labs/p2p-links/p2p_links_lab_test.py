@@ -1,16 +1,26 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.15"
-# dependencies = []
+# dependencies = ["pytest==9.2.0"]
 # ///
-"""End-to-end test of P2p links on every pair of node kinds through the sherpa CLI (Python 3.15+, stdlib only).
+"""End-to-end test of P2p links on every pair of node kinds through the sherpa CLI (Python 3.15+, pytest).
 
-Checks the #391 requirements for eBPF links on VM ⟷ VM, VM ⟷ container and container ⟷ container
-links: L2 transparency (raw LLDP, STP, pause, LACP, 802.1X, CDP, VLAN, QinQ and jumbo frames,
-plus LLDP neighbours and two-link LACP bundles between Linux bonds and cEOS), host packet capture, per-direction impairment
-through `sherpa link impair`, MTU 9600, and connectivity after `up`, redeploys, a guest reboot,
-`down`/`resume` and, optionally, a `sherpad` restart. Always destroys the lab and checks nothing
-is left. Runs on the Sherpa server; see README.md.
+Checks the P2p link cases of tests/specs/links-and-bridges.md on VM ⟷ VM, VM ⟷ container and
+container ⟷ container links: L2 transparency (raw LLDP, STP, pause, LACP, 802.1X, CDP, VLAN and
+QinQ frames, plus LLDP neighbours and two-link LACP bundles between Linux bonds and cEOS), MTU
+9600 and jumbo frames, host packet capture, per-direction impairment through `sherpa link
+impair`, links after redeploys, `down`/`resume`, a guest reboot and, optionally, a `sherpad`
+restart, and destroy leaving nothing of the lab on the host. Runs on the Sherpa server; see
+README.md.
+
+A pytest module: the `prepared` fixture checks the server and writes the lab's manifest, the
+`lab` fixture brings the lab up once for the module and destroys it at the end, and the `ready`
+fixture configures cEOS and addresses the Linux endpoints. Each lifecycle step (a redeploy,
+down and resume, a guest reboot, a sherpad restart) is a fixture that does the step and records
+what the links look like straight after it, without asserting anything; the cases assert on
+those records. The cases are the `test_<case_id>_*` functions, in case order; the last destroys
+the lab. Run as a script, it runs pytest on itself; `--self-test` runs the runner's own unit
+tests instead.
 """
 
 import argparse
@@ -31,6 +41,22 @@ import unittest
 from unittest import mock
 import uuid
 
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from labkit import (
+    COMMAND_TIMEOUT,
+    Outcome,
+    TestFailure,
+    mask,
+    require,
+    require_device_password,
+    run_logged,
+    stop_on_sigterm,
+    value_toml,
+)
+
 
 LAB = Path(__file__).resolve().parent
 ROOT = LAB.parent.parent.parent
@@ -45,9 +71,11 @@ SIDECAR_IMAGE = "nicolaka/netshoot:v0.14"
 VMS = ("u1", "u2", "b1", "b2")
 CONTAINERS = ("c1", "c2")
 ARISTA = ("ceos1", "ceos2")
-# Frame kinds l2frames.py sends; every one must arrive, from each end.
-FRAME_KINDS = ("lldp", "stp", "pause", "lacp", "eapol", "garp", "cdp", "vlan10", "qinq100.10",
-               "jumbo9000")
+# Frame kinds l2frames.py sends; every one must arrive, from each end. The jumbo frame is
+# p2p_link_003's, the others p2p_link_001's.
+JUMBO_KIND = "jumbo9000"
+L2_KINDS = ("lldp", "stp", "pause", "lacp", "eapol", "garp", "cdp", "vlan10", "qinq100.10")
+FRAME_KINDS = (*L2_KINDS, JUMBO_KIND)
 FRAME_TAGS = {"vlan10": "0x8100/10", "qinq100.10": "0x88a8/100"}
 JUMBO_LENGTH = 9014
 JUMBO_MTU = 9600
@@ -56,7 +84,6 @@ GUEST_MAC_PREFIX = "52"
 # The manifest's impairment on link 0, in milliseconds each way.
 MANIFEST_DELAY = 5
 
-COMMAND_TIMEOUT = 180
 UP_TIMEOUT = 1800
 READY_TIMEOUT = 900
 POLL_INTERVAL = 10
@@ -72,6 +99,15 @@ LLDP_SECONDS = 12
 ARISTA_LLDP_TIMER = 5
 # LACP port state bits a bundled port has: synchronised, collecting and distributing.
 LACP_BUNDLED = 0x38
+# What a destroyed lab must not leave on the host, and how to list it. A leftover is a line that
+# holds the lab's ID.
+HOST_LISTINGS = (
+    ("Docker containers", ["docker", "ps", "--all", "--format", "{{.Names}}"]),
+    ("Docker networks", ["docker", "network", "ls", "--format", "{{.Name}}"]),
+    ("host interfaces", ["ip", "-brief", "link"]),
+    ("libvirt domains", ["virsh", "-c", "qemu:///system", "list", "--all", "--name"]),
+    ("libvirt networks", ["virsh", "-c", "qemu:///system", "net-list", "--all", "--name"]),
+)
 
 
 class LinuxLink(NamedTuple):
@@ -106,6 +142,28 @@ class Bundle(NamedTuple):
     b_ports: tuple
 
 
+class LinkFrames(NamedTuple):
+    """What one frame exchange on a Linux link saw: the frames each end received from the other,
+    the marks a capture on the src host end saw, and anything that failed on the way."""
+
+    forward: dict
+    back: dict
+    marks: set
+    errors: list
+
+
+class Step(NamedTuple):
+    """What the links look like straight after a lifecycle step, recorded by the step's fixture
+    for the cases to assert on. Each field is a list of problems; empty is as expected."""
+
+    pings: list
+    jumbo: list
+    impairment: list = []
+    mtus: list = []
+    frames: dict = {}
+    bundles: list = []
+
+
 LINUX_LINKS = (
     LinuxLink("vm-vm", 0, "u1", "eth1", "u2", "eth1", "10.47.0"),
     LinuxLink("vm-container", 1, "u1", "eth2", "c1", "eth1", "10.47.1"),
@@ -117,74 +175,17 @@ BUNDLES = (
     Bundle("container-container", 3, "ceos1", ("Ethernet3", "Ethernet4"), "ceos2",
            ("Ethernet1", "Ethernet2")),
 )
-# Redeployed in this order: u1 is the VM end of the VM ⟷ VM and VM ⟷ container links, c1 the
-# container end of the VM ⟷ container and container ⟷ container links.
-REDEPLOYED = ("u1", "c1")
+# u1 is the VM end of the VM ⟷ VM and VM ⟷ container links, c1 the container end of the
+# VM ⟷ container and container ⟷ container links.
+REDEPLOYED_VM = "u1"
+REDEPLOYED_CONTAINER = "c1"
 REBOOTED = "u2"
 
 
-class TestFailure(Exception):
-    """A check failed; the message says which and why."""
-
-
-class Outcome(NamedTuple):
-    """A finished command. Parse `stdout`; search `output` for messages, which may be on either stream."""
-
-    code: int | None
-    stdout: str
-    stderr: str
-
-    @property
-    def output(self):
-        return self.stdout + self.stderr
-
-
-def require(condition, message):
-    if not condition:
-        raise TestFailure(message)
-
-
-def run_logged(log, label, arguments, cwd, timeout=COMMAND_TIMEOUT, stdin=None):
-    """Run a command, record it and its output in the log, and return its Outcome."""
-    print(f"[{cwd.name}] {label}", flush=True)
-    try:
-        result = subprocess.run(arguments, cwd=cwd, capture_output=True, text=True, timeout=timeout,
-                                input=stdin)
-        outcome = Outcome(result.returncode, result.stdout, result.stderr)
-    except subprocess.TimeoutExpired as error:
-        partial = [part.decode(errors="replace") if isinstance(part, bytes) else part or ""
-                   for part in (error.stdout, error.stderr)]
-        outcome = Outcome(None, partial[0], f"{partial[1]}\ntimed out after {timeout}s")
-    except KeyboardInterrupt:
-        log.write(f"=== {label}: {shlex.join(arguments)}\n--- interrupted\n")
-        log.flush()
-        raise
-    log_outcome(log, label, arguments, outcome)
-    return outcome
-
-
 def log_outcome(log, label, arguments, outcome):
-    log.write(f"=== {label}: {shlex.join(arguments)}\n--- exit {outcome.code}\n"
-              f"--- stdout\n{outcome.stdout}\n--- stderr\n{outcome.stderr}\n")
+    log.write(mask(f"=== {label}: {shlex.join(arguments)}\n--- exit {outcome.code}\n"
+                   f"--- stdout\n{outcome.stdout}\n--- stderr\n{outcome.stderr}\n"))
     log.flush()
-
-
-def stop_on_sigterm(_signal, _frame):
-    raise KeyboardInterrupt("SIGTERM")
-
-
-def value_toml(value):
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, str):
-        return json.dumps(value)
-    if isinstance(value, list):
-        return "[" + ", ".join(value_toml(item) for item in value) + "]"
-    if isinstance(value, dict):
-        return "{ " + ", ".join(f"{key} = {value_toml(item)}" for key, item in value.items()) + " }"
-    raise TypeError(f"Unsupported TOML value: {value!r}")
 
 
 def render_manifest(manifest, name):
@@ -228,18 +229,43 @@ def received_frames(output):
     return frames
 
 
-def frame_problems(frames, sender):
-    """What is missing or wrong in the frames received from `sender`."""
+def frame_problems(frames, sender, kinds):
+    """What is missing or wrong among the `kinds` of frame received from `sender`."""
     problems = []
-    for kind in FRAME_KINDS:
+    for kind in kinds:
         if (sender, kind) not in frames:
             problems.append(f"{kind} missing")
             continue
         length, tag = frames[(sender, kind)]
         if kind in FRAME_TAGS and tag != FRAME_TAGS[kind]:
             problems.append(f"{kind} tag {tag}")
-        if kind == "jumbo9000" and length != JUMBO_LENGTH:
+        if kind == JUMBO_KIND and length != JUMBO_LENGTH:
             problems.append(f"{kind} length {length}")
+    return problems
+
+
+def exchange_problems(exchanges, kinds):
+    """What is missing or wrong among the `kinds` of frame each end of each Linux link received."""
+    problems = []
+    for link in LINUX_LINKS:
+        seen = exchanges[link.index]
+        problems += [f"{link.pair}: {error}" for error in seen.errors]
+        problems += [f"{link.pair} {link.src} -> {link.dst}: {problem}"
+                     for problem in frame_problems(seen.forward, link.src, kinds)]
+        problems += [f"{link.pair} {link.dst} -> {link.src}: {problem}"
+                     for problem in frame_problems(seen.back, link.dst, kinds)]
+    return problems
+
+
+def capture_problems(exchanges, lab_id):
+    """Every frame from either end that the capture on a Linux link's src host end did not see."""
+    problems = []
+    for link in LINUX_LINKS:
+        seen = exchanges[link.index]
+        problems += [f"{link.pair}: {error}" for error in seen.errors]
+        problems += [f"capture on {host_end(link.index, 'a', lab_id)}: {sender} {kind} missing"
+                     for sender in (link.src, link.dst) for kind in FRAME_KINDS
+                     if (sender, kind) not in seen.marks]
     return problems
 
 
@@ -324,11 +350,6 @@ def lldp_heard(output):
     return heard
 
 
-def manifest_interface(port):
-    """The manifest's name for a bundle port: `Ethernet3` on cEOS is `eth3`."""
-    return f"eth{port.removeprefix('Ethernet')}" if port.startswith("Ethernet") else port
-
-
 def bond_script(channel, members):
     """Shell that makes `bond<channel>` an 802.3ad bond of `members`, from scratch. A virtio
     member reports unknown speed and duplex, and the bond sends no LACPDU from a port that is
@@ -366,14 +387,28 @@ def node_bundles(node):
     return ports
 
 
-class LabRun:
-    def __init__(self, run_root, keep_failed, sherpad_restart):
+def leftovers(listing, lab_id):
+    """The first word of each line of a host listing that holds the lab's ID."""
+    return [line.split()[0] for line in listing.splitlines() if lab_id in line]
+
+
+def require_none(problems, stage):
+    require(not problems, f"{stage}: {'; '.join(problems)}")
+
+
+# -- the lab -------------------------------------------------------------------------------------
+
+
+class Lab:
+    """The lab every case uses: its manifest written by `prepare`, brought up once by `up` and
+    destroyed by `destroy`, by the last case or the `lab` fixture's teardown."""
+
+    def __init__(self, run_root):
         self.manifest = tomllib.loads((LAB / "manifest.toml").read_text())
         self.name = f"{self.manifest['name']}-{run_root.name[-6:]}"
         self.directory = run_root / "lab"
-        self.keep_failed = keep_failed
-        self.sherpad_restart = sherpad_restart
         self.started = False
+        self.destroyed = False
         self.lab_id = None
         self.log = None
         # Expected netem delay in ms on each Linux link, per direction; None is no netem.
@@ -385,7 +420,7 @@ class LabRun:
     # -- commands ----------------------------------------------------------------------------
 
     def command(self, label, arguments, timeout=COMMAND_TIMEOUT, check=True, stdin=None):
-        outcome = run_logged(self.log, label, arguments, self.directory, timeout, stdin)
+        outcome = run_logged(self.log, label, arguments, self.directory, timeout, stdin=stdin)
         if check and outcome.code != 0:
             raise TestFailure(f"{label} failed (exit {outcome.code}); see {self.log.name}")
         return outcome
@@ -393,8 +428,8 @@ class LabRun:
     def start(self, label, arguments):
         """Start a command in the background; `finish` waits for it and logs it."""
         print(f"[{self.directory.name}] {label} (background)", flush=True)
-        return subprocess.Popen(arguments, cwd=self.directory, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, text=True)
+        return subprocess.Popen(arguments, cwd=self.directory, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     def finish(self, label, arguments, process):
         try:
@@ -423,10 +458,6 @@ class LabRun:
                 "--cap-add", "NET_ADMIN", "--cap-add", "NET_RAW",
                 "-v", f"{FRAME_TOOL}:/l2frames.py:ro", SIDECAR_IMAGE, "sh", "-c", script]
 
-    def sidecar(self, label, node, script, check=True):
-        """Run a shell script as root in a throwaway container sharing the node's network namespace."""
-        return self.command(label, self.sidecar_arguments(node, script), check=check)
-
     def on_host(self, label, script, check=True):
         """Run a shell script in a throwaway container on the host's network namespace."""
         return self.command(label, ["docker", "run", "--rm", "--network", "host", SIDECAR_IMAGE,
@@ -447,29 +478,12 @@ class LabRun:
             return self.guest_interfaces[(node, manifest_interface)]
         return manifest_interface
 
-    # -- lab ---------------------------------------------------------------------------------
+    # -- lifecycle ---------------------------------------------------------------------------
 
-    def run(self):
+    def prepare(self):
         self.directory.mkdir(parents=True)
-        with (self.directory / "commands.log").open("w") as self.log:
-            (self.directory / "manifest.toml").write_text(render_manifest(self.manifest, self.name))
-            failure = None
-            try:
-                self.up()
-                self.checks()
-            except (TestFailure, OSError, KeyError, ValueError) as error:
-                failure = error
-            except BaseException:
-                # Interrupted: never leave the lab behind, then stop.
-                self.destroy()
-                raise
-            if failure and self.keep_failed:
-                print(f"keeping failed lab {self.name} ({self.lab_id}) in {self.directory}")
-            else:
-                cleanup = self.destroy()
-                failure = failure or cleanup
-        if failure:
-            raise TestFailure(str(failure))
+        self.log = (self.directory / "commands.log").open("w")
+        (self.directory / "manifest.toml").write_text(render_manifest(self.manifest, self.name))
 
     def up(self):
         self.started = True
@@ -484,43 +498,33 @@ class LabRun:
         require(outcome.code == 0, f"sherpa up failed (exit {outcome.code}); see {self.log.name}")
         require(self.lab_id is not None, "sherpa up wrote no .sherpa/lab-info.toml")
 
-    def checks(self):
-        for node in ARISTA:
-            self.configure_arista(node)
-        self.prepare_linux(VMS + CONTAINERS)
-        self.check_host_mtus()
-        self.check_connectivity("after up")
-        self.check_frames_and_capture("after up")
-        self.check_bundles("after up")
-        self.check_impairment("after up")
-        self.change_impairment()
+    def redeploy(self, node):
+        self.sherpa(f"sherpa redeploy {node}", ["redeploy", "--node", node], UP_TIMEOUT)
 
-        for node in REDEPLOYED:
-            self.sherpa(f"sherpa redeploy {node}", ["redeploy", "--node", node], UP_TIMEOUT)
-            self.prepare_linux((node,))
-            self.check_connectivity(f"after redeploying {node}", first=node)
-            self.check_impairment(f"after redeploying {node}")
+    def destroy(self):
+        """Destroy the lab and check `sherpa inspect` no longer finds it. Does nothing when the lab
+        was never started or is already destroyed."""
+        if not self.started or self.destroyed:
+            return
+        if self.lab_id is None:
+            # `sherpa up` failed early; destroy whatever it created, found by the manifest's lab name.
+            self.sherpa("sherpa destroy (after failed up)", ["destroy", "--yes"], UP_TIMEOUT, check=False)
+            self.destroyed = True
+            return
+        self.sherpa("sherpa destroy", ["destroy", "--yes"], UP_TIMEOUT)
+        self.destroyed = True
+        inspect = self.sherpa("lab gone", ["inspect"], check=False)
+        require(inspect.code != 0, f"lab {self.lab_id} still exists after destroy")
 
-        self.ssh(f"reboot {REBOOTED}", REBOOTED, "sudo systemctl reboot", check=False)
-        time.sleep(POLL_INTERVAL)
-        self.prepare_linux((REBOOTED,))
-        self.check_connectivity(f"after rebooting {REBOOTED}", first=REBOOTED)
-
-        self.sherpa("sherpa down", ["down"], UP_TIMEOUT)
-        self.sherpa("sherpa resume", ["resume"], UP_TIMEOUT)
-        self.prepare_linux(VMS)
-        self.check_host_mtus()
-        self.check_connectivity("after resume")
-        self.check_frames_and_capture("after resume")
-        self.check_bundles("after resume")
-        self.check_impairment("after resume")
-
-        if self.sherpad_restart:
-            self.command("restart sherpad", shlex.split(self.sherpad_restart))
-            time.sleep(POLL_INTERVAL)
-            self.check_connectivity("after a sherpad restart")
-            self.check_bundles("after a sherpad restart")
-            self.check_impairment("after a sherpad restart")
+    def host_leftovers(self):
+        """What of the lab is left on the host, by kind: containers, Docker networks, host
+        interfaces and libvirt domains and networks whose name holds the lab's ID."""
+        found = {}
+        for kind, arguments in HOST_LISTINGS:
+            left = leftovers(self.command(f"no leftover {kind}", arguments).stdout, self.lab_id)
+            if left:
+                found[kind] = left
+        return found
 
     # -- Linux endpoints ---------------------------------------------------------------------
 
@@ -576,11 +580,12 @@ class LabRun:
         return self.at(f"ping {node} -> {target}{' jumbo' if size else ''}", node,
                        f"ping -c 3 -i 0.2 -W 2 {jumbo}-I {name} {target}", check=False)
 
-    def check_connectivity(self, stage, first=None):
-        """Each Linux link passes traffic both ways, jumbo frames included. Pings from `first`
-        go first: a redeployed or rebooted node's peers learn its MAC from them."""
+    def ping_failures(self, first=None, links=LINUX_LINKS):
+        """The ends of the Linux links that get no reply from the other end, retrying while
+        neighbours learn new MAC addresses. Pings from `first` go first: a redeployed or rebooted
+        node's peers learn its MAC from them."""
         pending = []
-        for link in LINUX_LINKS:
+        for link in links:
             ends = [(link.src, link.src_interface, link.dst_address),
                     (link.dst, link.dst_interface, link.src_address)]
             if link.dst == first:
@@ -591,26 +596,35 @@ class LabRun:
             if not pending:
                 break
             time.sleep(POLL_INTERVAL * (round_number + 1) // 2)
-        require(not pending, f"{stage}, no reply on: "
-                f"{'; '.join(f'{node} -> {target}' for node, _, target in pending)}")
+        return [f"no reply on {node} -> {target}" for node, _, target in pending]
+
+    def jumbo_failures(self):
+        """The ends of the Linux links whose unfragmented 8972-byte pings get no reply."""
+        failures = []
         for link in LINUX_LINKS:
             for node, interface, target in ((link.src, link.src_interface, link.dst_address),
                                             (link.dst, link.dst_interface, link.src_address)):
-                outcome = self.ping(node, interface, target, size=JUMBO_PING_SIZE)
-                require(outcome.code == 0, f"{stage}, {link.pair}: {node} -> {target} drops "
-                        f"{JUMBO_PING_SIZE}-byte unfragmented pings")
+                if self.ping(node, interface, target, size=JUMBO_PING_SIZE).code != 0:
+                    failures.append(f"{link.pair}: {node} -> {target} drops {JUMBO_PING_SIZE}-byte "
+                                    f"unfragmented pings")
+        return failures
 
-    def check_host_mtus(self):
-        """Every host end of every link, tap or veth, is MTU 9600."""
+    def host_mtu_problems(self):
+        """Every host end of every link, tap or veth, that is missing or not MTU 9600."""
+        problems = []
         for index in range(len(self.manifest["links"])):
             for side in ("a", "b"):
                 name = host_end(index, side, self.lab_id)
                 path = Path("/sys/class/net") / name / "mtu"
-                require(path.exists(), f"host end {name} is missing")
+                if not path.exists():
+                    problems.append(f"host end {name} is missing")
+                    continue
                 mtu = int(path.read_text())
-                require(mtu == JUMBO_MTU, f"host end {name} is MTU {mtu}, not {JUMBO_MTU}")
+                if mtu != JUMBO_MTU:
+                    problems.append(f"host end {name} is MTU {mtu}, not {JUMBO_MTU}")
+        return problems
 
-    def frame_exchange(self, link, sender, sender_interface, receiver, receiver_interface):
+    def frame_exchange(self, link, sender, sender_interface, receiver, receiver_interface, errors):
         """Send the frame set from `sender` and return what `receiver` got."""
         receive_arguments = self.endpoint_arguments(
             receiver, f"python3 {self.frame_tool(receiver)} receive "
@@ -621,18 +635,21 @@ class LabRun:
         self.at(f"{link.pair}: {sender} sends frames", sender,
                 f"python3 {self.frame_tool(sender)} send {self.interface(sender, sender_interface)} {sender}")
         outcome = self.finish(label, receive_arguments, process)
-        require(outcome.code == 0, f"{label} failed (exit {outcome.code}); see {self.log.name}")
+        if outcome.code != 0:
+            errors.append(f"{receiver} receiving frames failed (exit {outcome.code}); see {self.log.name}")
         return received_frames(outcome.stdout)
 
     def frame_tool(self, node):
         return "/tmp/l2frames.py" if node in VMS else "/l2frames.py"
 
-    def check_frames_and_capture(self, stage):
-        """Every frame kind crosses each Linux link both ways, and a capture on the src host end
-        sees all of them from both ends."""
+    def exchange_frames(self, stage):
+        """{link index: LinkFrames}: the frame set sent each way on each Linux link, with a
+        capture on the src host end."""
+        exchanges = {}
         for link in LINUX_LINKS:
             device = host_end(link.index, "a", self.lab_id)
             capture = f"cap-{link.index}-{self.lab_id}"
+            errors = []
             self.command(f"{link.pair}: capture on {device}",
                          ["docker", "run", "-d", "--name", capture, "--network", "host", "--cap-add",
                           "NET_RAW", SIDECAR_IMAGE, "timeout", str(CAPTURE_LIMIT_SECONDS), "tcpdump", "-U",
@@ -640,9 +657,9 @@ class LabRun:
             try:
                 time.sleep(SENDER_START_DELAY)
                 forward = self.frame_exchange(link, link.src, link.src_interface, link.dst,
-                                              link.dst_interface)
+                                              link.dst_interface, errors)
                 back = self.frame_exchange(link, link.dst, link.dst_interface, link.src,
-                                           link.src_interface)
+                                           link.src_interface, errors)
                 # Stopped, not timed: slow sidecar starts must not end it before both directions.
                 self.command(f"{link.pair}: capture ends", ["docker", "stop", "--timeout", "10", capture])
                 pcap = self.directory / f"{stage.replace(' ', '-')}-link{link.index}.pcap"
@@ -650,13 +667,8 @@ class LabRun:
                                                              str(pcap)])
             finally:
                 self.command(f"{link.pair}: remove capture", ["docker", "rm", "-f", capture], check=False)
-            problems = [f"{link.src} -> {link.dst}: {problem}" for problem in frame_problems(forward, link.src)]
-            problems += [f"{link.dst} -> {link.src}: {problem}" for problem in frame_problems(back, link.dst)]
-            marks = pcap_marks(pcap.read_bytes())
-            problems += [f"capture on {device}: {sender} {kind} missing"
-                         for sender in (link.src, link.dst) for kind in FRAME_KINDS
-                         if (sender, kind) not in marks]
-            require(not problems, f"{stage}, {link.pair}: {'; '.join(problems)}")
+            exchanges[link.index] = LinkFrames(forward, back, pcap_marks(pcap.read_bytes()), errors)
+        return exchanges
 
     # -- impairment --------------------------------------------------------------------------
 
@@ -664,56 +676,31 @@ class LabRun:
         self.sherpa(f"impair {link.pair} {' '.join(arguments)}",
                     ["link", "impair", f"{link.src}::{link.src_interface}", *arguments])
 
-    def check_impairment(self, stage):
-        """Each host end has the netem delay of the direction leaving through it, and the RTT
-        across each Linux link is the sum of both directions."""
-        for link in LINUX_LINKS:
+    def qdisc(self, link, side):
+        device = host_end(link.index, side, self.lab_id)
+        return self.on_host(f"qdisc on {device}", f"tc qdisc show dev {device} root").stdout
+
+    def impairment_problems(self, links=LINUX_LINKS):
+        """Where a link's host ends do not have the netem delay of the direction leaving through
+        them, or the round-trip time across it is not the sum of both directions."""
+        problems = []
+        for link in links:
             expected = self.delays[link.index]
             # Traffic from src to dst leaves the host through the dst end, tpb.
             for side, direction in (("b", "src_to_dst"), ("a", "dst_to_src")):
-                device = host_end(link.index, side, self.lab_id)
-                outcome = self.on_host(f"qdisc on {device}", f"tc qdisc show dev {device} root")
-                delay = netem_delay(outcome.stdout)
-                require(delay == expected[direction],
-                        f"{stage}, {link.pair} {direction}: netem delay on {device} is {delay}, "
-                        f"expected {expected[direction]}")
-            self.check_rtt(stage, link)
+                delay = netem_delay(self.qdisc(link, side))
+                if delay != expected[direction]:
+                    problems.append(f"{link.pair} {direction}: netem delay on "
+                                    f"{host_end(link.index, side, self.lab_id)} is {delay}, "
+                                    f"expected {expected[direction]}")
+            total = sum(delay or 0 for delay in expected.values())
+            rtt = average_rtt(self.ping(link.src, link.src_interface, link.dst_address).stdout)
+            if rtt is None or not total <= rtt <= total + RTT_SLACK_MS:
+                problems.append(f"{link.pair}: RTT {rtt} ms, expected {total}–{total + RTT_SLACK_MS} ms")
+        return problems
 
-    def check_rtt(self, stage, link):
-        expected = sum(delay or 0 for delay in self.delays[link.index].values())
-        outcome = self.ping(link.src, link.src_interface, link.dst_address)
-        rtt = average_rtt(outcome.stdout)
-        require(rtt is not None and expected <= rtt <= expected + RTT_SLACK_MS,
-                f"{stage}, {link.pair}: RTT {rtt} ms, expected {expected}–{expected + RTT_SLACK_MS} ms")
-
-    def change_impairment(self):
-        """Set each direction on its own, then both with reorder and corruption, on every Linux
-        link. Leaves each link in a different state for the lifecycle checks."""
-        for link in LINUX_LINKS:
-            self.impair(link, "--direction", "src-to-dst", "--delay", "20")
-            self.delays[link.index]["src_to_dst"] = 20
-            self.check_impairment(f"{link.pair} src-to-dst 20 ms")
-            self.impair(link, "--direction", "dst-to-src", "--delay", "10")
-            self.delays[link.index]["dst_to_src"] = 10
-            self.check_impairment(f"{link.pair} dst-to-src 10 ms")
-
-            self.impair(link, "--delay", "10", "--reorder", "25", "--corrupt", "5")
-            for side in ("a", "b"):
-                device = host_end(link.index, side, self.lab_id)
-                qdisc = self.on_host(f"qdisc on {device}", f"tc qdisc show dev {device} root").stdout
-                require("reorder 25%" in qdisc and "corrupt 5%" in qdisc,
-                        f"{link.pair}: {device} lacks reorder or corruption: {qdisc.strip()}")
-            self.impair(link, "--clear")
-            self.delays[link.index] = {"src_to_dst": None, "dst_to_src": None}
-            self.check_impairment(f"{link.pair} cleared")
-
-        # Left for the lifecycle checks: link 0 as the manifest had it, link 1 one direction
-        # only, link 2 clear.
-        self.impair(LINUX_LINKS[0], "--delay", str(MANIFEST_DELAY))
-        self.delays[0] = {"src_to_dst": MANIFEST_DELAY, "dst_to_src": MANIFEST_DELAY}
-        self.impair(LINUX_LINKS[1], "--direction", "dst-to-src", "--delay", "15")
-        self.delays[1] = {"src_to_dst": None, "dst_to_src": 15}
-        self.check_impairment("after setting impairment for the lifecycle checks")
+    def set_delays(self, link, src_to_dst, dst_to_src):
+        self.delays[link.index] = {"src_to_dst": src_to_dst, "dst_to_src": dst_to_src}
 
     # -- LACP bundles and LLDP --------------------------------------------------------------
 
@@ -781,59 +768,15 @@ class LabRun:
                     problems.append(f"{node} bundle {bundle.channel}: bundled {sorted(bundled)}")
         return problems
 
-    def check_bundles(self, stage):
-        """Each bundle's ends see each other over LLDP and bundle both links, waiting for LACP."""
+    def settled_bundle_problems(self):
+        """What is still wrong with the bundles once LLDP and LACP have had time to settle."""
         deadline = time.monotonic() + READY_TIMEOUT
-        while problems := self.bundle_problems():
-            require(time.monotonic() < deadline, f"{stage}: {'; '.join(problems)}")
+        while (problems := self.bundle_problems()) and time.monotonic() < deadline:
             time.sleep(POLL_INTERVAL)
-
-    # -- destroy -----------------------------------------------------------------------------
-
-    def destroy(self):
-        """Destroy the lab and check nothing is left. Returns a failure, or None."""
-        if not self.started:
-            return None
-        if not (self.directory / ".sherpa" / "lab-info.toml").exists():
-            # `sherpa up` failed early; destroy whatever it created, found by the manifest's lab name.
-            self.sherpa("sherpa destroy (after failed up)", ["destroy", "--yes"], UP_TIMEOUT, check=False)
-            return None
-        try:
-            self.sherpa("sherpa destroy", ["destroy", "--yes"], UP_TIMEOUT)
-            inspect = self.sherpa("lab gone", ["inspect"], check=False)
-            require(inspect.code != 0, f"lab {self.lab_id} still exists after destroy")
-            self.no_host_leftovers()
-        except TestFailure as error:
-            return error
-        return None
-
-    def no_host_leftovers(self):
-        checks = (
-            ("Docker containers", ["docker", "ps", "--all", "--format", "{{.Names}}"]),
-            ("Docker networks", ["docker", "network", "ls", "--format", "{{.Name}}"]),
-            ("host interfaces", ["ip", "-brief", "link"]),
-            ("libvirt domains", ["virsh", "-c", "qemu:///system", "list", "--all", "--name"]),
-        )
-        for kind, arguments in checks:
-            listing = self.command(f"no leftover {kind}", arguments)
-            leftovers = [line.split()[0] for line in listing.stdout.splitlines() if self.lab_id in line]
-            require(not leftovers, f"{kind} left after destroy: {leftovers}")
+        return problems
 
 
-DEVICE_PASSWORD_SET = re.compile(r"^\s*Device password:\s*set\s*$", re.MULTILINE)
-INFO_USERNAME = re.compile(r"^\s*Username:\s*(\S+)\s*$", re.MULTILINE)
-
-
-def require_device_password(log, run_root):
-    """Stop unless the lab owner has a device password, which `sherpa up` needs; return the owner."""
-    info = run_logged(log, "sherpa server user info", ["sherpa", "server", "user", "info"], run_root)
-    require(info.code == 0, "could not read the user's details (`sherpa server user info`)")
-    require(DEVICE_PASSWORD_SET.search(info.stdout),
-            "the user has no device password, which `sherpa up` needs: "
-            "run `sherpa server user device-password`")
-    owner = INFO_USERNAME.search(info.stdout)
-    require(owner, "`sherpa server user info` did not name the user")
-    return owner.group(1)
+# -- the fixtures --------------------------------------------------------------------------------
 
 
 def preflight(run_root):
@@ -857,31 +800,261 @@ def preflight(run_root):
             require(image.code == 0, f"the server has no {model} {kind} {version} image")
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--keep-failed", action="store_true", help="Leave a failed lab running for debugging")
-    parser.add_argument("--sherpad-restart", metavar="COMMAND",
-                        help="Also check links after running COMMAND, which restarts sherpad "
-                             "(e.g. 'sudo systemctl restart sherpad')")
-    parser.add_argument("--self-test", action="store_true", help="Run the runner's own unit tests")
-    args = parser.parse_args()
-    if args.self_test:
-        sys.argv = sys.argv[:1]
-        unittest.main()
-        return 0
+def keep_failed_lab(request):
+    """Whether the lab is to be left running: `--keep-failed` is given and a case has failed."""
+    return request.config.getoption("keep_failed") and request.session.testsfailed > 0
+
+
+@pytest.fixture(scope="module")
+def prepared():
+    """The lab before it is up: the server checked and the run's manifest written."""
     signal.signal(signal.SIGTERM, stop_on_sigterm)
     run_root = RUNS / f"p2p-links-{uuid.uuid4().hex[:12]}"
     run_root.mkdir(parents=True)
     print(f"Logs: {run_root}", flush=True)
+    preflight(run_root)
+    lab = Lab(run_root)
+    lab.prepare()
     try:
-        preflight(run_root)
-        LabRun(run_root, args.keep_failed, args.sherpad_restart).run()
-    except TestFailure as error:
-        print(f"FAIL {error}. Logs: {run_root}", file=sys.stderr)
-        return 1
-    print(f"PASS. Logs: {run_root}")
-    return 0
+        yield lab
+    finally:
+        lab.log.close()
+
+
+@pytest.fixture(scope="module")
+def lab(request, prepared):
+    """The lab every case uses: brought up once and destroyed at the end, even when a case fails,
+    unless `--keep-failed` is given and something failed. The last case destroys it itself."""
+    keep = False
+    try:
+        try:
+            prepared.up()
+        except Exception:
+            keep = request.config.getoption("keep_failed")
+            raise
+        yield prepared
+        keep = keep_failed_lab(request)
+    finally:
+        if keep and not prepared.destroyed:
+            print(f"keeping failed lab {prepared.name} ({prepared.lab_id}) in {prepared.directory}", flush=True)
+        else:
+            prepared.destroy()
+
+
+@pytest.fixture(scope="module")
+def ready(lab):
+    """The lab with cEOS configured, every Linux link end up and addressed and every VM's bonds
+    made, and one ping round, which asserts nothing, so the ends have learnt each other's MAC
+    addresses before a round-trip time is measured."""
+    for node in ARISTA:
+        lab.configure_arista(node)
+    lab.prepare_linux(VMS + CONTAINERS)
+    lab.ping_failures()
+    return lab
+
+
+@pytest.fixture(scope="module")
+def frames_after_up(ready):
+    """The frame set sent each way on every Linux link after up, with a capture on its src host end."""
+    return ready.exchange_frames("after up")
+
+
+@pytest.fixture(scope="module")
+def lifecycle_impairment(ready):
+    """The Linux links left with different impairments for the lifecycle steps: link 0 as the
+    manifest has it, link 1 one direction only, link 2 none."""
+    for link in LINUX_LINKS:
+        ready.impair(link, "--clear")
+        ready.set_delays(link, None, None)
+    ready.impair(LINUX_LINKS[0], "--delay", str(MANIFEST_DELAY))
+    ready.set_delays(LINUX_LINKS[0], MANIFEST_DELAY, MANIFEST_DELAY)
+    ready.impair(LINUX_LINKS[1], "--direction", "dst-to-src", "--delay", "15")
+    ready.set_delays(LINUX_LINKS[1], None, 15)
+    return ready
+
+
+def redeployed_step(lab, node):
+    """Redeploy a node, address it again and record its links and their impairments."""
+    lab.redeploy(node)
+    lab.prepare_linux((node,))
+    return Step(pings=lab.ping_failures(first=node), jumbo=lab.jumbo_failures(),
+                impairment=lab.impairment_problems())
+
+
+@pytest.fixture(scope="module")
+def redeployed_vm(lifecycle_impairment):
+    """The VM end of two links redeployed, and its links and their impairments recorded."""
+    return redeployed_step(lifecycle_impairment, REDEPLOYED_VM)
+
+
+@pytest.fixture(scope="module")
+def redeployed_container(lifecycle_impairment):
+    """The container end of two links redeployed, and its links and their impairments recorded."""
+    return redeployed_step(lifecycle_impairment, REDEPLOYED_CONTAINER)
+
+
+@pytest.fixture(scope="module")
+def resumed(lifecycle_impairment):
+    """The lab down and resumed and, the VMs having cold booted, their link ends addressed and
+    bonds made again; then everything checked after up recorded."""
+    lab = lifecycle_impairment
+    lab.sherpa("sherpa down", ["down"], UP_TIMEOUT)
+    lab.sherpa("sherpa resume", ["resume"], UP_TIMEOUT)
+    lab.prepare_linux(VMS)
+    return Step(mtus=lab.host_mtu_problems(), pings=lab.ping_failures(), jumbo=lab.jumbo_failures(),
+                frames=lab.exchange_frames("after resume"), bundles=lab.settled_bundle_problems(),
+                impairment=lab.impairment_problems())
+
+
+@pytest.fixture(scope="module")
+def rebooted(ready):
+    """A VM rebooted from inside its guest, addressed again, and its links recorded."""
+    lab = ready
+    lab.ssh(f"reboot {REBOOTED}", REBOOTED, "sudo systemctl reboot", check=False)
+    time.sleep(POLL_INTERVAL)
+    lab.prepare_linux((REBOOTED,))
+    return Step(pings=lab.ping_failures(first=REBOOTED), jumbo=lab.jumbo_failures())
+
+
+@pytest.fixture(scope="module")
+def sherpad_restarted(request, lifecycle_impairment):
+    """sherpad restarted with `--sherpad-restart`'s command, and the links, bundles and
+    impairments recorded; None when the option is not given."""
+    restart = request.config.getoption("sherpad_restart")
+    if not restart:
+        return None
+    lab = lifecycle_impairment
+    lab.command("restart sherpad", shlex.split(restart))
+    time.sleep(POLL_INTERVAL)
+    return Step(pings=lab.ping_failures(), jumbo=lab.jumbo_failures(),
+                bundles=lab.settled_bundle_problems(), impairment=lab.impairment_problems())
+
+
+# -- cases ---------------------------------------------------------------------------------------
+
+
+def test_p2p_link_001_l2_control_and_tagged_frames_cross_every_kind_of_link_each_way(frames_after_up):
+    require_none(exchange_problems(frames_after_up, L2_KINDS), "after up")
+
+
+def test_p2p_link_002_two_linked_ends_are_lldp_neighbours_and_bundle_both_links_with_lacp(ready):
+    require_none(ready.settled_bundle_problems(), "after up")
+
+
+def test_p2p_link_003_every_host_end_is_mtu_9600_and_jumbo_pings_and_frames_pass_each_way(ready, frames_after_up):
+    problems = ready.host_mtu_problems() + ready.ping_failures() + ready.jumbo_failures()
+    problems += exchange_problems(frames_after_up, (JUMBO_KIND,))
+    require_none(problems, "after up")
+
+
+def test_p2p_link_005_a_capture_on_a_host_end_sees_every_frame_from_both_ends(ready, frames_after_up):
+    require_none(capture_problems(frames_after_up, ready.lab_id), "after up")
+
+
+def test_link_impair_001_the_manifest_impairment_is_on_both_directions_after_up(ready):
+    require_none(ready.impairment_problems(), "after up")
+
+
+def test_link_impair_002_a_direction_delays_only_the_traffic_going_that_way(ready):
+    problems = []
+    for link in LINUX_LINKS:
+        before = ready.delays[link.index]["dst_to_src"]
+        ready.impair(link, "--direction", "src-to-dst", "--delay", "20")
+        ready.set_delays(link, 20, before)
+        problems += [f"src-to-dst 20 ms, {problem}" for problem in ready.impairment_problems((link,))]
+        ready.impair(link, "--direction", "dst-to-src", "--delay", "10")
+        ready.set_delays(link, 20, 10)
+        problems += [f"dst-to-src 10 ms, {problem}" for problem in ready.impairment_problems((link,))]
+    require_none(problems, "sherpa link impair --direction")
+
+
+def test_link_impair_003_reorder_and_corruption_on_both_directions_are_set_and_traffic_still_passes(ready):
+    problems = []
+    for link in LINUX_LINKS:
+        ready.impair(link, "--delay", "10", "--reorder", "25", "--corrupt", "5")
+        ready.set_delays(link, 10, 10)
+        for side in ("a", "b"):
+            qdisc = ready.qdisc(link, side)
+            if "reorder 25%" not in qdisc or "corrupt 5%" not in qdisc:
+                problems.append(f"{link.pair}: {host_end(link.index, side, ready.lab_id)} lacks reorder "
+                                f"or corruption: {qdisc.strip()}")
+        problems += [f"{link.pair}: {failure}" for failure in ready.ping_failures(links=(link,))]
+    require_none(problems, "reorder 25% and corrupt 5%")
+
+
+def test_link_impair_004_clear_removes_the_impairment_and_the_rtt_is_as_without_one(ready):
+    problems = []
+    for link in LINUX_LINKS:
+        ready.impair(link, "--clear")
+        ready.set_delays(link, None, None)
+        problems += ready.impairment_problems((link,))
+    require_none(problems, "after --clear")
+
+
+def test_link_reattach_001_after_redeploying_a_vm_ending_two_links_pings_pass_each_way(redeployed_vm):
+    require_none(redeployed_vm.pings + redeployed_vm.jumbo, f"after redeploying {REDEPLOYED_VM}")
+
+
+def test_link_reattach_002_after_redeploying_a_container_ending_two_links_pings_pass_each_way(redeployed_container):
+    require_none(redeployed_container.pings + redeployed_container.jumbo,
+                 f"after redeploying {REDEPLOYED_CONTAINER}")
+
+
+def test_link_reattach_003_after_down_and_resume_pings_frames_capture_and_bundles_work_as_after_up(lab, resumed):
+    problems = resumed.mtus + resumed.pings + resumed.jumbo
+    problems += exchange_problems(resumed.frames, FRAME_KINDS)
+    problems += capture_problems(resumed.frames, lab.lab_id)
+    problems += resumed.bundles
+    require_none(problems, "after resume")
+
+
+def test_link_reattach_004_a_reboot_from_inside_a_vm_guest_leaves_its_links_working(rebooted):
+    require_none(rebooted.pings + rebooted.jumbo, f"after rebooting {REBOOTED} from inside the guest")
+
+
+def test_p2p_link_009_links_carry_traffic_across_a_sherpad_restart(sherpad_restarted):
+    if sherpad_restarted is None:
+        pytest.skip("give --sherpad-restart COMMAND to restart sherpad")
+    require_none(sherpad_restarted.pings + sherpad_restarted.jumbo + sherpad_restarted.bundles,
+                 "after a sherpad restart")
+
+
+def test_link_impair_005_an_impairment_stays_across_redeploys_down_and_resume_and_a_sherpad_restart(
+        redeployed_vm, redeployed_container, resumed, sherpad_restarted):
+    steps = {f"after redeploying {REDEPLOYED_VM}": redeployed_vm,
+             f"after redeploying {REDEPLOYED_CONTAINER}": redeployed_container,
+             "after resume": resumed}
+    if sherpad_restarted is not None:
+        steps["after a sherpad restart"] = sherpad_restarted
+    problems = [f"{stage}, {problem}" for stage, step in steps.items() for problem in step.impairment]
+    require_none(problems, "impairment not as set")
+    if sherpad_restarted is None:
+        pytest.skip("not checked after a sherpad restart: give --sherpad-restart COMMAND")
+
+
+def test_link_cleanup_001_destroying_a_lab_of_vm_and_container_links_leaves_nothing_of_it(lab, request):
+    if keep_failed_lab(request):
+        pytest.skip("--keep-failed: a case failed, so the lab is kept")
+    lab.destroy()
+    found = lab.host_leftovers()
+    require(not found, "left after destroy: " + "; ".join(f"{kind} {names}" for kind, names in found.items()))
+
+
+# -- running -------------------------------------------------------------------------------------
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     epilog="Other arguments, such as --keep-failed, --sherpad-restart "
+                                            "COMMAND or -k, are passed to pytest.")
+    parser.add_argument("--self-test", action="store_true", help="Run the runner's own unit tests")
+    args, pytest_args = parser.parse_known_args()
+    if args.self_test:
+        sys.argv = sys.argv[:1]
+        unittest.main()
+        return 0
+    return pytest.main(["-v", "-p", "no:cacheprovider", __file__, *pytest_args])
 
 
 class SelfTest(unittest.TestCase):
@@ -890,27 +1063,32 @@ class SelfTest(unittest.TestCase):
 
     def test_a_partly_created_lab_keeps_its_id_for_cleanup(self):
         # `sherpa up` exits 1 on a partly created lab after writing lab-info.toml; the run must
-        # still know the lab's ID, so destroy checks for leftovers instead of crashing.
+        # still know the lab's ID, so destroy checks the lab is gone instead of skipping it.
         with tempfile.TemporaryDirectory() as temp:
-            run = LabRun(Path(temp) / "p2p-links-000000abcdef", keep_failed=False, sherpad_restart=False)
-            (run.directory / ".sherpa").mkdir(parents=True)
-            (run.directory / ".sherpa" / "lab-info.toml").write_text(
-                f'id = "4ed6360e"\nname = "{run.name}"\n')
-            run.log = (run.directory / "commands.log").open("w")
-            self.addCleanup(run.log.close)
+            lab = Lab(Path(temp) / "p2p-links-000000abcdef")
+            lab.prepare()
+            self.addCleanup(lab.log.close)
+            (lab.directory / ".sherpa").mkdir()
+            (lab.directory / ".sherpa" / "lab-info.toml").write_text(
+                f'id = "4ed6360e"\nname = "{lab.name}"\n')
 
-            def failing_up(log, label, arguments, *rest):
+            def failing_up(log, label, arguments, *rest, **options):
                 return Outcome(1 if arguments[:2] == ["sherpa", "up"] else 0, "", "")
 
             with mock.patch(f"{__name__}.run_logged", failing_up), self.assertRaises(TestFailure):
-                run.up()
-            self.assertEqual(run.lab_id, "4ed6360e")
+                lab.up()
+            self.assertEqual(lab.lab_id, "4ed6360e")
 
-            def leftover(log, label, arguments, *rest):
-                return Outcome(1 if "inspect" in arguments else 0, "node-4ed6360e-x\n", "")
+            def still_there(log, label, arguments, *rest, **options):
+                return Outcome(0, "", "")
 
-            with mock.patch(f"{__name__}.run_logged", leftover):
-                self.assertIsInstance(run.destroy(), TestFailure)
+            with mock.patch(f"{__name__}.run_logged", still_there), self.assertRaises(TestFailure):
+                lab.destroy()
+
+    def test_a_leftover_is_a_listed_name_holding_the_lab_id(self):
+        listing = "tpa0-4ed6360e UP\nlo UNKNOWN\nc1-4ed6360e\n"
+        self.assertEqual(leftovers(listing, "4ed6360e"), ["tpa0-4ed6360e", "c1-4ed6360e"])
+        self.assertEqual(leftovers("lo UNKNOWN\n", "4ed6360e"), [])
 
     def test_bond_bundled_needs_the_active_aggregator_and_both_ends_in_sync(self):
         def member(name, aggregator, actor, partner):
@@ -940,12 +1118,24 @@ class SelfTest(unittest.TestCase):
 
     def test_frame_problems_report_missing_and_mangled_frames(self):
         frames = {("u1", kind): (60, FRAME_TAGS.get(kind, "-")) for kind in FRAME_KINDS}
-        frames[("u1", "jumbo9000")] = (JUMBO_LENGTH, "-")
-        self.assertEqual(frame_problems(frames, "u1"), [])
+        frames[("u1", JUMBO_KIND)] = (JUMBO_LENGTH, "-")
+        self.assertEqual(frame_problems(frames, "u1", FRAME_KINDS), [])
         del frames[("u1", "pause")]
         frames[("u1", "vlan10")] = (60, "-")
-        self.assertEqual(frame_problems(frames, "u1"), ["pause missing", "vlan10 tag -"])
+        frames[("u1", JUMBO_KIND)] = (1514, "-")
+        self.assertEqual(frame_problems(frames, "u1", L2_KINDS), ["pause missing", "vlan10 tag -"])
+        self.assertEqual(frame_problems(frames, "u1", (JUMBO_KIND,)), ["jumbo9000 length 1514"])
         self.assertEqual(received_frames("u1 lldp 32 -\nnoise\n"), {("u1", "lldp"): (32, "-")})
+
+    def test_a_failed_exchange_or_a_frame_the_capture_missed_is_a_problem(self):
+        whole = {(sender, kind) for link in LINUX_LINKS for sender in (link.src, link.dst)
+                 for kind in FRAME_KINDS}
+        exchanges = {link.index: LinkFrames({}, {}, set(whole), []) for link in LINUX_LINKS}
+        self.assertEqual(capture_problems(exchanges, "4ed6360e"), [])
+        exchanges[2] = LinkFrames({}, {}, whole - {("c2", "lldp")}, ["c1 receiving frames failed"])
+        self.assertEqual(capture_problems(exchanges, "4ed6360e"),
+                         ["container-container: c1 receiving frames failed",
+                          "capture on tpa2-4ed6360e: c2 lldp missing"])
 
     def test_ping_and_qdisc_parsing(self):
         self.assertEqual(average_rtt("rtt min/avg/max/mdev = 20.1/25.5/30.0/1.0 ms"), 25.5)
