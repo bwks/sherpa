@@ -23,7 +23,7 @@ pub use config::{
     build_client_websocket_url, create_client_config, default_config, load_client_config,
     load_config,
 };
-pub use dns::{default_dns, default_dns_dual_stack};
+pub use dns::default_dns;
 pub use emoji::{Emoji, emoji_success, emoji_warning};
 pub use encode::{base64_decode, base64_decode_bytes, base64_encode, base64_encode_bytes};
 pub use env::get_server_url;

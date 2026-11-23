@@ -14,8 +14,8 @@ use crate::helpers;
 const EXPECTED_VEOS_STATIC_IPV4: &str = "\
 !
 hostname veos01
-dns domain lab.sherpa.local
-ip name-server 172.20.0.1
+dns domain sherpa.lab.local
+ip name-server 172.20.0.2
 !
 no aaa root
 !
@@ -44,8 +44,8 @@ end
 const EXPECTED_CEOS_STATIC_IPV4: &str = "\
 !
 hostname ceos01
-dns domain lab.sherpa.local
-ip name-server 172.20.0.1
+dns domain sherpa.lab.local
+ip name-server 172.20.0.2
 !
 no aaa root
 !
@@ -73,8 +73,8 @@ end
 const EXPECTED_VEOS_DUAL_STACK: &str = "\
 !
 hostname veos01
-dns domain lab.sherpa.local
-ip name-server 172.20.0.1
+dns domain sherpa.lab.local
+ip name-server 172.20.0.2
 !
 no aaa root
 !
@@ -150,4 +150,26 @@ fn config_addressing_007_arista_veos_dual_stack() {
     let hash = helpers::sha512_hash(PASSWORD);
     let output = veos(&hash, true).render().expect("template renders");
     assert_eq!(output, EXPECTED_VEOS_DUAL_STACK.replace("HASH", &hash));
+}
+
+#[test]
+fn config_name_server_002_arista_veos() {
+    let output = veos(&helpers::sha512_hash(PASSWORD), false)
+        .render()
+        .expect("template renders");
+    assert_eq!(
+        helpers::name_servers(&output, "ip name-server "),
+        ["172.20.0.2"]
+    );
+}
+
+#[test]
+fn config_name_server_003_arista_ceos() {
+    let output = ceos(&helpers::sha512_hash(PASSWORD))
+        .render()
+        .expect("template renders");
+    assert_eq!(
+        helpers::name_servers(&output, "ip name-server "),
+        ["172.20.0.2"]
+    );
 }

@@ -16,8 +16,8 @@ const LOCKED: &str = "AQBapWi7gAb+1N611aRfybWmroBDwZuBCFmatCf0xTBVaKfvYgAAAG28Q0
 const EXPECTED_STATIC_IPV4: &str = "\
 !
 hostname aoscx01
-domain-name lab.sherpa.local
-ip dns server-address 172.20.0.1
+domain-name sherpa.lab.local
+ip dns server-address 172.20.0.2
 user admin group administrators password ciphertext LOCKED
 user alice group administrators password ciphertext LOCKED
 user alice authorized-key ssh-rsa OWNERKEY1
@@ -63,4 +63,13 @@ fn aoscx() -> ArubaAoscxTemplate {
 fn generated_config_003_aruba_aoscx_locks_admin_and_the_owner_to_keys() {
     let output = aoscx().render().expect("template renders");
     assert_eq!(output, EXPECTED_STATIC_IPV4.replace("LOCKED", LOCKED));
+}
+
+#[test]
+fn config_name_server_004_aruba_aoscx() {
+    let output = aoscx().render().expect("template renders");
+    assert_eq!(
+        helpers::name_servers(&output, "ip dns server-address "),
+        ["172.20.0.2"]
+    );
 }

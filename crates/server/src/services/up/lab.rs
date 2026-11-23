@@ -533,7 +533,7 @@ impl LabUp<'_> {
         )
         .await?;
         let mgmt_net = management_network(&records.subnets)?;
-        let dns = util::default_dns_dual_stack(&lab_net, &ipv6_management_subnet)?;
+        let dns = util::default_dns(&mgmt_net);
         create_management_networks(&self.build, &records.subnets).await?;
 
         let tailnet_status = if self.tailnet_enabled {

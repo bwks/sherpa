@@ -13,8 +13,8 @@ use crate::helpers;
 const EXPECTED_STATIC_IPV4: &str = "\
 !
 hostname xrv01
-domain name lab.sherpa.local
-domain name-server 172.20.0.1
+domain name sherpa.lab.local
+domain name-server 172.20.0.2
 username admin
  group root-lr
  group cisco-support
@@ -96,4 +96,13 @@ fn device_accounts_006_cisco_iosxr_admin_and_owner() {
             "username alice\n group root-lr\n group netadmin\n secret 0 {password}\n"
         )));
     }
+}
+
+#[test]
+fn config_name_server_010_cisco_iosxr() {
+    let output = xrv("Rand0mPass-1").render().expect("template renders");
+    assert_eq!(
+        helpers::name_servers(&output, "domain name-server "),
+        ["172.20.0.2"]
+    );
 }

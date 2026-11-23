@@ -1,6 +1,6 @@
 # ZTP
 
-How Sherpa gives each node its first configuration at boot: the ZTP setting an image and a node have, what a node with ZTP off gets, how a config reaches a node by each method, the config ISO, a node's own `ztp.config`, the config Sherpa generates for each model, the management addresses and the accounts in it, the lab's boot server, and who can read a node's config on the server.
+How Sherpa gives each node its first configuration at boot: the ZTP setting an image and a node have, what a node with ZTP off gets, how a config reaches a node by each method, the config ISO, a node's own `ztp.config`, the config Sherpa generates for each model, the management addresses, the name server and the accounts in it, the lab's boot server, and who can read a node's config on the server.
 
 What the owner's account is on every node, whatever its model (which keys, which name, the form of the password, its rights on each operating system), is `owner_login` in [accounts-and-auth.md](accounts-and-auth.md); here is only how each model's config writes it. That up refuses an unsupported setting is `lab_preflight_004` in [lab-lifecycle.md](lab-lifecycle.md), a container's start settings are `container_run` in [nodes.md](nodes.md), and which addresses a lab's nodes get is `lab_addressing`. The machine config of a Talos cluster member is made from the cluster's secrets and belongs to the Talos spec; how any `nocloud` config reaches its node is here. A manifest's text files, scripts and environment variables, which cloud-init and Ignition also carry, belong to Provisioning. Reading `ztp` out of a manifest belongs to Manifests.
 
@@ -130,6 +130,7 @@ The lab's CA and a node's certificate are here because they reach the node in it
 | 008 | An IOL node's config is written as its startup config, as it is | unit |
 | 009 | A config for a `tftp`, `cdrom`, `disk` or `usb` node is written under the file name its model reads, as it is (no test yet) | unit |
 | 010 | A redeploy with a changed `ztp.config` rebuilds the node with the new one (no test yet) | e2e |
+| 011 | A PAN-OS node's config is `init-cfg.txt` in the `config` folder of an ISO labelled `bootstrap`, beside empty `content`, `license` and `software` folders, with no generated `bootstrap.xml` | unit |
 
 A node with a custom config gets no owner login, except FRR and the SONiC container: `owner_login_017` and `owner_login_018`. A Talos cluster member, and the Vault node a cluster names, may set no `ztp.config`: that belongs to the Talos spec.
 
@@ -207,6 +208,31 @@ Cases 001 to 024 are each the whole config of one model, for a lab with IPv4 onl
 | 012 | A SONiC container's config has no management port or address: Docker gives the container its address | unit |
 | 013 | An OpenBSD node's `network-config` has no IPv6 address in a lab with IPv6 (no test yet) | unit |
 | 014 | A VM answers on the management address Sherpa recorded for it once it has booted (no test yet) | e2e |
+
+## `config_name_server`: a generated device config names the lab's boot server as its name server
+
+**Statement:** a device config Sherpa generates names the lab's boot server, which holds a name record for every node, as its one name server, never the gateway, on IPv4 and, where the model's config carries one, IPv6.
+**Relied on by:** anything on a node that reaches another node by its name. **Priority:** P1.
+
+cloud-init, cloudbase-init, Ignition, FTDv, ISE and PAN-OS take the boot server from the same place, and their cases are in `config_addressing` and `generated_config`. Junos and FRR configs set no name server.
+
+| Case | What it shows | Level |
+|---|---|---|
+| 001 | The lab's DNS settings name its boot server as name server, on IPv4 and, in a lab with IPv6, IPv6, and not its gateway | unit |
+| 002 | Arista vEOS | unit |
+| 003 | Arista cEOS | unit |
+| 004 | Aruba AOS-CX | unit |
+| 005 | Cisco ASAv | unit |
+| 006 | Cisco IOL and IOL L2, which have one template | unit |
+| 007 | Cisco IOSv | unit |
+| 008 | Cisco IOSvL2 | unit |
+| 009 | Cisco IOS XE | unit |
+| 010 | Cisco IOS XR | unit |
+| 011 | Cisco NX-OS | unit |
+| 012 | Cumulus Linux | unit |
+| 013 | MikroTik RouterOS | unit |
+| 014 | Nokia SR Linux, with the boot server's IPv4 and IPv6 addresses in a lab with IPv6 | unit |
+| 015 | Nokia SR Linux searches the lab's domain, so a node's bare name resolves | unit |
 
 ## `device_accounts`: a generated config makes the owner's account and the model's fixed ones, no other
 

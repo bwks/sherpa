@@ -58,6 +58,8 @@ struct DnsInstance {
     name: String,
     #[serde(rename = "network-instance")]
     network_instance: String,
+    #[serde(rename = "search-list")]
+    search_list: Vec<String>,
     #[serde(rename = "server-list")]
     server_list: Vec<String>,
 }
@@ -268,6 +270,7 @@ pub fn build_srlinux_config(
             dns_instance: vec![DnsInstance {
                 name: DNS_INSTANCE_NAME.to_string(),
                 network_instance: "mgmt".to_string(),
+                search_list: vec![dns.domain.clone()],
                 server_list: dns_servers,
             }],
             aaa: Aaa {

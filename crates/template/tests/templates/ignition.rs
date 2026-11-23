@@ -23,7 +23,7 @@ Name=eth0
 [Network]
 Address=172.20.0.10/24
 Gateway=172.20.0.1
-DNS=172.20.0.1
+DNS=172.20.0.2
 Domains=sherpa.lab.local
 ";
 
@@ -33,11 +33,11 @@ Name=eth0
 [Network]
 Address=172.20.0.10/24
 Gateway=172.20.0.1
-DNS=172.20.0.1
+DNS=172.20.0.2
 Domains=sherpa.lab.local
 Address=fd00::10/64
 Gateway=fd00::1
-DNS=fd00::1
+DNS=fd00::2
 ";
 
 // ============================================================================

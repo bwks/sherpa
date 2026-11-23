@@ -2,7 +2,8 @@ use std::net::Ipv4Addr;
 
 use ipnet::{Ipv4Net, Ipv6Net};
 
-use shared::data::{Dns, NameServer, NetworkV4, NetworkV6, OwnerSshKey, OwnerUser};
+use shared::data::{Dns, NetworkV4, NetworkV6, OwnerSshKey, OwnerUser, SherpaNetwork};
+use shared::util::default_dns;
 use template::{CryptHash, crypt_hash};
 
 /// Device passwords that together use every character a device password may have: `a-z`,
@@ -46,15 +47,23 @@ pub fn sha512_hash(password: &str) -> String {
     crypt_hash(password, CryptHash::Sha512).expect("hash computes")
 }
 
+/// The lab's DNS settings for the IPv4 management network `172.20.0.0/24`, as the server
+/// makes them: the boot server `172.20.0.2` is the name server.
 #[must_use]
 pub fn test_dns() -> Dns {
-    Dns {
-        domain: "lab.sherpa.local".to_string(),
-        name_servers: vec![NameServer {
-            ipv4_address: Ipv4Addr::new(172, 20, 0, 1),
-            ipv6_address: None,
-        }],
-    }
+    default_dns(&SherpaNetwork {
+        v4: test_network_v4(),
+        v6: None,
+    })
+}
+
+/// The name servers `config` names on the lines that start with `prefix`, the prefix removed.
+#[must_use]
+pub fn name_servers<'a>(config: &'a str, prefix: &str) -> Vec<&'a str> {
+    config
+        .lines()
+        .filter_map(|line| line.strip_prefix(prefix))
+        .collect()
 }
 
 /// The management network `172.20.0.0/24`.
@@ -68,7 +77,7 @@ pub fn test_network_v4() -> NetworkV4 {
         prefix: "172.20.0.0/24".parse::<Ipv4Net>().expect("valid prefix"),
         first: Ipv4Addr::new(172, 20, 0, 1),
         last: Ipv4Addr::new(172, 20, 0, 254),
-        boot_server: Ipv4Addr::new(172, 20, 0, 1),
+        boot_server: Ipv4Addr::new(172, 20, 0, 2),
         network: Ipv4Addr::new(172, 20, 0, 0),
         subnet_mask: Ipv4Addr::new(255, 255, 255, 0),
         hostmask: Ipv4Addr::new(0, 0, 0, 255),
@@ -87,7 +96,7 @@ pub fn test_network_v6() -> NetworkV6 {
         prefix: "fd00::/64".parse::<Ipv6Net>().expect("valid prefix"),
         first: "fd00::1".parse().expect("valid addr"),
         last: "fd00::ffff".parse().expect("valid addr"),
-        boot_server: "fd00::1".parse().expect("valid addr"),
+        boot_server: "fd00::2".parse().expect("valid addr"),
         network: "fd00::".parse().expect("valid addr"),
         prefix_length: 64,
     }

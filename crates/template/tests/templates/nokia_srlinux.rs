@@ -2,6 +2,8 @@ use std::net::Ipv4Addr;
 
 use serde_json::{Value, json};
 
+use shared::data::SherpaNetwork;
+use shared::util::default_dns;
 use template::build_srlinux_config;
 
 use crate::helpers;
@@ -45,7 +47,8 @@ fn generated_config_020_nokia_srlinux() {
         json!([{
             "name": "mgmt",
             "network-instance": "mgmt",
-            "server-list": ["172.20.0.1"],
+            "search-list": ["sherpa.lab.local"],
+            "server-list": ["172.20.0.2"],
         }])
     );
     let subinterface = &value["srl_nokia-interfaces:interface"][0]["subinterface"][0];
@@ -129,4 +132,37 @@ fn device_accounts_013_srlinux_admin_and_owner_passwords() {
         assert_eq!(authentication["user"][0]["password"], *password);
         assert_eq!(json.matches(password).count(), 2);
     }
+}
+
+#[test]
+fn config_name_server_014_nokia_srlinux_names_the_boot_server_on_ipv4_and_ipv6() {
+    let v4 = helpers::test_network_v4();
+    let v6 = helpers::test_network_v6();
+    let dns = default_dns(&SherpaNetwork {
+        v4: v4.clone(),
+        v6: Some(v6.clone()),
+    });
+    let json = build_srlinux_config(
+        "srl01",
+        &helpers::test_owner("Rand0mPass-1"),
+        &dns,
+        &v4,
+        Some(Ipv4Addr::new(172, 20, 0, 10)),
+        Some(("fd00::10".parse().expect("valid"), &v6)),
+    )
+    .expect("builds config");
+    let value: Value = serde_json::from_str(&json).expect("valid json");
+    assert_eq!(
+        value[SYSTEM]["srl_nokia-dns:dns-instance"][0]["server-list"],
+        json!(["172.20.0.2", "fd00::2"])
+    );
+}
+
+#[test]
+fn config_name_server_015_nokia_srlinux_searches_the_lab_domain() {
+    let (_, value) = config("srl01", "Rand0mPass-1", true, false);
+    assert_eq!(
+        value[SYSTEM]["srl_nokia-dns:dns-instance"][0]["search-list"],
+        json!(["sherpa.lab.local"])
+    );
 }

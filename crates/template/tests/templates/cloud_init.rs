@@ -194,7 +194,7 @@ fn config_addressing_001_cloud_init_network_config_ipv4() {
                     "addresses": ["172.20.0.10/24"],
                     "routes": [{ "to": "0.0.0.0/0", "via": "172.20.0.1" }],
                     "nameservers": {
-                        "addresses": ["172.20.0.1"],
+                        "addresses": ["172.20.0.2"],
                         "search": ["sherpa.lab.local"],
                     },
                 },
@@ -224,7 +224,7 @@ fn config_addressing_002_cloud_init_network_config_dual_stack() {
                 { "to": "::/0", "via": "fd00::1" },
             ],
             "nameservers": {
-                "addresses": ["172.20.0.1", "fd00::1"],
+                "addresses": ["172.20.0.2", "fd00::2"],
                 "search": ["sherpa.lab.local"],
             },
         })
