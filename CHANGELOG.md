@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2026-11-23
+
+### Upgrade notes
+
+- **Cisco IOS family SSH keys:** `cisco_ios`, `cisco_iosl2`, `cisco_iol`, `cisco_ioll2`, CSR, Cat8000v and Cat9000v take only RSA keys of 4096 bits or less. Larger RSA keys are skipped, and `up` and `redeploy` name them. If you have no RSA key of 4096 bits or less, add one (`ssh-keygen -t rsa -b 4096`, then `sherpa server user ssh-key add`). Your SSH client must also offer it: keep it at `~/.ssh/id_rsa`, add it to your agent, or name it with `IdentityFile`.
+- **A container that exits during `up`** is reported as a failed node, with its exit code and log tail, and the rest of the lab comes up. `up` used to roll the whole lab back with "failed to get ifindex … not found".
+- **LACP on VMs:** a VM's virtio link interfaces report unknown speed and duplex, and a Linux 802.3ad bond sends no LACPDU from a member that isn't full duplex. Run `ethtool -s <port> speed 10000 duplex full` on each member before bonding it.
+- **Device DNS:** network device configs now name the lab's boot server as their DNS server, so nodes resolve each other by name. Redeploy existing nodes to pick it up.
+- **`sherpa download`** refuses a folder that holds any of the lab's files unless you pass `--force`.
+
+### Bug Fixes
+
+- Skip RSA keys over 4096 bits on the Cisco IOS family by @bwks ([19dd3d3](https://github.com/bwks/sherpa/commit/19dd3d34b6e3f322c1063e790fced32c872db16f))
+- Fail an exited container, not up, when its P2p end is gone by @bwks ([5e85526](https://github.com/bwks/sherpa/commit/5e85526ff53a69364cf2224b872d9557bd02d4e3))
+- Set VM bond members to full duplex so p2p-links bundles by @bwks ([14c3f76](https://github.com/bwks/sherpa/commit/14c3f76c8b3665db79b4b6896921c880b720d201))
+- Quote lab paths in the SSH config and drop the [address]:port known hosts form by @bwks ([d21c9b5](https://github.com/bwks/sherpa/commit/d21c9b5a4ab54cdaa061f09e5d41d2933fe91f4b))
+- Refuse a download over any of the lab's files, not only lab-info.toml by @bwks ([c609cb2](https://github.com/bwks/sherpa/commit/c609cb2dfa55b3e07946407acbd56bd5c6cbb00f))
+- Make SR Linux search the lab domain by @bwks ([e46772e](https://github.com/bwks/sherpa/commit/e46772e332ea799a63c7ce72bb2fd44eb58d8ebb))
+- Put a custom PAN-OS config where PAN-OS bootstrap reads it by @bwks ([3dcb31c](https://github.com/bwks/sherpa/commit/3dcb31c11bbab1d32f6d22ecd9192a374ad6f636))
+- Name the boot server as every device's name server by @bwks ([28aa571](https://github.com/bwks/sherpa/commit/28aa571157cd37aa66a822e3fdbabc4fc22d6730))
+
+### Documentation
+
+- Drop comments that retell the RSA key size logic by @bwks ([d75d8e3](https://github.com/bwks/sherpa/commit/d75d8e353e28ad5b2fcdd38e45d0594cee84a911))
+- Cut the P2p attach race comments to one-line function docs by @bwks ([865c4fb](https://github.com/bwks/sherpa/commit/865c4fbdd16b3edfaa2175b0503df0e5f446ff52))
+
+### Testing
+
+- Convert private-bridge to pytest with case IDs by @bwks ([2066a0a](https://github.com/bwks/sherpa/commit/2066a0a477a380774eede511ec94973d1a0c9b06))
+- Check only interface names in node_interfaces_009 by @bwks ([cec0593](https://github.com/bwks/sherpa/commit/cec05937a5eece2b6b3a7f8051df20ae20453aad))
+- Convert nixos-linux to pytest with case IDs by @bwks ([3713c6c](https://github.com/bwks/sherpa/commit/3713c6c3bb4ea71d3cc940b930df827fe7491b00))
+- Give the ha lab a second worker and test cluster_cilium_002 by @bwks ([ed545f6](https://github.com/bwks/sherpa/commit/ed545f681c2e31f3d0f1deb4077c25c4be6c057e))
+- Log in to Keycloak as the credentials file's [admin] by @bwks ([7043e3c](https://github.com/bwks/sherpa/commit/7043e3cc8ff2e57b6d27c9210cbef0c6db710105))
+- Convert talos-linux to pytest with case IDs by @bwks ([4cd0fb1](https://github.com/bwks/sherpa/commit/4cd0fb1f41fe76e4242bca4bc5699dcef69d0450))
+- Convert p2p-links to pytest with case IDs by @bwks ([e165f36](https://github.com/bwks/sherpa/commit/e165f36cd0af121fc506967059eaf1320efd34e0))
+
 ## [0.8.0] - 2026-11-22
 
 ### Upgrade notes
