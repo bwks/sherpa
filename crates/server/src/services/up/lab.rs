@@ -571,8 +571,7 @@ impl LabUp<'_> {
         })
     }
 
-    /// Record the point-to-point links (phase 5), create Docker networks for the disabled
-    /// interfaces of containers with no link (phase 6), and create the shared bridges (phase 7).
+    /// Record the links (phase 5), make isolated container networks (6) and the bridges (7).
     async fn link_nodes(&mut self, records: &NodeRecords) -> Result<LinkRecords> {
         self.start_phase(
             data::UpPhase::LinkCreation,
@@ -585,6 +584,7 @@ impl LabUp<'_> {
             &self.build,
             &records.lab_record_id,
             &self.plan.links_detailed,
+            &self.plan.bridges_detailed,
             &records.lab_node_data,
             &records.node_setup_data,
         )
@@ -599,7 +599,7 @@ impl LabUp<'_> {
             &self.build,
             &records.node_setup_data,
             &records.lab_node_data,
-            &links.p2p_container_names,
+            &links.veth_container_names,
         )
         .await?;
         self.phase_done("ContainerNetworks");
@@ -616,7 +616,6 @@ impl LabUp<'_> {
             &records.lab_record_id,
             &self.plan.bridges_detailed,
             &records.lab_node_data,
-            &links.p2p_container_names,
             &mut links.p2p_container_veths,
         )
         .await?;
@@ -742,7 +741,7 @@ impl LabUp<'_> {
             self.build.lab_id,
             &records.node_setup_data,
             &records.lab_node_data,
-            &links.p2p_container_names,
+            &links.veth_container_names,
         )?;
         self.phase_done("SshConfig");
 

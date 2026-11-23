@@ -1,4 +1,4 @@
-//! Point-to-point links and the P2p container veths, and attaching their eBPF redirects.
+//! Point-to-point links, container veths, and attaching the links' eBPF redirects.
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -12,7 +12,7 @@ use crate::services::p2p_links::{ContainerVeth, KernelHost, LinkHost, LinkWiring
 use shared::data;
 use shared::data::{LinkImpairment, RecordId, StatusKind};
 
-/// A data interface of the P2p container `node_name`, made once the container has started.
+/// A data interface of container `node_name`, made once the container has started.
 pub(super) struct P2pContainerVeth {
     pub(super) node_name: String,
     pub(super) veth: ContainerVeth,
@@ -214,19 +214,17 @@ pub(super) fn find_bridge_interface(
 pub(super) struct LinkRecords {
     pub(super) lab_link_data: Vec<data::LabLinkData>,
     pub(super) p2p_container_veths: Vec<P2pContainerVeth>,
-    /// Containers on a P2p link. They take every data interface as a veth in their network
-    /// namespace, so they get no Docker data networks.
-    pub(super) p2p_container_names: HashSet<String>,
+    /// Containers on a P2p link or a private bridge, which take veths and no Docker networks.
+    pub(super) veth_container_names: HashSet<String>,
 }
 
-/// Record every P2p link with the manifest's impairment, and plan the veths of the containers
-/// on them, including one for each of those containers' disabled interfaces. Creates no
-/// interfaces: libvirt makes VM taps, and container veths are made once the containers start.
+/// Record every P2p link, and plan the link end and disabled interface veths of containers.
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn create_links(
     build: &LabBuild<'_>,
     lab_record_id: &RecordId,
     links_detailed: &[topology::LinkDetailed],
+    bridges_detailed: &[topology::BridgeDetailed],
     lab_node_data: &[data::LabNodeData],
     node_setup_data: &[data::NodeSetupData],
 ) -> Result<LinkRecords> {
@@ -241,9 +239,7 @@ pub(super) async fn create_links(
     let mut lab_link_data = vec![];
 
     let mut p2p_container_veths: Vec<P2pContainerVeth> = vec![];
-    // Track which container nodes participate in P2p links.
-    // These containers handle ALL data interfaces via veth+netns, not Docker networks.
-    let mut p2p_container_names: HashSet<String> = HashSet::new();
+    let veth_container_names = veth_container_names(links_detailed, bridges_detailed);
 
     for (idx, link) in links_detailed.iter().enumerate() {
         let node_a = lab_node(lab_node_data, &link.node_a)?;
@@ -287,7 +283,6 @@ pub(super) async fn create_links(
                     bridge: None,
                 },
             });
-            p2p_container_names.insert(node_name.clone());
         }
 
         tracing::info!(
@@ -309,14 +304,38 @@ pub(super) async fn create_links(
         lab_id,
         node_setup_data,
         lab_node_data,
-        &p2p_container_names,
+        &veth_container_names,
     )?);
 
     Ok(LinkRecords {
         lab_link_data,
         p2p_container_veths,
-        p2p_container_names,
+        veth_container_names,
     })
+}
+
+/// The containers that take every data interface as a veth: those on a link or bridge.
+fn veth_container_names(
+    links_detailed: &[topology::LinkDetailed],
+    bridges_detailed: &[topology::BridgeDetailed],
+) -> HashSet<String> {
+    let link_ends = links_detailed.iter().flat_map(|link| {
+        [
+            (&link.node_a, link.node_a_model_kind),
+            (&link.node_b, link.node_b_model_kind),
+        ]
+    });
+    let bridge_members = bridges_detailed.iter().flat_map(|bridge| {
+        bridge
+            .links
+            .iter()
+            .map(|member| (&member.node_name, member.node_model_kind))
+    });
+    link_ends
+        .chain(bridge_members)
+        .filter(|(_, model_kind)| model_kind.kind() == data::NodeKind::Container)
+        .map(|(name, _)| name.clone())
+        .collect()
 }
 
 /// The lab node called `name`.
@@ -404,25 +423,22 @@ async fn record_link(
     })
 }
 
-/// A veth for each disabled interface of the containers on a P2p link. Those containers take
-/// every data interface as a veth in their netns, not a Docker network, so Docker and the
-/// container's init cannot both name `ethN`. A disabled interface's veth stays down, with no
-/// eBPF.
+/// A veth, kept down, for each disabled interface of the containers on a link or bridge.
 fn disabled_container_veths(
     lab_id: &str,
     node_setup_data: &[data::NodeSetupData],
     lab_node_data: &[data::LabNodeData],
-    p2p_container_names: &HashSet<String>,
+    veth_container_names: &HashSet<String>,
 ) -> Result<Vec<P2pContainerVeth>> {
     let mut veths = vec![];
     for nsd in node_setup_data {
-        if !p2p_container_names.contains(&nsd.name) {
+        if !veth_container_names.contains(&nsd.name) {
             continue;
         }
         let node_data = lab_node_data
             .iter()
             .find(|n| n.name == nsd.name)
-            .ok_or_else(|| anyhow!("P2p container {} not found in lab_node_data", nsd.name))?;
+            .ok_or_else(|| anyhow!("Container {} not found in lab_node_data", nsd.name))?;
 
         for iface in &nsd.interfaces {
             if !matches!(iface.data, data::NodeInterface::Disabled) {
@@ -559,6 +575,54 @@ mod tests {
                 bridge: None,
             },
         }
+    }
+
+    fn detailed_link(node_a: &str, node_b: &str) -> topology::LinkDetailed {
+        topology::LinkDetailed {
+            node_a: node_a.to_string(),
+            node_a_idx: 1,
+            node_a_model_kind: ModelKind::default_for(NodeModel::FrrLinux),
+            int_a: "eth1".to_string(),
+            int_a_idx: 1,
+            node_b: node_b.to_string(),
+            node_b_idx: 2,
+            node_b_model_kind: ModelKind::default_for(NodeModel::FrrLinux),
+            int_b: "eth1".to_string(),
+            int_b_idx: 1,
+            link_idx: 0,
+            impairment: None,
+        }
+    }
+
+    fn member(node_name: &str, model_kind: ModelKind) -> topology::BridgeLinkDetailed {
+        topology::BridgeLinkDetailed {
+            node_name: node_name.to_string(),
+            node_model_kind: model_kind,
+            interface_name: "eth2".to_string(),
+            interface_index: 2,
+        }
+    }
+
+    #[test]
+    fn private_bridge_013_a_container_member_on_no_link_takes_its_data_interfaces_as_veths() {
+        let bridge = topology::BridgeDetailed {
+            manifest_name: "private".to_string(),
+            bridge_name: format!("brs0-{LAB_ID}"),
+            libvirt_name: format!("sherpa-bridge0-private-{LAB_ID}"),
+            index: 0,
+            links: vec![
+                member("c1", ModelKind::default_for(NodeModel::FrrLinux)),
+                member("r1", ModelKind::default_for(NodeModel::CiscoIol)),
+                member("linux01", ModelKind::default_for(NodeModel::AlpineLinux)),
+            ],
+        };
+        let names = veth_container_names(&[detailed_link("c1", "c2")], &[bridge]);
+        assert_eq!(
+            names,
+            HashSet::from(["c1", "c2", "r1"].map(String::from)),
+            "linux01 is a VM, so libvirt joins it"
+        );
+        assert!(veth_container_names(&[], &[]).is_empty());
     }
 
     fn three_containers() -> (FakeHost, Vec<data::LabLinkData>, Vec<P2pContainerVeth>) {

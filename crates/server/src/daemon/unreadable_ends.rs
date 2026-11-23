@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 
 use crate::services::error::Unexpected;
 
@@ -29,10 +29,11 @@ pub struct UnreadableEnd {
     pub reference: Unexpected,
 }
 
-/// Each lab's unreadable link ends, by lab ID, then by host interface.
+/// Each lab's unreadable link ends, and the labs with a bridge member from an older release.
 #[derive(Clone, Default)]
 pub struct UnreadableEnds {
     labs: Arc<DashMap<String, HashMap<String, UnreadableEnd>>>,
+    older_member_labs: Arc<DashSet<String>>,
 }
 
 impl fmt::Display for EndRead {
@@ -67,8 +68,15 @@ impl UnreadableEnds {
         self.labs.get(lab_id)?.get(iface).cloned()
     }
 
+    /// Note that lab `lab_id` has a bridge member from an older release; true the first time.
+    #[must_use]
+    pub fn note_older_member(&self, lab_id: &str) -> bool {
+        self.older_member_labs.insert(lab_id.to_string())
+    }
+
     /// Forget lab `lab_id`, as it was destroyed.
     pub fn forget_lab(&self, lab_id: &str) {
         self.labs.remove(lab_id);
+        self.older_member_labs.remove(lab_id);
     }
 }

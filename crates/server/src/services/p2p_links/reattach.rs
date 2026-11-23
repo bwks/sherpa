@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 
 use super::carrier::follow_carrier;
-use super::host::{EndDevice, LinkHost};
+use super::host::{EndDevice, LinkHost, make_veth};
 use super::transition::{End, EndAt, LinkStep, Side, step};
 use super::veths::{ContainerVeth, node_links};
 use crate::daemon::link_states::LinkStates;
@@ -285,7 +285,7 @@ async fn make_container_ends(
     };
     let mut broken = HashMap::new();
     for veth in veths {
-        if let Err(error) = host.create_veth(veth, pid).await {
+        if let Err(error) = make_veth(host, veth, pid).await {
             tracing::warn!(container = %container, host_veth = %veth.host_veth, error = %error, "Failed to make a container veth");
             broken.insert(
                 veth.host_veth.clone(),

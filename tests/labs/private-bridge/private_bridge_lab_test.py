@@ -51,8 +51,7 @@ from labkit import (
 LAB = Path(__file__).resolve().parent
 ROOT = LAB.parent.parent.parent
 RUNS = ROOT / ".tmp" / "lab-tests"
-# Redeployed in this order: two containers on a link (veths), one on no link (Docker networks),
-# then the VM.
+# Redeployed in this order: two containers on a link, one on no link, then the VM.
 REDEPLOYED = ("fr01", "fr03", "fr04", "dev01")
 # Bridge members are numbered from the first address of the bridge subnet; link `n` (0-based)
 # uses the subnet after it.

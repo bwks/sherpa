@@ -1,8 +1,7 @@
 name = "private-bridge"
 
-# A VM and four containers in one private bridge. fr01, fr02 and fr03 also have links, so they
-# take every data interface as a veth; fr04 has no link, so its bridge member is a Docker
-# network. Both container wiring paths are covered.
+# A VM and four containers in one private bridge. Every container takes its data interfaces as
+# veths; fr01, fr02 and fr03 also have links, and fr04 is on the bridge alone.
 
 [[nodes]]
 name = "dev01"

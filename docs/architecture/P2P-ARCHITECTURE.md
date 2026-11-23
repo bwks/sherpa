@@ -38,10 +38,14 @@ and a direction is never recorded clear while the kernel still has its qdisc.
 
 ## Container-to-Container
 
-A container on at least one link gets every data interface as a veth, and Docker handles only
-its management interface: mixing Docker networks with injected interfaces breaks Docker's `ethN`
-naming. A container on no link takes its bridge members and disabled interfaces as Docker macvlan
-networks. `network::create_veth_in_netns` makes each veth straight into the container's namespace
+A container on at least one link or private bridge gets every data interface as a veth, and
+Docker handles only its management interface: mixing Docker networks with injected interfaces
+breaks Docker's `ethN` naming. A bridge member's host end, `cb<node>i<interface>-<lab>`, is a port
+of the bridge's Linux bridge, so a bridge has a port, and carrier, for each running container
+member, and every member gets its frames whatever MAC address its NOS uses. A macvlan would give
+neither: a bridge of only macvlans has no port and no carrier, and a macvlan delivers unicast
+only to its own MAC address. A container on no link and no bridge takes its disabled interfaces
+as Docker macvlan networks on its isolated bridge. `network::create_veth_in_netns` makes each veth straight into the container's namespace
 with its final name, so nothing runs inside the container and images with no shell or `ip` work.
 
 During `up`, a container's veths are made once it has started, and each link is attached as soon
@@ -61,9 +65,9 @@ it up; a VM's sits on the node's isolated network, whose bridge is set down.
 A veth leaves a TCP or UDP checksum for the "hardware" to fill in, and a program reading the
 interface through a packet socket, as Cisco IOL does, gets the unfinished packet. For a model
 whose `ModelKind::needs_host_checksums` is true, transmit checksum offload goes off on the host
-end of every veth facing the container: `KernelHost::create_veth` for data veths, and
-`node_ops::finish_management_checksums` for the management veth, which Docker makes again at
-every start. An IOL node on no link has macvlan interfaces, with no host end to change. IOL's MTU
+end of every veth facing the container: `p2p_links::make_veth` for data veths, link ends and
+bridge members alike, and `node_ops::finish_management_checksums` for the management veth, which
+Docker makes again at every start. IOL's MTU
 is 1500, so a Linux peer must use 1500 on that link, or its larger TCP MSS stalls TCP.
 
 ### Teardown
@@ -82,7 +86,11 @@ repaired by the scanner within one scan.
 A redirect is tied to an ifindex twice: the filter on the end's own interface, which dies with
 it, and the peer's ifindex in the other end's map, which nothing updates. The scanner finds
 broken ends of running nodes from the kernel alone: an end that does not exist (a restarted
-container's veths), or one with no redirect filter whose peer exists (libvirt's new, bare tap).
+container's veths, its bridge members' host ends included, so a container on a bridge and no link
+is repaired too), or one with no redirect filter whose peer exists (libvirt's new, bare tap).
+A bridge member from an older release is a macvlan: the container has the interface and its host
+end does not exist. The scanner leaves it alone, logs its lab once at info level, and the node
+gets a veth when it is redeployed.
 `repair_node` then runs `reattach_node_links`, making only the missing interfaces. The map is
 never read back, so a filter that survived with a stale peer ifindex cannot be seen. Each scan of
 a `Ready` lab runs, under the lab hold, the management checksum offload, this repair, then carrier.

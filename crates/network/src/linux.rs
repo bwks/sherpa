@@ -117,6 +117,29 @@ async fn netns_id(handle: &mut Handle, pid: u32) -> Result<i32> {
         .with_context(|| format!("The network namespace of process {pid} has no ID"))
 }
 
+/// Whether process `pid`'s network namespace has interface `iface`.
+///
+/// # Errors
+///
+/// Fails when the process does not exist or netlink refuses the lookup.
+#[instrument(level = "debug")]
+pub async fn container_has_interface(pid: u32, iface: &str) -> Result<bool> {
+    let mut handle = setup_netlink().await?;
+    let nsid = netns_id(&mut handle, pid).await?;
+    let mut request = handle.link().get().match_name(iface.to_string());
+    request
+        .message_mut()
+        .attributes
+        .push(LinkAttribute::IfNetnsId(nsid));
+    match request.execute().try_next().await {
+        Ok(link) => Ok(link.is_some()),
+        Err(error) if is_no_device(&error) => Ok(false),
+        Err(error) => {
+            Err(error).with_context(|| format!("Failed to look up {iface} of process {pid}"))
+        }
+    }
+}
+
 /// The index, in this network namespace, of the veth peer of interface `iface` of process
 /// `pid`: the host end of a container's veth. Read through netlink with the namespace's ID,
 /// which needs `CAP_NET_ADMIN` only.

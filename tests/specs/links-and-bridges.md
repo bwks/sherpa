@@ -1,3 +1,4 @@
+| 016 | A container member from an older release, an interface in the container with no host end, is not repaired by any scan, and its lab is logged once at info level | unit |
 # Links and bridges
 
 What a lab's data plane does: point-to-point links between virtual machines, containers and unikernels, what happens to a link when the node at one end stops or is made again, link impairment, private bridges, where each interface of a node is and what an unused one looks like, the management network as far as it carries nodes' traffic, and what destroy and redeploy leave on the host. Whether a lab with links comes up at all is `lab_up_003` in [lab lifecycle](lab-lifecycle.md); how a node boots, stops and starts is in [nodes](nodes.md); which link, bridge and interface settings a manifest may hold, and the refusal of one that is wrong, are in the Manifests spec; who may change a lab is in [accounts and auth](accounts-and-auth.md); the address ranges a lab gets, and its nodes' addresses in them, are `lab_addressing` in lab lifecycle; the lab router's DHCP and DNS, the Tailscale gateway and how `sherpa inspect` and the web UI lay a lab out, its Links table included, have their own specs.
@@ -52,7 +53,7 @@ Cases 016, 018 and 019 show a repair on a real host. Cases 030 to 032 show what 
 | 006 | A cold-booted VM or unikernel has each of its links attached to its new ends, in both directions | unit |
 | 007 | A container started again gets every data interface again, link ends, bridge members and unused interfaces, before its links are attached | unit |
 | 008 | A container of a lab with no stored manifest gets as many data interfaces as its image has | unit |
-| 009 | A container on no link keeps its Docker networks when it is started again, and no interface is made for it | unit |
+| 009 | A container on no link and no bridge keeps its Docker networks when it is started again, and no interface is made for it | unit |
 | 010 | A link whose peer is down waits for the peer, and the node's other links are attached | unit |
 | 011 | When the peer comes back, the link is attached in both directions | unit |
 | 012 | A link that fails does not stop the node's other links, and does not fail the node | unit |
@@ -163,6 +164,8 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 **Statement:** the interfaces named in a `[[bridges]]` entry are in one layer 2 broadcast domain, with nothing else in it.
 **Relied on by:** the user. **Priority:** P1.
 
+A container member, on a link or not, takes every data interface as a veth made in its namespace, and its member's host end, `cb<node>i<interface>-<lab>`, is a port of the bridge. A VM member joins through its tap.
+
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | A VM, containers on a link and a container on no link, all members of one bridge, each ping every other member from their member interface | e2e |
@@ -170,12 +173,16 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 | 003 | A node with a bridge member interface and a link has both working, each on its own interface | e2e |
 | 004 | The members of one bridge are not reachable from another bridge of the lab, from the management network or from another lab (no test yet) | e2e |
 | 005 | A bridge on the host is up with MTU 9600 | integration |
-| 006 | A member container on a link joins through an interface made in its namespace, and its host end is in the bridge | integration |
-| 007 | A member container on no link gets a Docker network on the bridge for that interface, active, and its later interfaces keep their order and names | unit |
+| 006 | A member container joins through an interface made in its namespace, and its host end is in the bridge | integration |
+| 007 | Retired: a member container on no link no longer gets a Docker macvlan network on the bridge; see 013 | |
 | 008 | A bridge is recorded with its members or not at all, and its members go with the lab | integration |
 | 009 | An interface is recorded in one link or one bridge only | integration |
 | 010 | Members keep reaching each other after down and resume, and after a member container is restarted outside Sherpa (no test yet) | e2e |
 | 011 | A bridge whose name is taken is not made over the one there, and a member whose interface or bridge does not exist fails to join, each with an error | integration |
+| 012 | A bridge whose members are only containers on no link carries traffic between them | integration |
+| 013 | A container member on no link takes every data interface as a veth in its namespace, and gets no Docker data network; a VM member does not | unit |
+| 014 | A container on a bridge and no link that is restarted outside Sherpa has its interfaces made again by one scan, the member's host end in the bridge; the next scan makes nothing, and a stopped one is left alone | unit |
+| 015 | A container on a bridge and no link restarted with `docker restart` reaches the other members again after one scan | integration |
 
 ## `node_interfaces`: every interface of a node is where its name says
 
@@ -190,7 +197,7 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 | 004 | An unused interface of a container on a link is in the container under its name with no carrier | e2e |
 | 005 | An unused interface of a VM is in the guest with its link down (no test at this level yet) | e2e |
 | 006 | An unused container interface is down at both ends, except on a model that needs its interfaces up, where it is up in the container with no carrier | integration |
-| 007 | An unused interface of a container on no link gets a Docker network of its own, named and down | unit |
+| 007 | An unused interface of a container on no link and no bridge gets a Docker network of its own, named and down | unit |
 | 008 | A node's data interfaces number as many as its manifest or image says, after its reserved ones, and a count past the model's range is an error | unit |
 | 009 | A VM's interfaces are named `eth0`, `eth1` in a guest that keeps kernel names | e2e |
 | 010 | A VM's reserved interfaces are on a network of the node's own with their link up, and its unused ones on another with ports kept apart | integration |
@@ -216,6 +223,8 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 | 008 | Each scan turns offload off on the management interface of a running node that needs it, only when it is on, so a container started outside Sherpa is put right | unit |
 | 009 | A node whose management interface cannot be found does not stop the scan of the others | unit |
 | 010 | SSH to the management address of a `cisco_iol` node restarted with `docker restart` works again within one scan (no test yet) | e2e |
+| 011 | Ping and TCP into a `cisco_iol` node across a private bridge it has no link on work (no test yet) | e2e |
+| 012 | A `cisco_iol` container on a bridge and no link gets its member and unused interfaces as veths, each host end with offload off, and another model's keep it on | unit |
 
 ## `management_network`: every node is reachable on its lab's management network
 

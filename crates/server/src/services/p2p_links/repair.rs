@@ -21,7 +21,7 @@ use tracing::instrument;
 
 use super::host::LinkHost;
 use super::reattach::{LabLinks, LinkOutcome, RecreatedEnd, reattach_node_links};
-use super::veths::ContainerVeth;
+use super::veths::{BridgeEnd, ContainerVeth};
 use crate::daemon::unreadable_ends::{EndRead, UnreadableEnd, UnreadableEnds};
 use crate::services::error::Unexpected;
 
@@ -58,6 +58,15 @@ enum Seen {
     Unreadable(EndRead, anyhow::Error),
 }
 
+/// What the kernel shows of a running container's private bridge member.
+enum Member {
+    Veth,
+    Missing,
+    /// The container has the interface but its host end is gone: an older release's macvlan.
+    Older,
+    Unreadable(anyhow::Error),
+}
+
 impl fmt::Display for EndFault {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -92,14 +101,12 @@ impl LinkCheck {
     }
 }
 
-/// Check each of the lab's links in the kernel. `running` holds the nodes whose runtime reports
-/// them running: only their ends are checked. A link with an end to repair is `Failed` until
-/// the repair's outcome is recorded. Which ends could not be read is kept in `unreadable`
-/// (see `record_end_read`).
+/// Check the lab's links and private bridge member ends of the `running` nodes in the kernel.
 #[instrument(skip_all, level = "debug")]
 pub(crate) async fn check_lab_links(
     host: &impl LinkHost,
     lab: &LabLinks,
+    bridge_ends: &[BridgeEnd],
     running: &HashSet<RecordId>,
     unreadable: &UnreadableEnds,
 ) -> LinkCheck {
@@ -114,7 +121,59 @@ pub(crate) async fn check_lab_links(
         let state = check_link(host, lab, link, running, unreadable, &mut check).await;
         check.states.insert(link.index, state);
     }
+    for end in bridge_ends {
+        if running.contains(&end.node) {
+            check_bridge_end(host, lab, end, unreadable, &mut check).await;
+        }
+    }
     check
+}
+
+/// Check one private bridge member end of a running container.
+async fn check_bridge_end(
+    host: &impl LinkHost,
+    lab: &LabLinks,
+    end: &BridgeEnd,
+    unreadable: &UnreadableEnds,
+    check: &mut LinkCheck,
+) {
+    let member = see_member(host, end).await;
+    let failure = match &member {
+        Member::Unreadable(error) => Some((EndRead::LookUp, error)),
+        Member::Veth | Member::Missing | Member::Older => None,
+    };
+    let _ = record_end_read(unreadable, lab.lab_id(), &end.host_veth, failure);
+    match member {
+        Member::Missing => {
+            tracing::info!(node = %lab.name(&end.node), iface = %end.host_veth, fault = %EndFault::Missing, "Private bridge member end needs repair");
+            if !check.broken.contains(&end.node) {
+                check.broken.push(end.node.clone());
+            }
+        }
+        Member::Older => {
+            if unreadable.note_older_member(lab.lab_id()) {
+                tracing::info!(lab_id = %lab.lab_id(), node = %lab.name(&end.node), iface = %end.interface, "Private bridge member is from an older release; redeploy the node to make it a veth");
+            }
+        }
+        Member::Veth | Member::Unreadable(_) => {}
+    }
+}
+
+/// What the kernel shows of private bridge member `end`.
+async fn see_member(host: &impl LinkHost, end: &BridgeEnd) -> Member {
+    match host.ifindex(&end.host_veth).await {
+        Ok(Some(_)) => return Member::Veth,
+        Ok(None) => {}
+        Err(error) => return Member::Unreadable(error),
+    }
+    match host
+        .container_has_interface(&end.container, &end.interface)
+        .await
+    {
+        Ok(true) => Member::Older,
+        Ok(false) => Member::Missing,
+        Err(error) => Member::Unreadable(error),
+    }
 }
 
 /// Check one link: add the nodes of its ends that need repair, and its ends made again, to
@@ -417,7 +476,7 @@ mod tests {
         running: &HashSet<RecordId>,
         ends: &[(&str, Planner)],
     ) -> Scan {
-        let mut check = check_lab_links(host, lab, running, &UnreadableEnds::default()).await;
+        let mut check = check_lab_links(host, lab, &[], running, &UnreadableEnds::default()).await;
         let mut found: Vec<(&u16, &LinkState)> = check.states.iter().collect();
         found.sort_by_key(|(index, _)| **index);
         let faults = found
@@ -560,6 +619,112 @@ mod tests {
         assert_eq!(host.index("cd1i2-lab"), disabled);
     }
 
+    fn bridged_ctr1_lab() -> LabLinks {
+        LabLinks::new(
+            "lab",
+            vec![],
+            &[node("ctr1")],
+            HashMap::from([(id("ctr1"), NodeKind::Container)]),
+        )
+    }
+
+    fn bridged_ctr1_ends() -> Vec<BridgeEnd> {
+        vec![BridgeEnd {
+            node: id("ctr1"),
+            host_veth: "cb1i1-lab".to_string(),
+            container: "ctr1-lab".to_string(),
+            interface: "eth1".to_string(),
+        }]
+    }
+
+    fn bridged_ctr1_end() -> RecreatedEnd {
+        let veth = |host_veth: &str, idx: u8, bridge: Option<&str>| ContainerVeth {
+            host_veth: host_veth.to_string(),
+            host_alias: format!("alias-{host_veth}"),
+            interface_idx: idx,
+            model_kind: ModelKind::default_for(NodeModel::FrrLinux),
+            admin_down: bridge.is_none(),
+            bridge: bridge.map(str::to_string),
+        };
+        RecreatedEnd::Container {
+            container: "ctr1-lab".to_string(),
+            veths: vec![
+                veth("cb1i1-lab", 1, Some("brs0-lab")),
+                veth("cd1i2-lab", 2, None),
+            ],
+        }
+    }
+
+    #[tokio::test]
+    async fn private_bridge_014_a_container_on_a_bridge_restarted_outside_sherpa_is_repaired_by_one_scan()
+     {
+        let lab = bridged_ctr1_lab();
+        let ends = bridged_ctr1_ends();
+        let host = FakeHost::default();
+        let all = running(&["ctr1"]);
+
+        let check = check_lab_links(&host, &lab, &ends, &all, &UnreadableEnds::default()).await;
+        assert_eq!(check.broken_nodes(), vec![id("ctr1")]);
+        repair_node(&host, &lab, &id("ctr1"), bridged_ctr1_end()).await;
+        assert_eq!(
+            host.bridge_ports
+                .borrow()
+                .get("cb1i1-lab")
+                .map(String::as_str),
+            Some("brs0-lab")
+        );
+        assert!(host.index("cd1i2-lab").is_some());
+
+        host.writes.set(0);
+        let check = check_lab_links(&host, &lab, &ends, &all, &UnreadableEnds::default()).await;
+        assert_eq!(check.broken_nodes(), Vec::<RecordId>::new());
+        assert_eq!(host.writes.get(), 0);
+
+        host.remove(&["cb1i1-lab", "cd1i2-lab"]);
+        let stopped = check_lab_links(
+            &host,
+            &lab,
+            &ends,
+            &running(&[]),
+            &UnreadableEnds::default(),
+        )
+        .await;
+        assert_eq!(stopped.broken_nodes(), Vec::<RecordId>::new());
+    }
+
+    #[test]
+    fn private_bridge_016_an_older_releases_member_is_not_repaired_and_is_logged_once() {
+        let lab = bridged_ctr1_lab();
+        let ends = bridged_ctr1_ends();
+        let mut host = FakeHost::default();
+        host.container_interfaces
+            .insert(("ctr1-lab".to_string(), "eth1".to_string()));
+        let unreadable = UnreadableEnds::default();
+        let all = running(&["ctr1"]);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (broken, log) = capture_log(|| {
+            (0..3)
+                .map(|_| {
+                    let check =
+                        runtime.block_on(check_lab_links(&host, &lab, &ends, &all, &unreadable));
+                    check.broken_nodes()
+                })
+                .collect::<Vec<Vec<RecordId>>>()
+        });
+        assert_eq!(broken, vec![Vec::<RecordId>::new(); 3]);
+        assert_eq!(host.writes.get(), 0);
+        let older: Vec<&str> = log
+            .lines()
+            .filter(|line| line.contains("older release"))
+            .collect();
+        assert_eq!(older.len(), 1, "{log}");
+        assert!(older[0].contains(" INFO "), "{log}");
+        assert!(!log.contains(" WARN "), "{log}");
+    }
+
     #[tokio::test]
     async fn link_reattach_023_a_bare_end_whose_peer_is_down_waits_for_the_peer() {
         // vm1 was started outside Sherpa while vm2 is shut off: nothing can be attached, so it
@@ -660,7 +825,7 @@ mod tests {
         let (reasons, unreadable_log) = capture_log(|| {
             (0..3)
                 .map(|_| {
-                    let check = runtime.block_on(check_lab_links(&host, &lab, &nodes, &ends));
+                    let check = runtime.block_on(check_lab_links(&host, &lab, &[], &nodes, &ends));
                     check.into_states()[&0].clone()
                 })
                 .collect::<Vec<LinkState>>()
@@ -669,7 +834,7 @@ mod tests {
         let (states, readable_log) = capture_log(|| {
             (0..2)
                 .map(|_| {
-                    let check = runtime.block_on(check_lab_links(&host, &lab, &nodes, &ends));
+                    let check = runtime.block_on(check_lab_links(&host, &lab, &[], &nodes, &ends));
                     check.into_states()[&0].clone()
                 })
                 .collect::<Vec<LinkState>>()
@@ -860,7 +1025,7 @@ mod tests {
         async fn scan(&self, running: &HashSet<RecordId>) -> HashMap<u16, LinkState> {
             let host = KernelHost::new(&self.docker, &self.qemu);
             let mut check =
-                check_lab_links(&host, &self.lab, running, &UnreadableEnds::default()).await;
+                check_lab_links(&host, &self.lab, &[], running, &UnreadableEnds::default()).await;
             for node in check.broken_nodes() {
                 let end = if node == id("ctr1") { end_a() } else { end_b() };
                 let outcomes = repair_node(&host, &self.lab, &node, end).await;
@@ -952,6 +1117,169 @@ mod tests {
         pair.down().await;
     }
 
+    const BR_CTR_A: &str = "it-bridge-ctr1";
+    const BR_CTR_B: &str = "it-bridge-ctr2";
+    const BRIDGE: &str = "it-brs0";
+
+    fn bridge_member(container: &str, host_veth: &str) -> RecreatedEnd {
+        RecreatedEnd::Container {
+            container: container.to_string(),
+            veths: vec![ContainerVeth {
+                bridge: Some(BRIDGE.to_string()),
+                ..alpine_end(host_veth)
+            }],
+        }
+    }
+
+    fn bridged_end(node: &RecordId) -> RecreatedEnd {
+        if *node == id("ctr1") {
+            bridge_member(BR_CTR_A, "it-cb1")
+        } else {
+            bridge_member(BR_CTR_B, "it-cb2")
+        }
+    }
+
+    struct BridgedPair {
+        docker: Docker,
+        qemu: Arc<Qemu>,
+        lab: LabLinks,
+        ends: Vec<BridgeEnd>,
+    }
+
+    impl BridgedPair {
+        async fn up() -> Self {
+            let docker = Docker::connect_with_local_defaults().unwrap();
+            let _ = network::delete_interface(BRIDGE).await;
+            network::create_bridge(BRIDGE, "it-bridge").await.unwrap();
+            start_alpine(&docker, BR_CTR_A).await;
+            start_alpine(&docker, BR_CTR_B).await;
+            let lab = LabLinks::new(
+                "lab",
+                vec![],
+                &[node("ctr1"), node("ctr2")],
+                HashMap::from([
+                    (id("ctr1"), NodeKind::Container),
+                    (id("ctr2"), NodeKind::Container),
+                ]),
+            );
+            let pair = Self {
+                docker,
+                qemu: Arc::new(Qemu::default()),
+                lab,
+                ends: vec![
+                    BridgeEnd {
+                        node: id("ctr1"),
+                        host_veth: "it-cb1".to_string(),
+                        container: BR_CTR_A.to_string(),
+                        interface: "eth1".to_string(),
+                    },
+                    BridgeEnd {
+                        node: id("ctr2"),
+                        host_veth: "it-cb2".to_string(),
+                        container: BR_CTR_B.to_string(),
+                        interface: "eth1".to_string(),
+                    },
+                ],
+            };
+            let host = KernelHost::new(&pair.docker, &pair.qemu);
+            for node in ["ctr1", "ctr2"] {
+                repair_node(&host, &pair.lab, &id(node), bridged_end(&id(node))).await;
+            }
+            pair.address(BR_CTR_A, "10.250.1.1/24").await;
+            pair.address(BR_CTR_B, "10.250.1.2/24").await;
+            pair
+        }
+
+        async fn address(&self, container: &str, cidr: &str) {
+            exec_container(
+                &self.docker,
+                container,
+                vec!["ip", "addr", "add", cidr, "dev", "eth1"],
+            )
+            .await
+            .unwrap();
+        }
+
+        async fn pings(&self) -> bool {
+            for container in [BR_CTR_A, BR_CTR_B] {
+                exec_container(&self.docker, container, vec!["ip", "neigh", "flush", "all"])
+                    .await
+                    .unwrap();
+            }
+            pings(&self.docker, BR_CTR_A, "10.250.1.2").await
+        }
+
+        async fn scan(&self) -> Vec<RecordId> {
+            let host = KernelHost::new(&self.docker, &self.qemu);
+            let check = check_lab_links(
+                &host,
+                &self.lab,
+                &self.ends,
+                &running(&["ctr1", "ctr2"]),
+                &UnreadableEnds::default(),
+            )
+            .await;
+            let broken = check.broken_nodes();
+            for node in &broken {
+                repair_node(&host, &self.lab, node, bridged_end(node)).await;
+            }
+            broken
+        }
+
+        async fn down(self) {
+            for name in [BR_CTR_A, BR_CTR_B] {
+                let _ = self
+                    .docker
+                    .remove_container(
+                        name,
+                        Some(RemoveContainerOptions {
+                            force: true,
+                            ..RemoveContainerOptions::default()
+                        }),
+                    )
+                    .await;
+            }
+            let _ = network::delete_interface(BRIDGE).await;
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires root and Docker with alpine:latest: makes containers, a bridge and veths"]
+    async fn private_bridge_012_a_bridge_of_containers_on_no_link_carries_traffic_between_them() {
+        let pair = BridgedPair::up().await;
+        let shown = String::from_utf8(
+            std::process::Command::new("ip")
+                .args(["link", "show", BRIDGE])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap();
+        assert!(!shown.contains("NO-CARRIER"), "{shown}");
+        assert!(pair.pings().await, "the members reach each other");
+        pair.down().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires root and Docker with alpine:latest: makes containers, a bridge and veths"]
+    async fn private_bridge_015_a_docker_restart_of_a_member_on_no_link_is_repaired_by_one_scan() {
+        let pair = BridgedPair::up().await;
+        pair.docker
+            .restart_container(BR_CTR_B, None::<RestartContainerOptions>)
+            .await
+            .unwrap();
+        assert!(
+            network::find_ifindex("it-cb2").await.unwrap().is_none(),
+            "the restart took the veth"
+        );
+
+        assert_eq!(pair.scan().await, vec![id("ctr2")]);
+        assert_eq!(pair.scan().await, Vec::<RecordId>::new());
+        pair.address(BR_CTR_B, "10.250.1.2/24").await;
+        assert!(pair.pings().await, "traffic crosses again");
+        pair.down().await;
+    }
+
     /// A diskless domain with one `ethernet` interface on tap `tap`, as Sherpa's VMs have.
     fn domain_xml(name: &str, tap: &str) -> String {
         format!(
@@ -992,7 +1320,8 @@ mod tests {
         let host = KernelHost::new(&docker, &qemu);
         let both = running(&["vm1", "peer"]);
         let scan_once = || async {
-            let mut check = check_lab_links(&host, &lab, &both, &UnreadableEnds::default()).await;
+            let mut check =
+                check_lab_links(&host, &lab, &[], &both, &UnreadableEnds::default()).await;
             let broken = check.broken_nodes();
             for node in &broken {
                 let outcomes = repair_node(&host, &lab, node, RecreatedEnd::Domain).await;
@@ -1168,6 +1497,7 @@ chmod +x /var/lib/cloud/scripts/per-boot/carrier.sh
             let mut check = check_lab_links(
                 &host,
                 &self.lab,
+                &[],
                 &running(running_nodes),
                 &UnreadableEnds::default(),
             )

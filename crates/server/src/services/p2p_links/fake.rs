@@ -42,6 +42,8 @@ pub(crate) struct FakeHost {
     pub(crate) carrier_writes: RefCell<Vec<(EndDevice, bool)>>,
     /// Interfaces whose carrier cannot be read or set.
     pub(crate) failing_carrier: HashSet<String>,
+    pub(crate) bridge_ports: RefCell<HashMap<String, String>>,
+    pub(crate) container_interfaces: HashSet<(String, String)>,
 }
 
 impl FakeHost {
@@ -200,6 +202,16 @@ impl FakeHost {
             bail!("netlink refused {}", veth.host_veth);
         }
         self.make(&[veth.host_veth.as_str()]);
+        if let Some(index) = self.index(&veth.host_veth) {
+            self.offload_on.borrow_mut().insert(index);
+        }
+        match &veth.bridge {
+            Some(bridge) => self
+                .bridge_ports
+                .borrow_mut()
+                .insert(veth.host_veth.clone(), bridge.clone()),
+            None => self.bridge_ports.borrow_mut().remove(&veth.host_veth),
+        };
         Ok(())
     }
 }
@@ -248,6 +260,18 @@ impl LinkHost for FakeHost {
 
     fn container_pid(&self, container: &str) -> impl Future<Output = Result<u32>> {
         ready(self.pid_of(container))
+    }
+
+    fn container_has_interface(
+        &self,
+        container: &str,
+        iface: &str,
+    ) -> impl Future<Output = Result<bool>> {
+        let key = (container.to_string(), iface.to_string());
+        ready(
+            self.pid_of(container)
+                .map(|_| self.container_interfaces.contains(&key)),
+        )
     }
 
     fn create_veth(&self, veth: &ContainerVeth, _pid: u32) -> impl Future<Output = Result<()>> {
