@@ -14,7 +14,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | LLDP, STP, pause, LACP, 802.1X, GARP-range, CDP, 802.1Q and QinQ frames arrive at the other end, each way, tags intact, on a VM to VM, a VM to container and a container to container link (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
-| 002 | Two ends joined by two links see each other as LLDP neighbours on both and bundle both with LACP, between two VMs, a VM and a container, and two containers (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
+| 002 | Two ends joined by two links see each other as LLDP neighbours on both and bundle both with LACP, between two VMs, a VM and a container, and two containers. A VM's virtio link interface reports unknown speed and duplex, and a Linux 802.3ad bond sends no LACPDU from a member that is not full duplex, so the guest sets each member to full duplex before bonding it (`ethtool -s <port> speed 10000 duplex full`); Sherpa does not set it (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
 | 003 | Every host end, a VM's tap included, is MTU 9600, and unfragmented 8972-byte pings and 9000-byte frames pass each way (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
 | 004 | A VM is told its link's MTU, so a virtio interface in the guest comes up at 9600 (no test at this level yet) | e2e |
 | 005 | A capture on a link's host end, `tpa<link>-<lab>` or `tpb<link>-<lab>`, sees every frame from both ends (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |

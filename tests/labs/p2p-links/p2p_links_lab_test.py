@@ -330,9 +330,13 @@ def manifest_interface(port):
 
 
 def bond_script(channel, members):
-    """Shell that makes `bond<channel>` an 802.3ad bond of `members`, from scratch."""
+    """Shell that makes `bond<channel>` an 802.3ad bond of `members`, from scratch. A virtio
+    member reports unknown speed and duplex, and the bond sends no LACPDU from a port that is
+    not full duplex, so each member is set to the veths' 10000 full duplex first."""
     bond = f"bond{channel}"
-    enslave = " && ".join(f"ip link set {member} down && ip link set {member} master {bond}"
+    enslave = " && ".join(f"ip link set {member} down && "
+                          f"ethtool -s {member} speed 10000 duplex full && "
+                          f"ip link set {member} master {bond}"
                           for member in members)
     up = " && ".join(f"ip link set {member} up" for member in members)
     return (f"modprobe bonding && {{ ip link del {bond} 2>/dev/null; true; }} && "

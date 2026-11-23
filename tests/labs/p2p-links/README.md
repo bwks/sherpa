@@ -48,6 +48,9 @@ Every link is P2p. On each Linux link the src end is `.1` and the dst end `.2`.
   netem. The VM interfaces are found by MAC, from the tap's. The Ubuntu VMs have no LLDP agent,
   so `lldp.py`, copied to each VM with `l2frames.py`, sends LLDP on the bond members and reports
   what it hears; its run must cover a cEOS LLDP interval, which the runner sets to 5 s.
+  A VM's virtio interfaces report unknown speed and duplex, and a Linux 802.3ad bond sends no
+  LACPDU from a member that is not full duplex, so the runner sets each bond member to
+  `speed 10000 duplex full` with `ethtool` before bonding it.
 - The node images above, pulled or imported on the server, and
   `docker pull nicolaka/netshoot:v0.14`. The run fails early if any is missing.
 - The `sherpa` CLI logged in, with a device password set (`sherpa server user device-password`), and `virsh` for the leftover check.
