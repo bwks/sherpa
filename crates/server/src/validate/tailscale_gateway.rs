@@ -37,6 +37,12 @@ pub fn validate_tailscale_gateway_settings(settings: &TailscaleGatewaySettings) 
         i32::try_from(settings.stop_timeout_secs).is_ok(),
         "tailscale.stop_timeout_secs must fit a signed 32-bit Docker stop timeout"
     );
+    ensure!(
+        settings.exec_timeout_secs > settings.enrollment_timeout_secs,
+        "tailscale.exec_timeout_secs ({}) must be longer than tailscale.enrollment_timeout_secs ({}), so the enrollment command ends before the server stops waiting for it",
+        settings.exec_timeout_secs,
+        settings.enrollment_timeout_secs
+    );
     Ok(())
 }
 
@@ -77,5 +83,31 @@ mod tests {
             let error = validate_tailscale_gateway_settings(&settings).unwrap_err();
             assert!(error.to_string().contains(field), "{error}");
         }
+    }
+
+    #[test]
+    fn tailnet_settings_009_a_command_timeout_not_longer_than_the_enrollment_timeout_is_refused_naming_both()
+     {
+        for exec_timeout_secs in [60, 30] {
+            let settings = TailscaleGatewaySettings {
+                exec_timeout_secs,
+                enrollment_timeout_secs: 60,
+                ..Default::default()
+            };
+            let error = validate_tailscale_gateway_settings(&settings)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("tailscale.exec_timeout_secs"), "{error}");
+            assert!(
+                error.contains("tailscale.enrollment_timeout_secs"),
+                "{error}"
+            );
+        }
+        let settings = TailscaleGatewaySettings {
+            exec_timeout_secs: 61,
+            enrollment_timeout_secs: 60,
+            ..Default::default()
+        };
+        assert!(validate_tailscale_gateway_settings(&settings).is_ok());
     }
 }

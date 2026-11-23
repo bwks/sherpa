@@ -137,6 +137,7 @@ A lab keeping its record after any resource fails to be removed is `lab_destroy_
 | 006 | The stop timeout that is set is the grace period Docker is given when the gateway is stopped (mock Docker) | unit |
 | 007 | A gateway whose socket path is not the default starts, reports its status and stops (no test yet) | integration |
 | 008 | A gateway image the server does not have is pulled when the first gateway is created (no test yet) | integration |
+| 009 | A command timeout not longer than the enrollment timeout is refused at start, naming both settings | unit |
 
 ## Cases that need a real tailnet
 
