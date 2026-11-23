@@ -14,7 +14,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | LLDP, STP, pause, LACP, 802.1X, GARP-range, CDP, 802.1Q and QinQ frames arrive at the other end, each way, tags intact, on a VM to VM, a VM to container and a container to container link | e2e |
-| 002 | Two ends joined by two links see each other as LLDP neighbours on both and bundle both with LACP, between two VMs, a VM and a container, and two containers | e2e |
+| 002 | Two ends joined by two links see each other as LLDP neighbours on both and bundle both with LACP, between two VMs, a VM and a container, and two containers. A VM's virtio link interface reports unknown speed and duplex, and a Linux 802.3ad bond sends no LACPDU from a member that is not full duplex, so the guest sets each member to full duplex before bonding it (`ethtool -s <port> speed 10000 duplex full`); Sherpa does not set it | e2e |
 | 003 | Every host end, a VM's tap included, is MTU 9600, and unfragmented 8972-byte pings and 9000-byte frames pass each way | e2e |
 | 004 | A VM is told its link's MTU, so a virtio interface in the guest comes up at 9600 (no test at this level yet) | e2e |
 | 005 | A capture on a link's host end, `tpa<link>-<lab>` or `tpb<link>-<lab>`, sees every frame from both ends | e2e |
@@ -162,9 +162,9 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | A VM, containers on a link and a container on no link, all members of one bridge, each ping every other member from their member interface (no test with its ID yet; `tests/labs/private-bridge` shows it) | e2e |
-| 002 | The same after redeploying a member container on a link, one on no link, and the member VM (no test with its ID yet; `tests/labs/private-bridge` shows it) | e2e |
-| 003 | A node with a bridge member interface and a link has both working, each on its own interface (no test with its ID yet; `tests/labs/private-bridge` shows it) | e2e |
+| 001 | A VM, containers on a link and a container on no link, all members of one bridge, each ping every other member from their member interface | e2e |
+| 002 | The same after redeploying a member container on a link, one on no link, and the member VM | e2e |
+| 003 | A node with a bridge member interface and a link has both working, each on its own interface | e2e |
 | 004 | The members of one bridge are not reachable from another bridge of the lab, from the management network or from another lab (no test yet) | e2e |
 | 005 | A bridge on the host is up with MTU 9600 | integration |
 | 006 | A member container on a link joins through an interface made in its namespace, and its host end is in the bridge | integration |
@@ -189,7 +189,7 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 | 006 | An unused container interface is down at both ends, except on a model that needs its interfaces up, where it is up in the container with no carrier | integration |
 | 007 | An unused interface of a container on no link gets a Docker network of its own, named and down | unit |
 | 008 | A node's data interfaces number as many as its manifest or image says, after its reserved ones, and a count past the model's range is an error | unit |
-| 009 | A VM's interfaces are named `eth0`, `eth1` and up in a guest that keeps kernel names (no test with its ID yet; `tests/labs/nixos-linux` shows it) | e2e |
+| 009 | A VM's interfaces are named `eth0`, `eth1` in a guest that keeps kernel names | e2e |
 | 010 | A VM's reserved interfaces are on a network of the node's own with their link up, and its unused ones on another with ports kept apart | integration |
 | 011 | An interface name reaches the command that renames it in a container as an argument, never as script | unit |
 | 012 | Only a model that waits for its interfaces at boot (cJunosEvolved) has its unused interfaces up in the container, and a linked interface is up on every model | unit |
@@ -239,7 +239,7 @@ Which ranges a lab's management network takes, and which addresses its nodes get
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | After destroying a lab of VM and container links, no host interface, Docker network or libvirt network of the lab is left | e2e |
-| 002 | After destroying a lab with a private bridge and containers on no link, no bridge, Docker network or libvirt network of the lab is left (no test with its ID yet; `tests/labs/private-bridge` shows it) | e2e |
+| 002 | After destroying a lab with a private bridge and containers on no link, no bridge, Docker network or libvirt network of the lab is left | e2e |
 | 003 | Only the lab's own host interfaces are deleted: one of another lab is left, also when its name contains this lab's ID | unit |
 | 004 | A redeploy takes only its own node's Docker networks: those of a node whose name starts with this node's name are left | unit |
 | 005 | Deleting an interface that is already gone succeeds, so a destroy can be run again | integration |

@@ -3,8 +3,8 @@ name = "nixos-linux"
 # Two NixOS VMs built from bwks/nixos-image, with the lab owner's account (their own name, SSH
 # keys and device password), a text file and one P2p link. `{owner}` in the text file is the lab
 # owner's name, filled in by the runner. The checks cover what NixOS does differently from the
-# other distros: no /bin/bash, wheel instead of cloud-init sudo rules, an sshd_config cloud-init
-# cannot edit, and per-user groups.
+# other distros: no /bin/bash, wheel instead of cloud-init sudo rules, per-user groups and eth
+# interface names; the link gives each node its eth1.
 
 [[nodes]]
 name = "nix01"

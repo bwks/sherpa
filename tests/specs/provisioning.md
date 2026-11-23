@@ -39,7 +39,7 @@ A node's `ztp.config` is read the same way: `custom_config_002` to `004` in [ztp
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | On a cloud-init VM, a text file in the owner's home belongs to the owner and their group and has its mode (no test with its ID yet; `tests/labs/nixos-linux` shows it) | e2e |
+| 001 | On a cloud-init VM, a text file in the owner's home belongs to the owner and their group and has its mode | e2e |
 | 002 | On a cloud-init VM, a text file under folders of the owner's home that did not exist has the client file's contents, and the folders are the owner's (no test yet) | e2e |
 | 003 | cloud-init is given each text file as a file only root reads, outside its destination, and no contents in a command | unit |
 | 004 | Once the node's users exist each file is moved to its destination, a `~/` one under its owner's home as the node's `passwd` gives it, with missing folders made and its mode set, and nothing staged is left | unit |
@@ -175,7 +175,7 @@ A file removed from the manifest stays on the node. That is documented; no case 
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | At up, a node's script runs as the lab's owner, in the owner's home (no test with its ID yet; `tests/labs/nixos-linux` shows it) | e2e |
+| 001 | At up, a node's script runs as the lab's owner, in the owner's home | e2e |
 | 002 | A script runs with the manifest's `environment_variables` and the env files' variables set, the run ends with the script's exit status, and no copy of the script is left on the node | unit |
 | 003 | A script runs as from a login: a tool the owner's login files put on `PATH` is found | unit |
 | 004 | A variable of an env file replaces one of the same name that a login file sets | unit |
