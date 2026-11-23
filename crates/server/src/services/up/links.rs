@@ -1,8 +1,8 @@
 //! Point-to-point links and the P2p container veths, and attaching their eBPF redirects.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use tracing::instrument;
 
 use super::context::LabBuild;
@@ -18,8 +18,19 @@ pub(super) struct P2pContainerVeth {
     pub(super) veth: ContainerVeth,
 }
 
+pub(super) struct ReadyLinksAttached {
+    pub(super) count: usize,
+    pub(super) gone_ends: Vec<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct GoneEnd<'a> {
+    pub(super) end: &'a str,
+    pub(super) node: &'a str,
+}
+
 /// Attach the eBPF redirect, and any impairment, on each P2p link not yet in `attached` whose
-/// ends both exist, by name in `ready`. Returns how many links it attached.
+/// ends both exist, by name in `ready`. Returns the count attached and the ends gone.
 #[instrument(skip_all, fields(%lab_id), level = "debug")]
 pub(super) async fn attach_ready_p2p_links(
     host: &impl LinkHost,
@@ -28,8 +39,11 @@ pub(super) async fn attach_ready_p2p_links(
     links_detailed: &[topology::LinkDetailed],
     ready: &HashSet<String>,
     attached: &mut HashSet<u16>,
-) -> Result<usize> {
-    let mut count = 0;
+) -> Result<ReadyLinksAttached> {
+    let mut outcome = ReadyLinksAttached {
+        count: 0,
+        gone_ends: vec![],
+    };
     for link_data in p2p_links {
         if attached.contains(&link_data.index)
             || !ready.contains(&link_data.tap_a)
@@ -40,12 +54,20 @@ pub(super) async fn attach_ready_p2p_links(
         let tap_a = &link_data.tap_a;
         let tap_b = &link_data.tap_b;
 
-        let ifindex_a = network::get_ifindex(tap_a)
-            .await
-            .context(format!("failed to get ifindex for {tap_a}"))?;
-        let ifindex_b = network::get_ifindex(tap_b)
-            .await
-            .context(format!("failed to get ifindex for {tap_b}"))?;
+        let looked_up = [
+            (tap_a, look_up_end(host, tap_a).await?),
+            (tap_b, look_up_end(host, tap_b).await?),
+        ];
+        let [(_, Some(ifindex_a)), (_, Some(ifindex_b))] = looked_up else {
+            let gone: Vec<String> = looked_up
+                .into_iter()
+                .filter(|(_, ifindex)| ifindex.is_none())
+                .map(|(end, _)| end.clone())
+                .collect();
+            tracing::warn!(lab_id = %lab_id, ?gone, "P2p link end gone before its link was attached");
+            outcome.gone_ends.extend(gone);
+            continue;
+        };
 
         // The manifest's impairment, if any, applies to both directions.
         let impairment = links_detailed
@@ -55,24 +77,79 @@ pub(super) async fn attach_ready_p2p_links(
             .map(LinkImpairment::try_from)
             .transpose()?
             .unwrap_or_default();
-        attach_link(
-            host,
-            &LinkWiring {
-                tap_a,
-                tap_b,
-                ifindex_a,
-                ifindex_b,
-                a_to_b: &impairment,
-                b_to_a: &impairment,
-            },
-        )
-        .await?;
+        let wiring = LinkWiring {
+            tap_a,
+            tap_b,
+            ifindex_a,
+            ifindex_b,
+            a_to_b: &impairment,
+            b_to_a: &impairment,
+        };
+        if let Err(error) = attach_link(host, &wiring).await {
+            let mut gone = vec![];
+            for end in [tap_a, tap_b] {
+                if look_up_end(host, end).await?.is_none() {
+                    gone.push(end.clone());
+                }
+            }
+            if gone.is_empty() {
+                return Err(error);
+            }
+            tracing::warn!(lab_id = %lab_id, ?gone, error = %format!("{error:#}"), "P2p link end gone while its link was attached");
+            outcome.gone_ends.extend(gone);
+            continue;
+        }
 
         tracing::info!(lab_id = %lab_id, %tap_a, %tap_b, "Attached P2p link");
         attached.insert(link_data.index);
-        count += 1;
+        outcome.count += 1;
     }
-    Ok(count)
+    Ok(outcome)
+}
+
+/// The interface index of link end `end`, or `None` when it is not on the host.
+async fn look_up_end(host: &impl LinkHost, end: &str) -> Result<Option<u32>> {
+    host.ifindex(end)
+        .await
+        .with_context(|| format!("failed to look up P2p link end {end}"))
+}
+
+/// The container node that owns each P2p link end in `gone`.
+pub(super) fn gone_end_owners<'a>(
+    gone: &'a [String],
+    veths: &'a [P2pContainerVeth],
+) -> Result<Vec<GoneEnd<'a>>> {
+    gone.iter()
+        .map(|end| {
+            veths
+                .iter()
+                .find(|veth| veth.veth.host_veth == *end)
+                .map(|veth| GoneEnd {
+                    end,
+                    node: &veth.node_name,
+                })
+                .ok_or_else(|| anyhow!("P2p link end {end} is gone from the host"))
+        })
+        .collect()
+}
+
+/// The nodes of `owners` whose containers are not `running`.
+pub(super) fn exited_owners<'a>(
+    owners: &[GoneEnd<'a>],
+    running: &HashSet<&str>,
+) -> Result<BTreeSet<&'a str>> {
+    let mut exited = BTreeSet::new();
+    for owner in owners {
+        if running.contains(owner.node) {
+            bail!(
+                "P2p link end {} of node {} is gone from the host while its container runs",
+                owner.end,
+                owner.node
+            );
+        }
+        exited.insert(owner.node);
+    }
+    Ok(exited)
 }
 
 pub(super) fn find_interface_link(
@@ -415,10 +492,176 @@ pub(super) async fn attach_vm_links(
             &mut attachment.attached,
         )
         .await?;
+        if !attached.gone_ends.is_empty() {
+            bail!(
+                "P2p link ends gone from the host after their nodes were created: {}",
+                attached.gone_ends.join(", ")
+            );
+        }
         let _ = build.progress.send_status(
-            format!("Attached eBPF redirect on {attached} P2p links"),
+            format!("Attached eBPF redirect on {} P2p links", attached.count),
             StatusKind::Done,
         );
     }
     Ok(attachment)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::p2p_links::fake::FakeHost;
+
+    use shared::data::{BridgeKind, DbNode, ModelKind, NodeModel, NodeState, ReadyCheck};
+
+    const LAB_ID: &str = "lab";
+
+    fn db_node(name: &str) -> DbNode {
+        DbNode {
+            id: None,
+            name: name.to_string(),
+            image: RecordId::new("node_image", "x"),
+            index: 1,
+            lab: RecordId::new("lab", LAB_ID),
+            mgmt_ipv4: None,
+            mgmt_ipv6: None,
+            mgmt_mac: None,
+            state: NodeState::Building,
+            cpu_count: None,
+            memory: None,
+            ssh_host_key: None,
+            ready_check: ReadyCheck::default(),
+            ssh_username: None,
+        }
+    }
+
+    fn link(index: u16, node_a: &str, node_b: &str) -> data::LabLinkData {
+        data::LabLinkData {
+            index,
+            kind: BridgeKind::P2p,
+            node_a: db_node(node_a),
+            node_b: db_node(node_b),
+            int_a: "eth1".to_string(),
+            int_b: "eth1".to_string(),
+            tap_a: format!("tpa{index}"),
+            tap_b: format!("tpb{index}"),
+        }
+    }
+
+    fn veth(node_name: &str, host_veth: &str) -> P2pContainerVeth {
+        P2pContainerVeth {
+            node_name: node_name.to_string(),
+            veth: ContainerVeth {
+                host_veth: host_veth.to_string(),
+                host_alias: format!("alias-{host_veth}"),
+                interface_idx: 1,
+                model_kind: ModelKind::default_for(NodeModel::FrrLinux),
+                admin_down: false,
+                bridge: None,
+            },
+        }
+    }
+
+    fn three_containers() -> (FakeHost, Vec<data::LabLinkData>, Vec<P2pContainerVeth>) {
+        let host = FakeHost::default();
+        host.make(&["tpa0", "tpb0", "tpa1", "tpb1"]);
+        let links = vec![link(0, "c1", "c2"), link(1, "c1", "c3")];
+        let veths = vec![
+            veth("c1", "tpa0"),
+            veth("c2", "tpb0"),
+            veth("c1", "tpa1"),
+            veth("c3", "tpb1"),
+        ];
+        (host, links, veths)
+    }
+
+    fn ready(ends: &[&str]) -> HashSet<String> {
+        ends.iter().map(ToString::to_string).collect()
+    }
+
+    #[tokio::test]
+    async fn p2p_link_017_a_container_whose_end_is_gone_at_its_lookup_fails_as_a_node_and_up_carries_on()
+     {
+        let (host, links, veths) = three_containers();
+        host.remove(&["tpa0", "tpa1"]);
+        host.make(&["tpa2", "tpb2"]);
+        let links: Vec<data::LabLinkData> =
+            links.into_iter().chain([link(2, "c2", "c3")]).collect();
+        let link_refs: Vec<&data::LabLinkData> = links.iter().collect();
+        let mut attached = HashSet::new();
+
+        let outcome = attach_ready_p2p_links(
+            &host,
+            LAB_ID,
+            &link_refs,
+            &[],
+            &ready(&["tpa0", "tpb0", "tpa1", "tpb1", "tpa2", "tpb2"]),
+            &mut attached,
+        )
+        .await
+        .expect("a gone end does not fail the attach");
+
+        assert_eq!(outcome.gone_ends, vec!["tpa0", "tpa1"]);
+        assert_eq!(
+            attached,
+            HashSet::from([2]),
+            "the link between c2 and c3 is attached"
+        );
+        assert!(host.wired("tpa2", "tpb2"));
+        let owners = gone_end_owners(&outcome.gone_ends, &veths).unwrap();
+        let exited = exited_owners(&owners, &HashSet::from(["c2", "c3"])).unwrap();
+        assert_eq!(exited, BTreeSet::from(["c1"]));
+    }
+
+    #[tokio::test]
+    async fn p2p_link_018_a_container_whose_end_goes_while_its_link_is_attached_fails_as_a_node_and_up_carries_on()
+     {
+        let (mut host, links, veths) = three_containers();
+        host.vanishing_redirects.insert("tpa0".to_string());
+        let link_refs: Vec<&data::LabLinkData> = links.iter().take(1).collect();
+        let mut attached = HashSet::new();
+
+        let outcome = attach_ready_p2p_links(
+            &host,
+            LAB_ID,
+            &link_refs,
+            &[],
+            &ready(&["tpa0", "tpb0"]),
+            &mut attached,
+        )
+        .await
+        .expect("an end gone at the attach does not fail the attach");
+
+        assert_eq!(outcome.gone_ends, vec!["tpa0"]);
+        assert!(attached.is_empty(), "the link is left unattached");
+        let owners = gone_end_owners(&outcome.gone_ends, &veths).unwrap();
+        let exited = exited_owners(&owners, &HashSet::from(["c2"])).unwrap();
+        assert_eq!(exited, BTreeSet::from(["c1"]));
+    }
+
+    #[tokio::test]
+    async fn p2p_link_019_an_end_gone_while_its_container_runs_fails_up_naming_the_end_and_its_node()
+     {
+        let (host, links, veths) = three_containers();
+        host.remove(&["tpa0"]);
+        let link_refs: Vec<&data::LabLinkData> = links.iter().take(1).collect();
+        let mut attached = HashSet::new();
+        let outcome = attach_ready_p2p_links(
+            &host,
+            LAB_ID,
+            &link_refs,
+            &[],
+            &ready(&["tpa0", "tpb0"]),
+            &mut attached,
+        )
+        .await
+        .unwrap();
+        let owners = gone_end_owners(&outcome.gone_ends, &veths).unwrap();
+
+        let error = exited_owners(&owners, &HashSet::from(["c1", "c2"]))
+            .expect_err("an end gone from a running container fails up");
+
+        let message = error.to_string();
+        assert!(message.contains("tpa0"), "names the end: {message}");
+        assert!(message.contains("node c1"), "names its node: {message}");
+    }
 }

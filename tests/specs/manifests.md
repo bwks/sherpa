@@ -228,7 +228,7 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | `sherpa validate` refuses a manifest whose cluster has two controllers, exits 1 and says a cluster needs 1 or 3 (no test with its ID yet; the preflight of `tests/labs/talos-linux` shows it) | e2e |
+| 001 | `sherpa validate` refuses a manifest whose cluster has two controllers, exits 1 and says a cluster needs 1 or 3 | e2e |
 | 002 | A cluster name that is empty, has an uppercase letter or `_`, or starts or ends with `-`, is refused | unit |
 | 003 | Two clusters with one name are refused, naming it | unit |
 | 004 | A cluster with no, two or four controllers is refused, naming the cluster and its count, and one with three is taken | unit |

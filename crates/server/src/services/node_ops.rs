@@ -4676,7 +4676,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::konst::TFTP_DIR_MODE;
     use crate::log_capture::capture_log;
-    use crate::services::guest_account::tests::test_account;
+    use crate::services::guest_account::tests::{RSA_4096_KEY, RSA_8192_KEY, test_account};
     use axum::extract::ws::Message;
     use nix::sys::stat::{Mode, umask};
     use shared::data::{ModelKind, Ztp};
@@ -6487,6 +6487,29 @@ echo "$*" >> '{}'
         topology::NodeExpanded {
             index,
             ..named_node(name, model)
+        }
+    }
+
+    #[test]
+    fn ssh_access_009_an_owner_with_an_rsa_key_of_4096_bits_or_less_logs_in_to_iol() {
+        for model in IOL_MODELS {
+            let mut lab = ZtpLab::new();
+            lab.account = test_account("alice", &[OWNER_KEY, RSA_8192_KEY, RSA_4096_KEY]);
+            let mut node = iol_node("r1", model, 1);
+
+            lab.container(&mut node, None).unwrap();
+
+            let config = fs::read_to_string(format!(
+                "{}/r1/config/{CISCO_IOL_STARTUP_CONFIG}",
+                lab.root()
+            ))
+            .unwrap();
+            assert!(
+                config.contains(
+                    "ip ssh pubkey-chain\n  username alice\n   key-hash ssh-rsa D9B93808AFAEBEB58DDFAB3225686F61\n!"
+                ),
+                "{model}: {config}"
+            );
         }
     }
 

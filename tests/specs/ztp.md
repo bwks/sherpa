@@ -58,7 +58,7 @@ A config template is tested one case per model, not one table-driven case for al
 |---|---|---|
 | 001 | A container with ZTP on runs with every config mount of its model and takes its owner's SSH login by key, after up and after a redeploy | e2e |
 | 002 | A `cisco_iol` node's running config has the name, the management interface and the owner's account Sherpa generated, read over the owner's SSH login | e2e |
-| 003 | A cloud-init VM finishes cloud-init without an error (no test with its ID yet; `tests/labs/nixos-linux` shows it) | e2e |
+| 003 | A cloud-init VM finishes cloud-init without an error | e2e |
 | 004 | A VM of each other method, `cdrom`, `disk`, `usb`, `tftp`, `http`, `ignition` and `nocloud`, boots with its name and its management address from the config Sherpa delivered (no test yet) | e2e |
 | 005 | An `frr_linux` container with ZTP on has its three config mounts and its start command, at up and after a redeploy | integration |
 | 006 | A config medium is copied into the storage pool byte for byte | integration |
@@ -267,6 +267,7 @@ Cases 001 to 014 render the model's config with device passwords that between th
 | 022 | A `juniper_srxv3` node's config has the owner and `root` each with a hash of the device password | unit |
 | 023 | The configs served over TFTP and HTTP carry only a hash of the device password, and AOS-CX's carries none | unit |
 | 024 | The models that store a hash, Arista, Junos, PAN-OS, FRR and SONiC, each have the hash unchanged for every character a password may have, and only the accounts their case in `generated_config` shows (no test yet) | unit |
+| 025 | The Cisco IOS family (IOSv, IOSvL2, IOL, IOL L2, CSR 1000v, Cat8000v, Cat9000v) takes the owner's RSA keys of 4096 bits or less only: a larger RSA key is skipped and named in the skipped keys with its size, and an owner with no RSA key of 4096 bits or less is refused with the command that makes one | unit |
 
 ## `boot_server`: each lab has a boot server for its nodes' addresses, names and network configs
 

@@ -37,6 +37,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 024 | A Windows node disables every local account but the owner's, before its startup scripts run | unit |
 | 025 | On Windows each account has its own keys file, so the owner's keys log in only as the owner | unit |
 | 026 | The owner's account is not locked on Alpine and the BSDs, whose sshd refuses the key of a locked account | unit |
+| 027 | On a NixOS VM the owner logs in with the system Bash, has a group of their own and passwordless sudo through `wheel` | e2e |
 
 ## `access_control`: an operation on a lab is carried out only for a user allowed to do it
 

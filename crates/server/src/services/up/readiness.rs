@@ -4,12 +4,14 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use bollard::secret::ContainerStateStatusEnum;
 use tracing::instrument;
 
 use super::context::LabBuild;
-use super::links::{P2pAttachment, P2pContainerVeth, attach_ready_p2p_links};
+use super::links::{
+    P2pAttachment, P2pContainerVeth, attach_ready_p2p_links, exited_owners, gone_end_owners,
+};
 use crate::konst::{READINESS_SLEEP, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR};
 use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle;
@@ -517,6 +519,11 @@ impl Readiness<'_, '_> {
         container: &topology::NodeExpanded,
         container_name: &str,
     ) -> Result<NodeState> {
+        for veth in self.inputs.p2p_container_veths {
+            if veth.node_name == container.name {
+                self.p2p.ready_ends.remove(&veth.veth.host_veth);
+            }
+        }
         let docker = self.build.docker_conn;
         let exit_code = match container::container_state(docker, container_name).await {
             Ok(state) => state.and_then(|state| state.exit_code),
@@ -576,7 +583,7 @@ impl Readiness<'_, '_> {
             })?;
             self.p2p.ready_ends.insert(veth.host_veth.clone());
         }
-        attach_ready_p2p_links(
+        let attached = attach_ready_p2p_links(
             &host,
             self.build.lab_id,
             self.inputs.p2p_links,
@@ -585,6 +592,71 @@ impl Readiness<'_, '_> {
             &mut self.p2p.attached,
         )
         .await?;
+        self.fail_exited_owners(container, &attached.gone_ends)
+            .await
+    }
+
+    /// Fail the exited containers that own the P2p link ends in `gone`.
+    async fn fail_exited_owners(
+        &mut self,
+        starting: &topology::NodeExpanded,
+        gone: &[String],
+    ) -> Result<()> {
+        if gone.is_empty() {
+            return Ok(());
+        }
+        let owners = gone_end_owners(gone, self.inputs.p2p_container_veths)?;
+        let mut running = HashSet::new();
+        for owner in &owners {
+            let container_name = format!("{}-{}", owner.node, self.build.lab_id);
+            if self.is_running(&container_name).await {
+                running.insert(owner.node);
+            }
+        }
+        let exited = exited_owners(&owners, &running)?;
+        for node_name in &exited {
+            if *node_name == starting.name {
+                continue;
+            }
+            let container = self
+                .inputs
+                .container_nodes
+                .iter()
+                .find(|node| node.name == *node_name)
+                .with_context(|| format!("P2p container {node_name} is not a container node"))?;
+            tracing::warn!(node_name = %container.name, "Container exited after its P2p link ends were made");
+            self.fail_exited_peer(container).await?;
+        }
+        if exited.contains(starting.name.as_str()) {
+            bail!(
+                "Container {} exited while its P2p links were attached",
+                starting.name
+            );
+        }
+        Ok(())
+    }
+
+    /// Record the exited container `container` failed and stop polling it.
+    async fn fail_exited_peer(&mut self, container: &topology::NodeExpanded) -> Result<()> {
+        let container_name = format!("{}-{}", container.name, self.build.lab_id);
+        let state = self
+            .fail_exited_container(container, &container_name)
+            .await?;
+        self.settling.remove(&container.name);
+        self.waiting_for_port.remove(&container.name);
+        match self
+            .nodes
+            .iter_mut()
+            .find(|info| info.name == container.name)
+        {
+            Some(info) => info.status = state,
+            None => self.connected(
+                container,
+                state,
+                container.ipv4_address.map(|ip| ip.to_string()),
+                None,
+            ),
+        }
         Ok(())
     }
 

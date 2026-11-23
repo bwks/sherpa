@@ -123,7 +123,7 @@ The config has no jump host: `ssh_access_001`. Which nodes are given the owner's
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | After up, the key in `.sherpa/ssh/known_hosts` for a VM is the host key on the node's disk (no test with its ID yet; `tests/labs/nixos-linux` checks it) | e2e |
+| 001 | After up, the key in `.sherpa/ssh/known_hosts` for a VM is the host key on the node's disk | e2e |
 | 002 | After `sherpa redeploy`, the known hosts file has the rebuilt node's new key, and `ssh -F .sherpa/ssh/config` logs in with no question and no host key error (no test yet) | e2e |
 | 003 | When a node's key has changed since the files were saved, `sherpa ssh` warns that the key changed, loads the new key from the server and connects (no test yet) | e2e |
 | 004 | When the folder's known hosts file has no key for a node, `sherpa ssh` loads it from the server, says so, and connects (no test yet) | e2e |
@@ -150,9 +150,9 @@ A resumed VM keeping its host keys is `lab_down_resume_003`. The readiness check
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | After up of a lab with a Talos cluster, `.sherpa/k8s/kubeconfig-<cluster>` and `.sherpa/talos/talosconfig-<cluster>` are there, readable by the user alone (no test with its ID yet; `tests/labs/talos-linux` checks it) | e2e |
-| 002 | `sherpa download <lab-id> --force` puts back credential files that were deleted, byte for byte and readable by the user alone (no test with its ID yet; `tests/labs/talos-linux` checks it) | e2e |
-| 003 | After up of a lab with a Keycloak and a Vault node, `.sherpa/keycloak/keycloak-<node>.toml` and `.sherpa/vault/vault-<node>.toml` are there, readable by the user alone (no test with its ID yet; the `ha` lab of `tests/labs/talos-linux` checks it) | e2e |
+| 001 | After up of a lab with a Talos cluster, `.sherpa/k8s/kubeconfig-<cluster>` and `.sherpa/talos/talosconfig-<cluster>` are there, readable by the user alone | e2e |
+| 002 | `sherpa download <lab-id> --force` puts back credential files that were deleted, byte for byte and readable by the user alone | e2e |
+| 003 | After up of a lab with a Keycloak and a Vault node, `.sherpa/keycloak/keycloak-<node>.toml` and `.sherpa/vault/vault-<node>.toml` are there, readable by the user alone | e2e |
 | 004 | The user and password in `.sherpa/surrealdb/surrealdb-<node>.toml` sign in to the node as root (no test yet) | e2e |
 | 005 | Each cluster's kubeconfig and talosconfig are saved under the cluster's name | unit |
 | 006 | A Vault node's file has its address, root token and unseal key, and is readable by the user alone | unit |
@@ -224,6 +224,8 @@ Opening the shell, directly or with `--ssh-jump`, is `ssh_access_002` and `003`.
 | 006 | A node with no route from the client fails at once, not after the ready timeout, saying to use `--ssh-jump` or the lab's tailnet | integration |
 | 007 | An IPv6 server address is the jump host without its URL brackets | unit |
 | 008 | A provisioner may ask for the passphrase of the user's key at the node, the first hop without a jump, but never for a node password | unit |
+| 009 | An owner with an RSA key of 4096 bits or less logs in to a Cisco IOL node by key: the IOL config's `ip ssh pubkey-chain` has the MD5 `key-hash` of that key, and of no key IOL refuses | unit |
 
 Cases 001 to 005 are in `tests/labs/ssh-access`; 006 to 008 are Rust tests in the client crate
-(`cargo test -p sherpa ssh_access_`, and `-- --ignored` for 006).
+(`cargo test -p sherpa ssh_access_`, and `-- --ignored` for 006); 009 is in the server crate
+(`cargo test -p sherpad ssh_access_`), and `tests/labs/cisco-iol` logs in to IOL by key end to end.

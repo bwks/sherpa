@@ -44,6 +44,15 @@ naming. A container on no link takes its bridge members and disabled interfaces 
 networks. `network::create_veth_in_netns` makes each veth straight into the container's namespace
 with its final name, so nothing runs inside the container and images with no shell or `ip` work.
 
+During `up`, a container's veths are made once it has started, and each link is attached as soon
+as both its ends exist (`up::links::attach_ready_p2p_links`). A container that exits takes its
+namespace, and with it its veths' host ends, so an end made earlier can be gone when a later
+container's start attaches its link: at the lookup, or as `No such device` at the attach.
+Either way the end is looked up again, by state, never by the error's text. A gone end whose
+container no longer runs fails that container as a node, with its exit code and log tail, and
+its links stay unattached while the rest of the lab carries on. A gone end whose container still
+runs fails `up`, naming the end and its node.
+
 A disabled interface's veth is down at both ends, so it has no carrier even when the NOS brings
 it up; a VM's sits on the node's isolated network, whose bridge is set down.
 

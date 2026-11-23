@@ -13,15 +13,15 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | LLDP, STP, pause, LACP, 802.1X, GARP-range, CDP, 802.1Q and QinQ frames arrive at the other end, each way, tags intact, on a VM to VM, a VM to container and a container to container link (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
-| 002 | Two ends joined by two links see each other as LLDP neighbours on both and bundle both with LACP, between two VMs, a VM and a container, and two containers (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
-| 003 | Every host end, a VM's tap included, is MTU 9600, and unfragmented 8972-byte pings and 9000-byte frames pass each way (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
+| 001 | LLDP, STP, pause, LACP, 802.1X, GARP-range, CDP, 802.1Q and QinQ frames arrive at the other end, each way, tags intact, on a VM to VM, a VM to container and a container to container link | e2e |
+| 002 | Two ends joined by two links see each other as LLDP neighbours on both and bundle both with LACP, between two VMs, a VM and a container, and two containers. A VM's virtio link interface reports unknown speed and duplex, and a Linux 802.3ad bond sends no LACPDU from a member that is not full duplex, so the guest sets each member to full duplex before bonding it (`ethtool -s <port> speed 10000 duplex full`); Sherpa does not set it | e2e |
+| 003 | Every host end, a VM's tap included, is MTU 9600, and unfragmented 8972-byte pings and 9000-byte frames pass each way | e2e |
 | 004 | A VM is told its link's MTU, so a virtio interface in the guest comes up at 9600 (no test at this level yet) | e2e |
-| 005 | A capture on a link's host end, `tpa<link>-<lab>` or `tpb<link>-<lab>`, sees every frame from both ends (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
+| 005 | A capture on a link's host end, `tpa<link>-<lab>` or `tpb<link>-<lab>`, sees every frame from both ends | e2e |
 | 006 | A container's link interface is in the container under its name, up, promiscuous, with carrier and MTU 9600, also in an image with no `ip` command or no shell | e2e |
 | 007 | Network OS, application and OS containers reach each other across links, directly and routed through a third node | e2e |
 | 008 | A link with a unikernel end carries traffic (no test yet) | e2e |
-| 009 | Links carry traffic across a restart of sherpad, with nothing attached again (no test with its ID yet; `tests/labs/p2p-links --sherpad-restart` shows it) | e2e |
+| 009 | Links carry traffic across a restart of sherpad, with nothing attached again | e2e |
 | 010 | sherpad keeps no open file descriptor for a link it attached | integration |
 | 011 | Attaching a link that is attached leaves one redirect on each end | integration |
 | 012 | A link whose host end does not exist is not attached, and the error names the interface | integration |
@@ -29,6 +29,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 014 | A container interface whose host end's name is held by an interface that is not a removed container's is refused, and that interface is left | integration |
 | 015 | A container interface asked for a container that is gone fails, and leaves no host end behind | integration |
 | 016 | A unikernel's link interface is the link's host end with the link's MTU | unit |
+| 017 | During `up`, a container that exits after its link ends are made, whose end is gone when a peer's link is looked up, fails as a node with its exit code, its links stay unattached, and the rest of the lab is attached and `up` carries on | unit |
+| 018 | During `up`, a container whose end goes between its lookup and its attach (`No such device`) fails as a node, its link stays unattached, and `up` carries on | unit |
+| 019 | During `up`, a link end gone while its container still runs fails `up`, naming the end and its node | unit |
 
 ## `link_reattach`: a link works again after one of its ends is made again
 
@@ -41,10 +44,10 @@ Cases 016, 018 and 019 show a repair on a real host. Cases 030 to 032 show what 
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | After redeploying a VM that ends two links, pings pass each way on every link (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
-| 002 | After redeploying a container that ends two links, pings pass each way on every link (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
-| 003 | After down and resume of the lab, pings, the L2 frames, capture and the LACP bundles work as after up (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
-| 004 | A reboot from inside a VM's guest leaves its links working (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
+| 001 | After redeploying a VM that ends two links, pings pass each way on every link | e2e |
+| 002 | After redeploying a container that ends two links, pings pass each way on every link | e2e |
+| 003 | After down and resume of the lab, pings, the L2 frames, capture and the LACP bundles work as after up | e2e |
+| 004 | A reboot from inside a VM's guest leaves its links working | e2e |
 | 005 | Redeployed containers with no shell or no `ip` command, and a redeployed router, reach every peer again | e2e |
 | 006 | A cold-booted VM or unikernel has each of its links attached to its new ends, in both directions | unit |
 | 007 | A container started again gets every data interface again, link ends, bridge members and unused interfaces, before its links are attached | unit |
@@ -133,11 +136,11 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | A manifest's `[links.impairment]` is on both directions after up, and the round-trip time shows it (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
-| 002 | `sherpa link impair --direction src-to-dst` delays traffic from `src` to `dst` only, and `dst-to-src` the other way only, on a VM to VM, a VM to container and a container to container link (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
-| 003 | An impairment with reorder and corruption on both directions is set, and the link still carries traffic (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
-| 004 | `--clear` removes the impairment, and the round-trip time is as without one (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
-| 005 | An impairment is as it was set after redeploying either end, after down and resume, and after a restart of sherpad (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
+| 001 | A manifest's `[links.impairment]` is on both directions after up, and the round-trip time shows it | e2e |
+| 002 | `sherpa link impair --direction src-to-dst` delays traffic from `src` to `dst` only, and `dst-to-src` the other way only, on a VM to VM, a VM to container and a container to container link | e2e |
+| 003 | An impairment with reorder and corruption on both directions is set, and the link still carries traffic | e2e |
+| 004 | `--clear` removes the impairment, and the round-trip time is as without one | e2e |
+| 005 | An impairment is as it was set after redeploying either end, after down and resume, and after a restart of sherpad | e2e |
 | 006 | `sherpa link impair` finds the link by either of its ends among the lab's links, with no manifest, and refuses an end on no link | unit |
 | 007 | Against a server that gives no link indexes the link is found in the folder's manifest, and with no manifest the command says the server is too old | unit |
 | 008 | A request with no direction changes both, and a value left out is 0 | unit |
@@ -162,9 +165,9 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | A VM, containers on a link and a container on no link, all members of one bridge, each ping every other member from their member interface (no test with its ID yet; `tests/labs/private-bridge` shows it) | e2e |
-| 002 | The same after redeploying a member container on a link, one on no link, and the member VM (no test with its ID yet; `tests/labs/private-bridge` shows it) | e2e |
-| 003 | A node with a bridge member interface and a link has both working, each on its own interface (no test with its ID yet; `tests/labs/private-bridge` shows it) | e2e |
+| 001 | A VM, containers on a link and a container on no link, all members of one bridge, each ping every other member from their member interface | e2e |
+| 002 | The same after redeploying a member container on a link, one on no link, and the member VM | e2e |
+| 003 | A node with a bridge member interface and a link has both working, each on its own interface | e2e |
 | 004 | The members of one bridge are not reachable from another bridge of the lab, from the management network or from another lab (no test yet) | e2e |
 | 005 | A bridge on the host is up with MTU 9600 | integration |
 | 006 | A member container on a link joins through an interface made in its namespace, and its host end is in the bridge | integration |
@@ -189,7 +192,7 @@ Cases 001 to 003 show carrier move on a real host. Cases 018 to 020 show what is
 | 006 | An unused container interface is down at both ends, except on a model that needs its interfaces up, where it is up in the container with no carrier | integration |
 | 007 | An unused interface of a container on no link gets a Docker network of its own, named and down | unit |
 | 008 | A node's data interfaces number as many as its manifest or image says, after its reserved ones, and a count past the model's range is an error | unit |
-| 009 | A VM's interfaces are named `eth0`, `eth1` and up in a guest that keeps kernel names (no test with its ID yet; `tests/labs/nixos-linux` shows it) | e2e |
+| 009 | A VM's interfaces are named `eth0`, `eth1` in a guest that keeps kernel names | e2e |
 | 010 | A VM's reserved interfaces are on a network of the node's own with their link up, and its unused ones on another with ports kept apart | integration |
 | 011 | An interface name reaches the command that renames it in a container as an argument, never as script | unit |
 | 012 | Only a model that waits for its interfaces at boot (cJunosEvolved) has its unused interfaces up in the container, and a linked interface is up on every model | unit |
@@ -238,8 +241,8 @@ Which ranges a lab's management network takes, and which addresses its nodes get
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | After destroying a lab of VM and container links, no host interface, Docker network or libvirt network of the lab is left (no test with its ID yet; `tests/labs/p2p-links` shows it) | e2e |
-| 002 | After destroying a lab with a private bridge and containers on no link, no bridge, Docker network or libvirt network of the lab is left (no test with its ID yet; `tests/labs/private-bridge` shows it) | e2e |
+| 001 | After destroying a lab of VM and container links, no host interface, Docker network or libvirt network of the lab is left | e2e |
+| 002 | After destroying a lab with a private bridge and containers on no link, no bridge, Docker network or libvirt network of the lab is left | e2e |
 | 003 | Only the lab's own host interfaces are deleted: one of another lab is left, also when its name contains this lab's ID | unit |
 | 004 | A redeploy takes only its own node's Docker networks: those of a node whose name starts with this node's name are left | unit |
 | 005 | Deleting an interface that is already gone succeeds, so a destroy can be run again | integration |
