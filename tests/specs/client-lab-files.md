@@ -224,6 +224,8 @@ Opening the shell, directly or with `--ssh-jump`, is `ssh_access_002` and `003`.
 | 006 | A node with no route from the client fails at once, not after the ready timeout, saying to use `--ssh-jump` or the lab's tailnet | integration |
 | 007 | An IPv6 server address is the jump host without its URL brackets | unit |
 | 008 | A provisioner may ask for the passphrase of the user's key at the node, the first hop without a jump, but never for a node password | unit |
+| 009 | An owner with an RSA key of 4096 bits or less logs in to a Cisco IOL node by key: the IOL config's `ip ssh pubkey-chain` has the MD5 `key-hash` of that key, and of no key IOL refuses | unit |
 
 Cases 001 to 005 are in `tests/labs/ssh-access`; 006 to 008 are Rust tests in the client crate
-(`cargo test -p sherpa ssh_access_`, and `-- --ignored` for 006).
+(`cargo test -p sherpa ssh_access_`, and `-- --ignored` for 006); 009 is in the server crate
+(`cargo test -p sherpad ssh_access_`), and `tests/labs/cisco-iol` logs in to IOL by key end to end.
