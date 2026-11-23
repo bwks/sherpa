@@ -100,8 +100,8 @@ struct ReadinessTarget {
 /// ready within the timeout is reported in its result message; it is not an error, as with
 /// `up`.
 ///
-/// A whole-lab resume of a lab with a Tailscale gateway enrolls the gateway again with
-/// `tailscale_auth_key`, as `down` logged it out. The key is used, never stored.
+/// A whole-lab resume of a lab with a Tailscale gateway enrolls the gateway as a new device
+/// with `tailscale_auth_key`. The key is used, never stored.
 ///
 /// The caller must own the lab or be an admin, and may not be the built-in `admin` account.
 #[instrument(skip(ctx, tailscale_auth_key, state, progress), fields(username = %ctx.username, %lab_id))]
@@ -257,8 +257,8 @@ async fn admit_stopped_nodes(
     .await
 }
 
-/// Enroll the lab's Tailscale gateway again on a whole-lab resume with a key, as `down` logged
-/// it out; otherwise report its current status.
+/// Enroll the lab's Tailscale gateway as a new device on a whole-lab resume with a key;
+/// otherwise report its current status.
 #[instrument(skip_all, fields(lab_id = %db_lab.lab_id), level = "debug")]
 async fn resume_tailscale(
     state: &AppState,

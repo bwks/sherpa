@@ -5,13 +5,15 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
+use bollard::Docker;
+use container::tailscale::Logout;
 use futures::future::join_all;
 use opentelemetry::KeyValue;
 use tracing::instrument;
 
 use shared::data::{
     ClusterRole, LabNodeActionResponse, NodeActionResult, NodeConfig, NodeKind, NodeModel,
-    OperationEvent,
+    OperationEvent, TailscaleGatewaySettings,
 };
 use shared::konst::SHERPA_LABS_PATH;
 
@@ -221,7 +223,8 @@ pub async fn shutdown_lab_nodes(
     if node_name.is_none()
         && let Some(id) = db_lab.tailscale_container_id.as_deref()
     {
-        results.push(stop_tailscale_gateway(state, id, lab_id).await);
+        results
+            .push(stop_tailscale_gateway(&state.docker, &state.config.tailscale, id, lab_id).await);
     }
     let tailscale = super::tailscale::inspect(state, &db_lab).await;
 
@@ -269,30 +272,36 @@ fn shutdown_method(
     (method, role)
 }
 
-/// Stop the lab's Tailscale gateway container, as a node result.
-#[instrument(skip(state), fields(%lab_id), level = "debug")]
+/// Log the lab's Tailscale gateway out and stop it, as a node result.
+#[instrument(skip(docker, settings), fields(%lab_id), level = "debug")]
 async fn stop_tailscale_gateway(
-    state: &AppState,
+    docker: &Docker,
+    settings: &TailscaleGatewaySettings,
     container_id: &str,
     lab_id: &str,
 ) -> NodeActionResult {
-    let stopped = container::tailscale::stop_gateway(
-        &state.docker,
-        container_id,
-        lab_id,
-        &state.config.tailscale,
-    )
-    .await;
-    NodeActionResult {
-        name: "Tailscale gateway".into(),
-        success: stopped.is_ok(),
-        message: match stopped {
-            Ok(()) => "Stopped".into(),
-            Err(error) => format!(
+    let stopped = container::tailscale::stop_gateway(docker, container_id, lab_id, settings).await;
+    let (success, message) = match stopped {
+        Ok(Logout::Done) => (true, "Stopped".into()),
+        Ok(Logout::Failed(error)) => (
+            false,
+            format!(
+                "Stopped, but not logged out of the tailnet: {}. The device stays on the tailnet until Tailscale removes it (ephemeral key) or you remove it in the Tailscale admin console",
+                Unexpected::log(&error, "Unable to log the Tailscale gateway out")
+            ),
+        ),
+        Err(error) => (
+            false,
+            format!(
                 "Unable to stop Tailscale gateway: {}",
                 Unexpected::log(&error, "Unable to stop Tailscale gateway")
             ),
-        },
+        ),
+    };
+    NodeActionResult {
+        name: "Tailscale gateway".into(),
+        success,
+        message,
         links: Vec::new(),
     }
 }
@@ -517,6 +526,13 @@ async fn shutdown_container(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use axum::http::{Method, StatusCode, Uri};
+    use axum::{Json, Router};
+    use serde_json::json;
+    use tokio::net::TcpListener;
+
     use crate::services::talos::lab::tests::cluster_plans;
     use crate::services::talos::secrets::generate_cluster_secrets;
 
@@ -639,5 +655,76 @@ mod tests {
         // Powering off by design is not reported as forced.
         let designed = stop_message(&VmStop::PoweredOff(TALOS_POWER_OFF));
         assert!(designed.starts_with("Powered off (") && !designed.contains("forced"));
+    }
+
+    #[tokio::test]
+    async fn tailnet_suspend_016_down_reports_a_gateway_whose_logout_fails_as_failed_and_stops_it()
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&requests);
+        let router = Router::new().fallback(move |method: Method, uri: Uri| {
+            let captured = Arc::clone(&captured);
+            async move {
+                captured
+                    .lock()
+                    .unwrap()
+                    .push(format!("{method} {}", uri.path()));
+                let path = uri.path();
+                if path.ends_with("/containers/gateway-id/json") {
+                    (
+                        StatusCode::OK,
+                        Json(
+                            json!({"Id":"gateway-id","State":{"Running":true},"Config":{"Labels":{
+                                "sh.erpa.tailscale.lab":"test1234",
+                                "sh.erpa.role":"tailnet-gateway"
+                            }}}),
+                        ),
+                    )
+                } else if path.ends_with("/containers/gateway-id/stop") {
+                    (StatusCode::NO_CONTENT, Json(serde_json::Value::Null))
+                } else {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"message":"exec unavailable"})),
+                    )
+                }
+            }
+        });
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let docker = Docker::connect_with_http(
+            &format!("http://{address}"),
+            5,
+            bollard::API_DEFAULT_VERSION,
+        )
+        .unwrap();
+        let result = stop_tailscale_gateway(
+            &docker,
+            &TailscaleGatewaySettings::default(),
+            "gateway-id",
+            "test1234",
+        )
+        .await;
+        server.abort();
+        assert!(!result.success);
+        assert!(
+            result.message.contains("not logged out"),
+            "{}",
+            result.message
+        );
+        let requests = requests.lock().unwrap();
+        assert!(
+            requests
+                .iter()
+                .any(|r| r.ends_with("/containers/gateway-id/exec"))
+        );
+        assert!(
+            requests
+                .iter()
+                .any(|r| r.ends_with("/containers/gateway-id/stop"))
+        );
     }
 }

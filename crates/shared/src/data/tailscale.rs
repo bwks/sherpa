@@ -47,6 +47,14 @@ pub enum RouteApproval {
     Unknown,
 }
 
+/// Whether a Tailscale daemon holds a tailnet identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DaemonLogin {
+    Loading,
+    LoggedOut,
+    LoggedIn,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TailnetStatus {
     pub state: TailnetState,
@@ -65,6 +73,8 @@ struct DaemonStatus {
     tailscale_ips: Option<Vec<String>>,
     #[serde(rename = "Self")]
     own: Option<OwnStatus>,
+    #[serde(default)]
+    have_node_key: bool,
 }
 
 #[derive(Deserialize)]
@@ -132,6 +142,22 @@ impl TailnetStatus {
         }
         Ok(result)
     }
+}
+
+/// The login state of a Tailscale daemon, read from its JSON status.
+///
+/// # Errors
+///
+/// Fails when `input` is not the daemon's JSON status.
+#[instrument(skip(input), level = "debug")]
+pub fn daemon_login(input: &str) -> Result<DaemonLogin> {
+    let daemon: DaemonStatus =
+        serde_json::from_str(input).context("Invalid Tailscale status response")?;
+    Ok(match daemon.backend_state.as_str() {
+        "NoState" => DaemonLogin::Loading,
+        "NeedsLogin" if !daemon.have_node_key => DaemonLogin::LoggedOut,
+        _ => DaemonLogin::LoggedIn,
+    })
 }
 
 #[cfg(test)]
