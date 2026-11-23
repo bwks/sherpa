@@ -203,16 +203,27 @@ fn parse_include_target(line: &str) -> Option<Result<String>> {
     Some(Ok(target.to_string()))
 }
 
-/// The `Include` line for a path, quoted when the path holds whitespace, as ssh reads it.
-fn include_directive(path: &str) -> Result<String> {
+/// `path` as the argument of an SSH config line: in double quotes when it holds whitespace,
+/// where ssh splits an argument that is not quoted, as it reads `UserKnownHostsFile` as a list
+/// of files.
+///
+/// # Errors
+///
+/// Fails for a path with a double quote, which ssh cannot read from its config.
+pub fn ssh_config_path(path: &str) -> Result<String> {
     if path.contains('"') {
-        bail!("ssh cannot include a path with a double quote: {path}");
+        bail!("ssh cannot read a path with a double quote from its config: {path}");
     }
     if path.contains(char::is_whitespace) {
-        Ok(format!(r#"Include "{path}""#))
+        Ok(format!(r#""{path}""#))
     } else {
-        Ok(format!("Include {path}"))
+        Ok(path.to_owned())
     }
+}
+
+/// The `Include` line for a path, quoted when the path holds whitespace, as ssh reads it.
+fn include_directive(path: &str) -> Result<String> {
+    Ok(format!("Include {}", ssh_config_path(path)?))
 }
 
 /// Whether `content` has an `Include` line for `path`, quoted or not.

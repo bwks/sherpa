@@ -17,7 +17,7 @@ use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
 use crate::cmd::tailscale_key::resolve_tailscale_key;
-use crate::lab_files::{LabFiles, register_ssh_config, save_lab_files};
+use crate::lab_files::{LabFileSet, LabFiles, register_ssh_config, save_lab_files};
 use crate::provision::{
     client_variable, container_results, container_secrets, provision_lab, resolve_client_path,
 };
@@ -146,10 +146,10 @@ pub async fn up(
     let up_data: UpResponse = up_response.into_result("Lab creation failed")?;
 
     // The lab exists now, so a file that cannot be saved is only a warning.
-    match save_lab_files(
-        &LabFolder::new(Path::new(&client_folder)),
-        &LabFiles::from(&up_data),
-    ) {
+    let folder = LabFolder::new(Path::new(&client_folder));
+    match LabFileSet::new(&folder, &LabFiles::from(&up_data))
+        .and_then(|files| save_lab_files(&folder, &files))
+    {
         Ok(ssh_config) => register_ssh_config(&ssh_config),
         Err(e) => println!(
             "\n{} Warning: Not all lab files were saved: {e:#}\n   Run: sherpa download {lab_id} --force",

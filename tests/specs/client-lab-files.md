@@ -35,6 +35,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 007 | `sherpa download <lab-id>` in an empty folder saves the same files and no `manifest.toml`, and `sherpa inspect` and `sherpa ssh` then work there (no test yet) | e2e |
 | 008 | `sherpa download` in a folder that already has a lab's files is refused and changes nothing; with `--force` the files are replaced (no test yet) | e2e |
 | 009 | After `sherpa redeploy` and after `sherpa resume` the folder's files are the ones the server has then (no test yet) | e2e |
+| 010 | `sherpa download` in a folder that has only one of the files it would save, such as a Vault node's credentials and no `lab-info.toml`, is refused naming that file, and the file is kept | unit |
 
 An up the server refuses writes no `lab-info.toml`: `owner_login_001` checks it. A console opened from a folder made by `sherpa download` is `console_access_005`.
 
@@ -73,6 +74,7 @@ Cases 006 and 007 read the file's access list when they run on Windows, so they 
 | 006 | Every host also accepts the older key and key exchange algorithms that older network operating systems offer | unit |
 | 007 | The saved config names the lab's known hosts file by its full path in the lab folder, and every other line is as the server sent it | unit |
 | 008 | On Windows, a host whose key is not checked names `NUL` as its known hosts file (no test yet) | unit |
+| 009 | A lab folder with a space in its path names its known hosts file in double quotes, which ssh reads as one file | unit |
 
 The config has no jump host: `ssh_access_001`. Which nodes are given the owner's login is `owner_login` in [accounts-and-auth.md](accounts-and-auth.md).
 
@@ -125,7 +127,7 @@ The config has no jump host: `ssh_access_001`. Which nodes are given the owner's
 | 002 | After `sherpa redeploy`, the known hosts file has the rebuilt node's new key, and `ssh -F .sherpa/ssh/config` logs in with no question and no host key error (no test yet) | e2e |
 | 003 | When a node's key has changed since the files were saved, `sherpa ssh` warns that the key changed, loads the new key from the server and connects (no test yet) | e2e |
 | 004 | When the folder's known hosts file has no key for a node, `sherpa ssh` loads it from the server, says so, and connects (no test yet) | e2e |
-| 005 | The known hosts file names a key by its node's address, or by `[address]:port` on a port other than 22 | unit |
+| 005 | Retired: nodes take SSH on port 22 alone, so no key is named `[address]:port`; see 017 | — |
 | 006 | A key recorded for a node that is no longer in the lab, or that takes no SSH, is left out | unit |
 | 007 | A host with a recorded key is checked strictly against the lab's known hosts file, and one with none is not checked and saves no key | unit |
 | 008 | The known hosts file is saved in the lab folder only when the server recorded a key | unit |
@@ -137,6 +139,7 @@ The config has no jump host: `ssh_access_001`. Which nodes are given the owner's
 | 014 | A recorded key is kept through the node's state changes, is no other node's, and can be cleared | integration |
 | 015 | A key that differs from the recorded one replaces it and is logged as changed, and the same key is not written again (no test yet) | unit |
 | 016 | The server reads a node's key again only for a virtual machine that takes SSH, and a node that is not ready on SSH keeps its recorded key (no test yet) | integration |
+| 017 | The known hosts file names a key by its node's address | unit |
 
 A resumed VM keeping its host keys is `lab_down_resume_003`. The readiness checks that offer a key are `node_ready_013`, `033` and `034` in [nodes.md](nodes.md). Only the lab's owner is given its host keys: `access_control_010`.
 

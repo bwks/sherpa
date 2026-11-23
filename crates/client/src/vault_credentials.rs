@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use serde_derive::Serialize;
@@ -6,8 +6,7 @@ use serde_derive::Serialize;
 use shared::data::VaultInfo;
 use shared::util::{Emoji, LabFolder};
 
-use crate::lab_files::ensure_lab_subdir;
-use crate::secret_file::write_secret_file;
+use crate::lab_files::LabFile;
 
 /// A Vault node's credentials file, `vault-<node>.toml`.
 #[derive(Debug, Serialize)]
@@ -17,41 +16,39 @@ struct VaultCredentialsFile<'a> {
     unseal_key: &'a str,
 }
 
-/// The credentials file written for one Vault node.
+/// The credentials file of one Vault node.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct VaultFile {
     pub name: String,
     pub address: String,
-    pub path: PathBuf,
+    pub file: LabFile,
 }
 
-/// Write each Vault node's address, root token and unseal key into `folder` as
-/// `.sherpa/vault/vault-<node>.toml`, readable only by the current user.
-#[tracing::instrument(level = "debug", skip_all, fields(folder = %folder.root().display(), vaults = vaults.len()))]
-pub(crate) fn write_vault_credentials(
+/// Each Vault node's address, root token and unseal key as its file in `folder`,
+/// `.sherpa/vault/vault-<node>.toml`, a secret. Writes nothing.
+pub(crate) fn vault_credential_files(
     folder: &LabFolder,
     vaults: &[VaultInfo],
 ) -> Result<Vec<VaultFile>> {
-    if !vaults.is_empty() {
-        ensure_lab_subdir(folder, &folder.vault_dir())?;
-    }
-    let mut written = Vec::with_capacity(vaults.len());
+    let mut files = Vec::with_capacity(vaults.len());
     for vault in vaults {
-        let path = folder.vault(&vault.name);
         let content = toml::to_string(&VaultCredentialsFile {
             address: &vault.address,
             root_token: &vault.root_token,
             unseal_key: &vault.unseal_key,
         })
         .context("Failed to serialize Vault credentials")?;
-        write_secret_file(&path, &content, "Vault credentials")?;
-        written.push(VaultFile {
+        files.push(VaultFile {
             name: vault.name.clone(),
             address: vault.address.clone(),
-            path,
+            file: LabFile {
+                path: folder.vault(&vault.name),
+                content,
+                secret: Some("Vault credentials"),
+            },
         });
     }
-    Ok(written)
+    Ok(files)
 }
 
 /// Print where each Vault node's credentials were written, and how to point the `vault` CLI at
@@ -62,7 +59,7 @@ pub(crate) fn print_vault_files(files: &[VaultFile], lab_ca: Option<&Path>) {
             "{} Vault {} credentials: {}",
             Emoji::Success,
             vault.name,
-            vault.path.display()
+            vault.file.path.display()
         );
         match lab_ca {
             Some(lab_ca) => println!(
@@ -79,6 +76,8 @@ pub(crate) fn print_vault_files(files: &[VaultFile], lab_ca: Option<&Path>) {
 mod tests {
     use super::*;
 
+    use crate::lab_files::write_lab_file;
+
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
@@ -91,15 +90,20 @@ mod tests {
             root_token: "hvs.root".to_owned(),
             unseal_key: "oQ==".to_owned(),
         }];
-        let written = write_vault_credentials(&LabFolder::new(dir.path()), &vaults).unwrap();
+        let folder = LabFolder::new(dir.path());
+        let files = vault_credential_files(&folder, &vaults).unwrap();
+        let [vault] = files.as_slice() else {
+            panic!("one file for one Vault node: {files:?}");
+        };
+        write_lab_file(&folder, &vault.file).unwrap();
         let path = dir.path().join(".sherpa/vault/vault-vault01.toml");
         assert_eq!(
-            written,
-            [VaultFile {
-                name: "vault01".to_owned(),
-                address: "https://172.31.1.21:8200".to_owned(),
-                path: path.clone(),
-            }]
+            (
+                vault.name.as_str(),
+                vault.address.as_str(),
+                &vault.file.path
+            ),
+            ("vault01", "https://172.31.1.21:8200", &path)
         );
         let content: toml::Value =
             toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();

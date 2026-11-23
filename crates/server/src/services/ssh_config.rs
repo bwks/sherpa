@@ -192,13 +192,12 @@ pub(crate) fn build_known_hosts(
             tracing::debug!(node_name = %host_key.node_name, "host key for a node no longer in the lab");
             continue;
         };
-        let Some(port) = record.ssh_port else {
+        if record.ssh_port.is_none() {
             tracing::debug!(node_name = %host_key.node_name, "host key for a node without SSH");
             continue;
-        };
+        }
         entries.push(KnownHostsEntry {
             hostname: record.ipv4_address,
-            port,
             key: host_key.key.clone(),
         });
     }
@@ -260,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn node_host_keys_005_a_key_is_named_by_its_node_s_address_and_port() {
+    fn node_host_keys_017_a_key_is_named_by_its_node_s_address() {
         let keys = [
             host_key("vm", "ssh-ed25519 AAAAC3"),
             host_key("router", "ssh-rsa AAAAB3"),
@@ -268,7 +267,7 @@ mod tests {
         let output = build_known_hosts(&records(), &keys).render().unwrap();
         assert_eq!(
             output,
-            "192.0.2.10 ssh-ed25519 AAAAC3\n[192.0.2.11]:830 ssh-rsa AAAAB3\n"
+            "192.0.2.10 ssh-ed25519 AAAAC3\n192.0.2.11 ssh-rsa AAAAB3\n"
         );
     }
 
