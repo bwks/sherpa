@@ -22,6 +22,7 @@ pub(crate) struct FakeHost {
     pub(crate) netem: RefCell<HashMap<u32, LinkImpairment>>,
     pub(crate) failing_lookups: HashSet<String>,
     pub(crate) failing_redirects: HashSet<String>,
+    pub(crate) vanishing_redirects: HashSet<String>,
     pub(crate) failing_veths: HashSet<String>,
     /// Interfaces whose netem cannot be changed.
     pub(crate) failing_netem: HashSet<String>,
@@ -221,6 +222,10 @@ impl LinkHost for FakeHost {
 
     fn attach_redirect(&self, iface: &str, peer_ifindex: u32) -> Result<()> {
         self.wrote();
+        if self.vanishing_redirects.contains(iface) {
+            self.remove(&[iface]);
+            bail!("failed to attach the eBPF redirect on {iface}: No such device");
+        }
         if self.failing_redirects.contains(iface) {
             // The real attach detaches the old program before it loads the new one, so the
             // end is left bare.
