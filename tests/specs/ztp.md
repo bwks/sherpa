@@ -130,6 +130,7 @@ The lab's CA and a node's certificate are here because they reach the node in it
 | 008 | An IOL node's config is written as its startup config, as it is | unit |
 | 009 | A config for a `tftp`, `cdrom`, `disk` or `usb` node is written under the file name its model reads, as it is (no test yet) | unit |
 | 010 | A redeploy with a changed `ztp.config` rebuilds the node with the new one (no test yet) | e2e |
+| 011 | A PAN-OS node's config is `init-cfg.txt` in the `config` folder of an ISO labelled `bootstrap`, beside empty `content`, `license` and `software` folders, with no generated `bootstrap.xml` | unit |
 
 A node with a custom config gets no owner login, except FRR and the SONiC container: `owner_login_017` and `owner_login_018`. A Talos cluster member, and the Vault node a cluster names, may set no `ztp.config`: that belongs to the Talos spec.
 

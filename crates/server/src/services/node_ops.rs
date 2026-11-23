@@ -2794,12 +2794,12 @@ fn generate_cdrom_ztp(
     );
 
     let dir = ztp.boot_dir.to_owned();
+    // PAN-OS boots from a bootstrap layout of its own, not one config file.
+    if node.model_kind.model() == data::NodeModel::PaloaltoPanos {
+        return write_panos_bootstrap(node, ztp, custom_ztp, &dir);
+    }
     let config = match custom_ztp {
         Some(custom_config) => custom_config.to_owned(),
-        // PAN-OS boots from a bootstrap layout of its own, not one config file.
-        None if node.model_kind.model() == data::NodeModel::PaloaltoPanos => {
-            return write_panos_bootstrap(node, ztp, &dir);
-        }
         None => cdrom_config(node, node_image, ztp)?,
     };
     let ztp_config = format!("{dir}/{}", ztp_config_filename(node.model_kind)?);
@@ -2967,19 +2967,15 @@ fn ftdv_config(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>) -> Result<Strin
     })?)
 }
 
-/// PAN-OS bootstrap: `init-cfg.txt` and `bootstrap.xml` in the layout PA-VM reads, on an ISO
-/// with the bootstrap volume label.
+/// PAN-OS bootstrap: the layout PA-VM reads, on an ISO with the bootstrap volume label. Its
+/// `config` folder holds the node's own config as `init-cfg.txt`, or else the generated
+/// `init-cfg.txt` and `bootstrap.xml`.
 fn write_panos_bootstrap(
     node: &topology::NodeExpanded,
     ztp: &NodeZtp<'_>,
+    custom_ztp: Option<&str>,
     dir: &str,
 ) -> Result<()> {
-    let NodeZtp {
-        mgmt_net,
-        node_ipv4_address,
-        guest_account,
-        ..
-    } = *ztp;
     // PA-VM requires config/, content/, license/, software/ directories
     let config_subdir = format!("{dir}/config");
     util::create_dir_with_permissions(Path::new(&config_subdir), NODE_CONFIG_DIR_MODE)?;
@@ -2987,6 +2983,36 @@ fn write_panos_bootstrap(
     util::create_dir_with_permissions(Path::new(&format!("{dir}/license")), NODE_CONFIG_DIR_MODE)?;
     util::create_dir_with_permissions(Path::new(&format!("{dir}/software")), NODE_CONFIG_DIR_MODE)?;
 
+    match custom_ztp {
+        Some(custom_config) => util::write_file_with_permissions(
+            Path::new(&format!("{config_subdir}/{PALOALTO_ZTP_CONFIG}")),
+            custom_config.as_bytes(),
+            NODE_CONFIG_FILE_MODE,
+        )?,
+        None => write_panos_generated_config(node, ztp, &config_subdir)?,
+    }
+
+    create_iso(
+        dir,
+        format!("{dir}/{ZTP_ISO}"),
+        PALOALTO_BOOTSTRAP_VOLUME_ID,
+    )?;
+    Ok(())
+}
+
+/// The config Sherpa generates for PAN-OS, `init-cfg.txt` and `bootstrap.xml`, written into the
+/// bootstrap's `config` folder.
+fn write_panos_generated_config(
+    node: &topology::NodeExpanded,
+    ztp: &NodeZtp<'_>,
+    config_subdir: &str,
+) -> Result<()> {
+    let NodeZtp {
+        mgmt_net,
+        node_ipv4_address,
+        guest_account,
+        ..
+    } = *ztp;
     // init-cfg.txt — network and hostname settings
     let init_cfg = template::PaloAltoPanosZtpTemplate {
         hostname: node.name.clone(),
@@ -3024,12 +3050,6 @@ fn write_panos_bootstrap(
         Path::new(&format!("{config_subdir}/{PALOALTO_BOOTSTRAP_CONFIG}")),
         bootstrap.render()?.as_bytes(),
         NODE_CONFIG_FILE_MODE,
-    )?;
-
-    create_iso(
-        dir,
-        format!("{dir}/{ZTP_ISO}"),
-        PALOALTO_BOOTSTRAP_VOLUME_ID,
     )?;
     Ok(())
 }
@@ -6135,6 +6155,80 @@ echo "$*" >> '{}'
                 format!("{VM_BOOT_DIR}/srx01/{ZTP_ISO}"),
             ]
         );
+    }
+
+    /// An ISO 9660 sector.
+    const ISO_SECTOR: usize = 2048;
+
+    /// The volume label of an ISO image, from its primary volume descriptor.
+    fn iso_volume_label(image: &[u8]) -> &str {
+        let descriptor = &image[16 * ISO_SECTOR..17 * ISO_SECTOR];
+        std::str::from_utf8(&descriptor[40..72]).unwrap().trim_end()
+    }
+
+    /// The contents of the file at `path` in an ISO image's primary tree, `None` when there is
+    /// no file there. Each folder of `path` is a name, and the file its name with `;1`.
+    fn iso_file<'a>(image: &'a [u8], path: &[&str]) -> Option<&'a [u8]> {
+        let le32 = |bytes: &[u8]| u32::from_le_bytes(bytes[..4].try_into().unwrap()) as usize;
+        let root = &image[16 * ISO_SECTOR + 156..16 * ISO_SECTOR + 190];
+        let (mut extent, mut size) = (le32(&root[2..]), le32(&root[10..]));
+        for name in path {
+            let records = &image[extent * ISO_SECTOR..extent * ISO_SECTOR + size];
+            let mut at = 0;
+            let mut found = None;
+            while at < records.len() {
+                let len = records[at] as usize;
+                if len == 0 {
+                    at = (at / ISO_SECTOR + 1) * ISO_SECTOR;
+                    continue;
+                }
+                let record = &records[at..at + len];
+                let id_len = record[32] as usize;
+                if &record[33..33 + id_len] == name.as_bytes() {
+                    found = Some((le32(&record[2..]), le32(&record[10..])));
+                    break;
+                }
+                at += len;
+            }
+            (extent, size) = found?;
+        }
+        Some(&image[extent * ISO_SECTOR..extent * ISO_SECTOR + size])
+    }
+
+    #[test]
+    fn custom_config_011_a_panos_config_is_init_cfg_in_the_config_folder_of_the_bootstrap_iso() {
+        let lab = ZtpLab::new();
+        let mut node = named_node("panos01", data::NodeModel::PaloaltoPanos);
+        let custom = "type=static\nhostname=custom\n";
+        node.ztp.config = Some(custom.to_owned());
+        let image = data::ModelKind::default_for(data::NodeModel::PaloaltoPanos).node_config();
+
+        let result = generate_vm_ztp(
+            &mut node,
+            &image,
+            &lab.lab(),
+            "192.0.2.10".parse().unwrap(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(result.ztp_record.ztp, data::Ztp::Cdrom);
+        let iso = fs::read(format!("{}/{VM_BOOT_DIR}/panos01/{ZTP_ISO}", lab.root())).unwrap();
+        assert_eq!(iso_volume_label(&iso), "bootstrap");
+        assert_eq!(
+            iso_file(&iso, &["config", "init-cfg.txt;1"]),
+            Some(custom.as_bytes())
+        );
+        assert_eq!(iso_file(&iso, &["init-cfg.txt;1"]), None, "not at the root");
+        assert_eq!(
+            iso_file(&iso, &["config", "bootstrap.xml;1"]),
+            None,
+            "no generated config beside it"
+        );
+        for folder in ["content", "license", "software"] {
+            assert!(iso_file(&iso, &[folder]).is_some(), "{folder} folder");
+        }
     }
 
     #[test]

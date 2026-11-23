@@ -19,8 +19,9 @@ is its only dependent, so the `sherpa` CLI does not compile it.
    the copy as a raw CD-ROM.
 3. Once every disk of the `up` or `redeploy` is in the pool, `node_ops::clone_node_disks` removes
    the boot folder, since the domain names only the pool's copy; a failed copy keeps it.
-4. The guest finds the medium by label: `cidata` for NoCloud and every config ISO, `bootstrap`
-   for a generated PAN-OS bootstrap. Network operating systems then look for their own file name.
+4. The guest finds the medium by label: `cidata` for NoCloud and every other config ISO, `bootstrap`
+   for PAN-OS, generated or the node's own `ztp.config`. Network operating systems then look for
+   their own file name.
 
 The boot files are private to `sherpad` (`0600` in `0700` folders; see `config_privacy` in
 [`tests/specs/ztp.md`](../../tests/specs/ztp.md)), whatever the umask: `create_iso` writes the
