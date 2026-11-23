@@ -14,8 +14,8 @@ const PASSWORD: &str = "Rand0mPass-1";
 
 const EXPECTED_STATIC_IPV4: &str = r#"!
 hostname iosv01
-ip domain name lab.sherpa.local
-ip name-server 172.20.0.1
+ip domain name sherpa.lab.local
+ip name-server 172.20.0.2
 crypto key generate rsa modulus 2048
 ip ssh version 2
 !
@@ -78,8 +78,8 @@ exit"#;
 
 const EXPECTED_DUAL_STACK: &str = r#"!
 hostname iosv01
-ip domain name lab.sherpa.local
-ip name-server 172.20.0.1
+ip domain name sherpa.lab.local
+ip name-server 172.20.0.2
 crypto key generate rsa modulus 2048
 ip ssh version 2
 !
@@ -220,4 +220,44 @@ fn device_accounts_004_cisco_iosv_and_iosvl2_owner_only() {
             assert_eq!(output.matches(password).count(), 1);
         }
     }
+}
+
+#[test]
+fn config_name_server_007_cisco_iosv() {
+    let output = CiscoIosZtpTemplate {
+        hostname: "iosv01".to_string(),
+        owner: helpers::test_owner(PASSWORD),
+        mgmt_interface: "GigabitEthernet0/0".to_string(),
+        dns: helpers::test_dns(),
+        mgmt_ipv4: helpers::test_network_v4(),
+        mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+        mgmt_ipv6_address: None,
+        mgmt_ipv6: None,
+    }
+    .render()
+    .expect("template renders");
+    assert_eq!(
+        helpers::name_servers(&output, "ip name-server "),
+        ["172.20.0.2"]
+    );
+}
+
+#[test]
+fn config_name_server_008_cisco_iosvl2() {
+    let output = CiscoIosl2ZtpTemplate {
+        hostname: "iosl2".to_string(),
+        owner: helpers::test_owner(PASSWORD),
+        mgmt_interface: "GigabitEthernet0/0".to_string(),
+        dns: helpers::test_dns(),
+        mgmt_ipv4: helpers::test_network_v4(),
+        mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+        mgmt_ipv6_address: None,
+        mgmt_ipv6: None,
+    }
+    .render()
+    .expect("template renders");
+    assert_eq!(
+        helpers::name_servers(&output, "ip name-server "),
+        ["172.20.0.2"]
+    );
 }

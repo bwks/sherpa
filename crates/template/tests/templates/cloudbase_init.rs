@@ -61,7 +61,7 @@ fn config_addressing_003_cloudbase_init_network_config_ipv4() {
                     "address": "172.20.0.10",
                     "netmask": "255.255.255.0",
                     "gateway": "172.20.0.1",
-                    "dns_nameservers": ["172.20.0.1"],
+                    "dns_nameservers": ["172.20.0.2"],
                 }],
             }],
         })
@@ -86,7 +86,7 @@ fn config_addressing_004_cloudbase_init_network_config_dual_stack() {
             "address": "fd00::10",
             "netmask": "64",
             "gateway": "fd00::1",
-            "dns_nameservers": ["fd00::1"],
+            "dns_nameservers": ["fd00::2"],
         })
     );
 }

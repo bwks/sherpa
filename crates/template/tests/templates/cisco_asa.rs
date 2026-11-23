@@ -38,7 +38,7 @@ ssh 0.0.0.0 0.0.0.0 management
 ssh scopy enable
 http server enable
 http 0.0.0.0 0.0.0.0 management
-domain-name lab.sherpa.local
+domain-name sherpa.lab.local
 route management 0.0.0.0 0.0.0.0 172.20.0.1
 !
 username alice attributes
@@ -48,7 +48,7 @@ username alice attributes
 !
 names
 dns domain-lookup management
-dns name-server 172.20.0.1
+dns name-server 172.20.0.2
 !";
 
 // ============================================================================
@@ -86,4 +86,13 @@ fn device_accounts_001_cisco_asav_enable_and_owner() {
         )));
         assert_eq!(output.matches(password).count(), 2);
     }
+}
+
+#[test]
+fn config_name_server_005_cisco_asav() {
+    let output = asa("Rand0mPass-1").render().expect("template renders");
+    assert_eq!(
+        helpers::name_servers(&output, "dns name-server "),
+        ["172.20.0.2"]
+    );
 }

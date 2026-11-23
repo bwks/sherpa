@@ -21,8 +21,8 @@ ipv4_default_gw=172.20.0.1
 # Optional IPv6
 
 # DNS and domain
-domain=lab.sherpa.local
-primary_nameserver=172.20.0.1
+domain=sherpa.lab.local
+primary_nameserver=172.20.0.2
 
 # NTP
 primary_ntpserver=time.cloudflare.com

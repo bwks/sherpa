@@ -24,8 +24,8 @@ username alice password 0 PASSWORD role network-admin
 username alice sshkey ssh-rsa OWNERKEY1
 username alice sshkey ssh-ed25519 OWNERKEY2
 !
-ip domain-name lab.sherpa.local
-ip name-server 172.20.0.1
+ip domain-name sherpa.lab.local
+ip name-server 172.20.0.2
 !
 vrf context management
 !
@@ -77,4 +77,13 @@ fn device_accounts_008_cisco_nxos_admin_and_owner() {
         )));
         assert_eq!(output.matches(password).count(), 2);
     }
+}
+
+#[test]
+fn config_name_server_011_cisco_nxos() {
+    let output = nxos("Rand0mPass-1").render().expect("template renders");
+    assert_eq!(
+        helpers::name_servers(&output, "ip name-server "),
+        ["172.20.0.2"]
+    );
 }

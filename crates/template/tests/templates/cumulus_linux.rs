@@ -27,9 +27,9 @@ trap error ERR
 
 #Configs
 nv set system hostname cumulus01
-nv set service dns default search lab.sherpa.local
+nv set service dns default search sherpa.lab.local
 
-nv set service dns default server 172.20.0.1
+nv set service dns default server 172.20.0.2
 
 nv set system aaa user alice
 nv set system aaa user alice password 'PASSWORD'
@@ -80,4 +80,13 @@ fn device_accounts_009_cumulus_linux_owner() {
         )));
         assert_eq!(output.matches(password).count(), 1);
     }
+}
+
+#[test]
+fn config_name_server_012_cumulus_linux() {
+    let output = cumulus("Rand0mPass-1").render().expect("template renders");
+    assert_eq!(
+        helpers::name_servers(&output, "nv set service dns default server "),
+        ["172.20.0.2"]
+    );
 }

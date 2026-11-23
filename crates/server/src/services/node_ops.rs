@@ -5347,7 +5347,7 @@ echo "$*" >> '{}'
         let network = nocloud_test_network();
         let (tx, _rx) = mpsc::unbounded_channel();
         let progress = ProgressSender::new(tx);
-        let dns = util::default_dns(&network.v4.prefix).unwrap();
+        let dns = util::default_dns(&network);
         let ztp = NodeZtp {
             lab_dir: root,
             boot_dir: root,
@@ -5379,7 +5379,7 @@ echo "$*" >> '{}'
         let network = nocloud_test_network();
         let (tx, _rx) = mpsc::unbounded_channel();
         let progress = ProgressSender::new(tx);
-        let dns = util::default_dns(&network.v4.prefix).unwrap();
+        let dns = util::default_dns(&network);
         let ztp = NodeZtp {
             lab_dir: root,
             boot_dir: root,
@@ -5433,7 +5433,7 @@ echo "$*" >> '{}'
         let network = nocloud_test_network();
         let (tx, _rx) = mpsc::unbounded_channel();
         let progress = ProgressSender::new(tx);
-        let dns = util::default_dns(&network.v4.prefix).unwrap();
+        let dns = util::default_dns(&network);
         let ztp = NodeZtp {
             lab_dir: root,
             boot_dir: root,
@@ -5897,7 +5897,7 @@ echo "$*" >> '{}'
                     "alice",
                     &[OWNER_KEY, &format!("ssh-rsa {IOL_TEST_RSA_KEY}")],
                 ),
-                dns: util::default_dns(&network.v4.prefix).unwrap(),
+                dns: util::default_dns(&network),
                 network,
                 progress: ProgressSender::new(tx),
                 _messages: messages,

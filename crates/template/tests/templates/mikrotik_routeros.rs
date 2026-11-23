@@ -12,7 +12,7 @@ use crate::helpers;
 
 const EXPECTED_STATIC_IPV4: &str = "\
 /system identity set name=mikrotik01
-/ip dns set servers=172.20.0.1
+/ip dns set servers=172.20.0.2
 /user set 0 password=PASSWORD
 :do { /user add name=alice password=PASSWORD group=full } on-error={}
 /ip address add address=172.20.0.10/24 interface=ether1
@@ -107,4 +107,15 @@ fn device_accounts_011_routeros_first_user_and_owner_passwords() {
         )));
         assert_eq!(output.matches(password).count(), 2);
     }
+}
+
+#[test]
+fn config_name_server_013_mikrotik_routeros() {
+    let output = routeros("Rand0mPass-1", &[])
+        .render()
+        .expect("template renders");
+    assert_eq!(
+        helpers::name_servers(&output, "/ip dns set servers="),
+        ["172.20.0.2"]
+    );
 }

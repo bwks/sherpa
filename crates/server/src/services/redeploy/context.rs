@@ -472,11 +472,7 @@ async fn load_lab_files(db: &db::Database, db_lab: &DbLab) -> Result<LabFiles> {
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
     let lab_info = lab_info::load_lab_info(db, db_lab).await?;
     let mgmt_net = lab_management_network(&lab_info);
-    let dns = if let Some(ref v6) = mgmt_net.v6 {
-        util::default_dns_dual_stack(&lab_info.ipv4_network, &v6.prefix)?
-    } else {
-        util::default_dns(&lab_info.ipv4_network)?
-    };
+    let dns = util::default_dns(&mgmt_net);
     let certs_dir = format!("{lab_dir}/{LAB_CERTS_DIR}");
     let lab_ca = lab_ca::load_lab_ca(Path::new(&certs_dir), lab_id)?;
     Ok(LabFiles {

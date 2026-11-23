@@ -14,8 +14,8 @@ const PASSWORD: &str = "Rand0mPass-1";
 
 const EXPECTED_ROUTER: &str = r"!
 hostname r1
-ip domain name lab.sherpa.local
-ip name-server 172.20.0.1
+ip domain name sherpa.lab.local
+ip name-server 172.20.0.2
 !
 aaa new-model
 aaa authentication login default local
@@ -115,4 +115,13 @@ fn config_addressing_009_cisco_iol_dual_stack() {
     .expect("template renders");
     assert!(output.contains(" ip address 172.20.0.10 255.255.255.0\n ipv6 address fd00::10/64\n"));
     assert!(output.contains("ipv6 unicast-routing\nipv6 route ::/0 fd00::1\n"));
+}
+
+#[test]
+fn config_name_server_006_cisco_iol() {
+    let output = router(PASSWORD).render().expect("template renders");
+    assert_eq!(
+        helpers::name_servers(&output, "ip name-server "),
+        ["172.20.0.2"]
+    );
 }

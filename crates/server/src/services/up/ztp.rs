@@ -715,7 +715,7 @@ mod tests {
                 node_setup_data: &node_setup_data,
                 lab_node_data: &lab_node_data,
                 mgmt_net: &mgmt_net,
-                dns: &util::default_dns(&mgmt_net.v4.prefix).unwrap(),
+                dns: &util::default_dns(&mgmt_net),
                 owner_account: &test_account("alice", &[]),
                 talos_clusters: &[],
             },
