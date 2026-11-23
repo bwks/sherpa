@@ -57,7 +57,7 @@ A config template is tested one case per model, not one table-driven case for al
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | A container with ZTP on runs with every config mount of its model and takes its owner's SSH login by key, after up and after a redeploy | e2e |
-| 002 | A `cisco_iol` node's running config has the name, the management interface and the owner's account Sherpa generated, read over the owner's SSH login (no test with its ID yet; `tests/labs/cisco-iol` shows it) | e2e |
+| 002 | A `cisco_iol` node's running config has the name, the management interface and the owner's account Sherpa generated, read over the owner's SSH login | e2e |
 | 003 | A cloud-init VM finishes cloud-init without an error | e2e |
 | 004 | A VM of each other method, `cdrom`, `disk`, `usb`, `tftp`, `http`, `ignition` and `nocloud`, boots with its name and its management address from the config Sherpa delivered (no test yet) | e2e |
 | 005 | An `frr_linux` container with ZTP on has its three config mounts and its start command, at up and after a redeploy | integration |
