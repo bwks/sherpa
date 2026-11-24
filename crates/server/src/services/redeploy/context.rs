@@ -747,6 +747,20 @@ mod tests {
     }
 
     #[test]
+    fn lab_settings_012_a_redeploy_is_refused_before_teardown_for_a_ready_timeout_over_the_maximum()
+    {
+        let error = redeploy_refusal(&serde_json::json!({
+            "name": "core",
+            "ready_timeout": u64::MAX,
+            "nodes": [{ "name": "r1", "model": "ubuntu_linux" }],
+        }));
+        assert!(
+            error.contains("`ready_timeout` is 18446744073709551615"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn node_settings_015_a_redeploy_is_refused_before_teardown_for_a_setting_of_0() {
         let error = redeploy_refusal(&serde_json::json!({
             "name": "core",

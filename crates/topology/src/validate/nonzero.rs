@@ -31,16 +31,20 @@ pub fn check_nonzero_node_settings(nodes: &[Node]) -> Result<()> {
     Ok(())
 }
 
-/// Check the lab's `ready_timeout` is not 0 seconds.
+/// Check the lab's `ready_timeout` is from 1 second to the most the lab's definition stores.
 ///
 /// # Errors
 ///
-/// Fails when it is 0.
+/// Fails when it is 0 or larger than `i64::MAX` seconds.
 pub fn check_ready_timeout(ready_timeout: Option<u64>) -> Result<()> {
-    if ready_timeout == Some(0) {
-        bail!("Manifest - `ready_timeout` is 0; it must be at least 1 second");
+    match ready_timeout {
+        Some(0) => bail!("Manifest - `ready_timeout` is 0; it must be at least 1 second"),
+        Some(seconds) if i64::try_from(seconds).is_err() => bail!(
+            "Manifest - `ready_timeout` is {seconds}; it must be at most {} seconds",
+            i64::MAX
+        ),
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -127,5 +131,18 @@ mod tests {
         assert!(error.contains("`ready_timeout` is 0"), "{error}");
         assert!(check_ready_timeout(Some(1)).is_ok());
         assert!(check_ready_timeout(None).is_ok());
+    }
+
+    #[test]
+    fn lab_settings_011_a_ready_timeout_over_the_stored_maximum_is_refused_and_the_maximum_is_taken()
+     {
+        let error = check_ready_timeout(Some(9_223_372_036_854_775_808))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("it must be at most 9223372036854775807 seconds"),
+            "{error}"
+        );
+        assert!(check_ready_timeout(Some(9_223_372_036_854_775_807)).is_ok());
     }
 }
