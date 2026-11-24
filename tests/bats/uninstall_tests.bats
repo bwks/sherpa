@@ -295,6 +295,7 @@ _plan_and_summary() {
 }
 
 @test "uninstall_script_019_remove_data_states_before_the_prompt_and_in_the_summary_everything_it_keeps" {
+    mkdir -p "${WORK_DIR}/var/backups/sherpa"
     _plan_and_summary "KEEP_DATA=false"
     local base="${WORK_DIR}/opt/sherpa" part
     for part in "${output%%--- summary ---*}" "${output##*--- summary ---}"; do
@@ -306,6 +307,7 @@ _plan_and_summary() {
         [[ "$part" == *"${base}/env/sherpa.env"* ]]
         [[ "$part" == *"The lab folders: ${base}/labs"* ]]
         [[ "$part" == *"${WORK_DIR}/run/sherpa"* ]]
+        [[ "$part" == *"${WORK_DIR}/var/backups/sherpa"* ]]
         [[ "$part" == *"The sherpa account and group"* ]]
     done
 }
@@ -313,10 +315,12 @@ _plan_and_summary() {
 @test "uninstall_script_020_remove_all_states_before_the_prompt_and_in_the_summary_everything_it_keeps" {
     mkdir -p "${WORK_DIR}/var/backups/sherpa"
     _plan_and_summary "REMOVE_ALL=true; KEEP_DATA=false"
-    local base="${WORK_DIR}/opt/sherpa" part kept
+    local base="${WORK_DIR}/opt/sherpa" part removed kept
     for part in "${output%%--- summary ---*}" "${output##*--- summary ---}"; do
-        kept="${part#*Kept:}"
-        [[ "$kept" == *"${WORK_DIR}/var/backups/sherpa"* ]]
+        removed="${part%%[Kk]ept:*}"
+        kept="${part#*[Kk]ept:}"
+        [[ "$removed" == *"${WORK_DIR}/var/backups/sherpa"* ]]
+        [[ "$kept" != *"${WORK_DIR}/var/backups/sherpa"* ]]
         [[ "$kept" == *"The packages the install script installed"* ]]
         [[ "$kept" != *"${base}/.secret"* ]]
         [[ "$kept" != *"The lab folders"* ]]
@@ -338,4 +342,28 @@ _plan_and_summary() {
         [ ! -e "${STUB_DIR}/calls" ]
         rm "${STUB_DIR}/${stub}"
     done
+}
+
+@test "uninstall_script_023_remove_all_removes_the_update_backups_and_nothing_through_a_link_above_them" {
+    local backups="${WORK_DIR}/var/backups/sherpa"
+    mkdir -p "${backups}/update-20261101T090807Z" "${WORK_DIR}/elsewhere/sherpa"
+    touch "${backups}/update-20261101T090807Z/sherpa.sqlite" "${WORK_DIR}/elsewhere/sherpa/db.key"
+    run bash -c "
+        source '${STRIPPED_SCRIPT}'
+        $(_paths)
+        remove_update_backups
+    "
+    [ "$status" -eq 0 ]
+    [ ! -e "${backups}" ]
+
+    rmdir "${WORK_DIR}/var/backups"
+    ln -s "${WORK_DIR}/elsewhere" "${WORK_DIR}/var/backups"
+    run bash -c "
+        source '${STRIPPED_SCRIPT}'
+        $(_paths)
+        remove_update_backups
+    "
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"${WORK_DIR}/var/backups is a symlink"* ]]
+    [ -e "${WORK_DIR}/elsewhere/sherpa/db.key" ]
 }

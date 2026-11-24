@@ -15,8 +15,8 @@
 # Options:
 #   --keep-data      Keep the database and its backups (default)
 #   --remove-data    Remove the database and its backups
-#   --remove-all     Remove everything including /opt/sherpa, /run/sherpa and
-#                    the sherpa account
+#   --remove-all     Remove everything including /opt/sherpa, /run/sherpa, the
+#                    update backups in /var/backups/sherpa and the sherpa account
 #   --force          Don't prompt for confirmation
 #   -h, --help       Show help message
 #
@@ -97,8 +97,8 @@ before 0.5.0 if there is one, and optionally the data.
 Options:
   --keep-data      Keep the database and its backups in ${SHERPA_DB_DIR} (default)
   --remove-data    Remove the database and its backups
-  --remove-all     Remove everything including ${SHERPA_BASE_DIR}, ${SHERPA_RUN_DIR}
-                   and the ${SHERPA_ACCOUNT} account
+  --remove-all     Remove everything including ${SHERPA_BASE_DIR}, ${SHERPA_RUN_DIR}, the update
+                   backups in ${SHERPA_UPDATE_BACKUP_DIR} and the ${SHERPA_ACCOUNT} account
   --force          Don't prompt for confirmation
   -h, --help       Show this help message
 
@@ -571,6 +571,23 @@ remove_run_dir() {
     fi
 }
 
+# Remove the update script's backups of the database and its key.
+remove_update_backups() {
+    if ! path_has_no_symlink "${SHERPA_UPDATE_BACKUP_DIR}"; then
+        return 1
+    fi
+    if [ ! -d "${SHERPA_UPDATE_BACKUP_DIR}" ]; then
+        print_info "${SHERPA_UPDATE_BACKUP_DIR} not found"
+        return 0
+    fi
+    if rm -rf "${SHERPA_UPDATE_BACKUP_DIR:?}"; then
+        print_success "Removed ${SHERPA_UPDATE_BACKUP_DIR}"
+    else
+        print_error "Failed to remove ${SHERPA_UPDATE_BACKUP_DIR}"
+        return 1
+    fi
+}
+
 # Print the accounts whose primary group is the sherpa group, other than the sherpa account.
 group_primary_users() {
     local gid
@@ -629,6 +646,7 @@ print_removed() {
         echo "    the configuration, the certificates, the lab folders, the images and the VM disks"
         echo "  - The sherpa CLI's link in /usr/local/bin"
         echo "  - ${SHERPA_RUN_DIR}, the container secret files"
+        echo "  - The update script's backups of the database and its key: ${SHERPA_UPDATE_BACKUP_DIR}"
         echo "  - The ${SHERPA_ACCOUNT} account, which leaves the docker, libvirt and kvm groups, and the"
         echo "    ${SHERPA_ACCOUNT} group unless it is another account's primary group"
     elif [ "$KEEP_DATA" = false ]; then
@@ -661,7 +679,7 @@ print_kept() {
         && [ -n "$(group_primary_users)" ]; then
         echo "  - The ${SHERPA_ACCOUNT} group, the primary group of $(group_primary_users | paste -sd, -)"
     fi
-    if [ -d "${SHERPA_UPDATE_BACKUP_DIR}" ]; then
+    if [ "$REMOVE_ALL" = false ] && [ -d "${SHERPA_UPDATE_BACKUP_DIR}" ]; then
         echo "  - The update script's backups of the database and its key: ${SHERPA_UPDATE_BACKUP_DIR}"
     fi
     echo "  - The packages the install script installed, Docker and libvirt among them"
@@ -700,13 +718,8 @@ print_completion_message() {
     print_kept
     echo ""
     if [ "$REMOVE_ALL" = false ]; then
-        echo "To remove the kept data and the ${SHERPA_ACCOUNT} account later, run:"
+        echo "To remove the kept data, the update backups and the ${SHERPA_ACCOUNT} account later, run:"
         echo "  sudo $0 --remove-all"
-        echo ""
-    fi
-    if [ -d "${SHERPA_UPDATE_BACKUP_DIR}" ]; then
-        echo "To remove the update backups, run:"
-        echo "  sudo rm -rf ${SHERPA_UPDATE_BACKUP_DIR}"
         echo ""
     fi
 }
@@ -755,7 +768,7 @@ main() {
     LAB_LEFTOVERS="$(lab_leftovers)"
     print_plan
     if [ "$REMOVE_ALL" = true ]; then
-        confirm_action "WARNING: This will remove ALL data in ${SHERPA_BASE_DIR} and the ${SHERPA_ACCOUNT} account!"
+        confirm_action "WARNING: This will remove ALL data in ${SHERPA_BASE_DIR}, the update backups in ${SHERPA_UPDATE_BACKUP_DIR} and the ${SHERPA_ACCOUNT} account!"
     elif [ "$KEEP_DATA" = false ]; then
         confirm_action "WARNING: This will remove the database and its backups in ${SHERPA_DB_DIR}!"
     else
@@ -777,6 +790,7 @@ main() {
     if [ "$REMOVE_ALL" = true ]; then
         remove_all_data
         remove_run_dir
+        remove_update_backups
         remove_sherpa_account
     elif [ "$KEEP_DATA" = false ]; then
         remove_database_data

@@ -29,7 +29,8 @@ pre-1.0 version with default features off, as they install mimalloc as the globa
   and the key, with sherpad stopped, to a new root-only folder in `/var/backups/sherpa` before
   the new release first opens them. When that release does not start it removes the `-wal` and
   `-shm` files the release left, as SQLite would apply them to the restored file, and puts the
-  copies back (`update_script`).
+  copies back (`update_script`). The update never removes the folder; `sherpa_uninstall.sh
+  --remove-all` does, and the other uninstall modes keep it (`uninstall_script`).
 
 ## Queries and row mapping
 

@@ -306,9 +306,10 @@ The script finds a lab's resources as sherpad does, without sherpad running: the
 | 017 | With `--remove-all`, the domains, containers, libvirt and Docker networks and gateway volumes of stopped labs, and the storage pool, are listed by name before the prompt and in the closing summary, and resources of no lab are not | unit (bats) |
 | 018 | With `--keep-data`, the prompt and the closing summary name what is kept and where: the database, `.secret`, `.certs`, `sherpa.toml`, `sherpa.env`, the lab folders, `/run/sherpa`, the update backups, the `sherpa` account | unit (bats) |
 | 019 | With `--remove-data`, the same but the database, which is named as removed | unit (bats) |
-| 020 | With `--remove-all`, the kept list names the update backups and the packages, and none of what is removed | unit (bats) |
+| 020 | With `--remove-all`, the removed list names the update backups, and the kept list names the packages and none of what is removed | unit (bats) |
 | 021 | `--remove-all` removes the `sherpa` account and its group, and no group lists `sherpa` | e2e (fresh VM) |
 | 022 | With lab folders on the host and Docker or libvirt not answering, it exits 1, says it cannot tell whether a lab runs, and changes nothing | unit (bats) |
+| 023 | `--remove-all` removes `/var/backups/sherpa`; with a symlink at or above it, nothing is removed through it, and the link is named | unit (bats) |
 
 ## `database_backup`: a backup is a consistent copy only `sherpa` can read
 
