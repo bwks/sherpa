@@ -9,6 +9,8 @@ You are working on a Rust application that manages virtual machines, containers,
 - Work is tracked in GitHub issues on `bwks/sherpa`, labelled `P0` to `P3` by priority, with a milestone per release.
 
 ## Documentation
+- Code, comments, user-facing text (CLI, web UI, errors) and docs describe current behaviour only. Historical narrative (what changed, in which version, "no longer", "previously") belongs in `CHANGELOG.md` and nowhere else.
+
 ### Architecture
 - Application architecture is documented in `docs/architecture/`.
 - Architecture changes/additions require matching documentation. 
