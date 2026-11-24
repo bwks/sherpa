@@ -100,7 +100,6 @@ fn link_row(row: &Row) -> Result<Link2> {
     let _position: i64 = cells.integer("position")?;
     let src = cells.text("src")?;
     let dst = cells.text("dst")?;
-    let p2p = cells.optional_boolean("p2p")?;
     let impaired = cells.boolean("impaired")?;
     let impairment = ManifestImpairment {
         delay: cells.optional_integer("delay")?,
@@ -112,7 +111,6 @@ fn link_row(row: &Row) -> Result<Link2> {
     Ok(Link2 {
         src,
         dst,
-        p2p,
         impairment: impaired.then_some(impairment),
     })
 }

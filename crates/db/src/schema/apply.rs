@@ -140,6 +140,7 @@ mod tests {
     };
     use shared::konst::{SSH_PORT, TALOS_API_PORT};
     use shared::validators::check_ztp;
+    use topology::{Link2, ManifestImpairment};
     use turso::Value;
 
     use super::*;
@@ -1957,6 +1958,51 @@ mod tests {
         assert_eq!(
             definition.nodes[0].environment_variables,
             Some(vec!["MODE=lab".to_owned()])
+        );
+    }
+
+    #[tokio::test]
+    async fn upgraded_records_024_a_stored_definition_loses_link_p2p_and_keeps_its_links() {
+        // A version 41 database, from before a link's `p2p` key was removed, with a lab whose
+        // stored definition has a link that set it and one that did not.
+        let migration = migrations::DROP_MANIFEST_LINK_P2P;
+        assert_eq!(migrations_before(migration) + 1, 41);
+        let (db, lab) = definition_with_node_texts(migration, &[]).await;
+        let lab_key = key_of(&lab, "lab").unwrap();
+        {
+            let writer = db.writer().await.unwrap();
+            writer
+                .conn
+                .execute(
+                    "INSERT INTO manifest_link (lab, position, src, dst, p2p, impaired, delay) \
+                     VALUES (?1, 0, 'fc1::eth1', 'fc1::eth2', 1, 1, 20), \
+                     (?1, 1, 'fc1::eth3', 'fc1::eth4', NULL, 0, NULL)",
+                    [lab_key.as_str()],
+                )
+                .await
+                .unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+
+        let definition = read_lab_definition(&db, &lab).await.unwrap().unwrap();
+        assert_eq!(
+            definition.links,
+            Some(vec![
+                Link2 {
+                    src: "fc1::eth1".to_owned(),
+                    dst: "fc1::eth2".to_owned(),
+                    impairment: Some(ManifestImpairment {
+                        delay: Some(20),
+                        ..ManifestImpairment::default()
+                    }),
+                },
+                Link2 {
+                    src: "fc1::eth3".to_owned(),
+                    dst: "fc1::eth4".to_owned(),
+                    impairment: None,
+                },
+            ])
         );
     }
 
