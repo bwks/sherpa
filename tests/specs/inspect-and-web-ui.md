@@ -277,5 +277,7 @@ The session cookie that keeps another site's requests from acting as the user is
 | 021 | The `error` event of a streamed REST operation that fails for no known kind carries `internal error (ref <id>); see the server log`, no code, and none of its chain | unit |
 | 022 | An error a destroy or a clean reports for a resource it could not remove names the resource and gives the reference, never the error's text or a path | unit |
 | 023 | A node whose model and kind have no image of its version, or no default image when it sets none, is refused as not found with the model, kind and version, never as an internal error | unit |
+| 024 | The web UI's labs list, when listing is refused with a known kind, such as a user not found, shows the refusal's own message | unit |
+| 025 | The web UI's labs list, when listing fails for no known kind, shows `internal error (ref <id>); see the server log`, and none of its chain | unit |
 
 Exit status 75, for a refusal for memory or held CPUs, and what those refusals carry, are `lab_preflight_007` in [lab-lifecycle.md](lab-lifecycle.md). That a request which does not parse is answered without its secrets is `provisioner_secrecy_004`. The path in the answer to a request that does not parse is given only when each of its segments is an index or a plain name of letters, digits, `_` and `-`, since a map key or an unknown field is what the client sent; serde gives none inside an internally tagged enum, such as the WebSocket message's own fields. A JSON key sent twice is refused as `the request is not valid`.
