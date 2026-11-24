@@ -275,7 +275,7 @@ pub async fn create_bridge(name: &str, alias_name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Create a veth pair, both ends up with a jumbo MTU and their aliases.
+/// Create a veth pair with both ends up, the shared setup of tests that need a host veth.
 ///
 /// # Errors
 ///

@@ -178,7 +178,6 @@ async fn write_links(conn: &Connection, lab_key: &str, manifest: &Manifest) -> R
                 position(index)?,
                 link.src.as_str().into(),
                 link.dst.as_str().into(),
-                link.p2p.into(),
                 impairment.is_some().into(),
                 impairment.and_then(|impairment| impairment.delay).into(),
                 impairment.and_then(|impairment| impairment.jitter).into(),

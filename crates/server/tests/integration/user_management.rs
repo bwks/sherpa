@@ -931,7 +931,6 @@ async fn user_accounts_015_deleting_a_user_who_owns_labs_is_refused_on_all_trans
 async fn user_accounts_014_self_delete_is_refused_on_all_transports() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
-    // A second admin, so the self-delete rule is what refuses, not the last-admin rule.
     db::create_user(
         &server.db,
         "dana".to_owned(),
@@ -978,7 +977,7 @@ async fn user_accounts_014_self_delete_is_refused_on_all_transports() -> Result<
 async fn builtin_admin_004_built_in_admin_delete_is_refused_on_all_transports() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
-    // A second admin, so neither the self-delete nor the last-admin rule is what refuses.
+    // A second admin, so the self-delete rule is not what refuses.
     db::create_user(
         &server.db,
         "dana".to_owned(),

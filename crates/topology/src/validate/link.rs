@@ -75,26 +75,6 @@ fn check_device_interface(
     Ok(())
 }
 
-/// Rejects the removed `p2p` link setting. Every link is a P2p (eBPF) link, so a manifest that
-/// still sets it, either way, is told to delete it rather than having it silently ignored.
-///
-/// # Errors
-///
-/// Fails when a link sets `p2p`.
-pub fn check_no_p2p_field(links: &[Link2]) -> Result<()> {
-    for link in links {
-        if link.p2p.is_some() {
-            bail!(
-                "Manifest link - {} <-> {} sets `p2p`, which has been removed: every link is now \
-                 a P2p (eBPF) link. Delete `p2p` from the link",
-                link.src,
-                link.dst
-            );
-        }
-    }
-    Ok(())
-}
-
 /// Check every link's impairment against what netem can apply.
 ///
 /// # Errors
@@ -241,28 +221,6 @@ mod tests {
         }
     }
 
-    fn manifest_link(src: &str, dst: &str, p2p: Option<bool>) -> Link2 {
-        Link2 {
-            src: src.to_string(),
-            dst: dst.to_string(),
-            p2p,
-            impairment: None,
-        }
-    }
-
-    #[test]
-    fn test_p2p_field_is_rejected_either_way() {
-        for value in [true, false] {
-            let links = vec![
-                manifest_link("dev01::eth1", "dev02::eth1", None),
-                manifest_link("dev01::eth2", "dev03::eth1", Some(value)),
-            ];
-            let error = check_no_p2p_field(&links).unwrap_err().to_string();
-            assert!(error.contains("dev01::eth2 <-> dev03::eth1"), "{error}");
-            assert!(error.contains("Delete `p2p`"), "{error}");
-        }
-    }
-
     #[test]
     fn manifest_links_006_the_management_interface_is_refused_in_a_link_and_in_a_bridge() {
         let links = vec![create_link("rocky1", 0, "rocky2", 1)];
@@ -388,7 +346,6 @@ mod tests {
         Link2 {
             src: "dev01::eth1".to_string(),
             dst: "dev02::eth1".to_string(),
-            p2p: None,
             impairment: Some(impairment),
         }
     }

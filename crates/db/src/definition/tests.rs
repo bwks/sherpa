@@ -178,7 +178,6 @@ fn full_manifest() -> Manifest {
             Link2 {
                 src: "dev01::eth1".to_owned(),
                 dst: "web::eth1".to_owned(),
-                p2p: Some(false),
                 impairment: Some(ManifestImpairment {
                     delay: Some(20),
                     jitter: Some(2),
@@ -190,13 +189,11 @@ fn full_manifest() -> Manifest {
             Link2 {
                 src: "dev01::eth2".to_owned(),
                 dst: "web::eth2".to_owned(),
-                p2p: None,
                 impairment: Some(ManifestImpairment::default()),
             },
             Link2 {
                 src: "dev01::eth3".to_owned(),
                 dst: "web::eth3".to_owned(),
-                p2p: None,
                 impairment: None,
             },
         ]),

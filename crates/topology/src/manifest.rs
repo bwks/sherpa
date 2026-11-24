@@ -67,7 +67,6 @@ impl Manifest {
         let links = vec![Link2 {
             src: format!("{}::eth1", dev01.name),
             dst: format!("{}::eth1", dev02.name),
-            p2p: None,
             impairment: None,
         }];
 

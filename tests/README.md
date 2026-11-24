@@ -556,12 +556,6 @@ These are guidelines, not gates: none of them blocks a commit, a merge or a rele
 "Before a release" row on the bump pull request, before clicking Release
 (`docs/architecture/RELEASE.md`).
 
-## Known issues
-
-- **TAP devices on kernel 6.8+:** `create_tap()` uses `InfoKind::Tun` through rtnetlink,
-  which kernel 6.8 rejects. `test_create_tap`, `test_get_ifindex` and
-  `test_ebpf_redirect_between_taps` detect this and skip.
-
 ## Conventions
 
 - Integration tests use `#[ignore]` and run with `-- --ignored`.
