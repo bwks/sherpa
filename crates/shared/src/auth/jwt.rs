@@ -16,7 +16,7 @@ pub struct Claims {
     pub sub: String,
 
     /// The session this token belongs to. The server accepts the token only while the session
-    /// exists. Tokens from before sessions were added have no `sid` and are rejected.
+    /// exists. A token with no `sid` is rejected.
     pub sid: String,
 
     /// Expiration time (Unix timestamp in seconds)

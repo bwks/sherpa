@@ -63,7 +63,7 @@ fn load_credentials(dir: &Path, node_name: &str) -> Result<Option<SurrealDbCrede
 /// The root user a `SurrealDB` node is created with, saved in `dir` before the node starts. A
 /// node keeps what was saved for it, across `redeploy`: its database is in memory, so a
 /// redeployed node starts empty with the same root user, and the owner's downloaded file stays
-/// right. A new node, or one from before Sherpa 0.7.0, which has none saved, gets a new one.
+/// right. A node with none saved gets a new one.
 #[instrument(skip_all, fields(dir = %dir.display(), %node_name), level = "debug")]
 pub(crate) fn ensure_surreal_db_credentials(
     dir: &Path,

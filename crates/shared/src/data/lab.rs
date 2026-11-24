@@ -387,7 +387,6 @@ mod tests {
 
     #[test]
     fn labs_list_010_a_list_from_a_server_that_sends_no_phase_reads_as_ready_labs() {
-        // Servers before 0.5.27 send no phase.
         let summary: LabSummary = serde_json::from_str(
             r#"{"id":"ab12cd34","name":"core","node_count":1,"status":"running"}"#,
         )

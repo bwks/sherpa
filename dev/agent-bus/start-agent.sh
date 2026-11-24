@@ -31,9 +31,9 @@
 # `agent-bus bus start` made, tls/ca.pem in the host's state directory; the guest agent trusts
 # only it.
 #
-# The lab folder must be in the .sherpa/ layout of sherpa 0.5.15. A folder from an older client
-# (a loose lab-info.toml and sherpa_ssh_config) is refused: run any sherpa 0.5.15 command in it,
-# such as `sherpa inspect`, which moves its files into .sherpa/.
+# The lab folder must be in the .sherpa/ layout. A folder in the loose layout (a loose
+# lab-info.toml and sherpa_ssh_config) is refused: run any sherpa command in it, such as
+# `sherpa inspect`, which moves its files into .sherpa/.
 set -euo pipefail
 
 if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then

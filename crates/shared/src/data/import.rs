@@ -51,8 +51,8 @@ pub struct ShowImageResponse {
 }
 
 /// Request type for importing a disk image. It denies unknown fields, so an import that sends
-/// image settings, such as the ZTP username, password and password auth removed in 0.7.0, is
-/// refused with serde's error naming the field instead of importing without them.
+/// an image setting it does not take, such as a ZTP username, password or password auth, is
+/// refused with serde's error naming the field instead of importing without it.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ImportRequest {

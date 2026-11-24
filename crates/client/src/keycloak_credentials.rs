@@ -17,8 +17,8 @@ struct KeycloakCredentialsFile<'a> {
     account_console: String,
     /// Where the admin logs in to the `master` realm.
     admin_console: String,
-    /// The node's own admin, in the `master` realm. A node created before Sherpa 0.7.0 has none
-    /// until it is redeployed.
+    /// The node's own admin, in the `master` realm. A node with none saved gets one when it is
+    /// redeployed.
     #[serde(skip_serializing_if = "Option::is_none")]
     admin: Option<&'a AdminCredential>,
     users: &'a [KeycloakUser],

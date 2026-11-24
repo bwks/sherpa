@@ -43,7 +43,6 @@ pub fn set_ztp(config: &mut NodeConfig, ztp: Ztp) {
 /// Test helper to create a node with a specific model
 ///
 /// This is a convenience wrapper for tests that handles the config lookup automatically.
-/// Equivalent to the old `create_lab_node()` but for test use only.
 ///
 /// # Errors
 ///

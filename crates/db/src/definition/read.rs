@@ -374,7 +374,7 @@ impl Nodes {
 }
 
 /// The lab `lab_id`'s definition as the manifest it was deployed from, or `None` when the lab
-/// has none (a lab stored by a release before 0.6.4 that was never imported).
+/// has none.
 ///
 /// The manifest is the one stored, as the user wrote it, field for field, but for one rule: an
 /// empty list or an empty `vm`, `container` or `unikernel` table is not stored, and reads back
