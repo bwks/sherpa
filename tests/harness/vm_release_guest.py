@@ -607,7 +607,7 @@ class Guest:
                     "Missing transparent hugepages boot rule")
 
     def verify_blank_disks(self):
-        """Each blank disk template has its size, file system and label, 644 sherpa:sherpa, in a
+        """Each blank disk template has its size, file system and label, 400 sherpa:sherpa, in a
         folder 775."""
         folder = self.base / "images/blank_disk"
         check_mode(folder, 0o775)
@@ -615,7 +615,7 @@ class Guest:
             disk = folder / name
             require(disk.is_file() and not disk.is_symlink(), f"Blank disk {name} is missing")
             require(disk.stat().st_size == size, f"Blank disk {name} is not {size} bytes")
-            check_mode(disk, 0o644, "sherpa", "sherpa")
+            check_mode(disk, 0o400, "sherpa", "sherpa")
             require(blkid(disk, "TYPE") == (kind or ""), f"Blank disk {name} has the wrong file system")
             require(blkid(disk, "LABEL") == (label or ""), f"Blank disk {name} has the wrong label")
             if version:
@@ -795,7 +795,7 @@ class Guest:
         if log.exists():
             check_mode(log, 0o640)
         for disk in (self.base / "images/blank_disk").iterdir():
-            check_mode(disk, 0o644, "sherpa", "sherpa")
+            check_mode(disk, 0o400, "sherpa", "sherpa")
         for path in (Path("/etc/systemd/system/sherpad.service"), Path("/etc/logrotate.d/sherpad"), THP_BOOT_RULE):
             if path != THP_BOOT_RULE or path.exists():
                 check_mode(path, 0o644, "root")

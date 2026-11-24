@@ -139,7 +139,7 @@ _blank_disks_case_002() {
     echo "${output}"
     [ "$status" -eq 0 ]
     [ "$(stat -c '%a' "${WORK_DIR}/images/blank_disk")" = "775" ]
-    [ "$(stat -c '%a' "${WORK_DIR}/images/blank_disk/fat32.img")" = "644" ]
+    [ "$(stat -c '%a' "${WORK_DIR}/images/blank_disk/fat32.img")" = "400" ]
     # No temporary file is left behind.
     [ "$(find "${WORK_DIR}/images/blank_disk" -name '.*' -type f | wc -l)" -eq 0 ]
     rm -rf "${WORK_DIR}"
@@ -744,6 +744,41 @@ _stub_docker_with_containers() {
     [ "$status" -eq 1 ]
     run grep -q "image tag" "${WORK_DIR}/docker.args"
     [ "$status" -ne 0 ]
+}
+
+@test "install_host_019_a_repeat_install_keeps_sherpa_env_line_for_line_and_adds_only_the_settings_it_lacks" {
+    WORK_DIR="$(mktemp -d)"
+    _stub_root_commands
+    mkdir "${WORK_DIR}/env"
+    printf '%s\n' '# Operator notes' 'SHERPA_SERVER_IPV4=10.0.0.5' '  SHERPA_SERVER_WS_PORT=4040' \
+        'OTEL_EXPORTER_OTLP_HEADERS=authorization=secret' > "${WORK_DIR}/env/sherpa.env"
+    printf '%s' '# a last line with no newline' >> "${WORK_DIR}/env/sherpa.env"
+    cp "${WORK_DIR}/env/sherpa.env" "${WORK_DIR}/before"
+    local run_install="
+        set +e
+        PATH='${MOCK_BIN}:${PATH}'
+        source '${STRIPPED_SCRIPT}'
+        SHERPA_ENV_DIR='${WORK_DIR}/env'
+        SERVER_IP=192.0.2.9 WS_PORT=3030 HTTP_PORT=3031
+        write_sherpa_env
+    "
+
+    run bash -c "${run_install}"
+    [ "$status" -eq 0 ]
+    local env_file="${WORK_DIR}/env/sherpa.env"
+    cmp -n "$(stat -c '%s' "${WORK_DIR}/before")" "${WORK_DIR}/before" "${env_file}"
+    [ "$(grep -c '^SHERPA_SERVER_IPV4=' "${env_file}")" -eq 1 ]
+    [ "$(grep -c 'SHERPA_SERVER_WS_PORT=' "${env_file}")" -eq 1 ]
+    grep -qx 'SHERPA_SERVER_HTTP_PORT=3031' "${env_file}"
+    grep -qx 'LIBVIRT_DEFAULT_URI=qemu:///system' "${env_file}"
+    run grep -c '192.0.2.9' "${env_file}"
+    [ "${output}" = "0" ]
+    grep -q -- "-m 600 .* ${env_file}\$" "${WORK_DIR}/install.args"
+
+    cp "${env_file}" "${WORK_DIR}/after-first"
+    run bash -c "${run_install}"
+    [ "$status" -eq 0 ]
+    cmp "${WORK_DIR}/after-first" "${env_file}"
 }
 
 # ============================================================

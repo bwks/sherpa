@@ -25,7 +25,8 @@ sudo ./scripts/sherpa_install.sh
 - Creates the blank disk templates in `/opt/sherpa/images/blank_disk/` that node ZTP disks are
   copied from, each only if it is missing (see "Blank disks" in `docs/architecture/ZTP.md`)
 - Pulls the Sherpa router container image by the digest the script pins, tagged `:latest`
-- Installs the binaries, the sherpad systemd service and its environment file
+- Installs the binaries, the sherpad systemd service and its environment file. Run again, it
+  keeps an existing `sherpa.env` line for line and adds only the settings it lacks
 - Refuses a server older than 0.5.0 (a `sherpa-db` SurrealDB container exists)
 
 **Requirements:**
@@ -50,6 +51,8 @@ the backups; `sherpa_uninstall.sh --remove-all` does.
 On every run, including one with nothing to install, it creates the blank disk templates that
 are missing, installing `qemu-utils`, `dosfstools` and `e2fsprogs` first if a tool is missing.
 Existing disks are never changed. Running it again is how a server gets a disk that was removed.
+It also pulls the router image by the digest the release pins, before sherpad stops, and names it
+in its closing summary; a pull that fails stops the update with nothing changed.
 
 ### `sherpa_client_install.ps1`
 Installs or updates the Sherpa CLI client on Windows. No administrator privileges required.
@@ -124,11 +127,13 @@ All scripts can be run from the repository root:
 sudo -E ./scripts/sherpa_install.sh --version v0.3.79
 ```
 
-### Blank disks and server folders
+### Blank disks, server folders and the router image
 `sherpa_install.sh` and `sherpa_update.sh` carry the same blank disk section, between
-`# BEGIN blank disks` and `# END blank disks`, and the same server folders section, between
-`# BEGIN server folders` and `# END server folders`, because each is fetched alone. Change both;
-`tests/bats/install_tests.bats` runs its cases against each copy.
+`# BEGIN blank disks` and `# END blank disks`, the same server folders section, between
+`# BEGIN server folders` and `# END server folders`, and the same router image section, with its
+pinned digest, between `# BEGIN router image` and `# END router image`, because each is fetched
+alone. Change both; `tests/bats/install_tests.bats` runs its cases against each copy, and
+`tests/bats/update_tests.bats` checks the update pulls the digest the install script pins.
 
 ### Testing Changes
 After modifying installation scripts, run the automated test suite:

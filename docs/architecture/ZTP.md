@@ -108,7 +108,9 @@ scripts makes them, the update on every run, so a server gets any disk added lat
 changes a file that exists, since node disks may have been copied from it, and builds each disk
 as `sherpa`, never as root, under a temporary name and links it into place, so a disk is either
 whole or absent and a link put in the folder, which the `sherpa` group can write, gets nothing
-of root's. The section
+of root's. Each disk is `0400`: only sherpad, as `sherpa`, its owner, opens a template, to copy
+it, and QEMU only ever opens the copies. `sherpad doctor --boxes` sets the templates back to
+`0400` (`doctor::fix_box_permissions`). The section
 between `# BEGIN blank disks` and `# END blank disks` is copied in both scripts, because each is
 fetched alone with `curl` and has nothing beside it to source; the BATS tests run against each
 copy.
