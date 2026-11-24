@@ -35,6 +35,7 @@ instead of repeating these instructions.
 | SSH access lab test | `uv run tests/labs/ssh-access/ssh_access_lab_test.py` | A route to the lab's management network (the Sherpa server), `ss`, the `alpine_linux` image, logged-in CLI; for `--ssh-jump`, a host account named as the Sherpa user | about 2 min |
 | Owner login lab test | `uv run tests/labs/owner-login/owner_login_lab_test.py` | A route to the lab's management network (the Sherpa server), a CLI logged in as an admin, which creates and deletes the run's admin and owner, the `ubuntu_linux` 24.04 and `nokia_srlinux` 26.7.2 images | about 5 min |
 | Console lab test | `uv run tests/labs/console/console_lab_test.py --admin-user NAME` | Logged-in CLI with an SSH key; an admin, such as `sherpa-admin`, its password in `SHERPA_LAB_TEST_ADMIN_PASSWORD`, who creates and deletes the run's other user; the `alpine_linux` and `generic` container `alpine` 3.22 images | about 1–5 min |
+| Tailnet lab test | `uv run tests/labs/tailnet/tailnet_lab_test.py --admin-user NAME`, with `--restart-docker` for `tailnet_suspend_019` | On the Sherpa server: Docker access, `ssh`, a CLI logged in over `wss://` with a device password, the `alpine_linux` and `generic` container `alpine` 3.22 images, `SHERPA_TEST_TAILSCALE_AUTH_KEY` for a tailnet set up as [the spec](specs/tailnet.md#cases-that-need-a-real-tailnet) says; an admin, its password in `SHERPA_LAB_TEST_ADMIN_PASSWORD`, for `sherpa server clean`; passwordless sudo to read the server's files for the key, and for `--restart-docker`, which restarts Docker | about 5–10 min |
 | Talos lab test | `uv run tests/labs/talos-linux/talos_lab_test.py`, or `... single` or `... ha` for one lab | Sherpa host with KVM, about 44 GB of RAM for both labs at once, the Talos, Ubuntu, Keycloak and Vault images, logged-in CLI with a device password, internet from labs | about 30–40 min |
 | Web UI JavaScript | `node tests/web/test_theme.cjs` | Node.js | seconds |
 | Harness self-tests | `uv run tests/harness/<script>.py --self-test` | Python 3.15+ | seconds |
@@ -202,6 +203,22 @@ They take turns on the one gateway address and each removes its gateway and iden
 the Docker network is left. The VM code suite creates the network and sets these itself (see
 [VM code suite](#vm-code-suite)). What the other tailnet cases need is in
 [the tailnet spec](specs/tailnet.md#cases-that-need-a-real-tailnet).
+
+The e2e cases are the [tailnet lab test](labs/tailnet/README.md), run on the Sherpa server. It
+reads the key from `SHERPA_TEST_TAILSCALE_AUTH_KEY` and stops before making anything when the
+variable is not set. Keep the key in a secret manager, never in a file: with Proton Pass, an env
+file holds only a reference to the secret, and `pass-cli run` resolves it into the environment of
+the one command it starts, so the key is never written to disk or typed on a command line:
+
+```sh
+# tailnet.env, which holds no secret
+SHERPA_TEST_TAILSCALE_AUTH_KEY=pass://<vault>/<item>/<field>
+SHERPA_LAB_TEST_ADMIN_PASSWORD=pass://<vault>/<item>/<field>
+```
+
+```sh
+pass-cli run --env-file tailnet.env -- uv run tests/labs/tailnet/tailnet_lab_test.py --admin-user sherpa-admin
+```
 
 ### After a crashed run
 
@@ -465,12 +482,13 @@ uv run tests/labs/nixos-linux/nixos_linux_lab_test.py        # NixOS VMs: cloud-
 uv run tests/labs/console/console_lab_test.py --admin-user NAME  # sherpa console and sherpa vnc: prompt, escapes, in use, --force, other accounts, containers
 uv run tests/labs/ssh-access/ssh_access_lab_test.py         # sherpa ssh and provisioners: direct, and --ssh-jump
 uv run tests/labs/owner-login/owner_login_lab_test.py --admin-user NAME  # owner logins on nodes, admin refusals, down/resume and redeploy
+uv run tests/labs/tailnet/tailnet_lab_test.py --admin-user NAME  # Tailscale gateways on a real tailnet, checked from a probe device
 uv run tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: the single and ha modules in parallel; ha with Keycloak login and Vault secrets
 ```
 
 See [labs/README.md](labs/README.md) for the rules and each lab's README for what it checks.
 
-The SSH access, owner login, container ZTP, manifest commands, console, P2p containers, P2p links, NixOS, private bridge, Talos and Cisco IOL lab tests are pytest modules (see
+The SSH access, owner login, container ZTP, manifest commands, console, P2p containers, P2p links, NixOS, private bridge, tailnet, Talos and Cisco IOL lab tests are pytest modules (see
 `tests/specs/README.md`): their script headers pin pytest, so `uv run` runs pytest on them and
 passes on pytest arguments such as `-k` and `--keep-failed`;
 `uvx --python 3.15 pytest==9.2.0 tests/labs/ssh-access/ssh_access_lab_test.py` runs one directly.
@@ -498,6 +516,7 @@ uv run tests/labs/cisco-iol/cisco_iol_lab_test.py --self-test
 uv run tests/labs/container-ztp/container_ztp_lab_test.py --self-test
 uv run tests/labs/manifest-commands/manifest_commands_lab_test.py --self-test
 uv run tests/labs/nixos-linux/nixos_linux_lab_test.py --self-test
+uv run tests/labs/tailnet/tailnet_lab_test.py --self-test
 uv run tests/labs/labkit.py  # the helpers the lab runners share
 ```
 
