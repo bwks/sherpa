@@ -26,12 +26,8 @@ nv set system aaa user {{ owner.username }} ssh authorized-key {{ owner.username
 nv set system aaa user {{ owner.username }} ssh authorized-key {{ owner.username }}-ssh-key-{{ loop.index }} type {{ key.kind }}
 {%- endfor %}
 nv set system aaa user {{ owner.username }} role system-admin
-{%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
 nv unset interface eth0 ip address dhcp
 nv set interface eth0 ip address {{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_length }}
-{%- else %}
-nv set interface eth0 ip address dhcp
-{%- endif %}
 nv set interface eth0 ip gateway {{ mgmt_ipv4.first }}
 {%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
 nv set interface eth0 ip address {{ mgmt_ipv6_address }}/{{ mgmt_ipv6.prefix_length }}

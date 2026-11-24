@@ -155,7 +155,7 @@ fn generated_config_008_cisco_iosv() {
         mgmt_interface: "GigabitEthernet0/0".to_string(),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+        mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     };
@@ -171,7 +171,7 @@ fn config_addressing_008_cisco_iosv_dual_stack() {
         mgmt_interface: "GigabitEthernet0/0".to_string(),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+        mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
         mgmt_ipv6_address: Some("fd00::10".parse().expect("valid")),
         mgmt_ipv6: Some(helpers::test_network_v6()),
     };
@@ -188,7 +188,7 @@ fn device_accounts_004_cisco_iosv_and_iosvl2_owner_only() {
             mgmt_interface: "GigabitEthernet0/0".to_string(),
             dns: helpers::test_dns(),
             mgmt_ipv4: helpers::test_network_v4(),
-            mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+            mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
             mgmt_ipv6_address: None,
             mgmt_ipv6: None,
         };
@@ -198,7 +198,7 @@ fn device_accounts_004_cisco_iosv_and_iosvl2_owner_only() {
             mgmt_interface: "GigabitEthernet0/0".to_string(),
             dns: helpers::test_dns(),
             mgmt_ipv4: helpers::test_network_v4(),
-            mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+            mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
             mgmt_ipv6_address: None,
             mgmt_ipv6: None,
         };
@@ -230,7 +230,7 @@ fn config_name_server_007_cisco_iosv() {
         mgmt_interface: "GigabitEthernet0/0".to_string(),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+        mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     }
@@ -250,7 +250,7 @@ fn config_name_server_008_cisco_iosvl2() {
         mgmt_interface: "GigabitEthernet0/0".to_string(),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+        mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     }

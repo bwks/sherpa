@@ -1,4 +1,4 @@
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::Ipv4Addr;
 
 use serde::{Serialize as SerializeTrait, Serializer};
 use serde_derive::Serialize;
@@ -29,8 +29,6 @@ use serde_derive::Serialize;
 #[serde(rename_all = "lowercase")]
 pub enum CiscoFxosIpMode {
     Manual,
-    Dhcp,
-    Disabled,
 }
 
 #[derive(Serialize, Default)]
@@ -53,10 +51,6 @@ pub struct CiscoFtdZtpTemplate {
     pub firewall_mode: CiscoFxosFirewallMode,
     #[serde(rename = "DNS1", skip_serializing_if = "Option::is_none")]
     pub dns1: Option<Ipv4Addr>,
-    #[serde(rename = "DNS2", skip_serializing_if = "Option::is_none")]
-    pub dns2: Option<Ipv4Addr>,
-    #[serde(rename = "DNS3", skip_serializing_if = "Option::is_none")]
-    pub dns3: Option<Ipv4Addr>,
     #[serde(rename = "IPv4Mode", skip_serializing_if = "Option::is_none")]
     pub ipv4_mode: Option<CiscoFxosIpMode>,
     #[serde(rename = "IPv4Addr", skip_serializing_if = "Option::is_none")]
@@ -65,14 +59,6 @@ pub struct CiscoFtdZtpTemplate {
     pub ipv4_gw: Option<Ipv4Addr>,
     #[serde(rename = "IPv4Mask", skip_serializing_if = "Option::is_none")]
     pub ipv4_mask: Option<Ipv4Addr>,
-    #[serde(rename = "IPv6Mode", skip_serializing_if = "Option::is_none")]
-    pub ipv6_mode: Option<CiscoFxosIpMode>,
-    #[serde(rename = "IPv6Addr", skip_serializing_if = "Option::is_none")]
-    pub ipv6_addr: Option<Ipv6Addr>,
-    #[serde(rename = "IPv6Gw", skip_serializing_if = "Option::is_none")]
-    pub ipv6_gw: Option<Ipv6Addr>,
-    #[serde(rename = "IPv6Mask", skip_serializing_if = "Option::is_none")]
-    pub ipv6_mask: Option<u8>,
     #[serde(rename = "ManageLocally")]
     pub manage_locally: YesNo,
 }

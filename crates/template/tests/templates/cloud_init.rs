@@ -167,7 +167,6 @@ fn generated_config_036_cloud_init_meta_data_names_the_instance_and_node() {
     let meta = MetaDataConfig {
         instance_id: "i-ubuntu01".to_string(),
         local_hostname: "ubuntu01".to_string(),
-        public_keys: vec![],
     };
     let output = meta.render().expect("renders meta-data");
     assert_eq!(

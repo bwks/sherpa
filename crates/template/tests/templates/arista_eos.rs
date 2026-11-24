@@ -113,7 +113,7 @@ fn veos(hash: &str, ipv6: bool) -> AristaEosVmZtpTemplate {
         owner: helpers::test_owner(hash),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+        mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
         mgmt_ipv6_address: ipv6.then(|| "fd00::10".parse().expect("valid")),
         mgmt_ipv6: ipv6.then(helpers::test_network_v6),
     }
@@ -125,7 +125,7 @@ fn ceos(hash: &str) -> AristaEosContainerZtpTemplate {
         owner: helpers::test_owner(hash),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+        mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     }

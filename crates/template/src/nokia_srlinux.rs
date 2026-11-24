@@ -166,13 +166,7 @@ struct Subinterface {
 struct SubinterfaceIpv4 {
     #[serde(rename = "admin-state")]
     admin_state: String,
-    #[serde(
-        rename = "srl_nokia-interfaces-ip-dhcp:dhcp-client",
-        skip_serializing_if = "Option::is_none"
-    )]
-    dhcp_client: Option<DhcpClient>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    address: Option<Vec<Ipv4Address>>,
+    address: Vec<Ipv4Address>,
 }
 
 #[derive(Serialize)]
@@ -256,7 +250,7 @@ pub fn build_srlinux_config(
     owner: &OwnerUser,
     dns: &Dns,
     mgmt_ipv4: &NetworkV4,
-    mgmt_ipv4_address: Option<Ipv4Addr>,
+    mgmt_ipv4_address: Ipv4Addr,
     mgmt_ipv6: Option<(Ipv6Addr, &NetworkV6)>,
 ) -> Result<String> {
     let users = vec![owner_aaa_user(owner)];
@@ -365,25 +359,17 @@ fn dns_servers(dns: &Dns) -> Vec<String> {
     servers
 }
 
-/// `mgmt0.0`, with static addresses where they are given and DHCP otherwise.
+/// `mgmt0.0`, with its static IPv4 address, and its static IPv6 address or else one by DHCP.
 fn management_subinterface(
     mgmt_ipv4: &NetworkV4,
-    mgmt_ipv4_address: Option<Ipv4Addr>,
+    mgmt_ipv4_address: Ipv4Addr,
     mgmt_ipv6: Option<(Ipv6Addr, &NetworkV6)>,
 ) -> Subinterface {
-    let ipv4 = match mgmt_ipv4_address {
-        Some(addr) => SubinterfaceIpv4 {
-            admin_state: "enable".to_string(),
-            dhcp_client: None,
-            address: Some(vec![Ipv4Address {
-                ip_prefix: format!("{}/{}", addr, mgmt_ipv4.prefix_length),
-            }]),
-        },
-        None => SubinterfaceIpv4 {
-            admin_state: "enable".to_string(),
-            dhcp_client: Some(DhcpClient {}),
-            address: None,
-        },
+    let ipv4 = SubinterfaceIpv4 {
+        admin_state: "enable".to_string(),
+        address: vec![Ipv4Address {
+            ip_prefix: format!("{}/{}", mgmt_ipv4_address, mgmt_ipv4.prefix_length),
+        }],
     };
 
     let ipv6 = match mgmt_ipv6 {

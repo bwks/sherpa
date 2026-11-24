@@ -52,8 +52,7 @@ tests/labs/container-ztp/container_ztp_lab_test.py`. `--keep-failed` and `--mode
 The module-scoped `prepared` fixture checks the requirements and writes the run's manifest under a
 unique lab name; the `lab` fixture brings the lab up once and destroys it at the end, even when a
 case fails, unless `--keep-failed` is given and something failed; the `redeployed` fixture
-redeploys one node with ZTP on and one with it off, of the first model that has both, once for the
-module. The cases are the functions named `test_<case_id>_*`, in the order below; every case runs
+redeploys every node with ZTP on or off, once for the module. The cases are the functions named `test_<case_id>_*`, in the order below; every case runs
 even when one fails. The runner's own unit tests, under `--self-test`, are not collected by pytest.
 
 Each run logs every command and its output under
@@ -68,8 +67,8 @@ It holds the container cases of [`tests/specs/ztp.md`](../../specs/ztp.md):
 | `ztp_setting_001` | `sherpa validate` refuses `ztp.method = "cdrom"` on a container, naming the node and the settings its model takes, and accepts the lab's manifest. It runs before the lab is up |
 | `ztp_disabled_001` | After up, each node with ZTP off is running and has none of its model's config mounts |
 | `ztp_disabled_002` | After up, each node with ZTP off does not take the lab owner's SSH login, for the reason its model has once it has booted (below). The case waits for the booted state and fails if a login ever succeeds or the container stops |
-| `config_delivery_001` | After up, each node with ZTP on is running, has every config mount of its model and takes the lab owner's SSH login by key through the lab's SSH config; then, once the `redeployed` fixture has redeployed one node of each setting, the redeployed node with ZTP on does the same |
-| `ztp_disabled_003` | The redeployed node with ZTP off is as it was after up: running, with no config mount and no owner login |
+| `config_delivery_001` | After up, each node with ZTP on is running, has every config mount of its model and takes the lab owner's SSH login by key through the lab's SSH config; then, once the `redeployed` fixture has redeployed every node with ZTP on or off, each node with ZTP on does the same |
+| `ztp_disabled_003` | Each redeployed node with ZTP off is as it was after up: running, with no config mount and no owner login |
 | `ztp_disabled_004` | Once the nodes with ZTP on take the owner's login, and 20 s later, every node, the ones with ZTP off and the application container included, is running and was never restarted |
 
 `config_delivery_001` comes before `ztp_disabled_003` because it brings the redeploy in after its

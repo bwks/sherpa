@@ -17,7 +17,7 @@ booted. Always destroys the lab. Runs on the Sherpa server; see README.md.
 
 A pytest module: the `prepared` fixture checks the server and writes the lab's manifest, the
 `lab` fixture brings the lab up once for the module and destroys it at the end, and the
-`redeployed` fixture redeploys one node of each setting for the cases that need it. The cases are
+`redeployed` fixture redeploys every node with ZTP on or off for the cases that need it. The cases are
 the `test_<case_id>_*` functions, in case order. Run as a script, it runs pytest on itself;
 `--self-test` runs the runner's own unit tests instead.
 """
@@ -112,10 +112,10 @@ class Outcome(NamedTuple):
 
 
 class Redeployed(NamedTuple):
-    """The two nodes the `redeployed` fixture redeployed: one with ZTP on, one with it off."""
+    """The nodes the `redeployed` fixture redeployed: those with ZTP on and those with it off."""
 
-    on: dict
-    off: dict
+    on: list
+    off: list
 
 
 def require(condition, message):
@@ -217,16 +217,6 @@ def ssh_hostname(config):
         if key == "hostname":
             return value.strip()
     raise TestFailure("ssh -G printed no hostname")
-
-
-def redeploy_pair(nodes):
-    """One node with ZTP on and one with it off, of the first model that has both, or None."""
-    for model in ZTP_MOUNTS:
-        on = [node for node in ztp_on_nodes(nodes) if node["model"] == model]
-        off = [node for node in ztp_off_nodes(nodes) if node["model"] == model]
-        if on and off:
-            return Redeployed(on[0], off[0])
-    return None
 
 
 def refused_manifest(nodes, name):
@@ -465,12 +455,11 @@ def lab(request, prepared):
 
 @pytest.fixture(scope="module")
 def redeployed(lab):
-    """One node with ZTP on and one with it off, of the same model, redeployed once for the module."""
-    pair = redeploy_pair(lab.nodes)
-    require(pair is not None, "no model of the run has a node with ZTP on and one with it off to redeploy")
-    lab.redeploy(pair.on)
-    lab.redeploy(pair.off)
-    return pair
+    """Every node with ZTP on or off, redeployed once for the module."""
+    redeployed = Redeployed(ztp_on_nodes(lab.nodes), ztp_off_nodes(lab.nodes))
+    for node in [*redeployed.on, *redeployed.off]:
+        lab.redeploy(node)
+    return redeployed
 
 
 # -- cases ---------------------------------------------------------------------------------------
@@ -512,19 +501,20 @@ def test_config_delivery_001_a_container_with_ztp_on_has_its_config_mounts_and_i
         lab.require_mounts(node, AFTER_UP)
         lab.wait_for_login(node, AFTER_UP)
     # The redeploy comes after the checks above, so they see every node as up left it.
-    node = request.getfixturevalue("redeployed").on
-    stage = f"after redeploying {node['name']}"
-    lab.require_running(node, stage)
-    lab.require_mounts(node, stage)
-    lab.wait_for_login(node, stage)
+    for node in request.getfixturevalue("redeployed").on:
+        stage = f"after redeploying {node['name']}"
+        lab.require_running(node, stage)
+        lab.require_mounts(node, stage)
+        lab.wait_for_login(node, stage)
 
 
 def test_ztp_disabled_003_a_container_redeployed_with_ztp_off_is_as_it_was_after_up(lab, redeployed):
-    node = redeployed.off
-    stage = f"after redeploying {node['name']}"
-    lab.require_running(node, stage)
-    lab.require_mounts(node, stage)
-    lab.require_no_owner_login(node, stage)
+    require(redeployed.off, "the run has no node with ZTP off")
+    for node in redeployed.off:
+        stage = f"after redeploying {node['name']}"
+        lab.require_running(node, stage)
+        lab.require_mounts(node, stage)
+        lab.require_no_owner_login(node, stage)
 
 
 def test_ztp_disabled_004_every_node_is_still_running_once_the_others_have_booted(lab):

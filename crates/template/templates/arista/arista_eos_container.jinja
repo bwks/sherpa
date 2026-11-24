@@ -22,11 +22,7 @@ ipv6 route ::/0 {{ mgmt_ipv6.first }}
 {%- endif %}{% endif %}
 !
 interface Management0
-   {%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
    ip address {{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_length }}
-   {%- else %}
-   ip address dhcp
-   {%- endif %}
    {%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
    ipv6 address {{ mgmt_ipv6_address }}/{{ mgmt_ipv6.prefix_length }}
    {%- endif %}{% endif %}
