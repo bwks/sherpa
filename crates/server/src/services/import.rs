@@ -1183,11 +1183,16 @@ mod tests {
     use axum::Router;
     use axum::body::Body;
     use axum::extract::ws::Message;
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
     use axum::routing::get;
     use futures_util::stream;
     use libvirt::BackedVolume;
+    use std::fs;
     use std::io;
     use tokio::sync::mpsc;
+
+    use crate::api::errors::ApiError;
 
     fn quiet_progress() -> ProgressSender {
         let (tx, _rx) = mpsc::unbounded_channel();
@@ -1508,6 +1513,29 @@ mod tests {
         assert!(format!("{error:#}").contains("new version"), "{error:#}");
         assert_eq!(std::fs::read(&disk).unwrap(), base);
         assert!(recorded(&database, "1").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn image_import_026_an_import_refused_for_lab_disks_built_on_its_file_is_a_conflict() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = test_paths(root.path());
+        let source = root.path().join("source.qcow2");
+        fs::write(&source, b"another image").unwrap();
+        let disk = disk_path(&paths, "1");
+        fs::create_dir_all(disk.parent().unwrap()).unwrap();
+        fs::write(&disk, b"base").unwrap();
+        let pool = TestPool(vec![BackedVolume {
+            name: "node-lab-hdd.qcow2".to_owned(),
+            backing_file: disk,
+        }]);
+        let database = schema_db().await;
+
+        let error = import_disk_on(&database, &paths, &pool, &source, "1")
+            .await
+            .unwrap_err();
+
+        let status = ApiError::from(error).into_response().status();
+        assert_eq!(status, StatusCode::CONFLICT);
     }
 
     /// Serve `body` at `/image` on a local port, declaring its length when `declare_len` is set,

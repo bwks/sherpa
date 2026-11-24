@@ -3,6 +3,12 @@ use serde::{Deserialize, Serialize};
 
 use super::{ClusterInfo, KeycloakInfo, LabInfo, SurrealDbInfo, VaultInfo};
 
+/// Request for the files of a lab, which the CLI writes to the lab's folder.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DownloadLabRequest {
+    pub lab_id: String,
+}
+
 /// Response containing lab files for download
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DownloadLabResponse {

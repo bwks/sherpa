@@ -4,7 +4,9 @@
 transports and authentication, services (`services/`) know orchestration, and the infrastructure
 crates know their backend and nothing of HTTP or RPC. The operations, their access and transports
 are one registry, `shared::api_spec`, published at `/api/v1/spec`; the user's view is sherpa-docs
-`api-reference.md`. Server-only constants live in the narrowest module that uses them, else in
+`api-reference.md`. An operation has a REST route, an RPC method or both, and the spec leaves out
+the `rest` or `rpc` binding it lacks; the OpenAPI document holds only the operations with a REST
+route. Server-only constants live in the narrowest module that uses them, else in
 `crates/server/src/konst.rs`, so editing one rebuilds `sherpad` alone.
 
 ## Server startup architecture

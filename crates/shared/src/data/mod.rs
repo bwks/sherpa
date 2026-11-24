@@ -61,7 +61,7 @@ pub use disk::{
     DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskImageCloneMethod, DiskTargets,
 };
 pub use dns::{Dns, NameServer};
-pub use download::DownloadLabResponse;
+pub use download::{DownloadLabRequest, DownloadLabResponse};
 pub use host_key::{NodeHostKey, NodeHostKeysRequest, NodeHostKeysResponse};
 pub use impairment::{
     ImpairmentDirection, LinkImpairment, UpdateImpairmentRequest, UpdateImpairmentResponse,
