@@ -1963,8 +1963,6 @@ mod tests {
 
     #[tokio::test]
     async fn upgraded_records_024_a_stored_definition_loses_link_p2p_and_keeps_its_links() {
-        // A version 41 database, from before a link's `p2p` key was removed, with a lab whose
-        // stored definition has a link that set it and one that did not.
         let migration = migrations::DROP_MANIFEST_LINK_P2P;
         assert_eq!(migrations_before(migration) + 1, 41);
         let (db, lab) = definition_with_node_texts(migration, &[]).await;
