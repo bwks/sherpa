@@ -346,14 +346,22 @@ both agents reach the bus there. The address changes only when the lab is brough
 then run `bus start` and start both agents again. `sherpa redeploy` keeps the lab and its
 bridge, so the address stays.
 
-The setup script runs `sherpad init` with `SHERPA_MANAGEMENT_PREFIX_IPV4=172.30.0.0/16` and
-`SHERPA_MANAGEMENT_PREFIX_IPV6=fd00:b00a::/48`, so each dev server's lab management ranges are
-outside the host's defaults, `172.31.0.0/16` and `fd00:b00b::/48`. A lab inside a dev server with
-the defaults could be given the same subnet as `sherpa-dev` on the host, putting the bus address
-on a bridge inside that dev server. Its agent would then reach its own bridge, get "connection
-refused" and stop. `init` writes the prefixes only with a new config and keeps an existing one,
-so a dev server whose config was written before needs `management_prefix_ipv4` and
-`management_prefix_ipv6` set in `/opt/sherpa/config/sherpa.toml` and a `sherpad` restart.
+Each dev server has its own lab management ranges, in its `provision/<node>.env`, which the setup
+script passes to `sherpad init`:
+
+| Server | IPv4 | IPv6 |
+|---|---|---|
+| dev01 | `172.28.0.0/16` | `fd00:b0d1::/48` |
+| dev02 | `172.29.0.0/16` | `fd00:b0d2::/48` |
+
+They are apart from the host's defaults, `172.31.0.0/16` and `fd00:b00b::/48`, and from each
+other. A lab inside a dev server with the defaults could be given the same subnet as
+`sherpa-dev` on the host, putting the bus address on a bridge inside that dev server; its agent
+would then reach its own bridge, get "connection refused" and stop. Separate ranges per server
+also let a tailnet auto-approve each server's lab routes without overlap. `init` writes the
+prefixes only with a new config, so the setup script fails when an existing config has others:
+destroy that server's labs, set `management_prefix_ipv4` and `management_prefix_ipv6` in
+`/opt/sherpa/config/sherpa.toml`, and restart `sherpad`.
 
 ## Tearing down
 
