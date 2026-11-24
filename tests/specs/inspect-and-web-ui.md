@@ -222,10 +222,10 @@ The session cookie that keeps another site's requests from acting as the user is
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | `GET /api/v1/spec` is answered without a login | integration |
+| 001 | `GET /api/v1/spec` is answered without a login, with the spec: its version, each operation with its access, transports and schemas, and the schemas | integration |
 | 002 | Every REST operation in the spec is a route the server serves | integration |
 | 003 | `GET /api/v1/openapi.json` is an OpenAPI 3.1 document that lists the lab, image and login paths, and `/api/docs` is the Swagger page, both without a login | integration |
-| 004 | The RPC methods the server answers are the ones the spec lists, each once, with the same access and streaming; `image.upload` is REST only, and `labs.list`, `download`, `node.secrets`, `node.host_keys` and `server.backup` are answered and not in the spec | unit |
+| 004 | The RPC methods the server answers are the ones the spec lists, each once, with the same access and streaming | unit |
 | 005 | Every operation has a name of its own, and each request and response schema it names is in the spec | unit |
 | 006 | The OpenAPI document has every REST path of the spec | unit |
 | 007 | A streaming operation has a stream type, and is a `text/event-stream` response in the OpenAPI document | unit |
@@ -233,6 +233,7 @@ The session cookie that keeps another site's requests from acting as the user is
 | 009 | An admin operation is marked `x-admin-required` in the OpenAPI document | unit |
 | 010 | A path's parameters are listed for it | unit |
 | 011 | Every `$ref` in the OpenAPI document, `/api/v1/openapi.json`, resolves inside the document, as a nested type's schema in `components/schemas` | unit |
+| 012 | An operation served over one transport has no binding for the other: an RPC-only operation, such as `server.backup`, has no `rest` and is not in the OpenAPI document, and a REST-only one, `image.upload`, has no `rpc` | unit |
 
 ## `server_status`: anyone can ask whether a server is up
 

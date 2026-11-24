@@ -423,17 +423,6 @@ mod tests {
     use shared::error::{CpuPinConflict, CpuPinRole, MemoryShortfall};
     use std::collections::HashSet;
 
-    /// Spec operations whose RPC method the server does not answer.
-    const RPC_UNROUTED: &[&str] = &["image.upload"];
-    /// Methods the server answers that the spec does not list yet.
-    const NOT_IN_SPEC: &[&str] = &[
-        "labs.list",
-        "download",
-        "node.secrets",
-        "node.host_keys",
-        "server.backup",
-    ];
-
     #[test]
     fn api_documents_004_the_rpc_methods_answered_are_the_ones_the_spec_lists_each_once() {
         let mut names = HashSet::new();
@@ -443,11 +432,12 @@ mod tests {
         let spec = build_spec();
         let mut differences = Vec::new();
         for op in &spec.operations {
-            let name = op.transports.rpc.method;
+            let Some(rpc) = &op.transports.rpc else {
+                continue;
+            };
+            let name = rpc.method;
             let Some(method) = METHODS.iter().find(|method| method.name == name) else {
-                if !RPC_UNROUTED.contains(&name) {
-                    differences.push(format!("{name}: in the spec, not routed"));
-                }
+                differences.push(format!("{name}: in the spec, not routed"));
                 continue;
             };
             let access_agrees = matches!(
@@ -462,10 +452,10 @@ mod tests {
                     op.auth, method.access
                 ));
             }
-            if op.transports.rpc.streaming != method.streaming {
+            if rpc.streaming != method.streaming {
                 differences.push(format!(
                     "{name}: spec streaming {}, server {}",
-                    op.transports.rpc.streaming, method.streaming
+                    rpc.streaming, method.streaming
                 ));
             }
         }
@@ -473,8 +463,9 @@ mod tests {
             let in_spec = spec
                 .operations
                 .iter()
-                .any(|op| op.transports.rpc.method == method.name);
-            if !in_spec && !NOT_IN_SPEC.contains(&method.name) {
+                .filter_map(|op| op.transports.rpc.as_ref())
+                .any(|rpc| rpc.method == method.name);
+            if !in_spec {
                 differences.push(format!("{}: routed, not in the spec", method.name));
             }
         }

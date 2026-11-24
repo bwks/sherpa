@@ -1,4 +1,4 @@
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use reqwest::header::HeaderName;
 use reqwest::{Method, Response, StatusCode, header};
 use serde_json::json;
@@ -9,9 +9,6 @@ use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use crate::helpers::http_client::TestHttpClient;
 use crate::helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer};
 use crate::helpers::ws_client::TestWsClient;
-
-/// Operations the spec gives a REST binding the server does not route yet.
-const KNOWN_UNROUTED: &[&str] = &[];
 
 // ── JWT Authentication Tests ──
 
@@ -326,7 +323,17 @@ async fn api_documents_001_the_spec_is_answered_without_a_login() -> Result<()> 
     let response = client.get("/api/v1/spec").await?;
     assert_eq!(response.status().as_u16(), 200);
     let spec: serde_json::Value = response.json().await?;
-    assert!(spec["operations"].is_array(), "{spec}");
+    assert_eq!(spec["version"], "1.0.0");
+    let operations = spec["operations"].as_array().context("operations")?;
+    let login = operations
+        .iter()
+        .find(|op| op["name"] == "auth.login")
+        .context("the spec has no auth.login")?;
+    assert_eq!(login["auth"], "none");
+    assert_eq!(login["transports"]["rpc"]["method"], "auth.login");
+    assert_eq!(login["transports"]["rest"]["path"], "/api/v1/auth/login");
+    assert_eq!(login["request_schema"], "LoginRequest");
+    assert!(spec["schemas"]["LoginRequest"].is_object(), "{spec}");
 
     Ok(())
 }
@@ -765,7 +772,9 @@ async fn api_documents_002_every_rest_operation_in_the_spec_is_routed() -> Resul
     let mut unrouted = Vec::new();
 
     for op in build_spec().operations {
-        let rest = &op.transports.rest;
+        let Some(rest) = &op.transports.rest else {
+            continue;
+        };
         let mut path = rest.path.to_owned();
         for param in &rest.path_params {
             path = path.replace(&format!("{{{param}}}"), "spec-check");
@@ -784,14 +793,14 @@ async fn api_documents_002_every_rest_operation_in_the_spec_is_routed() -> Resul
             status,
             StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED
         );
-        if routed == KNOWN_UNROUTED.contains(&op.name) {
+        if !routed {
             unrouted.push(format!("{} {method} {path}: {status}", op.name));
         }
     }
 
     assert!(
         unrouted.is_empty(),
-        "Routing differs from the spec (update KNOWN_UNROUTED if one was fixed):\n{}",
+        "Operations the spec gives a REST route the server does not serve:\n{}",
         unrouted.join("\n")
     );
     Ok(())

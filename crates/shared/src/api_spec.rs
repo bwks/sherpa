@@ -5,13 +5,15 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::data::{
-    AddSshKeyRequest, CancelLabResponse, ChangePasswordRequest, ChangePasswordResponse,
-    ContainerPullRequest, ContainerPullResponse, CreateUserRequest, CreateUserResponse,
-    DeleteImageRequest, DeleteImageResponse, DeleteUserRequest, DeleteUserResponse, DestroyRequest,
-    DestroyResponse, DownloadImageRequest, GetUserInfoRequest, GetUserInfoResponse, ImportRequest,
-    ImportResponse, InspectRequest, InspectResponse, LabNodeActionResponse, ListImagesRequest,
-    ListImagesResponse, ListUsersRequest, ListUsersResponse, LoginRequest, LoginResponse,
-    LogoutResponse, RedeployRequest, RedeployResponse, RemoveSshKeyRequest, ScanImagesRequest,
+    AddSshKeyRequest, BackupResponse, CancelLabResponse, ChangePasswordRequest,
+    ChangePasswordResponse, ContainerPullRequest, ContainerPullResponse, CreateUserRequest,
+    CreateUserResponse, DeleteImageRequest, DeleteImageResponse, DeleteUserRequest,
+    DeleteUserResponse, DestroyRequest, DestroyResponse, DownloadImageRequest, DownloadLabRequest,
+    DownloadLabResponse, GetUserInfoRequest, GetUserInfoResponse, ImportRequest, ImportResponse,
+    InspectRequest, InspectResponse, LabNodeActionResponse, ListImagesRequest, ListImagesResponse,
+    ListLabsResponse, ListUsersRequest, ListUsersResponse, LoginRequest, LoginResponse,
+    LogoutResponse, NodeHostKeysRequest, NodeHostKeysResponse, NodeSecretsRequest,
+    NodeSecretsResponse, RedeployRequest, RedeployResponse, RemoveSshKeyRequest, ScanImagesRequest,
     ScanImagesResponse, SetDefaultImageRequest, SetDefaultImageResponse, SetDevicePasswordRequest,
     SetDevicePasswordResponse, ShowImageRequest, ShowImageResponse, UnlockUserRequest,
     UnlockUserResponse, UpRequest, UpResponse, UpdateImpairmentRequest, UpdateImpairmentResponse,
@@ -75,8 +77,12 @@ pub enum AuthRequirement {
 /// Transport bindings for an operation
 #[derive(Debug, Clone, Serialize)]
 pub struct Transports {
-    pub rest: RestBinding,
-    pub rpc: RpcBinding,
+    /// The REST route; absent for an operation served over RPC only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rest: Option<RestBinding>,
+    /// The RPC method; absent for an operation served over REST only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rpc: Option<RpcBinding>,
     pub cli: CliBinding,
 }
 
@@ -148,13 +154,19 @@ struct Operation {
     auth: AuthRequirement,
     request_schema: Option<&'static str>,
     response_schema: Option<&'static str>,
+    /// The REST route, or `None` for an operation served over RPC only.
+    rest: Option<RestRoute>,
+    /// The RPC method, or `None` for an operation served over REST only.
+    rpc: Option<RpcBinding>,
+    cli_command: &'static str,
+}
+
+/// A REST route as `OPERATIONS` declares it; its published form, `RestBinding`, adds the path
+/// parameters.
+struct RestRoute {
     method: HttpMethod,
     path: &'static str,
     stream_type: Option<StreamType>,
-    rpc_method: &'static str,
-    /// Whether the RPC method streams status messages; REST streams only with `stream_type`.
-    rpc_streaming: bool,
-    cli_command: &'static str,
 }
 
 /// Every operation the API offers.
@@ -167,11 +179,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::None,
         request_schema: Some("LoginRequest"),
         response_schema: Some("LoginResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/auth/login",
-        stream_type: None,
-        rpc_method: "auth.login",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/auth/login",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "auth.login",
+            streaming: false,
+        }),
         cli_command: "sherpa login",
     },
     Operation {
@@ -181,11 +197,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::None,
         request_schema: Some("ValidateRequest"),
         response_schema: Some("ValidateResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/auth/validate",
-        stream_type: None,
-        rpc_method: "auth.validate",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/auth/validate",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "auth.validate",
+            streaming: false,
+        }),
         cli_command: "sherpa whoami",
     },
     Operation {
@@ -195,11 +215,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: None,
         response_schema: Some("LogoutResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/auth/logout",
-        stream_type: None,
-        rpc_method: "auth.logout",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/auth/logout",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "auth.logout",
+            streaming: false,
+        }),
         cli_command: "sherpa logout",
     },
     // Lab operations
@@ -210,11 +234,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: Some("UpRequest"),
         response_schema: Some("UpResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/labs",
-        stream_type: Some(StreamType::Sse),
-        rpc_method: "up",
-        rpc_streaming: true,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/labs",
+            stream_type: Some(StreamType::Sse),
+        }),
+        rpc: Some(RpcBinding {
+            method: "up",
+            streaming: true,
+        }),
         cli_command: "sherpa up",
     },
     Operation {
@@ -224,11 +252,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: Some("DestroyRequest"),
         response_schema: Some("DestroyResponse"),
-        method: HttpMethod::Delete,
-        path: "/api/v1/labs/{id}",
-        stream_type: Some(StreamType::Sse),
-        rpc_method: "destroy",
-        rpc_streaming: true,
+        rest: Some(RestRoute {
+            method: HttpMethod::Delete,
+            path: "/api/v1/labs/{id}",
+            stream_type: Some(StreamType::Sse),
+        }),
+        rpc: Some(RpcBinding {
+            method: "destroy",
+            streaming: true,
+        }),
         cli_command: "sherpa destroy",
     },
     Operation {
@@ -238,11 +270,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: Some("InspectRequest"),
         response_schema: Some("InspectResponse"),
-        method: HttpMethod::Get,
-        path: "/api/v1/labs/{id}",
-        stream_type: None,
-        rpc_method: "inspect",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Get,
+            path: "/api/v1/labs/{id}",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "inspect",
+            streaming: false,
+        }),
         cli_command: "sherpa inspect",
     },
     Operation {
@@ -252,11 +288,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: None,
         response_schema: Some("LabNodeActionResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/labs/{id}/down",
-        stream_type: None,
-        rpc_method: "down",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/labs/{id}/down",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "down",
+            streaming: false,
+        }),
         cli_command: "sherpa down",
     },
     Operation {
@@ -266,11 +306,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: None,
         response_schema: Some("CancelLabResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/labs/{id}/cancel",
-        stream_type: None,
-        rpc_method: "cancel",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/labs/{id}/cancel",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "cancel",
+            streaming: false,
+        }),
         cli_command: "Ctrl-C during sherpa up, redeploy or resume",
     },
     Operation {
@@ -280,11 +324,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: None,
         response_schema: Some("LabNodeActionResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/labs/{id}/resume",
-        stream_type: None,
-        rpc_method: "resume",
-        rpc_streaming: true,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/labs/{id}/resume",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "resume",
+            streaming: true,
+        }),
         cli_command: "sherpa resume",
     },
     Operation {
@@ -294,11 +342,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Admin,
         request_schema: None,
         response_schema: Some("DestroyResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/admin/tools/labs/clean/{id}",
-        stream_type: None,
-        rpc_method: "clean",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/admin/tools/labs/clean/{id}",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "clean",
+            streaming: false,
+        }),
         cli_command: "sherpa server clean",
     },
     // Node operations
@@ -309,12 +361,90 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: Some("RedeployRequest"),
         response_schema: Some("RedeployResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/labs/{id}/nodes/{node}/redeploy",
-        stream_type: Some(StreamType::Sse),
-        rpc_method: "redeploy",
-        rpc_streaming: true,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/labs/{id}/nodes/{node}/redeploy",
+            stream_type: Some(StreamType::Sse),
+        }),
+        rpc: Some(RpcBinding {
+            method: "redeploy",
+            streaming: true,
+        }),
         cli_command: "sherpa redeploy",
+    },
+    Operation {
+        name: "lab.list",
+        description: "List the caller's labs; over REST an admin may name another user with `?username=`",
+        category: Category::Lab,
+        auth: AuthRequirement::Authenticated,
+        request_schema: None,
+        response_schema: Some("ListLabsResponse"),
+        rest: Some(RestRoute {
+            method: HttpMethod::Get,
+            path: "/api/v1/labs",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "labs.list",
+            streaming: false,
+        }),
+        cli_command: "sherpa ssh-config inspect",
+    },
+    Operation {
+        name: "lab.download",
+        description: "Get a lab's files: its info, SSH config, known hosts, CA certificate and cluster credentials",
+        category: Category::Lab,
+        auth: AuthRequirement::Authenticated,
+        request_schema: Some("DownloadLabRequest"),
+        response_schema: Some("DownloadLabResponse"),
+        rest: None,
+        rpc: Some(RpcBinding {
+            method: "download",
+            streaming: false,
+        }),
+        cli_command: "sherpa download",
+    },
+    Operation {
+        name: "node.secrets",
+        description: "Rewrite a container node's secret files",
+        category: Category::Node,
+        auth: AuthRequirement::Authenticated,
+        request_schema: Some("NodeSecretsRequest"),
+        response_schema: Some("NodeSecretsResponse"),
+        rest: None,
+        rpc: Some(RpcBinding {
+            method: "node.secrets",
+            streaming: false,
+        }),
+        cli_command: "sherpa provision",
+    },
+    Operation {
+        name: "node.host_keys",
+        description: "Read a node's SSH host key again and return the lab's known_hosts file",
+        category: Category::Node,
+        auth: AuthRequirement::Authenticated,
+        request_schema: Some("NodeHostKeysRequest"),
+        response_schema: Some("NodeHostKeysResponse"),
+        rest: None,
+        rpc: Some(RpcBinding {
+            method: "node.host_keys",
+            streaming: false,
+        }),
+        cli_command: "sherpa ssh, when a node's host key does not match the recorded one",
+    },
+    Operation {
+        name: "server.backup",
+        description: "Back up the server's database and return where the copy is",
+        category: Category::Admin,
+        auth: AuthRequirement::Admin,
+        request_schema: None,
+        response_schema: Some("BackupResponse"),
+        rest: None,
+        rpc: Some(RpcBinding {
+            method: "server.backup",
+            streaming: false,
+        }),
+        cli_command: "sherpa server backup",
     },
     // Image operations
     Operation {
@@ -324,11 +454,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: Some("ListImagesRequest"),
         response_schema: Some("ListImagesResponse"),
-        method: HttpMethod::Get,
-        path: "/api/v1/images",
-        stream_type: None,
-        rpc_method: "image.list",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Get,
+            path: "/api/v1/images",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "image.list",
+            streaming: false,
+        }),
         cli_command: "sherpa image list",
     },
     Operation {
@@ -338,11 +472,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: Some("ShowImageRequest"),
         response_schema: Some("ShowImageResponse"),
-        method: HttpMethod::Get,
-        path: "/api/v1/images/{model}/{kind}",
-        stream_type: None,
-        rpc_method: "image.show",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Get,
+            path: "/api/v1/images/{model}/{kind}",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "image.show",
+            streaming: false,
+        }),
         cli_command: "sherpa image show",
     },
     Operation {
@@ -352,11 +490,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Admin,
         request_schema: Some("ImportRequest"),
         response_schema: Some("ImportResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/images/import",
-        stream_type: None,
-        rpc_method: "image.import",
-        rpc_streaming: true,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/images/import",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "image.import",
+            streaming: true,
+        }),
         cli_command: "sherpa server image import",
     },
     Operation {
@@ -366,11 +508,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Admin,
         request_schema: Some("DeleteImageRequest"),
         response_schema: Some("DeleteImageResponse"),
-        method: HttpMethod::Delete,
-        path: "/api/v1/images/{model}/{kind}/{version}",
-        stream_type: None,
-        rpc_method: "image.delete",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Delete,
+            path: "/api/v1/images/{model}/{kind}/{version}",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "image.delete",
+            streaming: false,
+        }),
         cli_command: "sherpa server image delete",
     },
     Operation {
@@ -380,11 +526,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Admin,
         request_schema: Some("SetDefaultImageRequest"),
         response_schema: Some("SetDefaultImageResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/images/{model}/{kind}/{version}/default",
-        stream_type: None,
-        rpc_method: "image.set_default",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/images/{model}/{kind}/{version}/default",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "image.set_default",
+            streaming: false,
+        }),
         cli_command: "sherpa server image set-default",
     },
     Operation {
@@ -394,11 +544,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Admin,
         request_schema: Some("ScanImagesRequest"),
         response_schema: Some("ScanImagesResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/admin/tools/images/scan",
-        stream_type: None,
-        rpc_method: "image.scan",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/admin/tools/images/scan",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "image.scan",
+            streaming: false,
+        }),
         cli_command: "sherpa server image scan",
     },
     Operation {
@@ -408,11 +562,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Admin,
         request_schema: Some("ContainerPullRequest"),
         response_schema: Some("ContainerPullResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/images/pull",
-        stream_type: Some(StreamType::Sse),
-        rpc_method: "image.pull",
-        rpc_streaming: true,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/images/pull",
+            stream_type: Some(StreamType::Sse),
+        }),
+        rpc: Some(RpcBinding {
+            method: "image.pull",
+            streaming: true,
+        }),
         cli_command: "sherpa server image pull",
     },
     Operation {
@@ -422,11 +580,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Admin,
         request_schema: Some("DownloadImageRequest"),
         response_schema: None,
-        method: HttpMethod::Post,
-        path: "/api/v1/images/download",
-        stream_type: Some(StreamType::Sse),
-        rpc_method: "image.download",
-        rpc_streaming: true,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/images/download",
+            stream_type: Some(StreamType::Sse),
+        }),
+        rpc: Some(RpcBinding {
+            method: "image.download",
+            streaming: true,
+        }),
         cli_command: "sherpa server image pull --url",
     },
     Operation {
@@ -436,11 +598,12 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Admin,
         request_schema: None,
         response_schema: Some("ImportResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/images/upload",
-        stream_type: None,
-        rpc_method: "image.upload",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/images/upload",
+            stream_type: None,
+        }),
+        rpc: None,
         cli_command: "sherpa server image upload",
     },
     // User operations
@@ -451,11 +614,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Admin,
         request_schema: Some("CreateUserRequest"),
         response_schema: Some("CreateUserResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/admin/users",
-        stream_type: None,
-        rpc_method: "user.create",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/admin/users",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "user.create",
+            streaming: false,
+        }),
         cli_command: "sherpa server user create",
     },
     Operation {
@@ -465,11 +632,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Admin,
         request_schema: Some("ListUsersRequest"),
         response_schema: Some("ListUsersResponse"),
-        method: HttpMethod::Get,
-        path: "/api/v1/admin/users",
-        stream_type: None,
-        rpc_method: "user.list",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Get,
+            path: "/api/v1/admin/users",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "user.list",
+            streaming: false,
+        }),
         cli_command: "sherpa server user list",
     },
     Operation {
@@ -479,11 +650,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Admin,
         request_schema: Some("DeleteUserRequest"),
         response_schema: Some("DeleteUserResponse"),
-        method: HttpMethod::Delete,
-        path: "/api/v1/admin/users/{username}",
-        stream_type: None,
-        rpc_method: "user.delete",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Delete,
+            path: "/api/v1/admin/users/{username}",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "user.delete",
+            streaming: false,
+        }),
         cli_command: "sherpa server user delete",
     },
     Operation {
@@ -493,11 +668,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Admin,
         request_schema: Some("UnlockUserRequest"),
         response_schema: Some("UnlockUserResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/admin/users/{username}/unlock",
-        stream_type: None,
-        rpc_method: "user.unlock",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/admin/users/{username}/unlock",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "user.unlock",
+            streaming: false,
+        }),
         cli_command: "sherpa server user unlock",
     },
     Operation {
@@ -507,11 +686,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: Some("ChangePasswordRequest"),
         response_schema: Some("ChangePasswordResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/admin/users/{username}/password",
-        stream_type: None,
-        rpc_method: "user.passwd",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/admin/users/{username}/password",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "user.passwd",
+            streaming: false,
+        }),
         cli_command: "sherpa server user passwd",
     },
     Operation {
@@ -521,11 +704,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: Some("SetDevicePasswordRequest"),
         response_schema: Some("SetDevicePasswordResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/admin/users/{username}/device-password",
-        stream_type: None,
-        rpc_method: "user.device_password.set",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/admin/users/{username}/device-password",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "user.device_password.set",
+            streaming: false,
+        }),
         cli_command: "sherpa server user device-password",
     },
     Operation {
@@ -535,11 +722,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: Some("GetUserInfoRequest"),
         response_schema: Some("GetUserInfoResponse"),
-        method: HttpMethod::Get,
-        path: "/api/v1/admin/users/{username}",
-        stream_type: None,
-        rpc_method: "user.info",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Get,
+            path: "/api/v1/admin/users/{username}",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "user.info",
+            streaming: false,
+        }),
         cli_command: "sherpa server user info",
     },
     Operation {
@@ -549,11 +740,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: Some("AddSshKeyRequest"),
         response_schema: Some("UserSshKeysResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/admin/users/{username}/ssh-keys",
-        stream_type: None,
-        rpc_method: "user.ssh_key.add",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/admin/users/{username}/ssh-keys",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "user.ssh_key.add",
+            streaming: false,
+        }),
         cli_command: "sherpa server user ssh-key add",
     },
     Operation {
@@ -563,11 +758,15 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: Some("RemoveSshKeyRequest"),
         response_schema: Some("UserSshKeysResponse"),
-        method: HttpMethod::Delete,
-        path: "/api/v1/admin/users/{username}/ssh-keys",
-        stream_type: None,
-        rpc_method: "user.ssh_key.remove",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Delete,
+            path: "/api/v1/admin/users/{username}/ssh-keys",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "user.ssh_key.remove",
+            streaming: false,
+        }),
         cli_command: "sherpa server user ssh-key remove",
     },
     // Link operations
@@ -578,41 +777,50 @@ const OPERATIONS: &[Operation] = &[
         auth: AuthRequirement::Authenticated,
         request_schema: Some("UpdateImpairmentRequest"),
         response_schema: Some("UpdateImpairmentResponse"),
-        method: HttpMethod::Post,
-        path: "/api/v1/labs/{lab_id}/links/{link_index}/impairment",
-        stream_type: None,
-        rpc_method: "link.update_impairment",
-        rpc_streaming: false,
+        rest: Some(RestRoute {
+            method: HttpMethod::Post,
+            path: "/api/v1/labs/{lab_id}/links/{link_index}/impairment",
+            stream_type: None,
+        }),
+        rpc: Some(RpcBinding {
+            method: "link.update_impairment",
+            streaming: false,
+        }),
         cli_command: "sherpa link impair",
     },
 ];
 
+impl From<&RestRoute> for RestBinding {
+    fn from(route: &RestRoute) -> Self {
+        Self {
+            method: route.method,
+            path: route.path,
+            path_params: route
+                .path
+                .split('/')
+                .filter_map(|segment| segment.strip_prefix('{')?.strip_suffix('}'))
+                .collect(),
+            stream_type: route.stream_type,
+        }
+    }
+}
+
 impl From<&Operation> for OperationDef {
     fn from(operation: &Operation) -> Self {
-        let path_params = operation
-            .path
-            .split('/')
-            .filter_map(|segment| segment.strip_prefix('{')?.strip_suffix('}'))
-            .collect();
         Self {
             name: operation.name,
             description: operation.description,
             category: operation.category,
             auth: operation.auth,
-            streaming: operation.stream_type.is_some(),
+            streaming: operation
+                .rest
+                .as_ref()
+                .is_some_and(|rest| rest.stream_type.is_some()),
             request_schema: operation.request_schema,
             response_schema: operation.response_schema,
             transports: Transports {
-                rest: RestBinding {
-                    method: operation.method,
-                    path: operation.path,
-                    path_params,
-                    stream_type: operation.stream_type,
-                },
-                rpc: RpcBinding {
-                    method: operation.rpc_method,
-                    streaming: operation.rpc_streaming,
-                },
+                rest: operation.rest.as_ref().map(RestBinding::from),
+                rpc: operation.rpc.clone(),
                 cli: CliBinding {
                     command: operation.cli_command,
                 },
@@ -656,6 +864,18 @@ fn build_schemas() -> BTreeMap<String, serde_json::Value> {
     add_schema::<RedeployResponse>(&mut schemas);
     add_schema::<LabNodeActionResponse>(&mut schemas);
     add_schema::<CancelLabResponse>(&mut schemas);
+    add_schema::<ListLabsResponse>(&mut schemas);
+    add_schema::<DownloadLabRequest>(&mut schemas);
+    add_schema::<DownloadLabResponse>(&mut schemas);
+
+    // Node operations
+    add_schema::<NodeSecretsRequest>(&mut schemas);
+    add_schema::<NodeSecretsResponse>(&mut schemas);
+    add_schema::<NodeHostKeysRequest>(&mut schemas);
+    add_schema::<NodeHostKeysResponse>(&mut schemas);
+
+    // Server administration
+    add_schema::<BackupResponse>(&mut schemas);
 
     // Image management
     add_schema::<ListImagesRequest>(&mut schemas);
@@ -752,8 +972,9 @@ fn extract_definitions(schemas: &mut BTreeMap<String, serde_json::Value>) {
     }
 }
 
-/// The `OpenAPI` operation object for `op`: its tags, security, request body and responses.
-fn openapi_operation(op: &OperationDef) -> serde_json::Value {
+/// The `OpenAPI` operation object for `op` at its REST route `rest`: its tags, security, request
+/// body and responses.
+fn openapi_operation(op: &OperationDef, rest: &RestBinding) -> serde_json::Value {
     let security = match op.auth {
         AuthRequirement::None => json!([]),
         AuthRequirement::Authenticated | AuthRequirement::Admin => {
@@ -806,7 +1027,7 @@ fn openapi_operation(op: &OperationDef) -> serde_json::Value {
     operation.insert("security".to_owned(), security);
     operation.insert("responses".to_owned(), serde_json::Value::Object(responses));
     // A GET request has no body.
-    if op.transports.rest.method != HttpMethod::Get
+    if rest.method != HttpMethod::Get
         && let Some(schema_name) = op.request_schema
     {
         operation.insert(
@@ -849,12 +1070,17 @@ pub fn build_openapi() -> serde_json::Value {
     // Operations that share a REST path share its path item; the parameters are set once.
     let mut paths: BTreeMap<&str, serde_json::Map<String, serde_json::Value>> = BTreeMap::new();
     for op in &spec.operations {
-        let rest = &op.transports.rest;
+        let Some(rest) = &op.transports.rest else {
+            continue;
+        };
         let path_item = paths.entry(rest.path).or_default();
         if !rest.path_params.is_empty() && !path_item.contains_key("parameters") {
             path_item.insert("parameters".to_owned(), path_parameters(&rest.path_params));
         }
-        path_item.insert(rest.method.openapi_key().to_owned(), openapi_operation(op));
+        path_item.insert(
+            rest.method.openapi_key().to_owned(),
+            openapi_operation(op, rest),
+        );
     }
 
     json!({
@@ -879,6 +1105,7 @@ pub fn build_openapi() -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::to_value;
 
     #[test]
     fn api_documents_005_every_operation_has_its_own_name_and_its_schemas_are_in_the_spec() {
@@ -917,7 +1144,8 @@ mod tests {
         let mut expected_paths: Vec<&str> = spec
             .operations
             .iter()
-            .map(|op| op.transports.rest.path)
+            .filter_map(|op| op.transports.rest.as_ref())
+            .map(|rest| rest.path)
             .collect();
         expected_paths.sort_unstable();
         expected_paths.dedup();
@@ -984,7 +1212,7 @@ mod tests {
             spec.operations.iter().filter(|op| op.streaming).collect();
         assert!(!streaming.is_empty(), "the spec has no streaming operation");
         for op in streaming {
-            let rest = &op.transports.rest;
+            let rest = op.transports.rest.as_ref().unwrap();
             assert!(
                 rest.stream_type.is_some(),
                 "Streaming operation '{}' missing stream_type in REST binding",
@@ -997,6 +1225,39 @@ mod tests {
                 op.name
             );
         }
+    }
+
+    #[test]
+    fn api_documents_012_an_operation_on_one_transport_has_no_binding_for_the_other() {
+        let spec = build_spec();
+        let doc = build_openapi();
+        let published = to_value(&spec).unwrap();
+        let operation = |name: &str| {
+            published["operations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|op| op["name"] == name)
+                .unwrap()
+                .clone()
+        };
+
+        let backup = operation("server.backup");
+        assert!(backup["transports"].get("rest").is_none(), "{backup}");
+        assert_eq!(backup["transports"]["rpc"]["method"], "server.backup");
+        let upload = operation("image.upload");
+        assert!(upload["transports"].get("rpc").is_none(), "{upload}");
+        assert_eq!(
+            upload["transports"]["rest"]["path"],
+            "/api/v1/images/upload"
+        );
+        let rpc_only = doc["paths"]
+            .as_object()
+            .unwrap()
+            .values()
+            .flat_map(|item| item.as_object().unwrap().values())
+            .any(|op| op["operationId"] == "server.backup");
+        assert!(!rpc_only, "server.backup is in the OpenAPI document");
     }
 
     #[test]
