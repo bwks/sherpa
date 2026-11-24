@@ -587,8 +587,9 @@ async fn agents(server: &Endpoint, seed: &str, json: bool) -> Result<()> {
     let (bus, agents_path) = Bus::recorded()?;
     let agents = bus::agents(&bus, &agents_path, seed)?;
     let channel = Channel::connect(server, seed).await?;
-    let names = || agents.all().map(|agent| agent.name.as_str());
-    let mut statuses = channel.statuses(names()).await?;
+    let mut statuses = channel
+        .statuses(agents.all().map(|agent| agent.name.as_str()))
+        .await?;
     let record = channel.consumer_state(RECORDER).await?;
     let mut observed = Vec::new();
     for agent in agents.all() {

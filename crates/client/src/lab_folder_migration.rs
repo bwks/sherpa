@@ -340,13 +340,10 @@ fn rewrite_legacy_ssh_config(config: &str, folder: &LabFolder) -> Result<String>
             let mut fields = line.trim_start().splitn(2, char::is_whitespace);
             let directive = fields.next().unwrap_or_default();
             let value = fields.next().unwrap_or_default().trim().trim_matches('"');
-            let names = |file: &str| {
-                Path::new(value)
-                    .file_name()
-                    .is_some_and(|name| name == file)
-            };
             if directive.eq_ignore_ascii_case("UserKnownHostsFile")
-                && names(SHERPA_KNOWN_HOSTS_FILE)
+                && Path::new(value)
+                    .file_name()
+                    .is_some_and(|name| name == SHERPA_KNOWN_HOSTS_FILE)
             {
                 format!("{indent}UserKnownHostsFile {known_hosts}")
             } else {

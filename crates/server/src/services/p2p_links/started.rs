@@ -161,29 +161,29 @@ pub(crate) mod tests {
 
     /// What the runtimes report when the nodes in `running` run and the others are paused.
     pub(crate) fn runtimes(running: &[&str]) -> Runtimes {
-        let state = |name: &str| {
-            if running.contains(&name) {
-                ContainerStateStatusEnum::RUNNING
-            } else {
-                ContainerStateStatusEnum::PAUSED
-            }
-        };
-        let domain = |name: &str| {
-            if running.contains(&name) {
-                VIR_DOMAIN_RUNNING
-            } else {
-                VIR_DOMAIN_SHUTOFF
-            }
-        };
         Runtimes {
             domains: Some(
                 ["vm1", "vm2"]
-                    .map(|name| (format!("{name}-lab"), domain(name)))
+                    .map(|name| {
+                        let state = if running.contains(&name) {
+                            VIR_DOMAIN_RUNNING
+                        } else {
+                            VIR_DOMAIN_SHUTOFF
+                        };
+                        (format!("{name}-lab"), state)
+                    })
                     .into(),
             ),
             containers: Some(
                 ["ctr1", "ctr2"]
-                    .map(|name| (format!("{name}-lab"), state(name)))
+                    .map(|name| {
+                        let state = if running.contains(&name) {
+                            ContainerStateStatusEnum::RUNNING
+                        } else {
+                            ContainerStateStatusEnum::PAUSED
+                        };
+                        (format!("{name}-lab"), state)
+                    })
                     .into(),
             ),
         }

@@ -2364,7 +2364,6 @@ mod tests {
     async fn upgraded_records_019_images_and_definition_nodes_under_an_earlier_model_name_take_the_models_of_today()
      {
         let (db, keys) = database_with_old_model_names().await;
-        let key = |old: &str| key_of_old(&keys, old);
 
         apply_schema(&db).await.unwrap();
 
@@ -2372,10 +2371,11 @@ mod tests {
         let images = list_node_images(&db).await.unwrap();
         assert_eq!(images.len(), RENAMED_MODELS.len() + 1);
         for (old, model, kind) in RENAMED_MODELS {
-            let image = find_node_image_by_id(&db, RecordId::new("node_image", key(old)))
-                .await
-                .unwrap()
-                .unwrap();
+            let image =
+                find_node_image_by_id(&db, RecordId::new("node_image", key_of_old(&keys, old)))
+                    .await
+                    .unwrap()
+                    .unwrap();
             assert_eq!((image.model, image.kind()), (model, kind), "{old}");
             assert!(image.default, "{old} keeps its default");
         }
