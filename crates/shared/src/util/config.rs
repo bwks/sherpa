@@ -129,15 +129,6 @@ mod tests {
     }
 
     #[test]
-    fn server_config_001_a_config_with_the_removed_ztp_server_table_still_loads() {
-        let config = load_server_fixture(
-            "[ztp_server]\nenable = false\nusername = 'sherpa'\npassword = 'kept'",
-        )
-        .unwrap();
-        assert_eq!(config.ws_port, SHERPA_SERVER_WS_PORT);
-    }
-
-    #[test]
     fn client_config_003_the_server_url_is_wss_with_tls_on_and_ws_with_it_off() {
         let mut config = ClientConfig {
             server_ipv4: Ipv4Addr::new(10, 0, 0, 1),

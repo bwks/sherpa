@@ -15,14 +15,12 @@ use crate::auth::jwt;
 use crate::auth::session::{self, SessionLookup};
 use crate::daemon::console_sessions::ConsoleSessions;
 use crate::daemon::db_key::load_or_create_db_key;
-use crate::daemon::image_folders::move_renamed_model_folders;
 use crate::daemon::link_states::LinkStates;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::storage::secure_storage;
 use crate::daemon::unreadable_ends::UnreadableEnds;
 use crate::daemon::vault_seals::VaultSeals;
 use crate::konst::SHERPA_ADMIN_PASSWORD_ENV;
-use crate::services::image_lifecycle::BackedVolumes;
 use crate::validate::{check_host_memory_settings, validate_tailscale_gateway_settings};
 
 /// The key that seals the database's secret values: 32 bytes, mode 0600, beside the JWT secret
@@ -138,23 +136,6 @@ impl AppState {
 
         // Initialize libvirt client
         let qemu = Qemu::default();
-        let backing_files = qemu
-            .backed_volumes()
-            .map(|volumes| {
-                volumes
-                    .into_iter()
-                    .map(|volume| volume.backing_file)
-                    .collect::<Vec<_>>()
-            })
-            .inspect_err(|error| {
-                tracing::warn!(
-                    error = %format!("{error:#}"),
-                    "Cannot read the storage pool's disks"
-                );
-            })
-            .ok();
-        move_renamed_model_folders(Path::new(&config.images_dir), backing_files.as_deref())
-            .context("Failed to move the image folders of renamed node models")?;
         tracing::info!("Initialized libvirt/QEMU client");
 
         // Initialize Docker client
