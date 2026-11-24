@@ -1996,7 +1996,7 @@ role = "host"
 
     /// Needs Docker. A reader whose pulls the bus refuses (another pull holds the inbox's one
     /// waiting slot) or does not answer at all (the bus is paused) says so, and reads again
-    /// once the bus takes its pull. Both used to be retried without a word.
+    /// once the bus takes its pull.
     /// Run with `cargo test -p agent-bus -- --ignored`.
     #[tokio::test]
     #[ignore = "needs Docker"]

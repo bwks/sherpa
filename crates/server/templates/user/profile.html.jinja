@@ -63,7 +63,7 @@
             Device password: {{ device_password_status | safe }}
         </p>
         <p class="text-sm text-muted mb-6">
-            Your login password on lab nodes. From Sherpa 0.7.0, labs only start once it is set.
+            Your login password on lab nodes. Labs only start once it is set.
             Only you can set it, and it must differ from your Sherpa login password.
         </p>
         <form hx-post="/profile/device-password" hx-target="#device-password-result" hx-swap="innerHTML">

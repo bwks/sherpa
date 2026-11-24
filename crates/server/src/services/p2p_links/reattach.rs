@@ -704,7 +704,7 @@ pub(crate) mod tests {
         }
 
         {
-            // Redeploy used to put every unlinked interface of a bridge's node on that bridge.
+            // Only the interfaces a bridge names go on it.
             let bridges = vec![
                 bridge(0, &[("dev01", "eth1"), ("fr01", "eth1")]),
                 bridge(1, &[("dev01", "eth3"), ("fr02", "eth1")]),

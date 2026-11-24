@@ -33,14 +33,13 @@ pub(crate) const KEYCLOAK_DIR: &str = "keycloak";
 const KUBELOGIN_REDIRECT_URIS: [&str; 2] = ["http://localhost:8000", "http://localhost:18000"];
 /// The `master` realm admin Keycloak creates at its first start, Keycloak's own default name.
 const KEYCLOAK_ADMIN_USERNAME: &str = "admin";
-/// The realm user every Keycloak node had before 0.7.0, with the password Sherpa published. A
-/// node's saved users lose it when the node gets its own admin. No Sherpa user can have the
-/// name, so it is never the lab owner.
+/// The realm user shared by Keycloak nodes with no admin of their own, with the password Sherpa
+/// published. A node's saved users lose it when the node gets its own admin. No Sherpa user can
+/// have the name, so it is never the lab owner.
 const LEGACY_SHARED_REALM_USER: &str = "sherpa";
 
-/// A Keycloak node's admin and realm users, saved as `<lab>/keycloak/<node>.toml`. A file saved
-/// before 0.7.0 has no admin: its node runs with the admin every node had then until it is
-/// redeployed.
+/// A Keycloak node's admin and realm users, saved as `<lab>/keycloak/<node>.toml`. A file with
+/// no admin leaves its node on the shared admin until it is redeployed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct RealmCredentials {
     address: String,
@@ -86,7 +85,7 @@ fn load_credentials(dir: &Path, node_name: &str) -> Result<Option<RealmCredentia
 /// node starts. A node keeps what was saved for it, across `redeploy`: Keycloak's database is
 /// in the container, so a redeployed node starts afresh with the same admin and users, and the
 /// owner's downloaded file stays right. A new node gets an admin and the lab owner as its realm
-/// user, each with a new password. A node saved before 0.7.0 has no admin of its own: it gets
+/// user, each with a new password. A node saved with no admin of its own gets
 /// one, and loses the realm user with the published password.
 #[instrument(skip_all, fields(dir = %dir.display(), %node_name), level = "debug")]
 pub(crate) fn ensure_keycloak_credentials(

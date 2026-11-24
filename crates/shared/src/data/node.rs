@@ -31,8 +31,8 @@ use super::model_kind::ModelKind;
 use super::node_base;
 
 /// A node model, the name a manifest, a command and the API give it. It is read only through
-/// `FromStr`, from JSON and TOML, from a command line and from the database alike, so a name
-/// removed in 0.7.0 is refused everywhere with the same message naming its replacement.
+/// `FromStr`, from JSON and TOML, from a command line and from the database alike, so a retired
+/// name is refused everywhere with the same message naming its replacement.
 #[derive(
     Default, PartialEq, Eq, Hash, Clone, Copy, Debug, Serialize, EnumIter, IntoStaticStr, JsonSchema,
 )]
@@ -345,7 +345,7 @@ impl FromStr for NodeModel {
 
             _ => match REMOVED_MODELS.iter().find(|(name, _, _)| *name == s) {
                 Some((_, model, kind)) => Err(format!(
-                    r#"Unknown node model '{s}': it was renamed in 0.7.0. Use model = "{model}" with kind = "{kind}"."#
+                    r#"Unknown node model '{s}': use model = "{model}" with kind = "{kind}"."#
                 )),
                 None => Err(format!("Unknown node model: {s}")),
             },
@@ -400,7 +400,7 @@ impl ValueParserFactory for NodeModel {
     }
 }
 
-/// The model names removed in 0.7.0, each with the model and kind that replace it. They are
+/// The retired model names, each with the model and kind that replace it. They are
 /// known only to refuse an old name with a message naming its replacement, and to move the
 /// image folders named after them. To be deleted in 0.8.0.
 pub const REMOVED_MODELS: [(&str, NodeModel, NodeKind); 19] = [
@@ -970,8 +970,8 @@ impl NodeState {
 }
 
 /// Zero touch provisioning for a node image: off or the method Sherpa provisions its nodes by.
-/// It denies unknown fields, so a `ztp` group that still carries `username`, `password` or
-/// `password_auth`, removed in 0.7.0, is refused with serde's error naming the field.
+/// It denies unknown fields, so a `ztp` group that carries `username`, `password` or
+/// `password_auth` is refused with serde's error naming the field.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ZtpSettings {
@@ -2494,7 +2494,7 @@ mod tests {
             (
                 *name,
                 format!(
-                    r#"Unknown node model '{name}': it was renamed in 0.7.0. Use model = "{model}" with kind = "{kind}"."#
+                    r#"Unknown node model '{name}': use model = "{model}" with kind = "{kind}"."#
                 ),
             )
         });
@@ -2518,11 +2518,11 @@ mod tests {
         }
         assert_eq!(
             "arista_ceos".parse::<NodeModel>().unwrap_err(),
-            r#"Unknown node model 'arista_ceos': it was renamed in 0.7.0. Use model = "arista_eos" with kind = "container"."#
+            r#"Unknown node model 'arista_ceos': use model = "arista_eos" with kind = "container"."#
         );
         assert_eq!(
             "cisco_iosv".parse::<NodeModel>().unwrap_err(),
-            r#"Unknown node model 'cisco_iosv': it was renamed in 0.7.0. Use model = "cisco_ios" with kind = "virtual_machine"."#
+            r#"Unknown node model 'cisco_iosv': use model = "cisco_ios" with kind = "virtual_machine"."#
         );
     }
 

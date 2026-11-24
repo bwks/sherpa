@@ -1,5 +1,5 @@
-//! Settings older releases wrote to `sherpa.toml` that sherpad no longer reads. The config
-//! ignores fields it does not know, so a file that still has one loads; sherpad warns about it
+//! Settings a `sherpa.toml` may hold that sherpad does not read. The config ignores fields
+//! it does not know, so a file that has one loads; sherpad warns about it
 //! at startup rather than editing the file.
 use std::fs;
 use std::path::Path;
@@ -11,7 +11,7 @@ use tracing::instrument;
 /// manifest is a different setting and is unaffected.
 const ZTP_SERVER_TABLE: &str = "ztp_server";
 
-/// Warn, once, when the server config at `path` still has the removed `[ztp_server]` table.
+/// Warn, once, when the server config at `path` has a `[ztp_server]` table.
 ///
 /// # Errors
 ///
@@ -23,7 +23,7 @@ pub fn warn_on_removed_settings(path: &Path) -> Result<()> {
     if has_ztp_server_table(&contents)? {
         tracing::warn!(
             table = ZTP_SERVER_TABLE,
-            "The server config has a [{ZTP_SERVER_TABLE}] table, which sherpad no longer reads. \
+            "The server config has a [{ZTP_SERVER_TABLE}] table, which sherpad does not read. \
              It is ignored and can be deleted from {}",
             path.display()
         );
@@ -61,7 +61,7 @@ password = "kept"
         assert!(result.is_ok());
         assert!(output.contains("WARN"), "{output}");
         assert!(
-            output.contains("[ztp_server] table, which sherpad no longer reads"),
+            output.contains("[ztp_server] table, which sherpad does not read"),
             "{output}"
         );
     }

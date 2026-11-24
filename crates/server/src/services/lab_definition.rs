@@ -86,7 +86,7 @@ pub async fn stored_as_written(
 /// The stored definition of the lab `lab_id` (record `lab_record_id`), for the readers that
 /// fall back to defaults without one: resume's `ready_timeout`, and a container's data
 /// interface count when its link ends are made again. `None`, logged at warn, when the lab has
-/// no stored definition (one stored by a release before 0.6.4 whose import failed) or it cannot
+/// no stored definition or it cannot
 /// be read; the readers then use the defaults.
 #[instrument(skip(db, lab_record_id), fields(%lab_id), level = "debug")]
 pub async fn stored_definition(

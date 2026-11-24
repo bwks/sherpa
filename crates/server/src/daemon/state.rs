@@ -239,7 +239,7 @@ pub async fn ensure_admin_account(db: &db::Database, admin_password: Option<&str
     Ok(())
 }
 
-/// Warn, once at startup, when nodes built before 0.7.0 still log in as `sherpa`: they have the
+/// Warn, once at startup, when nodes log in as `sherpa`: they have the
 /// published password and their lab's key until they are redeployed. Returns how many there are.
 ///
 /// # Errors
@@ -253,7 +253,7 @@ pub async fn warn_on_sherpa_logins(db: &db::Database) -> Result<usize> {
     if count > 0 {
         tracing::warn!(
             count,
-            "{count} lab nodes built before 0.7.0 still log in as '{SHERPA_USERNAME}' with its \
+            "{count} lab nodes log in as '{SHERPA_USERNAME}' with its \
              published password. Redeploy or recreate them to give them their owner's login"
         );
     }

@@ -336,7 +336,7 @@ mod tests {
         let dir = root.join("a").join("agent-bus");
         private_dir(&dir).unwrap();
         assert_eq!(mode(&dir), DIR_MODE);
-        // An existing directory that is too open, as the host used to make it, is tightened.
+        // An existing directory that is too open is tightened.
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
         private_dir(&dir).unwrap();
         assert_eq!(mode(&dir), DIR_MODE);

@@ -102,8 +102,7 @@ pub struct KeycloakInfo {
     /// The realm Sherpa made.
     pub realm: String,
     /// The `master` realm's admin, which Keycloak creates at its first start. `None` for a node
-    /// created before Sherpa 0.7.0 and not redeployed since, which still has the admin every
-    /// node had then.
+    /// with no admin of its own, which keeps the shared admin until it is redeployed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admin: Option<AdminCredential>,
     /// The realm's users and their passwords.

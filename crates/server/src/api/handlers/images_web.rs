@@ -430,10 +430,8 @@ fn image_edit_template(
 
 /// Form data for updating an image configuration: the settings every kind takes, and each
 /// kind's own, of which the page for an image posts its kind's alone. It denies unknown fields,
-/// so a form that still sends `interface_prefix` or `first_interface_index`, removed in 0.7.0,
-/// or `ztp_username`, `ztp_password`, `ztp_password_remove` or `ztp_password_auth`, as an
-/// editor page loaded from an older server does, is refused naming the field instead of saved
-/// without it.
+/// so a form that sends a field it does not take, such as `interface_prefix` or `ztp_username`,
+/// is refused naming the field instead of saved without it.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ImageForm {
