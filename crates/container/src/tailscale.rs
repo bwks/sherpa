@@ -352,7 +352,7 @@ pub async fn enroll_gateway(
         settings,
     )
     .await
-    .context("Tailscale enrollment failed")?;
+    .context(ContainerError::EnrollmentFailed)?;
     wait_connected(docker, id, lab_id, routes.to_vec(), settings).await
 }
 
@@ -380,9 +380,11 @@ pub async fn resume_gateway(
         Ok(Logout::Failed(rollback)) => enrollment.context(format!(
             "Tailscale gateway stopped after a failed enrollment, but not logged out: {rollback:#}"
         )),
-        Err(rollback) => enrollment.context(format!(
-            "Unable to stop the Tailscale gateway after a failed enrollment: {rollback:#}"
-        )),
+        Err(rollback) => ContainerError::GatewayNotStoppedAfterFailedEnrollment {
+            enrollment,
+            rollback,
+        }
+        .into(),
     })
 }
 
@@ -852,12 +854,25 @@ mod tests {
         )
         .await;
         mock.finish();
-        let error = format!("{:#}", result.unwrap_err());
-        assert!(
-            error.contains("Unable to stop Tailscale gateway"),
-            "{error}"
-        );
-        assert!(error.contains("Tailscale enrollment failed"), "{error}");
+        let error = result.unwrap_err();
+        let Some(ContainerError::GatewayNotStoppedAfterFailedEnrollment {
+            enrollment,
+            rollback,
+        }) = error.downcast_ref::<ContainerError>()
+        else {
+            panic!("not a failed rollback: {error:#}");
+        };
+        assert!(matches!(
+            enrollment.downcast_ref::<ContainerError>(),
+            Some(ContainerError::EnrollmentFailed)
+        ));
+        assert!(matches!(
+            rollback.downcast_ref::<bollard::errors::Error>(),
+            Some(bollard::errors::Error::DockerResponseServerError {
+                status_code: 500,
+                ..
+            })
+        ));
     }
 
     #[tokio::test]

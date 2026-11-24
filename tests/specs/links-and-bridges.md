@@ -243,7 +243,7 @@ A container member, on a link or not, takes every data interface as a veth made 
 | 008 | A Docker management network that is already there with the lab's subnets, gateways and bridge is reused | unit |
 | 009 | A Docker management network of the lab's name with other subnets, gateways or another bridge refuses the up before anything of the lab is created, naming the network and each difference | integration |
 | 010 | That network is left as it was: the refused up and its rollback neither remove it nor make it again | integration |
-| 011 | A network that differs which Docker reports as already there when the up makes it fails the creation, naming each difference, and nothing is removed | unit |
+| 011 | A network that differs which Docker reports as already there when the up makes it fails the creation with an error that carries each difference, with the value expected and the value found, and nothing is removed | unit |
 
 Which ranges a lab's management network takes, and which addresses its nodes get in them, are `lab_addressing` in [lab lifecycle](lab-lifecycle.md).
 
