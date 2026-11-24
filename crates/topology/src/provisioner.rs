@@ -41,8 +41,8 @@ pub struct ContainerSecretFile {
     pub mode: u32,
 }
 
-/// Copies files with `scp` and runs scripts over SSH, in this order: `files`, `env_files`,
-/// `scripts`.
+/// Copies files over SFTP and runs scripts in the CLI's own SSH connection, in this order:
+/// `files`, `env_files`, `scripts`.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SshProvisioner {
