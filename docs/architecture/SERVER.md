@@ -20,6 +20,29 @@ key would open nothing sealed. Before anything takes requests, `lab_lifecycle::r
 the last run left mid-way, shared CPU pins are logged and stopped domains' consoles move to their
 sockets; then the scanner and the session sweeper start.
 
+### A Docker management network that is already there
+
+The lab's Docker management network, `sherpa-management-<lab_id>`, is named from the lab ID, so a
+network an earlier lab of the same name left can be there. During validation, before anything
+is created, `up::networks::check_existing_docker_management_network` inspects it with
+`container::inspect_existing_bridge_network`: one with the lab's subnets, gateways and bridge is
+reused, and one that differs refuses the `up` with a conflict naming it and each difference. The
+check must come before any resource, since a failed `up`'s rollback removes every Docker network
+named for the lab. `container::create_docker_bridge_network` makes the same comparison when Docker
+answers 409, for a network that appears in between. Nothing removes a network that differs. The
+cases are `links-and-bridges.md`, `management_network`.
+
+### The server process and its PID file
+
+`sherpad start` runs one server per host. The server takes an exclusive `flock` on
+`/opt/sherpa/run/sherpad.pid` (`daemon::pidfile::lock_pid_file`, with nix's `Flock`) before it
+writes its PID there, and holds it until it exits, so a second start, in the foreground or as the
+background child, fails at the lock. A file left by a crash has no lock holder and is taken over.
+`stop`, `restart`, `status` and `sherpad user unlock` trust the PID only when its process runs and
+was started as `sherpad`, by the program name in `/proc/<pid>/cmdline`
+(`daemon::pidfile::running_server_pid`): a stale PID that another program now holds reads as no
+server and is never signalled. The cases are `install-and-update.md`, `sherpad_daemon`.
+
 ### Lab and database storage permissions
 
 Lab data and the database are kept from other users by directory modes, not file modes
@@ -141,9 +164,9 @@ count back to 0. A password reset leaves the lock as it is.
 When no admin can log in, root unlocks an account, the built-in `sherpa-admin` included, on the
 host with `sherpad user unlock <username>` (`crates/server/src/user.rs`), with no channel into the
 server. It calls the same `db::unlock_user` on the database file, so it needs `sherpad` stopped:
-it reads the PID file as `sherpad status` does (`daemon::pidfile::read_pid`, then
-`is_process_running`), and while that names a running process it refuses before opening the
-database. Like `sherpad init` it runs as `sherpa` only (`validate::validate_service_account`),
+it reads the PID file as `sherpad status` does (`daemon::pidfile::running_server_pid`), and while
+that names a running `sherpad` it refuses before opening the database. Like `sherpad init` it
+runs as `sherpa` only (`validate::validate_service_account`),
 since the database is that account's, and an unknown username is an error. It logs
 `user.unlocked` at `info` on stderr. The steps are `systemctl stop sherpad`,
 `sudo -u sherpa sherpad user unlock sherpa-admin`, `systemctl start sherpad`. The cases are

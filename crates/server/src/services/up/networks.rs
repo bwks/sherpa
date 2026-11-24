@@ -57,6 +57,59 @@ pub(super) fn management_network(subnets: &LabSubnets) -> Result<data::SherpaNet
     })
 }
 
+/// The name of the lab's management network, in libvirt and in Docker.
+fn management_network_name(lab_id: &str) -> String {
+    format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}")
+}
+
+/// The Linux bridge of the lab's management network.
+fn management_bridge_name(lab_id: &str) -> String {
+    format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{lab_id}")
+}
+
+/// The subnets and gateways of the lab's Docker management network: IPv4, then IPv6.
+fn docker_management_subnets(subnets: &LabSubnets) -> [container::BridgeSubnet; 2] {
+    [
+        container::BridgeSubnet {
+            subnet: subnets.management_subnet.to_string(),
+            gateway: Some(subnets.gateway_ipv4.to_string()),
+        },
+        container::BridgeSubnet {
+            subnet: subnets.ipv6_management_subnet.to_string(),
+            gateway: Some(subnets.gateway_ipv6.to_string()),
+        },
+    ]
+}
+
+/// Refuse an `up` whose lab's Docker management network is already there with other subnets,
+/// gateways or another bridge, before anything is created, so no rollback can remove it. One that
+/// matches is left to be reused.
+#[instrument(skip_all, fields(%lab_id))]
+pub(super) async fn check_existing_docker_management_network(
+    docker: &container::Docker,
+    lab_id: &str,
+    subnets: &LabSubnets,
+) -> Result<()> {
+    let name = management_network_name(lab_id);
+    match container::inspect_existing_bridge_network(
+        docker,
+        &name,
+        &docker_management_subnets(subnets),
+        &management_bridge_name(lab_id),
+    )
+    .await?
+    {
+        container::ExistingBridgeNetwork::Differs(message) => {
+            Err(ServiceError::Conflict(message).into())
+        }
+        container::ExistingBridgeNetwork::Matches => {
+            tracing::info!(network = %name, "Reusing the Docker management network already there");
+            Ok(())
+        }
+        container::ExistingBridgeNetwork::Absent => Ok(()),
+    }
+}
+
 /// Create the lab's management network in libvirt (NAT, with DHCP off) and in Docker, on the
 /// same bridge, so VMs and containers share it.
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
@@ -65,8 +118,8 @@ pub(super) async fn create_management_networks(
     subnets: &LabSubnets,
 ) -> Result<()> {
     let lab_id = build.lab_id;
-    let network_name = format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}");
-    let bridge_name = format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{lab_id}");
+    let network_name = management_network_name(lab_id);
+    let bridge_name = management_bridge_name(lab_id);
     let _ = build.progress.send_status(
         format!("Creating management network: {network_name}"),
         StatusKind::Progress,
@@ -82,11 +135,12 @@ pub(super) async fn create_management_networks(
     .create(build.qemu_conn)?;
     tracing::info!(network = %network_name, bridge = %bridge_name, "Created libvirt NAT network");
 
+    let [ipv4, ipv6] = docker_management_subnets(subnets);
     container::create_docker_bridge_network(
         build.docker_conn,
         &network_name,
-        Some(subnets.management_subnet.to_string()),
-        Some(subnets.ipv6_management_subnet.to_string()),
+        ipv4,
+        Some(ipv6),
         &bridge_name,
     )
     .await?;

@@ -3,14 +3,14 @@ use nix::sys::signal::Signal;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{self, Child, Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
 use super::pidfile::{
     SHERPAD_LOG_FILE_PATH, SHERPAD_PID_FILE_PATH, ensure_log_dir, ensure_run_dir,
-    is_process_running, open_log_file, read_pid, remove_pid, send_signal, verify_not_running,
-    write_pid,
+    is_process_running, lock_pid_file, open_log_file, read_pid, remove_pid, running_server_pid,
+    send_signal, verify_not_running,
 };
 use super::server::run_server;
 use crate::konst::SHERPA_CONFIG_FILE_PATH;
@@ -22,8 +22,8 @@ use shared::util::load_config;
 /// # Errors
 ///
 /// Fails when the run or log directory cannot be created, sherpad is already running, the PID
-/// file cannot be written, the background process cannot be started or exits at once, or the
-/// server fails in the foreground.
+/// file cannot be locked or written, the background process cannot be started or exits at once,
+/// or the server fails in the foreground.
 pub async fn start_daemon(foreground: bool) -> Result<()> {
     // Ensure directories exist
     ensure_run_dir()?;
@@ -35,7 +35,7 @@ pub async fn start_daemon(foreground: bool) -> Result<()> {
     if foreground {
         // Foreground mode: run server directly in current process
         tracing::info!("Starting sherpad in foreground mode");
-        write_pid(SHERPAD_PID_FILE_PATH)?;
+        let _pid_lock = lock_pid_file(SHERPAD_PID_FILE_PATH)?;
 
         // Run server and clean up PID file on exit
         let result = run_server(true).await;
@@ -92,10 +92,9 @@ fn check_still_running(child: &mut Child) -> Result<()> {
 ///
 /// # Errors
 ///
-/// Fails when the PID file cannot be written or removed, or the server fails.
+/// Fails when the PID file cannot be locked, written or removed, or the server fails.
 pub async fn run_background_child() -> Result<()> {
-    // Write our own PID
-    write_pid(SHERPAD_PID_FILE_PATH)?;
+    let _pid_lock = lock_pid_file(SHERPAD_PID_FILE_PATH)?;
 
     // Run server and clean up on exit
     let result = run_server(false).await;
@@ -105,24 +104,22 @@ pub async fn run_background_child() -> Result<()> {
     result
 }
 
-/// Stop the sherpad daemon
+/// Stop the sherpad daemon the PID file at `pid_path` names. A PID whose process is gone or is
+/// not `sherpad` is never signalled: the stale file is removed.
 ///
 /// # Errors
 ///
 /// Fails when sherpad is not running, the PID file cannot be read or removed, or the process
 /// cannot be signalled or does not exit.
-pub fn stop_daemon(force: bool) -> Result<()> {
-    // Read PID from file
-    let Some(pid) = read_pid(SHERPAD_PID_FILE_PATH)? else {
+pub fn stop_daemon(pid_path: &str, force: bool) -> Result<()> {
+    if read_pid(pid_path)?.is_none() {
         bail!("Server is not running");
-    };
-
-    // Check if process is actually running
-    if !is_process_running(pid) {
-        tracing::warn!(%pid, "Server is not running (stale PID file found)");
-        remove_pid(SHERPAD_PID_FILE_PATH)?;
-        return Ok(());
     }
+    let Some(pid) = running_server_pid(pid_path)? else {
+        tracing::warn!("Server is not running (stale PID file found)");
+        remove_pid(pid_path)?;
+        return Ok(());
+    };
 
     tracing::info!(%pid, "Stopping sherpad");
 
@@ -145,7 +142,7 @@ pub fn stop_daemon(force: bool) -> Result<()> {
 
             if !is_process_running(pid) {
                 // Process has exited
-                remove_pid(SHERPAD_PID_FILE_PATH)?;
+                remove_pid(pid_path)?;
                 tracing::info!("sherpad stopped successfully");
                 return Ok(());
             }
@@ -171,7 +168,7 @@ pub fn stop_daemon(force: bool) -> Result<()> {
         bail!("Failed to kill server process");
     }
 
-    remove_pid(SHERPAD_PID_FILE_PATH)?;
+    remove_pid(pid_path)?;
     tracing::info!("sherpad stopped successfully");
     Ok(())
 }
@@ -185,17 +182,10 @@ pub fn stop_daemon(force: bool) -> Result<()> {
 pub async fn restart_daemon(foreground: bool) -> Result<()> {
     tracing::info!("Restarting sherpad");
 
-    // Stop the daemon if it's running
-    if let Some(pid) = read_pid(SHERPAD_PID_FILE_PATH)? {
-        if is_process_running(pid) {
-            stop_daemon(false)?;
-            // Give it a moment to fully stop
-            thread::sleep(Duration::from_millis(2000));
-        } else {
-            // Clean up stale PID file
-            tracing::debug!("Found stale PID file, cleaning up");
-            remove_pid(SHERPAD_PID_FILE_PATH)?;
-        }
+    if running_server_pid(SHERPAD_PID_FILE_PATH)?.is_some() {
+        stop_daemon(SHERPAD_PID_FILE_PATH, false)?;
+        // Give it a moment to fully stop
+        thread::sleep(Duration::from_millis(2000));
     }
 
     // Start the daemon
@@ -208,18 +198,16 @@ pub async fn restart_daemon(foreground: bool) -> Result<()> {
 ///
 /// Fails when the PID file cannot be read.
 pub fn status_daemon() -> Result<()> {
-    if let Some(pid) = read_pid(SHERPAD_PID_FILE_PATH)? {
-        if is_process_running(pid) {
-            println!("sherpad is running (pid: {pid})");
-            print_certificate_status();
-            Ok(())
-        } else {
-            eprintln!("sherpad is not running (stale PID file found)");
-            std::process::exit(1);
-        }
+    if let Some(pid) = running_server_pid(SHERPAD_PID_FILE_PATH)? {
+        println!("sherpad is running (pid: {pid})");
+        print_certificate_status();
+        Ok(())
+    } else if read_pid(SHERPAD_PID_FILE_PATH)?.is_some() {
+        eprintln!("sherpad is not running (stale PID file found)");
+        process::exit(1);
     } else {
         eprintln!("sherpad is not running");
-        std::process::exit(1);
+        process::exit(1);
     }
 }
 
@@ -311,6 +299,9 @@ pub fn logs_daemon(follow: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon::pidfile::tests::spawn_sherpad_stand_in;
+    use nix::unistd::Pid;
+    use tempfile::TempDir;
 
     fn spawn_shell(script: &str) -> Child {
         Command::new("sh").arg("-c").arg(script).spawn().unwrap()
@@ -328,5 +319,32 @@ mod tests {
         assert!(check_still_running(&mut running).is_ok());
         running.kill().unwrap();
         running.wait().unwrap();
+    }
+
+    #[test]
+    fn sherpad_daemon_012_a_pid_file_naming_a_process_that_is_not_sherpad_reads_as_no_server_and_is_never_signalled()
+     {
+        let temp_dir = TempDir::new().unwrap();
+        let pid_file = temp_dir.path().join("sherpad.pid");
+        let pid_path = pid_file.to_str().unwrap();
+
+        let mut other = Command::new("sleep").arg("30").spawn().unwrap();
+        fs::write(pid_path, other.id().to_string()).unwrap();
+        assert_eq!(running_server_pid(pid_path).unwrap(), None);
+        stop_daemon(pid_path, true).unwrap();
+        assert!(
+            other.try_wait().unwrap().is_none(),
+            "the process was signalled"
+        );
+        assert!(!pid_file.exists());
+        other.kill().unwrap();
+        other.wait().unwrap();
+
+        let mut server = spawn_sherpad_stand_in();
+        let server_pid = Pid::from_raw(i32::try_from(server.id()).unwrap());
+        fs::write(pid_path, server_pid.to_string()).unwrap();
+        assert_eq!(running_server_pid(pid_path).unwrap(), Some(server_pid));
+        server.kill().unwrap();
+        server.wait().unwrap();
     }
 }

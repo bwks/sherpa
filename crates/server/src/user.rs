@@ -8,7 +8,7 @@ use tracing::instrument;
 
 use shared::util::normalize_username;
 
-use crate::daemon::pidfile::{is_process_running, read_pid};
+use crate::daemon::pidfile::running_server_pid;
 use crate::validate::validate_service_account;
 
 /// The subcommand named when `user unlock` runs as the wrong account.
@@ -18,7 +18,7 @@ const UNLOCK_COMMAND: &str = "user unlock";
 /// its failed login count back to 0, with `db::unlock_user` as the admin unlock does. `account` is
 /// the host account this runs as, which must be `sherpa`. The server holds the database file
 /// while it runs, so this refuses, changing nothing, while the PID file at `pid_path` names a
-/// running process, as `sherpad status` reads it. An account that is not locked is not an
+/// running `sherpad`, as `sherpad status` reads it. An account that is not locked is not an
 /// error, as for the admin unlock.
 ///
 /// # Errors
@@ -29,9 +29,7 @@ const UNLOCK_COMMAND: &str = "user unlock";
 #[instrument(skip(db_path, pid_path), fields(%username))]
 pub async fn unlock(account: &str, username: &str, db_path: &Path, pid_path: &str) -> Result<()> {
     validate_service_account(account, UNLOCK_COMMAND)?;
-    if let Some(pid) = read_pid(pid_path)?
-        && is_process_running(pid)
-    {
+    if let Some(pid) = running_server_pid(pid_path)? {
         bail!(
             "sherpad is running (pid: {pid}) and holds the database. Nothing was changed. Stop \
              it first with: sudo systemctl stop sherpad, then start it again after the unlock"
@@ -69,6 +67,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::daemon::pidfile::tests::spawn_sherpad_stand_in;
 
     const LIMIT: u32 = 3;
 
@@ -130,13 +129,16 @@ mod tests {
     async fn user_login_030_sherpad_user_unlock_is_refused_while_the_server_runs_and_changes_nothing()
      {
         let (_dir, db_path, pid_path) = stopped_server_with_locked_accounts().await;
-        fs::write(&pid_path, std::process::id().to_string()).unwrap();
+        let mut server = spawn_sherpad_stand_in();
+        fs::write(&pid_path, server.id().to_string()).unwrap();
         let before = fs::read(&db_path).unwrap();
 
         let error = unlock("sherpa", "sherpa-admin", &db_path, &pid_path)
             .await
             .unwrap_err()
             .to_string();
+        server.kill().unwrap();
+        server.wait().unwrap();
 
         assert!(error.contains("sherpad is running"), "{error}");
         assert!(error.contains("sudo systemctl stop sherpad"), "{error}");

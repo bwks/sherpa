@@ -38,7 +38,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | `/opt/sherpa/libvirt` | the folder of the storage pool | `755 root:root` | install, update |
 | `/opt/sherpa/libvirt/images` | the storage pool: VM disks and ZTP media | `2750 sherpa:kvm` | install, update, sherpad |
 | `/opt/sherpa/images` | the node images | `775 sherpa:sherpa` | install, update |
-| `/opt/sherpa/images/blank_disk` | the blank disk templates | folder `775`, files `644`, `sherpa:sherpa` | install, update |
+| `/opt/sherpa/images/blank_disk` | the blank disk templates, which only sherpad, as `sherpa`, reads, to copy them | folder `775`, files `400`, `sherpa:sherpa` | install, update |
 | `/opt/sherpa/containers`, `bins`, `run` | sherpad's container and binary folders, its PID file and the console sockets | `755 sherpa:sherpa` | install, update |
 | `/etc/systemd/system/sherpad.service`, `/etc/logrotate.d/sherpad`, `/etc/tmpfiles.d/sherpa-thp.conf` | the service, log rotation, the transparent hugepages boot rule | `644 root` | install |
 
@@ -83,6 +83,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 016 | Docker is installed from Docker's apt repository for the host's Ubuntu release, signed by Docker's key, whose SHA-256 is checked against the one the script pins; no script is fetched to run | unit (bats) |
 | 017 | A Docker key that is not the pinned one stops the install before apt trusts it: no keyring, no source and no package | unit (bats) |
 | 018 | The router image is pulled by the digest the script pins and tagged with the name sherpad runs it by; a pull that fails stops the install | unit (bats) |
+| 019 | Run again, it keeps `sherpa.env` line for line, an operator's lines and the settings it holds included, and adds at its end only the settings it writes that the file lacks; a run that finds none missing leaves the file as it was | unit (bats) |
 
 ## `blank_disks`: the scripts make each blank disk template that is missing and never change one that is there
 
@@ -91,8 +92,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | After an install on a bare host, each of the 14 templates is there with its size, file system and label, `644 sherpa:sherpa`, in a folder `775` | e2e (fresh VM) |
-| 002 | Each template is made with its size, file system and label, and no temporary file is left | unit (bats) |
+| 001 | After an install on a bare host, each of the 14 templates is there with its size, file system and label, `400 sherpa:sherpa`, in a folder `775` | e2e (fresh VM) |
+| 002 | Each template is made with its size, file system and label, `400`, and no temporary file is left | unit (bats) |
 | 003 | A template, a folder and even a dangling link of a template's name that are there keep their contents, mode and owner, and the missing templates are made beside them | unit (bats) |
 | 004 | A second run makes nothing and touches no file | unit (bats) |
 | 005 | With a tool missing, nothing is made, not even the folder, and the error names the tools and the packages that hold them | unit (bats) |
@@ -145,7 +146,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 012 | The update script leaves a symlink in the place of one, or in the place of its folder, and the link's target, as they are, and says so | unit (bats) |
 | 013 | The install and update scripts make `/opt/sherpa`, `bin` and `libvirt` root's and `755`, the `775 sherpa:sherpa` an older release left included; they give the config, env, log and database folders `750`, and the lab folder and the storage pool `2750`, every run; and they make `.secret` and `.certs` `700`, the images folder `775`, and `containers`, `bins` and `run` `755`, all `sherpa`'s, when missing, leaving one that is there | unit (bats) |
 | 014 | The update script does all of this when there is nothing to update, too (no test yet: `update_tests.bats` reads the order of the calls in the script's text) | e2e (fresh VM) |
-| 015 | `sherpad doctor --boxes` sets every folder under the images folder to `775` and every file to `660` | unit |
+| 015 | `sherpad doctor --boxes` sets every folder under the images folder to `775`, every blank disk template to `400` and every other file to `660` | unit |
 | 016 | Nothing in those folders changes owner or mode: the scripts change the folders only, never what is in them | unit (bats) |
 | 017 | A symlink at `/opt/sherpa`, at one of those folders, or at a folder above them stops the script with the link named, and the link's target keeps its owner and mode | unit (bats) |
 | 018 | Both scripts install a binary `755`, root's, in place of the file or the link at its name, and never write through the link | unit (bats) |
@@ -246,7 +247,7 @@ Each case builds a database at the schema version that stored the value, upgrade
 
 ## `update_script`: the update script installs a release over a running server, or leaves the installed one in place
 
-**Statement:** the update script fetches the release asked for while sherpad still runs, backs up the database and its key, replaces the binaries and starts sherpad again with the settings, accounts and data the server held, and when it cannot it says why and leaves, or puts back, the installed release's binaries, database and key, with sherpad running.
+**Statement:** the update script fetches the release asked for, and pulls the router image it pins, while sherpad still runs, backs up the database and its key, replaces the binaries and starts sherpad again with the settings, accounts and data the server held, and when it cannot it says why and leaves, or puts back, the installed release's binaries, database and key, with sherpad running.
 **Relied on by:** the admin. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -278,6 +279,9 @@ Each case builds a database at the schema version that stored the value, upgrade
 | 025 | After the update of a server set up by an earlier release, the folder it names holds the database, root's only, and the key, when the server had one, is the server's | e2e (fresh VM) |
 | 026 | The update installs each binary root's, `0755`, in place of the file or link at its name; a new release that does not start gets back only the binaries the update moved aside, each with the owner it had | unit (bats) |
 | 027 | A symlink at or above `/var/backups/sherpa` stops the update before any binary is replaced, writes nothing through it, and starts the installed release again | unit (bats) |
+| 028 | `--version` with no value, or followed by another option, is an error that says so and shows the usage | unit (bats) |
+| 029 | The router image is pulled by the digest this release's install script pins and tagged with the name sherpad runs it by; a pull that fails stops the update | unit (bats) |
+| 030 | The router image is pulled before sherpad is stopped, also when there is nothing to update, and the closing summary names it by its digest (no test yet) | e2e (fresh VM) |
 
 ## `uninstall_script`: the uninstall script removes the service and only the data it is told to
 
@@ -342,6 +346,8 @@ The script finds a lab's resources as sherpad does, without sherpad running: the
 | 008 | `stop` ends the server and removes the PID file; with a PID file whose process is gone it says the server is not running (no test yet) | integration |
 | 009 | Without `sherpa.toml`, or with one that does not parse, sherpad does not start and says which file; started in the background, the error is in `sherpad.log` (no test yet) | integration |
 | 010 | A server that fails is started again by systemd (no test yet) | e2e (fresh VM) |
+| 011 | A server holds an exclusive lock on the PID file while it runs, so a second start fails at the lock, naming the PID; once the lock is let go, a start takes it | unit |
+| 012 | A PID file whose process is not `sherpad`, by the program name it was started as, reads as no server: `stop` signals nothing and removes the stale file; one whose process is `sherpad` reads as running | unit |
 
 ## `server_config`: sherpad reads `sherpa.toml` as `sherpad init` or an older release wrote it
 

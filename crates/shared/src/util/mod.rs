@@ -30,7 +30,7 @@ pub use env::get_server_url;
 #[cfg(unix)]
 pub use file_system::{
     copy_file_with_permissions, copy_to_dos_image, copy_to_ext4_image, create_config_archive,
-    create_dir_with_permissions, fix_permissions_recursive, write_file_with_permissions,
+    create_dir_with_permissions, write_file_with_permissions,
 };
 pub use file_system::{
     create_dir, create_file, dir_exists, expand_path, file_exists, get_cwd, image_filename,

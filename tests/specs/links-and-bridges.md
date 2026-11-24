@@ -238,8 +238,12 @@ A container member, on a link or not, takes every data interface as a veth made 
 | 003 | A lab's management network is made in libvirt as an active NAT network, in IPv4 alone or with IPv6, and making a libvirt network that is already there succeeds | integration |
 | 004 | A node's management interface passes traffic from the moment it starts, with no four-second wait (no test yet) | e2e |
 | 005 | A management network Docker cannot make is reported, not passed over | integration |
-| 006 | Making a lab's Docker management network when it is already there succeeds | integration |
+| 006 | Making a lab's Docker management network when it is already there, with the same subnets and bridge, succeeds | integration |
 | 007 | A unikernel's management interface is on its lab's management network, with the MAC address Sherpa gave it | unit |
+| 008 | A Docker management network that is already there with the lab's subnets, gateways and bridge is reused | unit |
+| 009 | A Docker management network of the lab's name with other subnets, gateways or another bridge refuses the up before anything of the lab is created, naming the network and each difference | integration |
+| 010 | That network is left as it was: the refused up and its rollback neither remove it nor make it again | integration |
+| 011 | A network that differs which Docker reports as already there when the up makes it fails the creation, naming each difference, and nothing is removed | unit |
 
 Which ranges a lab's management network takes, and which addresses its nodes get in them, are `lab_addressing` in [lab lifecycle](lab-lifecycle.md).
 

@@ -78,6 +78,19 @@ _run_function() {
     [[ "$output" == *"Unknown option: --bogus"* ]]
 }
 
+@test "update_script_028_version_with_no_value_says_so_and_shows_the_usage" {
+    run bash "${SCRIPT}" --version
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"--version requires a version"* ]]
+    [[ "$output" == *"Usage:"* ]]
+    run bash "${SCRIPT}" --version --force
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"--version requires a version"* ]]
+    run bash "${SCRIPT}" --version ""
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"--version requires a version"* ]]
+}
+
 # ============================================================
 # Upgrade Check: pre-0.5.0 database
 # ============================================================
@@ -633,4 +646,27 @@ EOF
     [ -z "$(ls -A "${WORK_DIR}/elsewhere")" ]
     grep -q '# old' "${WORK_DIR}/bin/sherpad"
     [ ! -e "${WORK_DIR}/bin/sherpad.previous" ]
+}
+
+# ============================================================
+# Router image
+# ============================================================
+
+@test "update_script_029_the_router_image_is_pulled_by_the_digest_the_install_pins_and_a_failed_pull_stops_the_update" {
+    printf '#!/bin/bash\necho "$@" >> "%s/docker.args"\nexit 0\n' "${WORK_DIR}" > "${MOCK_BIN}/docker"
+    chmod +x "${MOCK_BIN}/docker"
+    _run_function pull_sherpa_router_image
+    [ "$status" -eq 0 ]
+    local install_digest install_pin
+    install_digest="$(sed -n 's/^SHERPA_ROUTER_DIGEST="\(sha256:[0-9a-f]\{64\}\)"$/\1/p' "${BATS_TEST_DIRNAME}/../../scripts/sherpa_install.sh")"
+    install_pin="ghcr.io/bwks/sherpa-router@${install_digest}"
+    grep -qx "image pull ${install_pin}" "${WORK_DIR}/docker.args"
+    grep -qx "image tag ${install_pin} ghcr.io/bwks/sherpa-router:latest" "${WORK_DIR}/docker.args"
+
+    rm "${WORK_DIR}/docker.args"
+    printf '#!/bin/bash\necho "$@" >> "%s/docker.args"\nexit 1\n' "${WORK_DIR}" > "${MOCK_BIN}/docker"
+    _run_function pull_sherpa_router_image
+    [ "$status" -eq 1 ]
+    run grep -q "image tag" "${WORK_DIR}/docker.args"
+    [ "$status" -ne 0 ]
 }

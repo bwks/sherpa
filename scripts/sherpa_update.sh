@@ -5,8 +5,9 @@
 ################################################################################
 #
 # Lightweight update script that downloads the latest Sherpa binaries from
-# GitHub releases, stops the service, replaces the binaries, and restarts
-# the service. Does NOT re-run full installation (packages, users, etc.).
+# GitHub releases, pulls the release's router image, stops the service,
+# replaces the binaries, and restarts the service. Does NOT re-run full
+# installation (packages, users, etc.).
 #
 # Servers older than 0.5.0 kept their data in a SurrealDB container. This
 # script cannot move that data, so it refuses such a server before anything
@@ -109,8 +110,8 @@ Usage: $0 [OPTIONS]
 
 Update Sherpa binaries to the latest (or specified) release.
 
-This script downloads new binaries from GitHub releases, then stops the
-sherpad service, backs up the database and its key to
+This script downloads new binaries from GitHub releases and pulls the router
+image the release pins, then stops the sherpad service, backs up the database and its key to
 ${SHERPA_UPDATE_BACKUP_ROOT}, replaces the binaries, and restarts the service.
 If the new release does not start, it puts the database, the key and the
 binaries back and starts the release that was installed. It does NOT
@@ -741,9 +742,10 @@ build_blank_disk() {
     esac
 }
 
-# Create one blank disk, 0644 sherpa, as sherpa, when no file of its name exists. An existing file is never
-# changed: nodes' disks may have been copied from it. The disk is built under a temporary name
-# and then linked to its own name, which fails rather than replace a file made meanwhile.
+# Create one blank disk, 0400 sherpa, as sherpa, when no file of its name exists: only sherpad, as
+# sherpa, reads it, to copy it. An existing file is never changed: nodes' disks may have been
+# copied from it. The disk is built under a temporary name and then linked to its own name, which
+# fails rather than replace a file made meanwhile.
 make_blank_disk() {
     local name="$1"
     local size="$2"
@@ -758,7 +760,7 @@ make_blank_disk() {
     fi
 
     tmp="$(as_sherpa mktemp "${SHERPA_BLANK_DISK_DIR}/.${name}.XXXXXX")" || return 1
-    if ! build_blank_disk "${tmp}" "${size}" "${fs}" "${label}" || ! as_sherpa chmod 644 "${tmp}"; then
+    if ! build_blank_disk "${tmp}" "${size}" "${fs}" "${label}" || ! as_sherpa chmod 400 "${tmp}"; then
         as_sherpa rm -f "${tmp}"
         print_error "Could not create blank disk ${name}"
         return 1
@@ -941,6 +943,34 @@ verify_update() {
 }
 
 ################################################################################
+# Router Image
+################################################################################
+# This section is the same in sherpa_install.sh and sherpa_update.sh, between the BEGIN and END
+# lines; tests/bats/update_tests.bats checks that it is.
+# BEGIN router image
+
+# The lab router image, pulled by its digest and tagged with the name sherpad runs it by.
+SHERPA_ROUTER_REPO="ghcr.io/bwks/sherpa-router"
+SHERPA_ROUTER_DIGEST="sha256:c42a07c425de65e315ff8b92143d8a95c183677ffca859124c9476957bff992f"
+SHERPA_ROUTER_IMAGE="${SHERPA_ROUTER_REPO}:latest"
+
+# Pull the router image by its digest, so the image is the one this release was made with, and
+# tag it with the name sherpad runs it by.
+pull_sherpa_router_image() {
+    print_info "Pulling Sherpa Router image..."
+
+    local pinned="${SHERPA_ROUTER_REPO}@${SHERPA_ROUTER_DIGEST}"
+    if docker image pull "${pinned}" && docker image tag "${pinned}" "${SHERPA_ROUTER_IMAGE}"; then
+        print_success "Sherpa Router image pulled: ${pinned}, tagged ${SHERPA_ROUTER_IMAGE}"
+    else
+        print_error "Failed to pull Sherpa Router image ${pinned}"
+        exit 1
+    fi
+}
+
+# END router image
+
+################################################################################
 # Main Script
 ################################################################################
 
@@ -949,6 +979,11 @@ main() {
     while [ $# -gt 0 ]; do
         case "$1" in
             --version)
+                if [ $# -lt 2 ] || [ -z "$2" ] || [[ "$2" == --* ]]; then
+                    print_error "--version requires a version"
+                    show_usage
+                    exit 1
+                fi
                 SHERPA_VERSION="$2"
                 shift 2
                 ;;
@@ -1015,15 +1050,19 @@ main() {
     if [ "$needs_update" = false ]; then
         install_blank_disk_tools
         ensure_blank_disks
+        pull_sherpa_router_image
         ensure_symlinks
         secure_config_files
+        print_info "Router image: ${SHERPA_ROUTER_REPO}@${SHERPA_ROUTER_DIGEST}"
         print_success "All binaries already at ${SHERPA_VERSION} — nothing to do"
         exit 0
     fi
 
-    # Fill in missing blank disks before sherpad stops: a failure here leaves the server as it was.
+    # Fill in missing blank disks and refresh the router image before sherpad stops: a failure
+    # here leaves the server as it was.
     install_blank_disk_tools
     ensure_blank_disks
+    pull_sherpa_router_image
 
     # From here, a failure puts back what was replaced and starts the release that was installed.
     trap finish_update EXIT
@@ -1043,6 +1082,7 @@ main() {
     verify_update
 
     [ -z "${DB_BACKUP_DIR}" ] || print_info "Backup of the database and its key: ${DB_BACKUP_DIR}"
+    print_info "Router image: ${SHERPA_ROUTER_REPO}@${SHERPA_ROUTER_DIGEST}"
     print_success "Sherpa update complete!"
 }
 

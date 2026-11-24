@@ -199,42 +199,6 @@ pub fn copy_file_with_permissions(src: &str, dst: &str, mode: u32) -> Result<()>
     Ok(())
 }
 
-/// Set permissions for all files in a folder subtree.
-/// Sets files to read-write and removes executable bit for users/groups.
-///
-/// # Errors
-///
-/// Fails when a mode cannot be set or a directory cannot be read.
-#[cfg(unix)]
-pub fn fix_permissions_recursive(path: &str) -> Result<()> {
-    let path = expand_path(path);
-
-    let metadata = fs::metadata(&path)?;
-    let mut perms = metadata.permissions();
-
-    if metadata.is_dir() {
-        // Set directory permissions
-        perms.set_mode(0o775);
-        fs::set_permissions(&path, perms)?;
-
-        for entry in fs::read_dir(&path)? {
-            let entry = entry?;
-            fix_permissions_recursive(
-                entry
-                    .path()
-                    .to_str()
-                    .ok_or_else(|| anyhow::anyhow!("Error updating read-only permissions"))?,
-            )?;
-        }
-    } else {
-        // Set file permissions
-        perms.set_mode(0o660);
-        fs::set_permissions(path, perms)?;
-    }
-
-    Ok(())
-}
-
 /// Copy a file to a virtual DOS disk image using the `mcopy` command.
 ///
 /// `mcopy` must be installed on the system.
@@ -348,7 +312,6 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
-    use anyhow::Result;
     use tempfile::TempDir;
 
     use super::*;
@@ -424,27 +387,5 @@ mod tests {
             "the setgid bit an inherited folder had is cleared too"
         );
         assert_eq!(fs::read(path.join("config")).expect("read"), b"config");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn server_file_modes_015_doctor_boxes_sets_folders_to_775_and_files_to_660() -> Result<()> {
-        let dir = TempDir::new()?;
-        let file = dir.path().join("perms.txt");
-        fs::write(&file, "data")?;
-        fix_permissions_recursive(file.to_str().unwrap())?;
-        let mode = fs::metadata(&file)?.permissions().mode() & 0o777;
-        assert_eq!(mode, 0o660);
-
-        let sub = dir.path().join("subdir");
-        fs::create_dir(&sub)?;
-        let nested = sub.join("file.txt");
-        fs::write(&nested, "data")?;
-        fix_permissions_recursive(sub.to_str().unwrap())?;
-        let dir_mode = fs::metadata(&sub)?.permissions().mode() & 0o777;
-        assert_eq!(dir_mode, 0o775);
-        let file_mode = fs::metadata(&nested)?.permissions().mode() & 0o777;
-        assert_eq!(file_mode, 0o660);
-        Ok(())
     }
 }

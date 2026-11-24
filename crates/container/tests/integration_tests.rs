@@ -16,7 +16,7 @@ use bollard::query_parameters::InspectContainerOptions;
 use std::time::Duration;
 
 use container::{
-    ContainerMemory, ContainerSpec, create_docker_bridge_network, delete_network,
+    BridgeSubnet, ContainerMemory, ContainerSpec, create_docker_bridge_network, delete_network,
     docker_connection, exec_container_with_retry, get_local_images, kill_container,
     list_container_memory, list_containers, list_networks, load_image, remove_container,
     run_container,
@@ -46,6 +46,13 @@ impl TestNet {
             subnet: format!("192.168.{}.0/24", 200 + u16::from(index)),
         }
     }
+
+    fn ipv4(&self) -> BridgeSubnet {
+        BridgeSubnet {
+            subnet: self.subnet.clone(),
+            gateway: None,
+        }
+    }
 }
 
 fn test_network(name: &str) -> ContainerNetworkAttachment {
@@ -60,14 +67,7 @@ fn test_network(name: &str) -> ContainerNetworkAttachment {
 
 /// Helper: create a test network and verify it exists.
 async fn create_test_network(docker: &Docker, net: &TestNet) -> Result<()> {
-    create_docker_bridge_network(
-        docker,
-        &net.name,
-        Some(net.subnet.clone()),
-        None,
-        &net.bridge,
-    )
-    .await?;
+    create_docker_bridge_network(docker, &net.name, net.ipv4(), None, &net.bridge).await?;
 
     // Verify network was actually created
     let networks = list_networks(docker).await?;
@@ -236,7 +236,10 @@ async fn management_network_005_a_management_network_docker_cannot_make_is_repor
     let result = create_docker_bridge_network(
         &docker,
         "sherpa-test-net-invalid",
-        Some("not-a-subnet".to_string()),
+        BridgeSubnet {
+            subnet: "not-a-subnet".to_string(),
+            gateway: None,
+        },
         None,
         "br-sherpa-t90",
     )
@@ -253,14 +256,8 @@ async fn management_network_006_making_a_docker_management_network_again_succeed
     let net = TestNet::new("again", 51);
     let _ = delete_network(&docker, &net.name).await;
     create_test_network(&docker, &net).await?;
-    let again = create_docker_bridge_network(
-        &docker,
-        &net.name,
-        Some(net.subnet.clone()),
-        None,
-        &net.bridge,
-    )
-    .await;
+    let again =
+        create_docker_bridge_network(&docker, &net.name, net.ipv4(), None, &net.bridge).await;
     delete_network(&docker, &net.name).await?;
     again
 }

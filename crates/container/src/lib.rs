@@ -4,6 +4,8 @@
 mod connect;
 mod container;
 mod image;
+#[cfg(test)]
+mod mock_docker;
 mod network;
 mod status;
 
@@ -20,7 +22,8 @@ pub use container::{
 
 // Re-export network operations
 pub use network::{
-    create_docker_bridge_network, create_docker_macvlan_bridge_network, delete_network,
+    BridgeSubnet, ExistingBridgeNetwork, create_docker_bridge_network,
+    create_docker_macvlan_bridge_network, delete_network, inspect_existing_bridge_network,
     list_networks,
 };
 
