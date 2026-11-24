@@ -13,9 +13,6 @@ use crate::persistence::{Cells, LAB_TABLE, enum_text, key_of};
 use crate::queries;
 use crate::sql::{execute, query_all, query_optional};
 
-/// The message of the `cpu_pin_held` trigger in migration `0023_cpu_pin.sql`.
-const HELD_BY_ANOTHER_NODE: &str = "Host CPU is already pinned by another node";
-
 /// The database refused to pin a host CPU to a node: another node holds it, and one of the two
 /// pins it to its vCPUs. The trigger names no node, so neither does this.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,8 +45,8 @@ impl Error for CpuPinTaken {}
 ///
 /// # Errors
 ///
-/// Fails with [`CpuPinTaken`] when the table's trigger refuses a CPU another node holds against
-/// the pinning rules, and then nothing is claimed. Fails too when `lab` is not a lab record or
+/// Fails with [`CpuPinTaken`] when another node holds a CPU against the pinning rules, and then
+/// nothing is claimed. Fails too when `lab` is not a lab record or
 /// the database cannot be written.
 #[instrument(skip(db, nodes), fields(%lab), level = "debug")]
 pub async fn claim_cpu_pins(db: &Database, lab: &RecordId, nodes: &[NodeCpuPins]) -> Result<()> {
@@ -62,26 +59,19 @@ pub async fn claim_cpu_pins(db: &Database, lab: &RecordId, nodes: &[NodeCpuPins]
         .context("Failed to start the CPU pin transaction")?;
     for node in nodes {
         for (host_cpu, role) in pin_rows(node) {
-            let params = pin_values(&lab_key, &node.node_name, host_cpu, role)?;
-            let Err(error) = execute(&tx, queries::cpu_pin::CLAIM.bind(params)).await else {
-                continue;
-            };
-            if !error
-                .chain()
-                .any(|cause| cause.to_string().contains(HELD_BY_ANOTHER_NODE))
+            if let Some(held_role) =
+                holder_role(&tx, &lab_key, &node.node_name, host_cpu, role).await?
             {
-                return Err(error);
+                return Err(CpuPinTaken {
+                    node_name: node.node_name.clone(),
+                    host_cpu,
+                    requested_role: role,
+                    held_role,
+                }
+                .into());
             }
-            let held_role = holder_role(&tx, &lab_key, &node.node_name, host_cpu, role)
-                .await
-                .context(error)?;
-            return Err(CpuPinTaken {
-                node_name: node.node_name.clone(),
-                host_cpu,
-                requested_role: role,
-                held_role,
-            }
-            .into());
+            let params = pin_values(&lab_key, &node.node_name, host_cpu, role)?;
+            execute(&tx, queries::cpu_pin::CLAIM.bind(params)).await?;
         }
     }
     tx.commit().await.context("Failed to commit the CPU pins")?;
@@ -168,21 +158,20 @@ fn role_from_row(row: &Row) -> Result<CpuPinRole> {
 }
 
 /// What another node pins to `host_cpu` against the rules beside `role` for node `node_name`:
-/// its vCPUs when it does, else its threads.
+/// its vCPUs when it does, else its threads, or `None` when no other node holds it so.
 async fn holder_role(
     conn: &Connection,
     lab_key: &str,
     node_name: &str,
     host_cpu: u16,
     role: CpuPinRole,
-) -> Result<CpuPinRole> {
+) -> Result<Option<CpuPinRole>> {
     query_optional(
         conn,
         queries::cpu_pin::HOLDER_ROLE.bind(pin_values(lab_key, node_name, host_cpu, role)?),
         role_from_row,
     )
-    .await?
-    .context("The host CPU is no longer held by another node")
+    .await
 }
 
 #[cfg(test)]
@@ -422,7 +411,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_trigger_refuses_a_conflicting_row_written_by_hand() {
+    async fn lab_preflight_008_the_database_refuses_a_conflicting_cpu_pin_written_without_the_check()
+     {
         let (db, first, second) = two_labs().await;
         claim_cpu_pins(&db, &first, &[pins("n1", &[2], &[8])])
             .await
@@ -436,19 +426,15 @@ mod tests {
             (&second_key, "n2", 8, "vcpu"),
             (&first_key, "n2", 2, "vcpu"),
         ] {
-            let error = writer
+            let inserted = writer
                 .conn
                 .execute(
                     "INSERT INTO cpu_pin (lab, node_name, host_cpu, role) \
                      VALUES (?1, ?2, ?3, ?4)",
                     (lab.as_str(), node_name, cpu, role),
                 )
-                .await
-                .unwrap_err();
-            assert!(
-                error.to_string().contains(HELD_BY_ANOTHER_NODE),
-                "{lab} {node_name} {cpu} {role}: {error}"
-            );
+                .await;
+            assert!(inserted.is_err(), "{lab} {node_name} {cpu} {role}");
         }
         writer
             .conn
@@ -458,9 +444,18 @@ mod tests {
             )
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_cpu_pin_row_written_by_hand_is_never_changed() {
+        let (db, first, _) = two_labs().await;
+        claim_cpu_pins(&db, &first, &[pins("n1", &[2], &[8])])
+            .await
+            .unwrap();
+        let writer = db.writer().await.unwrap();
         let error = writer
             .conn
-            .execute("UPDATE cpu_pin SET host_cpu = 3 WHERE node_name = 'n2'", ())
+            .execute("UPDATE cpu_pin SET host_cpu = 3 WHERE node_name = 'n1'", ())
             .await
             .unwrap_err();
         assert!(error.to_string().contains("never changed"), "{error}");
