@@ -34,7 +34,9 @@ use crate::templates::{
 use crate::api::errors::ApiError;
 use crate::api::extractors::AuthenticatedUserFromCookie;
 
-use shared::data::{LabNodeActionResponse, LabState, NodeModel, RedeployRequest, UpRequest, Ztp};
+use shared::data::{
+    LabNodeActionResponse, LabState, ListLabsResponse, NodeModel, RedeployRequest, UpRequest, Ztp,
+};
 use shared::konst::{
     LAB_FILE_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_LABS_PATH, SHERPA_SSH_CONFIG_FILE,
 };
@@ -116,37 +118,32 @@ pub async fn get_labs_html(
     auth: AuthenticatedUserFromCookie,
 ) -> impl IntoResponse {
     tracing::debug!("Fetching labs HTML for user '{}'", auth.username);
+    let listed = list_labs::list_labs(&auth.context(), None, &state).await;
+    labs_grid(listed, auth.username)
+}
 
-    // Call service layer with authenticated username
-    match list_labs::list_labs(&auth.context(), None, &state).await {
+/// The labs grid fragment for the labs of user `username` as listed: the grid, the empty state,
+/// or the message a caller is told of the failure.
+fn labs_grid(listed: anyhow::Result<ListLabsResponse>, username: String) -> Response {
+    match listed {
+        Ok(response) if response.labs.is_empty() => {
+            tracing::debug!("No labs found for user '{username}'");
+            EmptyStateTemplate { username }.into_response()
+        }
         Ok(response) => {
-            if response.labs.is_empty() {
-                tracing::debug!("No labs found for user '{}'", auth.username);
-                EmptyStateTemplate {
-                    username: auth.username,
-                }
-                .into_response()
-            } else {
-                tracing::debug!(
-                    "Returning {} labs for user '{}'",
-                    response.labs.len(),
-                    auth.username
-                );
-                LabsGridTemplate {
-                    labs: response.labs.into_iter().map(LabRow::from).collect(),
-                }
-                .into_response()
+            tracing::debug!(
+                "Returning {} labs for user '{username}'",
+                response.labs.len()
+            );
+            LabsGridTemplate {
+                labs: response.labs.into_iter().map(LabRow::from).collect(),
             }
+            .into_response()
         }
-        Err(e) => {
-            tracing::error!("Failed to load labs for user '{}': {:?}", auth.username, e);
-            let message = if e.to_string().contains("User not found") {
-                format!("User '{}' not found", auth.username)
-            } else {
-                format!("Failed to load labs: {e}")
-            };
-            ErrorTemplate { message }.into_response()
+        Err(error) => ErrorTemplate {
+            message: caller_message(&error, "Failed to load labs"),
         }
+        .into_response(),
     }
 }
 
@@ -998,9 +995,37 @@ pub async fn lab_create_post_handler(
 
 #[cfg(test)]
 mod tests {
+    use axum::body::to_bytes;
+
     use super::*;
     use crate::services::lab_definition::stored_definition;
     use crate::services::lab_definition::tests::{lab_with, store};
+
+    /// The HTML of a labs grid fragment.
+    async fn grid_html(response: Response) -> String {
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        String::from_utf8(body.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn api_errors_024_a_labs_grid_refused_with_a_known_kind_shows_its_own_message() {
+        let error = anyhow::Error::new(ServiceError::NotFound("User not found: alice".to_owned()))
+            .context("Failed to look up user");
+        let html = grid_html(labs_grid(Err(error), "alice".to_owned())).await;
+        assert!(html.contains("User not found: alice"), "{html}");
+        assert!(!html.contains("internal error"), "{html}");
+    }
+
+    #[tokio::test]
+    async fn api_errors_025_a_labs_grid_that_fails_for_no_known_kind_shows_a_ref_and_no_chain() {
+        let error = anyhow::anyhow!("database disk image is malformed: /opt/sherpa/sherpa.db")
+            .context("Failed to list labs for user");
+        let html = grid_html(labs_grid(Err(error), "alice".to_owned())).await;
+        assert!(html.contains("internal error (ref "), "{html}");
+        for detail in ["malformed", "/opt/sherpa", "Failed to list labs"] {
+            assert!(!html.contains(detail), "{html}");
+        }
+    }
 
     #[tokio::test]
     async fn node_page_006_the_ztp_shown_is_the_stored_definitions_or_else_the_images() {

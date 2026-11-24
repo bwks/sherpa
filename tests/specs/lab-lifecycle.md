@@ -31,6 +31,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 005 | CPUs pinned by another lab are refused, naming the lab holding them | integration |
 | 006 | Not enough free memory is refused (no test yet) | integration |
 | 007 | A refusal for lack of resources exits with code 75 (no test yet) | e2e |
+| 008 | A CPU pin written straight to the database, past the check that refuses it at up, is refused by the database when another node's pins forbid it, and allowed when it is a QEMU thread beside another node's thread | unit |
 
 ## `lab_concurrency`: operations at once leave each lab consistent
 

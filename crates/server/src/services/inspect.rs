@@ -401,24 +401,19 @@ mod tests {
     fn node_state_007_inspect_reports_a_container_waiting_for_its_port_as_starting() {
         // Inspect does not probe: a container waiting for its port stays as the scanner left it.
         let containers = listing(ContainerStateStatusEnum::RUNNING);
-        let ported = |state| DbNode {
-            ready_check: ReadyCheck {
-                port: Some(80),
-                skip: false,
-                sshd_marker: false,
-            },
-            ..container_in(state)
-        };
         for (recorded, reported) in [
             (NodeState::Starting, NodeState::Starting),
             (NodeState::Running, NodeState::Running),
         ] {
-            let state = reported_state(
-                &ported(recorded),
-                NodeKind::Container,
-                "ab12cd34",
-                Some(&containers),
-            );
+            let node = DbNode {
+                ready_check: ReadyCheck {
+                    port: Some(80),
+                    skip: false,
+                    sshd_marker: false,
+                },
+                ..container_in(recorded)
+            };
+            let state = reported_state(&node, NodeKind::Container, "ab12cd34", Some(&containers));
             assert_eq!(state, reported, "{recorded}");
         }
     }
