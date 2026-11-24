@@ -8,7 +8,6 @@ use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser};
 #[template(path = "cisco/cisco_ise.jinja", ext = "txt")]
 pub struct CiscoIseZtpTemplate {
     pub hostname: String,
-    /// The single administrator: the lab owner, with the device password and one RSA key.
     pub owner: OwnerUser,
     pub dns: Dns,
     pub mgmt_ipv4: NetworkV4,

@@ -25,23 +25,17 @@ const USUAL_DEFAULT_BRANCHES: [&str; 2] = ["main", "master"];
 /// How a ref was learned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
-    /// The task's tag, from `send --issue/--pr`.
     Brief,
-    /// An outcome's `ended`.
     Guest,
-    /// An outcome's Generation line.
     Parsed,
-    /// `link`.
     Manual,
 }
 
 /// An issue, a pull request or a branch of a repository.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct Ref {
-    /// `owner/name`.
     pub repo: String,
     pub kind: RefKind,
-    /// The number of an issue or pull request, the name of a branch.
     #[serde(rename = "ref")]
     pub name: String,
 }

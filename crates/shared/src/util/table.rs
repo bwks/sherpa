@@ -19,15 +19,9 @@ use tabled::{
 /// The fields compose: any combination of them can be used together.
 #[derive(Debug, Clone)]
 pub struct TableLayout<'a> {
-    /// Shown in a centred panel above the table.
     pub title: Option<&'a str>,
-    /// The indices of the columns whose cells are right-aligned, such as columns of numbers.
     pub right: &'a [usize],
-    /// The widest the table may be, title, borders and padding included. The widest column is
-    /// wrapped first, at word boundaries where it can be.
     pub wrap_width: Option<usize>,
-    /// Whether the headers are shown as the first row. `false` for a table of label and value
-    /// pairs, whose first column names each row.
     pub header_row: bool,
 }
 

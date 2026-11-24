@@ -98,9 +98,7 @@ pub enum KeyAlgorithm {
 /// does not have to be parsed back.
 #[derive(Clone, Copy, Debug)]
 pub struct CaSpec<'a> {
-    /// Common name (CN) of the CA subject, before the organization.
     pub common_name: Option<&'a str>,
-    /// Organization (O) of the CA subject. With no common name either, the subject is empty.
     pub organization: Option<&'a str>,
     pub key_algorithm: KeyAlgorithm,
 }
@@ -108,7 +106,6 @@ pub struct CaSpec<'a> {
 /// Subject of a client certificate.
 #[derive(Clone, Copy, Debug)]
 pub struct ClientSubject<'a> {
-    /// Organization (O); Talos and Kubernetes read the client's role or group from it.
     pub organization: &'a str,
     pub common_name: Option<&'a str>,
 }
@@ -118,7 +115,6 @@ pub struct ClientSubject<'a> {
 pub struct ServerSubject<'a> {
     pub common_name: &'a str,
     pub organization: &'a str,
-    /// DNS names and IP addresses the certificate is valid for (SANs).
     pub dns_names: &'a [String],
     pub ip_addresses: &'a [IpAddr],
 }

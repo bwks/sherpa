@@ -40,13 +40,10 @@ use super::node_base;
 #[strum(serialize_all = "snake_case")]
 pub enum NodeModel {
     #[default]
-    // Arista
     AristaEos,
 
-    // Aruba
     ArubaAoscx,
 
-    // Cisco
     CiscoAsa,
     CiscoCsr1000,
     CiscoCat8000,
@@ -60,25 +57,19 @@ pub enum NodeModel {
     CiscoIse,
     CiscoFtd,
 
-    // Juniper
     JuniperRouter,
     JuniperSwitch,
     JuniperEvolved,
     JuniperSrxv3,
 
-    // Nokia
     NokiaSrlinux,
 
-    // Palo Alto
     PaloaltoPanos,
 
-    // Mikrotik
     MikrotikChr,
 
-    // FRR
     FrrLinux,
 
-    // Linux
     AlmaLinux,
     RockyLinux,
     AlpineLinux,
@@ -97,15 +88,12 @@ pub enum NodeModel {
     SonicLinux,
     TalosLinux,
 
-    // Windows
     DevboxWindows,
     WindowsServer,
 
-    // BSD
     FreeBsd,
     OpenBsd,
 
-    // Application
     ForgejoForge,
     GitlabCe,
     InfrahubServer,
@@ -115,25 +103,19 @@ pub enum NodeModel {
     SignozServer,
     VirtServer,
 
-    // Messaging
     NatsBus,
 
-    // SQL
     SurrealDb,
     MysqlDb,
     MongoDb,
     PostgresqlDb,
 
-    // HashiCorp
     HashicorpVault,
 
-    // Identity
     KeycloakServer,
 
-    // Generic
     Generic,
 
-    // Unikernels
     UnikraftUnikernel,
     NanosUnikernel,
 }
@@ -490,13 +472,10 @@ impl NodeModel {
 #[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq, EnumIter, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum OsVariant {
-    // Arista
     Eos,
 
-    // Aruba
     Aos,
 
-    // Cisco
     Asa,
     Ios,
     Iosxe,
@@ -505,27 +484,20 @@ pub enum OsVariant {
     Nxos,
     Fxos,
 
-    // Juniper
     Junos,
 
-    // BSD
     Bsd,
 
-    // Linux
-    Linux, // Generic
-    Nvue,  // Cumlus
-    Sonic, // Sonic Linux
+    Linux,
+    Nvue,
+    Sonic,
 
-    // Windows
     Server,
 
-    // Nokia
     Srlinux,
 
-    // Palo Alto
     Panos,
 
-    // Mikrotik
     Routeros,
 
     #[default]
@@ -587,9 +559,9 @@ impl CpuArchitecture {
 pub enum MachineType {
     #[default]
     #[serde(rename = "pc")]
-    Pc, // alias of pc-i440fx-X.Y - Qemu version dependent
+    Pc,
     #[serde(rename = "q35")]
-    Q35, // alias of pc-q35-X.Y - Qemu version dependent
+    Q35,
     #[serde(rename = "pc-q35-5.0")]
     PcQ35_5_0,
     #[serde(rename = "pc-q35-5.2")]
@@ -645,13 +617,11 @@ impl MachineType {
 #[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum InterfaceType {
-    // VM
     E1000,
     #[default]
     Virtio,
     Vmxnet3,
 
-    // Container
     Host,
     MacVlan,
 }
@@ -751,7 +721,6 @@ impl UnikernelBootMode {
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
 pub enum Ztp {
-    /// Sherpa provisions nothing.
     #[default]
     Disabled,
     #[serde(rename = "cloud-init")]
@@ -761,12 +730,9 @@ pub enum Ztp {
     Disk,
     Http,
     Ignition,
-    /// `NoCloud` `cidata` CD-ROM carrying the node's own `user-data` (if any) with Sherpa's
-    /// `meta-data` and static management `network-config`.
     NoCloud,
     Tftp,
     Usb,
-    /// Config files mounted into a container.
     Volume,
 }
 
@@ -828,27 +794,18 @@ impl NodeKind {
 )]
 #[serde(rename_all = "lowercase")]
 pub enum NodeState {
-    /// An operation (`up` or a redeploy) is creating the node's domain or container.
     Building,
 
-    /// The node's domain or container is started, and the node is not ready yet.
     Starting,
 
-    /// The node is ready: its readiness check passed, or it has none.
     Running,
 
-    /// The node's domain or container exists and is not running.
     Stopped,
 
-    /// An operation on the node failed, or its runtime reports a fault.
     Failed,
 
-    /// The node has a record but no domain or container.
     Missing,
 
-    /// A state this build does not know, such as one written by a newer version, or a node
-    /// recorded before the lifecycle was explicit. Unknown text decodes to it, so one such row
-    /// does not fail a whole listing.
     #[default]
     #[serde(other)]
     Unknown,
@@ -892,12 +849,9 @@ impl NodeState {
 }
 
 /// Zero touch provisioning for a node image: off or the method Sherpa provisions its nodes by.
-/// It denies unknown fields, so a `ztp` group that carries `username`, `password` or
-/// `password_auth` is refused with serde's error naming the field.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ZtpSettings {
-    /// `disabled`, or how the image's nodes are provisioned at boot.
     pub method: Ztp,
 }
 
@@ -906,7 +860,6 @@ pub struct ZtpSettings {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CpuSettings {
-    /// The number of vCPUs.
     pub count: u8,
 }
 
@@ -916,7 +869,6 @@ pub struct CpuSettings {
 pub struct VmCpuSettings {
     pub architecture: CpuArchitecture,
     pub model: CpuModels,
-    /// Whether the guest sees the host's hardware virtualisation, to run VMs of its own.
     pub vmx: bool,
 }
 
@@ -932,7 +884,6 @@ pub struct UnikernelCpuSettings {
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MachineSettings {
-    /// The QEMU machine type.
     pub kind: MachineType,
     pub bios: BiosTypes,
 }
@@ -941,7 +892,6 @@ pub struct MachineSettings {
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UnikernelMachineSettings {
-    /// The QEMU machine type.
     pub kind: MachineType,
 }
 
@@ -949,7 +899,6 @@ pub struct UnikernelMachineSettings {
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BootDiskSettings {
-    /// The bus the boot disk attaches to.
     pub bus: DiskBuses,
 }
 
@@ -957,7 +906,6 @@ pub struct BootDiskSettings {
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CdromSettings {
-    /// The file name of a CD-ROM image shipped with the node image.
     pub image: Option<String>,
     pub bus: DiskBuses,
 }
@@ -968,10 +916,8 @@ pub struct CdromSettings {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InterfaceSettings {
-    /// The number of data interfaces, not counting the management interface.
     pub data_count: u8,
     pub management: MgmtInterfaces,
-    /// Interfaces the node holds back from the data interfaces a lab can link.
     pub reserved_count: u8,
 }
 
@@ -979,7 +925,6 @@ pub struct InterfaceSettings {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InterfaceDeviceSettings {
-    /// The interface device QEMU emulates.
     pub kind: InterfaceType,
     pub mtu: u16,
 }
@@ -988,7 +933,6 @@ pub struct InterfaceDeviceSettings {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VmSettings {
-    /// The guest OS family, which decides how a cloud-init guest's account is written.
     pub os_variant: OsVariant,
     pub cpu: VmCpuSettings,
     pub machine: MachineSettings,
@@ -1002,7 +946,6 @@ pub struct VmSettings {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ContainerSettings {
-    /// The Docker repo the image was pulled or imported as; the version is its tag.
     pub repo: Option<String>,
     pub ztp: ZtpSettings,
 }
@@ -1048,13 +991,10 @@ pub struct NodeConfig {
     pub id: Option<RecordId>,
     pub model: NodeModel,
     pub version: String,
-    /// Whether this version is the default of the model's kind.
     pub default: bool,
-    /// The guest's memory, in MiB.
     pub memory: u16,
     pub cpu: CpuSettings,
     pub interfaces: InterfaceSettings,
-    /// The settings of the image's kind.
     pub settings: KindSettings,
 }
 
@@ -1068,19 +1008,14 @@ struct NodeConfigFields {
     model: NodeModel,
     version: String,
     kind: NodeKind,
-    /// Whether this version is the default of the model's kind.
     default: bool,
-    /// The guest's memory, in MiB.
     memory: u16,
     cpu: CpuSettings,
     interfaces: InterfaceSettings,
-    /// A virtual machine image's settings; only with `kind = "virtual_machine"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     vm: Option<VmSettings>,
-    /// A container image's settings; only with `kind = "container"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     container: Option<ContainerSettings>,
-    /// A unikernel image's settings; only with `kind = "unikernel"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     unikernel: Option<UnikernelSettings>,
 }

@@ -20,15 +20,10 @@ pub(super) struct Session {
 /// What a message arriving at the guest agent means, given what it is doing.
 #[derive(Debug, PartialEq)]
 pub(super) enum Control {
-    /// A task or an answer: run it after the ones before it.
     Queue,
-    /// A cancel for the task that is running.
     CancelRunning,
-    /// A cancel for a task waiting in the queue.
     CancelQueued,
-    /// A cancel for a task that is neither running nor queued.
     CancelUnknown,
-    /// A message guest agents do not take.
     Ignore,
 }
 

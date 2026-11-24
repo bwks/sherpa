@@ -16,21 +16,12 @@ pub struct UpRequest {
     pub tailscale_auth_key: Option<TailnetAuthKey>,
     pub lab_id: String,
     pub manifest: serde_json::Value,
-    /// Secret files for container nodes, by node name. Sent only by the CLI, outside the
-    /// manifest, and never stored.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub node_secrets: BTreeMap<String, Vec<SecretFile>>,
-    /// The hostname of the machine `sherpa up` runs on, stored with the lab. Sent only by the CLI.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_host: Option<String>,
-    /// The folder `sherpa up` runs in, stored with the lab. Sent only by the CLI.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_folder: Option<String>,
-    /// The parts of the manifest the client changes or does not serialize before sending it,
-    /// as the user wrote them (a `topology::ManifestAsWritten`): `ztp.config` paths,
-    /// `environment_variables` with their `$VAR` names, provisioners and
-    /// `provision_concurrency`. Never file contents or variable values. The lab's definition
-    /// stores them; without them (an older client) it stores none of those fields.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_written: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -42,8 +33,6 @@ pub struct UpRequest {
 pub struct UpResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tailscale: Option<TailnetStatus>,
-    /// Whether every part of the lab came up: false when any error is critical. The lab is
-    /// created either way, and can be used or destroyed.
     pub success: bool,
     pub lab_info: LabInfo,
     pub total_time_secs: u64,
@@ -52,23 +41,16 @@ pub struct UpResponse {
     pub nodes: Vec<NodeInfo>,
     pub errors: Vec<UpError>,
     pub ssh_config: String,
-    /// The lab's `known_hosts` file: node host keys the server recorded. Empty when none
-    /// were, or from an older server.
     #[serde(default)]
     pub known_hosts: String,
-    /// Kubernetes clusters built in the lab, with their credentials.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub clusters: Vec<ClusterInfo>,
-    /// The lab CA certificate (PEM) that signs node certificates. Empty from an older server.
     #[serde(default)]
     pub lab_ca: String,
-    /// Vault nodes Sherpa initialised, with their credentials.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub vaults: Vec<VaultInfo>,
-    /// Keycloak nodes Sherpa set up a realm on, with their admin and the realm's users.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keycloaks: Vec<KeycloakInfo>,
-    /// `SurrealDB` nodes, with their root user.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub surreal_dbs: Vec<SurrealDbInfo>,
 }
@@ -95,28 +77,19 @@ impl fmt::Debug for AdminCredential {
 /// A Keycloak node and the realm Sherpa made on it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct KeycloakInfo {
-    /// Node name.
     pub name: String,
-    /// Base address, `https://<management address>:8443`.
     pub address: String,
-    /// The realm Sherpa made.
     pub realm: String,
-    /// The `master` realm's admin, which Keycloak creates at its first start. `None` for a node
-    /// with no admin of its own, which keeps the shared admin until it is redeployed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admin: Option<AdminCredential>,
-    /// The realm's users and their passwords.
     pub users: Vec<KeycloakUser>,
 }
 
 /// A `SurrealDB` node and its root user.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SurrealDbInfo {
-    /// Node name.
     pub name: String,
-    /// Base address, `http://<management address>:8000`.
     pub address: String,
-    /// The root user `SurrealDB` starts with.
     pub admin: AdminCredential,
 }
 
@@ -130,12 +103,9 @@ pub struct KeycloakUser {
 /// A Vault node Sherpa initialised and unsealed, and the credentials to use it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct VaultInfo {
-    /// Node name.
     pub name: String,
-    /// API address, `https://<management address>:8200`.
     pub address: String,
     pub root_token: String,
-    /// The single key share that unseals Vault.
     pub unseal_key: String,
 }
 
@@ -143,16 +113,11 @@ pub struct VaultInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ClusterInfo {
     pub name: String,
-    /// Kubernetes API endpoint.
     pub endpoint: String,
-    /// `talosctl` configuration with an `os:admin` certificate.
     pub talosconfig: String,
-    /// `kubectl` configuration with a cluster-admin certificate.
     pub kubeconfig: String,
-    /// Address of a Cilium cluster's Gateway.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gateway: Option<String>,
-    /// Address of a Cilium cluster's Hubble UI.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hubble_ui: Option<String>,
 }
@@ -186,9 +151,6 @@ pub struct NodeInfo {
 pub struct UpError {
     pub phase: String,
     pub message: String,
-    /// Critical: part of the lab failed and nothing will set it up again, such as a container
-    /// that exited or a lab service that did not come up. Not critical: it may still come right,
-    /// such as a node slow to answer, or it is advice.
     pub is_critical: bool,
 }
 
@@ -196,14 +158,10 @@ pub struct UpError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StatusKind {
-    /// Action started or underway (🔄)
     Progress,
-    /// Action completed (✅)
     Done,
-    /// Neutral/informational message (ℹ️)
     #[default]
     Info,
-    /// Polling/waiting for a condition (⏳)
     Waiting,
 }
 

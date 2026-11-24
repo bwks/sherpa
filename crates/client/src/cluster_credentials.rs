@@ -9,7 +9,6 @@ pub(crate) struct ClusterFiles {
     pub name: String,
     pub kubeconfig: LabFile,
     pub talosconfig: LabFile,
-    /// Addresses of a Cilium cluster's Gateway and Hubble UI.
     pub gateway: Option<String>,
     pub hubble_ui: Option<String>,
 }

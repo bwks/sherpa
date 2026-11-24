@@ -28,7 +28,6 @@ struct LabRun<'a> {
     prompts: &'a PromptCache,
     access: &'a SshAccess,
     timeout: Duration,
-    /// The longest node name, so every node's output lines up.
     name_width: usize,
 }
 

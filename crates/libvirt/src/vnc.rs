@@ -29,11 +29,8 @@ const TCP_ATTRIBUTES: [&str; 5] = ["port", "autoport", "websocket", "listen", "s
 /// How a domain's VNC console is reached.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VncConsole {
-    /// A UNIX socket at this path, as Sherpa defines domains.
     Socket(String),
-    /// A TCP port, as domains defined before VNC moved behind sherpad have.
     Tcp,
-    /// No VNC graphics.
     Absent,
 }
 

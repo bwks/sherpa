@@ -51,9 +51,7 @@ pub struct InitResponse {
 /// The kinds of Vault mount Sherpa lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MountKind {
-    /// Secrets engines, `sys/mounts`.
     SecretsEngine,
-    /// Auth methods, `sys/auth`.
     AuthMethod,
 }
 

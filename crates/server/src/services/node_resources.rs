@@ -34,9 +34,7 @@ struct PinLab {
 /// A node holding host CPUs in the `cpu_pin` table.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PinHolder {
-    /// The node's lab; `None` when its lab is not found.
     lab: Option<PinLab>,
-    /// Whether its lab is still being created by `up`.
     starting: bool,
     pins: NodeCpuPins,
 }

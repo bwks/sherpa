@@ -61,7 +61,6 @@ pub struct FileLock {
 #[derive(Debug, Clone)]
 pub struct JsonLines {
     path: PathBuf,
-    /// When it was last pruned; `None` before the first prune.
     pruned_at_ms: Option<u64>,
 }
 

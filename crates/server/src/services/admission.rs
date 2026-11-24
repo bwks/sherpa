@@ -48,11 +48,8 @@ static NEXT_TICKET: AtomicU64 = AtomicU64::new(1);
 /// A node an operation asks to start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Request {
-    /// The ID of the node's lab.
     lab_id: String,
-    /// The node's domain name, `<node>-<lab id>`.
     domain: String,
-    /// Its memory; `None` for a container without a memory limit.
     memory: Option<MemoryClaim>,
 }
 
@@ -70,10 +67,7 @@ struct Pending {
 #[derive(Debug)]
 pub struct Admission {
     ticket: u64,
-    /// Overlaps the nodes' stored pins already had with other nodes' when they were admitted.
     shared_cpus: Vec<String>,
-    /// The pins each node whose pins were claimed held before the claim: none for a new node,
-    /// its old ones for a redeployed one.
     pins_before: Vec<NodeCpuPins>,
 }
 

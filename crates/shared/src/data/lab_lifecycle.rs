@@ -23,18 +23,12 @@ use strum_macros::EnumIter;
 )]
 #[serde(rename_all = "snake_case")]
 pub enum LabPhase {
-    /// `up` reserved the lab and is building it.
     Creating,
-    /// `up` finished. Its nodes may be running, stopped or failed: see `LabState`.
     #[default]
     Ready,
-    /// A destroy, a clean, or a failed `up`'s rollback is removing the lab.
     Destroying,
-    /// A destroy left something behind. Destroying it again retries.
     DestroyFailed,
-    /// The server stopped while `up` was building the lab. Nothing will finish it.
     Interrupted,
-    /// A phase this build does not know, such as one written by a newer version.
     #[serde(other)]
     Unknown,
 }
@@ -42,27 +36,18 @@ pub enum LabPhase {
 /// A step an operation took with a lab.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter)]
 pub enum LabEvent {
-    /// `up` built the lab.
     Built,
-    /// The `up` that reserved the lab failed before it created anything, and gives the
-    /// reservation back.
     Released,
-    /// A destroy, a clean, or a failed `up`'s rollback starts removing the lab.
     DestroyStarted,
-    /// The destroy left something behind.
     DestroyFailed,
-    /// The destroy removed everything: the lab's record goes too.
     Destroyed,
-    /// The server started and found the lab owned by an operation that no longer runs.
     OwnerLost,
 }
 
 /// What an allowed `LabEvent` does to the lab's record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LabTransition {
-    /// The lab moves to this phase.
     To(LabPhase),
-    /// The lab's record is removed.
     Removed,
 }
 

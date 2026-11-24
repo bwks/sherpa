@@ -10,13 +10,10 @@ use super::{CpuModels, DiskImageCloneMethod};
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NodeCpu {
-    /// The number of vCPUs, overriding the image's.
     pub count: Option<u8>,
     pub mode: Option<CpuMode>,
     pub topology: Option<CpuTopology>,
-    /// The host CPU for each vCPU, in vCPU order.
     pub pinning: Option<Vec<u16>>,
-    /// Host CPUs for QEMU's own threads: everything in the QEMU process except the vCPUs.
     pub emulator_pinning: Option<Vec<u16>>,
 }
 
@@ -24,9 +21,7 @@ pub struct NodeCpu {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NodeNuma {
-    /// The host NUMA node the guest's memory is placed on.
     pub node: Option<u8>,
-    /// How the guest's memory is held to `node`. Left out with `node` set, strict.
     pub memory_mode: Option<NumaMemoryMode>,
 }
 
@@ -35,13 +30,11 @@ pub struct NodeNuma {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NodeBootDisk {
-    /// The boot disk's size in GB, overriding the image's.
     pub size: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clone_method: Option<DiskImageCloneMethod>,
     pub cache: Option<DiskCache>,
     pub io: Option<DiskIo>,
-    /// Gives the disks an I/O thread, pinned to these host CPUs.
     pub io_thread_cpus: Option<Vec<u16>>,
 }
 
@@ -50,9 +43,7 @@ pub struct NodeBootDisk {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NodeInterfaces {
-    /// The number of data interfaces, overriding the image's.
     pub data_count: Option<u8>,
-    /// virtio-net queues on each virtio interface.
     pub queues: Option<u8>,
 }
 
@@ -60,9 +51,7 @@ pub struct NodeInterfaces {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeCpuPins {
     pub node_name: String,
-    /// Host CPUs running the node's vCPUs, which no other thread may share.
     pub vcpu_cpus: Vec<u16>,
-    /// Host CPUs running the node's QEMU and I/O threads.
     pub qemu_thread_cpus: Vec<u16>,
 }
 
@@ -70,9 +59,7 @@ pub struct NodeCpuPins {
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum CpuMode {
-    /// The closest named model to the host CPU, with its features.
     HostModel,
-    /// The host CPU exactly.
     HostPassthrough,
 }
 
@@ -89,10 +76,8 @@ pub struct CpuTopology {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum NumaMemoryMode {
-    /// Only the node's memory. When the node is full, the kernel's OOM killer ends the guest.
     #[default]
     Strict,
-    /// The node's memory first, then other nodes' when it is full.
     Preferred,
 }
 

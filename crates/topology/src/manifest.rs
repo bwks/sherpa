@@ -14,7 +14,6 @@ use shared::util::{generate_lab_name, load_file as load_file_util};
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub name: String,
-    /// Optional blurb describing the lab's purpose.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -22,11 +21,8 @@ pub struct Manifest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ready_timeout: Option<u64>,
-    /// How many nodes the CLI runs ssh provisioners on at once. Read by the client only, and
-    /// never serialized, like `Node::provisioners`.
     #[serde(default, skip_serializing)]
     pub provision_concurrency: Option<u8>,
-    /// Kubernetes clusters built from the lab's Talos Linux nodes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub talos_clusters: Option<Vec<TalosCluster>>,
     pub nodes: Vec<Node>,

@@ -33,9 +33,7 @@ const INIT_ATTEMPTS: u32 = 2;
 /// Why the saved unseal key did not unseal a Vault, decided by [`apply_unseal_key`].
 #[derive(Debug)]
 enum UnsealFailure {
-    /// Vault refused the key, or took it and stayed sealed.
     KeyRefused(anyhow::Error),
-    /// The request failed otherwise: it may be tried again.
     NotApplied(anyhow::Error),
 }
 
@@ -43,16 +41,10 @@ enum UnsealFailure {
 /// was sealed. See [`unseal_with_saved_key`].
 #[derive(Debug)]
 pub enum SealOutcome {
-    /// Vault is not initialised. Only `up` and redeploy initialise one, so nothing was done.
     NotInitialised,
-    /// Vault was not sealed.
     Unsealed,
-    /// Vault was sealed, and its saved key unsealed it now.
     UnsealedNow,
-    /// Vault is sealed, and Sherpa cannot unseal it.
     Sealed(VaultSealed),
-    /// Vault is sealed, and the unseal request failed for a reason other than the key, such as
-    /// Vault not answering. It is tried again on the next scan.
     NotApplied(anyhow::Error),
 }
 
@@ -67,12 +59,8 @@ pub struct VaultCredentials {
 /// What to do after an init request failed, decided by [`after_failed_init`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AfterFailedInit {
-    /// Vault is not initialised: send init again.
     Retry,
-    /// Vault is not initialised and every init attempt failed.
     GiveUp,
-    /// Vault is initialised: the request initialised it, but its response, the only copy of
-    /// the unseal key and root token, never reached Sherpa.
     LostInitResponse,
 }
 

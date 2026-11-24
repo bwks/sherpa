@@ -35,19 +35,14 @@ pub(super) struct ApiMark {
 /// What the guest agent knows of one task.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(super) struct TaskRecord {
-    /// The runs so far, for the record of result events.
     #[serde(default)]
     pub(super) runs: u32,
-    /// When its last run ended, in milliseconds since the Unix epoch. `None` while the first
-    /// runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) finished_at_ms: Option<u64>,
-    /// Its Claude session and whether it may use GitHub, once Claude Code named the session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) session: Option<Session>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) api: Option<ApiMark>,
-    /// What it has used, over the runs that sent a result event.
     #[serde(default)]
     pub(super) usage: TaskUsage,
 }
@@ -68,10 +63,8 @@ pub(super) struct Queued {
 /// The state file's content.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(super) struct Saved {
-    /// The task Claude Code was working on when the file was written.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) running: Option<String>,
-    /// The waiting tasks and answers, in order.
     #[serde(default)]
     pub(super) queue: Vec<Queued>,
     #[serde(default)]
@@ -85,10 +78,7 @@ pub(super) struct Saved {
 pub(super) struct Restart {
     pub(super) tasks: HashMap<String, TaskRecord>,
     pub(super) queue: VecDeque<Message>,
-    /// By rules variant (whether it allows GitHub) and model.
     pub(super) bases: HashMap<(bool, String), Base>,
-    /// The task that was running when the agent stopped without reporting it: it is reported
-    /// failed, and its session kept for an answer.
     pub(super) interrupted: Option<String>,
 }
 

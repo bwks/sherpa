@@ -12,13 +12,9 @@ const OTEL_METRIC_ERROR_COUNT: &str = "sherpad.errors";
 /// meter is used — every recording call becomes a no-op with zero overhead.
 #[derive(Clone)]
 pub struct Metrics {
-    /// Active WebSocket connection count (increment on connect, decrement on disconnect).
     pub ws_connections: UpDownCounter<i64>,
-    /// RPC call duration in seconds, keyed by `rpc.method`.
     pub rpc_duration: Histogram<f64>,
-    /// Service-level operation duration in seconds, keyed by `operation.type`.
     pub operation_duration: Histogram<f64>,
-    /// Error counter, keyed by `operation.type` and `error.type`.
     pub error_count: Counter<u64>,
 }
 

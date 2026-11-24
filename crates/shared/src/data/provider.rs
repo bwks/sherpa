@@ -5,5 +5,4 @@ use serde_derive::{Deserialize, Serialize};
 pub enum VmProviders {
     #[default]
     Libvirt,
-    // Future use maybe, if someone wants to add it.
 }

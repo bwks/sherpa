@@ -9,7 +9,7 @@ use uuid::Uuid;
 /// RPC request sent from client to server
 #[derive(Debug, Clone, Serialize)]
 pub struct RpcRequest {
-    pub r#type: String, // Always "rpc_request"
+    pub r#type: String,
     pub id: String,
     pub method: String,
     pub params: serde_json::Value,
@@ -36,7 +36,6 @@ pub struct RpcError {
 #[derive(Debug)]
 pub struct RpcFailure {
     pub code: RpcErrorCode,
-    /// What failed, the server's message and context, and how to recover.
     text: String,
 }
 

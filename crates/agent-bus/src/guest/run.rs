@@ -54,7 +54,6 @@ struct Reply<'a> {
     from: String,
     to: String,
     model: Option<String>,
-    /// Replaced in every text sent.
     secrets: &'a Secrets,
 }
 
@@ -62,17 +61,13 @@ struct Reply<'a> {
 enum Finish {
     Done,
     Canceled,
-    /// The guest agent is shutting down.
     Stopped,
-    /// The guest agent began shutting down before the task's run started: the task goes back
-    /// to the queue, unreported, for the restart.
     Postponed,
 }
 
 /// How one attempt at a task ended.
 enum Attempt {
     Done(Finish),
-    /// Forking the base session failed, before the task did anything: the reason.
     ForkFailed(String),
 }
 
@@ -94,20 +89,11 @@ struct Finished {
 /// What one run has produced so far.
 #[derive(Default)]
 struct RunState {
-    /// Claude's last text is also its result, so each text waits for the next update to show
-    /// whether it was the last.
     text: Option<String>,
-    /// The last tool call, already sent as progress.
     tool: Option<String>,
-    /// The outcome, text first, failed second.
     finished: Option<Finished>,
-    /// Whether the run named its session, said something or used a tool: it did something, so
-    /// it is not run again.
     progressed: bool,
-    /// Where the run's time went, from the stream events stamped as they were read.
     clock: RunClock,
-    /// The places its tool calls named, `~` expanded, at most `MAX_WORKED_IN`: the checkouts
-    /// holding them are looked at for pull requests when it ends.
     worked_in: BTreeSet<PathBuf>,
 }
 
@@ -115,13 +101,9 @@ struct RunState {
 #[derive(Clone, Copy)]
 struct Setup<'a> {
     program: &'a str,
-    /// The GitHub CLI, which finds the open pull requests of the branch a run ended on.
     gh: &'a str,
     workdir: &'a Path,
-    /// The model of a task that names none.
     model: &'a str,
-    /// The Claude token, the GitHub write token for `--github` tasks if the agent was given
-    /// one, and the bus seed.
     secrets: &'a Secrets,
 }
 
@@ -131,9 +113,7 @@ struct Engine<'a> {
     program: &'a str,
     gh: &'a str,
     workdir: &'a Path,
-    /// The model of a task that names none.
     model: &'a str,
-    /// The Claude token and the GitHub write token for runs, and all three secrets to redact.
     secrets: &'a Secrets,
     name: &'a str,
     reply_to: &'a str,
@@ -141,20 +121,12 @@ struct Engine<'a> {
     outgoing: UnboundedSender<Message>,
     stop: watch::Receiver<bool>,
     queue: VecDeque<Message>,
-    /// The task Claude Code works on now.
     running: Option<String>,
-    /// When the running task started.
     running_since_ms: u64,
-    /// What the heartbeat writes to the bus: whether a task runs, and the queue. It changes with
-    /// the state file, in `save`.
     status: watch::Sender<Status>,
-    /// The session, runs and totals of each task.
     tasks: HashMap<String, TaskRecord>,
-    /// The primed base session of each rules variant and model: by whether it allows GitHub,
-    /// and the model.
     bases: HashMap<(bool, String), Base>,
     results: Option<ResultLog>,
-    /// Where the state is kept; `None` keeps it in memory only.
     store: Option<StateFile>,
 }
 
@@ -1316,9 +1288,7 @@ esac
         output: UnboundedReceiver<Message>,
         stop: watch::Sender<bool>,
         done: tokio::task::JoinHandle<Result<()>>,
-        /// The engine's status, once it has started.
         status: oneshot::Receiver<watch::Receiver<Status>>,
-        /// The GitHub write token the agent was started with.
         write_token: Option<String>,
     }
 

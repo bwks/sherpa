@@ -42,9 +42,7 @@ struct VncRoute {
 /// How a viewer's connection ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Ended {
-    /// The viewer closed it.
     Viewer,
-    /// The server closed it, with its reason when it gave one.
     Server(Option<String>),
 }
 

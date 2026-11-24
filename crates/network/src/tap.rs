@@ -14,12 +14,8 @@ use crate::linux::{find_link_index, get_link_index, setup_netlink};
 /// How the two ends of a veth into a container come up.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NetnsVethState {
-    /// Both ends up and the container end promiscuous: a connected interface.
     Enabled,
-    /// Both ends down: a disabled interface, down in the container and with no carrier.
     Disabled,
-    /// The container end up and the host end down: a disabled interface that the container
-    /// sees up, with no carrier. For images that wait until every interface is up.
     DisabledUp,
 }
 

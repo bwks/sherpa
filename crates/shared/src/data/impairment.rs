@@ -21,19 +21,14 @@ pub enum ImpairmentDirection {
 /// Link impairment parameters for one direction of a link, applied with TC netem.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct LinkImpairment {
-    /// One-way delay in microseconds.
     #[serde(default)]
     pub delay_us: u32,
-    /// Delay jitter in microseconds.
     #[serde(default)]
     pub jitter_us: u32,
-    /// Packet loss in percent (0.0-100.0).
     #[serde(default)]
     pub loss_percent: f64,
-    /// Packet reordering probability as percent (0.0-100.0).
     #[serde(default)]
     pub reorder_percent: f64,
-    /// Bit-flip corruption probability as percent (0.0-100.0).
     #[serde(default)]
     pub corrupt_percent: f64,
 }
@@ -52,7 +47,6 @@ impl LinkImpairment {
 pub struct UpdateImpairmentRequest {
     pub lab_id: String,
     pub link_index: u16,
-    /// The direction to change. The other direction keeps its impairment.
     #[serde(default)]
     pub direction: ImpairmentDirection,
     #[serde(default)]

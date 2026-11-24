@@ -32,23 +32,17 @@ pub(crate) struct LabLinks {
 
 /// How the node's ends were made again.
 pub(crate) enum RecreatedEnd {
-    /// libvirt made the node's taps when it started its domain: a VM or unikernel cold boot,
-    /// or a VM redeploy.
     Domain,
-    /// The container started in a new network namespace, with none of its data interfaces:
-    /// its veths, named `container`'s, are made first.
     Container {
         container: String,
         veths: Vec<ContainerVeth>,
     },
-    /// The node's ends could not be planned, and why. Each of its links fails.
     Unplanned(String),
 }
 
 /// What re-attaching left one link in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LinkOutcome {
-    /// The link's index in its lab.
     pub(crate) index: u16,
     pub(crate) report: LinkReport,
 }

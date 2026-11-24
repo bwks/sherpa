@@ -51,10 +51,7 @@ const KEYCLOAK_FILE_KEYS: &[&str] = &["account_console", "address", "issuer", "r
 /// What a migration did.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Migration {
-    /// The new path of each file moved into `.sherpa`.
     pub moved: Vec<PathBuf>,
-    /// Whether the `sherpa_ssh_config` include in `~/.ssh/sherpa_lab_hosts` was replaced with
-    /// `.sherpa/ssh/config`.
     pub include_replaced: bool,
 }
 

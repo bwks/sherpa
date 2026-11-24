@@ -33,7 +33,6 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BootstrapOutcome {
     Bootstrapped,
-    /// The node's etcd already has data: an earlier bootstrap of this node succeeded.
     AlreadyBootstrapped,
 }
 

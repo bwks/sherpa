@@ -39,9 +39,7 @@ use crate::services::error::ServiceError;
 /// A node console sherpad relays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ConsoleKind {
-    /// The serial console of a VM or unikernel.
     Serial,
-    /// The VNC console of a VM.
     Vnc,
 }
 
@@ -50,7 +48,6 @@ pub enum ConsoleKind {
 pub struct ConsoleTarget {
     pub lab_id: String,
     pub node_name: String,
-    /// The node's libvirt domain, `<node>-<lab-id>`.
     pub domain: String,
 }
 
@@ -226,11 +223,8 @@ pub async fn console_socket(
 /// How a running domain's console is reached, serial or VNC alike.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Reached {
-    /// A UNIX socket at this path.
     Socket(String),
-    /// A TCP listener, from before the console moved behind sherpad.
     Tcp,
-    /// Nothing Sherpa can reach.
     Unreachable,
 }
 

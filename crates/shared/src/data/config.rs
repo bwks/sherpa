@@ -20,19 +20,11 @@ use crate::util::path_to_string;
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct ServerConnection {
-    /// WebSocket URL (e.g., <ws://localhost:3030/ws>)
     pub url: Option<String>,
-    /// The server's HTTP port, which serves its certificate to trust on first connect
     pub http_port: u16,
-    /// Connection timeout in seconds
     pub timeout_secs: u64,
-    /// Validate server TLS certificates against system CA store
     pub validate_certs: bool,
-    /// Path to custom CA certificate for validating server cert
-    /// Use this for self-signed certificates
     pub ca_cert_path: Option<String>,
-    /// Allow insecure connections (skip cert validation)
-    /// DANGEROUS: Only for development/testing
     pub insecure: bool,
 }
 
@@ -54,26 +46,16 @@ impl Default for ServerConnection {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct TlsConfig {
-    /// Enable TLS for WebSocket connections
     pub enabled: bool,
 
-    /// Path to server certificate (PEM format)
-    /// If not provided, uses /opt/sherpa/.certs/server.crt
     pub cert_path: Option<String>,
 
-    /// Path to server private key (PEM format)
-    /// If not provided, uses /opt/sherpa/.certs/server.key
     pub key_path: Option<String>,
 
-    /// Whether sherpad owns the certificate and key: it keeps the key, or makes one when there
-    /// is none it can load, and writes a new self-signed certificate on every start. When off,
-    /// the admin provides both files and sherpad never writes them.
     pub self_generate_cert: bool,
 
-    /// Validity in days of the certificate sherpad writes when `self_generate_cert` is on
     pub cert_validity_days: u32,
 
-    /// Subject Alternative Names for certificate (e.g., DNS names, IPs)
     pub san: Vec<String>,
 }
 
@@ -96,13 +78,9 @@ impl Default for TlsConfig {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct OtelConfig {
-    /// Enable OpenTelemetry trace export
     pub enabled: bool,
-    /// OTLP collector endpoint
     pub endpoint: String,
-    /// Service name reported to the collector
     pub service_name: String,
-    /// Trace sampling ratio 0.0..=1.0 (1.0 = sample everything)
     pub sample_ratio: f64,
 }
 
@@ -152,9 +130,7 @@ impl Default for ClientConfig {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct ScannerConfig {
-    /// Enable the background scanner service
     pub enabled: bool,
-    /// Interval between scan cycles in seconds
     pub interval_secs: u64,
 }
 
@@ -200,11 +176,7 @@ impl Default for TailscaleGatewaySettings {
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct HostMemorySettings {
-    /// Memory in MiB kept back for the host and the containers without a memory limit.
     pub reserve_mib: u32,
-    /// The percentage of the memory left after the reserve guests may be given in total, at
-    /// least 1. 100 gives out no more than the server has; 150 gives out 1.5 times as much,
-    /// relying on guests not touching all of theirs.
     pub overcommit_percent: u32,
 }
 
@@ -238,8 +210,6 @@ pub struct Config {
     pub images_dir: String,
     pub containers_dir: String,
     pub bins_dir: String,
-    /// Whether anyone may create an account on the web signup page. Off, only admins create
-    /// accounts.
     #[serde(default)]
     pub allow_signup: bool,
     #[serde(default)]

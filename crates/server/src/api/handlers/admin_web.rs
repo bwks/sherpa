@@ -36,7 +36,6 @@ pub struct UserSummary {
     pub ssh_key_count: usize,
     pub lab_count: usize,
     pub created_at_formatted: String,
-    /// Whether failed logins locked the account, so the page offers to unlock it.
     pub locked: bool,
 }
 

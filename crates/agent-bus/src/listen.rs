@@ -24,7 +24,6 @@ use crate::message::{Message, check_agent_name};
 /// One line of the journal.
 #[derive(Debug, Serialize, Deserialize)]
 struct Entry {
-    /// When the listener received the message, in milliseconds since the Unix epoch.
     at_ms: u64,
     message: Message,
 }

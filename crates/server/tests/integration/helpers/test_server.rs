@@ -35,7 +35,6 @@ pub const TEST_DEVICE_PASSWORD: &str = "Granite-Owl42!";
 /// A test server that runs an in-process instance of sherpad
 pub struct TestServer {
     pub addr: SocketAddr,
-    /// The server's database, for tests that read or seed records directly.
     pub db: db::Database,
 }
 

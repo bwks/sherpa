@@ -25,7 +25,6 @@ use crate::ssh_client::retryable;
 /// A client file to copy, read before the node is changed.
 struct FileCopy {
     src: PathBuf,
-    /// What is copied: the file, or for an env file, the file with its references resolved.
     content: Vec<u8>,
     dst: String,
     mode: u32,

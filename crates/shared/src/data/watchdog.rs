@@ -10,19 +10,12 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum WatchdogAction {
-    /// Reset the VM, as a hardware reset.
     Reset,
-    /// Power the VM off at once.
     Poweroff,
-    /// Ask the guest to shut down, as the ACPI power button does.
     Shutdown,
-    /// Pause the VM.
     Pause,
-    /// Dump the VM's memory, then keep running.
     Dump,
-    /// Send the guest a non-maskable interrupt.
     InjectNmi,
-    /// Do nothing; the device is present but expiring has no effect.
     None,
 }
 

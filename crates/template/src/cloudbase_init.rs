@@ -22,9 +22,7 @@ pub struct CloudbaseInitUser {
 #[derive(Template)]
 #[template(path = "windows/sshd_config.jinja", ext = "txt")]
 pub struct WindowsSshdConfigTemplate {
-    /// The directory as sshd names it, such as `__PROGRAMDATA__/ssh/authorized_keys`.
     pub authorized_keys_dir: String,
-    /// The server's `VersionAddendum`: one word of printable ASCII.
     pub ready_marker: String,
 }
 
@@ -34,7 +32,6 @@ pub struct WindowsSshdConfigTemplate {
 #[derive(Template)]
 #[template(path = "windows/owner_only_login.jinja", ext = "txt")]
 pub struct WindowsOwnerOnlyLoginTemplate {
-    /// The owner's account name.
     pub owner: String,
 }
 

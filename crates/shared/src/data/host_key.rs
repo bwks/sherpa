@@ -21,6 +21,5 @@ pub struct NodeHostKeysRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct NodeHostKeysResponse {
     pub known_hosts: String,
-    /// Whether the node offered a different key than the server had recorded.
     pub changed: bool,
 }

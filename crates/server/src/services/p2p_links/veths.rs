@@ -18,7 +18,6 @@ pub(crate) struct ContainerVeth {
     pub(crate) interface_idx: u8,
     pub(crate) model_kind: data::ModelKind,
     pub(crate) admin_down: bool,
-    /// The private bridge the host end joins, for a bridge member.
     pub(crate) bridge: Option<String>,
 }
 

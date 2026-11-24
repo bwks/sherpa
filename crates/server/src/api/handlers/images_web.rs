@@ -435,29 +435,23 @@ fn image_edit_template(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ImageForm {
-    // Model, kind, version and management_interface come from URL path/existing config, not
-    // form
     pub cpu_count: u8,
     pub memory: u16,
     pub data_interface_count: u8,
     pub reserved_interface_count: u8,
-    pub default: Option<String>, // checkbox
-    // The `vm` group's.
+    pub default: Option<String>,
     pub os_variant: Option<String>,
     pub bios: Option<String>,
-    pub vmx_enabled: Option<String>, // checkbox
+    pub vmx_enabled: Option<String>,
     pub hdd_bus: Option<String>,
     pub cdrom: Option<String>,
     pub cdrom_bus: Option<String>,
-    // The `vm` and `unikernel` groups'.
     pub cpu_architecture: Option<String>,
     pub cpu_model: Option<String>,
     pub machine_type: Option<String>,
     pub interface_type: Option<String>,
     pub interface_mtu: Option<u16>,
-    /// The ZTP setting, by the word the image stores: the `vm` and `container` groups'.
     pub ztp: Option<Ztp>,
-    // The `container` group's.
     pub repo: Option<String>,
 }
 
@@ -642,7 +636,6 @@ pub struct UploadFields {
 /// Raw string fields extracted from multipart before validation.
 pub struct RawUploadFields {
     pub model: Option<String>,
-    /// The image's kind; absent or empty, the model's default kind.
     pub kind: Option<String>,
     pub version: Option<String>,
     pub file_data: Option<Vec<u8>>,

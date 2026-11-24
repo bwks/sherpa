@@ -20,14 +20,10 @@ use crate::store::task::TaskState;
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Item {
     pub id: i64,
-    /// Its lowest issue, else its lowest pull request, else its branch.
     pub name: String,
     pub refs: Vec<ItemRef>,
     pub tasks: Vec<ItemTask>,
-    /// The refs its tasks named that name another item, and its refs that other items' tasks
-    /// named.
     pub conflicts: Vec<Conflict>,
-    /// The items `link` merged into it.
     pub merged: Vec<i64>,
 }
 
@@ -36,7 +32,6 @@ pub struct Item {
 pub struct ItemRef {
     #[serde(flatten)]
     pub reference: Ref,
-    /// How it was learned: `brief`, `guest`, `parsed` or `manual`.
     pub source: String,
     pub at_ms: u64,
 }
@@ -47,15 +42,12 @@ pub struct ItemTask {
     pub task: String,
     pub agent: String,
     pub state: TaskState,
-    /// The model it ran on, else the one it asked for.
     pub model: Option<String>,
     pub prompt: Option<String>,
     pub last_at_ms: u64,
     pub runs: Option<u64>,
     pub cost_usd: Option<f64>,
-    /// How it was put in the item.
     pub source: String,
-    /// The pull request that counts it; filled in by `work show`, which knows the rules.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub placement: Option<Placement>,
 }
@@ -66,12 +58,9 @@ pub struct Conflict {
     pub task: String,
     #[serde(flatten)]
     pub reference: Ref,
-    /// How the task named it.
     pub source: String,
-    /// The task's item, and its name.
     pub task_item: i64,
     pub task_item_name: String,
-    /// The item the ref names, and its name.
     pub ref_item: i64,
     pub ref_item_name: String,
 }
@@ -83,9 +72,7 @@ pub struct ItemSummary {
     pub name: String,
     pub refs: Vec<Ref>,
     pub tasks: u64,
-    /// What its tasks cost, those with usage.
     pub cost_usd: f64,
-    /// Its tasks' latest message; its creation without tasks.
     pub last_at_ms: u64,
 }
 
@@ -95,21 +82,17 @@ pub struct OpenTask {
     pub task: String,
     pub agent: String,
     pub state: TaskState,
-    /// When it was sent, else when it was first seen.
     pub since_ms: u64,
     pub item: Option<i64>,
     pub item_name: Option<String>,
-    /// The question it waits on.
     pub question: Option<String>,
 }
 
 /// What one model of one run used, or a whole run that named no model.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunPart {
-    /// The run's stream sequence.
     pub seq: u64,
     pub task: String,
-    /// The model; `None` for a run that named none.
     pub model: Option<String>,
     pub input: u64,
     pub output: u64,

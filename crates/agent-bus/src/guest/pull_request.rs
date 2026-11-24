@@ -31,7 +31,6 @@ const MAX_CHECKOUTS: usize = 8;
 struct PullRequest {
     number: u64,
     url: String,
-    /// Whether its head is in a fork: a branch of the same name in someone else's repository.
     #[serde(rename = "isCrossRepository")]
     cross_repository: bool,
 }
@@ -41,7 +40,6 @@ struct PullRequest {
 struct Repository {
     #[serde(rename = "nameWithOwner")]
     name: String,
-    /// `None` for an empty repository.
     #[serde(rename = "defaultBranchRef")]
     default_branch: Option<BranchName>,
 }

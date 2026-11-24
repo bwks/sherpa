@@ -273,7 +273,6 @@ fn extract_and_validate_token(
 pub struct AuthenticatedUser {
     pub username: String,
     pub is_admin: bool,
-    /// The session the token belongs to.
     pub session_id: String,
 }
 
@@ -353,7 +352,6 @@ async fn resolve_session(state: &AppState, claims: Claims) -> Result<Authenticat
 pub struct AuthenticatedUserFromCookie {
     pub username: String,
     pub is_admin: bool,
-    /// The session the cookie's token belongs to.
     pub session_id: String,
 }
 
@@ -378,7 +376,6 @@ impl AuthenticatedUserFromCookie {
 pub enum AuthRedirect {
     SessionRequired,
     InvalidSession,
-    /// The session could not be checked against the user database.
     Unavailable,
 }
 
@@ -477,7 +474,6 @@ impl FromRequestParts<AppState> for AuthenticatedUserFromCookie {
 #[derive(Debug, Clone)]
 pub struct AdminUser {
     pub username: String,
-    /// The session the cookie's token belongs to.
     pub session_id: String,
 }
 

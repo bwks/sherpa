@@ -28,7 +28,6 @@ pub struct PaloAltoPanosZtpTemplate {
 #[template(path = "paloalto/paloalto_panos_bootstrap.jinja", escape = "xml")]
 pub struct PaloAltoPanosBootstrapTemplate {
     pub hostname: String,
-    /// The owner, whose `password` is a `$5$` hash.
     pub owner: OwnerUser,
     pub mgmt_ipv4_address: Ipv4Addr,
     pub mgmt_ipv6_address: Option<Ipv6Addr>,

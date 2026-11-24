@@ -24,12 +24,8 @@ pub struct DomainTemplate {
     pub interface_type: InterfaceType,
     pub management_interface_type: InterfaceType,
     pub reserved_interface_type: InterfaceType,
-    /// The UNIX socket libvirt binds for the serial console, which only sherpad connects to.
     pub serial_socket: String,
     pub qemu_commands: Vec<QemuCommand>,
-    /// Flatcar's Ignition config in the storage pool, given to the guest as the firmware config
-    /// entry `opt/org.flatcar-linux/config`. libvirt hands the file to QEMU like a disk: it
-    /// labels it and adds it to the VM's security profile.
     pub ignition_config: Option<String>,
     pub lab_id: String,
     pub management_network: String,
@@ -39,15 +35,8 @@ pub struct DomainTemplate {
     pub video_model: String,
     pub video_vram: Option<u32>,
     pub cpu_features: Vec<CpuFeature>,
-    /// The UNIX socket QEMU binds for the VNC console, which only sherpad connects to.
     pub vnc_socket: String,
     pub tuning: DomainTuning,
-    /// The action of the node's hardware watchdog. None, the domain has no watchdog.
-    ///
-    /// None is the default because Cisco IOS arms a watchdog at boot and feeds it only after an
-    /// init phase that, under nested KVM, outlasts the timeout, so its VMs reset in a loop.
-    /// libvirt still lists the q35 chipset's iTCO watchdog on every q35 domain, which acts only if
-    /// the guest arms it.
     pub watchdog: Option<WatchdogAction>,
 }
 
@@ -65,19 +54,14 @@ impl DomainTemplate {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DomainTuning {
     pub cpu_topology: Option<CpuTopology>,
-    /// The host CPU for each vCPU, in vCPU order.
     pub cpu_pinning: Vec<u16>,
     pub qemu_cpuset: Option<String>,
-    /// The cpuset of the disks' I/O thread. Set, the domain has one I/O thread for its disks.
     pub io_thread_cpuset: Option<String>,
     pub numa_node: Option<u8>,
-    /// How the memory is held to `numa_node`.
     pub numa_memory_mode: NumaMemoryMode,
     pub disk_cache: Option<DiskCache>,
     pub disk_io: Option<DiskIo>,
-    /// Queues on the data interfaces.
     pub interface_queues: Option<u8>,
-    /// Queues on the management interface, when it is virtio.
     pub management_interface_queues: Option<u8>,
 }
 
@@ -137,7 +121,6 @@ pub struct UnikernelDomainTemplate {
     pub interface_type: InterfaceType,
     pub management_interface_type: InterfaceType,
     pub reserved_interface_type: InterfaceType,
-    /// The UNIX socket libvirt binds for the serial console, which only sherpad connects to.
     pub serial_socket: String,
     pub management_network: String,
     pub isolated_network: String,

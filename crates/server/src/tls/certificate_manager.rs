@@ -29,12 +29,10 @@ pub struct CertificateManager {
 /// Something wrong with a certificate the admin provides, which sherpad serves anyway.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CertificateWarning {
-    /// The certificate has expired, or expires within `EXPIRY_WARNING_DAYS`.
     ExpiresSoon {
         cert_path: PathBuf,
         not_after: jiff::Timestamp,
     },
-    /// The certificate names none of these server addresses.
     AddressesNotCovered {
         cert_path: PathBuf,
         addresses: Vec<IpAddr>,
@@ -47,7 +45,6 @@ pub struct CertificateReport {
     pub cert_path: PathBuf,
     pub key_pin: String,
     pub not_after: jiff::Timestamp,
-    /// Whether sherpad writes the certificate itself (`self_generate_cert`).
     pub self_generated: bool,
     pub warnings: Vec<CertificateWarning>,
 }

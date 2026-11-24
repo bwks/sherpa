@@ -14,9 +14,7 @@ use shared::konst::{CONTAINER_SECRET_DEFAULT_MODE, PROVISIONER_FILE_DEFAULT_MODE
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Provisioner {
-    /// Copy files and run scripts over SSH, as the node's login user.
     Ssh(SshProvisioner),
-    /// Mount secret files in a container at `/run/secrets`.
     Container(ContainerProvisioner),
 }
 
@@ -32,11 +30,8 @@ pub struct ContainerProvisioner {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ContainerSecretFile {
-    /// Path on the client: `~` is expanded and relative paths start at the manifest.
     pub src: String,
-    /// File name in `/run/secrets`.
     pub name: String,
-    /// File mode as octal digits. Defaults to `444`, as the container may not run as root.
     #[serde(default = "default_secret_mode")]
     pub mode: u32,
 }
@@ -46,13 +41,10 @@ pub struct ContainerSecretFile {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SshProvisioner {
-    /// Client files copied to the node.
     #[serde(default)]
     pub files: Vec<ProvisionerFile>,
-    /// Client env files (`KEY=value` lines) copied to `~/.env.d/`, which login shells load.
     #[serde(default)]
     pub env_files: Vec<String>,
-    /// Client scripts run on the node in a login shell, through their shebang.
     #[serde(default)]
     pub scripts: Vec<String>,
 }
@@ -61,11 +53,8 @@ pub struct SshProvisioner {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ProvisionerFile {
-    /// Path on the client: `~` is expanded and relative paths start at the manifest.
     pub src: String,
-    /// Path on the node: absolute, or `~/` relative to the login user's home.
     pub dst: String,
-    /// File mode as octal digits, for example `600`.
     #[serde(default = "default_file_mode")]
     pub mode: u32,
 }

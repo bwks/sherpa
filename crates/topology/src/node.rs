@@ -20,12 +20,9 @@ use crate::provisioner::Provisioner;
 pub struct Node {
     pub name: String,
     pub model: NodeModel,
-    /// `virtual_machine`, `container` or `unikernel`: a kind the model takes. Absent, the node
-    /// takes its model's default kind, the first of `NodeModel::kinds`.
     pub kind: Option<NodeKind>,
     pub image: Option<String>,
     pub version: Option<String>,
-    /// The guest's memory in MiB, overriding the image's.
     pub memory: Option<u16>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub cpu: NodeCpu,
@@ -39,11 +36,8 @@ pub struct Node {
     pub ztp: NodeZtp,
     #[serde(default, skip_serializing_if = "is_default")]
     pub ready_check: NodeReadyCheck,
-    /// Settings only a virtual machine takes.
     pub vm: Option<NodeVm>,
-    /// Settings only a container takes.
     pub container: Option<NodeContainer>,
-    /// Settings only a unikernel takes.
     pub unikernel: Option<NodeUnikernel>,
     pub environment_variables: Option<Vec<String>>,
     pub text_files: Option<Vec<TextFile>>,
@@ -55,8 +49,6 @@ pub struct Node {
     pub text_files_data: Option<Vec<TextFileData>>,
     #[serde(skip)]
     pub systemd_units_data: Option<Vec<SystemdUnitData>>,
-    /// Client-side provisioners, run by the CLI once the node is ready. Never serialized, so
-    /// the client never sends them to the server and the server never stores them.
     #[serde(default, skip_serializing)]
     pub provisioners: Option<Vec<Provisioner>>,
 }
@@ -70,17 +62,7 @@ fn is_default<T: Default + PartialEq>(group: &T) -> bool {
 #[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NodeZtp {
-    /// `disabled`, or a method the node's model takes. Absent, the node runs with its image's
-    /// setting.
     pub method: Option<Ztp>,
-    /// A file with the node's own startup configuration.
-    ///
-    /// The field holds a different thing at each stage, and nothing in the value says which: the
-    /// file's path in the manifest, its base64 contents once the client has read it
-    /// (`resolve_ztp_configs`), the text on the server once decoded, a generated machine config
-    /// for a Talos cluster member, and `None` once the node's build has taken it
-    /// (`take_custom_ztp_config`). A reader that takes `None` to mean "no custom config", such as
-    /// `guest_account::provisions_owner`, must read it before it is taken.
     pub config: Option<String>,
 }
 
@@ -88,10 +70,7 @@ pub struct NodeZtp {
 #[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NodeReadyCheck {
-    /// The TCP port that shows the node is ready: for a VM or unikernel, in place of the
-    /// model's; for a container, once it has kept running.
     pub port: Option<u16>,
-    /// Skip the check: the node counts as ready once started.
     pub skip: Option<bool>,
 }
 
@@ -99,7 +78,6 @@ pub struct NodeReadyCheck {
 #[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NodeVm {
-    /// A hardware watchdog, and what QEMU does when it expires. Absent, the VM has none.
     pub watchdog: Option<WatchdogAction>,
 }
 
@@ -112,7 +90,6 @@ pub struct NodeContainer {
     pub shm_size: Option<i64>,
     pub commands: Option<Vec<String>>,
     pub volumes: Option<Vec<VolumeMount>>,
-    /// The PTX platform a `juniper_evolved` container emulates. Absent, it is BT.
     pub platform: Option<PtxPlatform>,
 }
 
@@ -120,7 +97,6 @@ pub struct NodeContainer {
 #[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NodeUnikernel {
-    /// The kernel command line.
     pub cmdline: Option<String>,
 }
 
@@ -130,7 +106,6 @@ pub struct NodeUnikernel {
 pub struct NodeExpanded {
     pub index: u16,
     pub name: String,
-    /// The node's model, and its kind: the manifest's `kind`, or else the model's default.
     pub model_kind: ModelKind,
     pub image: Option<String>,
     pub version: Option<String>,

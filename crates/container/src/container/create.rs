@@ -34,24 +34,18 @@ const NANO_CPUS_PER_CPU: i64 = 1_000_000_000;
 #[derive(Clone, Debug)]
 pub struct ContainerSpec {
     pub name: String,
-    /// The container's Linux hostname. `None` leaves Docker's default, the container ID.
     pub hostname: Option<String>,
     pub image: String,
     pub env_vars: Vec<String>,
-    /// Bind mounts, as `host:container[:options]`.
     pub volumes: Vec<String>,
     pub capabilities: Vec<String>,
-    /// Attached when the container is created, so it is the first interface.
     pub management_network: ContainerNetworkAttachment,
-    /// Attached one by one after the container starts, so the interfaces keep this order.
     pub additional_networks: Vec<ContainerNetworkAttachment>,
     pub commands: Vec<String>,
     pub privileged: bool,
     pub shm_size: Option<i64>,
     pub user: Option<String>,
-    /// The hard memory limit, in MiB, with no swap. `None` leaves memory unlimited.
     pub memory_mib: Option<u64>,
-    /// The CPU quota, in CPUs. `None` leaves CPU unlimited.
     pub cpu_count: Option<u8>,
 }
 

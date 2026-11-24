@@ -11,21 +11,14 @@ use serde::{Deserialize, Serialize};
 /// and authorization (admin status).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Claims {
-    /// Subject - the username of the authenticated user, for display. The server takes the
-    /// user from the session, not from this claim.
     pub sub: String,
 
-    /// The session this token belongs to. The server accepts the token only while the session
-    /// exists. A token with no `sid` is rejected.
     pub sid: String,
 
-    /// Expiration time (Unix timestamp in seconds)
     pub exp: i64,
 
-    /// Issued at time (Unix timestamp in seconds)
     pub iat: i64,
 
-    /// Whether the user has admin privileges
     pub is_admin: bool,
 }
 

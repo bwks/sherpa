@@ -10,7 +10,6 @@ use uuid::Uuid;
 /// A single WebSocket connection
 pub struct Connection {
     pub id: Uuid,
-    /// The address of the connection's peer, which logins over it are recorded with.
     pub peer: IpAddr,
     pub sender: Arc<Mutex<SplitSink<WebSocket, Message>>>,
 }

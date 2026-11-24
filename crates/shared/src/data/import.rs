@@ -6,9 +6,7 @@ use super::node::{NodeConfig, NodeKind, NodeModel};
 /// Request type for listing images with optional filters
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ListImagesRequest {
-    /// Optional model filter
     pub model: Option<NodeModel>,
-    /// Optional kind filter: `virtual_machine`, `container` or `unikernel`
     pub kind: Option<NodeKind>,
 }
 
@@ -24,29 +22,22 @@ pub struct ImageSummary {
 /// Response from listing images
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ListImagesResponse {
-    /// List of image summaries
     pub images: Vec<ImageSummary>,
-    /// Total number of images returned
     pub total: usize,
 }
 
 /// Request type for showing image details
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ShowImageRequest {
-    /// The node model to show details for
     pub model: NodeModel,
-    /// The image's kind: `virtual_machine`, `container` or `unikernel`. Absent, the model's
-    /// default kind.
     #[serde(default)]
     pub kind: Option<NodeKind>,
-    /// Optional version filter (if omitted, shows the default version)
     pub version: Option<String>,
 }
 
 /// Response from showing image details
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ShowImageResponse {
-    /// The image's configuration.
     pub image: NodeConfig,
 }
 
@@ -56,17 +47,11 @@ pub struct ShowImageResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ImportRequest {
-    /// The node model to import the image for
     pub model: NodeModel,
-    /// The image's kind: `virtual_machine`, `container` or `unikernel`. Absent, the model's
-    /// default kind.
     #[serde(default)]
     pub kind: Option<NodeKind>,
-    /// Version string for the image
     pub version: String,
-    /// Source file path on the server filesystem
     pub src: String,
-    /// Whether to set this image as the default version
     #[serde(default)]
     pub default: bool,
 }
@@ -74,20 +59,12 @@ pub struct ImportRequest {
 /// Response from an image import operation
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ImportResponse {
-    /// Whether the import succeeded
     pub success: bool,
-    /// The node model that was imported
     pub model: NodeModel,
-    /// The node kind: `virtual_machine`, `container` or `unikernel`
     pub kind: NodeKind,
-    /// The version that was imported
     pub version: String,
-    /// The destination path of the imported image
     pub image_path: String,
-    /// Whether the image was tracked in the database
     pub db_tracked: bool,
-    /// Whether the version is its model's default after the import. A model's first version
-    /// becomes its default, and the default stays the default unless another is asked for.
     #[serde(default)]
     pub default: bool,
 }
@@ -96,19 +73,11 @@ pub struct ImportResponse {
 /// images directory, and container images in local Docker.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ScanImagesRequest {
-    /// Optional kind filter: `virtual_machine`, `container` or `unikernel`. With none, every
-    /// kind is scanned.
     pub kind: Option<NodeKind>,
-    /// If true, only report what would be imported without making changes
     #[serde(default)]
     pub dry_run: bool,
-    /// A container model to record `repo`'s local Docker tags for, given with `repo`. Without
-    /// them, container images are matched to the models that have a built-in repo, and the
-    /// others are reported as skipped.
     #[serde(default)]
     pub model: Option<NodeModel>,
-    /// The repository, without a tag (e.g. `mysql` or `ghcr.io/nokia/srlinux`), whose local
-    /// tags are recorded as versions of `model`. Given with `model`.
     #[serde(default)]
     pub repo: Option<String>,
 }
@@ -120,7 +89,6 @@ pub struct ScannedImage {
     pub version: String,
     pub kind: NodeKind,
     pub status: String,
-    /// Whether the scan failed to record the version; `status` says why.
     #[serde(default)]
     pub failed: bool,
 }
@@ -135,46 +103,30 @@ pub struct SkippedModel {
 /// Response from scanning for images
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ScanImagesResponse {
-    /// List of scanned image results
     pub scanned: Vec<ScannedImage>,
-    /// Models the scan skipped, such as container models with no built-in repo
     #[serde(default)]
     pub skipped: Vec<SkippedModel>,
-    /// Total number of images imported (new or updated)
     pub total_imported: usize,
 }
 
 /// Request type for deleting an imported image
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DeleteImageRequest {
-    /// The node model of the image to delete
     pub model: NodeModel,
-    /// The image's kind: `virtual_machine`, `container` or `unikernel`. Absent, the model's
-    /// default kind.
     #[serde(default)]
     pub kind: Option<NodeKind>,
-    /// Version string for the image to delete
     pub version: String,
 }
 
 /// Response from an image delete operation
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DeleteImageResponse {
-    /// Whether the delete succeeded
     pub success: bool,
-    /// The node model that was deleted
     pub model: NodeModel,
-    /// The node kind: `virtual_machine`, `container` or `unikernel`
     pub kind: NodeKind,
-    /// The version that was deleted
     pub version: String,
-    /// Whether the image itself was deleted: a VM's or unikernel's disk files, or a
-    /// container's Docker image, its repo at its version
     pub image_deleted: bool,
-    /// Whether the database record was deleted
     pub db_deleted: bool,
-    /// The version that became the model's default because the deleted one was the default.
-    /// `None` when the deleted version was not the default, or was the model's last.
     #[serde(default)]
     pub new_default: Option<String>,
 }
@@ -182,45 +134,30 @@ pub struct DeleteImageResponse {
 /// Request type for setting the default version of an image
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SetDefaultImageRequest {
-    /// The node model to set the default for
     pub model: NodeModel,
-    /// The image's kind: `virtual_machine`, `container` or `unikernel`. Absent, the model's
-    /// default kind.
     #[serde(default)]
     pub kind: Option<NodeKind>,
-    /// Version string to make the default
     pub version: String,
 }
 
 /// Response from setting the default image version
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SetDefaultImageResponse {
-    /// Whether the operation succeeded
     pub success: bool,
-    /// The node model that was updated
     pub model: NodeModel,
-    /// The node kind: `virtual_machine`, `container` or `unikernel`
     pub kind: NodeKind,
-    /// The version that is now the default
     pub version: String,
 }
 
 /// Request type for pulling a container image from an OCI registry
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ContainerPullRequest {
-    /// Node model this image belongs to
     pub model: super::NodeModel,
-    /// The image's kind: `virtual_machine`, `container` or `unikernel`. Absent, the model's
-    /// default kind.
     #[serde(default)]
     pub kind: Option<NodeKind>,
-    /// Container image repository (e.g., ghcr.io/nokia/srlinux). Absent, the model's built-in
-    /// repo; a model with none is refused.
     #[serde(default)]
     pub repo: Option<String>,
-    /// Container image tag (e.g., 1.2.3)
     pub tag: String,
-    /// Set this image as the default version
     #[serde(default)]
     pub default: bool,
 }
@@ -228,34 +165,22 @@ pub struct ContainerPullRequest {
 /// Response from a container image pull operation
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ContainerPullResponse {
-    /// Whether the pull succeeded
     pub success: bool,
-    /// Node model
     pub model: String,
-    /// Container image repository
     pub repo: String,
-    /// Container image tag
     pub tag: String,
-    /// Whether the image was tracked in the database
     pub db_tracked: bool,
-    /// Human-readable status message
     pub message: String,
 }
 
 /// Request type for downloading a VM image from a URL
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DownloadImageRequest {
-    /// The node model to download the image for
     pub model: NodeModel,
-    /// The image's kind: `virtual_machine`, `container` or `unikernel`. Absent, the model's
-    /// default kind.
     #[serde(default)]
     pub kind: Option<NodeKind>,
-    /// Version string for the image
     pub version: String,
-    /// Optional download URL (auto-resolved for some models)
     pub url: Option<String>,
-    /// Whether to set this image as the default version
     #[serde(default)]
     pub default: bool,
 }

@@ -23,32 +23,21 @@ use crate::data::{
 /// Top-level unified API specification
 #[derive(Debug, Clone, Serialize)]
 pub struct ApiSpec {
-    /// Spec format version
     pub version: &'static str,
-    /// All available operations
     pub operations: Vec<OperationDef>,
-    /// JSON Schema definitions for all request/response types
     pub schemas: BTreeMap<String, serde_json::Value>,
 }
 
 /// A single API operation with transport bindings
 #[derive(Debug, Clone, Serialize)]
 pub struct OperationDef {
-    /// Operation name (e.g., "lab.create")
     pub name: &'static str,
-    /// Human-readable description
     pub description: &'static str,
-    /// Operation category
     pub category: Category,
-    /// Authentication requirement
     pub auth: AuthRequirement,
-    /// Whether this operation streams progress
     pub streaming: bool,
-    /// JSON Schema reference for request type (key into schemas map)
     pub request_schema: Option<&'static str>,
-    /// JSON Schema reference for response type (key into schemas map)
     pub response_schema: Option<&'static str>,
-    /// Transport bindings
     pub transports: Transports,
 }
 
@@ -77,10 +66,8 @@ pub enum AuthRequirement {
 /// Transport bindings for an operation
 #[derive(Debug, Clone, Serialize)]
 pub struct Transports {
-    /// The REST route; absent for an operation served over RPC only.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rest: Option<RestBinding>,
-    /// The RPC method; absent for an operation served over REST only.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rpc: Option<RpcBinding>,
     pub cli: CliBinding,
@@ -89,14 +76,10 @@ pub struct Transports {
 /// REST API binding
 #[derive(Debug, Clone, Serialize)]
 pub struct RestBinding {
-    /// HTTP method
     pub method: HttpMethod,
-    /// URL path pattern
     pub path: &'static str,
-    /// Path parameter names (e.g. `["id", "node"]`)
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub path_params: Vec<&'static str>,
-    /// Streaming mechanism (null for non-streaming)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_type: Option<StreamType>,
 }
@@ -125,23 +108,19 @@ impl HttpMethod {
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StreamType {
-    /// Server-Sent Events
     Sse,
 }
 
 /// WebSocket JSON-RPC binding
 #[derive(Debug, Clone, Serialize)]
 pub struct RpcBinding {
-    /// JSON-RPC method name
     pub method: &'static str,
-    /// Whether the method sends status messages before its response.
     pub streaming: bool,
 }
 
 /// CLI command binding
 #[derive(Debug, Clone, Serialize)]
 pub struct CliBinding {
-    /// Full command path (e.g., "sherpa server image import")
     pub command: &'static str,
 }
 
@@ -154,9 +133,7 @@ struct Operation {
     auth: AuthRequirement,
     request_schema: Option<&'static str>,
     response_schema: Option<&'static str>,
-    /// The REST route, or `None` for an operation served over RPC only.
     rest: Option<RestRoute>,
-    /// The RPC method, or `None` for an operation served over REST only.
     rpc: Option<RpcBinding>,
     cli_command: &'static str,
 }

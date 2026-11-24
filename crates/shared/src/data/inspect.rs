@@ -21,7 +21,6 @@ pub struct InspectResponse {
     pub tailscale: Option<TailnetStatus>,
     pub lab_info: LabInfo,
     pub lab_state: LabState,
-    /// Which operation owns the lab, if any. `ready` when the server sends none.
     #[serde(default)]
     pub lab_phase: LabPhase,
     pub devices: Vec<DeviceInfo>,
@@ -40,15 +39,10 @@ pub struct DeviceInfo {
     pub mgmt_ipv4: String,
     pub mgmt_ipv6: Option<String>,
     pub disks: Vec<String>,
-    /// vCPUs the node was given: a container's CPU quota. `None` for a container without one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_count: Option<u8>,
-    /// Memory in MB the node was given; `None` as for `cpu_count`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory: Option<u16>,
-    /// Why a Vault node Sherpa manages is sealed and Sherpa cannot unseal it, as the server
-    /// last found it. `None` for every other node, for a Vault that is not known to be sealed,
-    /// and from servers that do not report it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vault_sealed: Option<VaultSealed>,
 }
@@ -57,11 +51,8 @@ pub struct DeviceInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "reason", rename_all = "snake_case")]
 pub enum VaultSealed {
-    /// Vault is initialised, and Sherpa has no unseal key saved for it.
     NoSavedKey,
-    /// The node's saved credentials file could not be read, and why.
     KeyFileUnreadable { cause: String },
-    /// Vault refused the saved unseal key.
     KeyRefused,
 }
 
@@ -85,13 +76,8 @@ pub struct LinkInfo {
     pub node_b_name: String,
     pub int_b: String,
     pub kind: BridgeKind,
-    /// What the server last found or left the link in: a scan of the lab, a resume or a
-    /// redeploy. `None` when the server has not checked it since it started, and from servers
-    /// that do not report link states.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<LinkState>,
-    /// The link's number in the lab, as `link impair` names it to the server. `None` from
-    /// servers that do not report it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index: Option<u16>,
 }

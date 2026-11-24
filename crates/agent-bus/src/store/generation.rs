@@ -30,7 +30,6 @@ pub struct PullRequest {
     pub repo: String,
     pub number: u64,
     pub work: i64,
-    /// The latest message of the item's tasks or response of the host charged to it.
     pub active_ms: Option<u64>,
 }
 
@@ -50,14 +49,10 @@ pub struct LastWrite {
     pub repo: String,
     pub number: u64,
     pub work: i64,
-    /// `OPEN`, `MERGED` or `CLOSED`, as `gh` gave it at the last write.
     pub state: Option<String>,
-    /// The section last written, and when; `None` until a write succeeds.
     pub section: Option<String>,
     pub written_at_ms: Option<u64>,
-    /// Why the last attempt failed; `None` after a success.
     pub last_error: Option<String>,
-    /// When the last attempt was, success or failure.
     pub attempted_at_ms: Option<u64>,
 }
 

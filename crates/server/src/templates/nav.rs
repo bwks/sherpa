@@ -10,14 +10,12 @@ pub enum NavPage {
     AdminLabs,
     AdminUsers,
     AdminTools,
-    /// A page with no sidebar link, such as the profile or an error page.
     Other,
 }
 
 /// How the sidebar draws one link.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NavLink {
-    /// The link to the page being shown, highlighted.
     Current,
     #[default]
     Inactive,

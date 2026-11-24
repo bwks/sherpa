@@ -122,6 +122,7 @@ Validators ensure user supplied data is accurate, usable and secure. They live w
 ### Comments
 - Function doc must describe the purpose of the function.
 - Inline comments should only be used to explain something that is abiguous if the code cannot be rewritten to make it's purpose obvious.
+- Struct fields and enum variants carry no comments, except in types deriving clap's `Parser`, `Subcommand`, `Args` or `ValueEnum`.
 
 ### Strings
 - Write a string that contains `"` as a raw string (`r#"..."#`, `br#"..."#` for bytes), not with `\"` escapes. No lint enforces this.

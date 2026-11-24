@@ -19,23 +19,16 @@ use crate::sql::{execute, query_optional};
 /// What a write asks for one version's `default` flag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DefaultRequest {
-    /// Make this version the default, clearing the flag on the others.
     Make,
-    /// Leave the flag as it is. A version the model has no default without becomes the default.
     Keep,
-    /// Stop this version being the default. Refused when it is the default, since that would
-    /// leave the model without one; another version must be made the default instead.
     Unset,
 }
 
 /// Where a model's default stands, seen from the version being written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DefaultHolder {
-    /// The version being written is the default.
     ThisVersion,
-    /// Another version is the default.
     OtherVersion,
-    /// The model has no default, as when it has no images yet.
     Nobody,
 }
 

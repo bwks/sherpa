@@ -29,7 +29,6 @@ struct TokenResponse {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Created {
     Created,
-    /// A resource with the same name was there already.
     AlreadyExists,
 }
 

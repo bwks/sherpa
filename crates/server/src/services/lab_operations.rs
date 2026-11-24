@@ -56,27 +56,21 @@ pub enum Operation {
     Redeploy,
     Resume,
     Down,
-    /// The server's recovery, at startup, of a lab left mid-operation.
     Recovery,
 }
 
 /// What holds or waits for a lab's lease.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LeaseHolder {
-    /// An operation, under the shared lease.
     Operation(Operation),
-    /// A stop, under the write lease.
     Stop(StopReason),
-    /// The scanner's observation, under the write lease.
     Scanner,
 }
 
 /// Why a lab's operations are being stopped.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StopReason {
-    /// The lab is being destroyed or cleaned.
     Destroy,
-    /// The user asked to stop the operation.
     Request,
 }
 
@@ -100,29 +94,28 @@ struct LeaseEntry {
     lock: Arc<RwLock<()>>,
 }
 
-/// A running operation on a lab. Dropping it ends the operation's lease.
+/// A running operation on a lab. Dropping it ends the operation's lease. Fields drop in
+/// declaration order, so `_lease` must stay before `entry`: the lock is then released before the
+/// entry can be removed, and a later caller cannot make a fresh lock while this guard is held.
 pub struct LabOperation {
     cancel: Cancellation,
-    // Fields drop in declaration order: the guard must be declared before the entry, so the lock
-    // is released before the entry can be removed and a later caller gets the same lock. Swapped,
-    // a new caller could make a fresh lock while the old guard is still held. No test can catch
-    // that: while a waiter exists its own count keeps the entry, and with no waiter the window
-    // lies inside one drop.
     _lease: OwnedRwLockReadGuard<()>,
     entry: LeaseEntry,
 }
 
 /// Exclusive access to a lab after its operations have stopped. Held while the lab is destroyed.
+/// `_lease` must stay before `entry` so the lock is released before the entry can be removed, as
+/// in `LabOperation`.
 pub struct StoppedLab {
     reason: StopReason,
-    // The guard must be declared before the entry: see `LabOperation`.
     _lease: OwnedRwLockWriteGuard<()>,
     entry: LeaseEntry,
 }
 
 /// The scanner's hold on a lab no operation holds. Node states are only observed under it.
+/// `_lease` must stay before `_entry` so the lock is released before the entry can be removed, as
+/// in `LabOperation`.
 pub struct ObservedLab {
-    // The guard must be declared before the entry: see `LabOperation`.
     _lease: OwnedRwLockWriteGuard<()>,
     _entry: LeaseEntry,
 }

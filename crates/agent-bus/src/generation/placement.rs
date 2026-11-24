@@ -22,7 +22,6 @@ const SOURCES: [&str; 4] = ["manual", "guest", "parsed", "brief"];
 /// A pull request, by repository and number.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct PullRequestId {
-    /// `owner/name`.
     pub repo: String,
     pub number: u64,
 }
@@ -31,20 +30,15 @@ pub struct PullRequestId {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Named {
     pub pull_request: PullRequestId,
-    /// `brief`, `guest`, `parsed` or `manual`.
     pub source: String,
-    /// The message that named it first.
     pub seq: u64,
 }
 
 /// Where a task is counted.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Placement {
-    /// The pull request whose section counts it; `None` while there is none.
     pub pull_request: Option<PullRequestId>,
-    /// Whether it named no pull request of its own and is counted on a later task's.
     pub brought_forward: bool,
-    /// Its other pull requests, whose sections point to `pull_request`.
     pub elsewhere: Vec<PullRequestId>,
 }
 

@@ -15,9 +15,7 @@ use crate::sql::{execute, query_optional};
 /// A login attempt counted against an account that was not locked when it started.
 #[derive(Debug, Clone)]
 pub struct LoginClaim {
-    /// The account, as it was when the attempt was counted.
     pub user: DbUser,
-    /// The time this attempt locked the account at, when it was the one that reached the limit.
     lock: Option<String>,
 }
 

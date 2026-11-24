@@ -22,9 +22,7 @@ use crate::services::error::ServiceError;
 /// What a model takes beyond the Sherpa username rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct LoginNameRule {
-    /// The most characters a login name has.
     max_length: usize,
-    /// Whether the name must start with a letter or a digit, so not with `_`.
     alphanumeric_first: bool,
 }
 

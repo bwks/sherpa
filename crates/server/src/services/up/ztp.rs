@@ -47,7 +47,6 @@ pub(super) struct NodeConfigs {
     pub(super) lab_ca: LabCa,
     pub(super) ztp_dir: String,
     pub(super) ztp_records: Vec<data::ZtpRecord>,
-    /// The volumes each container is created with.
     pub(super) container_volumes: HashMap<String, Vec<String>>,
     pub(super) clone_disks: Vec<data::CloneDisk>,
     pub(super) domains: Vec<template::DomainTemplate>,

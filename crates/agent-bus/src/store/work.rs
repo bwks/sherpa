@@ -27,26 +27,26 @@ use crate::store::sql::{
 /// What applying one message's facts changed.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Applied {
-    /// Refs the task had not named before.
     pub new_refs: u64,
-    /// Whether the task was put in an item.
     pub assigned: bool,
-    /// The task's item.
     pub item: i64,
 }
 
 /// What `link` did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Linked {
-    /// The task had no item and the ref named none: a new item, named by the ref.
-    Created { item: i64 },
-    /// The ref names the task's item now.
-    Named { item: i64 },
-    /// The task, which had no item, is in the ref's item.
-    Assigned { item: i64 },
-    /// The ref already named the task's item.
-    Already { item: i64 },
-    /// The task's item was merged into the ref's: its tasks, refs and host usage moved there.
+    Created {
+        item: i64,
+    },
+    Named {
+        item: i64,
+    },
+    Assigned {
+        item: i64,
+    },
+    Already {
+        item: i64,
+    },
     Merged {
         from: i64,
         into: i64,
@@ -58,13 +58,9 @@ pub enum Linked {
 /// What `work backfill` did.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Backfilled {
-    /// Outcomes without `ended` looked at.
     pub outcomes: u64,
-    /// Those whose Generation line named a ref.
     pub named: u64,
-    /// Refs tasks had not named before.
     pub new_refs: u64,
-    /// Tasks put in an item.
     pub assigned: u64,
 }
 

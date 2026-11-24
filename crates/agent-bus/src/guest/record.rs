@@ -19,11 +19,8 @@ const FILE_NAME: &str = "results.jsonl";
 struct Entry<'a> {
     task: &'a str,
     session: &'a str,
-    /// The run within the task: 1 is the first, 2 and up are the runs that answer.
     run: u32,
-    /// When the line was recorded, in milliseconds since the Unix epoch. Pruning reads it.
     at_ms: u64,
-    /// The event line, unchanged.
     raw: &'a str,
 }
 

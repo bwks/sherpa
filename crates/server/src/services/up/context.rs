@@ -18,7 +18,6 @@ pub(super) struct LabBuild<'a> {
     pub(super) db: &'a Database,
     pub(super) docker_conn: &'a Arc<Docker>,
     pub(super) qemu_conn: &'a Arc<QemuConnection>,
-    /// Where `qemu_conn` came from: what the P2p link host opens its own connections with.
     pub(super) qemu: &'a Arc<Qemu>,
     pub(super) config: &'a Config,
     pub(super) progress: &'a ProgressSender,

@@ -70,7 +70,6 @@ pub struct LabIdentity {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LabInfo {
-    /// Personal SSH accounts actually provisioned for lab nodes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ssh_usernames: Vec<NodeSshUsername>,
     pub id: String,
@@ -91,14 +90,10 @@ pub struct LabInfo {
     #[serde(default)]
     #[schemars(with = "Option<String>")]
     pub ipv6_router: Option<Ipv6Addr>,
-    /// The lab's description, from its manifest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// The hostname of the machine `sherpa up` ran on. Labs started from the web UI or the API
-    /// have none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_host: Option<String>,
-    /// The folder `sherpa up` ran in, on that machine.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_folder: Option<String>,
 }
@@ -172,9 +167,7 @@ pub struct LabLinkData {
     pub node_b: DbNode,
     pub int_a: String,
     pub int_b: String,
-    /// Tap device name for `node_a` side (P2p links only).
     pub tap_a: String,
-    /// Tap device name for `node_b` side (P2p links only).
     pub tap_b: String,
 }
 
@@ -198,20 +191,12 @@ pub struct LabReservedNetwork {
 )]
 #[serde(rename_all = "lowercase")]
 pub enum LabState {
-    /// All nodes are running
     Running,
-    /// All nodes are stopped
     Stopped,
-    /// Mix of running, stopped, or other states
     Partial,
-    /// At least one node is being built or starting, none failed or missing
     Starting,
-    /// At least one node has failed or is missing
     Failed,
-    /// Lab has no nodes
     Empty,
-    /// Status cannot be determined, or one this build does not know, such as one sent by a
-    /// newer server.
     #[default]
     #[serde(other)]
     Unknown,
@@ -271,22 +256,14 @@ impl fmt::Display for LabState {
 /// Summary information about a lab for list views
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct LabSummary {
-    /// Lab ID (business key)
     pub id: String,
-    /// Human-readable lab name
     pub name: String,
-    /// The lab's description, from its manifest
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// Number of nodes in the lab
     pub node_count: usize,
-    /// The lab's status, derived from its nodes
     pub status: LabState,
-    /// Which operation owns the lab, if any. While it is not `ready`, the phase is what to
-    /// show instead of the status.
     #[serde(default)]
     pub phase: LabPhase,
-    /// Whether the lab has a Tailscale gateway, which only `sherpa resume` reconnects.
     #[serde(default)]
     pub tailnet_gateway: bool,
 }
@@ -294,9 +271,7 @@ pub struct LabSummary {
 /// Response for listing labs
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListLabsResponse {
-    /// List of lab summaries
     pub labs: Vec<LabSummary>,
-    /// Total number of labs
     pub total: usize,
 }
 

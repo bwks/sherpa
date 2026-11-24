@@ -18,23 +18,14 @@ const REFERENCE_LENGTH: usize = 8;
 /// A service refused a request for a reason the caller can act on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServiceError {
-    /// The resource does not exist.
     NotFound(String),
-    /// The caller is authenticated but not allowed to perform the operation.
     Denied(String),
-    /// The caller is allowed, but the current state forbids the operation, for example
-    /// deleting a user who still owns labs.
     Conflict(String),
-    /// The request itself is malformed, for example a lab ID that is not a lab ID.
     Invalid(String),
-    /// The VMs and unikernels the operation would start do not fit in the server's memory now.
-    /// Nothing was started; the same request can succeed once other nodes stop.
     InsufficientMemory {
         message: String,
         shortfall: MemoryShortfall,
     },
-    /// Host CPUs the operation would pin are held by another node, stored or being started.
-    /// Nothing was started; the same request can succeed once that node lets them go.
     CpuPinsHeld {
         message: String,
         conflict: CpuPinConflict,

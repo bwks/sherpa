@@ -16,11 +16,8 @@ use crate::ws_client::{WebSocketClient, messages::RpcRequest};
 /// What the server said when asked to end the session.
 #[derive(Debug)]
 enum ServerLogout {
-    /// The session was active and has ended.
     Ended,
-    /// The session had already ended or expired.
     AlreadyEnded,
-    /// The server could not be asked, or failed; the session may still be active.
     Failed(anyhow::Error),
 }
 

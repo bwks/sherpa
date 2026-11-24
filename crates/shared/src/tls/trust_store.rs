@@ -26,11 +26,9 @@ pub struct TrustStore {
 #[derive(Debug, Clone)]
 pub struct CertificateInfo {
     pub server_url: String,
-    /// The SHA-256 key pin of the certificate's public key, which the CLI trusts.
     pub key_pin: String,
     pub subject: String,
     pub issuer: String,
-    /// Whether the certificate names itself as its issuer.
     pub self_signed: bool,
     pub valid_from: String,
     pub valid_to: String,

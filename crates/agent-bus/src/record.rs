@@ -74,29 +74,23 @@ pub struct BusAccess {
 /// What catching up read from the bus.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Tally {
-    /// Messages recorded.
     pub recorded: u64,
-    /// Messages acknowledged without recording: their sender is not their subject's.
     pub foreign_sender: u64,
-    /// Messages acknowledged without recording: they are not agent messages.
     pub not_messages: u64,
 }
 
 /// How catching up went.
 #[derive(Debug)]
 pub enum CatchUp {
-    /// The record took everything waiting on the bus, and is current.
     Read(Tally),
-    /// The record could not be caught up; it holds what was recorded before.
     Failed(Error),
-    /// The record was not caught up on purpose: the command before did it.
     Skipped,
 }
 
 /// The record, open and caught up for one command. Dropping it closes the record, then
-/// releases the lock.
+/// releases the lock. Fields drop in declaration order, so they must stay in this order for the
+/// connection and the database to close before the lock is released.
 pub struct Record {
-    // Fields drop in order: the connection and the database close before the lock is released.
     conn: Connection,
     _store: Store,
     _lock: FileLock,

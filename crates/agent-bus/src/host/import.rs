@@ -42,30 +42,20 @@ const MAX_DEPTH: usize = 3;
 /// What to import.
 #[derive(Debug, Clone)]
 pub struct Options {
-    /// Claude Code's directory of the host's project, under `~/.claude/projects/`.
     pub project: PathBuf,
-    /// Read every file from the start again.
     pub rescan: bool,
-    /// Price the responses that have no cost and have a rate now.
     pub reprice: bool,
 }
 
 /// What an import did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Imported {
-    /// Transcripts found.
     pub files: u64,
-    /// Transcripts opened: new or grown.
     pub read: u64,
-    /// Responses new to the record.
     pub responses: u64,
-    /// Complete lines that did not parse.
     pub skipped: u64,
-    /// Responses priced by `--reprice`.
     pub priced: u64,
-    /// Responses whose item changed.
     pub attributed: u64,
-    /// Lines are imported from this time on.
     pub installed_at_ms: u64,
 }
 

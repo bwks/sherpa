@@ -50,18 +50,14 @@ const FROZEN: [&str; 2] = ["MERGED", "CLOSED"];
 /// The GitHub CLI and the token it runs with. No `Debug`: it holds the token.
 pub struct Github {
     pub gh: String,
-    /// `GH_TOKEN`; `None` leaves every write pending.
     pub token: Option<String>,
 }
 
 /// Which pull requests a sync looks at.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Scope {
-    /// Those written before, and those whose item was active since the first sync.
     Due,
-    /// Every pull request that names an item.
     All,
-    /// This one only.
     One { repo: String, number: u64 },
 }
 
@@ -69,44 +65,28 @@ pub enum Scope {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
     pub scope: Scope,
-    /// Write at once, without the debounce of the host's rows.
     pub force: bool,
-    /// Rewrite the section of a merged or closed pull request (`--pr N --frozen`), which is
-    /// otherwise left as its final write made it.
     pub frozen: bool,
-    /// The host's repository (`AGENT_BUS_REPO`): its pull request counts a task that named one
-    /// in it and one in another repository.
     pub home_repo: Option<String>,
 }
 
 /// What happened to one pull request's section.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
-    /// Written, or found already as it should be, in a pull request in this state.
     Written { state: String },
-    /// The text is what was last written: no `gh` call.
     Unchanged,
-    /// Only the host's rows changed, and the last write is less than `DEBOUNCE` ago.
     Debounced,
-    /// The pull request was merged or closed, and has had its last write.
     Frozen,
-    /// Due, but there is no `GH_TOKEN` to write with.
     Pending,
-    /// The last attempt failed less than `DEBOUNCE` ago: tried again after it, or when forced.
     Backoff(String),
-    /// Not written: why.
     Failed(String),
 }
 
 /// What one sync did.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Synced {
-    /// Each pull request looked at, with what happened to it.
     pub outcomes: Vec<(String, u64, Outcome)>,
-    /// The pull requests whose body has a Generation heading or table written by hand outside
-    /// the markers.
     pub hand_written: Vec<(String, u64)>,
-    /// Why the outcomes could not be kept in the record: the next sync tries them again.
     pub unsaved: Option<String>,
 }
 
@@ -114,10 +94,7 @@ pub struct Synced {
 struct Due {
     prior: LastWrite,
     rows: Rows,
-    /// When the first sync ran, for an automatic sync: a pull request never written that was
-    /// merged or closed before it is frozen as it is. `None` for `--pr` and `--all`.
     since_ms: Option<u64>,
-    /// Whether a frozen section is rewritten (`--frozen`).
     frozen: bool,
 }
 
@@ -136,7 +113,6 @@ enum Decision {
 struct View {
     body: String,
     state: String,
-    /// When it was merged or closed; `None` while it is open.
     #[serde(default, rename = "closedAt")]
     closed_at: Option<Timestamp>,
 }

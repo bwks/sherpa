@@ -12,7 +12,6 @@ const BACKUP_HEADERS: [&str; 2] = ["Backup", "Details"];
 pub struct CertificateTableInfo {
     pub server: String,
     pub subject: String,
-    /// The SHA-256 key pin of the trusted certificate's public key.
     pub key_pin: String,
 }
 

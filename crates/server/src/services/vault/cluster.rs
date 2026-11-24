@@ -20,9 +20,7 @@ const WORKLOAD_TOKEN_TTL: &str = "1h";
 #[derive(Debug)]
 pub struct ClusterAccess<'a> {
     pub cluster_name: &'a str,
-    /// The cluster's service account token issuer, its API endpoint URL.
     pub issuer: &'a str,
-    /// Public key (PEM) the cluster signs service account tokens with.
     pub service_account_public_key: &'a str,
 }
 

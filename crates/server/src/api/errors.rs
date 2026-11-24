@@ -12,39 +12,37 @@ use crate::services::error::{ServiceError, Unexpected, caller_message};
 /// Structured API error with consistent JSON format
 #[derive(Debug)]
 pub enum ApiError {
-    /// 401 Unauthorized - Missing or invalid authentication
-    Unauthorized { message: String },
+    Unauthorized {
+        message: String,
+    },
 
-    /// 403 Forbidden - Valid auth but insufficient permissions
-    Forbidden { message: String },
+    Forbidden {
+        message: String,
+    },
 
-    /// 404 Not Found - Resource doesn't exist
-    NotFound { resource: String, message: String },
+    NotFound {
+        resource: String,
+        message: String,
+    },
 
-    /// 400 Bad Request - Invalid input
-    BadRequest { message: String },
+    BadRequest {
+        message: String,
+    },
 
-    /// 409 Conflict - Allowed, but the current state forbids the operation
-    Conflict { message: String },
+    Conflict {
+        message: String,
+    },
 
-    /// 507 Insufficient Storage - The nodes to start do not fit in the server's memory now.
-    /// Its own status, so a client can tell it from a conflict and retry later; not 503, which
-    /// proxies and monitors read as the server being down.
     InsufficientMemory {
         message: String,
         shortfall: MemoryShortfall,
     },
 
-    /// 409 Conflict - Host CPUs the nodes to start would pin are held by another node. A
-    /// conflict with its own `code`, so a client can tell it from other conflicts and retry
-    /// once the CPUs are let go.
     CpuPinsHeld {
         message: String,
         conflict: CpuPinConflict,
     },
 
-    /// 500 Internal Server Error - An error of no known kind, which the server has logged with
-    /// its chain. The caller is told only its reference.
     InternalError(Unexpected),
 }
 
@@ -59,8 +57,6 @@ struct ErrorDetail {
     message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     details: Option<String>,
-    /// Structured detail for codes that define it: the `MemoryShortfall` of
-    /// `INSUFFICIENT_MEMORY` and the `CpuPinConflict` of `CPU_PINS_HELD`.
     #[serde(skip_serializing_if = "Option::is_none")]
     data: Option<Value>,
 }

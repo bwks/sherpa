@@ -26,13 +26,9 @@ const SECONDS_PER_DAY: u64 = 24 * 60 * 60;
 /// stale prefix, so the base is rebuilt.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct Inputs {
-    /// Hash of the rules text.
     rules: u64,
-    /// Hash of AGENTS.md, or `None` when the checkout has none.
     agents: Option<u64>,
-    /// The model: a fork keeps its base's model, so another model needs its own base.
     model: String,
-    /// The day (UTC, days since the epoch): the date is in Claude's context.
     day: u64,
 }
 
@@ -68,19 +64,12 @@ impl Inputs {
 /// A primed base session.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(super) struct Base {
-    /// The rules variant: whether the base allows GitHub.
     pub(super) github: bool,
-    /// The model it runs on. Empty in a state file from before bases were kept per model; such
-    /// a base matches no model and is replaced.
     #[serde(default)]
     pub(super) model: String,
     pub(super) session: String,
-    /// The digest of the inputs it was primed from.
     pub(super) inputs: String,
-    /// When it was primed, in milliseconds since the Unix epoch.
     pub(super) primed_at_ms: u64,
-    /// When it was primed or last forked, in milliseconds since the Unix epoch: each use
-    /// refreshes the cached prefix.
     pub(super) last_used_ms: u64,
 }
 

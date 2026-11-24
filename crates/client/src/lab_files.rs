@@ -67,8 +67,6 @@ impl<'a> From<&'a DownloadLabResponse> for LabFiles<'a> {
 pub(crate) struct LabFile {
     pub path: PathBuf,
     pub content: String,
-    /// What the file holds when it is a secret, readable by the user alone, as the error names
-    /// it; `None` for a file written as the user's other files are.
     pub secret: Option<&'static str>,
 }
 

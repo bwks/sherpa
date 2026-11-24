@@ -33,7 +33,6 @@ use crate::tls::lab_ca;
 struct ScannedNode<'a> {
     node: &'a DbNode,
     kind: NodeKind,
-    /// The model of its image, or `None` when the image was not found.
     model: Option<NodeModel>,
     runtime_name: String,
 }
@@ -42,7 +41,6 @@ struct ScannedNode<'a> {
 struct VaultCheck {
     node_name: String,
     client: VaultClient,
-    /// Where its credentials are saved.
     dir: PathBuf,
     status: SealStatus,
 }
