@@ -1,11 +1,14 @@
 use anyhow::{Context, Result, bail, ensure};
 use bollard::Docker;
-use bollard::query_parameters::{InspectContainerOptions, ListNetworksOptions};
+use bollard::models::{Ipam, IpamConfig, NetworkCreateRequest};
+use bollard::query_parameters::{
+    InspectContainerOptions, InspectNetworkOptions, ListNetworksOptions,
+};
 use bollard::secret::ContainerStateStatusEnum;
 use db::DefaultRequest;
 use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Secret, Session};
 use reqwest::{Client, StatusCode};
-use serde_json::json;
+use serde_json::{Value, json};
 use shared::data::{
     ContainerNetworkAttachment, ContainerSettings, DbUser, KindSettings, LabNodeActionResponse,
     LabPhase, LabState, ModelKind, NodeConfig, NodeKind, NodeModel, NodeState, ZtpSettings,
@@ -13,8 +16,10 @@ use shared::data::{
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
+use std::path::Path;
+use std::process;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -2308,4 +2313,160 @@ async fn lab_cancel_007_a_cancelled_redeploy_says_so_fails_its_node_and_leaves_t
     .await;
     let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
     with_cleanup(checks, cleanup)
+}
+
+// ── A Docker management network that is already there ──
+
+const FOREIGN_MANAGEMENT_SUBNET: &str = "192.168.239.0/24";
+
+async fn create_foreign_management_network(docker: &Docker, lab_name: &str) -> Result<String> {
+    let name = format!("sherpa-management-{lab_name}");
+    let _ = docker.remove_network(&name).await;
+    let created = docker
+        .create_network(NetworkCreateRequest {
+            name,
+            driver: Some("bridge".to_owned()),
+            options: Some(HashMap::from([(
+                "com.docker.network.bridge.name".to_owned(),
+                format!("st-{lab_name}"),
+            )])),
+            ipam: Some(Ipam {
+                config: Some(vec![IpamConfig {
+                    subnet: Some(FOREIGN_MANAGEMENT_SUBNET.to_owned()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .await?;
+    Ok(created.id)
+}
+
+async fn up_over_a_foreign_management_network(
+    server: &TestServer,
+    ws: &mut TestWsClient,
+    token: &str,
+    lab_name: &str,
+) -> Result<Value> {
+    register_alpine(server).await?;
+    let manifest = json!({
+        "name": lab_name,
+        "nodes": [
+            { "name": "box1", "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] } },
+        ]
+    });
+    let (_statuses, response) = ws
+        .rpc_call_streaming(
+            "up",
+            json!({ "token": token, "lab_id": lab_name, "manifest": manifest }),
+            Duration::from_secs(180),
+        )
+        .await?;
+    Ok(response)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker, libvirt and host network administration rights (CAP_NET_ADMIN)"]
+async fn management_network_009_a_docker_management_network_that_is_not_the_labs_refuses_the_up_before_anything_is_created()
+-> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_lab_admin(&server).await?;
+    let docker = Docker::connect_with_local_defaults()?;
+    let lab_name = format!("tm{:06}", process::id() % 1_000_000);
+    let network = format!("sherpa-management-{lab_name}");
+    create_foreign_management_network(&docker, &lab_name).await?;
+
+    let checks: Result<()> = async {
+        let response =
+            up_over_a_foreign_management_network(&server, &mut ws, &token, &lab_name).await?;
+        let error = response
+            .get("error")
+            .with_context(|| format!("the up was not refused: {response}"))?
+            .to_string();
+        for expected in [
+            network.as_str(),
+            FOREIGN_MANAGEMENT_SUBNET,
+            &format!("bridge is st-{lab_name}"),
+        ] {
+            ensure!(error.contains(expected), "{expected} missing from: {error}");
+        }
+        ensure!(
+            libvirt_leftovers(&lab_name)?.is_empty(),
+            "the refused up made libvirt resources"
+        );
+        ensure!(
+            docker
+                .inspect_container(&format!("box1-{lab_name}"), None::<InspectContainerOptions>)
+                .await
+                .is_err(),
+            "the refused up made a container"
+        );
+        ensure!(
+            !Path::new(&format!("{SHERPA_LABS_PATH}/{lab_name}")).exists(),
+            "the refused up made the lab folder"
+        );
+        ensure!(
+            db::find_lab(&server.db, &lab_name).await?.is_none(),
+            "the refused up kept the lab record"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    let removed = docker
+        .remove_network(&network)
+        .await
+        .map_err(anyhow::Error::from);
+    with_cleanup(checks, cleanup.and(removed))
+}
+
+#[tokio::test]
+#[ignore = "requires Docker, libvirt and host network administration rights (CAP_NET_ADMIN)"]
+async fn management_network_010_a_docker_management_network_that_refused_an_up_is_left_as_it_was()
+-> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_lab_admin(&server).await?;
+    let docker = Docker::connect_with_local_defaults()?;
+    let lab_name = format!("tn{:06}", process::id() % 1_000_000);
+    let network = format!("sherpa-management-{lab_name}");
+    let id = create_foreign_management_network(&docker, &lab_name).await?;
+
+    let checks: Result<()> = async {
+        let response =
+            up_over_a_foreign_management_network(&server, &mut ws, &token, &lab_name).await?;
+        ensure!(
+            response["error"].to_string().contains("is not the lab's"),
+            "the up was not refused for the network: {response}"
+        );
+        let kept = docker
+            .inspect_network(&network, None::<InspectNetworkOptions>)
+            .await
+            .context("the refused up removed the network")?;
+        ensure!(
+            kept.id.as_deref() == Some(id.as_str()),
+            "the network was made again"
+        );
+        let subnets: Vec<_> = kept
+            .ipam
+            .and_then(|ipam| ipam.config)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|config| config.subnet)
+            .collect();
+        ensure!(
+            subnets == [FOREIGN_MANAGEMENT_SUBNET],
+            "the network's subnets changed: {subnets:?}"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    let removed = docker
+        .remove_network(&network)
+        .await
+        .map_err(anyhow::Error::from);
+    with_cleanup(checks, cleanup.and(removed))
 }

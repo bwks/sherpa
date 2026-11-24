@@ -14,9 +14,9 @@ use tracing::instrument;
 use super::context::LabBuild;
 use super::links::{LinkRecords, P2pAttachment, attach_vm_links, create_links};
 use super::networks::{
-    ReservedLab, container_data_attachments, create_isolated_container_networks,
-    create_management_networks, create_shared_bridges, lab_id_taken, management_network,
-    reserve_lab, set_isolated_bridges_down,
+    ReservedLab, check_existing_docker_management_network, container_data_attachments,
+    create_isolated_container_networks, create_management_networks, create_shared_bridges,
+    lab_id_taken, management_network, reserve_lab, set_isolated_bridges_down,
 };
 use super::plan::{CheckedNodes, LabPlan, check_node_images, plan_lab};
 use super::readiness::{NodesReady, ReadinessInputs, wait_for_nodes};
@@ -187,10 +187,6 @@ pub async fn up_lab(
     // ========================================================================
     // PHASE 2: Manifest Validation
     // ========================================================================
-    let _ = progress.send_phase(
-        data::UpPhase::ManifestValidation,
-        "Validating manifest structure".to_string(),
-    );
     let build = LabBuild {
         lab_id: &lab_id,
         lab_dir: &lab_dir,
@@ -201,7 +197,10 @@ pub async fn up_lab(
         config: &state.config,
         progress: &progress,
     };
-    let mut plan = validate(&build, ctx, &operation, &manifest, owner, checked).await?;
+    let mut plan = validate(
+        &build, ctx, &operation, &manifest, owner, checked, &reserved,
+    )
+    .await?;
     // Held until `up` returns: the containers start during readiness polling.
     let _container_image_guards = mem::take(&mut plan.container_image_guards);
 
@@ -229,13 +228,14 @@ pub async fn up_lab(
         &[KeyValue::new("operation.type", "up")],
     );
     if let Err(error) = &result {
-        roll_back_failed_up(state, &operation, &progress, error).await;
+        Box::pin(roll_back_failed_up(state, &operation, &progress, error)).await;
     }
     result
 }
 
 /// Validation (phase 2): plan the lab, and refuse to start over an earlier attempt's disks or
-/// VMs. Nothing has been created yet, so a failure gives the reservation back.
+/// VMs, or over a Docker management network of the lab's name that is not the lab's. Nothing has
+/// been created yet, so a failure gives the reservation back.
 async fn validate(
     build: &LabBuild<'_>,
     requester: &AuthContext,
@@ -243,13 +243,21 @@ async fn validate(
     manifest: &topology::Manifest,
     owner_account: GuestAccount,
     checked: CheckedNodes,
+    reserved: &ReservedLab,
 ) -> Result<LabPlan> {
-    let planned = plan_lab(build, requester, manifest, owner_account, checked)
-        .await
-        .and_then(|plan| {
-            ensure_no_earlier_attempt(build.qemu_conn, build.lab_id, &plan.selected_images)?;
-            Ok(plan)
-        });
+    let _ = build.progress.send_phase(
+        data::UpPhase::ManifestValidation,
+        "Validating manifest structure".to_string(),
+    );
+    let planned = plan_and_check(
+        build,
+        requester,
+        manifest,
+        owner_account,
+        checked,
+        &reserved.subnets,
+    )
+    .await;
     if planned.is_err()
         && let Err(error) = lab_lifecycle::record(build.db, operation, LabEvent::Released).await
     {
@@ -394,6 +402,21 @@ async fn set_up(
         checked,
         reserved,
     })
+}
+
+/// Plan the lab and run the checks that must pass before anything is created.
+async fn plan_and_check(
+    build: &LabBuild<'_>,
+    requester: &AuthContext,
+    manifest: &topology::Manifest,
+    owner_account: GuestAccount,
+    checked: CheckedNodes,
+    subnets: &LabSubnets,
+) -> Result<LabPlan> {
+    let plan = plan_lab(build, requester, manifest, owner_account, checked).await?;
+    ensure_no_earlier_attempt(build.qemu_conn, build.lab_id, &plan.selected_images)?;
+    check_existing_docker_management_network(build.docker_conn, build.lab_id, subnets).await?;
+    Ok(plan)
 }
 
 /// Refuse to start while disks or VMs of an earlier attempt with this lab ID remain: a startup

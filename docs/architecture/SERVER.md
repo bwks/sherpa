@@ -20,6 +20,18 @@ key would open nothing sealed. Before anything takes requests, `lab_lifecycle::r
 the last run left mid-way, shared CPU pins are logged and stopped domains' consoles move to their
 sockets; then the scanner and the session sweeper start.
 
+### A Docker management network that is already there
+
+The lab's Docker management network, `sherpa-management-<lab_id>`, is named from the lab ID, so a
+network an earlier lab of the same name left can be there. During validation, before anything
+is created, `up::networks::check_existing_docker_management_network` inspects it with
+`container::inspect_existing_bridge_network`: one with the lab's subnets, gateways and bridge is
+reused, and one that differs refuses the `up` with a conflict naming it and each difference. The
+check must come before any resource, since a failed `up`'s rollback removes every Docker network
+named for the lab. `container::create_docker_bridge_network` makes the same comparison when Docker
+answers 409, for a network that appears in between. Nothing removes a network that differs. The
+cases are `links-and-bridges.md`, `management_network`.
+
 ### The server process and its PID file
 
 `sherpad start` runs one server per host. The server takes an exclusive `flock` on
