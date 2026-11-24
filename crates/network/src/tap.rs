@@ -9,7 +9,7 @@ use rtnetlink::{Error, Handle};
 use shared::konst::{MTU_JUMBO_NET, NETNS_VETH_INDEX_ATTEMPTS};
 use tracing::instrument;
 
-use crate::linux::{find_link_index, get_link_index, set_link_properties, setup_netlink};
+use crate::linux::{find_link_index, get_link_index, setup_netlink};
 
 /// How the two ends of a veth into a container come up.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,38 +21,6 @@ pub enum NetnsVethState {
     /// The container end up and the host end down: a disabled interface that the container
     /// sees up, with no carrier. For images that wait until every interface is up.
     DisabledUp,
-}
-
-/// Create a persistent tap device.
-///
-/// The tap device is created in UP state with jumbo MTU.
-/// It can be used by libvirt via `<interface type='ethernet'><target dev='name'/>`
-/// or by eBPF programs for packet redirection.
-///
-/// # Errors
-///
-/// Fails when netlink cannot create the device or set it up.
-#[instrument(fields(%name, %alias_name))]
-pub async fn create_tap(name: &str, alias_name: &str) -> Result<()> {
-    let handle = setup_netlink().await?;
-
-    let mut msg = LinkMessage::default();
-    msg.attributes.push(LinkAttribute::IfName(name.to_string()));
-    msg.attributes
-        .push(LinkAttribute::LinkInfo(vec![LinkInfo::Kind(InfoKind::Tun)]));
-
-    tracing::info!(tap_name = %name, alias = %alias_name, "creating tap device");
-    handle
-        .link()
-        .add(msg)
-        .execute()
-        .await
-        .context(format!("failed to create tap device: {name}"))?;
-
-    let idx = get_link_index(&handle, name).await?;
-    set_link_properties(&handle, name, idx, alias_name, u32::from(MTU_JUMBO_NET)).await?;
-
-    Ok(())
 }
 
 /// Create a veth pair whose far end is created straight into the network namespace of `pid`

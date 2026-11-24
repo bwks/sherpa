@@ -22,10 +22,9 @@ use shared::validators::{effective_data_interface_count, effective_ztp};
 use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
-    check_no_p2p_field, check_node_file_settings, check_node_kind_settings, check_node_model_kind,
-    check_node_names, check_nonzero_node_settings, check_ptx_platform, check_text_file_modes,
-    check_vm_tuning, check_windows_startup_script_names, validate_environment_variables,
-    validate_talos_clusters,
+    check_node_file_settings, check_node_kind_settings, check_node_model_kind, check_node_names,
+    check_nonzero_node_settings, check_ptx_platform, check_text_file_modes, check_vm_tuning,
+    check_windows_startup_script_names, validate_environment_variables, validate_talos_clusters,
 };
 use topology::{process_manifest_bridges, process_manifest_links};
 
@@ -406,8 +405,6 @@ fn process_links(
     nodes_expanded: &[topology::NodeExpanded],
     lab_id: &str,
 ) -> Result<(Vec<topology::LinkDetailed>, Vec<topology::BridgeDetailed>)> {
-    check_no_p2p_field(manifest.links.as_deref().unwrap_or_default())
-        .context("Link validation failed")?;
     check_link_impairments(manifest.links.as_deref().unwrap_or_default())
         .context("Link validation failed")?;
     check_text_file_modes(&manifest.nodes).context("Text file validation failed")?;

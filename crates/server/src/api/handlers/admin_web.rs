@@ -408,7 +408,7 @@ pub async fn admin_delete_ssh_key_handler(
 /// DELETE `/admin/users/{username}`
 ///
 /// On success the response is empty and HTMX removes the user's table row. A refused delete
-/// (self-delete, last admin, or a user who owns labs) is shown in the page's
+/// (self-delete, the built-in admin, or a user who owns labs) is shown in the page's
 /// `#user-delete-error` notification instead, using `HX-Retarget`.
 #[tracing::instrument(skip(state, admin), fields(admin = %admin.username, %target_username))]
 pub async fn admin_delete_user_handler(

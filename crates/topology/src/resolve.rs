@@ -127,7 +127,6 @@ mod tests {
         Link2 {
             src: src.to_string(),
             dst: dst.to_string(),
-            p2p: None,
             impairment: None,
         }
     }

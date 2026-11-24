@@ -29,10 +29,7 @@ pub use client_files::check_client_read_files;
 pub use description::check_lab_description;
 pub use device::{check_device_count, check_duplicate_device};
 pub use environment::validate_environment_variables;
-pub use link::{
-    check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
-    check_no_p2p_field,
-};
+pub use link::{check_duplicate_interface_link, check_interface_bounds, check_link_impairments};
 pub use names::{check_lab_name, check_node_names};
 pub use node_kind::{check_node_file_settings, check_node_kind_settings, check_node_model_kind};
 pub use nonzero::{check_nonzero_node_settings, check_ready_timeout};
