@@ -1059,6 +1059,7 @@ dependencies = [
  "bollard",
  "futures-util",
  "shared",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tracing",

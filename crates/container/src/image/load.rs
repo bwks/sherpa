@@ -9,6 +9,8 @@ use tokio::fs::File;
 use tokio_util::codec::{BytesCodec, FramedRead};
 use tracing::instrument;
 
+use crate::error::ContainerError;
+
 /// Load a container image from a tar archive into the Docker daemon.
 ///
 /// Equivalent to `docker load -i <src>`. Accepts both `.tar` and `.tar.gz`
@@ -79,7 +81,11 @@ fn check_read(read_error: &Mutex<Option<io::Error>>, src: &str) -> Result<()> {
         .unwrap_or_else(PoisonError::into_inner)
         .take();
     match error {
-        Some(error) => Err(error).with_context(|| format!("Failed to read image archive {src}")),
+        Some(source) => Err(ContainerError::ImageArchiveRead {
+            path: src.to_owned(),
+            source,
+        }
+        .into()),
         None => Ok(()),
     }
 }
