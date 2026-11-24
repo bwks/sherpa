@@ -299,12 +299,18 @@ pub async fn redeploy_node_json(
         .filter(|value| !value.is_null())
         .cloned();
 
+    let file_contents = payload
+        .get("file_contents")
+        .filter(|value| !value.is_null())
+        .cloned();
+
     let request = RedeployRequest {
         lab_id,
         node_name,
         manifest,
         secrets,
         as_written,
+        file_contents,
     };
 
     let (progress_tx, progress_rx) = mpsc::unbounded_channel();

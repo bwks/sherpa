@@ -33,6 +33,8 @@ pub struct UpRequest {
     /// stores them; without them (an older client) it stores none of those fields.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_written: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_contents: Option<serde_json::Value>,
 }
 
 /// Response type for lab startup operation

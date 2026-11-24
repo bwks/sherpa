@@ -14,10 +14,7 @@ pub fn check_duplicate_device(devices: &[Node]) -> Result<()> {
     let mut names = HashSet::new();
     for device in devices {
         if !names.insert(device.name.as_str()) {
-            bail!(
-                "Manifest - device: '{}' defined more than once",
-                device.name
-            );
+            bail!("Manifest - node: '{}' defined more than once", device.name);
         }
     }
     Ok(())
@@ -61,7 +58,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("Manifest - device: 'router1' defined more than once")
+                .contains("Manifest - node: 'router1' defined more than once")
         );
     }
 

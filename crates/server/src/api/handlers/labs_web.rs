@@ -256,6 +256,7 @@ pub async fn node_redeploy_handler(
         manifest,
         secrets: None,
         as_written: None,
+        file_contents: None,
     };
 
     let progress = ProgressSender::new(mpsc::unbounded_channel().0);
@@ -971,6 +972,7 @@ pub async fn lab_create_post_handler(
         client_host: None,
         client_folder: None,
         as_written,
+        file_contents: None,
     };
 
     let job_id = uuid::Uuid::new_v4().to_string();

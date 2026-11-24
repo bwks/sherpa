@@ -22,9 +22,8 @@ use super::plan::{CheckedNodes, LabPlan, check_node_images, plan_lab};
 use super::readiness::{NodesReady, ReadinessInputs, wait_for_nodes};
 use super::records::{NodeRecords, create_node_records, store_ssh_usernames};
 use super::runtime::{create_unikernels, create_vms};
-use super::services::{LabServices, ServiceInputs, start_lab_services};
+use super::services::{LabServices, ServiceInputs, record_ready_workers, start_lab_services};
 use super::ztp::{ConfigInputs, NodeConfigs, configure_nodes, start_boot_container};
-use crate::api::request_parse::parse_value;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_host_access, require_lab_starter};
 use crate::daemon::state::AppState;
@@ -133,6 +132,7 @@ pub async fn up_lab(
         client_host,
         client_folder,
         as_written,
+        file_contents,
     } = request;
     require_lab_starter(ctx)?;
     let CheckedManifest {
@@ -141,6 +141,7 @@ pub async fn up_lab(
     } = check_up_request(
         ctx,
         &manifest,
+        file_contents.as_ref(),
         as_written.as_ref(),
         &node_secrets,
         client_host.as_deref(),
@@ -273,13 +274,13 @@ struct CheckedManifest {
 fn check_up_request(
     ctx: &AuthContext,
     manifest: &serde_json::Value,
+    file_contents: Option<&serde_json::Value>,
     as_written: Option<&serde_json::Value>,
     node_secrets: &BTreeMap<String, Vec<data::SecretFile>>,
     client_host: Option<&str>,
     client_folder: Option<&str>,
 ) -> Result<CheckedManifest> {
-    let manifest: topology::Manifest = parse_value(manifest)
-        .context("Failed to deserialize manifest")
+    let manifest = lab_definition::parse_manifest(manifest, file_contents)
         .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     check_lab_name(&manifest.name)
         .context("Manifest validation failed: lab name")
@@ -756,7 +757,7 @@ impl LabUp<'_> {
         )?;
         let talos_clusters = self.manifest.talos_clusters.as_deref().unwrap_or_default();
         let NodesReady {
-            nodes,
+            mut nodes,
             errors: readiness_errors,
         } = wait_for_nodes(
             &self.build,
@@ -788,6 +789,7 @@ impl LabUp<'_> {
 
         let LabServices {
             clusters,
+            ready_workers,
             keycloaks,
             vaults,
             errors: service_errors,
@@ -804,6 +806,14 @@ impl LabUp<'_> {
         )
         .await?;
         self.errors.extend(service_errors);
+        record_ready_workers(
+            self.build.db,
+            self.operation,
+            &records.lab_node_data,
+            &ready_workers,
+            &mut nodes,
+        )
+        .await?;
         // The root users the lab's SurrealDB nodes were created with.
         let surreal_dbs = surreal_db::read_surreal_db_credentials(&surreal_db::surreal_db_dir(
             self.build.lab_id,
@@ -967,7 +977,8 @@ mod tests {
             "name": "core",
             "nodes": [{ "name": "r1", "model": "hunter2-s3cret" }],
         });
-        let Err(error) = check_up_request(&ctx, &manifest, None, &BTreeMap::new(), None, None)
+        let Err(error) =
+            check_up_request(&ctx, &manifest, None, None, &BTreeMap::new(), None, None)
         else {
             panic!("parsed");
         };

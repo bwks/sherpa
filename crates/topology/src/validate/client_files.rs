@@ -10,8 +10,8 @@ use crate::Node;
 ///
 /// # Errors
 ///
-/// Fails when a node lists files the client did not send, or sends a systemd unit whose name
-/// is not a plain file name.
+/// Fails when a node lists files the client did not send, or sends a systemd unit or startup
+/// script whose name is not a plain file name.
 pub fn check_client_read_files(nodes: &[Node]) -> Result<()> {
     for node in nodes {
         let lists = [
@@ -43,6 +43,9 @@ pub fn check_client_read_files(nodes: &[Node]) -> Result<()> {
         for unit in node.systemd_units_data.iter().flatten() {
             check_file_name(&node.name, &unit.name)?;
         }
+        for script in node.startup_scripts_data.iter().flatten() {
+            check_file_name(&node.name, &script.filename)?;
+        }
     }
     Ok(())
 }
@@ -68,7 +71,7 @@ fn check_file_name(node: &str, name: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{SystemdUnit, SystemdUnitData, TextFile};
+    use crate::{StartupScript, SystemdUnit, SystemdUnitData, TextFile};
 
     fn node() -> Node {
         Node {
@@ -126,6 +129,24 @@ mod tests {
             let node = Node {
                 systemd_units: Some(vec![SystemdUnit::default()]),
                 systemd_units_data: Some(vec![unit(name)]),
+                ..node()
+            };
+            assert!(
+                check_client_read_files(&[node]).is_err(),
+                "'{name}' accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn client_content_014_startup_scripts_named_as_paths_or_options_are_refused() {
+        for name in ["", ".", "..", "../x", "a/b", "-o", "a\\b"] {
+            let node = Node {
+                startup_scripts: Some(vec!["boot.sh".to_owned()]),
+                startup_scripts_data: Some(vec![StartupScript {
+                    filename: name.to_owned(),
+                    content: String::new(),
+                }]),
                 ..node()
             };
             assert!(

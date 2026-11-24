@@ -31,10 +31,10 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     println!("  ✓ Lab name is valid");
 
     // Device Validators
-    println!("→ Checking for duplicate device names...");
+    println!("→ Checking for duplicate node names...");
     check_node_names(&manifest.nodes)?;
     check_duplicate_device(&manifest.nodes)?;
-    println!("  ✓ No duplicate devices");
+    println!("  ✓ No duplicate nodes");
 
     println!("→ Checking node count...");
     check_device_count(&manifest.nodes)?;
@@ -86,7 +86,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     check_link_impairments(links)?;
     let links_detailed = process_manifest_links(links, &nodes_expanded)?;
     let bridges_detailed = process_manifest_bridges(bridges, &nodes_expanded, "validate")?;
-    println!("  ✓ All linked and bridged devices exist");
+    println!("  ✓ All linked and bridged nodes exist");
 
     // Per-node validators
     println!("→ Checking interface configurations...");

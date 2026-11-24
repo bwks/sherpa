@@ -60,7 +60,7 @@ A redeploy reads one node of the manifest it is sent. The lab's description, lin
 | 008 | A value of the wrong type, a number outside its key's range (a `memory` over 65535, a `cpu.count` over 255, a negative count) or a word the key does not take (`kind`, `cpu.mode`, `numa.memory_mode`, `boot_disk.clone_method`, `cache` and `io`, `ztp.method`, `vm.watchdog`, `container.platform`, `cni`, a provisioner's `type`) is refused, saying what the key takes (no test yet) | unit |
 | 009 | `sherpa validate` on a manifest with an unknown key exits 1 and prints the file, the line and column, the key and the keys that table takes | e2e |
 | 010 | `sherpa new` writes a `manifest.toml` of two Linux nodes and a link between them under a generated name, and `sherpa validate` passes it | e2e |
-| 011 | `sherpa new` leaves an existing `manifest.toml` as it is and says so, and with `--force` writes over it | e2e |
+| 011 | `sherpa new` leaves an existing `manifest.toml` as it is, says so and exits non-zero, and with `--force` writes over it | e2e |
 | 012 | A manifest sent to the server with an unknown key or a value of the wrong type is refused as the file is, and nothing is created (no test yet) | integration |
 
 A folder with no `manifest.toml` at `sherpa up`, `redeploy` and `provision`, and a manifest that does not load beside a `lab-info.toml`, are lab identity: `lab_identity_007` and `008` in [lab lifecycle](lab-lifecycle.md), and `saved_lab_files`.
@@ -210,8 +210,8 @@ A node with its own `ztp.config` takes none of the three: its config replaces th
 | 001 | A link's two ends resolve to their nodes, the nodes' places in the manifest, and the interfaces' indexes | unit |
 | 002 | Links are numbered from 0 in the order the manifest lists them | unit |
 | 003 | An end that names a node the manifest does not define is refused, naming it, at either end | unit |
-| 004 | An end that is not written `node::interface` is refused | unit |
-| 005 | An interface name the node's model does not have is refused, naming it (no test yet) | unit |
+| 004 | An end that is not written `node::interface` is refused, naming the link or the bridge and the end | unit |
+| 005 | An interface name the node's model does not have is refused, naming the link or the bridge, the node, its model and the interface, in a link and in a bridge | unit |
 | 006 | The management interface is refused in a link and in a bridge, saying so | unit |
 | 007 | An interface a model reserves is refused, and the first interface after the reserved ones is taken | unit |
 | 008 | An interface past the node's last data interface is refused, naming the highest index the node takes, in a link and in a bridge, and the last data interface is taken | unit |

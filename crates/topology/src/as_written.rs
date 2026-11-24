@@ -1,9 +1,10 @@
 //! A manifest as the user wrote it, which is what the server stores as a lab's definition.
 //!
 //! Before it sends a manifest, the client changes some of it. It replaces `ztp.config`, a path,
-//! with the file's contents, and `KEY=$VAR` environment variables with their values; it adds the
-//! `*_data` fields, the contents of the files and scripts the manifest names; and it never
-//! serializes `provisioners` or `provision_concurrency`. The server builds nodes from that
+//! with the file's contents, and `KEY=$VAR` environment variables with their values; it reads
+//! the files and scripts the manifest names, whose contents travel beside it as
+//! [`crate::NodeFileContents`]; and it never serializes `provisioners` or
+//! `provision_concurrency`. The server builds nodes from that
 //! resolved manifest. A [`ManifestAsWritten`], sent beside it, carries those parts as written,
 //! and [`Manifest::definition`] puts them back and drops every content, giving the manifest to
 //! store: parameters as written, never file contents or resolved values.

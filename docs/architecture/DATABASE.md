@@ -117,10 +117,13 @@ nodes' `mgmt_ipv4`, so the plan does not repeat them.
 A lab's definition is every parameter of the manifest it was deployed from, as the user wrote it:
 once the lab is deployed, the database is the server's record of it, and the server keeps no copy
 of the manifest anywhere else. No file contents and no resolved values are stored. The client
-resolves `ztp.config`, `$VAR` values and file contents before it sends the manifest, so it sends the
-parts it changes, as written, beside it (`topology::ManifestAsWritten`); the server builds nodes
-from the resolved manifest and stores `Manifest::definition(as_written)`. `store_lab_definition`
-refuses a manifest that still holds file contents.
+resolves `ztp.config` and `$VAR` values before it sends the manifest, so it sends the parts it
+changes, as written, beside it (`topology::ManifestAsWritten`). The contents of the files and
+scripts a node names are never manifest keys: the client sends them beside the manifest too, by
+node name (`topology::NodeFileContents`), and the server puts them into the nodes
+(`Manifest::put_file_contents`). The server builds nodes from the resolved manifest and stores
+`Manifest::definition(as_written)`. `store_lab_definition` refuses a manifest that still holds
+file contents.
 
 Storage is normalised: one-to-one parameters are columns of `lab` and `node`, lists are rows of the
 `manifest_*` tables keyed by `position`, and nothing is a JSON or TOML document. Where a node

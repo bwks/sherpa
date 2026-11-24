@@ -3,6 +3,7 @@
 
 mod as_written;
 mod bridge;
+mod file_contents;
 mod link;
 mod manifest;
 mod node;
@@ -14,6 +15,7 @@ pub mod validate;
 // re-export
 pub use as_written::{ManifestAsWritten, NodeAsWritten};
 pub use bridge::{Bridge, BridgeDetailed, BridgeExpanded, BridgeLink, BridgeLinkDetailed};
+pub use file_contents::NodeFileContents;
 pub use link::ManifestImpairment;
 pub use link::{Link2, LinkDetailed, LinkExpanded};
 pub use manifest::{Manifest, TailscaleConfig};

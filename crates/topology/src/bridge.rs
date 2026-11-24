@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_derive::{Deserialize, Serialize};
 
 use shared::data::ModelKind;
@@ -37,12 +37,19 @@ impl Bridge {
     ///
     /// # Errors
     ///
-    /// Fails when a link is not `node_name::interface_name`.
+    /// Fails when a link is not `node_name::interface_name`, naming the bridge and the link.
     pub fn parse_links(&self) -> Result<BridgeExpanded> {
         let bridge_links = self
             .links
             .iter()
-            .map(|conn| BridgeLink::parse(conn))
+            .map(|conn| {
+                BridgeLink::parse(conn).with_context(|| {
+                    format!(
+                        "Manifest bridge - '{}': link '{conn}' must be written node::interface",
+                        self.name
+                    )
+                })
+            })
             .collect::<Result<Vec<BridgeLink>>>()?;
 
         Ok(BridgeExpanded {

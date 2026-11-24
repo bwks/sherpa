@@ -3,19 +3,21 @@
 use std::net::Ipv4Addr;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use tracing::instrument;
 
 use super::context::LabBuild;
-use crate::services::error::caller_message;
+use crate::services::error::{ServiceError, caller_message};
 use crate::services::keycloak;
 use crate::services::lab_operations::LabOperation;
+use crate::services::node_lifecycle;
 use crate::services::talos;
 use crate::services::talos::LabCluster;
 use crate::services::vault;
 use crate::tls::lab_ca::LabCa;
 
 use shared::data;
+use shared::data::OperationEvent;
 
 /// What starting the lab's services needs.
 pub(super) struct ServiceInputs<'a> {
@@ -26,9 +28,11 @@ pub(super) struct ServiceInputs<'a> {
     pub(super) timeout: Duration,
 }
 
-/// The lab's Kubernetes clusters, Keycloak realms and Vaults, and what did not come up.
+/// The lab's Kubernetes clusters, Keycloak realms and Vaults, the workers of the clusters that
+/// became Ready, and what did not come up.
 pub(super) struct LabServices {
     pub(super) clusters: Vec<data::ClusterInfo>,
+    pub(super) ready_workers: Vec<String>,
     pub(super) keycloaks: Vec<data::KeycloakInfo>,
     pub(super) vaults: Vec<data::VaultInfo>,
     pub(super) errors: Vec<data::UpError>,
@@ -48,6 +52,7 @@ pub(super) async fn start_lab_services(
         lab_id, progress, ..
     } = *build;
     let mut errors = Vec::new();
+    let mut ready_workers = Vec::new();
     // Bootstrap Kubernetes clusters once their nodes answer.
     let clusters = if inputs.lab_clusters.is_empty() {
         Vec::new()
@@ -61,6 +66,11 @@ pub(super) async fn start_lab_services(
             operation,
         )
         .await?;
+        for cluster in inputs.lab_clusters {
+            if !not_ready.contains(&cluster.plan.name) {
+                ready_workers.extend(cluster.plan.workers.iter().map(|w| w.name.clone()));
+            }
+        }
         for name in not_ready {
             errors.push(service_error(format!(
                 "Kubernetes cluster {name} did not become ready"
@@ -115,10 +125,45 @@ pub(super) async fn start_lab_services(
 
     Ok(LabServices {
         clusters,
+        ready_workers,
         keycloaks,
         vaults,
         errors,
     })
+}
+
+/// Record each worker of a Ready cluster ready, as a worker is ready once its cluster is, and
+/// report it in the state it then has in `nodes`. A worker an operation moved meanwhile, such as
+/// one stopped, is reported as it is.
+///
+/// # Errors
+///
+/// Fails when a worker has no record or the database fails.
+#[instrument(skip(db, operation, lab_node_data, nodes), level = "debug")]
+pub(super) async fn record_ready_workers(
+    db: &db::Database,
+    operation: &LabOperation,
+    lab_node_data: &[data::LabNodeData],
+    ready_workers: &[String],
+    nodes: &mut [data::NodeInfo],
+) -> Result<()> {
+    for worker in ready_workers {
+        let Some(record) = lab_node_data.iter().find(|node| node.name == *worker) else {
+            bail!("Node {worker} has no record");
+        };
+        let record_id = db::get_node_id(&record.record)?;
+        if let Err(error) =
+            node_lifecycle::record(db, operation, &record_id, OperationEvent::Ready).await
+            && !matches!(ServiceError::find(&error), Some(ServiceError::Conflict(_)))
+        {
+            return Err(error);
+        }
+        let state = db::get_node(db, record_id).await?.state;
+        for node in nodes.iter_mut().filter(|node| node.name == *worker) {
+            node.status = state;
+        }
+    }
+    Ok(())
 }
 
 /// Initialise and unseal a Vault node, and let the clusters that use it log in. `None`, with
@@ -175,5 +220,59 @@ fn service_error(message: String) -> data::UpError {
         phase: "NodeReadiness".to_string(),
         message,
         is_critical: true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use shared::data::{ModelKind, NodeKind, NodeModel, NodeState};
+
+    use super::*;
+    use crate::services::lab_operations::{Operation, begin};
+    use crate::services::node_lifecycle::tests::lab_of;
+
+    #[tokio::test]
+    async fn cluster_bootstrap_011_the_workers_of_a_ready_cluster_are_reported_running() {
+        let (db, _, ids) = lab_of("svc-wk01", 2).await;
+        let operation = begin("svc-wk01", Operation::Up).await;
+        let mut lab_node_data = Vec::new();
+        let mut nodes = Vec::new();
+        for (index, id) in (1..).zip(&ids) {
+            node_lifecycle::record(&db, &operation, id, OperationEvent::Launched)
+                .await
+                .unwrap();
+            let record = db::get_node(&db, id.clone()).await.unwrap();
+            lab_node_data.push(data::LabNodeData {
+                name: record.name.clone(),
+                model_kind: ModelKind::default_for(NodeModel::TalosLinux),
+                index,
+                record: record.clone(),
+            });
+            nodes.push(data::NodeInfo {
+                name: record.name,
+                kind: NodeKind::VirtualMachine,
+                model: NodeModel::TalosLinux,
+                status: NodeState::Starting,
+                ip_address: None,
+                ssh_port: None,
+            });
+        }
+
+        record_ready_workers(
+            &db,
+            &operation,
+            &lab_node_data,
+            &["node1".to_owned()],
+            &mut nodes,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(nodes[0].status, NodeState::Running);
+        assert_eq!(
+            db::get_node(&db, ids[0].clone()).await.unwrap().state,
+            NodeState::Running
+        );
+        assert_eq!(nodes[1].status, NodeState::Starting);
     }
 }

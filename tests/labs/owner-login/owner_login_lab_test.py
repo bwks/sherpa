@@ -236,7 +236,7 @@ def parse_devices_table(text):
             continue
         cells = [cell.strip() for cell in line.split(CELL_SEPARATOR)[1:-1]]
         if headers is None:
-            if cells and cells[0] == "Device":
+            if cells and cells[0] == "Node":
                 headers = cells
             continue
         if cells[0]:
@@ -935,7 +935,7 @@ def test_ssh_config_hosts_001_each_host_logs_in_as_the_owner_and_names_no_identi
 
 
 def test_access_control_004_an_admin_can_inspect_a_lab_they_do_not_own(lab):
-    rows = {row["Device"]: row for row in parse_devices_table(lab.admin("sherpa inspect", ["inspect"]).stdout)}
+    rows = {row["Node"]: row for row in parse_devices_table(lab.admin("sherpa inspect", ["inspect"]).stdout)}
     for node in (VM, CONTAINER):
         require(lab.alias(node) in rows, f"the admin's inspect does not list {node}: {sorted(rows)}")
 
@@ -1158,7 +1158,7 @@ class SelfTest(unittest.TestCase):
                 "┌──────────┬───────┐\n│ Property │ Value │\n└──────────┴───────┘\n\n"
                 "┌──────────────────────────────────┐\n│           Active Nodes           │\n"
                 "├────────────────┬─────────┬───────┤\n"
-                "│ Device         │ Model   │ Memory (MB) │ Disks │\n"
+                "│ Node           │ Model   │ Memory (MB) │ Disks │\n"
                 "├────────────────┼─────────┼───────┤\n"
                 "│ ubu01.abcd1234 │ ubuntu  │ -           │ a.qcow2 │\n"
                 "│                │         │             │ b.qcow2 │\n"
@@ -1166,7 +1166,7 @@ class SelfTest(unittest.TestCase):
                 "│ srl01.abcd1234 │ srlinux │ 2048        │ -       │\n"
                 "└────────────────┴─────────┴───────┘\n\n│ Node A │ Node B │\n")
         rows = parse_devices_table(text)
-        self.assertEqual([row["Device"] for row in rows], ["ubu01.abcd1234", "srl01.abcd1234"])
+        self.assertEqual([row["Node"] for row in rows], ["ubu01.abcd1234", "srl01.abcd1234"])
         self.assertEqual([row["Memory (MB)"] for row in rows], ["-", "2048"])
         self.assertEqual(parse_devices_table("nothing here"), [])
 
