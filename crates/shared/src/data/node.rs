@@ -31,8 +31,8 @@ use super::model_kind::ModelKind;
 use super::node_base;
 
 /// A node model, the name a manifest, a command and the API give it. It is read only through
-/// `FromStr`, from JSON and TOML, from a command line and from the database alike, so a retired
-/// name is refused everywhere with the same message naming its replacement.
+/// `FromStr`, from JSON and TOML, from a command line and from the database alike, so a name
+/// is refused everywhere with the same message.
 #[derive(
     Default, PartialEq, Eq, Hash, Clone, Copy, Debug, Serialize, EnumIter, IntoStaticStr, JsonSchema,
 )]
@@ -343,12 +343,7 @@ impl FromStr for NodeModel {
             "unikraft_unikernel" => Ok(NodeModel::UnikraftUnikernel),
             "nanos_unikernel" => Ok(NodeModel::NanosUnikernel),
 
-            _ => match REMOVED_MODELS.iter().find(|(name, _, _)| *name == s) {
-                Some((_, model, kind)) => Err(format!(
-                    r#"Unknown node model '{s}': use model = "{model}" with kind = "{kind}"."#
-                )),
-                None => Err(format!("Unknown node model: {s}")),
-            },
+            _ => Err(format!("Unknown node model: {s}")),
         }
     }
 }
@@ -359,8 +354,8 @@ impl<'de> serde::Deserialize<'de> for NodeModel {
     }
 }
 
-/// Reads a [`NodeModel`] from a command line through its `FromStr`, so an old name gets the
-/// message naming its replacement, and lists every model as the argument's possible values.
+/// Reads a [`NodeModel`] from a command line through its `FromStr`, so an unknown name gets the
+/// same message as everywhere else, and lists every model as the argument's possible values.
 #[derive(Clone, Copy, Debug)]
 pub struct NodeModelParser;
 
@@ -399,79 +394,6 @@ impl ValueParserFactory for NodeModel {
         NodeModelParser
     }
 }
-
-/// The retired model names, each with the model and kind that replace it. They are
-/// known only to refuse an old name with a message naming its replacement, and to move the
-/// image folders named after them. To be deleted in 0.8.0.
-pub const REMOVED_MODELS: [(&str, NodeModel, NodeKind); 19] = [
-    (
-        "arista_veos",
-        NodeModel::AristaEos,
-        NodeKind::VirtualMachine,
-    ),
-    ("arista_ceos", NodeModel::AristaEos, NodeKind::Container),
-    ("cisco_asav", NodeModel::CiscoAsa, NodeKind::VirtualMachine),
-    ("cisco_ftdv", NodeModel::CiscoFtd, NodeKind::VirtualMachine),
-    (
-        "cisco_iosxrv9000",
-        NodeModel::CiscoIosxr9000,
-        NodeKind::VirtualMachine,
-    ),
-    ("cisco_iosv", NodeModel::CiscoIos, NodeKind::VirtualMachine),
-    (
-        "cisco_iosvl2",
-        NodeModel::CiscoIosl2,
-        NodeKind::VirtualMachine,
-    ),
-    (
-        "cisco_csr1000v",
-        NodeModel::CiscoCsr1000,
-        NodeKind::VirtualMachine,
-    ),
-    (
-        "cisco_cat8000v",
-        NodeModel::CiscoCat8000,
-        NodeKind::VirtualMachine,
-    ),
-    (
-        "cisco_cat9000v",
-        NodeModel::CiscoCat9000,
-        NodeKind::VirtualMachine,
-    ),
-    (
-        "cisco_nexus9300v",
-        NodeModel::CiscoNexus9300,
-        NodeKind::VirtualMachine,
-    ),
-    (
-        "juniper_vrouter",
-        NodeModel::JuniperRouter,
-        NodeKind::VirtualMachine,
-    ),
-    (
-        "juniper_vswitch",
-        NodeModel::JuniperSwitch,
-        NodeKind::VirtualMachine,
-    ),
-    (
-        "juniper_vevolved",
-        NodeModel::JuniperEvolved,
-        NodeKind::VirtualMachine,
-    ),
-    (
-        "juniper_cevolved",
-        NodeModel::JuniperEvolved,
-        NodeKind::Container,
-    ),
-    (
-        "juniper_vsrxv3",
-        NodeModel::JuniperSrxv3,
-        NodeKind::VirtualMachine,
-    ),
-    ("generic_vm", NodeModel::Generic, NodeKind::VirtualMachine),
-    ("generic_container", NodeModel::Generic, NodeKind::Container),
-    ("generic_unikernel", NodeModel::Generic, NodeKind::Unikernel),
-];
 
 impl NodeModel {
     #[must_use]
@@ -2489,41 +2411,20 @@ mod tests {
     }
 
     #[test]
-    fn node_kind_008_an_unknown_model_name_is_refused_and_a_renamed_one_names_its_replacement() {
-        let renamed = REMOVED_MODELS.iter().map(|(name, model, kind)| {
-            (
-                *name,
-                format!(
-                    r#"Unknown node model '{name}': use model = "{model}" with kind = "{kind}"."#
-                ),
-            )
-        });
-        let unknown = [(
-            "nosuch_model",
-            "Unknown node model: nosuch_model".to_string(),
-        )];
-        for (name, expected) in renamed.chain(unknown) {
-            assert_eq!(name.parse::<NodeModel>().unwrap_err(), expected);
-            let error = from_manifest(name).unwrap_err();
-            assert!(error.contains(&expected), "{error}");
-            let error = serde_json::from_value::<NodeModel>(serde_json::json!(name))
-                .unwrap_err()
-                .to_string();
-            assert_eq!(error, expected);
-            let error = model_option()
-                .try_get_matches_from(["test", "--model", name])
-                .unwrap_err()
-                .to_string();
-            assert!(error.contains(&expected), "{error}");
-        }
-        assert_eq!(
-            "arista_ceos".parse::<NodeModel>().unwrap_err(),
-            r#"Unknown node model 'arista_ceos': use model = "arista_eos" with kind = "container"."#
-        );
-        assert_eq!(
-            "cisco_iosv".parse::<NodeModel>().unwrap_err(),
-            r#"Unknown node model 'cisco_iosv': use model = "cisco_ios" with kind = "virtual_machine"."#
-        );
+    fn node_kind_008_an_unknown_model_name_is_refused_naming_it() {
+        let expected = "Unknown node model: nosuch_model";
+        assert_eq!("nosuch_model".parse::<NodeModel>().unwrap_err(), expected);
+        let error = from_manifest("nosuch_model").unwrap_err();
+        assert!(error.contains(expected), "{error}");
+        let error = serde_json::from_value::<NodeModel>(serde_json::json!("nosuch_model"))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(error, expected);
+        let error = model_option()
+            .try_get_matches_from(["test", "--model", "nosuch_model"])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{error}");
     }
 
     #[test]

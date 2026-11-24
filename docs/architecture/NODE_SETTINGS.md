@@ -16,8 +16,7 @@ The guest account rules stay per model, as they are about the OS. Images, their 
 routes are keyed by model, kind and version.
 
 `NodeModel` is read only through `FromStr`, from serde and clap alike, so a name is accepted or
-refused the same way everywhere; the names in `shared::data::REMOVED_MODELS` are known only to be
-refused with their replacement. No code matches model names by prefix or substring.
+refused the same way everywhere. No code matches model names by prefix or substring.
 
 ## Image definition
 

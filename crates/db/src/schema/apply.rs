@@ -134,7 +134,7 @@ mod tests {
         BiosTypes, BootDiskSettings, CdromSettings, ContainerSettings, CpuArchitecture, CpuModels,
         DbCpuPins, DbLab, DiskBuses, InterfaceDeviceSettings, InterfaceType, KindSettings,
         LabPhase, MachineSettings, MachineType, ModelKind, NodeConfig, NodeCpuPins, NodeKind,
-        NodeModel, NodeState, OsVariant, REMOVED_MODELS, ReadyCheck, RecordId, UnikernelBootMode,
+        NodeModel, NodeState, OsVariant, ReadyCheck, RecordId, UnikernelBootMode,
         UnikernelCpuSettings, UnikernelMachineSettings, UnikernelSettings, VmCpuSettings,
         VmSettings, Ztp, ZtpSettings,
     };
@@ -152,6 +152,77 @@ mod tests {
         list_nodes_by_lab, list_users, open_in_memory, read_lab_definition, update_node_image,
         upsert_node_image,
     };
+
+    /// The model names migration 0031 renames, each with the model and kind it becomes.
+    const RENAMED_MODELS: [(&str, NodeModel, NodeKind); 19] = [
+        (
+            "arista_veos",
+            NodeModel::AristaEos,
+            NodeKind::VirtualMachine,
+        ),
+        ("arista_ceos", NodeModel::AristaEos, NodeKind::Container),
+        ("cisco_asav", NodeModel::CiscoAsa, NodeKind::VirtualMachine),
+        ("cisco_ftdv", NodeModel::CiscoFtd, NodeKind::VirtualMachine),
+        (
+            "cisco_iosxrv9000",
+            NodeModel::CiscoIosxr9000,
+            NodeKind::VirtualMachine,
+        ),
+        ("cisco_iosv", NodeModel::CiscoIos, NodeKind::VirtualMachine),
+        (
+            "cisco_iosvl2",
+            NodeModel::CiscoIosl2,
+            NodeKind::VirtualMachine,
+        ),
+        (
+            "cisco_csr1000v",
+            NodeModel::CiscoCsr1000,
+            NodeKind::VirtualMachine,
+        ),
+        (
+            "cisco_cat8000v",
+            NodeModel::CiscoCat8000,
+            NodeKind::VirtualMachine,
+        ),
+        (
+            "cisco_cat9000v",
+            NodeModel::CiscoCat9000,
+            NodeKind::VirtualMachine,
+        ),
+        (
+            "cisco_nexus9300v",
+            NodeModel::CiscoNexus9300,
+            NodeKind::VirtualMachine,
+        ),
+        (
+            "juniper_vrouter",
+            NodeModel::JuniperRouter,
+            NodeKind::VirtualMachine,
+        ),
+        (
+            "juniper_vswitch",
+            NodeModel::JuniperSwitch,
+            NodeKind::VirtualMachine,
+        ),
+        (
+            "juniper_vevolved",
+            NodeModel::JuniperEvolved,
+            NodeKind::VirtualMachine,
+        ),
+        (
+            "juniper_cevolved",
+            NodeModel::JuniperEvolved,
+            NodeKind::Container,
+        ),
+        (
+            "juniper_vsrxv3",
+            NodeModel::JuniperSrxv3,
+            NodeKind::VirtualMachine,
+        ),
+        ("generic_vm", NodeModel::Generic, NodeKind::VirtualMachine),
+        ("generic_container", NodeModel::Generic, NodeKind::Container),
+        ("generic_unikernel", NodeModel::Generic, NodeKind::Unikernel),
+    ];
 
     /// The eleven ZTP methods a release before the one `ztp` column could store.
     const OLD_ZTP_METHODS: [&str; 11] = [
@@ -293,7 +364,7 @@ mod tests {
 
     /// The name `image`'s model was stored under before migration 31 renamed the models.
     fn name_before_the_renames(image: &NodeConfig) -> String {
-        REMOVED_MODELS
+        RENAMED_MODELS
             .iter()
             .find(|(_, model, kind)| *model == image.model && *kind == image.kind())
             .map_or_else(
@@ -2229,7 +2300,7 @@ mod tests {
         assert_eq!(before + 1, 30);
         let db = database_at(before).await;
         let mut keys = Vec::new();
-        for (old, model, kind) in REMOVED_MODELS {
+        for (old, model, kind) in RENAMED_MODELS {
             let image = NodeConfig {
                 version: "1.0".to_owned(),
                 default: true,
@@ -2299,8 +2370,8 @@ mod tests {
 
         assert_eq!(version(&db).await, SCHEMA_VERSION);
         let images = list_node_images(&db).await.unwrap();
-        assert_eq!(images.len(), REMOVED_MODELS.len() + 1);
-        for (old, model, kind) in REMOVED_MODELS {
+        assert_eq!(images.len(), RENAMED_MODELS.len() + 1);
+        for (old, model, kind) in RENAMED_MODELS {
             let image = find_node_image_by_id(&db, RecordId::new("node_image", key(old)))
                 .await
                 .unwrap()
