@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.2] - 2026-11-24
+
+### Upgrade notes
+
+- **Back up first.** The update runs database migration 42, which drops the unused `p2p` column from stored manifest links. Back up with `sherpa server backup`.
+- **Security fix in the image upload.** The upload no longer names its temp file after the caller's version. A version holding `/` or `..` is now answered with 400, and nothing is written outside the temp folder.
+- **The image upload answers client errors with 4xx:** 400 for invalid input, 409 for an image in use. Only server faults are 500.
+- **`supervisor` is reserved in node names.** A node whose name contains it, in any case, is refused at `sherpa validate` and `sherpa up`, for every model. Rename any such node before its next up; a redeploy of an existing one is not refused.
+- **Earlier refusals:**
+  - An oversized `ready_timeout` is now refused at validation, up and redeploy, before anything is built or torn down.
+  - A `ztp.config` on a node whose ZTP method takes none is now refused by `sherpa validate` too.
+- **The published API spec (`/api/v1/spec`):**
+  - It now lists every RPC method, with `labs.list` and `download` as `lab.list` and `lab.download`.
+  - An operation may have no `rest` key (RPC only) or no `rpc` key (REST only). Clients that read the spec should allow for both.
+  - The `download` RPC reads a `DownloadLabRequest { lab_id }`, with the same fields as before.
+- **The manifest key `p2p` on a link** is still refused, now as an unknown field.
+
+### Bug Fixes
+
+- Reserve the word supervisor in node names by @bwks ([98d79a7](https://github.com/bwks/sherpa/commit/98d79a7caf7a1acbafc2c1b00c0653c5b730aa14))
+- Refuse a ztp.config its node takes none of at sherpa validate by @bwks ([22942e1](https://github.com/bwks/sherpa/commit/22942e19d6c02cd16899347366e6b811dd8cfb8f))
+- Refuse a ready_timeout too large to store at validation by @bwks ([7d55263](https://github.com/bwks/sherpa/commit/7d552636e34cefa262116db79c74f4b4746afbf3))
+- Answer upload client errors with 400 and 409, never a path from the version by @bwks ([327af82](https://github.com/bwks/sherpa/commit/327af82e8cf2f45a2f12ab526c7142fc05a1cd21))
+- Publish every RPC method in the API spec by @bwks ([5f9f2d2](https://github.com/bwks/sherpa/commit/5f9f2d2a74652e09d65092afb2887c9859758444))
+
+### Miscellaneous
+
+- Keep issue numbers out of migration 0042's comment by @bwks ([741d737](https://github.com/bwks/sherpa/commit/741d73711895851c42d392890f29de68a453ed7c))
+
+### Refactor
+
+- Remove Link2.p2p and its refusal by @bwks ([8c034b2](https://github.com/bwks/sherpa/commit/8c034b213d3bc3b340682131ce933407b9511dfc))
+- Remove create_tap and update_netem by @bwks ([79516ce](https://github.com/bwks/sherpa/commit/79516ce3a805c0c552c5f472ef3cff47ac2d81b6))
+- Remove the unreachable last-admin delete rule by @bwks ([e83b439](https://github.com/bwks/sherpa/commit/e83b4390f7360b8302a0368d9a4bb54a1b07c2a3))
+
+### Testing
+
+- Drop the inline comment from upgraded_records_024 by @bwks ([a0eb7e8](https://github.com/bwks/sherpa/commit/a0eb7e8fe4c7b850cafc6f29addb5abe5097f286))
+
 ## [0.9.1] - 2026-11-24
 
 ### Upgrade notes
