@@ -280,8 +280,10 @@ Each case builds a database at the schema version that stored the value, upgrade
 
 ## `uninstall_script`: the uninstall script removes the service and only the data it is told to
 
-**Statement:** the uninstall script stops and removes the sherpad service and what the install script put outside `/opt/sherpa`, keeps the data unless told to remove it, and removes no package, account, container, image, network, pool or VM.
+**Statement:** the uninstall script refuses, before it changes anything, while a lab runs; otherwise it stops and removes the sherpad service and what the install script put outside `/opt/sherpa`, keeps the data unless told to remove it, says before its prompt and again at the end every path, account and resource it keeps, and removes no package, container, image, network, pool or VM, and no account but `sherpa` with `--remove-all`.
 **Relied on by:** the admin. **Priority:** P1.
+
+The script finds a lab's resources as sherpad does, without sherpad running: the labs are the folders in `/opt/sherpa/labs`, named by lab ID; a VM, container or network belongs to a lab when its name is a node or network name, a hyphen and the lab's ID; a Tailscale gateway is the container labelled `sh.erpa.role=tailnet-gateway`, its lab in `sh.erpa.tailscale.lab`. A running VM is an active libvirt domain, a running container one `docker ps` lists.
 
 | Case | What it shows | Level |
 |---|---|---|
@@ -289,14 +291,24 @@ Each case builds a database at the schema version that stored the value, upgrade
 | 002 | Installing again after that and starting sherpad, the same admin logs in | e2e (fresh VM) |
 | 003 | `--remove-data` does the same and empties the database folder, and keeps the database key | e2e (fresh VM) |
 | 004 | Installing again after that, `sherpad init` makes a new database and its first user logs in | e2e (fresh VM) |
-| 005 | `--remove-all` also removes `/opt/sherpa` and the `sherpa` CLI's link | e2e (fresh VM) |
-| 006 | In each mode the packages, the accounts and groups (`sherpa` among them), Docker's images, volumes and containers, and libvirt's networks, pools and domains are what they were, and Docker and libvirt still run | e2e (fresh VM) |
+| 005 | `--remove-all` also removes `/opt/sherpa`, `/run/sherpa` and the `sherpa` CLI's link | e2e (fresh VM) |
+| 006 | In each mode the packages, the accounts and groups (`sherpa` among them, but with `--remove-all`), Docker's images, volumes and containers, and libvirt's networks, pools and domains are what they were, and Docker and libvirt still run | e2e (fresh VM) |
 | 007 | Run again on a host where nothing is left, it exits 0 | e2e (fresh VM) |
 | 008 | A link in `/usr/local/bin` is removed only when it points at Sherpa's binary: one to another program, and a file, are kept | unit |
-| 009 | Without `--force` it asks, and any answer but `yes` removes nothing and exits 0 (no test yet) | unit (bats) |
+| 009 | Without `--force` it asks, and any answer but `yes` removes nothing and exits 0 | unit (bats) |
 | 010 | `--help` prints the usage and exits 0; an unknown option is an error; not root is refused | unit (bats) |
-| 011 | A `sherpa-db` container on the host is stopped and removed (no test yet) | unit (bats) |
+| 011 | A `sherpa-db` container on the host is stopped and removed | unit (bats) |
 | 012 | With a symlink at or above the database or the binaries folder, nothing is removed through it, and the link is named | unit (bats) |
+| 013 | With a lab's VM running, each mode, with and without `--force`, exits 1 before its prompt, names the lab ID and the node, says to run `sherpa destroy`, and changes nothing; another domain is not taken for a lab's | unit (bats) |
+| 014 | The same with a lab's container running; another container is not taken for a lab's | unit (bats) |
+| 015 | The same with a lab's Tailscale gateway running | unit (bats) |
+| 016 | With a lab of one Alpine container running on the installed server, each mode with `--force` exits non-zero, names the lab and the node, and the service, the files and Docker's and libvirt's resources are as they were | e2e (fresh VM) |
+| 017 | With `--remove-all`, the domains, containers, libvirt and Docker networks and gateway volumes of stopped labs, and the storage pool, are listed by name before the prompt and in the closing summary, and resources of no lab are not | unit (bats) |
+| 018 | With `--keep-data`, the prompt and the closing summary name what is kept and where: the database, `.secret`, `.certs`, `sherpa.toml`, `sherpa.env`, the lab folders, `/run/sherpa`, the update backups, the `sherpa` account | unit (bats) |
+| 019 | With `--remove-data`, the same but the database, which is named as removed | unit (bats) |
+| 020 | With `--remove-all`, the kept list names the update backups and the packages, and none of what is removed | unit (bats) |
+| 021 | `--remove-all` removes the `sherpa` account and its group, and no group lists `sherpa` | e2e (fresh VM) |
+| 022 | With lab folders on the host and Docker or libvirt not answering, it exits 1, says it cannot tell whether a lab runs, and changes nothing | unit (bats) |
 
 ## `database_backup`: a backup is a consistent copy only `sherpa` can read
 

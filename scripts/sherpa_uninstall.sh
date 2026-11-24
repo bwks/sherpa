@@ -6,7 +6,8 @@
 #
 # This script removes the sherpad service and binary, the SurrealDB container
 # left by releases before 0.5.0 if there is one, and optionally the data.
-# It must be executed with root/sudo privileges.
+# It must be executed with root/sudo privileges. It refuses, before it changes
+# anything, while a lab runs.
 #
 # Usage:
 #   sudo ./sherpa_uninstall.sh [OPTIONS]
@@ -14,7 +15,8 @@
 # Options:
 #   --keep-data      Keep the database and its backups (default)
 #   --remove-data    Remove the database and its backups
-#   --remove-all     Remove everything including /opt/sherpa
+#   --remove-all     Remove everything including /opt/sherpa, /run/sherpa and
+#                    the sherpa account
 #   --force          Don't prompt for confirmation
 #   -h, --help       Show help message
 #
@@ -27,7 +29,21 @@ set -e  # Exit on error
 CONTAINER_NAME="sherpa-db"
 SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
+SHERPA_LABS_DIR="${SHERPA_BASE_DIR}/labs"
+SHERPA_RUN_DIR="/run/sherpa"
+SHERPA_UPDATE_BACKUP_DIR="/var/backups/sherpa"
+SHERPA_ACCOUNT="sherpa"
 THP_TMPFILES_CONF="/etc/tmpfiles.d/sherpa-thp.conf"
+# What sherpad itself uses to find a lab's resources: the libvirt connection, the labels of a
+# Tailscale gateway, the storage pool and the gateway's state volume.
+LIBVIRT_URI="qemu:///system"
+GATEWAY_ROLE_LABEL="sh.erpa.role"
+GATEWAY_ROLE="tailnet-gateway"
+GATEWAY_LAB_LABEL="sh.erpa.tailscale.lab"
+STORAGE_POOL="sherpa-pool"
+TAILNET_VOLUME_PREFIX="sherpa-tailnet-state-"
+# Accounts below this UID are system accounts, as the install script creates `sherpa`.
+SYSTEM_UID_LIMIT=1000
 
 # Color codes for output
 RED='\033[0;31m'
@@ -40,6 +56,8 @@ NC='\033[0m' # No Color
 KEEP_DATA=true
 REMOVE_ALL=false
 FORCE=false
+# The labs' resources on the host, read once before anything is removed.
+LAB_LEFTOVERS=""
 
 ################################################################################
 # Helper Functions
@@ -79,9 +97,14 @@ before 0.5.0 if there is one, and optionally the data.
 Options:
   --keep-data      Keep the database and its backups in ${SHERPA_DB_DIR} (default)
   --remove-data    Remove the database and its backups
-  --remove-all     Remove everything including ${SHERPA_BASE_DIR}
+  --remove-all     Remove everything including ${SHERPA_BASE_DIR}, ${SHERPA_RUN_DIR}
+                   and the ${SHERPA_ACCOUNT} account
   --force          Don't prompt for confirmation
   -h, --help       Show this help message
+
+While a lab runs (a VM, a container or a Tailscale gateway), nothing is changed,
+in any mode and with --force too: destroy the labs first, or stop them with
+\`sherpa down\` when the data is kept.
 
 Examples:
   # Remove the service (keep data)
@@ -133,6 +156,164 @@ check_docker_available() {
         return 1
     fi
     return 0
+}
+
+################################################################################
+# Labs
+################################################################################
+
+# Print the ID of each lab sherpad has a folder for in SHERPA_LABS_DIR.
+lab_ids() {
+    local dir name
+    [ -d "${SHERPA_LABS_DIR}" ] || return 0
+    for dir in "${SHERPA_LABS_DIR}"/*/; do
+        [ -d "${dir}" ] || continue
+        name="$(basename "${dir}")"
+        if [[ "${name}" =~ ^[A-Za-z0-9-]{8}$ ]]; then
+            echo "${name}"
+        fi
+    done
+}
+
+# Succeed when $1 is the name sherpad gives a resource of lab $2: a non-empty name, a hyphen
+# and the lab ID.
+is_lab_resource() {
+    local name="$1" lab_id="$2" prefix
+    prefix="${name%-"${lab_id}"}"
+    [ "${prefix}" != "${name}" ] && [ -n "${prefix}" ]
+}
+
+# Print "<lab ID><tab><kind><tab><name>" for each name on stdin that is a resource of a lab
+# whose ID is an argument after the kind $1.
+match_lab_resources() {
+    local kind="$1" name lab_id
+    shift
+    while IFS= read -r name; do
+        [ -n "${name}" ] || continue
+        for lab_id in "$@"; do
+            if is_lab_resource "${name}" "${lab_id}"; then
+                printf '%s\t%s\t%s\n' "${lab_id}" "${kind}" "${name}"
+            fi
+        done
+    done
+}
+
+# Print the running VMs, containers and Tailscale gateways of Sherpa's labs, one
+# "<lab ID><tab><kind><tab><name>" line each. Fails, naming the runtime, when one that is
+# installed cannot be asked while labs exist.
+running_lab_resources() {
+    local -a ids
+    local names rows name role lab_id failed=0
+    mapfile -t ids < <(lab_ids)
+
+    if [ "${#ids[@]}" -gt 0 ] && command -v virsh >/dev/null 2>&1; then
+        if names="$(virsh -c "${LIBVIRT_URI}" list --name 2>&1)"; then
+            match_lab_resources "VM" "${ids[@]}" <<< "${names}"
+        else
+            print_error "Cannot list the running libvirt domains: ${names}"
+            failed=1
+        fi
+    fi
+
+    if command -v docker >/dev/null 2>&1; then
+        if rows="$(docker ps --format "{{.Names}}\t{{.Label \"${GATEWAY_ROLE_LABEL}\"}}\t{{.Label \"${GATEWAY_LAB_LABEL}\"}}" 2>&1)"; then
+            while IFS=$'\t' read -r name role lab_id; do
+                [ -n "${name}" ] || continue
+                if [ "${role}" = "${GATEWAY_ROLE}" ]; then
+                    printf '%s\t%s\t%s\n' "${lab_id:-unknown}" "Tailscale gateway" "${name}"
+                elif [ "${#ids[@]}" -gt 0 ]; then
+                    match_lab_resources "container" "${ids[@]}" <<< "${name}"
+                fi
+            done <<< "${rows}"
+        elif [ "${#ids[@]}" -gt 0 ]; then
+            print_error "Cannot list the running Docker containers: ${rows}"
+            failed=1
+        else
+            print_warning "Cannot list the running Docker containers: ${rows}"
+        fi
+    fi
+
+    return "${failed}"
+}
+
+# Exit 1, before anything is changed, when a lab runs, naming each lab and its nodes.
+refuse_running_labs() {
+    local resources lab_id kind name previous=""
+    if ! resources="$(running_lab_resources)"; then
+        print_error "Nothing was changed: the script cannot tell whether a lab is running."
+        echo "Start Docker and libvirt, or destroy the labs in ${SHERPA_LABS_DIR}, then run it again." >&2
+        exit 1
+    fi
+    [ -n "${resources}" ] || return 0
+
+    print_error "Labs are running. Nothing was changed."
+    while IFS=$'\t' read -r lab_id kind name; do
+        if [ "${lab_id}" != "${previous}" ]; then
+            echo "  Lab ${lab_id}:" >&2
+            previous="${lab_id}"
+        fi
+        if [ "${kind}" = "Tailscale gateway" ]; then
+            echo "    ${kind} ${name}" >&2
+        else
+            echo "    ${kind} ${name%-"${lab_id}"} (${name})" >&2
+        fi
+    done < <(sort <<< "${resources}")
+    if [ "$REMOVE_ALL" = true ]; then
+        echo "Destroy each lab with \`sherpa destroy\` in its lab folder, then run this script again." >&2
+    else
+        echo "Destroy each lab with \`sherpa destroy\`, or stop it with \`sherpa down\`, in its lab folder, then run this script again." >&2
+    fi
+    exit 1
+}
+
+# Print, one per line, the VMs, containers, networks and volumes of the labs that are left on
+# the host, and the storage pool.
+lab_leftovers() {
+    local -a ids
+    local names name lab_id
+    mapfile -t ids < <(lab_ids)
+
+    if command -v virsh >/dev/null 2>&1; then
+        if [ "${#ids[@]}" -gt 0 ]; then
+            if names="$(virsh -c "${LIBVIRT_URI}" list --all --name 2>/dev/null)"; then
+                match_lab_resources "libvirt domain" "${ids[@]}" <<< "${names}"
+            else
+                printf '%s\t%s\t%s\n' "-" "libvirt domains" "(cannot be listed)"
+            fi
+            if names="$(virsh -c "${LIBVIRT_URI}" net-list --all --name 2>/dev/null)"; then
+                match_lab_resources "libvirt network" "${ids[@]}" <<< "${names}"
+            else
+                printf '%s\t%s\t%s\n' "-" "libvirt networks" "(cannot be listed)"
+            fi
+        fi
+        if virsh -c "${LIBVIRT_URI}" pool-info "${STORAGE_POOL}" >/dev/null 2>&1; then
+            printf '%s\t%s\t%s\n' "-" "libvirt storage pool" "${STORAGE_POOL}"
+        fi
+    fi
+
+    if [ "${#ids[@]}" -gt 0 ] && command -v docker >/dev/null 2>&1; then
+        if names="$(docker ps -a --format '{{.Names}}' 2>/dev/null)"; then
+            match_lab_resources "Docker container" "${ids[@]}" <<< "${names}"
+        else
+            printf '%s\t%s\t%s\n' "-" "Docker containers" "(cannot be listed)"
+        fi
+        if names="$(docker network ls --format '{{.Name}}' 2>/dev/null)"; then
+            match_lab_resources "Docker network" "${ids[@]}" <<< "${names}"
+        else
+            printf '%s\t%s\t%s\n' "-" "Docker networks" "(cannot be listed)"
+        fi
+        if names="$(docker volume ls --format '{{.Name}}' 2>/dev/null)"; then
+            while IFS= read -r name; do
+                for lab_id in "${ids[@]}"; do
+                    if [ "${name}" = "${TAILNET_VOLUME_PREFIX}${lab_id}" ]; then
+                        printf '%s\t%s\t%s\n' "${lab_id}" "Docker volume" "${name}"
+                    fi
+                done
+            done <<< "${names}"
+        else
+            printf '%s\t%s\t%s\n' "-" "Docker volumes" "(cannot be listed)"
+        fi
+    fi
 }
 
 ################################################################################
@@ -373,50 +554,160 @@ remove_all_data() {
     fi
 }
 
+# Remove the RAM-backed folder of container secret files that sherpad's unit keeps.
+remove_run_dir() {
+    if ! path_has_no_symlink "${SHERPA_RUN_DIR}"; then
+        return 1
+    fi
+    if [ ! -d "${SHERPA_RUN_DIR}" ]; then
+        print_info "${SHERPA_RUN_DIR} not found"
+        return 0
+    fi
+    if rm -rf "${SHERPA_RUN_DIR:?}"; then
+        print_success "Removed ${SHERPA_RUN_DIR}"
+    else
+        print_error "Failed to remove ${SHERPA_RUN_DIR}"
+        return 1
+    fi
+}
+
+# Print the accounts whose primary group is the sherpa group, other than the sherpa account.
+group_primary_users() {
+    local gid
+    gid="$(getent group "${SHERPA_ACCOUNT}" | cut -d: -f3)"
+    [ -n "${gid}" ] || return 0
+    getent passwd | awk -F: -v gid="${gid}" -v account="${SHERPA_ACCOUNT}" \
+        '$4 == gid && $1 != account { print $1 }'
+}
+
+# Succeed when the sherpa account exists and is a system account, which --remove-all removes.
+sherpa_account_removable() {
+    local uid
+    uid="$(id -u "${SHERPA_ACCOUNT}" 2>/dev/null)" || return 1
+    [ "${uid}" -lt "${SYSTEM_UID_LIMIT}" ]
+}
+
+# Remove the sherpa account, which drops it from every group, and its group when no other
+# account has it as its primary group.
+remove_sherpa_account() {
+    local users
+    if ! id -u "${SHERPA_ACCOUNT}" >/dev/null 2>&1; then
+        print_info "Account ${SHERPA_ACCOUNT} not found"
+    elif ! sherpa_account_removable; then
+        print_warning "Account ${SHERPA_ACCOUNT} is not a system account (UID ${SYSTEM_UID_LIMIT} or more): it is kept"
+    elif userdel "${SHERPA_ACCOUNT}"; then
+        print_success "Removed the ${SHERPA_ACCOUNT} account and its group memberships"
+    else
+        print_error "Failed to remove the ${SHERPA_ACCOUNT} account"
+        return 1
+    fi
+
+    getent group "${SHERPA_ACCOUNT}" >/dev/null 2>&1 || return 0
+    id -u "${SHERPA_ACCOUNT}" >/dev/null 2>&1 && return 0
+    users="$(group_primary_users | paste -sd, -)"
+    if [ -n "${users}" ]; then
+        print_info "Group ${SHERPA_ACCOUNT} is kept: it is the primary group of ${users}"
+    elif groupdel "${SHERPA_ACCOUNT}"; then
+        print_success "Removed the ${SHERPA_ACCOUNT} group"
+    else
+        print_warning "Failed to remove the ${SHERPA_ACCOUNT} group"
+    fi
+}
+
 ################################################################################
 # Summary
 ################################################################################
 
-print_summary() {
-    local actions="$1"
-    
-    print_header "Uninstall Summary"
-    
-    cat << EOF
-The following will be removed:
-  ${actions}
-
-EOF
+# Print what the mode removes.
+print_removed() {
+    echo "Removed, where present:"
+    echo "  - The sherpad service, its log rotation rule and the transparent hugepages boot rule"
+    echo "  - The sherpad binary and its link in /usr/local/bin"
+    echo "  - The ${CONTAINER_NAME} container of a release before 0.5.0, if present"
+    if [ "$REMOVE_ALL" = true ]; then
+        echo "  - Everything in ${SHERPA_BASE_DIR}: the database and its backups, the database key,"
+        echo "    the configuration, the certificates, the lab folders, the images and the VM disks"
+        echo "  - The sherpa CLI's link in /usr/local/bin"
+        echo "  - ${SHERPA_RUN_DIR}, the container secret files"
+        echo "  - The ${SHERPA_ACCOUNT} account, which leaves the docker, libvirt and kvm groups, and the"
+        echo "    ${SHERPA_ACCOUNT} group unless it is another account's primary group"
+    elif [ "$KEEP_DATA" = false ]; then
+        echo "  - The database and its backups in ${SHERPA_DB_DIR}"
+    fi
 }
 
+# Print every path, account and resource the mode leaves in place, and where it is.
+print_kept() {
+    local lab_id kind name
+    echo "Kept:"
+    if [ "$REMOVE_ALL" = false ]; then
+        if [ "$KEEP_DATA" = true ]; then
+            echo "  - The database and its backups: ${SHERPA_DB_DIR}"
+        fi
+        echo "  - The login token secret and the database key: ${SHERPA_BASE_DIR}/.secret"
+        echo "  - The server's certificate and key: ${SHERPA_BASE_DIR}/.certs"
+        echo "  - The server's settings: ${SHERPA_BASE_DIR}/config/sherpa.toml"
+        echo "  - The service's environment: ${SHERPA_BASE_DIR}/env/sherpa.env"
+        echo "  - The lab folders: ${SHERPA_LABS_DIR}"
+        echo "  - The node images and the VM disks: ${SHERPA_BASE_DIR}/images, ${SHERPA_BASE_DIR}/libvirt/images"
+        echo "  - The rest of ${SHERPA_BASE_DIR}: the logs, the sherpa CLI and its link /usr/local/bin/sherpa"
+        echo "  - The container secret files, until the next reboot: ${SHERPA_RUN_DIR}"
+        echo "  - The ${SHERPA_ACCOUNT} account and group, which own the kept files; ${SHERPA_ACCOUNT} stays in the"
+        echo "    docker, libvirt and kvm groups (--remove-all removes it)"
+    elif id -u "${SHERPA_ACCOUNT}" >/dev/null 2>&1 && ! sherpa_account_removable; then
+        echo "  - The ${SHERPA_ACCOUNT} account, which is not a system account"
+    fi
+    if [ "$REMOVE_ALL" = true ] && getent group "${SHERPA_ACCOUNT}" >/dev/null 2>&1 \
+        && [ -n "$(group_primary_users)" ]; then
+        echo "  - The ${SHERPA_ACCOUNT} group, the primary group of $(group_primary_users | paste -sd, -)"
+    fi
+    if [ -d "${SHERPA_UPDATE_BACKUP_DIR}" ]; then
+        echo "  - The update script's backups of the database and its key: ${SHERPA_UPDATE_BACKUP_DIR}"
+    fi
+    echo "  - The packages the install script installed, Docker and libvirt among them"
+
+    if [ -n "${LAB_LEFTOVERS}" ]; then
+        if [ "$REMOVE_ALL" = true ]; then
+            echo "  - These lab resources, left pointing at the removed disks and folders"
+            echo "    (destroy the labs before --remove-all to remove them):"
+        else
+            echo "  - These lab resources:"
+        fi
+        while IFS=$'\t' read -r lab_id kind name; do
+            if [ "${lab_id}" = "-" ]; then
+                echo "      ${kind} ${name}"
+            else
+                echo "      ${kind} ${name} (lab ${lab_id})"
+            fi
+        done <<< "${LAB_LEFTOVERS}"
+    fi
+}
+
+# Print what the uninstall will remove and keep, before the confirmation prompt.
+print_plan() {
+    print_header "Uninstall Plan"
+    print_removed | sed 's/^Removed, where present:/To be removed, where present:/'
+    echo ""
+    print_kept | sed 's/^Kept:/To be kept:/'
+    echo ""
+}
+
+# Print the closing summary: what was removed and what was kept, and where.
 print_completion_message() {
     print_header "Uninstall Complete"
-    
-    cat << EOF
-The sherpad service has been removed.
-
-EOF
-
-    if [ "$KEEP_DATA" = true ] && [ "$REMOVE_ALL" = false ]; then
-        cat << EOF
-The database and its backups were preserved:
-  Location: ${SHERPA_DB_DIR}
-The database key, needed to open them, was preserved too:
-  Location: ${SHERPA_BASE_DIR}/.secret/db.key
-  
-To remove data later, run:
-  sudo $0 --remove-data
-
-EOF
-    fi
-    
+    print_removed
+    echo ""
+    print_kept
+    echo ""
     if [ "$REMOVE_ALL" = false ]; then
-        cat << EOF
-Note: The sherpa user and groups were not removed.
-      To remove the user manually:
-        sudo userdel sherpa
-
-EOF
+        echo "To remove the kept data and the ${SHERPA_ACCOUNT} account later, run:"
+        echo "  sudo $0 --remove-all"
+        echo ""
+    fi
+    if [ -d "${SHERPA_UPDATE_BACKUP_DIR}" ]; then
+        echo "To remove the update backups, run:"
+        echo "  sudo rm -rf ${SHERPA_UPDATE_BACKUP_DIR}"
+        echo ""
     fi
 }
 
@@ -457,64 +748,40 @@ main() {
         esac
     done
     
-    # Print header
     print_header "Sherpa Uninstall"
-    
-    # Check prerequisites
     check_root_privileges
-    
-    # Build summary of actions
-    local actions=""
-    actions="${actions}\n  - Stop and remove sherpad systemd service"
-    actions="${actions}\n  - Remove sherpad binary"
-    actions="${actions}\n  - Remove the transparent hugepages boot rule"
-    actions="${actions}\n  - Stop and remove the ${CONTAINER_NAME} container of a release before 0.5.0, if present"
-    
+    refuse_running_labs
+
+    LAB_LEFTOVERS="$(lab_leftovers)"
+    print_plan
     if [ "$REMOVE_ALL" = true ]; then
-        actions="${actions}\n  - Remove all data in ${SHERPA_BASE_DIR}"
-    elif [ "$KEEP_DATA" = false ]; then
-        actions="${actions}\n  - Remove the database and its backups in ${SHERPA_DB_DIR}"
-    else
-        actions="${actions}\n  - Keep database data (--keep-data)"
-    fi
-    
-    # Show summary and confirm
-    echo -e "${actions}"
-    echo ""
-    
-    if [ "$REMOVE_ALL" = true ]; then
-        confirm_action "WARNING: This will remove ALL data in ${SHERPA_BASE_DIR}!"
+        confirm_action "WARNING: This will remove ALL data in ${SHERPA_BASE_DIR} and the ${SHERPA_ACCOUNT} account!"
     elif [ "$KEEP_DATA" = false ]; then
         confirm_action "WARNING: This will remove the database and its backups in ${SHERPA_DB_DIR}!"
     else
         confirm_action "This will remove the service but keep your data."
     fi
-    
-    # Perform uninstall
+
     echo ""
     print_info "Starting uninstall..."
     echo ""
-    
-    # Remove systemd service first (stops the daemon)
+
     remove_systemd_service
-    
-    # Remove binary
     remove_sherpad_binary
     remove_thp_boot_rule
-    
-    # Handle Docker operations
     if check_docker_available; then
         stop_container
         remove_container
     fi
-    
-    # Handle data removal
+
     if [ "$REMOVE_ALL" = true ]; then
         remove_all_data
+        remove_run_dir
+        remove_sherpa_account
     elif [ "$KEEP_DATA" = false ]; then
         remove_database_data
     fi
-    
+
     echo ""
     print_completion_message
 }
