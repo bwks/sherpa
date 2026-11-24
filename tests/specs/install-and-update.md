@@ -351,14 +351,14 @@ The script finds a lab's resources as sherpad does, without sherpad running: the
 
 ## `server_config`: sherpad reads `sherpa.toml` as `sherpad init` or an older release wrote it
 
-**Statement:** sherpad starts on a `sherpa.toml` written by `sherpad init` of this or an older release: a table left out takes its defaults, a setting it does not read is ignored, and it warns about a `[ztp_server]` table without changing the file.
+**Statement:** sherpad starts on a `sherpa.toml` written by `sherpad init` of this or an older release: a table left out takes its defaults and a setting it does not read is ignored.
 **Relied on by:** the admin after an update. **Priority:** P1.
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | A config with a `[ztp_server]` table loads, with its other settings | unit |
-| 002 | At start sherpad warns that it does not read that table, and starts | unit |
-| 003 | A config without the table, and one with a key of that name inside another table, get no warning | unit |
+| 001 | Retired: sherpad reads no `[ztp_server]` table | — |
+| 002 | Retired: sherpad gives no warning for a `[ztp_server]` table | — |
+| 003 | Retired: sherpad gives no warning for a `[ztp_server]` table | — |
 | 004 | An `[otel]` table with a setting sherpad does not read loads | unit |
 | 005 | A config with no `[otel]`, `[scanner]` or `[host_memory]` table loads with each one's defaults, and a table with one setting keeps the defaults of the others | unit |
 | 006 | A key `[host_memory]` does not have is refused | unit |
