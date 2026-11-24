@@ -34,8 +34,10 @@ reader with one the model does not take:
 | `topology::validate::check_node_ztp` | `sherpa validate` |
 | `server::validate::validate_node_ztp` | `up` while planning, before anything is created; redeploy before the node is torn down |
 
-`validate_node_ztp` also checks the node's `ztp.config` against the setting it runs with; the
-rules are `custom_config` and `ztp_setting_014` in the spec.
+`topology::validate::check_node_ztp_config` checks the node's `ztp.config` against the setting
+it runs with. `sherpa validate` runs it with the model's built-in setting and
+`validate_node_ztp` with the node's image, so all three refuse with one message. The rules are
+`custom_config` and `ztp_setting_014` in the spec.
 
 ## Readers
 

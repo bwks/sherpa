@@ -28,6 +28,7 @@ A manifest is checked in five places, and they do not run the same checks. `sher
 | Settings against the node's kind | yes | | | yes | yes |
 | `interfaces.data_count`, VM tuning, `container.platform` | yes, against the model's built-in settings | | | yes, against the node's image | yes, against the node's image |
 | `ztp.method` | yes | | | yes | yes |
+| A `ztp.config` its node's ZTP setting takes | yes, against the model's built-in settings | | | yes, against the node's image | yes, against the node's image |
 | Pinned CPUs shared inside the manifest | yes | | | yes | |
 | Link ends, interface bounds, `p2p`, impairments | yes, against the model's built-in settings | | | yes, against the node's image | |
 | An interface used twice | yes | | | yes | |
@@ -38,7 +39,7 @@ A manifest is checked in five places, and they do not run the same checks. `sher
 | `environment_variables` keys | yes | yes | yes | yes | yes |
 | Windows startup script names | | yes | yes | yes | yes |
 | `text_files`, `startup_scripts`, `systemd_units` against the node's model, kind and ZTP | yes, against the model's built-in settings | yes, against the model's built-in settings | yes, against the model's built-in settings | yes, against the node's image | yes, against the node's image |
-| Images and versions, a `ztp.config` its node takes (#772), host access, files the client read, memory, CPUs held | | | | yes | yes |
+| Images and versions, host access, files the client read, memory, CPUs held | | | | yes | yes |
 
 A redeploy reads one node of the manifest it is sent. The lab's description, links, bridges, clusters and `[tailscale]` in it are not checked and not stored; `ready_timeout` and `provision_concurrency` are stored. The node's cluster and role in it must be those of the lab's stored definition, and the node is rebuilt with the stored ones: `cluster_redeploy_009` and `010` in [talos.md](talos.md).
 
@@ -74,7 +75,7 @@ A folder with no `manifest.toml` at `sherpa up`, `redeploy` and `provision`, and
 | 001 | A valid manifest passes with every check ticked, `Manifest validation passed!` and exit status 0, on a machine with no login and no server configured | e2e |
 | 002 | A manifest that fails a check exits 1 with that check's message, and no later check is printed | e2e |
 | 003 | A node is checked against its model and kind's built-in settings: a link on an interface past the built-in data interface count is refused, and taken once the node sets `interfaces.data_count` | unit |
-| 004 | A `ztp.config` on a node whose ZTP setting takes none passes `sherpa validate`, and up refuses it (#772) (no test yet) | unit |
+| 004 | A `ztp.config` on a node whose ZTP setting takes none is refused by `sherpa validate` with the message up and redeploy give | unit |
 | 005 | `sherpa up` of a manifest the server refuses exits 1 with the server's message, which names the check that failed and the node | e2e |
 
 What `sherpa validate` does not check, because only the server knows it: whether a node's image and version are there, the settings of an image an admin has edited, the memory and CPUs free on the server, and whether the user may ask for host access.
