@@ -44,8 +44,8 @@ starts sherpad again; if the new release does not stay running for ten seconds, 
 binaries, the database and the key first. The binaries are installed root's, `0755`. Going back
 moves each binary the update set aside back as it was: root's after an update by this script, and
 on the first update from an earlier release the `sherpa`-owned binary that release installed,
-which is never run by the script and which the next update replaces. The backups are never
-removed.
+which is never run by the script and which the next update replaces. The update never removes
+the backups; `sherpa_uninstall.sh --remove-all` does.
 
 On every run, including one with nothing to install, it creates the blank disk templates that
 are missing, installing `qemu-utils`, `dosfstools` and `e2fsprogs` first if a tool is missing.
@@ -105,7 +105,8 @@ sudo ./scripts/sherpa_uninstall.sh --remove-all --force
 **Options:**
 - `--keep-data` - Keep database files (default)
 - `--remove-data` - Remove database files
-- `--remove-all` - Remove entire `/opt/sherpa/` directory
+- `--remove-all` - Remove the entire `/opt/sherpa/` directory, `/run/sherpa`, the update backups in
+  `/var/backups/sherpa` and the `sherpa` account
 - `--force` - Skip confirmation prompts
 
 ### Test tooling

@@ -146,6 +146,10 @@ TAILNET_TESTS = [
 TAILNET_SUBNET = "172.31.250.0/24"
 TAILNET_GATEWAY_IPV4 = "172.31.250.10"
 THP_BOOT_RULE = Path("/etc/tmpfiles.d/sherpa-thp.conf")
+RUN_DIR = Path("/run/sherpa")
+# The lab the running-lab step brings up before the uninstalls: one generic Alpine container.
+RUNNING_LAB_IMAGE = "alpine:3.22"
+RUNNING_LAB_NODE = "ctr01"
 # The case an authenticate step completes, by the step before it (see authenticate_case).
 AUTHENTICATE_CASES = {"initialize": "server_init_001", "reboot": "install_host_008",
                       "reinstall": "install_host_009", "restore": "uninstall_script_002",
@@ -249,6 +253,19 @@ def validate_retained_resources(before, after):
     require(set(before) == set(after), "Resource inventory categories changed")
     for category, items in before.items():
         require(items == after[category], f"Uninstall changed retained {category}")
+
+
+def without_sherpa_account(inventory):
+    """`inventory` as it is once the `sherpa` account and group are removed: no `sherpa` user or
+    group, and `sherpa` in no group's members."""
+    def group_line(line):
+        fields = line.split(":")
+        if len(fields) == 4:
+            fields[3] = ",".join(member for member in fields[3].split(",") if member and member != "sherpa")
+        return ":".join(fields)
+    return {**inventory,
+            "users": [line for line in inventory["users"] if not line.startswith("sherpa:")],
+            "groups": [group_line(line) for line in inventory["groups"] if not line.startswith("sherpa:")]}
 
 
 def validate_upgrade_state(before, after):
@@ -1006,8 +1023,11 @@ class Guest:
         self.write_resources(evidence, {"before": before, "after": after})
         case = {"--keep-data": "uninstall_script_001", "--remove-data": "uninstall_script_003",
                 "--remove-all": "uninstall_script_005"}[mode]
-        check_cases([(case, lambda: self.verify_uninstalled(mode)),
-                     ("uninstall_script_006", lambda: self.verify_left_alone(before, after))])
+        cases = [(case, lambda: self.verify_uninstalled(mode)),
+                 ("uninstall_script_006", lambda: self.verify_left_alone(mode, before, after))]
+        if mode == "--remove-all":
+            cases.append(("uninstall_script_021", lambda: self.verify_account_removed(after)))
+        check_cases(cases)
 
     def verify_uninstalled(self, mode):
         """The service and what the install put outside /opt/sherpa are gone, and the data is
@@ -1024,6 +1044,7 @@ class Guest:
             require(not link.exists() and not link.is_symlink(), f"{binary} symlink remains")
         if mode == "--remove-all":
             require(not self.base.exists(), "Installation directory remains")
+            require(not RUN_DIR.exists(), f"{RUN_DIR} remains")
         else:
             client = self.base / "bin/sherpa"
             require(digest(client) == self.config["candidate"]["sherpa_binary_sha256"],
@@ -1034,12 +1055,79 @@ class Guest:
             files = list((self.base / "db").iterdir())
             require(bool(files) if mode == "--keep-data" else not files, "Incorrect database retention")
 
-    def verify_left_alone(self, before, after):
-        """Packages, accounts and groups, Docker's and libvirt's resources are as they were, and
-        Docker and libvirt still run."""
-        validate_retained_resources(before, after)
+    def verify_left_alone(self, mode, before, after):
+        """Packages, accounts and groups other than `sherpa` under --remove-all, Docker's and
+        libvirt's resources are as they were, and Docker and libvirt still run."""
+        validate_retained_resources(without_sherpa_account(before) if mode == "--remove-all" else before, after)
         self.check_runtimes()
-        self.command(["id", "sherpa"])
+        if mode != "--remove-all":
+            self.command(["id", "sherpa"])
+
+    def verify_account_removed(self, after):
+        """The `sherpa` account and its group are gone, and no group lists `sherpa`."""
+        require(not account_exists("sherpa"), "The sherpa account remains")
+        code, _ = self.command(["getent", "group", "sherpa"], check=False)
+        require(code != 0, "The sherpa group remains")
+        for line in after["groups"]:
+            require("sherpa" not in line.split(":")[3].split(","), f"sherpa is still a member: {line}")
+
+    def running_lab(self):
+        """With a lab's container running, each uninstall mode, with --force, refuses, names the
+        lab and its node, and changes nothing. The lab is destroyed after."""
+        username = self.credentials["admin_username"]
+        token = self.login(username)["token"]
+        key = self.workspace / "lab-owner-key"
+        if not key.exists():
+            self.command(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", username, "-f", str(key)])
+        self.request(f"/api/v1/admin/users/{username}/ssh-keys",
+                     {"username": username, "ssh_key": key.with_suffix(".pub").read_text().strip(),
+                      "token": token}, token=token)
+        self.request(f"/api/v1/admin/users/{username}/device-password",
+                     {"username": username, "login_password": self.credentials["admin_password"],
+                      "device_password": self.credentials["device_password"], "token": token}, token=token)
+        home = self.workspace / "lab-owner-home"
+        home.mkdir(exist_ok=True, mode=0o700)
+        self.write_client_files(home, token)
+        env = {**os.environ, "HOME": str(home)}
+        sherpa = str(self.base / "bin/sherpa")
+        self.command([sherpa, "server", "image", "pull", "--model", "generic", "--kind", "container",
+                      "--repo", RUNNING_LAB_IMAGE], env=env, timeout=self.timeouts["install"])
+        directory = self.workspace / ("uninstall-lab-" + self.config["identity"]["nonce"][:8])
+        directory.mkdir(exist_ok=True)
+        (directory / "manifest.toml").write_text(
+            f'name = "{directory.name}"\n\n[[nodes]]\nname = "{RUNNING_LAB_NODE}"\nmodel = "generic"\n'
+            f'kind = "container"\nimage = "alpine"\nversion = "{RUNNING_LAB_IMAGE.split(":")[1]}"\n')
+        try:
+            self.command([sherpa, "up"], env=env, cwd=directory, timeout=self.timeouts["install"])
+            check_cases([("uninstall_script_016", lambda: self.verify_running_lab_refused())])
+        finally:
+            self.command([sherpa, "destroy", "--yes"], env=env, cwd=directory,
+                         timeout=self.timeouts["install"], check=False)
+        require(not any((self.base / "labs").iterdir()), "The running-lab test left a lab folder")
+
+    def verify_running_lab_refused(self):
+        lab_ids = [path.name for path in (self.base / "labs").iterdir()]
+        require(len(lab_ids) == 1, f"Expected one lab folder, found {lab_ids}")
+        lab_id = lab_ids[0]
+        node = f"{RUNNING_LAB_NODE}-{lab_id}"
+        before = self.resources()
+        require(any(line.startswith(node + " ") and line.endswith(" running") for line in before["containers"]),
+                f"The lab's container {node} is not running")
+        kept = [Path("/etc/systemd/system/sherpad.service"), Path("/etc/logrotate.d/sherpad"), THP_BOOT_RULE,
+                self.base / "bin/sherpad", self.base / "bin/sherpa", self.base / "db/sherpa.sqlite",
+                self.base / ".secret/db.key", self.base / "config/sherpa.toml", self.base / "labs" / lab_id]
+        for mode in ("--keep-data", "--remove-data", "--remove-all"):
+            code, output = self.command(["bash", str(self.workspace / "sherpa_uninstall.sh"), mode, "--force"],
+                                        check=False)
+            require(code != 0, f"{mode} was not refused while a lab runs")
+            require("Labs are running. Nothing was changed." in output and f"Lab {lab_id}:" in output
+                    and f"container {RUNNING_LAB_NODE} ({node})" in output and "sherpa destroy" in output,
+                    f"{mode}'s refusal does not name the lab, its node and sherpa destroy")
+            for path in kept:
+                require(path.exists(), f"{mode} removed {path} while refusing")
+            self.command(["systemctl", "is-active", "sherpad"])
+            self.command(["id", "sherpa"])
+            validate_retained_resources(before, self.resources())
 
     def repeat_uninstall(self):
         """The uninstall on a host where nothing is left exits 0."""
@@ -1394,6 +1482,7 @@ class Guest:
                    "install": lambda: self.install(fresh=True), "initialize": self.initialize,
                    "authenticate": self.authenticate, "reboot": self.reboot,
                    "reinstall": self.reinstall, "restore": self.reinstall,
+                   "running-lab": self.running_lab,
                    "keep-data": lambda: self.uninstall("--keep-data"),
                    "remove-data": lambda: self.uninstall("--remove-data"),
                    "remove-all": lambda: self.uninstall("--remove-all"),
@@ -1542,6 +1631,14 @@ class GuestTests(unittest.TestCase):
             after = dict(before, **{category: ["unexpected"]})
             with self.subTest(category=category), self.assertRaises(RuntimeError):
                 validate_retained_resources(before, after)
+
+    def test_removing_the_sherpa_account_drops_only_its_user_group_and_memberships(self):
+        before = {"users": ["root:x:0:0", "sherpa:x:998:998", "sherpa2:x:997:997"],
+                  "groups": ["docker:x:999:sherpa,ubuntu", "kvm:x:993:sherpa", "sherpa:x:998:ubuntu",
+                             "sherpa2:x:997:"], "images": ["a"]}
+        self.assertEqual(without_sherpa_account(before),
+                         {"users": ["root:x:0:0", "sherpa2:x:997:997"],
+                          "groups": ["docker:x:999:ubuntu", "kvm:x:993:", "sherpa2:x:997:"], "images": ["a"]})
 
     def test_test_summary_counts_every_binary_and_names_failures(self):
         output = ("running 2 tests\ntest a::ok ... ok\ntest a::bad ... FAILED\n"

@@ -39,7 +39,7 @@ HARNESS = Path(__file__).resolve().parent
 ROOT = HARNESS.parent.parent
 RUNNER_SOURCE = Path(__file__).read_bytes()
 STEPS = ("baseline", "preflight", "install", "initialize", "authenticate",
-         "reboot", "authenticate", "reinstall", "authenticate",
+         "reboot", "authenticate", "reinstall", "authenticate", "running-lab",
          "keep-data", "restore", "authenticate", "remove-data",
          "new-database", "authenticate", "remove-all", "repeat-uninstall")
 UPGRADE_STEPS = ("baseline", "install-baseline", "initialize", "authenticate",
@@ -757,7 +757,8 @@ class Runner:
         self.report["run"]["active_step"] = name
         self.save()
         timeout = self.config["timeouts"]["command"]
-        if name in ("install", "reinstall", "restore", "new-database", "install-baseline", "upgrade"):
+        if name in ("install", "reinstall", "restore", "new-database", "install-baseline", "upgrade",
+                    "running-lab"):
             timeout = self.config["timeouts"]["install"]
         elif name in ("initialize", "baseline"):
             timeout = self.config["timeouts"]["initialize"]

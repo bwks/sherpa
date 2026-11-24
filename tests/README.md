@@ -392,15 +392,18 @@ Select one with `--scenario`:
 
 - `lifecycle` (default): preflight errors, a fresh install, ownership and permissions, Docker,
   libvirt and the database, `sherpad init`, API and CLI access with TLS checked, reboot
-  recovery, a repeat install, uninstall with `--keep-data` and reinstall, `--remove-data`,
-  `--remove-all` and a repeat uninstall. Each uninstall compares packages, users and groups,
+  recovery, a repeat install, a running lab, uninstall with `--keep-data` and reinstall,
+  `--remove-data`, `--remove-all` and a repeat uninstall. The running-lab step pulls the
+  `generic` container image `alpine:3.22` (from Docker Hub), brings up a one-container lab as
+  the admin, checks that every uninstall mode with `--force` refuses and changes nothing, and
+  destroys the lab. Each uninstall compares packages, users and groups,
   Docker images, volumes and unrelated containers, and libvirt domains, networks and pools
   before and after, and keeps those inventories with the result; the server's journal and
   log are captured before it. `--keep-data` keeps the database, its key, the configuration,
   the TLS certificate and the CLI; `--remove-data` empties the database and keeps the rest;
-  `--remove-all` removes `/opt/sherpa` and the binary symlinks. Every mode keeps the Docker
-  and libvirt packages, images, users, groups and libvirt definitions; only a fresh guest is a
-  fresh baseline.
+  `--remove-all` removes `/opt/sherpa`, `/run/sherpa`, the binary symlinks and the `sherpa`
+  account and group. Every mode keeps the Docker and libvirt packages, images, the other
+  users and groups and libvirt definitions; only a fresh guest is a fresh baseline.
 - `preflight`: only the baseline and the argument and error checks.
 - `upgrade`: installs a baseline release with that release's own installer
   (`git show <baseline>:scripts/sherpa_install.sh`), initializes it and adds a non-admin user
