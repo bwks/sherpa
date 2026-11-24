@@ -36,6 +36,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 021 | A version is 1 to 64 letters, digits, `.`, `_`, `+` or `-`, starting with a letter or digit: versions vendors use, such as `24.4`, `9-23-1` and `26.2R1.7-EVO`, are taken | unit |
 | 022 | An empty version, one over 64 characters, one starting with another character, and one with `/`, `..` or any other character is refused, so a version is never a path | unit |
 | 023 | Import, pull, download and delete refuse such a version before they touch a file, Docker or the database (no test yet) | integration |
+| 024 | An upload by `POST /api/v1/images/upload` whose version holds `/` or `..` is answered 400, and writes nothing outside the temp folder | integration |
+| 025 | An upload by `POST /api/v1/images/upload` without its version or file, with an unknown model or with a kind the model does not take, is answered 400 | integration |
+| 026 | An import or upload refused because lab disks are built on the version's file is a conflict, answered 409 over REST | unit |
 
 ## `image_download`: a VM image is downloaded whole from a URL
 

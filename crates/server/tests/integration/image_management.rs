@@ -8,7 +8,10 @@ use reqwest::{Client, Method, StatusCode, header};
 use serde_json::{Value, json};
 use shared::error::RpcErrorCode;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
+use std::env;
+use std::fs;
 use std::time::Duration;
+use uuid::Uuid;
 
 use shared::data::{
     ContainerSettings, KindSettings, ModelKind, NodeConfig, NodeKind, NodeModel, ZtpSettings,
@@ -20,6 +23,8 @@ use crate::helpers::ws_client::TestWsClient;
 /// The `arista_eos` versions the image path tests seed: one virtual machine, one container.
 const EOS_VM_VERSION: &str = "4.33.0F";
 const EOS_CONTAINER_VERSION: &str = "4.34.0F";
+/// The multipart boundary of the upload tests' forms.
+const UPLOAD_BOUNDARY: &str = "sherpa-upload-test";
 
 // ── Image Scan ──
 
@@ -564,6 +569,120 @@ async fn image_import_002_a_source_file_that_does_not_exist_is_refused_and_nothi
     .await?;
     assert!(record.is_none(), "a failed import recorded the image");
 
+    Ok(())
+}
+
+// ── Image Upload ──
+
+/// A multipart upload form of `fields`, and of a `file` field when `file` is set.
+fn upload_form(fields: &[(&str, &str)], file: Option<&str>) -> String {
+    let mut parts: Vec<String> = fields
+        .iter()
+        .map(|(name, value)| {
+            let disposition = format!(r#"Content-Disposition: form-data; name="{name}""#);
+            format!("--{UPLOAD_BOUNDARY}\r\n{disposition}\r\n\r\n{value}\r\n")
+        })
+        .collect();
+    if let Some(content) = file {
+        let disposition = r#"Content-Disposition: form-data; name="file"; filename="disk.qcow2""#;
+        parts.push(format!(
+            "--{UPLOAD_BOUNDARY}\r\n{disposition}\r\nContent-Type: application/octet-stream\r\n\r\n{content}\r\n"
+        ));
+    }
+    parts.push(format!("--{UPLOAD_BOUNDARY}--\r\n"));
+    parts.concat()
+}
+
+/// The status of `POST /api/v1/images/upload` of `form` by an admin.
+async fn upload_status(server: &TestServer, form: String) -> Result<StatusCode> {
+    let mut ws = TestWsClient::connect(server).await?;
+    let token = ws.login_admin().await?;
+    let response = Client::new()
+        .post(format!("http://{}/api/v1/images/upload", server.addr))
+        .bearer_auth(token)
+        .header(
+            header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={UPLOAD_BOUNDARY}"),
+        )
+        .body(form)
+        .send()
+        .await?;
+    Ok(response.status())
+}
+
+#[tokio::test]
+async fn image_import_024_an_upload_whose_version_could_be_a_path_is_refused_and_writes_nothing_outside_the_temp_folder()
+-> Result<()> {
+    let server = TestServer::start().await?;
+    let marker = format!("sherpa-escape-{}", Uuid::new_v4());
+    let temp_dir = env::temp_dir();
+    let outside = temp_dir.parent().context("the temp folder has a parent")?;
+
+    for version in [
+        format!("../{marker}"),
+        format!("{marker}/../../{marker}"),
+        "..".to_owned(),
+    ] {
+        let form = upload_form(
+            &[("model", "ubuntu_linux"), ("version", &version)],
+            Some("disk"),
+        );
+        let status = upload_status(&server, form).await?;
+        ensure!(
+            status == StatusCode::BAD_REQUEST,
+            "version {version}: {status}"
+        );
+    }
+    for folder in [outside, temp_dir.as_path()] {
+        for entry in fs::read_dir(folder)? {
+            let name = entry?.file_name();
+            ensure!(
+                !name.to_string_lossy().contains(&marker),
+                "{} holds {name:?}",
+                folder.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn image_import_025_an_upload_with_a_missing_or_invalid_field_is_a_bad_request() -> Result<()>
+{
+    let server = TestServer::start().await?;
+    let cases = [
+        (
+            "no file",
+            upload_form(&[("model", "ubuntu_linux"), ("version", "1")], None),
+        ),
+        (
+            "no version",
+            upload_form(&[("model", "ubuntu_linux")], Some("disk")),
+        ),
+        (
+            "an unknown model",
+            upload_form(
+                &[("model", "no_such_model"), ("version", "1")],
+                Some("disk"),
+            ),
+        ),
+        (
+            "a kind the model does not take",
+            upload_form(
+                &[
+                    ("model", "ubuntu_linux"),
+                    ("kind", "container"),
+                    ("version", "1"),
+                ],
+                Some("disk"),
+            ),
+        ),
+    ];
+
+    for (case, form) in cases {
+        let status = upload_status(&server, form).await?;
+        ensure!(status == StatusCode::BAD_REQUEST, "{case}: {status}");
+    }
     Ok(())
 }
 

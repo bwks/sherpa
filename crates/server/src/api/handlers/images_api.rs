@@ -6,7 +6,9 @@ use axum::Json;
 use axum::extract::{Multipart, Path, State};
 use axum::response::{IntoResponse, sse};
 use std::collections::HashMap;
+use std::env;
 use tokio::sync::{mpsc, oneshot};
+use uuid::Uuid;
 
 use crate::api::request_parse::{JsonBody, QueryParams};
 use crate::api::sse::json_progress_stream;
@@ -113,15 +115,8 @@ pub async fn upload_image_multipart(
         .await
         .map_err(ApiError::bad_request)?;
 
-    // Write file data to a temp file
-    let temp_dir = std::env::temp_dir();
-    let temp_file = temp_dir.join(format!(
-        "sherpa_upload_{}_{}_{}_{}",
-        fields.model_kind.model(),
-        fields.model_kind.kind(),
-        fields.version,
-        uuid::Uuid::new_v4()
-    ));
+    // The name holds nothing the caller sent: the version is validated only by the import.
+    let temp_file = env::temp_dir().join(format!("sherpa_upload_{}", Uuid::new_v4()));
     let temp_path = temp_file.to_string_lossy().to_string();
 
     tokio::fs::write(&temp_file, &fields.file_data)
