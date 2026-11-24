@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
     // Route to appropriate command handler
     match cli.command {
         Commands::Start { foreground } => start_daemon(foreground).await,
-        Commands::Stop { force } => stop_daemon(force),
+        Commands::Stop { force } => stop_daemon(SHERPAD_PID_FILE_PATH, force),
         Commands::Restart { foreground } => restart_daemon(foreground).await,
         Commands::Status => status_daemon(),
         Commands::Logs { follow } => logs_daemon(follow),

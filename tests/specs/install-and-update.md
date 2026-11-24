@@ -346,6 +346,8 @@ The script finds a lab's resources as sherpad does, without sherpad running: the
 | 008 | `stop` ends the server and removes the PID file; with a PID file whose process is gone it says the server is not running (no test yet) | integration |
 | 009 | Without `sherpa.toml`, or with one that does not parse, sherpad does not start and says which file; started in the background, the error is in `sherpad.log` (no test yet) | integration |
 | 010 | A server that fails is started again by systemd (no test yet) | e2e (fresh VM) |
+| 011 | A server holds an exclusive lock on the PID file while it runs, so a second start fails at the lock, naming the PID; once the lock is let go, a start takes it | unit |
+| 012 | A PID file whose process is not `sherpad`, by the program name it was started as, reads as no server: `stop` signals nothing and removes the stale file; one whose process is `sherpad` reads as running | unit |
 
 ## `server_config`: sherpad reads `sherpa.toml` as `sherpad init` or an older release wrote it
 
