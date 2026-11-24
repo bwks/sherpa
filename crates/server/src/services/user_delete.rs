@@ -15,7 +15,6 @@ use crate::services::error::ServiceError;
 /// - only admins may delete users;
 /// - an admin cannot delete their own account;
 /// - the built-in `admin` account cannot be deleted (the database also refuses this);
-/// - the last admin account cannot be deleted;
 /// - a user who owns labs cannot be deleted until their labs are destroyed, because deleting
 ///   only the records would leave the labs' VMs, containers and networks running with nothing
 ///   to manage them. The database also rejects this (`REFERENCE ON DELETE REJECT`).
@@ -35,11 +34,6 @@ pub async fn delete_user(
         .ok_or_else(|| ServiceError::NotFound(format!("User not found: {username}")))?;
     let target_id = db::get_user_id(&target)?;
 
-    let users = db::list_users(&state.db)
-        .await
-        .context("Failed to count admin accounts")?;
-    let admin_count = users.iter().filter(|user| user.is_admin).count();
-
     let owned_labs: Vec<String> = db::list_labs_by_user(&state.db, target_id.clone())
         .await
         .context("Failed to list the user's labs")?
@@ -47,7 +41,7 @@ pub async fn delete_user(
         .map(|lab| format!("{} ({})", lab.lab_id, lab.name))
         .collect();
 
-    if let Err(refusal) = check_user_delete(ctx, &target, admin_count, &owned_labs) {
+    if let Err(refusal) = check_user_delete(ctx, &target, &owned_labs) {
         tracing::warn!(
             event = "user.delete_refused",
             admin = %ctx.username,
@@ -80,12 +74,10 @@ pub async fn delete_user(
 
 /// Decide whether `ctx` may delete `target`.
 ///
-/// `admin_count` is the number of admin accounts, including `target` if it is one.
 /// `owned_labs` describes the labs `target` owns.
 pub fn check_user_delete(
     ctx: &AuthContext,
     target: &DbUser,
-    admin_count: usize,
     owned_labs: &[String],
 ) -> Result<(), ServiceError> {
     require_admin(ctx)?;
@@ -97,11 +89,6 @@ pub fn check_user_delete(
     if target.username == ADMIN_USERNAME {
         return Err(ServiceError::Denied(
             "the built-in sherpa-admin account cannot be deleted".to_owned(),
-        ));
-    }
-    if target.is_admin && admin_count <= 1 {
-        return Err(ServiceError::Denied(
-            "cannot delete the last admin account".to_owned(),
         ));
     }
     if !owned_labs.is_empty() {
@@ -138,14 +125,14 @@ mod tests {
 
     #[test]
     fn admins_may_delete_a_user_without_labs() {
-        assert!(check_user_delete(&admin("admin"), &user("carol", false), 1, &[]).is_ok());
+        assert!(check_user_delete(&admin("admin"), &user("carol", false), &[]).is_ok());
     }
 
     #[test]
     fn regular_users_may_not_delete_users() {
         let ctx = AuthContext::for_test("bob", false);
         assert!(matches!(
-            check_user_delete(&ctx, &user("carol", false), 1, &[]),
+            check_user_delete(&ctx, &user("carol", false), &[]),
             Err(ServiceError::Denied(_))
         ));
     }
@@ -153,7 +140,7 @@ mod tests {
     #[test]
     fn admins_may_not_delete_themselves() {
         assert_eq!(
-            check_user_delete(&admin("dana"), &user("dana", true), 2, &[]),
+            check_user_delete(&admin("dana"), &user("dana", true), &[]),
             Err(ServiceError::Denied(
                 "you cannot delete your own account".to_owned()
             ))
@@ -163,7 +150,7 @@ mod tests {
     #[test]
     fn the_built_in_admin_may_not_be_deleted() {
         assert_eq!(
-            check_user_delete(&admin("dana"), &user(ADMIN_USERNAME, true), 3, &[]),
+            check_user_delete(&admin("dana"), &user(ADMIN_USERNAME, true), &[]),
             Err(ServiceError::Denied(
                 "the built-in sherpa-admin account cannot be deleted".to_owned()
             ))
@@ -171,22 +158,10 @@ mod tests {
     }
 
     #[test]
-    fn the_last_admin_may_not_be_deleted() {
-        // Reachable only through a race, such as two admins deleting each other at once.
-        assert_eq!(
-            check_user_delete(&admin("dana"), &user("erin", true), 1, &[]),
-            Err(ServiceError::Denied(
-                "cannot delete the last admin account".to_owned()
-            ))
-        );
-        assert!(check_user_delete(&admin("dana"), &user("erin", true), 2, &[]).is_ok());
-    }
-
-    #[test]
     fn users_who_own_labs_may_not_be_deleted_and_their_labs_are_listed() {
         let labs = vec!["c0ffee01 (carol-lab)".to_owned()];
         assert_eq!(
-            check_user_delete(&admin("admin"), &user("carol", false), 1, &labs),
+            check_user_delete(&admin("admin"), &user("carol", false), &labs),
             Err(ServiceError::Conflict(
                 "User 'carol' owns 1 lab(s): c0ffee01 (carol-lab). Destroy the labs first, then delete the user."
                     .to_owned()
