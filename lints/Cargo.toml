@@ -1,0 +1,23 @@
+[package]
+name = "sherpa_lints"
+version = "0.0.0"
+description = "Prototype Dylint lints for Sherpa's own code rules"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+clippy_utils = { git = "https://github.com/rust-lang/rust-clippy", rev = "21baba9c10c5d179915cae82e6247bc2337872fb" }
+dylint_linting = "6.4"
+
+[dev-dependencies]
+dylint_testing = "6.4"
+
+# Its own workspace: the lint library builds on a pinned nightly against rustc's internals, so
+# it stays outside the Sherpa workspace, as crates/ebpf-redirect does.
+[workspace]
+
+[package.metadata.rust-analyzer]
+rustc_private = true

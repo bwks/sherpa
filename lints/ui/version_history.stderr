@@ -1,0 +1,67 @@
+warning: version-history narrative in a comment
+  --> $DIR/version_history.rs:1:17
+   |
+LL | //! This module no longer reads the old file.
+   |                 ^^^^^^^^^
+   |
+   = help: describe what the code does today; history belongs in CHANGELOG.md
+   = note: `#[warn(version_history)]` on by default
+
+warning: version-history narrative in a comment
+  --> $DIR/version_history.rs:3:23
+   |
+LL | /// Returns the name. Previously this returned the path.
+   |                       ^^^^^^^^^^
+   |
+   = help: describe what the code does today; history belongs in CHANGELOG.md
+
+warning: version-history narrative in a comment
+  --> $DIR/version_history.rs:5:8
+   |
+LL |     // Since 0.7.0 the name is cached.
+   |        ^^^^^^^^^^^
+   |
+   = help: describe what the code does today; history belongs in CHANGELOG.md
+
+warning: version-history narrative in a comment
+  --> $DIR/version_history.rs:9:4
+   |
+LL | /* Before 0.6 this was a macro. */
+   |    ^^^^^^^^^^
+   |
+   = help: describe what the code does today; history belongs in CHANGELOG.md
+
+warning: version-history narrative in a string literal
+  --> $DIR/version_history.rs:12:41
+   |
+LL |         String::from("the --all flag is deprecated"),
+   |                                         ^^^^^^^^^^
+   |
+   = help: describe what the code does today; history belongs in CHANGELOG.md
+
+warning: version-history narrative in a string literal
+  --> $DIR/version_history.rs:13:18
+   |
+LL |         format!("removed in {}", 3),
+   |                  ^^^^^^^^^^
+   |
+   = help: describe what the code does today; history belongs in CHANGELOG.md
+
+warning: version-history narrative in a string literal
+  --> $DIR/version_history.rs:14:30
+   |
+LL |         String::from(r#"the "legacy" layout"#),
+   |                              ^^^^^^
+   |
+   = help: describe what the code does today; history belongs in CHANGELOG.md
+
+warning: version-history narrative in a string literal
+  --> $DIR/version_history.rs:15:35
+   |
+LL |         String::from("This option used to be called --force"),
+   |                                   ^^^^^^^
+   |
+   = help: describe what the code does today; history belongs in CHANGELOG.md
+
+warning: 8 warnings emitted
+

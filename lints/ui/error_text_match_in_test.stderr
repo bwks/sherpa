@@ -1,0 +1,36 @@
+warning: decision taken from the text of an error
+  --> $DIR/error_text_match_in_test.rs:10:8
+   |
+LL |     if failing().to_string().contains("space") {}
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on the error's type or variant, or downcast to it
+   = note: `#[warn(error_text_match)]` on by default
+
+warning: test checks an error by its text
+  --> $DIR/error_text_match_in_test.rs:15:13
+   |
+LL |     assert!(failing().to_string().contains("space"));
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: check the error's type or variant; keep a text check for the wording of one message only
+   = note: `#[warn(error_text_match_in_test)]` on by default
+
+warning: test checks an error by its text
+  --> $DIR/error_text_match_in_test.rs:16:5
+   |
+LL |     assert_eq!(format!("{}", failing()), "out of space");
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: check the error's type or variant; keep a text check for the wording of one message only
+
+warning: test checks an error by its text
+  --> $DIR/error_text_match_in_test.rs:24:9
+   |
+LL |         failing().to_string().starts_with("out")
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: check the error's type or variant; keep a text check for the wording of one message only
+
+warning: 4 warnings emitted
+

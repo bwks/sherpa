@@ -1,0 +1,99 @@
+warning: comment on a struct field or an enum variant
+  --> $DIR/field_comment.rs:8:5
+   |
+LL |     /// Field doc.
+   |     ^^^^^^^^^^^^^^
+   |
+   = help: name the field or the variant for what it holds, and say the rest in the type's doc comment
+   = note: `#[warn(field_comment)]` on by default
+
+warning: comment on a struct field or an enum variant
+  --> $DIR/field_comment.rs:10:5
+   |
+LL |     // Plain comment.
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = help: name the field or the variant for what it holds, and say the rest in the type's doc comment
+
+warning: comment on a struct field or an enum variant
+  --> $DIR/field_comment.rs:12:13
+   |
+LL |     c: u32, // Trailing comment.
+   |             ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the field or the variant for what it holds, and say the rest in the type's doc comment
+
+warning: comment on a struct field or an enum variant
+  --> $DIR/field_comment.rs:13:5
+   |
+LL |     /** Block doc. */
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = help: name the field or the variant for what it holds, and say the rest in the type's doc comment
+
+warning: comment on a struct field or an enum variant
+  --> $DIR/field_comment.rs:15:5
+   |
+LL |     #[doc = "Doc attribute."]
+   |     ^^^^^^^
+   |
+   = help: name the field or the variant for what it holds, and say the rest in the type's doc comment
+
+warning: comment on a struct field or an enum variant
+  --> $DIR/field_comment.rs:24:5
+   |
+LL |     /// Tuple field doc.
+   |     ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the field or the variant for what it holds, and say the rest in the type's doc comment
+
+warning: comment on a struct field or an enum variant
+  --> $DIR/field_comment.rs:31:5
+   |
+LL |     /// Variant doc.
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = help: name the field or the variant for what it holds, and say the rest in the type's doc comment
+
+warning: comment on a struct field or an enum variant
+  --> $DIR/field_comment.rs:33:5
+   |
+LL |     /* Block comment. */
+   |     ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the field or the variant for what it holds, and say the rest in the type's doc comment
+
+warning: comment on a struct field or an enum variant
+  --> $DIR/field_comment.rs:35:9
+   |
+LL |         /// Variant field doc.
+   |         ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the field or the variant for what it holds, and say the rest in the type's doc comment
+
+warning: comment on a struct field or an enum variant
+  --> $DIR/field_comment.rs:41:5
+   |
+LL |     /// Union field doc.
+   |     ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the field or the variant for what it holds, and say the rest in the type's doc comment
+
+warning: comment on a struct field or an enum variant
+  --> $DIR/field_comment.rs:78:5
+   |
+LL |     /// Not help text.
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the field or the variant for what it holds, and say the rest in the type's doc comment
+
+warning: comment on a struct field or an enum variant
+  --> $DIR/field_comment.rs:101:9
+   |
+LL |         /// Local field doc.
+   |         ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the field or the variant for what it holds, and say the rest in the type's doc comment
+
+warning: 12 warnings emitted
+

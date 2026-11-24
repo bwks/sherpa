@@ -1,0 +1,29 @@
+warning: closure `double` is used once
+  --> $DIR/single_use_closure.rs:4:9
+   |
+LL |     let double = |value: u32| value * 2;
+   |         ^^^^^^
+   |
+note: its only use
+  --> $DIR/single_use_closure.rs:5:49
+   |
+LL |     let total: u32 = values.iter().copied().map(double).sum();
+   |                                                 ^^^^^^
+   = help: write the code where it is used, or make it a function
+   = note: `#[warn(single_use_closure)]` on by default
+
+warning: closure `add_one` is used once
+  --> $DIR/single_use_closure.rs:7:9
+   |
+LL |     let add_one = |value: u32| value + 1;
+   |         ^^^^^^^
+   |
+note: its only use
+  --> $DIR/single_use_closure.rs:8:5
+   |
+LL |     add_one(total)
+   |     ^^^^^^^
+   = help: write the code where it is used, or make it a function
+
+warning: 2 warnings emitted
+

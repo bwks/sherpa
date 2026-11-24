@@ -1,0 +1,115 @@
+warning: decision taken from the text of an error
+  --> $DIR/error_text_match.rs:35:8
+   |
+LL |     if io_error.to_string().contains("No such device") {}
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on the error's type or variant, or downcast to it
+   = note: `#[warn(error_text_match)]` on by default
+
+warning: decision taken from the text of an error
+  --> $DIR/error_text_match.rs:36:8
+   |
+LL |     if refused.to_string() == "busy" {}
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on the error's type or variant, or downcast to it
+
+warning: decision taken from the text of an error
+  --> $DIR/error_text_match.rs:37:8
+   |
+LL |     if "busy" != refused.to_string() {}
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on the error's type or variant, or downcast to it
+
+warning: decision taken from the text of an error
+  --> $DIR/error_text_match.rs:38:8
+   |
+LL |     if boxed.to_string().to_lowercase().starts_with("timed out") {}
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on the error's type or variant, or downcast to it
+
+warning: decision taken from the text of an error
+  --> $DIR/error_text_match.rs:39:8
+   |
+LL |     if any.to_string().ends_with("refused") {}
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on the error's type or variant, or downcast to it
+
+warning: decision taken from the text of an error
+  --> $DIR/error_text_match.rs:40:8
+   |
+LL |     if format!("{any:#}").contains("refused") {}
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on the error's type or variant, or downcast to it
+
+warning: decision taken from the text of an error
+  --> $DIR/error_text_match.rs:41:8
+   |
+LL |     if format!("{:?}", refused).contains("Busy") {}
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on the error's type or variant, or downcast to it
+
+warning: decision taken from the text of an error
+  --> $DIR/error_text_match.rs:44:8
+   |
+LL |     if message.contains("denied") {}
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on the error's type or variant, or downcast to it
+
+warning: decision taken from the text of an error
+  --> $DIR/error_text_match.rs:48:8
+   |
+LL |     if trimmed.starts_with("bus") {}
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on the error's type or variant, or downcast to it
+
+warning: decision taken from the text of an error
+  --> $DIR/error_text_match.rs:50:11
+   |
+LL |     match refused.to_string().as_str() {
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on the error's type or variant, or downcast to it
+
+warning: decision taken from the text of an error
+  --> $DIR/error_text_match.rs:56:8
+   |
+LL |     if cause.to_string().contains("busy") {}
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on the error's type or variant, or downcast to it
+
+warning: decision taken from the text of an error
+  --> $DIR/error_text_match.rs:59:8
+   |
+LL |     if known.contains(&refused.to_string()) {}
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on the error's type or variant, or downcast to it
+
+warning: decision taken from the text of an error
+  --> $DIR/error_text_match.rs:61:5
+   |
+LL |     assert_eq!(refused.to_string(), "busy");
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on the error's type or variant, or downcast to it
+
+warning: decision taken from the text of an error
+  --> $DIR/error_text_match.rs:62:5
+   |
+LL |     assert_ne!(format!("{any}"), "busy");
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: match on the error's type or variant, or downcast to it
+
+warning: 14 warnings emitted
+
