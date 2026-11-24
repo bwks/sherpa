@@ -211,21 +211,6 @@ pub async fn remove_netem(iface_index: u32) -> Result<NetemRemoval> {
     Ok(NetemRemoval::Removed)
 }
 
-/// Update netem parameters on an interface that already has netem applied.
-///
-/// This replaces the existing netem qdisc with updated parameters.
-///
-/// # Errors
-///
-/// Fails when an existing netem qdisc cannot be removed, or as `apply_netem` does.
-#[instrument(skip(impairment), fields(iface_index), level = "debug")]
-pub async fn update_netem(iface_index: u32, impairment: &LinkImpairment) -> Result<()> {
-    // Remove then re-add — simplest approach that avoids change vs replace semantics. An
-    // interface without netem has nothing to remove; any other failure is an error.
-    remove_netem(iface_index).await?;
-    apply_netem(iface_index, impairment).await
-}
-
 /// Make interface `iface_index`'s egress impairment `impairment`: apply it, or, when it is
 /// clear, remove any netem qdisc the interface has. Applying replaces an existing qdisc.
 ///

@@ -242,6 +242,7 @@ Each case builds a database at the schema version that stored the value, upgrade
 | 020 | Each image keeps the settings of its own kind, as shipped and as an admin edited them | integration |
 | 021 | A unikernel image with no boot mode boots its kernel directly, and values an image held for another kind are gone | integration |
 | 022 | Images that hold values this release does not keep (a dedicated management interface, a ZTP login) keep their settings and their default, and can be edited | integration |
+| 024 | A stored definition loses the `p2p` value of its links and keeps every link with its ends and impairment | integration |
 
 ## `update_script`: the update script installs a release over a running server, or leaves the installed one in place
 

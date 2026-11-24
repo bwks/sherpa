@@ -73,9 +73,6 @@ pub struct LinkDetailed {
 pub struct Link2 {
     pub src: String,
     pub dst: String,
-    /// Removed: every link is a P2p (eBPF) link. Kept only so validation can reject a manifest
-    /// that still sets it (`validate::check_no_p2p_field`).
-    pub p2p: Option<bool>,
     pub impairment: Option<ManifestImpairment>,
 }
 

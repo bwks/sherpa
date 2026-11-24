@@ -7,11 +7,10 @@ use shared::validators::{effective_data_interface_count, effective_ztp};
 use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_lab_description, check_lab_name,
-    check_link_impairments, check_no_p2p_field, check_node_kind_settings, check_node_model_kind,
-    check_node_names, check_node_ztp, check_node_ztp_config, check_nonzero_node_settings,
-    check_ptx_platform, check_ready_timeout, check_text_file_modes, check_vm_tuning,
-    validate_environment_variables, validate_provisioners, validate_tailscale,
-    validate_talos_clusters,
+    check_link_impairments, check_node_kind_settings, check_node_model_kind, check_node_names,
+    check_node_ztp, check_node_ztp_config, check_nonzero_node_settings, check_ptx_platform,
+    check_ready_timeout, check_text_file_modes, check_vm_tuning, validate_environment_variables,
+    validate_provisioners, validate_tailscale, validate_talos_clusters,
 };
 use topology::{Manifest, process_manifest_bridges, process_manifest_links};
 
@@ -84,7 +83,6 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     println!("→ Checking links and bridges...");
     let links = manifest.links.as_deref().unwrap_or_default();
     let bridges = manifest.bridges.as_deref().unwrap_or_default();
-    check_no_p2p_field(links)?;
     check_link_impairments(links)?;
     let links_detailed = process_manifest_links(links, &nodes_expanded)?;
     let bridges_detailed = process_manifest_bridges(bridges, &nodes_expanded, "validate")?;

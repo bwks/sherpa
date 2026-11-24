@@ -218,7 +218,7 @@ A node with its own `ztp.config` takes none of the three: its config replaces th
 | 009 | An interface used twice is refused, naming the node and the interface's index: by two links, by a link and a bridge, and by two bridges | unit |
 | 010 | A bridge's links resolve as a link's ends do, and the bridge is named on the host by its place in `bridges` and the lab's ID | unit |
 | 011 | A bridge link that names a node the manifest does not define is refused, naming it | unit |
-| 012 | A link that sets `p2p`, to either value, is refused, naming the link and saying to delete the key | unit |
+| 012 | Retired: a link's `p2p` key is removed and refused as an unknown key; see `manifest_file` 004 | — |
 | 013 | A link impairment with a delay or jitter over 274877 ms, or a percentage outside 0 to 100, is refused, naming the link and the field, and one within is taken | unit |
 | 014 | At up the server refuses a manifest of bridges alone that puts one interface on two bridges, naming the node and the interface's index | unit |
 

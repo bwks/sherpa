@@ -68,7 +68,7 @@ pub async fn list_users_json(
 ///
 /// DELETE `/api/v1/admin/users/{username}`
 ///
-/// Refuses self-delete and the last admin (403), and users who own labs (409).
+/// Refuses self-delete and the built-in admin (403), and users who own labs (409).
 pub async fn delete_user_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
