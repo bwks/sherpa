@@ -1,6 +1,6 @@
 # Images
 
-What Sherpa does with images themselves: importing and uploading VM and unikernel disk images, downloading a VM image, pulling container images, scanning for images that are on the server but not recorded, the default version of each model and kind, listing, showing, editing and deleting images, who may do each, and which image up and redeploy give a node. How a node boots from its image is in [nodes](nodes.md); the lab-level refusal of a lab whose image is missing is `lab_preflight_001` in [lab lifecycle](lab-lifecycle.md); which kinds a model takes, an image's ZTP setting, and the install and update scripts, with the move of a renamed model's image folders after an update, have their own specs.
+What Sherpa does with images themselves: importing and uploading VM and unikernel disk images, downloading a VM image, pulling container images, scanning for images that are on the server but not recorded, the default version of each model and kind, listing, showing, editing and deleting images, who may do each, and which image up and redeploy give a node. How a node boots from its image is in [nodes](nodes.md); the lab-level refusal of a lab whose image is missing is `lab_preflight_001` in [lab lifecycle](lab-lifecycle.md); which kinds a model takes, an image's ZTP setting, and the install and update scripts, have their own specs.
 
 An image is a model, a kind (virtual machine, container or unikernel) and a version.
 

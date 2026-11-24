@@ -14,7 +14,7 @@ route. Server-only constants live in the narrowest module that uses them, else i
 `daemon::server::run_server` installs the signal handlers before any listener binds, so a server
 that could not shut down cleanly does not start. `AppState::new` loads the JWT secret, opens and
 migrates the database, loads its key, requires the built-in `sherpa-admin` (created only from
-`SHERPA_ADMIN_PASSWORD`), restricts storage and moves renamed models' image folders. A secret or key
+`SHERPA_ADMIN_PASSWORD`), restricts storage. A secret or key
 that is damaged stops startup and is never replaced: a new secret would end every session, a new
 key would open nothing sealed. Before anything takes requests, `lab_lifecycle::recover` marks what
 the last run left mid-way, shared CPU pins are logged and stopped domains' consoles move to their

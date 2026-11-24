@@ -1,6 +1,6 @@
 # Install and update
 
-Putting Sherpa on a host, keeping it up to date and taking it off: the install, update and uninstall scripts, `sherpad init`, what sherpad makes when it first starts, the modes of the server's files, the database's schema and what a database, an image folder, a lab, a `sherpa.toml` and a lab folder an older release wrote become under this one, the database backup, the `sherpad` commands that run the server process, and what a client needs before its first command: its install, its config, the server's certificate and the version check.
+Putting Sherpa on a host, keeping it up to date and taking it off: the install, update and uninstall scripts, `sherpad init`, what sherpad makes when it first starts, the modes of the server's files, the database's schema and what a database, a lab, a `sherpa.toml` and a lab folder an older release wrote become under this one, the database backup, the `sherpad` commands that run the server process, and what a client needs before its first command: its install, its config, the server's certificate and the version check.
 
 Other areas own what the installed system does once it runs:
 
@@ -10,7 +10,7 @@ Other areas own what the installed system does once it runs:
 - The `[tailscale]` table of `sherpa.toml` is `tailnet_settings` in [tailnet.md](tailnet.md). The rest of the file is `server_config` here.
 - A node an earlier release defined with its consoles on TCP is `console_upgrade` in [consoles.md](consoles.md).
 - The current layout of a lab folder is [client-lab-files.md](client-lab-files.md). Moving an older layout into it is `lab_folder_upgrade` here.
-- Importing, scanning and choosing images is [images.md](images.md). The image folders of renamed models are `image_folder_rename` here.
+- Importing, scanning and choosing images is [images.md](images.md).
 - A node state, a lab status or an error code this release does not know reads as unknown: `node_state_015`, `lab_status_007`, `api_errors_005`.
 - `/health` and `sherpa server status` are `server_status` in [inspect-and-web-ui.md](inspect-and-web-ui.md).
 - The lab CA and the certificates of nodes are `config_delivery` in [ztp.md](ztp.md); the server's own certificate is `server_certificate` here.
@@ -364,22 +364,9 @@ The script finds a lab's resources as sherpad does, without sherpad running: the
 | 006 | A key `[host_memory]` does not have is refused | unit |
 | 007 | `SHERPA_SERVER_IPV4`, `SHERPA_SERVER_IPV6`, `SHERPA_SERVER_WS_PORT` and `SHERPA_SERVER_HTTP_PORT` in the environment override the file, and a value that does not parse is ignored with a warning (no test yet) | unit |
 
-## `image_folder_rename`: an image folder under an earlier model name moves to the model's name
+## `image_folder_rename`: retired
 
-**Statement:** when sherpad starts, each image folder under a model name an earlier release used is moved to the model's name of today, no image file is deleted or replaced, and a disk built on an image in such a folder still finds it.
-**Relied on by:** the nodes of labs built before the update; the admin's imported images. **Priority:** P1.
-
-| Case | What it shows | Level |
-|---|---|---|
-| 001 | A folder no disk is built on is moved, and nothing is left at the old name | unit |
-| 002 | A folder a disk is built on is moved and a link is left at the old name; the link stays at later starts while the disk exists, and is removed at the first start after it is gone | unit |
-| 003 | A disk built on another model's image keeps no link | unit |
-| 004 | Two folders that became two models move each to its own, only the one a disk uses is linked, and the folders of today's names beside them are untouched | unit |
-| 005 | Two folders that became one model merge into its folder, and an empty one is removed | unit |
-| 006 | A file the model's folder already has is left where it was, and the rest of its folder moves | unit |
-| 007 | When the storage pool's disks cannot be read, every moved folder keeps a link | unit |
-| 008 | With no such folder, nothing changes, at this start and the next | unit |
-| 009 | A VM built by an earlier release on such an image starts after the update (no test yet) | e2e (fresh VM) |
+Retired: sherpad does not move image folders. Cases 001 to 009 are retired, and their numbers stay taken.
 
 ## `upgraded_labs`: a lab an older release built keeps working, and sherpad says what needs the user
 

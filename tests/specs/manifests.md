@@ -112,7 +112,7 @@ The server runs these at up before anything is created (`lab_preflight_002`). Th
 | 005 | Every model and kind has built-in settings, and they are of that model and kind | unit |
 | 006 | A message names a model with its kind only when the model takes several: `cisco_asa`, but `arista_eos, container` | unit |
 | 007 | Every model is taken by the name it is shown as, from a manifest, from JSON and on the command line | unit |
-| 008 | A model name Sherpa does not know is refused, naming it, and a name that was renamed is refused naming the model and kind to use instead, from a manifest, from JSON and on the command line | unit |
+| 008 | A model name Sherpa does not know is refused, naming it, from a manifest, from JSON and on the command line | unit |
 | 009 | A `--model` option lists every model name as a possible value | unit |
 
 ## `node_settings`: a node sets only what its kind and its model take

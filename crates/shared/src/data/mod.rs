@@ -95,9 +95,9 @@ pub use network::{BridgeKind, LabSubnets, NetworkV4, NetworkV6, SherpaNetwork};
 pub use node::{
     BiosTypes, BootDiskSettings, CdromSettings, ContainerSettings, CpuArchitecture, CpuSettings,
     InterfaceDeviceSettings, InterfaceSettings, InterfaceType, KindSettings, MachineSettings,
-    MachineType, NodeConfig, NodeKind, NodeModel, NodeState, OsVariant, REMOVED_MODELS,
-    UnikernelBootMode, UnikernelCpuSettings, UnikernelMachineSettings, UnikernelSettings,
-    VmCpuSettings, VmSettings, Ztp, ZtpSettings,
+    MachineType, NodeConfig, NodeKind, NodeModel, NodeState, OsVariant, UnikernelBootMode,
+    UnikernelCpuSettings, UnikernelMachineSettings, UnikernelSettings, VmCpuSettings, VmSettings,
+    Ztp, ZtpSettings,
 };
 pub use node_lifecycle::{Halt, Observation, OperationEvent, Probe, Refused, Runtime};
 pub use performance::{
