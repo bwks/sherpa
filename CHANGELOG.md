@@ -2,6 +2,49 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.3] - 2026-11-24
+
+### Upgrade notes
+
+No database migration. **Update the CLI and the server together:** the up and redeploy requests carry a manifest's file contents in a separate `file_contents` field, so an older CLI's request is refused by this server, and the other way round.
+
+- **Manifests:** the CLI-filled `*_data` keys (`startup_scripts_data` and the like) are refused in `manifest.toml` as unknown keys. They were never meant to be written by hand.
+- **Retired model names are unknown models.** The names replaced by the current models (`arista_veos`, `arista_ceos`, `cisco_asav`, `cisco_ftdv`, `cisco_iosxrv9000`, `cisco_iosv`, `cisco_iosvl2`, `cisco_csr1000v`, `cisco_cat8000v`, `cisco_cat9000v`, `cisco_nexus9300v`, `juniper_vrouter`, `juniper_vswitch`, `juniper_vevolved`, `juniper_cevolved`, `juniper_vsrxv3`, `generic_vm`, `generic_container`, `generic_unikernel`) get `Unknown node model: <name>`. Use the current model name, with `kind` where the model takes several.
+- **Image folders under a retired model name are not moved.** List the images folder (`/opt/sherpa/images` by default) for an entry with one of the names above:
+  - **A real folder:** move each version folder into the current model's folder (for example `arista_veos/4.33` to `arista_eos/4.33`), or re-import the image. If a lab disk is still built on an image there, leave a link at the old path (`ln -s arista_eos arista_veos`) until that lab is destroyed.
+  - **A link:** delete it once no lab disk uses it.
+- **`[ztp_server]` in `sherpa.toml`** is ignored without a warning. It does nothing and can be deleted.
+- **Blank disk templates** under `/opt/sherpa/images` are mode `0400`. `sherpad doctor --boxes` sets them to that.
+- **A leftover Docker management network** named for a lab (`sherpa-management-<lab_id>`) is reused only when its subnets, gateway and bridge match the lab's. Otherwise `sherpa up` is refused before anything is created, naming each difference. The network is never deleted for you.
+- **sherpad's PID file is locked** while the server runs, so a second `sherpad start` fails. `stop`, `status`, `restart` and `user unlock` act only on a process that is `sherpad`.
+- **Install and update:** a repeat install keeps `sherpa.env` and adds only missing keys. The update pulls the pinned router image before it stops sherpad.
+- **Messages say "node"** where they said "device", including the first column of `sherpa inspect`. Link errors name the link, the node and its model. `sherpa new` on an existing manifest exits non-zero.
+- **Talos:** `up` reports a ready cluster's workers as `running`.
+- **The published API spec (`/api/v1/spec`)** no longer carries field and variant descriptions.
+
+### Bug Fixes
+
+- Reuse a Docker management network only when it is the lab's by @bwks ([07e7835](https://github.com/bwks/sherpa/commit/07e7835434fe8957aa4cbe3dd15d46f8d8e3ffa0))
+- Lock the PID file and signal only a sherpad process by @bwks ([672fa09](https://github.com/bwks/sherpa/commit/672fa091ef9a82ce39207c1aced2d22abb11fa14))
+- Keep sherpa.env, refresh the router image on update, 0400 blank disks by @bwks ([f1e11b8](https://github.com/bwks/sherpa/commit/f1e11b895ca3fc94a3a604b90397c84485d04b45))
+- Report a ready cluster's workers running, and say ztp.config by @bwks ([e500f33](https://github.com/bwks/sherpa/commit/e500f33ed15fb38eeef2d96e9421fd2e2e2a351a))
+- Name what link errors refer to and keep file contents out of manifests by @bwks ([00625e4](https://github.com/bwks/sherpa/commit/00625e4b67ae7984f2c25d42481ac5a73981c8bd))
+- Check startup script names the server writes under by @bwks ([8815e21](https://github.com/bwks/sherpa/commit/8815e21e421ecda04100ee2bc4a869a908117f17))
+
+### Documentation
+
+- State the field drop order on lock-holding types by @bwks ([f7ef514](https://github.com/bwks/sherpa/commit/f7ef514ab914ef8fe58b1e4799fc422d8fc5d523))
+- Keep historical narrative out of everything but the changelog by @bwks ([f090b85](https://github.com/bwks/sherpa/commit/f090b85cf79b62943b97af51614a726de27e30b9))
+
+### Miscellaneous
+
+- Remove the startup warning about a [ztp_server] table by @bwks ([79c09be](https://github.com/bwks/sherpa/commit/79c09be6756243ae36095b2a6c5b8c1c7c67fce4))
+- Remove the retired model names and their image folder moves by @bwks ([621a6db](https://github.com/bwks/sherpa/commit/621a6db104dda1e0b1780df43cff42bdffd68fab))
+- Refuse comments on struct fields and enum variants by @bwks ([08f469a](https://github.com/bwks/sherpa/commit/08f469afb9f30c6866c4449c56a233ce2b13d7c0))
+- Remove comments on struct fields and enum variants by @bwks ([42f2cfd](https://github.com/bwks/sherpa/commit/42f2cfd3ac151e6757e776634a1031feb8b0d105))
+- Describe current behaviour instead of version history by @bwks ([de449dd](https://github.com/bwks/sherpa/commit/de449dd4237c5467a51da75b375f359e7dff8778))
+- Drop dead DHCP branches, unset FTDv fields and meta-data public-keys by @bwks ([d9f5741](https://github.com/bwks/sherpa/commit/d9f574184c8f54639d87d5827c57c4eade8519ac))
+
 ## [0.9.2] - 2026-11-24
 
 ### Upgrade notes

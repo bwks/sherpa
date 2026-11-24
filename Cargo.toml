@@ -90,7 +90,7 @@ default-members = ["crates/client"]
 # Only a bump pull request changes it, made with `mise run release:bump` (see
 # docs/architecture/RELEASE.md).
 [workspace.package]
-version = "0.9.2"
+version = "0.9.3"
 
 [workspace.dependencies]
 # Common application dependencies
