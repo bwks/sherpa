@@ -118,6 +118,9 @@ jobs:
       - name: Check comments name no issue or pull request numbers
         run: dev/check-comment-issue-numbers.sh
 
+      - name: Check struct fields and enum variants carry no comments
+        run: dev/check-field-comments.sh
+
       - name: Check ebpf-redirect calls no unwrap or expect
         run: dev/check-ebpf-unwrap.sh
 
