@@ -92,7 +92,7 @@ dependencies = [
 
 [[package]]
 name = "agent-bus"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -1053,7 +1053,7 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "container"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "bollard",
@@ -1361,7 +1361,7 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "db"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "aes-gcm 0.11.1",
  "anyhow",
@@ -2638,7 +2638,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "iso"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "jiff",
@@ -2855,7 +2855,7 @@ dependencies = [
 
 [[package]]
 name = "libvirt"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "askama",
@@ -3143,7 +3143,7 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "aya",
@@ -5031,7 +5031,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5082,7 +5082,7 @@ dependencies = [
 
 [[package]]
 name = "sherpa"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -5115,7 +5115,7 @@ dependencies = [
 
 [[package]]
 name = "sherpad"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "askama",
@@ -5603,7 +5603,7 @@ dependencies = [
 
 [[package]]
 name = "template"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "askama",
@@ -5890,7 +5890,7 @@ dependencies = [
 
 [[package]]
 name = "topology"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "serde",

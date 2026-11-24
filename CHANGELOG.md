@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.1] - 2026-11-24
+
+### Upgrade notes
+
+No database migration. Update the CLI and the server together: these changes need both.
+
+- **Tailscale gateways:**
+  - `sherpa down` and `sherpa destroy` now fail, and exit non-zero, when the gateway can't be logged out of the tailnet. The gateway is still stopped or removed. After a destroy, the lab record is kept; run `sherpa destroy` again to finish.
+  - A whole-lab `sherpa resume` leaves a running, connected gateway alone and needs no key. When the key variable is unset, the CLI sends none and the server says if one is needed.
+  - Otherwise, resume logs the gateway out of any identity it kept, then enrolls it as a new device. If enrollment fails, the gateway is stopped and no node starts.
+- **Server settings:** sherpad refuses to start when `[tailscale] exec_timeout_secs` is not longer than `enrollment_timeout_secs`. Check those two if you set them.
+- **Node names:** a container node named `sherpa-tailnet` is refused in a lab with `[tailscale]` enabled.
+- **Web UI:** a lab with a Tailscale gateway shows Start greyed out, with the instruction to run `sherpa resume` in the lab folder. The API's lab list has a new `tailnet_gateway` field.
+- **Uninstall script:**
+  - It refuses to run while any lab VM, container or Tailscale gateway is running, in every mode, `--force` included.
+  - It lists what it keeps.
+  - `--remove-all` now also removes the `sherpa` account and `/var/backups/sherpa`.
+
+### Bug Fixes
+
+- Default the installer suite to the latest release and a smaller guest by @bwks ([0b62497](https://github.com/bwks/sherpa/commit/0b6249753a61d723a6e0b1cf22963ef8531e71e5))
+- Remove the update backups with --remove-all by @bwks ([162f58c](https://github.com/bwks/sherpa/commit/162f58c698eb4cafb3f2566cf5bc3e9cce0b8970))
+- Refuse uninstall while labs run and say what is kept by @bwks ([6039194](https://github.com/bwks/sherpa/commit/603919457585ee8383ae09f9d848602776c8d1e5))
+- Leave a connected tailnet gateway alone on resume and roll back a failed enrollment by @bwks ([46f6a6e](https://github.com/bwks/sherpa/commit/46f6a6e64b6df57f362a343447e22bbb25a18583))
+- Refuse a tailscale command timeout not longer than the enrollment timeout by @bwks ([482db74](https://github.com/bwks/sherpa/commit/482db748bb9fd6ba0fc3ba60a8d22f97439f3353))
+- Show the Tailscale table on down and sherpa resume in the web UI by @bwks ([b18e185](https://github.com/bwks/sherpa/commit/b18e18502bb4061d971f10bf4936f5c102b7a20f))
+- Refuse a container node with the tailnet gateway's name by @bwks ([ff8c770](https://github.com/bwks/sherpa/commit/ff8c77012151f8142fb421affe82f6f16d3ccbea))
+- Report failed tailnet logouts and log out kept identities on resume by @bwks ([7bf4e42](https://github.com/bwks/sherpa/commit/7bf4e42fc987da7cf5d5f99e705796f0d5e2fdc5))
+- Dev lab provisioning on 0.9.0, and the Tailscale key in the guests by @bwks ([513b0a0](https://github.com/bwks/sherpa/commit/513b0a0cdad4396bb67e11a025bb4963645e801a))
+
+### Miscellaneous
+
+- Give each dev VM its own lab management ranges by @bwks ([07ba048](https://github.com/bwks/sherpa/commit/07ba048cb02d06b510f5338674062489985c00ec))
+
+### Testing
+
+- Real-tailnet lab test for the Tailscale gateway by @bwks ([839cbcf](https://github.com/bwks/sherpa/commit/839cbcfc435cbfa97e5bda08ee5ade8229b7b76f))
+- Share one Docker mock for the gateway tests by @bwks ([f647687](https://github.com/bwks/sherpa/commit/f647687e39003226c1eec56c1cca6f5d12c045f1))
+
 ## [0.9.0] - 2026-11-23
 
 ### Upgrade notes
