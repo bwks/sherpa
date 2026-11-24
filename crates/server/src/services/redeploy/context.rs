@@ -9,7 +9,6 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow};
 use tracing::instrument;
 
-use crate::api::request_parse::parse_value;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_host_access;
 use crate::daemon::state::AppState;
@@ -136,25 +135,18 @@ pub(super) async fn load_redeploy<'a>(
     progress: &'a ProgressSender,
     operation: &'a LabOperation,
 ) -> Result<Redeploy<'a>> {
-    let RedeployRequest {
-        lab_id,
-        node_name,
-        manifest,
-        secrets,
-        as_written,
-    } = request;
     let _ = progress.send_status(
-        format!("Loading context for node: {node_name}"),
+        format!("Loading context for node: {}", request.node_name),
         StatusKind::Progress,
     );
 
-    let definition = check_manifest(
-        ctx,
-        &manifest,
-        as_written.as_ref(),
-        &node_name,
-        secrets.as_deref(),
-    )?;
+    let definition = check_manifest(ctx, &request)?;
+    let RedeployRequest {
+        lab_id,
+        node_name,
+        secrets,
+        ..
+    } = request;
     let manifest = &definition.manifest;
     let mut target_node = manifest_node(manifest, &node_name)?;
 
@@ -249,16 +241,11 @@ pub(super) async fn load_redeploy<'a>(
 /// keys, text file modes, Windows startup script names, the files the client read,
 /// provisioners, and the node's secret files. With the parts as written the client sent beside
 /// it, the node's definition is built and its provisioners checked.
-fn check_manifest(
-    ctx: &AuthContext,
-    manifest: &serde_json::Value,
-    as_written: Option<&serde_json::Value>,
-    node_name: &str,
-    secrets: Option<&[data::SecretFile]>,
-) -> Result<RedeployDefinition> {
-    let manifest: topology::Manifest = parse_value(manifest)
-        .context("Failed to deserialize manifest")
-        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+fn check_manifest(ctx: &AuthContext, request: &RedeployRequest) -> Result<RedeployDefinition> {
+    let node_name = request.node_name.as_str();
+    let manifest =
+        lab_definition::parse_manifest(&request.manifest, request.file_contents.as_ref())
+            .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     check_lab_name(&manifest.name)
         .context("Manifest validation failed: lab name")
         .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
@@ -284,7 +271,7 @@ fn check_manifest(
     reject_provisioners(&manifest)
         .context("Manifest validation failed: provisioners")
         .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
-    let as_written = match lab_definition::parse_as_written(as_written)
+    let as_written = match lab_definition::parse_as_written(request.as_written.as_ref())
         .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?
     {
         Some(parts) => Some(
@@ -294,7 +281,7 @@ fn check_manifest(
         ),
         None => None,
     };
-    if let Some(files) = secrets
+    if let Some(files) = request.secrets.as_deref()
         && !files.is_empty()
     {
         validate_node_secrets(
@@ -707,7 +694,7 @@ mod tests {
             "name": "core",
             "nodes": [{ "name": "r1", "model": "hunter2-s3cret" }],
         });
-        let Err(error) = check_manifest(&ctx, &manifest, None, "r1", None) else {
+        let Err(error) = check_manifest(&ctx, &request(manifest, None)) else {
             panic!("parsed");
         };
         assert_eq!(
@@ -715,10 +702,24 @@ mod tests {
             "Failed to deserialize manifest: the request is not valid at nodes[0].model"
         );
     }
+    fn request(
+        manifest: serde_json::Value,
+        file_contents: Option<serde_json::Value>,
+    ) -> RedeployRequest {
+        RedeployRequest {
+            lab_id: "lab-0001".to_owned(),
+            node_name: "r1".to_owned(),
+            manifest,
+            secrets: None,
+            as_written: None,
+            file_contents,
+        }
+    }
+
     /// The error a redeploy of `r1` gives for `manifest`, refused before anything is torn down.
     fn redeploy_refusal(manifest: &serde_json::Value) -> String {
         let ctx = AuthContext::new("dev".to_string(), false, "s".to_string());
-        let Err(error) = check_manifest(&ctx, manifest, None, "r1", None) else {
+        let Err(error) = check_manifest(&ctx, &request(manifest.clone(), None)) else {
             panic!("a redeploy of {manifest} was not refused");
         };
         format!("{error:#}")
@@ -786,20 +787,26 @@ mod tests {
     #[test]
     fn boot_settings_007_a_redeploy_is_refused_before_teardown_for_a_flatcar_text_file_mode_not_octal()
      {
-        let error = redeploy_refusal(&serde_json::json!({
+        let ctx = AuthContext::new("dev".to_string(), false, "s".to_string());
+        let manifest = serde_json::json!({
             "name": "core",
-            "nodes": [{
-                "name": "r1",
-                "model": "flatcar_linux",
-                "text_files_data": [{
+            "nodes": [{ "name": "r1", "model": "flatcar_linux" }],
+        });
+        let file_contents = serde_json::json!({
+            "r1": {
+                "text_files": [{
                     "content": "aGk=",
                     "dst": "/etc/motd",
                     "user": "core",
                     "group": "core",
                     "permissions": 999,
                 }],
-            }],
-        }));
+            },
+        });
+        let Err(error) = check_manifest(&ctx, &request(manifest, Some(file_contents))) else {
+            panic!("a redeploy of a text file mode 999 was not refused");
+        };
+        let error = format!("{error:#}");
         assert!(error.contains("'r1' text file '/etc/motd'"), "{error}");
     }
 

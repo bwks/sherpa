@@ -68,7 +68,7 @@ fn check_device_interface(
     let interfaces = device_int_map.entry(device.to_string()).or_default();
     if interfaces.contains(&interface) {
         bail!(
-            "Manifest {connection_type} - device '{device}' interface index '{interface}' is already in use"
+            "Manifest {connection_type} - node '{device}' interface index '{interface}' is already in use"
         );
     }
     interfaces.push(interface);
@@ -120,14 +120,14 @@ pub fn check_interface_bounds(
     // interfaces are 1 to 52; with no data interfaces, the maximum is the last reserved one.
     let first_data_interface_idx = reserved_interface_count.checked_add(1).with_context(|| {
         format!(
-            "Interface bounds validation overflow for device '{device_name}' model '{device_model}' (reserved: {reserved_interface_count})"
+            "Interface bounds validation overflow for node '{device_name}' model '{device_model}' (reserved: {reserved_interface_count})"
         )
     })?;
     let max_interface_idx = reserved_interface_count
         .checked_add(data_interface_count)
         .with_context(|| {
             format!(
-                "Interface bounds validation overflow for device '{device_name}' model '{device_model}' (data_interface_count: {data_interface_count}, reserved: {reserved_interface_count})"
+                "Interface bounds validation overflow for node '{device_name}' model '{device_model}' (data_interface_count: {data_interface_count}, reserved: {reserved_interface_count})"
             )
         })?;
     let bounds = InterfaceBounds {
@@ -143,7 +143,7 @@ pub fn check_interface_bounds(
             continue;
         };
         check_interface_index(
-            &format!("Manifest link - device '{device_name}' interface '{interface_name}'"),
+            &format!("Manifest link - node '{device_name}' interface '{interface_name}'"),
             "links",
             interface_idx,
             &bounds,
@@ -157,7 +157,7 @@ pub fn check_interface_bounds(
             }
             check_interface_index(
                 &format!(
-                    "Manifest bridge '{}' - device '{device_name}' interface '{}'",
+                    "Manifest bridge '{}' - node '{device_name}' interface '{}'",
                     bridge.manifest_name, bridge_link.interface_name
                 ),
                 "bridges",
@@ -187,7 +187,7 @@ fn check_interface_index(
         );
     } else if interface_idx > bounds.max_interface_idx {
         bail!(
-            "{connection} exceeds the maximum interface index '{}' for device model '{}' (data_interface_count: {}, reserved: {})",
+            "{connection} exceeds the maximum interface index '{}' for node model '{}' (data_interface_count: {}, reserved: {})",
             bounds.max_interface_idx,
             bounds.device_model,
             bounds.data_interface_count,
@@ -335,7 +335,7 @@ mod tests {
                 .to_string();
             assert!(
                 err_msg.contains(&format!(
-                    "device 'rocky1' interface index '{index}' is already in use"
+                    "node 'rocky1' interface index '{index}' is already in use"
                 )),
                 "{err_msg}"
             );
