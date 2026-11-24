@@ -141,7 +141,7 @@ fn generated_config_010_cisco_iosxe_stops_pnp_first() {
         dns: helpers::test_dns(),
         license_boot_command: None,
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+        mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     };
@@ -158,7 +158,7 @@ fn generated_config_011_cisco_iosxe_with_a_boot_licence() {
         dns: helpers::test_dns(),
         license_boot_command: Some("license boot level network-advantage".to_string()),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+        mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     };
@@ -176,7 +176,7 @@ fn device_accounts_005_cisco_iosxe_owner_only() {
             dns: helpers::test_dns(),
             license_boot_command: None,
             mgmt_ipv4: helpers::test_network_v4(),
-            mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+            mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
             mgmt_ipv6_address: None,
             mgmt_ipv6: None,
         };
@@ -205,7 +205,7 @@ fn config_name_server_009_cisco_iosxe() {
         dns: helpers::test_dns(),
         license_boot_command: None,
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+        mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     }

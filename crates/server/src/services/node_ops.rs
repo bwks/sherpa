@@ -403,7 +403,6 @@ pub(crate) fn write_nocloud_files(
     let meta_data = template::MetaDataConfig {
         instance_id: format!("iid-{hostname}"),
         local_hostname: hostname.to_owned(),
-        ..Default::default()
     };
     util::write_file_with_permissions(
         Path::new(&format!("{dir}/{CLOUD_INIT_META_DATA}")),
@@ -798,7 +797,7 @@ fn arista_eos_container_volume_ztp(
                 PasswordForm::Hashed(CryptHash::Sha512),
             )?,
             dns: dns.clone(),
-            mgmt_ipv4_address: Some(node_ipv4_address),
+            mgmt_ipv4_address: node_ipv4_address,
             mgmt_ipv4: mgmt_net.v4.clone(),
             mgmt_ipv6_address: node.ipv6_address,
             mgmt_ipv6: mgmt_net.v6.clone(),
@@ -870,7 +869,7 @@ fn srlinux_volume_ztp(
             &guest_account::owner_user(guest_account, KeyFormat::OpenSsh, PasswordForm::Plain)?,
             dns,
             &mgmt_net.v4,
-            Some(node_ipv4_address),
+            node_ipv4_address,
             node.ipv6_address.zip(mgmt_net.v6.as_ref()),
         )?,
     };
@@ -944,7 +943,7 @@ fn cevolved_volume_ztp(
                 PasswordForm::Hashed(CryptHash::Sha512),
             )?,
             mgmt_interface: node_image.interfaces.management.to_string(),
-            mgmt_ipv4_address: Some(node_ipv4_address),
+            mgmt_ipv4_address: node_ipv4_address,
             mgmt_ipv4: mgmt_net.v4.clone(),
             mgmt_ipv6_address: node.ipv6_address,
             mgmt_ipv6: mgmt_net.v6.clone(),
@@ -1108,7 +1107,7 @@ fn frr_volume_ztp(
         template::FrrZtpTemplate {
             hostname: node.name.clone(),
             mgmt_ipv4: mgmt_net.v4.clone(),
-            mgmt_ipv4_address: Some(node_ipv4_address),
+            mgmt_ipv4_address: node_ipv4_address,
             mgmt_ipv6_address: node.ipv6_address,
             mgmt_ipv6: mgmt_net.v6.clone(),
         }
@@ -2467,7 +2466,6 @@ fn linux_cloud_init(
     let meta_data = template::MetaDataConfig {
         instance_id: format!("iid-{}", node.name),
         local_hostname: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
-        ..Default::default()
     };
     let network_config = template::CloudInitNetwork::ztp_interface(
         node_ipv4_address,
@@ -2598,7 +2596,6 @@ fn windows_cloudbase_init(
     let meta_data = template::MetaDataConfig {
         instance_id: format!("iid-{}", node.name),
         local_hostname: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
-        ..Default::default()
     };
     let network_config = template::CloudbaseInitNetwork::ztp_interface(
         node_ipv4_address,
@@ -2654,7 +2651,6 @@ fn alpine_cloud_init(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>, dir: &str
     let meta_data = template::MetaDataConfig {
         instance_id: format!("iid-{}", node.name),
         local_hostname: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
-        ..Default::default()
     };
     let network_config = template::CloudInitNetwork::ztp_interface(
         node_ipv4_address,
@@ -2710,7 +2706,7 @@ fn generate_tftp_ztp(
                         PasswordForm::Hashed(CryptHash::Sha512),
                     )?,
                     dns: dns.clone(),
-                    mgmt_ipv4_address: Some(node_ipv4_address),
+                    mgmt_ipv4_address: node_ipv4_address,
                     mgmt_ipv4: mgmt_net.v4.clone(),
                     mgmt_ipv6_address: node.ipv6_address,
                     mgmt_ipv6: mgmt_net.v6.clone(),
@@ -2737,7 +2733,7 @@ fn generate_tftp_ztp(
                     username,
                     ssh_keys,
                     dns: dns.clone(),
-                    mgmt_ipv4_address: Some(node_ipv4_address),
+                    mgmt_ipv4_address: node_ipv4_address,
                     mgmt_ipv4: mgmt_net.v4.clone(),
                     mgmt_ipv6_address: node.ipv6_address,
                     mgmt_ipv6: mgmt_net.v6.clone(),
@@ -2759,7 +2755,7 @@ fn generate_tftp_ztp(
                         PasswordForm::Hashed(CryptHash::Sha512),
                     )?,
                     mgmt_interface: node_image.interfaces.management.to_string(),
-                    mgmt_ipv4_address: Some(node_ipv4_address),
+                    mgmt_ipv4_address: node_ipv4_address,
                     mgmt_ipv4: mgmt_net.v4.clone(),
                     mgmt_ipv6_address: node.ipv6_address,
                     mgmt_ipv6: mgmt_net.v6.clone(),
@@ -2839,7 +2835,7 @@ fn cdrom_config(
                 PasswordForm::Plain,
             )?,
             dns: dns.clone(),
-            mgmt_ipv4_address: Some(node_ipv4_address),
+            mgmt_ipv4_address: node_ipv4_address,
             mgmt_ipv4: mgmt_net.v4.clone(),
             mgmt_ipv6_address: node.ipv6_address,
             mgmt_ipv6: mgmt_net.v6.clone(),
@@ -2853,7 +2849,7 @@ fn cdrom_config(
                 PasswordForm::Plain,
             )?,
             dns: dns.clone(),
-            mgmt_ipv4_address: Some(node_ipv4_address),
+            mgmt_ipv4_address: node_ipv4_address,
             mgmt_ipv4: mgmt_net.v4.clone(),
             mgmt_ipv6_address: node.ipv6_address,
             mgmt_ipv6: mgmt_net.v6.clone(),
@@ -2870,7 +2866,7 @@ fn cdrom_config(
                 PasswordForm::Hashed(CryptHash::Sha512),
             )?,
             mgmt_interface: node_image.interfaces.management.to_string(),
-            mgmt_ipv4_address: Some(node_ipv4_address),
+            mgmt_ipv4_address: node_ipv4_address,
             mgmt_ipv4: mgmt_net.v4.clone(),
             mgmt_ipv6_address: node.ipv6_address,
             mgmt_ipv6: mgmt_net.v6.clone(),
@@ -2910,7 +2906,7 @@ fn iosxe_config(
         mgmt_interface: node_image.interfaces.management.to_string(),
         dns: dns.clone(),
         license_boot_command,
-        mgmt_ipv4_address: Some(node_ipv4_address),
+        mgmt_ipv4_address: node_ipv4_address,
         mgmt_ipv4: mgmt_net.v4.clone(),
         mgmt_ipv6_address: node.ipv6_address,
         mgmt_ipv6: mgmt_net.v6.clone(),
@@ -2936,7 +2932,7 @@ fn asav_config(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>) -> Result<Strin
             PasswordForm::Plain,
         )?,
         dns: dns.clone(),
-        mgmt_ipv4_address: Some(node_ipv4_address),
+        mgmt_ipv4_address: node_ipv4_address,
         mgmt_ipv4: mgmt_net.v4.clone(),
         mgmt_ipv6_address: node.ipv6_address,
         mgmt_ipv6: mgmt_net.v6.clone(),
@@ -3127,7 +3123,7 @@ fn ios_config(
             owner,
             mgmt_interface,
             dns: dns.clone(),
-            mgmt_ipv4_address: Some(node_ipv4_address),
+            mgmt_ipv4_address: node_ipv4_address,
             mgmt_ipv4: mgmt_net.v4.clone(),
             mgmt_ipv6_address: node.ipv6_address,
             mgmt_ipv6: mgmt_net.v6.clone(),
@@ -3139,7 +3135,7 @@ fn ios_config(
             owner,
             mgmt_interface,
             dns: dns.clone(),
-            mgmt_ipv4_address: Some(node_ipv4_address),
+            mgmt_ipv4_address: node_ipv4_address,
             mgmt_ipv4: mgmt_net.v4.clone(),
             mgmt_ipv6_address: node.ipv6_address,
             mgmt_ipv6: mgmt_net.v6.clone(),
@@ -3248,7 +3244,7 @@ fn mikrotik_config_disk(
             mgmt_interface: node_image.interfaces.management.to_string(),
             dns: dns.clone(),
             mgmt_ipv4: mgmt_net.v4.clone(),
-            mgmt_ipv4_address: Some(node_ipv4_address),
+            mgmt_ipv4_address: node_ipv4_address,
             mgmt_ipv6_address: node.ipv6_address,
             mgmt_ipv6: mgmt_net.v6.clone(),
         }
@@ -3317,7 +3313,7 @@ fn generate_usb_ztp(
                         PasswordForm::Plain,
                     )?,
                     dns: dns.clone(),
-                    mgmt_ipv4_address: Some(node_ipv4_address),
+                    mgmt_ipv4_address: node_ipv4_address,
                     mgmt_ipv4: mgmt_net.v4.clone(),
                     mgmt_ipv6_address: node.ipv6_address,
                     mgmt_ipv6: mgmt_net.v6.clone(),
@@ -3353,7 +3349,7 @@ fn generate_usb_ztp(
                         PasswordForm::Hashed(CryptHash::Sha512),
                     )?,
                     mgmt_interface: node_image.interfaces.management.to_string(),
-                    mgmt_ipv4_address: Some(node_ipv4_address),
+                    mgmt_ipv4_address: node_ipv4_address,
                     mgmt_ipv4: mgmt_net.v4.clone(),
                     mgmt_ipv6_address: node.ipv6_address,
                     mgmt_ipv6: mgmt_net.v6.clone(),

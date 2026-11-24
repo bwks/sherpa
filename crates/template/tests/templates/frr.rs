@@ -79,7 +79,7 @@ fn generated_config_016_frr_conf() {
     let t = FrrZtpTemplate {
         hostname: "frr01".to_string(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+        mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     };

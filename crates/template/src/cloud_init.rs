@@ -10,14 +10,12 @@ use shared::konst::SHERPA_DOMAIN_NAME;
 
 use crate::guest_yaml::{to_cloud_config, to_guest_yaml};
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct MetaDataConfig {
     #[serde(rename = "instance-id")]
     pub instance_id: String,
     #[serde(rename = "local-hostname")]
     pub local_hostname: String,
-    #[serde(rename = "public-keys", skip_serializing_if = "Vec::is_empty")]
-    pub public_keys: Vec<String>,
 }
 impl MetaDataConfig {
     /// Render the document.
