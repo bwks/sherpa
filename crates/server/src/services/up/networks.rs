@@ -99,9 +99,10 @@ pub(super) async fn check_existing_docker_management_network(
     )
     .await?
     {
-        container::ExistingBridgeNetwork::Differs(message) => {
-            Err(ServiceError::Conflict(message).into())
-        }
+        container::ExistingBridgeNetwork::Differs(differences) => Err(ServiceError::Conflict(
+            container::ContainerError::NetworkDiffers { name, differences }.to_string(),
+        )
+        .into()),
         container::ExistingBridgeNetwork::Matches => {
             tracing::info!(network = %name, "Reusing the Docker management network already there");
             Ok(())

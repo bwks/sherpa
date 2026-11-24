@@ -16,8 +16,8 @@ use bollard::query_parameters::InspectContainerOptions;
 use std::time::Duration;
 
 use container::{
-    BridgeSubnet, ContainerMemory, ContainerSpec, create_docker_bridge_network, delete_network,
-    docker_connection, exec_container_with_retry, get_local_images, kill_container,
+    BridgeSubnet, ContainerError, ContainerMemory, ContainerSpec, create_docker_bridge_network,
+    delete_network, docker_connection, exec_container_with_retry, get_local_images, kill_container,
     list_container_memory, list_containers, list_networks, load_image, remove_container,
     run_container,
 };
@@ -298,7 +298,10 @@ async fn image_import_014_a_container_archive_that_cannot_be_read_through_is_a_f
         .await
         .unwrap_err();
     ensure!(
-        format!("{error:#}").contains("Failed to read image archive"),
+        matches!(
+            error.downcast_ref::<ContainerError>(),
+            Some(ContainerError::ImageArchiveRead { .. })
+        ),
         "{error:#}"
     );
     Ok(())

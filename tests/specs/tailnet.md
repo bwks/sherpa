@@ -104,7 +104,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 020 | A resume of a gateway whose logout at down failed, which reports needing login but still holds its node key, logs it out, then enrolls it with the key (mock Docker) | unit |
 | 021 | The server needs no key for a whole-lab resume of a lab whose gateway reads connected, and a key sent anyway, even malformed or with TLS off, is not refused and not used | unit |
 | 022 | A resume whose enrollment fails logs the gateway out when its daemon holds an identity, stops it and fails; the next down leaves it as it is, and the next resume enrolls it (mock Docker) | unit |
-| 023 | A resume whose enrollment fails and whose gateway then cannot be stopped fails with both errors (mock Docker) | unit |
+| 023 | A resume whose enrollment fails and whose gateway then cannot be stopped fails with an error that carries both the enrollment error and the rollback error (mock Docker) | unit |
 | 024 | Down of a running gateway whose daemon holds no identity stops it without a logout and reports it stopped (mock Docker) | unit |
 | 025 | After `sherpa down --node` on every node, a whole-lab `sherpa resume` with the variable unset succeeds, and the gateway is the same tailnet device as before (real tailnet) | e2e |
 | 026 | The web UI's labs list, the admin's list and the lab's page offer a lab with a gateway no start: a disabled start that says to resume the lab with `sherpa resume` in its lab folder, and stop as for any lab; a lab without a gateway offers start | unit |

@@ -25,6 +25,7 @@ use shared::data::{
 };
 use shared::konst::{TAILNET_DOCS_URL, TAILSCALE_GATEWAY_NAME};
 
+use crate::error::ContainerError;
 use crate::status::is_missing;
 
 const LAB_LABEL: &str = "sh.erpa.tailscale.lab";
@@ -351,7 +352,7 @@ pub async fn enroll_gateway(
         settings,
     )
     .await
-    .context("Tailscale enrollment failed")?;
+    .context(ContainerError::EnrollmentFailed)?;
     wait_connected(docker, id, lab_id, routes.to_vec(), settings).await
 }
 
@@ -375,15 +376,15 @@ pub async fn resume_gateway(
         Err(error) => error,
     };
     Err(match stop_gateway(docker, id, lab_id, settings).await {
-        Ok(Logout::Done) => {
-            enrollment.context("Tailscale gateway stopped after a failed enrollment")
-        }
+        Ok(Logout::Done) => enrollment.context(ContainerError::GatewayStoppedAfterFailedEnrollment),
         Ok(Logout::Failed(rollback)) => enrollment.context(format!(
             "Tailscale gateway stopped after a failed enrollment, but not logged out: {rollback:#}"
         )),
-        Err(rollback) => enrollment.context(format!(
-            "Unable to stop the Tailscale gateway after a failed enrollment: {rollback:#}"
-        )),
+        Err(rollback) => ContainerError::GatewayNotStoppedAfterFailedEnrollment {
+            enrollment,
+            rollback,
+        }
+        .into(),
     })
 }
 
@@ -529,7 +530,7 @@ pub async fn remove_gateway(
                     .as_ref()
                     .and_then(|c| c.labels.as_ref())
                     .is_some_and(|l| owned(l, lab_id)),
-                "Refusing to remove an unowned Tailscale gateway"
+                ContainerError::UnownedGateway
             );
             let id = details
                 .id
@@ -594,6 +595,7 @@ mod tests {
     use crate::mock_docker::{Reply, mock_docker};
     use std::sync::{Mutex, PoisonError};
     use tokio::runtime::Runtime;
+    use tokio::time::error::Elapsed;
 
     const RUNNING_GATEWAY: &str = r#"{"Id":"exact-id","State":{"Running":true},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#;
     const STOPPED_GATEWAY: &str = r#"{"Id":"exact-id","State":{"Running":false},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#;
@@ -652,12 +654,7 @@ mod tests {
         };
         let result = exec(&docker, "gateway-id", vec!["test".into()], None, &settings).await;
         mock.finish();
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Tailscale command timed out")
-        );
+        assert!(result.unwrap_err().downcast_ref::<Elapsed>().is_some());
     }
 
     #[tokio::test]
@@ -821,11 +818,10 @@ mod tests {
         let resumed =
             resume_gateway(&docker, "exact-id", "test1234", &routes, &key, &settings).await;
         mock.finish();
-        let error = format!("{:#}", failed.unwrap_err());
-        assert!(
-            error.contains("stopped after a failed enrollment"),
-            "{error}"
-        );
+        assert!(matches!(
+            failed.unwrap_err().downcast_ref::<ContainerError>(),
+            Some(ContainerError::GatewayStoppedAfterFailedEnrollment)
+        ));
         assert!(matches!(down.unwrap(), Logout::Done));
         assert_eq!(resumed.unwrap().state, TailnetState::Connected);
     }
@@ -858,12 +854,25 @@ mod tests {
         )
         .await;
         mock.finish();
-        let error = format!("{:#}", result.unwrap_err());
-        assert!(
-            error.contains("Unable to stop Tailscale gateway"),
-            "{error}"
-        );
-        assert!(error.contains("Tailscale enrollment failed"), "{error}");
+        let error = result.unwrap_err();
+        let Some(ContainerError::GatewayNotStoppedAfterFailedEnrollment {
+            enrollment,
+            rollback,
+        }) = error.downcast_ref::<ContainerError>()
+        else {
+            panic!("not a failed rollback: {error:#}");
+        };
+        assert!(matches!(
+            enrollment.downcast_ref::<ContainerError>(),
+            Some(ContainerError::EnrollmentFailed)
+        ));
+        assert!(matches!(
+            rollback.downcast_ref::<bollard::errors::Error>(),
+            Some(bollard::errors::Error::DockerResponseServerError {
+                status_code: 500,
+                ..
+            })
+        ));
     }
 
     #[tokio::test]
@@ -913,13 +922,13 @@ mod tests {
             "200 OK",
             r#"{"Id":"foreign","Config":{"Labels":{"sh.erpa.tailscale.lab":"another","sh.erpa.role":"tailnet-gateway"}}}"#,
         )]);
-        assert!(
-            remove_gateway(&docker, "test1234", &TailscaleGatewaySettings::default())
-                .await
-                .unwrap_err()
-                .to_string()
-                .contains("unowned")
-        );
+        let error = remove_gateway(&docker, "test1234", &TailscaleGatewaySettings::default())
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<ContainerError>(),
+            Some(ContainerError::UnownedGateway)
+        ));
         mock.finish();
     }
 

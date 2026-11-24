@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 
 use anyhow::{Context, Result, bail};
 use bollard::Docker;
@@ -6,6 +7,7 @@ use bollard::models::{Ipam, IpamConfig, Network, NetworkCreateRequest};
 use bollard::query_parameters::InspectNetworkOptions;
 use tracing::instrument;
 
+use crate::error::ContainerError;
 use crate::status::{is_conflict, is_missing};
 
 /// The Docker network option that names the Linux bridge of a bridge network.
@@ -23,11 +25,31 @@ pub struct BridgeSubnet {
 pub enum ExistingBridgeNetwork {
     Absent,
     Matches,
-    Differs(String),
+    Differs(Vec<NetworkDifference>),
+}
+
+/// One way a Docker network differs from the subnets, gateways and bridge asked for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NetworkDifference {
+    MissingSubnet {
+        subnet: String,
+    },
+    Gateway {
+        subnet: String,
+        expected: String,
+        found: Option<String>,
+    },
+    UnallocatedSubnet {
+        found: Option<String>,
+    },
+    Bridge {
+        expected: String,
+        found: Option<String>,
+    },
 }
 
 /// Look for the Docker network `name` and compare it with the subnets, gateways and bridge asked
-/// for. A network that differs is described by an error message naming it and each difference.
+/// for. A network that differs comes back with each difference.
 ///
 /// # Errors
 ///
@@ -54,11 +76,7 @@ pub async fn inspect_existing_bridge_network(
     if differences.is_empty() {
         return Ok(ExistingBridgeNetwork::Matches);
     }
-    Ok(ExistingBridgeNetwork::Differs(format!(
-        "Docker network '{name}' already exists and is not the lab's: {}. It was left in place; \
-         remove it with 'docker network rm {name}' if nothing uses it",
-        differences.join("; ")
-    )))
+    Ok(ExistingBridgeNetwork::Differs(differences))
 }
 
 /// Create a Docker bridge network on the Linux bridge `bridge`, with the given subnets. A
@@ -116,7 +134,13 @@ pub async fn create_docker_bridge_network(
                     tracing::debug!(network_name = %name, "Container network already exists and is reused");
                     Ok(())
                 }
-                ExistingBridgeNetwork::Differs(message) => bail!(message),
+                ExistingBridgeNetwork::Differs(differences) => {
+                    Err(ContainerError::NetworkDiffers {
+                        name: name.to_owned(),
+                        differences,
+                    }
+                    .into())
+                }
                 ExistingBridgeNetwork::Absent => {
                     bail!("Docker network '{name}' was removed while it was being created")
                 }
@@ -130,7 +154,11 @@ pub async fn create_docker_bridge_network(
 
 /// How the Docker network `existing` differs from the subnets and bridge a lab was allocated,
 /// one entry per difference.
-fn network_differences(existing: &Network, subnets: &[BridgeSubnet], bridge: &str) -> Vec<String> {
+fn network_differences(
+    existing: &Network,
+    subnets: &[BridgeSubnet],
+    bridge: &str,
+) -> Vec<NetworkDifference> {
     let configs = existing
         .ipam
         .as_ref()
@@ -142,34 +170,67 @@ fn network_differences(existing: &Network, subnets: &[BridgeSubnet], bridge: &st
             .iter()
             .find(|config| config.subnet.as_deref() == Some(wanted.subnet.as_str()));
         match (found, &wanted.gateway) {
-            (None, _) => differences.push(format!("it has no subnet {}", wanted.subnet)),
+            (None, _) => differences.push(NetworkDifference::MissingSubnet {
+                subnet: wanted.subnet.clone(),
+            }),
             (Some(config), Some(gateway)) if config.gateway.as_ref() != Some(gateway) => {
-                differences.push(format!(
-                    "its gateway in {} is {}, not {gateway}",
-                    wanted.subnet,
-                    config.gateway.as_deref().unwrap_or("unset")
-                ));
+                differences.push(NetworkDifference::Gateway {
+                    subnet: wanted.subnet.clone(),
+                    expected: gateway.clone(),
+                    found: config.gateway.clone(),
+                });
             }
             (Some(_), _) => {}
         }
     }
     for config in configs {
-        let subnet = config.subnet.as_deref().unwrap_or("unset");
-        if !subnets.iter().any(|wanted| wanted.subnet == subnet) {
-            differences.push(format!(
-                "it has subnet {subnet}, which the lab was not allocated"
-            ));
+        if !subnets
+            .iter()
+            .any(|wanted| config.subnet.as_ref() == Some(&wanted.subnet))
+        {
+            differences.push(NetworkDifference::UnallocatedSubnet {
+                found: config.subnet.clone(),
+            });
         }
     }
     let existing_bridge = existing
         .options
         .as_ref()
-        .and_then(|options| options.get(BRIDGE_NAME_OPTION))
-        .map_or("unset", String::as_str);
-    if existing_bridge != bridge {
-        differences.push(format!("its bridge is {existing_bridge}, not {bridge}"));
+        .and_then(|options| options.get(BRIDGE_NAME_OPTION));
+    if existing_bridge.map(String::as_str) != Some(bridge) {
+        differences.push(NetworkDifference::Bridge {
+            expected: bridge.to_owned(),
+            found: existing_bridge.cloned(),
+        });
     }
     differences
+}
+
+impl fmt::Display for NetworkDifference {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingSubnet { subnet } => write!(f, "it has no subnet {subnet}"),
+            Self::Gateway {
+                subnet,
+                expected,
+                found,
+            } => write!(
+                f,
+                "its gateway in {subnet} is {}, not {expected}",
+                found.as_deref().unwrap_or("unset")
+            ),
+            Self::UnallocatedSubnet { found } => write!(
+                f,
+                "it has subnet {}, which the lab was not allocated",
+                found.as_deref().unwrap_or("unset")
+            ),
+            Self::Bridge { expected, found } => write!(
+                f,
+                "its bridge is {}, not {expected}",
+                found.as_deref().unwrap_or("unset")
+            ),
+        }
+    }
 }
 
 /// Create a Docker macvlan network in **bridge** mode on an existing Linux bridge.
@@ -258,7 +319,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn management_network_011_a_network_that_differs_when_docker_finds_it_at_creation_fails_the_creation_naming_each_difference()
+    async fn management_network_011_a_network_that_differs_when_docker_finds_it_at_creation_fails_the_creation_with_each_difference()
      {
         let (docker, mock) = mock_docker(vec![
             Reply::Json(
@@ -286,18 +347,34 @@ mod tests {
             "brm-lab1",
         )
         .await
-        .unwrap_err()
-        .to_string();
+        .unwrap_err();
         mock.finish();
 
-        for expected in [
-            "'sherpa-mgmt-lab1'",
-            "no subnet 172.31.2.0/24",
-            "subnet 172.31.1.0/24, which the lab was not allocated",
-            "gateway in fd00:b00b:0:9::/64 is fd00:b00b:0:9::7, not fd00:b00b:0:9::1",
-            "bridge is brm-old, not brm-lab1",
-        ] {
-            assert!(error.contains(expected), "{expected} missing from: {error}");
-        }
+        let Some(ContainerError::NetworkDiffers { name, differences }) =
+            error.downcast_ref::<ContainerError>()
+        else {
+            panic!("not a network that differs: {error:#}");
+        };
+        assert_eq!(name, "sherpa-mgmt-lab1");
+        assert_eq!(
+            differences,
+            &[
+                NetworkDifference::MissingSubnet {
+                    subnet: "172.31.2.0/24".to_owned(),
+                },
+                NetworkDifference::Gateway {
+                    subnet: "fd00:b00b:0:9::/64".to_owned(),
+                    expected: "fd00:b00b:0:9::1".to_owned(),
+                    found: Some("fd00:b00b:0:9::7".to_owned()),
+                },
+                NetworkDifference::UnallocatedSubnet {
+                    found: Some("172.31.1.0/24".to_owned()),
+                },
+                NetworkDifference::Bridge {
+                    expected: "brm-lab1".to_owned(),
+                    found: Some("brm-old".to_owned()),
+                },
+            ]
+        );
     }
 }
