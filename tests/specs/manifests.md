@@ -82,7 +82,7 @@ What `sherpa validate` does not check, because only the server knows it: whether
 
 ## `node_naming`: a node's name is a plain name, used once
 
-**Statement:** a node's name is 1 to 63 ASCII letters, digits, `-` or `_`, starting with a letter or digit, no two nodes of a lab share one, a lab has at most 234 nodes, and in a lab with `[tailscale]` enabled no container node is named `sherpa-tailnet`, which would give it the gateway's container name.
+**Statement:** a node's name is 1 to 63 ASCII letters, digits, `-` or `_`, starting with a letter or digit, no two nodes of a lab share one, a lab has at most 234 nodes, no node's name contains the reserved word `supervisor` in any case, which the SONiC image reads as a chassis supervisor card, and in a lab with `[tailscale]` enabled no container node is named `sherpa-tailnet`, which would give it the gateway's container name.
 **Relied on by:** the host names, container and domain names, file names in the lab folder, DNS names and web pages a node's name is put in; the lab's address block, which has 234 node addresses. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -92,6 +92,7 @@ What `sherpa validate` does not check, because only the server knows it: whether
 | 003 | Two nodes with one name are refused, naming it | unit |
 | 004 | A manifest with 235 nodes is refused, saying a lab takes at most 234 | unit |
 | 005 | With `[tailscale]` enabled, a container node named `sherpa-tailnet`, by its own `kind` or its model's default, is refused, naming the node; a container node named `sherpa-tailnet-app`, a virtual machine named `sherpa-tailnet` and a container node of that name in a lab with `[tailscale]` not enabled are taken | unit |
+| 006 | A name containing `supervisor` in any case is refused for every model and kind, saying the word is reserved and why; a name with only part of it is taken | unit |
 
 The server runs these at up before anything is created (`lab_preflight_002`). The lab's own `name` follows the same rule: `lab_settings_006` and `007`.
 

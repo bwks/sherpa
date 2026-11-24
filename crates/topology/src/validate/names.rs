@@ -5,6 +5,10 @@ use crate::Node;
 /// The longest node or lab name: one DNS label.
 const NAME_MAX_LEN: usize = 63;
 
+/// A word no node name may contain, in any case: the `sonic_linux` image treats a host whose name
+/// contains it as a chassis supervisor card.
+const RESERVED_NODE_NAME_WORD: &str = "supervisor";
+
 /// Check `name`, the name of a `what`, is a plain name: 1 to 63 ASCII letters, digits, `-` or
 /// `_`, starting with a letter or digit.
 fn check_plain_name(what: &str, name: &str) -> Result<()> {
@@ -25,7 +29,7 @@ fn check_plain_name(what: &str, name: &str) -> Result<()> {
 }
 
 /// Check every node name is a plain name: 1 to 63 ASCII letters, digits, `-` or `_`, starting
-/// with a letter or digit.
+/// with a letter or digit, without the reserved word `supervisor` in any case.
 ///
 /// Node names become host names, container and domain names, file names in the lab folder and
 /// values in the web UI, so they cannot carry path separators, quotes or markup.
@@ -36,6 +40,18 @@ fn check_plain_name(what: &str, name: &str) -> Result<()> {
 pub fn check_node_names(devices: &[Node]) -> Result<()> {
     for device in devices {
         check_plain_name("node", &device.name)?;
+        if device
+            .name
+            .to_ascii_lowercase()
+            .contains(RESERVED_NODE_NAME_WORD)
+        {
+            bail!(
+                "Manifest - node name '{}' is not allowed: '{RESERVED_NODE_NAME_WORD}' is a \
+                 reserved word in node names, because the SONiC image treats a host whose name \
+                 contains it as a chassis supervisor card",
+                device.name
+            );
+        }
     }
     Ok(())
 }
@@ -96,6 +112,29 @@ mod tests {
                 "{error}"
             );
             assert!(error.contains("letters, digits, '-' or '_'"), "{error}");
+        }
+    }
+
+    #[test]
+    fn node_naming_006_a_name_containing_supervisor_in_any_case_is_refused_as_reserved() {
+        for name in [
+            "supervisor",
+            "supervisor1",
+            "my-Supervisor",
+            "R1_SUPERVISOR_2",
+        ] {
+            let error = check_node_names(&[named("ok1"), named(name)])
+                .expect_err(&format!("'{name}' should be refused"))
+                .to_string();
+            assert!(
+                error.contains(&format!("node name '{name}' is not allowed")),
+                "{error}"
+            );
+            assert!(error.contains("'supervisor' is a reserved word"), "{error}");
+            assert!(error.contains("chassis supervisor card"), "{error}");
+        }
+        for name in ["super", "visor1", "super-visor"] {
+            assert!(check_node_names(&[named(name)]).is_ok(), "{name}");
         }
     }
 
