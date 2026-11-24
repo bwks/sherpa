@@ -49,12 +49,11 @@ pub struct Node {
     pub text_files: Option<Vec<TextFile>>,
     pub systemd_units: Option<Vec<SystemdUnit>>,
     pub startup_scripts: Option<Vec<String>>,
-    #[serde(default)]
+    #[serde(skip)]
     pub startup_scripts_data: Option<Vec<StartupScript>>,
-    #[serde(default)]
+    #[serde(skip)]
     pub text_files_data: Option<Vec<TextFileData>>,
-    /// The `systemd_units` the client read, for the server.
-    #[serde(default)]
+    #[serde(skip)]
     pub systemd_units_data: Option<Vec<SystemdUnitData>>,
     /// Client-side provisioners, run by the CLI once the node is ready. Never serialized, so
     /// the client never sends them to the server and the server never stores them.

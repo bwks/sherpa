@@ -50,7 +50,7 @@ fn nxos(password: &str) -> CiscoNxosZtpTemplate {
         owner: helpers::test_owner(password),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
-        mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
+        mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
         mgmt_ipv6_address: None,
         mgmt_ipv6: None,
     }

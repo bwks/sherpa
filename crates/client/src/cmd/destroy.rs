@@ -259,7 +259,7 @@ fn confirm_destroy(lab_name: &str, lab_id: &str, device_count: usize) -> Result<
     );
     println!();
     confirm(&format!(
-        "Are you sure you want to destroy lab {lab_name}-{lab_id} ({device_count} devices)?"
+        "Are you sure you want to destroy lab {lab_name}-{lab_id} ({device_count} nodes)?"
     ))
 }
 

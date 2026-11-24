@@ -35,11 +35,7 @@ archive
 !
 interface {{ mgmt_interface }}
  no switchport
- {%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
  ip address {{ mgmt_ipv4_address }} {{ mgmt_ipv4.subnet_mask }}
- {%- else %}
- ip address dhcp
- {%- endif %}
  {%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
  ipv6 address {{ mgmt_ipv6_address }}/{{ mgmt_ipv6.prefix_length }}
  {%- endif %}{% endif %}

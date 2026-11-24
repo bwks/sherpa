@@ -64,8 +64,9 @@ pub(super) struct NodesReady {
 /// Every node is `Building` until here. A started container is recorded `Starting`, and
 /// `Running` once it has kept running for `CONTAINER_SETTLE` and, with a `ready_check.port`,
 /// that port answers on its management address. A ready node is recorded
-/// `Running`, a node with its check skipped `Running`, a Talos cluster worker or a node not
-/// ready in time `Starting` (the scanner records it running once it answers), and a container
+/// `Running`, a node with its check skipped `Running`, a Talos cluster worker `Starting` until
+/// its cluster is Ready, a node not ready in time `Starting` (the scanner records it running once
+/// it answers), and a container
 /// that exits, at start, while it settles or by the end of polling, `Failed`.
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn wait_for_nodes(

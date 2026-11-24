@@ -29,6 +29,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 011 | An up whose manifest lists files with no contents, as one sent to the REST API is, is refused naming the node and the setting, and says to use `sherpa up` (no test at this level yet) | integration |
 | 012 | A systemd unit sent under a name that is not a plain file name, a path, `.`, `..` or one starting with `-`, is refused | unit |
 | 013 | After a file a manifest names is changed, `sherpa redeploy` rebuilds the node with the new contents (no test yet) | e2e |
+| 014 | A startup script sent under a name that is not a plain file name, a path, `.`, `..` or one starting with `-`, is refused at up and at redeploy, as one sent to the REST API may be | unit |
+| 015 | The contents the CLI read are sent beside the manifest, by node name, never as manifest keys, and the server puts each node's into it | unit |
+| 016 | Contents sent for a node the manifest does not have are refused, naming the node | unit |
 
 A node's `ztp.config` is read the same way: `custom_config_002` to `004` in [ztp.md](ztp.md).
 

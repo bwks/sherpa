@@ -71,7 +71,7 @@ A worker's machine config carrying no private key is `machine_config_002`.
 | 003 | The controllers of a cluster with a shared address announce it on the management interface, and those of a cluster without one do not | unit |
 | 004 | Controllers of a cluster with workers are tainted against workloads, and those of a cluster with none are not | unit |
 | 005 | A Flannel cluster's controllers keep Flannel and kube-proxy and carry no manifest of Sherpa's | unit |
-| 006 | A member on a Talos image that is not 1.14.x is refused, naming the node and its version; 1.14 with or without a leading `v` is taken | unit |
+| 006 | A member on a Talos image that is not 1.14.x is refused, naming the node and its version and pointing to the node's own `ztp.config`; 1.14 with or without a leading `v` is taken | unit |
 | 007 | A cluster member that sets its own `ztp.config` is refused, naming the cluster | unit |
 | 008 | A cluster whose `vault` node sets its own `ztp.config` is refused | unit |
 | 009 | Keycloak and Vault add no document to a controller's config, and nothing to the manifests Talos fetches by URL | unit |
@@ -95,6 +95,7 @@ A machine config reaching its node byte for byte as NoCloud `user-data` is `conf
 | 008 | The bootstrap goes to the first controller alone, and is sent to it again until it answers (no test yet; needs a Talos API that answers from a script) | unit |
 | 009 | A destroy during the bootstrap or the wait stops the up, and no credentials are written afterwards (no test yet) | unit |
 | 010 | A cluster with no workers runs workloads on its controllers (no test yet; real cluster) | e2e |
+| 011 | Once a cluster is Ready, up records its workers ready and reports them `running`, not `starting`; a node of a cluster that is not Ready is left as it was | unit |
 
 ## `cluster_credentials`: the kubeconfig and talosconfig give the owner full access to the cluster and to nothing else
 

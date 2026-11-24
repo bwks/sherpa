@@ -39,5 +39,8 @@ NoCloud `network-config` statically, with no DHCP, and ignores the `search` doma
 - **Bootstrap.** Talos accepts a second bootstrap while the first runs, so only the first
   controller is sent it, and `ALREADY_EXISTS` counts as done. A cluster not Ready in
   `ready_timeout` is a critical `up` error: the lab stays partly created, credentials saved.
+- **Worker readiness.** A worker's Talos API starts only once a controller's trustd answers, so
+  node readiness does not wait for it and leaves it `Starting`. `up` records each worker of a
+  cluster that became Ready ready, and reports it in the state it then has.
 - **Down.** Talos ignores ACPI, so members shut down over its API, workers first, to drain.
 - **Limits.** Nodes need internet access; one Talos minor; no upgrades; two Cilium clusters a lab.

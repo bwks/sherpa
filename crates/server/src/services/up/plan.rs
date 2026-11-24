@@ -226,7 +226,7 @@ fn check_manifest_nodes(manifest: &topology::Manifest) -> Result<()> {
         check_node_model_kind(node).context("Manifest validation failed: node kind")?;
     }
     check_duplicate_device(&manifest.nodes)
-        .context("Manifest validation failed: duplicate devices")?;
+        .context("Manifest validation failed: duplicate nodes")?;
     check_device_count(&manifest.nodes).context("Manifest validation failed: node count")?;
     check_nonzero_node_settings(&manifest.nodes)
         .context("Manifest validation failed: node settings")?;
@@ -519,7 +519,7 @@ mod tests {
             process_links(&manifest, &nodes, "abcd1234").unwrap_err()
         );
 
-        assert!(error.contains("device 'r1' interface index"), "{error}");
+        assert!(error.contains("node 'r1' interface index"), "{error}");
         assert!(error.contains("is already in use"), "{error}");
     }
 

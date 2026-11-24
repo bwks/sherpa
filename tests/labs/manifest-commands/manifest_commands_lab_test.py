@@ -190,13 +190,14 @@ def test_manifest_file_010_new_writes_two_linux_nodes_and_a_link_that_validate_p
             f"sherpa validate did not pass the manifest sherpa new wrote (exit {outcome.code})")
 
 
-def test_manifest_file_011_new_leaves_an_existing_manifest_and_force_writes_over_it(prepared):
+def test_manifest_file_011_new_refuses_an_existing_manifest_and_force_writes_over_it(prepared):
     directory = prepared.case_directory("new-existing")
     path = directory / "manifest.toml"
     existing = render_manifest(f"{prepared.name}-existing", NODES[:1])
     path.write_text(existing)
     outcome = prepared.sherpa("sherpa new (existing manifest)", ["new"], directory, check=False)
     require(path.read_text() == existing, "sherpa new wrote over an existing manifest.toml")
+    require(outcome.code != 0, "sherpa new on an existing manifest.toml exited 0")
     require("already exists" in outcome.output,
             f"sherpa new did not say manifest.toml already exists: {outcome.output.strip()}")
     prepared.sherpa("sherpa new --force", ["new", "--force"], directory)

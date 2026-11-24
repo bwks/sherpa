@@ -138,7 +138,14 @@ fn handle_client_message(
 
             tokio::spawn(
                 async move {
-                    rpc::dispatch(id, method, params, &state_clone, &connection_clone).await;
+                    Box::pin(rpc::dispatch(
+                        id,
+                        method,
+                        params,
+                        &state_clone,
+                        &connection_clone,
+                    ))
+                    .await;
                 }
                 .instrument(rpc_span),
             );

@@ -16,14 +16,14 @@ const SYSTEM: &str = "srl_nokia-system:system";
 const AAA: &str = "srl_nokia-aaa:aaa";
 
 /// The built config, parsed.
-fn config(hostname: &str, password: &str, ipv4: bool, ipv6: bool) -> (String, Value) {
+fn config(hostname: &str, password: &str, ipv6: bool) -> (String, Value) {
     let v6 = helpers::test_network_v6();
     let json = build_srlinux_config(
         hostname,
         &helpers::test_owner(password),
         &helpers::test_dns(),
         &helpers::test_network_v4(),
-        ipv4.then(|| Ipv4Addr::new(172, 20, 0, 10)),
+        Ipv4Addr::new(172, 20, 0, 10),
         ipv6.then(|| ("fd00::10".parse().expect("valid"), &v6)),
     )
     .expect("builds config");
@@ -37,7 +37,7 @@ fn config(hostname: &str, password: &str, ipv4: bool, ipv6: bool) -> (String, Va
 
 #[test]
 fn generated_config_020_nokia_srlinux() {
-    let (_, value) = config("srl01", "Rand0mPass-1", true, false);
+    let (_, value) = config("srl01", "Rand0mPass-1", false);
     assert_eq!(
         value[SYSTEM]["srl_nokia-system-name:name"]["host-name"],
         "srl01"
@@ -71,7 +71,7 @@ fn generated_config_020_nokia_srlinux() {
 
 #[test]
 fn config_addressing_010_nokia_srlinux_dual_stack_asks_for_no_dhcp() {
-    let (_, value) = config("srl03", "Rand0mPass-1", true, true);
+    let (_, value) = config("srl03", "Rand0mPass-1", true);
     assert_eq!(
         value[SYSTEM]["srl_nokia-system-name:name"]["host-name"],
         "srl03"
@@ -94,7 +94,7 @@ fn config_addressing_010_nokia_srlinux_dual_stack_asks_for_no_dhcp() {
 
 #[test]
 fn generated_config_021_nokia_srlinux_management_network_instance_and_acl() {
-    let (_, value) = config("srl01", "Rand0mPass-1", true, false);
+    let (_, value) = config("srl01", "Rand0mPass-1", false);
     let instance = &value["srl_nokia-network-instance:network-instance"][0];
     assert_eq!(instance["name"], "mgmt");
     assert_eq!(instance["interface"], json!([{"name": "mgmt0.0"}]));
@@ -110,7 +110,7 @@ fn generated_config_021_nokia_srlinux_management_network_instance_and_acl() {
 
 #[test]
 fn device_accounts_012_srlinux_admin_and_owner_are_the_only_accounts() {
-    let (_, value) = config("srl01", "Rand0mPass-1", true, false);
+    let (_, value) = config("srl01", "Rand0mPass-1", false);
     let authentication = &value[SYSTEM][AAA]["authentication"];
     assert_eq!(authentication["authentication-method"], json!(["local"]));
     assert_eq!(
@@ -126,7 +126,7 @@ fn device_accounts_012_srlinux_admin_and_owner_are_the_only_accounts() {
 #[test]
 fn device_accounts_013_srlinux_admin_and_owner_passwords() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
-        let (json, value) = config("srl01", password, true, false);
+        let (json, value) = config("srl01", password, false);
         let authentication = &value[SYSTEM][AAA]["authentication"];
         assert_eq!(authentication["admin-user"]["password"], *password);
         assert_eq!(authentication["user"][0]["password"], *password);
@@ -147,7 +147,7 @@ fn config_name_server_014_nokia_srlinux_names_the_boot_server_on_ipv4_and_ipv6()
         &helpers::test_owner("Rand0mPass-1"),
         &dns,
         &v4,
-        Some(Ipv4Addr::new(172, 20, 0, 10)),
+        Ipv4Addr::new(172, 20, 0, 10),
         Some(("fd00::10".parse().expect("valid"), &v6)),
     )
     .expect("builds config");
@@ -160,7 +160,7 @@ fn config_name_server_014_nokia_srlinux_names_the_boot_server_on_ipv4_and_ipv6()
 
 #[test]
 fn config_name_server_015_nokia_srlinux_searches_the_lab_domain() {
-    let (_, value) = config("srl01", "Rand0mPass-1", true, false);
+    let (_, value) = config("srl01", "Rand0mPass-1", false);
     assert_eq!(
         value[SYSTEM]["srl_nokia-dns:dns-instance"][0]["search-list"],
         json!(["sherpa.lab.local"])

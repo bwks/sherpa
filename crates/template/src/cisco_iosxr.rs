@@ -11,7 +11,7 @@ pub struct CiscoIosxrZtpTemplate {
     pub owner: OwnerUser,
     pub dns: Dns,
     pub mgmt_ipv4: NetworkV4,
-    pub mgmt_ipv4_address: Option<Ipv4Addr>,
+    pub mgmt_ipv4_address: Ipv4Addr,
     pub mgmt_ipv6_address: Option<Ipv6Addr>,
     pub mgmt_ipv6: Option<NetworkV6>,
 }

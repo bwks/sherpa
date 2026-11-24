@@ -20,8 +20,14 @@ pub fn process_manifest_links(
     nodes: &[NodeExpanded],
 ) -> Result<Vec<LinkDetailed>> {
     let mut detailed = Vec::with_capacity(links.len());
-    for (index, link) in links.iter().enumerate() {
-        let link = link.expand()?;
+    for (index, manifest_link) in links.iter().enumerate() {
+        let place = format!(
+            "Manifest link - '{}' to '{}'",
+            manifest_link.src, manifest_link.dst
+        );
+        let link = manifest_link
+            .expand()
+            .with_context(|| format!("{place}: each end must be written node::interface"))?;
         let link_idx = u16::try_from(index).context("A manifest holds too many links")?;
         let node_a = link_node(nodes, &link.node_a)?;
         let node_b = link_node(nodes, &link.node_b)?;
@@ -29,12 +35,12 @@ pub fn process_manifest_links(
             node_a: node_a.name.clone(),
             node_a_idx: node_a.index,
             node_a_model_kind: node_a.model_kind,
-            int_a_idx: interface_to_idx(node_a.model_kind, &link.int_a)?,
+            int_a_idx: node_interface_idx(&place, node_a, &link.int_a)?,
             int_a: link.int_a,
             node_b: node_b.name.clone(),
             node_b_idx: node_b.index,
             node_b_model_kind: node_b.model_kind,
-            int_b_idx: interface_to_idx(node_b.model_kind, &link.int_b)?,
+            int_b_idx: node_interface_idx(&place, node_b, &link.int_b)?,
             int_b: link.int_b,
             link_idx,
             impairment: link.impairment,
@@ -67,13 +73,17 @@ pub fn process_manifest_bridges(
                 .find(|node| node.name == link.node)
                 .with_context(|| {
                     format!(
-                        "Manifest bridge - device '{}' defined in bridges, not defined in devices",
+                        "Manifest bridge - node '{}' defined in bridges, not defined in nodes",
                         link.node
                     )
                 })?;
             links.push(BridgeLinkDetailed {
                 node_model_kind: node.model_kind,
-                interface_index: interface_to_idx(node.model_kind, &link.interface)?,
+                interface_index: node_interface_idx(
+                    &format!("Manifest bridge - '{}'", bridge.name),
+                    node,
+                    &link.interface,
+                )?,
                 node_name: link.node,
                 interface_name: link.interface,
             });
@@ -94,9 +104,17 @@ fn link_node<'a>(nodes: &'a [NodeExpanded], name: &str) -> Result<&'a NodeExpand
     nodes
         .iter()
         .find(|node| node.name == name)
-        .with_context(|| {
-            format!("Manifest link - '{name}' defined in links, not defined in devices")
-        })
+        .with_context(|| format!("Manifest link - '{name}' defined in links, not defined in nodes"))
+}
+
+/// The index of `node`'s interface named `interface`, at the link or bridge `place` names.
+fn node_interface_idx(place: &str, node: &NodeExpanded, interface: &str) -> Result<u8> {
+    interface_to_idx(node.model_kind, interface).with_context(|| {
+        format!(
+            "{place}: node '{}' ({}) has no interface '{interface}'",
+            node.name, node.model_kind
+        )
+    })
 }
 
 #[cfg(test)]
@@ -181,9 +199,58 @@ mod tests {
                 process_manifest_links(&[link(src, dst)], &nodes(&["dev01", "dev02"])).unwrap_err();
             assert_eq!(
                 error.to_string(),
-                format!("Manifest link - '{unknown}' defined in links, not defined in devices")
+                format!("Manifest link - '{unknown}' defined in links, not defined in nodes")
             );
         }
+    }
+
+    #[test]
+    fn manifest_links_004_an_end_that_is_not_written_node_interface_is_refused_naming_it() {
+        let error = process_manifest_links(
+            &[link("dev01:eth1", "dev02::eth1")],
+            &nodes(&["dev01", "dev02"]),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Manifest link - 'dev01:eth1' to 'dev02::eth1': each end must be written node::interface"
+        );
+
+        let error = process_manifest_bridges(
+            &[bridge("lan", &["dev01::eth1", "dev02:eth1"])],
+            &nodes(&["dev01", "dev02"]),
+            "lab1",
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Manifest bridge - 'lan': link 'dev02:eth1' must be written node::interface"
+        );
+    }
+
+    #[test]
+    fn manifest_links_005_an_interface_the_nodes_model_does_not_have_is_refused_naming_it() {
+        let error = process_manifest_links(
+            &[link("dev01::eth1", "dev02::gig4")],
+            &nodes(&["dev01", "dev02"]),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Manifest link - 'dev01::eth1' to 'dev02::gig4': node 'dev02' (ubuntu_linux) has no \
+             interface 'gig4'"
+        );
+
+        let error = process_manifest_bridges(
+            &[bridge("lan", &["dev01::gig4"])],
+            &nodes(&["dev01"]),
+            "lab1",
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Manifest bridge - 'lan': node 'dev01' (ubuntu_linux) has no interface 'gig4'"
+        );
     }
 
     #[test]
@@ -220,7 +287,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error.to_string(),
-            "Manifest bridge - device 'dev0l' defined in bridges, not defined in devices"
+            "Manifest bridge - node 'dev0l' defined in bridges, not defined in nodes"
         );
     }
 }

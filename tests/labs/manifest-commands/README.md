@@ -44,7 +44,7 @@ It holds the command cases of [`tests/specs/manifests.md`](../../specs/manifests
 | `manifest_file_001` | `sherpa validate` in a folder with no `manifest.toml` exits 1 and says the file was not found |
 | `manifest_file_009` | `sherpa validate` of a manifest with an unknown key on a node exits 1 and prints the file, the line and column, the key and the keys a node takes |
 | `manifest_file_010` | `sherpa new` writes two Linux nodes and a link between them under a generated name, and `sherpa validate` passes it |
-| `manifest_file_011` | `sherpa new` leaves an existing `manifest.toml` as it is and says so, and `sherpa new --force` writes over it |
+| `manifest_file_011` | `sherpa new` leaves an existing `manifest.toml` as it is, says so and exits non-zero, and `sherpa new --force` writes over it |
 | `validate_command_001` | `sherpa validate` of a valid manifest, with an empty home and no `SHERPA_` variables, ticks every check, prints `Manifest validation passed!` and exits 0 |
 | `validate_command_002` | `sherpa validate` of a 1001-character description exits 1 with the description check's message, and prints no check after it |
 | `validate_command_005` | `sherpa up` of a node whose `environment_variables` key starts with a digit, which only the server checks, exits 1 with the server's message naming the key and the node, and writes no `lab-info.toml`; should up ever pass it, the case destroys what it built |

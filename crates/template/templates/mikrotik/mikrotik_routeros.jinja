@@ -5,9 +5,7 @@
 {%- for key_file in owner_key_files %}
 :if ([/file find name={{ key_file }}] != "") do={ /user ssh-keys import public-key-file={{ key_file }} user={{ owner.username }} }
 {%- endfor %}
-{%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
 /ip address add address={{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_length }} interface={{ mgmt_interface }}
-{%- endif %}
 /ip route add dst-address=0.0.0.0/0 gateway={{ mgmt_ipv4.first }}
 {%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
 /ipv6 address add address={{ mgmt_ipv6_address }}/{{ mgmt_ipv6.prefix_length }} interface={{ mgmt_interface }}

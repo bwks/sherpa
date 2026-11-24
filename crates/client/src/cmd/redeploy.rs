@@ -58,6 +58,8 @@ pub async fn redeploy(
 
     let manifest_value =
         serde_json::to_value(&manifest).context("Failed to serialize manifest to JSON")?;
+    let file_contents = serde_json::to_value(manifest.file_contents())
+        .context("Failed to serialize the file contents to JSON")?;
 
     // Limits the connect only: the operation streams its progress for as long as it runs.
     let timeout = Duration::from_secs(config.server_connection.timeout_secs);
@@ -82,6 +84,7 @@ pub async fn redeploy(
             "manifest": manifest_value,
             "secrets": secrets,
             "as_written": as_written,
+            "file_contents": file_contents,
             "token": token,
         }),
     );

@@ -1,13 +1,13 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use shared::konst::SHERPA_MANIFEST_FILE;
 use shared::util::file_exists;
 use topology::Manifest;
 
+/// Write an example `manifest.toml`, refusing to replace one unless `force` is set.
 pub fn new(force: bool) -> Result<()> {
     if file_exists(SHERPA_MANIFEST_FILE) && !force {
-        println!("{SHERPA_MANIFEST_FILE} already exists. Use --force to overwrite.");
-        return Ok(());
+        bail!("{SHERPA_MANIFEST_FILE} already exists. Use --force to overwrite.");
     }
 
     let manifest = Manifest::example()?;

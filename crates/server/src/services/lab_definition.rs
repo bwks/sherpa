@@ -6,6 +6,8 @@
 //! `db::definition`). The definition holds no file contents and no resolved variable values;
 //! those are sent with each `up` or `redeploy` and used to build the node only.
 
+use std::collections::BTreeMap;
+
 use anyhow::{Context, Result};
 use serde_json::Value;
 use tracing::instrument;
@@ -13,11 +15,27 @@ use tracing::instrument;
 use db::Database;
 use shared::data::RecordId;
 use topology::validate::validate_provisioners;
-use topology::{Manifest, ManifestAsWritten};
+use topology::{Manifest, ManifestAsWritten, NodeFileContents};
 
 use crate::api::request_parse::parse_value;
 use crate::services::error::ServiceError;
 use crate::validate::check_web_redeployable;
+
+/// The manifest the client sent, with the file contents it sent beside it put into its nodes.
+///
+/// # Errors
+///
+/// Fails when either is not what it should be, or the file contents name a node the manifest
+/// does not have.
+pub fn parse_manifest(manifest: &Value, file_contents: Option<&Value>) -> Result<Manifest> {
+    let mut manifest: Manifest = parse_value(manifest).context("Failed to deserialize manifest")?;
+    let file_contents: Option<BTreeMap<String, NodeFileContents>> = file_contents
+        .map(parse_value)
+        .transpose()
+        .context("Failed to deserialize the file contents")?;
+    manifest.put_file_contents(file_contents.unwrap_or_default())?;
+    Ok(manifest)
+}
 
 /// The parts as written the client sent beside the manifest, if it sent them.
 ///
@@ -137,6 +155,7 @@ pub(crate) mod tests {
         create_user, open_in_memory, upsert_node_image,
     };
     use shared::data::{DbLab, ModelKind, NodeModel};
+    use topology::{StartupScript, TextFileData};
 
     use crate::services::error::ServiceError;
 
@@ -160,17 +179,6 @@ dst = "/etc/motd"
 user = "root"
 group = "root"
 permissions = 644
-
-[[nodes.text_files_data]]
-content = "V2VsY29tZS1Db250ZW50"
-dst = "/etc/motd"
-user = "root"
-group = "root"
-permissions = 644
-
-[[nodes.startup_scripts_data]]
-filename = "start.sh"
-content = "U2NyaXB0LUNvbnRlbnQ="
 
 [[links]]
 src = "dev01::eth1"
@@ -236,7 +244,25 @@ dst = "dev01::eth2"
 
     /// A manifest as the client resolved and sent it.
     fn resolved() -> Manifest {
-        toml::from_str(MANIFEST_TOML).unwrap()
+        let mut manifest: Manifest = toml::from_str(MANIFEST_TOML).unwrap();
+        let files = NodeFileContents {
+            text_files: Some(vec![TextFileData {
+                content: "V2VsY29tZS1Db250ZW50".to_owned(),
+                dst: "/etc/motd".to_owned(),
+                user: "root".to_owned(),
+                group: "root".to_owned(),
+                permissions: 644,
+            }]),
+            systemd_units: None,
+            startup_scripts: Some(vec![StartupScript {
+                filename: "start.sh".to_owned(),
+                content: "U2NyaXB0LUNvbnRlbnQ=".to_owned(),
+            }]),
+        };
+        manifest
+            .put_file_contents(BTreeMap::from([("dev01".to_owned(), files)]))
+            .unwrap();
+        manifest
     }
 
     /// The definition of [`resolved`] sent without parts as written: its parameters as written,
