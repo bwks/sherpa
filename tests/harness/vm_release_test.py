@@ -57,6 +57,9 @@ DEVICE_PASSWORD_PUNCTUATION = "!@_-+."
 DEVICE_PASSWORD_LENGTHS = (12, 20)
 # The oldest release the harness installs, as candidate or as upgrade baseline.
 OLDEST_SUPPORTED_RELEASE = (0, 5, 0)
+# A candidate version that names the newest published release, resolved when a run starts.
+LATEST_RELEASE = "latest"
+RELEASE_VERSION = re.compile(r"v\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.]+)?")
 # A tailnet auth key in this variable when a code run starts enables the live tailnet test.
 TAILNET_KEY_VARIABLE = "SHERPA_TEST_TAILSCALE_AUTH_KEY"
 # Older host servers can give concurrent `sherpa up` requests the same subnet; serialize it.
@@ -122,7 +125,7 @@ def validate_upgrade_config(config):
     baseline = config.get("baseline", {})
     if set(baseline) != {"version", "artifact_directory"}:
         raise ValueError("Upgrade requires an explicit baseline version and artifact selection")
-    if not re.fullmatch(r"v\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.]+)?", baseline["version"]):
+    if not RELEASE_VERSION.fullmatch(baseline["version"]):
         raise ValueError("Select an explicit baseline release version")
     require_supported_release(baseline["version"], "baseline")
     if baseline["version"] == config["candidate"]["version"]:
@@ -220,6 +223,17 @@ def guest_python(*arguments):
             "--managed-python", "--no-python-downloads", "--python", GUEST_PYTHON, *arguments]
 
 
+def guest_node(node, installer, scenario):
+    """The manifest's node, sized for the scenario: the manifest sizes the code suite's guest, and
+    every other scenario uses the smaller installer guest, as it boots no nested guests."""
+    node = dict(node)
+    if scenario != "code":
+        node["memory"] = installer["memory"]
+        node["cpu"] = {**node.get("cpu", {}), "count": installer["cpu_count"]}
+        node["boot_disk"] = {**node.get("boot_disk", {}), "size": installer["boot_disk_size"]}
+    return node
+
+
 def disk_check(paths):
     """A host command that fails, naming them, if any of the paths still exist. Needs no Python on the host."""
     script = ('remaining=0; for path in "$@"; do '
@@ -256,7 +270,35 @@ def ssh_jump_options(destination):
 
 def load_config(path):
     config = tomllib.loads(path.read_text())
+    # A retained run's recorded config may predate [vm.installer]; it never provisions again.
+    if "installer" not in config.get("vm", {}):
+        raise ValueError("Set the installer suite's guest size in [vm.installer]")
     return validate_config(config)
+
+
+def latest_release(config):
+    """The tag of the newest published release: where `releases/latest` beside the candidate's
+    download URL redirects."""
+    url = config["candidate"]["download_url"].removesuffix("/download") + "/latest"
+    timeout = config["timeouts"]["command"]
+    result = subprocess.run(["curl", "-fsSL", "--connect-timeout", str(config["timeouts"]["connect"]),
+                             "--max-time", str(timeout), "-o", "/dev/null", "-w", "%{url_effective}", url],
+                            capture_output=True, text=True, timeout=timeout + 5)
+    tag = result.stdout.rpartition("/tag/")[2]
+    if result.returncode or not RELEASE_VERSION.fullmatch(tag):
+        raise RuntimeError(f"Could not resolve the latest release from {url}: {result.stderr.strip() or result.stdout}")
+    return tag
+
+
+def resolve_candidate(config):
+    """Replace a `latest` candidate version with the newest published release's tag."""
+    candidate = config["candidate"]
+    if candidate["version"] != LATEST_RELEASE:
+        return
+    if candidate["artifact_directory"]:
+        raise ValueError("Local release archives need an explicit --version")
+    candidate["version"] = latest_release(config)
+    print(f"[candidate] Latest release is {candidate['version']}", flush=True)
 
 
 def load_recorded_config(path):
@@ -291,8 +333,16 @@ def validate_config(config):
     if set(config) != set(required):
         raise ValueError("Unknown or missing configuration section")
     for section, keys in required.items():
-        if set(config[section]) != set(keys):
+        found = set(config[section]) - ({"installer"} if section == "vm" else set())
+        if found != set(keys):
             raise ValueError(f"Unknown or missing settings in [{section}]")
+    if "installer" in config["vm"]:
+        installer = config["vm"]["installer"]
+        if set(installer) != {"memory", "cpu_count", "boot_disk_size"}:
+            raise ValueError("Unknown or missing settings in [vm.installer]")
+        for key, value in installer.items():
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"Installer guest {key} must be a positive integer")
     for key, value in config["timeouts"].items():
         if type(value) is not int or value <= 0:
             raise ValueError(f"Timeout {key} must be a positive integer")
@@ -301,9 +351,11 @@ def validate_config(config):
             raise ValueError(f"Fault setting {key} must be a positive integer")
     if config["faults"]["ready_port"] > 65535:
         raise ValueError("Invalid fault readiness port")
-    if not re.fullmatch(r"v\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.]+)?", config["candidate"]["version"]):
-        raise ValueError("Select an explicit release version, such as v0.5.35")
-    require_supported_release(config["candidate"]["version"], "candidate")
+    version = config["candidate"]["version"]
+    if version != LATEST_RELEASE:
+        if not RELEASE_VERSION.fullmatch(version):
+            raise ValueError(f"Select {LATEST_RELEASE!r} or an explicit release version, such as v0.5.35")
+        require_supported_release(version, "candidate")
     for value in (config["image"]["sha256"], config["tests"]["vm_image_sha256"]):
         if not re.fullmatch(r"[0-9a-f]{64}", value):
             raise ValueError("Image SHA-256 must contain 64 lowercase hex digits")
@@ -549,7 +601,7 @@ class Runner:
         manifest = tomllib.loads((ROOT / self.config["vm"]["manifest"]).read_text())
         if len(manifest["nodes"]) != 1 or manifest["nodes"][0]["model"] != "ubuntu_linux":
             raise ValueError("The runner requires a dedicated single-Ubuntu manifest")
-        node = dict(manifest["nodes"][0])
+        node = guest_node(manifest["nodes"][0], self.config["vm"]["installer"], self.report["run"].get("scenario"))
         node["name"] = self.node_name
         if self.report["run"].get("scenario") == "fault-provision":
             manifest["ready_timeout"] = self.config["faults"]["ready_timeout"]
@@ -1024,7 +1076,7 @@ def main():
     parser.add_argument("--config", type=Path, default=ROOT / "tests/environments/ubuntu-2604/release-test.toml")
     parser.add_argument("--scenario", choices=("lifecycle", "upgrade", "preflight", "failure-checks", "fault-timeout",
                                                "fault-interrupt", "fault-provision", "code"), default="lifecycle")
-    parser.add_argument("--version", help="Override the explicit candidate version in TOML")
+    parser.add_argument("--version", help="Candidate release instead of [candidate] version, which may be latest")
     parser.add_argument("--artifact-dir", help="Use local release archives instead of GitHub downloads")
     parser.add_argument("--baseline-version", help="Explicit previous release for the upgrade scenario")
     parser.add_argument("--baseline-artifact-dir", help="Optional local previous-release archives")
@@ -1071,6 +1123,7 @@ def main():
     if args.source_archive and args.scenario != "code":
         parser.error("--source-archive requires --scenario code")
     validate_config(config)
+    resolve_candidate(config)
     return Runner(config, args.keep_vm, args.result_file,
                   args.source_archive.resolve() if args.source_archive else None).run(args.scenario)
 
@@ -1345,6 +1398,47 @@ sys.exit(runner.run('preflight'))
             self.assertEqual(subprocess.run(disk_check([str(missing)])).returncode, 0)
             result = subprocess.run(disk_check([str(missing), str(present)]), capture_output=True, text=True)
             self.assertEqual(result.returncode, 1)
+
+    def test_installer_scenarios_use_the_installer_guest_size(self):
+        node = {"name": "testbox", "model": "ubuntu_linux", "memory": 30720,
+                "cpu": {"count": 16}, "boot_disk": {"size": 100}}
+        installer = {"memory": 8192, "cpu_count": 4, "boot_disk_size": 30}
+        self.assertEqual(guest_node(node, installer, "code"), node)
+        for scenario in ("lifecycle", "upgrade", "fault-provision"):
+            with self.subTest(scenario=scenario):
+                sized = guest_node(node, installer, scenario)
+                self.assertEqual((sized["memory"], sized["cpu"], sized["boot_disk"]),
+                                 (8192, {"count": 4}, {"size": 30}))
+        self.assertEqual(node["memory"], 30720)
+
+    def test_committed_configs_default_to_the_latest_release(self):
+        for path in (ROOT / "tests/environments").glob("*/release-test.toml"):
+            with self.subTest(path=path.parent.name):
+                self.assertEqual(load_config(path)["candidate"]["version"], LATEST_RELEASE)
+
+    def test_latest_candidate_resolves_to_the_published_tag(self):
+        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
+        redirect = subprocess.CompletedProcess([], 0, "https://github.com/bwks/sherpa/releases/tag/v0.9.0", "")
+        with patch("subprocess.run", return_value=redirect) as run:
+            resolve_candidate(config)
+        self.assertEqual(config["candidate"]["version"], "v0.9.0")
+        self.assertIn("https://github.com/bwks/sherpa/releases/latest", run.call_args.args[0])
+        with patch("subprocess.run") as run:
+            resolve_candidate(config)
+        run.assert_not_called()
+        for result in (subprocess.CompletedProcess([], 22, "", "404"),
+                       subprocess.CompletedProcess([], 0, "https://github.com/bwks/sherpa/releases", "")):
+            config["candidate"]["version"] = LATEST_RELEASE
+            with self.subTest(result=result), patch("subprocess.run", return_value=result), \
+                    self.assertRaises(RuntimeError):
+                resolve_candidate(config)
+
+    def test_local_archives_need_an_explicit_candidate_version(self):
+        config = load_config(ROOT / "tests/environments/ubuntu-2604/release-test.toml")
+        config["candidate"]["artifact_directory"] = "/candidate"
+        with patch("subprocess.run") as run, self.assertRaises(ValueError):
+            resolve_candidate(config)
+        run.assert_not_called()
 
     def test_report_is_valid_toml(self):
         data = {"run": {"status": "failed", "detail": "quote\"\nline", "retained": True},

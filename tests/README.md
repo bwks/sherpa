@@ -350,15 +350,22 @@ Tests the checkout's installer and uninstaller with published release binaries:
 
 It needs curl, OpenSSH with scp and an authenticated `sherpa` CLI on the machine that runs it.
 Its SSH account on the Sherpa host must be able to read the base image's checksum and query
-domains with `virsh`. The guest needs internet access for Ubuntu packages, Docker, container
+domains with `virsh`. The runner reaches that host by SSH with keys only, even when the host is
+the machine running it, as on a dev VM, so that machine's key must be in the account's
+`~/.ssh/authorized_keys` there. The guest needs internet access for Ubuntu packages, Docker, container
 registries and the pinned uv release the harness installs.
 
 The runner creates and destroys its own uniquely named lab from the environment's manifest,
 never one brought up by hand, with a generated guest name and credentials for each run.
 Without `--config` it uses `tests/environments/ubuntu-2604/release-test.toml`, which holds the
 connection settings (an empty `server_url` uses the CLI's server), the base image's identity,
-the candidate, timeouts, output and retention; the guest's resources and Ubuntu release are in
-the environment's `manifest.toml`.
+the candidate, the guest's size, timeouts, output and retention; the Ubuntu release is in the
+environment's `manifest.toml`.
+
+The guest's memory (MiB), vCPUs and disk (GiB) are in `[vm.installer]`: 8 GiB, 4 vCPUs and
+30 GiB, which fits beside other work on a 32 GiB dev VM. The suite installs Sherpa, Docker and
+libvirt and pulls the router image, but boots no nested guests, so it needs far less than the VM
+code suite, which keeps the manifest's sizes.
 
 The harness creates its lab as the logged-in CLI's user, so that user needs a device password
 (`sherpa server user device-password`) like every lab owner; the runner stops with that message
@@ -370,9 +377,11 @@ nonzero exit, and no required check is skipped silently.
 
 ### Candidates
 
-By default a run tests the checkout's installer, update and uninstall scripts with the published
-release named in `[candidate] version`. That proves the scripts, not unpublished source in the
-binaries. To test locally built archives:
+By default a run tests the checkout's installer, update and uninstall scripts with the newest
+published release: `[candidate] version = "latest"` resolves, when the run starts, to the tag
+GitHub's `releases/latest` redirects to. `--version` or an explicit tag in
+`[candidate] version` tests another release. That proves the scripts, not unpublished source in
+the binaries. To test locally built archives, which always need `--version`:
 
 ```sh
 ./tests/harness/test_install.sh --version v0.6.0 --artifact-dir /path/to/release-artifacts

@@ -17,7 +17,7 @@ import tomllib
 import unittest
 import uuid
 
-from vm_release_test import HARNESS, ROOT, Runner, encode_toml, interrupted, load_config
+from vm_release_test import HARNESS, ROOT, Runner, encode_toml, interrupted, load_config, resolve_candidate
 
 
 def validate_failure(report, exit_code, scenario):
@@ -124,6 +124,7 @@ def main():
         config["candidate"]["version"] = args.version
     if args.artifact_dir:
         config["candidate"]["artifact_directory"] = str(args.artifact_dir.resolve())
+    resolve_candidate(config)
     directory = (ROOT / config["runner"]["output_directory"] / "failure-checks" / uuid.uuid4().hex).resolve()
     directory.mkdir(parents=True, mode=0o700)
     (directory / ".gitignore").write_text("*\n")
