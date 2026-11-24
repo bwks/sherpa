@@ -163,7 +163,7 @@ pub fn ensure_supported_version(node_name: &str, version: &str) -> Result<()> {
     let minor = version.splitn(3, '.').take(2).collect::<Vec<_>>().join(".");
     if minor != TALOS_SUPPORTED_MINOR_VERSION {
         return Err(ServiceError::Invalid(format!(
-            "Node '{node_name}' uses Talos Linux {version}, but Sherpa builds clusters with Talos {TALOS_SUPPORTED_MINOR_VERSION}.x only. Use a {TALOS_SUPPORTED_MINOR_VERSION}.x image, or remove the node from its cluster and provide your own config with ztp_config"
+            "Node '{node_name}' uses Talos Linux {version}, but Sherpa builds clusters with Talos {TALOS_SUPPORTED_MINOR_VERSION}.x only. Use a {TALOS_SUPPORTED_MINOR_VERSION}.x image, or remove the node from its cluster and provide your own config with ztp.config"
         ))
         .into());
     }
@@ -258,6 +258,10 @@ mod tests {
                 .unwrap_err()
                 .to_string();
             assert!(error.contains("1.14.x only"), "{version}: {error}");
+            assert!(
+                error.contains("your own config with ztp.config"),
+                "{version}: {error}"
+            );
             assert!(
                 error.contains(&format!("Node 'cp1' uses Talos Linux {version},")),
                 "{version}: {error}"
