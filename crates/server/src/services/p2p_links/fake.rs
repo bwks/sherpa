@@ -24,23 +24,14 @@ pub(crate) struct FakeHost {
     pub(crate) failing_redirects: HashSet<String>,
     pub(crate) vanishing_redirects: HashSet<String>,
     pub(crate) failing_veths: HashSet<String>,
-    /// Interfaces whose netem cannot be changed.
     pub(crate) failing_netem: HashSet<String>,
     pub(crate) no_container: bool,
-    /// Interfaces whose redirect cannot be read.
     pub(crate) failing_filter_reads: HashSet<String>,
-    /// The index of the host end of each container's management veth, by container.
     pub(crate) management_veths: HashMap<String, u32>,
-    /// The interfaces with transmit checksum offload on, by index.
     pub(crate) offload_on: RefCell<HashSet<u32>>,
-    /// How many changes were made: redirects attached, impairments set, veths made, offload
-    /// turned off.
     pub(crate) writes: Cell<u32>,
-    /// The interfaces whose carrier is down. A new interface has carrier.
     pub(crate) carrier_down: RefCell<HashSet<String>>,
-    /// Each carrier change, in order.
     pub(crate) carrier_writes: RefCell<Vec<(EndDevice, bool)>>,
-    /// Interfaces whose carrier cannot be read or set.
     pub(crate) failing_carrier: HashSet<String>,
     pub(crate) bridge_ports: RefCell<HashMap<String, String>>,
     pub(crate) container_interfaces: HashSet<(String, String)>,

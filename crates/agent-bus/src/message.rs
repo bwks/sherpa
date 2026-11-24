@@ -13,54 +13,34 @@ const MAX_REPO_PART: usize = 100;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
-    /// Work for the receiving agent.
     Task,
-    /// The answer to a question the receiving agent asked.
     Answer,
-    /// What the agent working on a task is doing.
     Progress,
-    /// The task needs a decision before it can go on.
     Question,
-    /// The task is done.
     Completed,
-    /// The task could not be done.
     Failed,
-    /// Host to guest: stop the task named in `task`, running or queued.
     Cancel,
-    /// Guest to host: the task was canceled, after A2A's canceled state.
     Canceled,
 }
 
 /// One message on the bus.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Message {
-    /// The task this message belongs to.
     pub task: String,
     pub from: String,
     pub to: String,
     pub kind: Kind,
     pub text: String,
-    /// What the run cost. Only the outcome messages (completed, question, failed, and canceled
-    /// when a result arrived) carry it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
-    /// What the task has cost so far, this run included. Sent with `usage`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_usage: Option<TaskUsage>,
-    /// Whether the task may use GitHub. Only a task sets it; an answer has the flag of its task.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub github: bool,
-    /// The model the task runs on: an alias or a full ID, set by a task. An answer runs on the
-    /// model of its task, whatever it says. The guest's replies carry the model they ran on.
-    /// Without it the guest uses its own default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// What the task is for: the issues and pull requests `send --issue/--pr` tagged it with.
-    /// Only a task carries it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work: Option<Work>,
-    /// Where the guest's checkout was when the run ended. Every outcome of a task that ran
-    /// carries it, from a guest that reports it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended: Option<Ended>,
 }
@@ -70,8 +50,6 @@ pub struct Message {
 pub struct Work {
     #[serde(default)]
     pub refs: Vec<WorkRef>,
-    /// The host's Claude Code session that sent the task (`CLAUDE_CODE_SESSION_ID`), when it
-    /// ran inside one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
 }
@@ -79,7 +57,6 @@ pub struct Work {
 /// An issue or a pull request a task is tagged with.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkRef {
-    /// The repository, `owner/name`.
     pub repo: String,
     pub kind: RefKind,
     pub number: u64,
@@ -97,13 +74,9 @@ pub enum RefKind {
 /// Where a guest's checkout was when a run ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ended {
-    /// The checkout's repository, `owner/name`.
     pub repo: String,
-    /// The branch checked out; absent on the repository's default branch or a detached HEAD.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
-    /// The open pull requests whose head is `branch`, in the checkout's repository and in the
-    /// docs checkout's beside it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pull_requests: Vec<PullRequestRef>,
 }
@@ -111,7 +84,6 @@ pub struct Ended {
 /// An open pull request a guest found for its branch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PullRequestRef {
-    /// Its repository, `owner/name`.
     pub repo: String,
     pub number: u64,
     pub url: String,
@@ -126,36 +98,19 @@ pub struct PullRequestRef {
 /// [`cache_hit_permille`].
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Usage {
-    /// Input tokens that were neither read from nor written to the prompt cache.
     pub input: u64,
     pub output: u64,
-    /// Input tokens written to the prompt cache: a cache miss that pays to fill the cache.
     pub cache_creation: u64,
-    /// Input tokens read from the prompt cache: a cache hit.
     pub cache_read: u64,
     pub num_turns: u64,
-    /// Wall-clock time of the run, in milliseconds.
     pub duration_ms: u64,
-    /// Time this run spent in API calls, in milliseconds: the `duration_api_ms` of the event
-    /// minus that of the session's previous run.
     pub duration_api_ms: u64,
-    /// The API-equivalent cost of this run, in US dollars: the sum of its models' `costUSD`. It
-    /// is NOT billed: guest agents run on the Claude subscription. Read it as a measure of
-    /// efficiency, not as money spent.
     pub cost_usd: f64,
-    /// The session total so far (`total_cost_usd` of the event), across its runs. Not this run's
-    /// cost.
     pub session_cost_usd: f64,
-    /// This run's figures per model, from `model_usage_since_last_result`. Empty when Claude
-    /// Code gave none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub models: Vec<ModelUsage>,
-    /// The run's work time, in milliseconds: the model writing and the tool calls that are not
-    /// testing, without the waits that are not counted (`timing`). The guest stamps the stream
-    /// events as it reads them. Absent in runs recorded before guests timed them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work_ms: Option<u64>,
-    /// The run's testing time, in milliseconds: tool calls that build or test.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub testing_ms: Option<u64>,
 }
@@ -164,7 +119,6 @@ pub struct Usage {
 /// names on the wire are the ones Claude Code writes.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ModelUsage {
-    /// The model's key in the event (not a field of the entry itself).
     #[serde(default)]
     pub model: String,
     #[serde(default, rename = "inputTokens")]
@@ -175,12 +129,10 @@ pub struct ModelUsage {
     pub cache_creation: u64,
     #[serde(default, rename = "cacheReadInputTokens")]
     pub cache_read: u64,
-    /// The API-equivalent cost for this model in this run, in US dollars. Not billed.
     #[serde(default, rename = "costUSD")]
     pub cost_usd: f64,
     #[serde(default, rename = "canonicalModel")]
     pub canonical_model: String,
-    /// How the cost was worked out, for example `list` (list prices).
     #[serde(default, rename = "costBasis")]
     pub cost_basis: String,
 }
@@ -188,7 +140,6 @@ pub struct ModelUsage {
 /// What a task has used so far, over its runs: the first run and the answers.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TaskUsage {
-    /// Runs counted: a run that sent no result event is not counted.
     pub runs: u64,
     pub cost_usd: f64,
     pub input: u64,
@@ -196,9 +147,7 @@ pub struct TaskUsage {
     pub cache_creation: u64,
     pub cache_read: u64,
     pub num_turns: u64,
-    /// Wall-clock time, in milliseconds.
     pub duration_ms: u64,
-    /// Time in API calls, in milliseconds.
     pub duration_api_ms: u64,
 }
 

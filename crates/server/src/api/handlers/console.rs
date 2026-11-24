@@ -63,11 +63,8 @@ const CLOSE_REASON_MAX: usize = 123;
 /// The query of the console route.
 #[derive(Debug, Default, Deserialize)]
 pub struct ConsoleQuery {
-    /// Take the console over from a session of the caller's own that holds it.
     #[serde(default)]
     pub force: bool,
-    /// Only check that the console can be opened now: run the route's checks and answer, with
-    /// no upgrade, and take no session.
     #[serde(default)]
     pub check: bool,
 }
@@ -103,15 +100,10 @@ struct OpenConsole {
 /// Why a console session ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Ended {
-    /// The client closed it.
     Client,
-    /// The node's console closed: the node stopped.
     Node,
-    /// Another session took the console over; it names who.
     TakenOver(String),
-    /// The login session behind the token ended.
     LoggedOut,
-    /// Relaying failed.
     Failed(String),
 }
 

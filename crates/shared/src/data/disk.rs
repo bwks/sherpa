@@ -102,7 +102,6 @@ impl DiskBuses {
 #[derive(Copy, Clone, Debug, Deserialize, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DiskTargets {
-    // IDE
     Hda,
     Hdb,
     Hdc,
@@ -114,7 +113,6 @@ pub enum DiskTargets {
     Hdi,
     Hdj,
 
-    // SATA, SCSI, USB
     Sda,
     Sdb,
     Sdc,
@@ -126,7 +124,6 @@ pub enum DiskTargets {
     Sdi,
     Sdj,
 
-    // Virtio
     #[default]
     Vda,
     Vdb,

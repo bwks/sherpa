@@ -37,7 +37,6 @@ struct ConsoleKey {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Claimant {
     pub username: String,
-    /// The address the request came from, when the server knows it.
     pub client: Option<SocketAddr>,
 }
 
@@ -47,7 +46,6 @@ pub struct Holder {
     pub claimant: Claimant,
     pub since: Timestamp,
     id: Uuid,
-    /// Cancelled when another session takes the console over.
     taken_over: CancellationToken,
 }
 
@@ -58,7 +56,6 @@ pub struct ConsoleClaim {
     key: ConsoleKey,
     id: Uuid,
     taken_over: CancellationToken,
-    /// The session this one took the console over from, if any.
     pub displaced: Option<Holder>,
 }
 

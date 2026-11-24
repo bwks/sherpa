@@ -9,19 +9,15 @@ use crate::services::error::ServiceError;
 /// Memory one VM or unikernel takes on the server, or will take once started.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemoryClaim {
-    /// The node or domain, as messages name it.
     pub name: String,
     pub memory_mib: u64,
-    /// The one host NUMA node its memory must stay on, if any.
     pub numa_node: Option<u32>,
 }
 
 /// Memory already promised to other guests.
 #[derive(Clone, Copy, Debug)]
 pub struct CommittedMemory<'a> {
-    /// Running and paused domains, Sherpa's and others'.
     pub running: &'a [MemoryClaim],
-    /// Nodes other operations have been admitted to start, that are not running yet.
     pub starting: &'a [MemoryClaim],
 }
 

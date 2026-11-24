@@ -13,11 +13,8 @@ pub enum CpuPinRole {
 /// message does, to those allowed to see them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CpuPinConflict {
-    /// The host CPUs in conflict, in ascending order.
     pub host_cpus: Vec<u16>,
-    /// What the refused node would pin to them.
     pub requested_role: CpuPinRole,
-    /// What the holding node pins to them.
     pub held_role: CpuPinRole,
 }
 

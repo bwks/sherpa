@@ -15,9 +15,7 @@ use crate::linux::setup_netlink;
 /// What removing an interface's netem qdisc found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetemRemoval {
-    /// The interface had Sherpa's netem qdisc, and it is gone.
     Removed,
-    /// The interface had no netem qdisc of Sherpa's: there was nothing to remove.
     NothingToRemove,
 }
 

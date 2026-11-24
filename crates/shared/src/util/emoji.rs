@@ -10,43 +10,30 @@ use std::fmt;
 /// indication, progress updates, and user feedback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Emoji {
-    /// Success indicator (✅) - Operations completed successfully
     Success,
 
-    /// Error indicator (❌) - Operations failed
     Error,
 
-    /// Warning indicator (⚠️) - Caution, non-critical issues
     Warning,
 
-    /// Information indicator (ℹ️) - Informational messages, tips
     Info,
 
-    /// Progress indicator (🔄) - Operations in progress
     Progress,
 
-    /// Rocket indicator (🚀) - Starting operations, deployment, launch
     Rocket,
 
-    /// Stop indicator (🛑) - Stopped services, halted operations
     Stop,
 
-    /// Hourglass indicator (⏳) - Waiting, pending, time-consuming operations
     Hourglass,
 
-    /// Question indicator (❓) - Prompts, unclear status
     Question,
 
-    /// Lock indicator (🔒) - Security, authentication, permissions
     Lock,
 
-    /// Unlock indicator (🔓) - Unlocked, accessible
     Unlock,
 
-    /// Fire indicator (🔥) - Critical issues, urgent attention needed
     Fire,
 
-    /// Sparkles indicator (✨) - New features, highlights, special items
     Sparkles,
 }
 

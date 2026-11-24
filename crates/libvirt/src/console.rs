@@ -30,22 +30,16 @@ const CHARDEVS: [&str; 2] = ["serial", "console"];
 /// The UNIX sockets of a domain's consoles.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConsoleSockets {
-    /// The serial console's.
     pub serial: String,
-    /// The VNC console's. A domain with no VNC graphics, such as a unikernel, has none bound.
     pub vnc: String,
 }
 
 /// How a domain's serial console is reached.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SerialConsole {
-    /// A UNIX socket at this path, as Sherpa defines domains.
     Socket(String),
-    /// A TCP listener, as domains defined before consoles moved behind sherpad have.
     Tcp,
-    /// Another kind of character device, named by its type, such as `pty`.
     Other(String),
-    /// No serial device.
     Absent,
 }
 

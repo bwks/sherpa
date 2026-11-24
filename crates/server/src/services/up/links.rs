@@ -214,7 +214,6 @@ pub(super) fn find_bridge_interface(
 pub(super) struct LinkRecords {
     pub(super) lab_link_data: Vec<data::LabLinkData>,
     pub(super) p2p_container_veths: Vec<P2pContainerVeth>,
-    /// Containers on a P2p link or a private bridge, which take veths and no Docker networks.
     pub(super) veth_container_names: HashSet<String>,
 }
 

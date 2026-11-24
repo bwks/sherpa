@@ -22,16 +22,13 @@ const USER_ORIGIN: &str = "human";
 /// What a transcript line says.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Entry {
-    /// An API response, and the tool calls it started.
     Response(Response),
-    /// The results of tool calls, by their IDs.
     Results {
         session: String,
         agent_id: Option<String>,
         at_ms: u64,
         ids: Vec<String>,
     },
-    /// A prompt that starts a turn.
     Prompt {
         id: String,
         session: String,
@@ -39,7 +36,6 @@ pub enum Entry {
         at_ms: u64,
         from_user: bool,
     },
-    /// Nothing the import keeps.
     Nothing,
 }
 
@@ -48,13 +44,11 @@ pub enum Entry {
 pub struct Response {
     pub message_id: String,
     pub session: String,
-    /// The subagent whose transcript it is in; `None` in the main transcript.
     pub agent_id: Option<String>,
     pub at_ms: u64,
     pub model: String,
     pub speed: String,
     pub tokens: Tokens,
-    /// The tool calls the line starts, by ID.
     pub calls: Vec<(String, Class)>,
 }
 

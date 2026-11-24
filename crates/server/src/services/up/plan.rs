@@ -37,12 +37,10 @@ pub(super) struct LabPlan {
     pub(super) selected_images: Vec<data::NodeConfig>,
     pub(super) image_guards: Vec<ImageLease>,
     pub(super) container_image_guards: Vec<ImageLease>,
-    /// The lab owner's login on the nodes, with their device password.
     pub(super) owner_account: GuestAccount,
     pub(super) ssh_usernames: Vec<NodeSshUsername>,
     pub(super) links_detailed: Vec<topology::LinkDetailed>,
     pub(super) bridges_detailed: Vec<topology::BridgeDetailed>,
-    /// Holds the nodes' memory and CPU pins against other operations until `up` returns.
     pub(super) _admission: Admission,
 }
 

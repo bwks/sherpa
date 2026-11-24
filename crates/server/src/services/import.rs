@@ -450,9 +450,7 @@ struct ScanTally {
 struct ModelScan {
     model_kind: ModelKind,
     config: NodeConfig,
-    /// Whether the model has a default, or a version this scan imported or would import became it.
     has_default: bool,
-    /// What the import log calls the record.
     label: &'static str,
 }
 

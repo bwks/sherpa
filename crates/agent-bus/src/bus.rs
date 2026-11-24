@@ -72,10 +72,7 @@ pub struct Bus {
     pub volume: String,
     pub listen: Ipv4Addr,
     pub port: u16,
-    /// The state directory: the server config, the record and the registry; outside the
-    /// repository.
     pub state_dir: PathBuf,
-    /// The lab the bus serves, when started for one.
     pub lab: Option<LabRecord>,
 }
 

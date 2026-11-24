@@ -56,7 +56,6 @@ use topology::validate::{
 /// every node image, the manifest's nodes with their images checked, and the lab's reservation.
 struct Setup {
     qemu_conn: Arc<QemuConnection>,
-    /// The owner's login on the lab's nodes, with their device password.
     owner_account: GuestAccount,
     checked: CheckedNodes,
     reserved: ReservedLab,
@@ -69,13 +68,9 @@ struct LabUp<'a> {
     state: &'a AppState,
     operation: &'a LabOperation,
     manifest: &'a topology::Manifest,
-    /// The manifest as the user wrote it, stored as the lab's definition.
     definition: &'a topology::Manifest,
-    /// What the user said about the lab.
     details: &'a db::LabDetails,
-    /// The authenticated caller, who owns the lab.
     username: &'a str,
-    /// Holds the disk image leases until every domain exists.
     plan: LabPlan,
     node_secrets: &'a BTreeMap<String, Vec<data::SecretFile>>,
     tailscale_auth_key: Option<&'a TailnetAuthKey>,
@@ -270,8 +265,6 @@ async fn validate(
 /// The manifest `up` builds the lab from, as the client sent it, and the lab's definition.
 struct CheckedManifest {
     manifest: topology::Manifest,
-    /// The manifest as the user wrote it, from the parts as written the client sent beside it:
-    /// what the database stores, without file contents or resolved values.
     definition: topology::Manifest,
 }
 

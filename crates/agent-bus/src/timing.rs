@@ -77,7 +77,6 @@ const OPEN_AFTER_LAST_MESSAGE_MS: u64 = 30 * 60 * 1000;
 pub enum Class {
     Work,
     Testing,
-    /// A wait that is not counted.
     Excluded,
 }
 
@@ -93,7 +92,6 @@ pub enum Bucket {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Prompt {
     pub at_ms: u64,
-    /// Whether the user wrote it, rather than Claude Code (a task notification).
     pub from_user: bool,
 }
 
@@ -128,7 +126,6 @@ pub struct Timeline {
     pub prompts: Vec<Prompt>,
     pub responses: Vec<Response>,
     pub calls: Vec<Call>,
-    /// When tasks the host sent were open, possibly overlapping. Empty on a guest.
     pub open: Vec<Open>,
 }
 
@@ -152,17 +149,10 @@ pub struct Times {
 /// What a guest saw in Claude Code's stream that tells where time went.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Tick {
-    /// The model wrote a response.
     Responded,
-    /// A tool call started.
     Called { id: String, class: Class },
-    /// A tool call returned.
     Returned { id: String },
-    /// Claude Code gave the model a prompt of its own, such as a task notification.
     Prompted,
-    /// A `result` event: the turn is over. Claude Code does not echo the prompt of the next
-    /// turn (a task notification) in `stream-json`, so the next response or tool event starts
-    /// it, and the time in between is not counted.
     Finished,
 }
 
@@ -171,9 +161,7 @@ pub enum Tick {
 #[derive(Debug, Clone, Default)]
 pub struct RunClock {
     timeline: Timeline,
-    /// The ID of each call in `timeline.calls`, in the same order.
     ids: Vec<String>,
-    /// Whether a `result` ended the last turn and nothing has happened since.
     finished: bool,
 }
 

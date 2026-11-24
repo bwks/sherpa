@@ -146,7 +146,6 @@ where
 #[derive(Deserialize, Default)]
 pub struct NodeActionPayload {
     pub node_name: Option<String>,
-    /// Resume only: re-enrolls the lab's Tailscale gateway. Requires server TLS.
     pub tailscale_auth_key: Option<TailnetAuthKey>,
 }
 
@@ -370,7 +369,6 @@ pub async fn update_impairment_json(
 /// Query parameters for listing labs
 #[derive(Deserialize)]
 pub struct ListLabsQuery {
-    /// Whose labs to list. Defaults to the caller; other users require admin privileges.
     pub username: Option<String>,
 }
 

@@ -19,9 +19,7 @@ use crate::token::{load_token, username_from_token};
 /// The lab a folder names, before any ID is worked out.
 #[derive(Debug, PartialEq, Eq)]
 enum FolderLab {
-    /// The lab `lab-info.toml` names, with the ID the server gave it.
     Recorded(LabIdentity),
-    /// A lab only `manifest.toml` names, by its name.
     Named(String),
 }
 

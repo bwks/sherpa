@@ -27,9 +27,7 @@ pub struct WriteToken(String);
 /// The GitHub token a Claude Code run gets.
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Access<'a> {
-    /// The guest's read-only token, inherited from the agent's environment.
     ReadOnly,
-    /// The write token, for a `--github` task.
     Write(&'a WriteToken),
 }
 

@@ -20,11 +20,7 @@ const CONTAINER_MGMT_INTERFACE: &str = "eth0";
 /// One end of a link, as its carrier is read and set.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum EndDevice {
-    /// A container's host veth: setting it down takes the carrier from its peer in the
-    /// container.
     Veth(String),
-    /// The host tap of an interface of libvirt domain `domain`. Its carrier is the interface's
-    /// link state in the live domain: a tap set down is not seen by the guest.
     Tap { domain: String, tap: String },
 }
 

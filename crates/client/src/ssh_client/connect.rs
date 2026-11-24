@@ -29,20 +29,14 @@ use crate::ssh_client::host_keys::HostKeyRefresh;
 /// Why a lab node's host key was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum KeyMismatch {
-    /// The lab's `known_hosts` file records another key for the node.
     Changed,
-    /// The file records no key for the node.
     Unknown,
 }
 
 /// Which questions the hops may ask.
 #[derive(Clone, Copy, Debug)]
 pub enum PromptScope {
-    /// Every question at every hop, as `ssh` does: for `sherpa ssh`.
     AllHops,
-    /// Every question at a jump host, but only for a key passphrase at the node, which may be
-    /// the first hop. A node whose login is not ready yet must fail and be retried, not ask for
-    /// a password: for provisioners.
     NoNodePassword,
 }
 

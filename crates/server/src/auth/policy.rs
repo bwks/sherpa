@@ -24,9 +24,7 @@ const ADMIN_LAB_START_MESSAGE: &str = "the built-in sherpa-admin account cannot 
 /// Which callers may act on a lab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LabRule {
-    /// The lab owner, or any admin.
     OwnerOrAdmin,
-    /// The lab owner only, even for admins.
     OwnerOnly,
 }
 

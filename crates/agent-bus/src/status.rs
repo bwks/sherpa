@@ -27,13 +27,9 @@ pub const STALE: Duration = Duration::from_secs(35);
 /// The status a guest agent writes, as JSON.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Status {
-    /// False only in the last status, written as the agent stops.
     pub online: bool,
-    /// When the guest wrote it, by the guest's clock, in milliseconds since the Unix epoch.
     pub at_ms: u64,
-    /// The task Claude Code works on.
     pub running: Option<Running>,
-    /// Tasks and answers read from the inbox, waiting in the guest's local queue.
     pub queued: u64,
 }
 
@@ -48,19 +44,14 @@ pub struct Running {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Heartbeat {
     pub status: Status,
-    /// When the bus stored it, by the bus's clock, in milliseconds since the Unix epoch. The bus
-    /// runs on the host, so this and the host's clock agree; the guest's may not.
     pub stored_ms: u64,
 }
 
 /// What the bus says about an agent's inbox consumer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InboxState {
-    /// Messages not yet read, or read and not acknowledged.
     pub unread: u64,
-    /// Whether a reader holds a pull request on the inbox now.
     pub reader_attached: bool,
-    /// When the bus last delivered a message from it, in milliseconds since the Unix epoch.
     pub last_delivered_ms: Option<u64>,
 }
 
@@ -69,12 +60,8 @@ pub struct InboxState {
 pub struct Observed {
     pub name: String,
     pub role: Role,
-    /// `None` when the agent has no inbox on the bus.
     pub inbox: Option<InboxState>,
-    /// `None` when the agent never wrote a status, or the bus has no status bucket.
     pub heartbeat: Option<Heartbeat>,
-    /// The recorder's consumer, `_record`, which the host's record is caught up from. Only the
-    /// host's row shows it; `None` when the bus has no recorder's consumer.
     pub record: Option<InboxState>,
 }
 
@@ -84,8 +71,6 @@ pub struct Observed {
 pub enum Online {
     Yes,
     No,
-    /// No status, but a reader holds the inbox, such as `agent-bus listen` run as the guest. It
-    /// may or may not be working.
     Unreported,
 }
 
@@ -93,7 +78,6 @@ pub enum Online {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RunningRow {
     pub task: String,
-    /// How long it has run, in seconds.
     pub age_secs: u64,
 }
 
@@ -101,9 +85,7 @@ pub struct RunningRow {
 /// recorded, and when it last delivered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct RecordLag {
-    /// Messages not yet delivered to the record, or delivered and not acknowledged.
     pub unread: u64,
-    /// Milliseconds since the Unix epoch; `None` when it never delivered.
     pub last_delivered_ms: Option<u64>,
     pub last_delivered_age_secs: Option<u64>,
 }
@@ -114,22 +96,13 @@ pub struct Row {
     pub name: String,
     pub role: Role,
     pub online: Online,
-    /// Only while online.
     pub running: Option<RunningRow>,
-    /// Tasks and answers waiting for a guest: `inbox_unread` and `local_queue` together. `None`
-    /// for the host: what waits in its inbox is progress and outcomes for a listener, not tasks,
-    /// and is only in `inbox_unread`.
     pub queued: Option<u64>,
-    /// Messages on the bus the agent has not read; `None` when it has no inbox.
     pub inbox_unread: Option<u64>,
-    /// The guest's local queue at its last status; `None` without a status.
     pub local_queue: Option<u64>,
     pub reader_attached: bool,
-    /// Milliseconds since the Unix epoch; `None` when never seen.
     pub last_active_ms: Option<u64>,
     pub last_active_age_secs: Option<u64>,
-    /// The host's record's lag, in the host's row; `None` for a guest, and for a host whose bus
-    /// has no recorder's consumer.
     pub record: Option<RecordLag>,
 }
 

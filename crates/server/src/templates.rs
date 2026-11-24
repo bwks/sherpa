@@ -53,7 +53,6 @@ pub struct LabsGridTemplate {
 /// One lab in the labs grid.
 pub struct LabRow {
     pub lab: LabSummary,
-    /// The lab's phase until it is ready, then its state.
     pub status_badge: Badge,
     pub actions: LabActions,
 }
@@ -73,7 +72,6 @@ pub struct NodeRow {
     pub device: DeviceInfo,
     pub state_badge: Badge,
     pub actions: NodeActions,
-    /// Why a Vault node is sealed and the server cannot unseal it, shown under its state.
     pub vault_sealed: Option<String>,
 }
 
@@ -112,7 +110,6 @@ pub struct ErrorTemplate {
 pub struct LoginPageTemplate {
     pub error: Option<LoginError>,
     pub message: String,
-    /// Whether to link to the signup page; see `Config::allow_signup`.
     pub allow_signup: bool,
 }
 
@@ -199,11 +196,8 @@ pub struct LabDetailTemplate {
     pub nav: Nav,
     pub lab_id: String,
     pub lab_info: LabInfo,
-    /// The lab's phase until it is ready, then its state.
     pub state_badge: Badge,
     pub actions: LabActions,
-    /// Set by the handler: only the lab's owner is offered the files, and a lab with no nodes,
-    /// or an unknown state, has none to download.
     pub offers_download: bool,
     pub nodes: Vec<NodeRow>,
     pub device_count: usize,
@@ -232,7 +226,6 @@ pub struct NodeDetailTemplate {
     pub state_badge: Badge,
     pub actions: NodeActions,
     pub node_config: NodeConfig,
-    /// The ZTP setting the node runs with: its manifest's, or else its image's.
     pub ztp: Ztp,
     pub mgmt_mac: Option<String>,
 }
@@ -268,9 +261,7 @@ pub struct ProfileTemplate {
     pub username: String,
     pub is_admin: bool,
     pub nav: Nav,
-    /// Rendered in place, and on its own for HTMX swaps.
     pub ssh_keys_list: SshKeysListTemplate,
-    /// Whether the user has a device password, rendered in place.
     pub device_password_status: DevicePasswordStatusTemplate,
 }
 
@@ -349,9 +340,7 @@ pub struct AdminLabSummary {
     pub description: Option<String>,
     pub owner_username: String,
     pub node_count: usize,
-    /// Which operation owns the lab.
     pub phase_badge: Badge,
-    /// Only a ready lab can be started or stopped; any other can only be destroyed or cleaned.
     pub offers_stop: bool,
     pub offers_start: bool,
     pub resume_with_cli: bool,
@@ -391,7 +380,6 @@ pub struct AdminUserEditTemplate {
     pub nav: Nav,
     pub target_user: DbUser,
     pub is_self: bool,
-    /// Rendered in place, and on its own for HTMX swaps.
     pub ssh_keys_list: AdminSshKeysListTemplate,
 }
 
@@ -462,14 +450,9 @@ pub struct AdminImageEditTemplate {
     pub nav: Nav,
     pub config: NodeConfig,
     pub kind_label: &'static str,
-    /// A container image's repo, blank when it has none; `None` for other kinds.
     pub repo: Option<String>,
-    /// The `vm` group's fields, for a virtual machine image.
     pub vm: Option<VmEditChoices>,
-    /// The CPU, machine and interface device fields of a virtual machine or unikernel image.
     pub device: Option<DeviceEditChoices>,
-    /// The ZTP settings the image's model takes, the image's own selected; none for a
-    /// unikernel, which has no ZTP setting.
     pub ztp_choices: Vec<FormChoice>,
 }
 
@@ -479,7 +462,6 @@ pub struct VmEditChoices {
     pub bios_choices: Vec<FormChoice>,
     pub hdd_bus_choices: Vec<FormChoice>,
     pub cdrom_bus_choices: Vec<FormChoice>,
-    /// The CD-ROM image's file name, blank when it has none.
     pub cdrom: String,
     pub vmx: bool,
 }
@@ -515,7 +497,6 @@ pub struct AdminImageUploadTemplate {
     pub is_admin: bool,
     pub nav: Nav,
     pub models: Vec<ModelChoice>,
-    /// Every kind; the page's script offers those of the chosen model.
     pub kinds: Vec<FormChoice>,
 }
 
@@ -552,7 +533,6 @@ pub struct LabCreateTemplate {
     pub nav: Nav,
     pub generated_name: String,
     pub models: Vec<ModelChoice>,
-    /// Every kind; the page's script offers those of each node's model.
     pub kinds: Vec<FormChoice>,
 }
 

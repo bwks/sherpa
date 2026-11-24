@@ -20,35 +20,25 @@ use super::NodeState;
 /// runtimes' own states to this in one table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Runtime {
-    /// The domain or container is running.
     Running,
-    /// The domain or container exists and is not running.
     Stopped(Halt),
-    /// The runtime reports a fault, in its own word: a crashed domain, a dead container.
     Faulted(&'static str),
-    /// The runtime is between states, in its own word: shutting down, restarting, removing.
     Transitional(&'static str),
-    /// There is no domain or container.
     Absent,
 }
 
 /// How a domain or container that is not running was left.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Halt {
-    /// Shut off, exited or never started: starting it boots it.
     Off,
-    /// Paused: resuming it carries on where it was.
     Paused,
 }
 
 /// What the scanner's readiness probe found for a running node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Probe {
-    /// The node has no readiness probe the scanner can run: running counts as ready.
     NotProbed,
-    /// The probe answered.
     Ready,
-    /// The probe did not answer, or the node was not probed this cycle.
     NotReady,
 }
 
@@ -62,15 +52,10 @@ pub struct Observation {
 /// A step an operation took with a node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OperationEvent {
-    /// A redeploy is about to tear the node down and build it again.
     RebuildStarted,
-    /// The node's domain or container was started or resumed.
     Launched,
-    /// The node's readiness check passed, or it has none.
     Ready,
-    /// The node's domain or container was stopped.
     Stopped,
-    /// The operation failed for the node.
     Failed,
 }
 

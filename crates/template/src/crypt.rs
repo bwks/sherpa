@@ -15,9 +15,7 @@ const SALT_BYTES: usize = 12;
 /// A SHA-crypt hash algorithm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CryptHash {
-    /// `$5$`, SHA-256-crypt.
     Sha256,
-    /// `$6$`, SHA-512-crypt.
     Sha512,
 }
 

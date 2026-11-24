@@ -137,11 +137,8 @@ pub struct Method {
 /// Who may call an RPC method. Services still apply their own rules, such as lab ownership.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Access {
-    /// Anyone; the method takes no token.
     Public,
-    /// Any authenticated user.
     User,
-    /// Admins only; others get the message.
     Admin(&'static str),
 }
 

@@ -9,8 +9,6 @@ pub struct SshHostConfig {
     pub hostname: Ipv4Addr,
     pub port: u16,
     pub username: String,
-    /// The lab `known_hosts` file holding this node's host key, which is then checked
-    /// strictly. `None` when no key was recorded, and the key is not checked.
     pub known_hosts_file: Option<String>,
 }
 
@@ -25,7 +23,6 @@ pub struct SshConfigTemplate {
 #[derive(Debug, Clone)]
 pub struct KnownHostsEntry {
     pub hostname: Ipv4Addr,
-    /// The key in OpenSSH public key form (`ssh-ed25519 AAAA...`).
     pub key: String,
 }
 

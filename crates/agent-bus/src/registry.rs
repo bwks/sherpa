@@ -36,7 +36,6 @@ pub struct Registry {
 #[derive(Debug)]
 pub struct Merged {
     pub agents: Agents,
-    /// Enrolled guests left out because the agents file lists their name
     pub shadowed: Vec<String>,
 }
 

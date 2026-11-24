@@ -19,19 +19,11 @@ const PATH_FIELDS: [&str; 3] = ["file_path", "path", "notebook_path"];
 /// What a line of Claude Code's `stream-json` output means for the host.
 #[derive(Debug, PartialEq)]
 pub(super) enum Update {
-    /// The Claude session the task runs in.
     Session(String),
-    /// What Claude says. Its last text is also its result.
     Text(String),
-    /// A tool Claude runs, and on what.
     Tool(String),
-    /// Something that tells where the run's time goes, stamped by the guest when it reads it.
     Clock(Tick),
-    /// A place a tool call named, absolute or from `~`: a file it read or wrote, or a directory
-    /// a command changed to. The checkouts holding them are where the run worked.
     WorkedIn(String),
-    /// A run's `result` event. Its `usage.duration_api_ms` is still the session's total so far:
-    /// the guest takes the previous run's off (`api_time_of_run`).
     Finished {
         session: String,
         text: String,
@@ -58,7 +50,6 @@ struct ResultEvent {
     duration_api_ms: u64,
     #[serde(default)]
     total_cost_usd: f64,
-    /// Per model, for this run only. (`modelUsage` is the session's total.)
     #[serde(default)]
     model_usage_since_last_result: BTreeMap<String, ModelUsage>,
 }

@@ -21,10 +21,8 @@ use crate::provisioner::Provisioner;
 /// user wrote them: paths and settings, never the contents of a file or a variable's value.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ManifestAsWritten {
-    /// The manifest's `provision_concurrency`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provision_concurrency: Option<u8>,
-    /// Each node's parts, by node name. A node with none of them is left out.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub nodes: BTreeMap<String, NodeAsWritten>,
 }
@@ -32,13 +30,10 @@ pub struct ManifestAsWritten {
 /// One node's parts of a [`ManifestAsWritten`].
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct NodeAsWritten {
-    /// `ztp.config`: the path of the node's startup configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ztp_config: Option<String>,
-    /// `environment_variables`, with `KEY=$VAR` entries naming their variable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment_variables: Option<Vec<String>>,
-    /// `provisioners`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provisioners: Option<Vec<Provisioner>>,
 }

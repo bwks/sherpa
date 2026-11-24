@@ -178,7 +178,6 @@ pub struct IgnitionFile {
     pub mode: FileMode,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overwrite: Option<bool>,
-    /// Omitted for an append-only file, so an existing file is kept and appended to.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contents: Option<IgnitionFileContents>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

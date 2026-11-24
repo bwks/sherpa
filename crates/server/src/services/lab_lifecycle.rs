@@ -27,13 +27,9 @@ const WRITE_ATTEMPTS: usize = 3;
 /// What `recover` found and marked.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Recovery {
-    /// Labs `up` was building, now `Interrupted`.
     pub interrupted_labs: usize,
-    /// Labs a destroy was removing, now `DestroyFailed`.
     pub failed_destroys: usize,
-    /// Nodes `up` or a redeploy was building, now `Failed`.
     pub failed_nodes: usize,
-    /// Labs that could not be recovered; each is logged.
     pub errors: usize,
 }
 

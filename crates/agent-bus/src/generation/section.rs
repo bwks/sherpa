@@ -77,15 +77,10 @@ struct Fence {
 pub struct Row {
     pub task: String,
     pub agent: String,
-    /// Every model its runs used, subagents' included, sorted.
     pub models: Vec<String>,
-    /// Its totals over all its runs.
     pub usage: TaskUsage,
-    /// Its work, testing and waiting on the user; unknown in rows written before format 2.
     #[serde(default, skip_serializing_if = "Time::is_unknown")]
     pub time: Time,
-    /// Whether it named no pull request of its own and is counted here, the next one of its
-    /// item; `false` in rows written before format 3.
     #[serde(default, skip_serializing_if = "Not::not")]
     pub brought_forward: bool,
 }
@@ -95,7 +90,6 @@ pub struct Row {
 pub struct Counted {
     pub task: String,
     pub agent: String,
-    /// The pull request that counts it.
     pub repo: String,
     pub number: u64,
 }
@@ -104,11 +98,8 @@ pub struct Counted {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostRow {
     pub model: String,
-    /// Its cost, the responses with a price only.
     pub usage: TaskUsage,
     pub time: Time,
-    /// How many of its responses have no price, whose cost is not in `usage`; `None` when all
-    /// have one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unpriced: Option<u64>,
 }
@@ -118,14 +109,8 @@ pub struct HostRow {
 pub struct Rows {
     pub tasks: Vec<Row>,
     pub host: Vec<HostRow>,
-    /// Tasks of this pull request counted on another.
     pub counted: Vec<Counted>,
-    /// When this pull request counts nothing and no task of it is counted on another: the
-    /// pull requests of its item that count work. Not written in the data: worked out again on
-    /// every write.
     pub homes: Vec<PullRequestId>,
-    /// Every task the record has in a work item, this one's or another's: a row of one of them
-    /// that this pull request no longer counts is dropped, not carried. Not written in the data.
     pub known: BTreeSet<String>,
 }
 
@@ -133,14 +118,12 @@ pub struct Rows {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Data {
-    /// Absent in format 1.
     #[serde(default = "first_format")]
     version: u32,
     #[serde(default)]
     task: Vec<Row>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     host: Vec<HostRow>,
-    /// Absent before format 3.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     counted: Vec<Counted>,
 }

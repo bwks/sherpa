@@ -83,13 +83,9 @@ struct Issued {
 /// Why the server certificate is issued again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reissue {
-    /// There is no certificate, no key, or no record of what it names.
     Missing,
-    /// The CA was just made, so the old certificate does not chain to it.
     NewCa,
-    /// The bus listens on another address than the certificate names.
     Addresses,
-    /// It expires within `RENEW_BEFORE`.
     Expiring,
 }
 

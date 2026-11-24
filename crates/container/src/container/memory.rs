@@ -10,11 +10,8 @@ use crate::status::is_missing;
 /// A container's hard memory limit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ContainerMemory {
-    /// The container's name, without Docker's leading `/`.
     pub name: String,
-    /// Whether it is running, paused or restarting, so its memory is in use.
     pub active: bool,
-    /// Its memory limit, in bytes.
     pub limit_bytes: u64,
 }
 

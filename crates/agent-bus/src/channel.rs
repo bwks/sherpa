@@ -53,7 +53,6 @@ pub const RECORDER: &str = "_record";
 /// Where the bus is, and the CA certificate its server certificate must chain to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoint {
-    /// `nats://<address>:<port>`; the address must be one the server certificate names.
     pub url: String,
     pub ca: PathBuf,
 }
@@ -88,11 +87,8 @@ impl fmt::Display for Change {
 /// Where a delivered message is in the stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Position {
-    /// The stream sequence: unique to the message, the same each time it is delivered.
     pub seq: u64,
-    /// When the stream stored it, in milliseconds since the Unix epoch.
     pub at_ms: u64,
-    /// How many messages the consumer had left to deliver after this one.
     pub pending: u64,
 }
 
@@ -104,9 +100,7 @@ pub struct Delivery {
 
 /// What one read from an inbox gave.
 pub enum Received {
-    /// An agent message from the sender its subject names; acknowledge it once handled.
     Taken(Box<Delivery>),
-    /// A message that is not taken. It is already acknowledged, so it is not delivered again.
     Dropped(Dropped),
 }
 
@@ -114,7 +108,6 @@ pub enum Received {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dropped {
     pub reason: DropReason,
-    /// What the message was, for a reader that reports each one.
     pub detail: String,
     pub position: Position,
 }
@@ -122,9 +115,7 @@ pub struct Dropped {
 /// Why a message was dropped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DropReason {
-    /// An agent message whose `from` or `to` is not what its subject names.
     ForeignSender,
-    /// Not an agent message at all, such as one in an older format.
     NotAMessage,
 }
 

@@ -24,16 +24,13 @@ use crate::ws_client::{WebSocketClient, WsStream};
 /// A node console over the server's console WebSocket, as Jato's pass-through drives it.
 struct ConsoleSocket {
     stream: WsStream,
-    /// The reason in the server's close frame, when it ended the session and gave one.
     close_reason: Option<String>,
 }
 
 /// A node console the server relays: its route, and what the user is told it is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Route {
-    /// The serial console, `.../console`.
     Serial,
-    /// The VNC console, `.../vnc`.
     Vnc,
 }
 
@@ -46,7 +43,6 @@ struct ErrorBody {
 #[derive(Debug, Deserialize)]
 struct ErrorDetail {
     message: String,
-    /// The specific text, when `message` is a general one: a 400's is `Invalid request`.
     #[serde(default)]
     details: Option<String>,
 }
@@ -97,9 +93,7 @@ pub async fn console(
 /// Why a console could not be opened.
 #[derive(Debug)]
 pub(super) enum OpenError {
-    /// The server refused it, in these words, with this HTTP status.
     Refused { status: u16, message: String },
-    /// It could not be reached: the error with its cause.
     Failed(anyhow::Error),
 }
 

@@ -5,13 +5,9 @@ use std::fmt;
 /// Why the login page was shown, from its `error` query parameter.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LoginError {
-    /// A page needed a session and the request had none.
     SessionRequired,
-    /// The request's session was invalid or expired.
     SessionExpired,
-    /// The user logged out.
     LogoutSuccess,
-    /// A code this build does not know, shown as it came.
     Other(String),
 }
 

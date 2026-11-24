@@ -25,9 +25,7 @@ pub struct Input {
 /// How the hook exits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Exit {
-    /// Imported, or the record was busy: 0.
     Done,
-    /// A real failure, said on stderr: 1.
     Failed,
 }
 

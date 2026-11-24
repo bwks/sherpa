@@ -39,24 +39,13 @@ const DAY_MS: u64 = 86_400_000;
 pub struct Row {
     pub task: String,
     pub agent: String,
-    /// The task's item, or the host usage's (`None`: unattributed).
     pub work: Option<i64>,
-    /// The name of `work`, filled in before the table is printed.
     pub item: Option<String>,
-    /// The model the task ran on, from its outcome messages; the host's models. `None` for a
-    /// task from before the guest named it.
     pub model: Option<String>,
-    /// The task's totals as of its last outcome message that carried them. `None` for a task
-    /// from before usage was tracked.
     pub usage: Option<TaskUsage>,
-    /// Where the task is, from its last outcome message; `None` for the host.
     pub state: Option<TaskState>,
-    /// When it was sent, else its latest message: the week `usage --by week` counts it in.
     pub at_ms: u64,
-    /// The time buckets: work and testing from the runs that reported them (`None` when none
-    /// did), waiting on the user from its questions.
     pub time: Time,
-    /// The host's responses with no price, whose cost is not in `usage`.
     pub unpriced: u64,
 }
 

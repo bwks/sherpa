@@ -6,12 +6,8 @@ use serde::{Deserialize, Serialize};
 /// the user's current values, not those at login.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthContext {
-    /// Username of the authenticated user
     pub username: String,
-    /// Whether the user is an admin
     pub is_admin: bool,
-    /// The session the request came through: the one logout ends, and the one a user's own
-    /// password change keeps.
     pub session_id: String,
 }
 

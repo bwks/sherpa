@@ -14,9 +14,7 @@ const EXPORT: &str = "export";
 
 /// A line whose value is one variable reference.
 struct Reference<'a> {
-    /// The line up to and including `=`.
     assignment: &'a str,
-    /// The variable referred to.
     name: &'a str,
 }
 

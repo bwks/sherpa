@@ -53,41 +53,29 @@ pub(super) struct Redeploy<'a> {
     pub(super) node_name: String,
     pub(super) lab_dir: String,
     pub(super) lab_record_id: RecordId,
-    /// The lab info, with the node's SSH username as it will be after the redeploy.
     pub(super) lab_info: data::LabInfo,
     pub(super) mgmt_net: data::SherpaNetwork,
     pub(super) dns: data::Dns,
     pub(super) certs_dir: String,
     pub(super) lab_ca: LabCa,
     pub(super) qemu_conn: Arc<QemuConnection>,
-    /// The node's record; its resources are reserved again when it is rebuilt.
     pub(super) db_node: DbNode,
     pub(super) node_record_id: RecordId,
     pub(super) node_image: data::NodeConfig,
-    /// The node as the manifest describes it now.
     pub(super) target_node: topology::NodeExpanded,
-    /// The manifest the node is redeployed from: what the lab's definition records for the
-    /// node once it is rebuilt.
     pub(super) definition: RedeployDefinition,
     pub(super) data_interface_count: u8,
     pub(super) ipv4: Ipv4Addr,
     pub(super) ipv6: Option<Ipv6Addr>,
-    /// The lab owner's account, with their device password.
     pub(super) owner_account: GuestAccount,
-    /// Secret files for a container node; `None` keeps its current ones.
     pub(super) secrets: Option<Vec<data::SecretFile>>,
-    /// Keeps the node's image until its disks are cloned.
     pub(super) image_guard: ImageLease,
-    /// Holds the node's memory against other operations until the redeploy ends, and the pins
-    /// the node held before it claimed its new ones beside them.
     pub(super) admission: Admission,
 }
 
 /// The manifest a node is redeployed from, as the client sent it, and its definition.
 pub(super) struct RedeployDefinition {
     pub(super) manifest: topology::Manifest,
-    /// The manifest as the user wrote it, from the parts as written the client sent beside it.
-    /// `None` when it sent none (the web UI, an older client): the node keeps the stored ones.
     pub(super) as_written: Option<topology::Manifest>,
 }
 

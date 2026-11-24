@@ -29,9 +29,7 @@ struct VolumeXml {
 /// A volume in the Sherpa storage pool built on a backing file: an overlay disk and its base.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BackedVolume {
-    /// The volume's name in the pool.
     pub name: String,
-    /// The base the volume records, as written: nothing is resolved.
     pub backing_file: PathBuf,
 }
 

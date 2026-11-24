@@ -58,7 +58,6 @@ struct Config {
 struct Tls {
     cert_file: String,
     key_file: String,
-    /// TLS before the server's INFO: a plaintext client never gets a word out of it.
     handshake_first: bool,
 }
 

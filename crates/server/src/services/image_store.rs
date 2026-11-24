@@ -29,7 +29,6 @@ const PARTIAL_SUFFIX: &str = ".partial";
 /// ([`BackedVolumes`](crate::services::image_lifecycle::BackedVolumes)).
 #[derive(Debug, Clone)]
 pub(crate) struct ImagePaths {
-    /// The images directory: `<images>/<model>/<version>/<file>`.
     pub images: PathBuf,
 }
 
@@ -50,13 +49,8 @@ impl ImagePaths {
 /// What an import or a download does about the file already at its destination.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExistingDisk {
-    /// Nothing is there: copy the source.
     Absent,
-    /// A file of the source's size is there: keep it and skip the copy.
     Same,
-    /// A file of another size is there, or the source gives no size, so it is not known to be the
-    /// source; it may be a truncated copy left by an earlier release or an interrupted download.
-    /// Replace it, unless lab overlays are built on it.
     Different,
 }
 
@@ -176,7 +170,6 @@ impl Drop for StagedDisk {
 #[must_use = "an image placed but not recorded must be kept or discarded"]
 pub(crate) struct PlacedDisk {
     path: PathBuf,
-    /// Whether a file was at the destination before; it is gone, replaced by this one.
     replaced: bool,
 }
 

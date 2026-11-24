@@ -28,8 +28,6 @@ const LAB_CA_ORGANIZATION: &str = "Sherpa";
 #[derive(Clone, Debug)]
 pub struct LabCa {
     common_name: String,
-    /// The CA certificate and key, PEM. The certificate is handed to clients that should trust
-    /// lab nodes.
     pub pair: PemPair,
 }
 

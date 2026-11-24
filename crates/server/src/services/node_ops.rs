@@ -219,8 +219,6 @@ pub(crate) struct LabZtp<'a> {
     pub(crate) dns: &'a data::Dns,
     pub(crate) mgmt_net: &'a data::SherpaNetwork,
     pub(crate) progress: &'a ProgressSender,
-    /// The lab owner's account; each node gets its own form of it, if it takes one, and the
-    /// fixed accounts of a node take its device password.
     pub(crate) owner_account: &'a GuestAccount,
 }
 
@@ -229,11 +227,9 @@ pub(crate) struct LabZtp<'a> {
 #[derive(Clone, Copy)]
 struct NodeZtp<'a> {
     lab_dir: &'a str,
-    /// The folder the VM's boot files are written to, `vm_boot_dir`.
     boot_dir: &'a str,
     tftp_dir: &'a str,
     images_dir: &'a str,
-    /// The lab owner's device password, for nodes whose only account is a fixed one.
     device_password: &'a DevicePassword,
     dns: &'a data::Dns,
     mgmt_net: &'a data::SherpaNetwork,
@@ -249,10 +245,8 @@ struct NodeZtp<'a> {
 /// config, the lab's accounts and management network, and the node's address and certificate.
 #[derive(Clone, Copy)]
 struct ContainerZtp<'a> {
-    /// The lab folder, where the lab's application nodes' admin credentials are kept.
     lab_dir: &'a str,
     dir: &'a str,
-    /// The lab owner's login, given a user on a Keycloak node.
     owner: &'a str,
     custom_ztp: Option<&'a str>,
     guest_account: Option<&'a GuestAccount>,
@@ -309,9 +303,7 @@ pub struct VmZtpResult {
 /// What a VM's model gives its guest through the firmware, beyond its disks.
 #[derive(Debug, Default)]
 pub struct VmFirmware {
-    /// Extra QEMU arguments, the SMBIOS settings of Juniper models.
     pub qemu_commands: Vec<data::QemuCommand>,
-    /// Flatcar's Ignition config in the storage pool, the domain's firmware config entry.
     pub ignition_config: Option<String>,
 }
 
@@ -319,23 +311,16 @@ pub struct VmFirmware {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VmReadiness {
     NotReady,
-    /// Ready, with the host key the node offered when readiness was an SSH handshake.
-    Ready {
-        host_key: Option<String>,
-    },
+    Ready { host_key: Option<String> },
 }
 
 /// The disks, interfaces and networks a VM or unikernel domain is built from.
 pub struct DomainParts {
     pub disks: Vec<data::NodeDisk>,
     pub interfaces: Vec<data::Interface>,
-    /// The UNIX sockets of the node's serial and VNC consoles (`console::console_sockets`). A
-    /// unikernel has no VNC console, and binds only the serial one.
     pub consoles: ConsoleSockets,
     pub management_network: String,
-    /// Empty when the node has no isolated network.
     pub isolated_network: String,
-    /// Empty when the node has no reserved network.
     pub reserved_network: String,
 }
 
@@ -344,15 +329,11 @@ pub struct DomainParts {
 /// cloud-init configs never run.
 #[derive(Debug)]
 struct StagedFile {
-    /// Absolute path, or `~/`-relative to the user's home, which is looked up at boot because
-    /// it differs by OS (`/usr/home` on FreeBSD).
     dst: String,
     content: String,
     encoding: Option<String>,
     user: String,
-    /// `None` uses the user's primary group, which differs between distributions.
     group: Option<String>,
-    /// Octal mode for `chmod`, such as `600`.
     permissions: String,
 }
 
@@ -5899,7 +5880,6 @@ echo "$*" >> '{}'
         network: data::SherpaNetwork,
         dns: data::Dns,
         progress: ProgressSender,
-        /// Kept open so the status messages the nodes are configured with can be sent.
         _messages: mpsc::UnboundedReceiver<Message>,
     }
 

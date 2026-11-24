@@ -8,15 +8,10 @@ use shared::util::split_node_int;
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ManifestImpairment {
-    /// One-way delay in milliseconds.
     pub delay: Option<u32>,
-    /// Delay jitter in milliseconds.
     pub jitter: Option<u32>,
-    /// Packet loss percentage (0.0-100.0).
     pub loss_percent: Option<f64>,
-    /// Packet reordering percentage (0.0-100.0).
     pub reorder_percent: Option<f64>,
-    /// Bit-flip corruption percentage (0.0-100.0).
     pub corrupt_percent: Option<f64>,
 }
 

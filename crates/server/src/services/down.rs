@@ -41,13 +41,9 @@ const TALOS_POWER_OFF: &str = "Talos ignores ACPI and the node is not in a Sherp
 /// How `down` stops a node.
 #[derive(Debug, PartialEq, Eq)]
 enum Route {
-    /// Ask the guest to shut down: the QEMU guest agent if present, otherwise ACPI.
     Acpi,
-    /// Ask Talos to shut down through its API, with the cluster's credentials.
     TalosApi,
-    /// Power off without asking; the reason is reported.
     PowerOff(&'static str),
-    /// Pause a container.
     Pause,
 }
 
@@ -59,40 +55,30 @@ enum ShutdownMethod {
         address: Ipv4Addr,
     },
     PowerOff(&'static str),
-    /// The clean shutdown could not be prepared; power off and report why.
     Unavailable(String),
     Pause,
 }
 
 /// What `stop_domain` does with a running guest.
 enum StopPlan {
-    /// Send a shutdown request through libvirt, then wait.
     RequestShutdown,
-    /// A shutdown was already requested (through the Talos API); wait.
     AwaitShutdown,
-    /// Power off without asking; the reason is reported.
     PowerOff(&'static str),
-    /// Asking failed; power off and report why.
     RequestFailed(String),
 }
 
 /// A domain `down` may need to stop.
 enum DomainCheck {
     Running(virt::domain::Domain),
-    /// Missing, already stopped or unreadable: the node's result.
     Done(NodeActionResult),
 }
 
 /// How a running VM or unikernel was stopped.
 #[derive(Debug, PartialEq, Eq)]
 enum VmStop {
-    /// The guest shut itself down after a shutdown request.
     Graceful,
-    /// The guest was still running when the clean shutdown timeout passed.
     ForcedAfterTimeout,
-    /// The shutdown request failed, so the guest was powered off.
     ForcedAfterRefusal(String),
-    /// Powered off without a request, by design; the reason is reported.
     PoweredOff(&'static str),
 }
 

@@ -24,9 +24,7 @@ const MIN_KEY_LENGTH: usize = 40;
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
-    /// Sends tasks to every agent and reads its own inbox
     Host,
-    /// Reads its own inbox and replies to the host
     Guest,
 }
 
@@ -35,7 +33,6 @@ pub enum Role {
 #[serde(deny_unknown_fields)]
 pub struct Agent {
     pub name: String,
-    /// The agent's `NKey` user public key
     pub key: String,
     pub role: Role,
 }

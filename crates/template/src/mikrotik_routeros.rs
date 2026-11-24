@@ -10,7 +10,6 @@ use shared::konst::MIKROTIK_CONFIG_DISK;
 pub struct MikrotikRouterosZtpTemplate {
     pub hostname: String,
     pub owner: OwnerUser,
-    /// The owner's public key files on the config disk, as `RouterOS` paths, one key per file.
     pub owner_key_files: Vec<String>,
     pub mgmt_interface: String,
     pub dns: Dns,

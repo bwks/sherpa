@@ -39,7 +39,6 @@ impl SecretContent {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct SecretFile {
     pub name: String,
-    /// File mode as octal digits, for example `444`.
     pub mode: u32,
     pub content: SecretContent,
 }

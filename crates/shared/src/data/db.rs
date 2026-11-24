@@ -29,12 +29,10 @@ pub enum SessionChannel {
 /// and `expires_at` has not passed.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct DbSession {
-    /// The session's key, carried in the token as `sid`.
     pub id: String,
     pub user: RecordId,
     pub channel: SessionChannel,
     pub created_at: Timestamp,
-    /// When the session expires, to the second, the same as the token's `exp`.
     pub expires_at: Timestamp,
 }
 
@@ -71,17 +69,12 @@ pub struct DbLab {
     pub gateway_ipv6: Option<String>,
     pub router_ipv6: Option<String>,
     pub loopback_network_v6: Option<String>,
-    /// Which operation owns the lab, if any. Its status is derived from its nodes when read.
     #[serde(default)]
     pub phase: LabPhase,
-    /// The hostname of the machine `sherpa up` ran on. Labs started from the web UI or the API
-    /// have none.
     #[serde(default)]
     pub client_host: Option<String>,
-    /// The folder `sherpa up` ran in, on that machine.
     #[serde(default)]
     pub client_folder: Option<String>,
-    /// The lab's description, from its manifest.
     #[serde(default)]
     pub description: Option<String>,
 }
@@ -97,21 +90,14 @@ pub struct DbNode {
     pub mgmt_ipv6: Option<String>,
     pub mgmt_mac: Option<String>,
     pub state: NodeState,
-    /// vCPUs the node was given: a container's CPU quota. `None` for a container without one.
     #[serde(default)]
     pub cpu_count: Option<u8>,
-    /// Memory in MB the node was given; `None` as for `cpu_count`.
     #[serde(default)]
     pub memory: Option<u16>,
-    /// The SSH host key the server recorded when the node last became ready, in OpenSSH
-    /// public key form (`ssh-ed25519 AAAA...`). `None` for nodes without SSH, or before then.
     #[serde(default)]
     pub ssh_host_key: Option<String>,
-    /// How the node shows it is ready, as `up` or the last redeploy stored it.
     #[serde(default)]
     pub ready_check: ReadyCheck,
-    /// The account the lab's SSH config logs in to the node with: the lab owner's login when
-    /// the node provisions it, else `None`.
     #[serde(default)]
     pub ssh_username: Option<String>,
 }
@@ -120,16 +106,8 @@ pub struct DbNode {
 /// decide readiness alike without the manifest.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadyCheck {
-    /// The TCP port that shows the node is ready: the manifest's `ready_check.port`, else a
-    /// virtual machine's model port. `None` for a container or unikernel without one, which is
-    /// ready once it runs.
     pub port: Option<u16>,
-    /// The manifest's `ready_check.skip`: the node is ready once it runs.
     pub skip: bool,
-    /// Whether the node's SSH server, on the SSH port, must show
-    /// [`SHERPA_SSHD_READY_MARKER`](crate::konst::SHERPA_SSHD_READY_MARKER) in its identification
-    /// line as well (`ModelKind::sshd_ready_marker`): a Windows node with cloud-init ZTP, whose
-    /// SSH server answers before its owner can log in.
     pub sshd_marker: bool,
 }
 
@@ -158,16 +136,12 @@ pub struct DbLink {
     pub int_a: String,
     pub int_b: String,
     pub lab: RecordId,
-    /// Tap device name for `node_a` side (P2p links only).
     #[serde(default)]
     pub tap_a: String,
-    /// Tap device name for `node_b` side (P2p links only).
     #[serde(default)]
     pub tap_b: String,
-    /// Impairment on traffic from `node_a` to `node_b`: netem on `tap_b`'s egress.
     #[serde(default)]
     pub impairment_a_to_b: LinkImpairment,
-    /// Impairment on traffic from `node_b` to `node_a`: netem on `tap_a`'s egress.
     #[serde(default)]
     pub impairment_b_to_a: LinkImpairment,
 }

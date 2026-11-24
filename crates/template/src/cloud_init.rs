@@ -125,7 +125,6 @@ pub struct CloudInitResolvConf {
 /// CA certificates cloud-init adds to the system trust store (`ca_certs` module).
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CloudInitCaCerts {
-    /// PEM certificates.
     pub trusted: Vec<String>,
 }
 
@@ -134,8 +133,6 @@ pub struct CloudInitWriteFile {
     pub path: String,
     pub content: String,
     pub permissions: String,
-    /// `None` uses the distro's default owner, `root:root`, or `root:wheel` on BSD, which has
-    /// no `root` group.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -147,7 +144,6 @@ pub struct CloudInitConfig {
     pub hostname: String,
     pub fqdn: String,
     pub manage_etc_hosts: bool,
-    /// Omitted where the image owns the SSH server's settings, so cloud-init leaves them alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ssh_pwauth: Option<bool>,
     pub users: Vec<CloudInitUser>,
@@ -199,11 +195,8 @@ pub struct CloudInitUser {
     pub homedir: Option<String>,
     pub lock_passwd: bool,
     pub ssh_authorized_keys: Vec<String>,
-    /// Omitted where sudo is not the native admin tool.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sudo: Option<String>,
-    /// Written as a comma-separated string, which every distro accepts: cloud-init's BSD
-    /// `add_user` drops a list. Omitted when empty, which cloud-init's schema rejects.
     #[serde(
         skip_serializing_if = "Vec::is_empty",
         serialize_with = "serialize_comma_separated"

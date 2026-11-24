@@ -41,9 +41,6 @@ pub enum JobType {
 pub struct Job {
     pub lab_name: String,
     pub job_type: JobType,
-    /// The user who created the job, and the session they created it through. Only they or an
-    /// admin may view or stream it. It runs as the requester's session resolved again when it
-    /// starts ([`Job::resolve_requester`]), not as this snapshot.
     pub requester: AuthContext,
 }
 
@@ -79,30 +76,17 @@ impl Job {
 /// - JWT secret for authentication
 #[derive(Clone)]
 pub struct AppState {
-    /// Registry of active WebSocket connections
     pub connections: ConnectionRegistry,
-    /// Embedded database handle
     pub db: db::Database,
-    /// libvirt/QEMU client
     pub qemu: Arc<Qemu>,
-    /// Docker client
     pub docker: Arc<Docker>,
-    /// Sherpa configuration
     pub config: Arc<Config>,
-    /// JWT secret for token creation and validation
     pub jwt_secret: Arc<Vec<u8>>,
-    /// OpenTelemetry metrics instruments
     pub metrics: Metrics,
-    /// Pending jobs awaiting SSE stream pickup.
-    /// Keyed by `job_id`, consumed once by the stream handler.
     pub pending_jobs: Arc<DashMap<String, Job>>,
-    /// The last known state of each lab's P2p links, for `inspect`.
     pub link_states: LinkStates,
-    /// The P2p link ends the scanner could not read, so each problem is logged once.
     pub unreadable_ends: UnreadableEnds,
-    /// The Vault nodes Sherpa manages that are sealed and that it cannot unseal, for `inspect`.
     pub vault_seals: VaultSeals,
-    /// The node console sessions open now, one per console.
     pub console_sessions: ConsoleSessions,
 }
 

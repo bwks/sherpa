@@ -200,12 +200,8 @@ struct Readiness<'a, 'b> {
     inputs: &'a ReadinessInputs<'a>,
     p2p: &'a mut P2pAttachment,
     secret_mounts: HashMap<&'a str, String>,
-    /// Nodes that need no more polling: ready, skipped or failed.
     connected: HashSet<String>,
-    /// Containers started and waited for, by node name, with when each was started.
     settling: HashMap<String, Instant>,
-    /// Settled containers waiting for their ready port, polled as VMs are rather than as
-    /// settling containers.
     waiting_for_port: HashSet<String>,
     nodes: Vec<data::NodeInfo>,
     errors: Vec<data::UpError>,
@@ -861,7 +857,6 @@ fn not_ready_error(node_name: &str) -> data::UpError {
 /// How a container that stopped running ended, as far as Docker could tell.
 struct ContainerExit {
     exit_code: Option<i64>,
-    /// Its last log lines; `None` when they could not be read.
     log_tail: Option<String>,
 }
 
@@ -879,14 +874,9 @@ impl ContainerExit {
 /// ago it was started and what its ready port answered.
 #[derive(Debug, PartialEq, Eq)]
 enum ContainerCheck {
-    /// It has kept running for `CONTAINER_SETTLE`, and its ready port, if it has one, answers;
-    /// with the host key it offered when that port is SSH.
     Ready { host_key: Option<String> },
-    /// It runs, but not for long enough yet, or it is between states.
     Settling,
-    /// It has kept running, but its ready port does not answer yet.
     WaitingForPort,
-    /// It stopped running, or is gone.
     Exited,
 }
 

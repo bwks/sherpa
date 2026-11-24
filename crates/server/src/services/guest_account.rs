@@ -50,9 +50,7 @@ pub(crate) struct GuestAccount {
 /// The owner's account as one node takes it.
 #[derive(Debug, Clone)]
 pub(crate) struct NodeAccount {
-    /// The login, with only the keys the node accepts.
     pub account: GuestAccount,
-    /// The owner's keys the node does not accept, by key type, such as `ssh-ed25519`.
     pub skipped_keys: Vec<String>,
 }
 
@@ -67,9 +65,7 @@ enum KeyType {
 /// The key types a model accepts for the owner's login.
 #[derive(Debug, Clone, Copy)]
 enum AcceptedKeys {
-    /// Every key the owner registered, as on Linux and BSD guests.
     All,
-    /// Only these types, most preferred first.
     Only(&'static [KeyType]),
 }
 
@@ -77,7 +73,6 @@ enum AcceptedKeys {
 #[derive(Debug, Clone, Copy)]
 struct KeyRules {
     accepted: AcceptedKeys,
-    /// The most keys one login can have; the owner's first accepted keys are used.
     max_keys: usize,
     max_rsa_bits: Option<u32>,
 }
@@ -85,25 +80,17 @@ struct KeyRules {
 /// How a device's config writes a public key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum KeyFormat {
-    /// The key type and the base64 key data, as in an OpenSSH `authorized_keys` line.
     OpenSsh,
-    /// Cisco IOS and IOS XE `key-hash`: an uppercase MD5 hash of the key data.
     CiscoMd5,
-    /// Cisco ASA `hashed` keys: a SHA-256 hash of the key data.
     CiscoSha256,
-    /// Junos: `ssh-rsa`, `ssh-ecdsa` or `ssh-ed25519`, then the whole key line.
     Junos,
-    /// PAN-OS: the whole key line, base64-encoded.
     PanosBase64,
 }
 
 /// How a device's config writes the device password.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PasswordForm {
-    /// The password itself, where the device takes nothing else or a hashed form is not
-    /// verified on it.
     Plain,
-    /// A salted crypt hash of the password.
     Hashed(CryptHash),
 }
 

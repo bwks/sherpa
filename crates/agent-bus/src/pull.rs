@@ -37,43 +37,29 @@ const MAX_WAITING: &str = "Exceeded MaxWaiting";
 /// What the bus said about a pull, or that it said nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reply {
-    /// A message: the pull is over.
     Message,
-    /// The bus still holds the pull. Not asked for; taken if the bus sends one.
     Heartbeat,
-    /// 408: the pull expired with no message, as an idle pull does every `PULL_EXPIRES`.
     Expired,
-    /// 409 `Exceeded MaxWaiting`: another pull holds the consumer's one waiting slot.
     Refused,
-    /// An answer after which the reader cannot go on: the consumer was deleted or is a push
-    /// consumer, or the pull is over its limits.
     Ended(String),
-    /// Any other status, such as 503 while the bus has no `JetStream`.
     Status(String),
-    /// Nothing for `SILENCE_LIMIT`: the bus lost the pull, or the connection is gone.
     Silence,
 }
 
 /// What to do after a reply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
-    /// Keep waiting on the same pull.
     Wait,
-    /// The pull is over: send the next.
     Pull,
-    /// The pull is over: send the next after `RETRY_PAUSE`.
     PullAfterPause,
-    /// The reader cannot go on.
     Stop,
 }
 
 /// What a reader has reported, so a trouble that repeats is reported once, and its end once.
 #[derive(Debug, Default)]
 pub struct Watch {
-    /// Say so the first time the bus takes a pull.
     announce: bool,
     attached: bool,
-    /// The trouble last reported, until a pull is taken again.
     trouble: Option<String>,
 }
 
@@ -82,16 +68,11 @@ pub struct Puller<W> {
     client: Client,
     context: jetstream::Context,
     name: String,
-    /// The `JetStream` API subject a pull for `name` is sent to.
     subject: String,
-    /// The pull request: one message, with an expiry.
     request: Vec<u8>,
-    /// The replies to the pull that is open, and when the bus last said anything about it.
     open: Option<(Subscriber, Instant)>,
-    /// When the next pull may be sent.
     pause_until: Option<Instant>,
     watch: Watch,
-    /// Where the reader's notices go: stderr, for a command.
     notices: W,
 }
 

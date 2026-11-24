@@ -11,7 +11,6 @@ struct InterfaceBounds<'a> {
     device_model: &'a NodeModel,
     data_interface_count: u8,
     reserved_interface_count: u8,
-    /// The first data interface, after the management interface and the reserved ones.
     first_data_interface_idx: u8,
     max_interface_idx: u8,
 }

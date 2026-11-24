@@ -102,33 +102,33 @@ macro_rules! interface_enum {
 pub enum MgmtInterfaces {
     #[default]
     #[serde(rename = "eth0")]
-    Eth0, // eth0 - cumulus-vx, linux
+    Eth0,
     #[serde(rename = "GigabitEthernet0/0")]
-    GigabitEthernet0_0, // GigabitEthernet0/0 - cat9k, iosv/l2
+    GigabitEthernet0_0,
     #[serde(rename = "GigabitEthernet1")]
-    GigabitEthernet1, // GigabitEthernet1 - cat1/8k
+    GigabitEthernet1,
     #[serde(rename = "re0:mgmt-0")]
-    Re0Mgmt0, // fxp0 - Junos
+    Re0Mgmt0,
     #[serde(rename = "fxp0")]
-    Fxp0, // fxp0 - Junos
+    Fxp0,
     #[serde(rename = "fxp0.0")]
-    Fxp0_0, // fxp0.0 - Junos
+    Fxp0_0,
     #[serde(rename = "mgmt")]
-    Mgmt, // mgmt - aos
+    Mgmt,
     #[serde(rename = "mgmt0")]
-    Mgmt0, // mgmt0 - n93kv
+    Mgmt0,
     #[serde(rename = "Management0/0")]
-    Management0_0, // Management0/0 - asav
+    Management0_0,
     #[serde(rename = "Management1")]
-    Management1, // Management1 - eos
+    Management1,
     #[serde(rename = "MgmtEth0/RP0/CPU0/0")]
-    MgmtEth0Rp0Cpu0_0, // MgmtEth0/RP0/CPU0/0 - xr9kv
+    MgmtEth0Rp0Cpu0_0,
     #[serde(rename = "ether1")]
-    Ether1, // ether1 - mikrotik chr
+    Ether1,
     #[serde(rename = "management")]
-    Management, // management - paloalto panos
+    Management,
     #[serde(rename = "Ethernet0/0")]
-    Ethernet0_0, // Ethernet0/0 - iol
+    Ethernet0_0,
 }
 impl fmt::Display for MgmtInterfaces {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -161,11 +161,11 @@ impl MgmtInterfaces {
 #[serde(rename_all = "lowercase")]
 pub enum ConnectionTypes {
     #[default]
-    Disabled, // Disable interface
-    Management,    // Connects to management bridge
-    P2p,           // Point-to-point eBPF redirect (no bridges)
-    PrivateBridge, // Attached to a private bridge
-    Reserved,      // Reserved interfaces used by the virtual platform
+    Disabled,
+    Management,
+    P2p,
+    PrivateBridge,
+    Reserved,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

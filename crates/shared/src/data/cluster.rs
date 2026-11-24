@@ -10,9 +10,7 @@ use crate::konst::KUBERNETES_API_PORT;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ClusterRole {
-    /// Runs etcd and the Kubernetes control plane.
     ControlPlane,
-    /// Runs workloads only.
     Worker,
 }
 
@@ -20,11 +18,8 @@ pub enum ClusterRole {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ClusterCni {
-    /// Flannel, deployed by Talos.
     #[default]
     Flannel,
-    /// Cilium, replacing kube-proxy, with Gateway API, load balancer addresses announced on
-    /// the management network, and Hubble.
     Cilium,
 }
 
@@ -54,22 +49,13 @@ pub struct AddressRange {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClusterPlan {
     pub name: String,
-    /// Address the Kubernetes API is reached on: the shared address with several control
-    /// planes, otherwise the only control plane's address.
     pub endpoint: Ipv4Addr,
-    /// Shared address the control planes elect an owner for.
     pub vip: Option<Ipv4Addr>,
-    /// The cluster's CNI.
     pub cni: ClusterCni,
-    /// Addresses a Cilium cluster hands out to load balancers: its Gateway first, then Hubble
-    /// UI.
     pub load_balancer_addresses: Option<AddressRange>,
-    /// Control planes in manifest order. The first one is bootstrapped.
     pub control_planes: Vec<ClusterMember>,
     pub workers: Vec<ClusterMember>,
-    /// The Keycloak node whose realm users log in to the cluster.
     pub oidc: Option<ClusterMember>,
-    /// The Vault node the cluster's workloads read secrets from.
     pub vault: Option<ClusterMember>,
 }
 

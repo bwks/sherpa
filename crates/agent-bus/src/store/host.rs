@@ -61,26 +61,18 @@ pub struct Transcript<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Focus {
     pub from_ms: u64,
-    /// The Claude Code session it is for; `None` is every session.
     pub session: Option<String>,
-    /// The item; `None` is none.
     pub work: Option<i64>,
-    /// `use`, `clear` or `send`.
     pub source: String,
-    /// The task a `send` tagged.
     pub task: Option<String>,
-    /// The pull request it named (`work use --pr`, `send --pr`), which then counts the host's
-    /// work; `None` when it named an issue or a branch.
     pub pull_request: Option<PullRequestId>,
 }
 
 /// Which responses `work reassign` moves.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reassign {
-    /// The item they are charged to; `None` is unattributed.
     pub from: Option<i64>,
     pub to: i64,
-    /// The pull request of `to` they are pinned to (`--to pr:N`); `None` leaves it to the rules.
     pub to_pull_request: Option<PullRequestId>,
     pub since_ms: Option<u64>,
     pub until_ms: Option<u64>,
@@ -94,12 +86,9 @@ pub struct HostRow {
     pub model: String,
     pub at_ms: u64,
     pub tokens: Tokens,
-    /// `None` when it is not priced.
     pub cost_usd: Option<f64>,
     pub session: String,
-    /// When it counts from: a subagent's start, else `at_ms`.
     pub charged_ms: u64,
-    /// The pull request `work reassign --to pr:N` pinned it to.
     pub pinned: Option<PullRequestId>,
 }
 

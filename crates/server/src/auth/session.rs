@@ -38,11 +38,8 @@ use crate::auth::jwt;
 /// Where a session is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionState {
-    /// The row exists and `expires_at` is in the future: its token is accepted.
     Active,
-    /// The row exists but `expires_at` has passed; the sweep will delete it.
     Expired,
-    /// There is no row: logged out, ended by a password change or user deletion, or swept.
     Ended,
 }
 
@@ -57,11 +54,8 @@ pub enum EndReason {
 /// Something that happens to a session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionEvent {
-    /// A request, or a web job starting, presents the session.
     Use,
-    /// The session is ended.
     End(EndReason),
-    /// The periodic sweep runs.
     Sweep,
 }
 
@@ -84,7 +78,6 @@ impl fmt::Display for SessionRejection {
 /// The result of presenting a session.
 #[derive(Debug, Clone)]
 pub enum SessionLookup {
-    /// The session is active; the context carries the user's current name and admin flag.
     Active(AuthContext),
     Rejected(SessionRejection),
 }
@@ -94,9 +87,7 @@ pub enum SessionLookup {
 pub struct IssuedSession {
     pub token: String,
     pub ctx: AuthContext,
-    /// Unix seconds.
     pub issued_at: i64,
-    /// Unix seconds; the token's `exp` and the row's `expires_at`.
     pub expires_at: i64,
 }
 

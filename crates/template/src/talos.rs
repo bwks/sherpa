@@ -80,23 +80,17 @@ const VSO_INSTALLER: &str = "vault-secrets-operator-install";
 /// Secrets shared by every node in a cluster. Certificates and keys are PEM.
 #[derive(Clone, Debug, PartialEq, Eq, serde_derive::Serialize, serde_derive::Deserialize)]
 pub struct TalosClusterSecrets {
-    /// Talos OS (API) CA, Ed25519.
     pub os_ca_cert: String,
     pub os_ca_key: String,
     pub etcd_ca_cert: String,
     pub etcd_ca_key: String,
-    /// Kubernetes CA.
     pub kubernetes_ca_cert: String,
     pub kubernetes_ca_key: String,
     pub aggregator_ca_cert: String,
     pub aggregator_ca_key: String,
-    /// Key that signs service account tokens.
     pub service_account_key: String,
-    /// Kubernetes bootstrap token used by nodes to join (`[a-z0-9]{6}.[a-z0-9]{16}`).
     pub bootstrap_token: String,
-    /// Token used by Talos nodes to request certificates from trustd.
     pub trustd_token: String,
-    /// Base64 key that encrypts Kubernetes secrets at rest.
     pub secretbox_encryption_secret: String,
 }
 
@@ -104,21 +98,14 @@ pub struct TalosClusterSecrets {
 #[derive(Debug)]
 pub struct TalosNodeConfig<'a> {
     pub cluster_name: &'a str,
-    /// Kubernetes API endpoint, e.g. `https://10.0.0.5:6443`.
     pub endpoint: &'a str,
     pub hostname: &'a str,
     pub role: ClusterRole,
-    /// Management subnet in CIDR form; the kubelet registers its address from it.
     pub management_subnet: &'a str,
-    /// Shared address the control planes elect an owner for, when there are several.
     pub vip: Option<Ipv4Addr>,
-    /// Let workloads run on control planes (clusters with no workers).
     pub schedulable_control_planes: bool,
-    /// Cilium instead of Flannel, on clusters that use it.
     pub cilium: Option<CiliumConfig>,
-    /// Login through a Keycloak realm, on clusters that use it.
     pub oidc: Option<ClusterOidcConfig<'a>>,
-    /// The Vault the Vault Secrets Operator reads from, on clusters that have one.
     pub vault: Option<ClusterVaultConfig<'a>>,
     pub secrets: &'a TalosClusterSecrets,
 }
@@ -126,35 +113,25 @@ pub struct TalosNodeConfig<'a> {
 /// A cluster's login through a Keycloak realm.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClusterOidcConfig<'a> {
-    /// The realm's issuer URL, `https://<keycloak>:8443/realms/<realm>`.
     pub issuer_url: String,
-    /// The CA certificate (PEM) Keycloak's certificate chains to: the lab CA.
     pub ca_cert: &'a str,
 }
 
 /// A cluster's Vault, which the Vault Secrets Operator reads secrets from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClusterVaultConfig<'a> {
-    /// Vault's API address, `https://<vault>:8200`.
     pub address: String,
-    /// The CA certificate (PEM) Vault's certificate chains to: the lab CA.
     pub ca_cert: &'a str,
-    /// Mount path of the Vault JWT auth method that accepts the cluster's service account
-    /// tokens.
     pub auth_mount: String,
 }
 
 /// A Cilium cluster's load balancer addresses and sizing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CiliumConfig {
-    /// First and last address Cilium hands out to load balancers.
     pub load_balancer_first: Ipv4Addr,
     pub load_balancer_last: Ipv4Addr,
-    /// Address of the cluster's Gateway.
     pub gateway: Ipv4Addr,
-    /// Address of Hubble UI.
     pub hubble_ui: Ipv4Addr,
-    /// Cilium operator replicas: one per node, up to two.
     pub operator_replicas: usize,
 }
 

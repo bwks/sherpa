@@ -6,15 +6,10 @@ use shared::error::RpcErrorCode;
 /// RPC error information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcError {
-    /// JSON-RPC error code
     pub code: RpcErrorCode,
-    /// Human-readable error message
     pub message: String,
-    /// Additional debug context (<file:line>, stack trace)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
-    /// JSON-RPC 2.0 `data`: structured detail for codes that define it, such as the
-    /// `MemoryShortfall` of `InsufficientMemory` and the `CpuPinConflict` of `CpuPinsHeld`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
 }
@@ -23,7 +18,6 @@ pub struct RpcError {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
-    /// Status update
     Status {
         message: String,
         timestamp: Timestamp,
@@ -34,7 +28,6 @@ pub enum ServerMessage {
         progress: Option<StatusProgress>,
     },
 
-    /// Operation result
     Result {
         success: bool,
         message: String,
@@ -42,7 +35,6 @@ pub enum ServerMessage {
         data: Option<serde_json::Value>,
     },
 
-    /// RPC response
     RpcResponse {
         id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -64,7 +56,6 @@ pub struct StatusProgress {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    /// RPC request
     RpcRequest {
         id: String,
         method: String,

@@ -32,7 +32,6 @@ pub struct LabRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BusRecord {
     pub url: String,
-    /// The agents file, as an absolute path.
     pub agents: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lab: Option<LabRecord>,

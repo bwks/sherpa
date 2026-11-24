@@ -16,9 +16,7 @@ use crate::services::error::Unexpected;
 /// What could not be read of a link end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EndRead {
-    /// Its interface could not be looked up.
     LookUp,
-    /// Its redirect filter could not be read.
     Filter,
 }
 

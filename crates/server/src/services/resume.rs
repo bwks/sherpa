@@ -40,39 +40,24 @@ use crate::tls::lab_ca;
 /// How a node started by resume shows that it is ready, as `up` checks it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ReadinessCheck {
-    /// A virtual machine or container accepting connections on `port`, checked as `up` checks
-    /// VMs (`node_ops::check_vm_ready`), its SSH server showing Sherpa's ready marker when
-    /// `sshd_marker` is set.
-    Port {
-        port: u16,
-        sshd_marker: bool,
-    },
-    Unikernel {
-        ready_port: Option<u16>,
-    },
+    Port { port: u16, sshd_marker: bool },
+    Unikernel { ready_port: Option<u16> },
 }
 
 /// What resume does to a node's domain or container, by what its runtime reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StartStep {
-    /// Boot it: libvirt `create`, Docker `start`.
     Boot,
-    /// Carry on where it was paused: libvirt `resume`, Docker `unpause`.
     Resume,
-    /// It is already running.
     Nothing,
 }
 
 /// What starting one node did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum StartOutcome {
-    /// Booted from off: new taps, so its links are re-attached and its readiness awaited.
     ColdBooted,
-    /// Unpaused: the guest carries on, ready as it was.
     Resumed,
-    /// Already running: left as it is.
     AlreadyRunning,
-    /// Not started, and why.
     Failed(String),
 }
 
@@ -307,8 +292,6 @@ struct ResumedLab<'a> {
     lab_id: &'a str,
     lab_record_id: &'a RecordId,
     nodes: &'a [data::DbNode],
-    /// The lab's stored definition, if it has one: its `ready_timeout`, and its containers'
-    /// data interface counts.
     definition: Option<&'a Manifest>,
     state: &'a AppState,
     progress: Option<&'a ProgressSender>,

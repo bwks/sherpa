@@ -18,13 +18,10 @@ pub struct HistoryRow {
     pub task: String,
     pub agent: String,
     pub state: TaskState,
-    /// The model it ran on, else the one it asked for; `None` for the guest's default.
     pub model: Option<String>,
     pub github: bool,
-    /// The task's text; `None` when the record never saw the task message.
     pub prompt: Option<String>,
     pub sent_at_ms: Option<u64>,
-    /// Its latest message.
     pub last_at_ms: u64,
     pub runs: Option<u64>,
     pub cost_usd: Option<f64>,

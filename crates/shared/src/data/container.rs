@@ -36,9 +36,6 @@ pub struct ContainerNetworkAttachment {
     pub name: String,
     pub ipv4_address: Option<String>,
     pub ipv6_address: Option<String>,
-    /// When set, Docker names the interface this in the container (e.g. `e1-1` for SR Linux).
     pub linux_interface_name: Option<String>,
-    /// A disabled interface on the node's isolated bridge: nothing runs in the container for
-    /// it, and the server sets that bridge down to take its carrier away.
     pub admin_down: bool,
 }

@@ -15,7 +15,6 @@ pub(crate) const NO_BUILT_IN_REPO: &str = "no built-in repo";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ScanTarget {
     pub model: NodeModel,
-    /// The repo Docker is asked for, recorded with each version as given.
     pub repo: String,
 }
 

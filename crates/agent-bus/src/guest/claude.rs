@@ -181,12 +181,8 @@ pub(super) async fn finish(group: &mut Group) {
 /// How a Claude Code run relates to the sessions before it.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Launch {
-    /// A new session: a base session being primed, or a task whose fork failed.
     Fresh,
-    /// A new task: a copy of the base session with this id, so the task text comes after the
-    /// base's cached prefix. The base itself is never resumed.
     Fork(String),
-    /// An answer: the task's own session with this id.
     Resume(String),
 }
 

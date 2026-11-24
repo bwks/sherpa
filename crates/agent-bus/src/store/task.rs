@@ -10,11 +10,8 @@ use crate::message::{Kind, Message, TaskUsage};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskState {
-    /// The task was sent; nothing came back yet.
     Sent,
-    /// Its agent reported progress, or an answer was sent.
     Running,
-    /// Its agent asked a question and waits for the answer.
     Question,
     Completed,
     Failed,
@@ -24,9 +21,7 @@ pub enum TaskState {
 /// One message as read from the `_record` consumer: where the stream keeps it and when it stored it.
 #[derive(Debug, Clone, Copy)]
 pub struct Recorded<'a> {
-    /// The stream sequence.
     pub seq: u64,
-    /// When the stream stored it, in milliseconds since the Unix epoch.
     pub at_ms: u64,
     pub message: &'a Message,
 }
@@ -35,31 +30,22 @@ pub struct Recorded<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Task {
     pub id: String,
-    /// The agent working on the task.
     pub agent: String,
-    /// The agent that sent it.
     pub requester: String,
     pub first_seq: u64,
     pub last_seq: u64,
     pub last_at_ms: u64,
-    /// The model the task message asked for.
     pub requested_model: Option<String>,
     pub github: bool,
-    /// The task message's text; `None` for a task first seen through a later message.
     pub prompt: Option<String>,
     pub sent_at_ms: Option<u64>,
-    /// The first progress.
     pub started_at_ms: Option<u64>,
-    /// The last completed, failed or canceled.
     pub finished_at_ms: Option<u64>,
     pub state: TaskState,
-    /// The model the agent says it ran on, from its last outcome that named one.
     pub model: Option<String>,
-    /// The text of the last question or outcome.
     pub result: Option<String>,
     pub questions: u64,
     pub answers: u64,
-    /// The last `task_usage` an outcome carried.
     pub usage: Option<TaskUsage>,
 }
 

@@ -17,11 +17,8 @@ use shared::data::LinkState;
 /// One end of a link, as the kernel shows it when the link is re-attached.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum End {
-    /// The interface exists, with this index.
     Present(u32),
-    /// There is no interface: its node is down, or the end was never made.
     Absent,
-    /// The end could not be made or looked up, and why.
     Broken(String),
 }
 
@@ -44,9 +41,7 @@ pub(crate) struct EndAt<'a> {
 /// What re-attaching a link does, decided from its two ends.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LinkStep {
-    /// Point each end's redirect at the other end's index, and apply the impairments.
     Attach { ifindex_a: u32, ifindex_b: u32 },
-    /// Change nothing in the kernel, and leave the link in this state.
     Leave(LinkState),
 }
 

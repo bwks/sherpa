@@ -4,11 +4,7 @@ use serde::{Deserialize, Serialize};
 /// `data` of an [`InsufficientMemory`](super::RpcErrorCode::InsufficientMemory) error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryShortfall {
-    /// Memory the refused VMs and unikernels need, in MiB.
     pub requested_mib: u64,
-    /// Guest memory left for them, in MiB: on the whole server, or on `numa_node`.
     pub available_mib: u64,
-    /// The host NUMA node that is short, when the nodes are held strictly to one; `None` when
-    /// the whole server is.
     pub numa_node: Option<u32>,
 }

@@ -18,22 +18,15 @@ pub struct HostCpus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NumaCell {
     pub id: u32,
-    /// All the node's memory, in KiB, including its hugepage pool.
     pub total_kib: u64,
-    /// Memory the node holds in reserved hugepages, in KiB. Guests that do not ask for
-    /// hugepages cannot use it.
     pub hugepages_kib: u64,
 }
 
 /// The server's memory: its total, its hugepage pools and each NUMA node's share.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostMemory {
-    /// All the server's memory, in KiB, including the hugepage pools.
     pub total_kib: u64,
-    /// Memory held in reserved hugepages on every node, in KiB.
     pub hugepages_kib: u64,
-    /// The NUMA nodes, in the order libvirt reports them. Never empty: a server that reports
-    /// no NUMA topology is one node holding all its memory.
     pub cells: Vec<NumaCell>,
 }
 
@@ -41,13 +34,8 @@ pub struct HostMemory {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DomainMemory {
     pub name: String,
-    /// Whether the domain is running or paused, so its memory is in use.
     pub active: bool,
-    /// The domain's maximum memory, in KiB.
     pub memory_kib: u64,
-    /// The one host NUMA node the domain's memory must stay on, when its `numatune` mode is
-    /// `strict` or `restrictive` and its nodeset is a single node. Memory that may fall back
-    /// to other nodes, or spread over several, is not bound to one.
     pub strict_numa_node: Option<u32>,
 }
 

@@ -11,14 +11,9 @@ use crate::lab_files::LabFile;
 struct KeycloakCredentialsFile<'a> {
     address: &'a str,
     realm: &'a str,
-    /// The realm's issuer, which clusters accept tokens from.
     issuer: String,
-    /// Where the realm's users manage their account.
     account_console: String,
-    /// Where the admin logs in to the `master` realm.
     admin_console: String,
-    /// The node's own admin, in the `master` realm. A node with none saved gets one when it is
-    /// redeployed.
     #[serde(skip_serializing_if = "Option::is_none")]
     admin: Option<&'a AdminCredential>,
     users: &'a [KeycloakUser],

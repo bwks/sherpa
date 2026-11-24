@@ -37,9 +37,7 @@ pub struct OperationTarget<'a> {
 
 /// How waiting for an operation ended.
 pub enum Waited {
-    /// The operation finished and the server sent its response.
     Response(RpcResponse),
-    /// The user pressed Ctrl-C; the outcome has already been reported.
     Interrupted,
 }
 

@@ -35,9 +35,7 @@ use shared::util;
 /// A container's data interfaces, and the lab's links they were planned from.
 struct DataInterfaces {
     lab_links: LabLinks,
-    /// Docker data networks, for a container on no link and no bridge.
     networks: Vec<data::ContainerNetworkAttachment>,
-    /// Veths, for a container on a P2p link or a private bridge.
     veths: Vec<ContainerVeth>,
 }
 

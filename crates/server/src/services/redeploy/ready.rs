@@ -16,11 +16,8 @@ use shared::data::{OperationEvent, ReadyCheck, StatusKind};
 /// What a redeployed node waits on before it is recorded running.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum ReadyWait {
-    /// Its stored port answering.
     Port(u16),
-    /// Nothing: its check is skipped.
     Skipped,
-    /// Nothing: it has no stored port, so it is ready once it runs.
     Running,
 }
 

@@ -30,31 +30,22 @@ use shared::data::{DbLink, LinkState, RecordId};
 /// What is wrong with an end of a running node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EndFault {
-    /// The end does not exist.
     Missing,
-    /// The end exists with no redirect filter, and its peer's end exists.
     NoRedirect,
 }
 
 /// One check of a lab's links: the ends to repair, the ends made again, and the state of each
 /// link as the kernel shows it, which a repair replaces with what it left the link in.
 pub(crate) struct LinkCheck {
-    /// The nodes with an end to repair, each once, in the order their ends were found.
     broken: Vec<RecordId>,
-    /// The host interfaces of running nodes' ends that are missing or have no filter: made
-    /// again since they were attached, or about to be.
     fresh: HashSet<String>,
     states: HashMap<u16, LinkState>,
 }
 
 /// What the kernel shows of one end of a running node.
 enum Seen {
-    /// It exists, with its redirect or without.
-    Present {
-        redirect: bool,
-    },
+    Present { redirect: bool },
     Absent,
-    /// It could not be read: what failed, and the error.
     Unreadable(EndRead, anyhow::Error),
 }
 
@@ -62,7 +53,6 @@ enum Seen {
 enum Member {
     Veth,
     Missing,
-    /// The container has the interface but its host end is gone: an older release's macvlan.
     Older,
     Unreadable(anyhow::Error),
 }
@@ -460,10 +450,7 @@ mod tests {
 
     /// What one scan found and did.
     struct Scan {
-        /// The nodes it repaired, in order.
         repaired: Vec<RecordId>,
-        /// What the check found wrong with each link it found an end to repair on, in index
-        /// order.
         faults: Vec<String>,
         states: HashMap<u16, LinkState>,
     }

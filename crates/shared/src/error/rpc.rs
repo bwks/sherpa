@@ -10,57 +10,30 @@ use std::fmt;
 ///
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RpcErrorCode {
-    // ============================================================================
-    // Standard JSON-RPC 2.0 error codes
-    // ============================================================================
-    /// Parse error: Invalid JSON was received by the server (-32700)
     ParseError,
 
-    /// Invalid Request: The JSON sent is not a valid Request object (-32600)
     InvalidRequest,
 
-    /// Method not found: The method does not exist / is not available (-32601)
     MethodNotFound,
 
-    /// Invalid params: Invalid method parameter(s) (-32602)
     InvalidParams,
 
-    /// Internal error: Internal JSON-RPC error (-32603)
     InternalError,
 
-    // ============================================================================
-    // Application-specific error codes (range: -32000 to -32099)
-    // ============================================================================
-    /// Server error: General operation failure or unhandled error (-32000)
     ServerError,
 
-    /// Authentication error: Invalid credentials provided (-32001)
     AuthInvalid,
 
-    /// Authentication required: Request requires authentication token (-32002)
     AuthRequired,
 
-    /// Access denied: User lacks permission for requested operation (-32003)
     AccessDenied,
 
-    /// Not found: Requested resource does not exist (-32004)
     NotFound,
 
-    /// Insufficient memory: The VMs and unikernels the operation would start do not fit in the
-    /// server's memory now (-32005). The error's `data` is a [`MemoryShortfall`]. Nothing was
-    /// started; the same request can succeed once other nodes stop.
-    ///
-    /// [`MemoryShortfall`]: super::MemoryShortfall
     InsufficientMemory,
 
-    /// CPU pins held: host CPUs the operation would pin are held by another node (-32006).
-    /// The error's `data` is a [`CpuPinConflict`]. Nothing was started; the same request can
-    /// succeed once the other node is destroyed or redeployed without them.
-    ///
-    /// [`CpuPinConflict`]: super::CpuPinConflict
     CpuPinsHeld,
 
-    /// Unknown error code: Used when deserializing an unrecognized code
     Unknown(i32),
 }
 

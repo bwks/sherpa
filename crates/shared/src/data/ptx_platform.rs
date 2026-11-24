@@ -8,10 +8,8 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum PtxPlatform {
-    /// PTX10001-36MR, with the Express 4 (BT) chipset.
     #[default]
     Bt,
-    /// PTX10002-36QDD, with the Express 5 (BX) chipset.
     Bx,
 }
 

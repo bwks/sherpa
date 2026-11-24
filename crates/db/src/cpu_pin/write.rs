@@ -20,12 +20,9 @@ const HELD_BY_ANOTHER_NODE: &str = "Host CPU is already pinned by another node";
 /// pins it to its vCPUs. The trigger names no node, so neither does this.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CpuPinTaken {
-    /// The node the CPU was claimed for, by its name in its lab.
     pub node_name: String,
     pub host_cpu: u16,
-    /// What the node would pin to the CPU.
     pub requested_role: CpuPinRole,
-    /// What the node holding the CPU pins to it.
     pub held_role: CpuPinRole,
 }
 

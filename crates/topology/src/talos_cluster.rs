@@ -10,21 +10,14 @@ use shared::data::{ClusterCni, ClusterRole};
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TalosCluster {
-    /// Cluster name, also used as the Kubernetes cluster name.
     pub name: String,
-    /// Names of the nodes that run the control plane, in bootstrap order.
     pub controllers: Vec<String>,
-    /// Names of the nodes that run workloads only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub workers: Vec<String>,
-    /// The cluster's CNI: Flannel unless set.
     #[serde(default, skip_serializing_if = "ClusterCni::is_flannel")]
     pub cni: ClusterCni,
-    /// A `keycloak_server` node whose `sherpa` realm users log in to the cluster with.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oidc: Option<String>,
-    /// A `hashicorp_vault` node the cluster's workloads read secrets from, through the Vault
-    /// Secrets Operator.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vault: Option<String>,
 }
