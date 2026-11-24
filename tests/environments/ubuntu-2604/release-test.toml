@@ -13,13 +13,20 @@ manifest = "tests/environments/ubuntu-2604/manifest.toml"
 lab_prefix = "release-"
 node_prefix = "rt"
 
+# The installer suite's guest, in MiB, vCPUs and GiB. The code suite uses the manifest's sizes.
+[vm.installer]
+memory = 8192
+cpu_count = 4
+boot_disk_size = 30
+
 [image]
 path = "/opt/sherpa/images/ubuntu_linux/26.04/virtioa.qcow2"
 build = "20260927"
 sha256 = "8800651811af9a85465ad1d552add729947bb16488dddb4a9b5305a3d97332b2"
 
 [candidate]
-version = "v0.7.1"
+# "latest" is the newest published release, resolved when a run starts; --version overrides it.
+version = "latest"
 # Optional directory containing the two normal release tarballs.
 artifact_directory = ""
 target = "x86_64-unknown-linux-gnu"
