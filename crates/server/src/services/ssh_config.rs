@@ -381,7 +381,7 @@ mod tests {
         db::update_node_ssh_username(&db, vm1.id.clone().unwrap(), Some("alice"))
             .await
             .unwrap();
-        // A node from before 0.7.0, which migration 29 recorded as `sherpa`.
+        // A node migration 29 recorded as `sherpa`.
         let vm2 = nodes.iter().find(|node| node.name == "vm2").unwrap();
         db::update_node_ssh_username(&db, vm2.id.clone().unwrap(), Some("sherpa"))
             .await

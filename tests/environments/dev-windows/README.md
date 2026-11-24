@@ -17,7 +17,7 @@ The host runs them, on this box. Agents don't use a Windows VM.
 - Never install Rust on the box or build there.
 
 This folder's `manifest.toml` is what the host's box was made from; it is kept as its record.
-`provision/setup.ps1`, which installed Rust on the box, is no longer used.
+`provision/setup.ps1`, which installs Rust on the box, is not used.
 
 ## Node
 

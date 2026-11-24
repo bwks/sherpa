@@ -21,8 +21,7 @@ pub struct InspectResponse {
     pub tailscale: Option<TailnetStatus>,
     pub lab_info: LabInfo,
     pub lab_state: LabState,
-    /// Which operation owns the lab, if any. Servers before 0.5.27 send none: their labs are
-    /// `ready`.
+    /// Which operation owns the lab, if any. `ready` when the server sends none.
     #[serde(default)]
     pub lab_phase: LabPhase,
     pub devices: Vec<DeviceInfo>,

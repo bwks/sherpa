@@ -1,13 +1,13 @@
-//! Move the files older clients left loose in a lab folder into its `.sherpa` folder.
+//! Move the files a lab folder holds loose beside its manifest into its `.sherpa` folder.
 //!
-//! Clients before `.sherpa` saved `sherpa_ssh_config`, `sherpa_ssh_key`, `sherpa_known_hosts`,
+//! The loose layout has `sherpa_ssh_config`, `sherpa_ssh_key`, `sherpa_known_hosts`,
 //! `lab-info.toml`, `lab-ca.crt` and the Vault, Keycloak and cluster credentials beside the
 //! manifest. Every command that uses a lab folder runs `migrate_lab_folder` first, so the rest
 //! of the client knows only the `.sherpa` layout (`shared::util::LabFolder`). The step is
 //! idempotent: a migrated folder, or one that is not a lab's, is left as it is.
 //!
-//! The lab key, `sherpa_ssh_key`, is not moved: Sherpa has no lab key from 0.7.0, and the labs
-//! those clients started had to be destroyed before the update to 0.6.0.
+//! The lab key, `sherpa_ssh_key`, is not moved: Sherpa has no lab key, and no running lab uses
+//! one.
 //!
 //! It runs from three places. `cmd::cli::run` migrates the current folder before every command
 //! that uses a lab folder (`uses_lab_folder`), and a failed migration stops the command, except
@@ -53,8 +53,8 @@ const KEYCLOAK_FILE_KEYS: &[&str] = &["account_console", "address", "issuer", "r
 pub(crate) struct Migration {
     /// The new path of each file moved into `.sherpa`.
     pub moved: Vec<PathBuf>,
-    /// Whether `~/.ssh/sherpa_lab_hosts` now includes `.sherpa/ssh/config` instead of the old
-    /// `sherpa_ssh_config`.
+    /// Whether the `sherpa_ssh_config` include in `~/.ssh/sherpa_lab_hosts` was replaced with
+    /// `.sherpa/ssh/config`.
     pub include_replaced: bool,
 }
 

@@ -940,7 +940,7 @@ mod tests {
     const UNREACHABLE_QEMU_URI: &str = "qemu+unix:///system?socket=/nonexistent/sherpa-test.sock";
 
     const LAB_ID: &str = "fecb1a12";
-    /// The lab key a lab from before 0.7.0 still has in its folder, as a file to delete.
+    /// A lab key left in a lab folder, as a file to delete.
     const OLD_LAB_KEY: &str = "sherpa_ssh_key";
 
     #[test]
@@ -1314,7 +1314,7 @@ mod tests {
     #[tokio::test]
     async fn a_lab_folder_without_lab_info_or_ssh_files_is_removed() {
         // The server keeps no lab-info.toml, SSH config or known_hosts: the folder holds the
-        // lab's certificates, and the lab key of a lab from before 0.7.0.
+        // lab's certificates, and possibly a leftover lab key.
         let root = tempdir().unwrap();
         let lab_dir = root.path().join("lab");
         fs::create_dir_all(lab_dir.join(LAB_CERTS_DIR)).unwrap();

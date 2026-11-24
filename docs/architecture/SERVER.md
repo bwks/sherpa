@@ -183,8 +183,8 @@ through Sherpa's interfaces, with an audit trail, not a defence against root.
 The built-in `sherpa-admin` (`shared::konst::ADMIN_USERNAME`) runs the server and owns no new
 labs: `auth::policy::require_lab_starter` refuses it up, resume and redeploy, and it keeps every
 other admin power, destroy, stop and clean included. Its name is in Sherpa's reserved `sherpa-`
-namespace, which no other user can take (`shared::validators::username`). An earlier release
-named it `admin`; the migration that renames it is in [`DATABASE.md`](DATABASE.md#versions). The
+namespace, which no other user can take (`shared::validators::username`). The migration that
+renames a built-in `admin` to it is in [`DATABASE.md`](DATABASE.md#versions). The
 cases are `tests/specs/accounts-and-auth.md`, `builtin_admin`.
 
 ### Device passwords
