@@ -927,8 +927,6 @@ impl NodeState {
 }
 
 /// Zero touch provisioning for a node image: off or the method Sherpa provisions its nodes by.
-/// It denies unknown fields, so a `ztp` group that carries `username`, `password` or
-/// `password_auth` is refused with serde's error naming the field.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ZtpSettings {

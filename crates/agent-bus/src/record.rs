@@ -88,7 +88,8 @@ pub enum CatchUp {
 }
 
 /// The record, open and caught up for one command. Dropping it closes the record, then
-/// releases the lock.
+/// releases the lock. Fields drop in declaration order, so they must stay in this order for the
+/// connection and the database to close before the lock is released.
 pub struct Record {
     conn: Connection,
     _store: Store,

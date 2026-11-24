@@ -94,7 +94,9 @@ struct LeaseEntry {
     lock: Arc<RwLock<()>>,
 }
 
-/// A running operation on a lab. Dropping it ends the operation's lease.
+/// A running operation on a lab. Dropping it ends the operation's lease. Fields drop in
+/// declaration order, so `_lease` must stay before `entry`: the lock is then released before the
+/// entry can be removed, and a later caller cannot make a fresh lock while this guard is held.
 pub struct LabOperation {
     cancel: Cancellation,
     _lease: OwnedRwLockReadGuard<()>,
@@ -102,6 +104,8 @@ pub struct LabOperation {
 }
 
 /// Exclusive access to a lab after its operations have stopped. Held while the lab is destroyed.
+/// `_lease` must stay before `entry` so the lock is released before the entry can be removed, as
+/// in `LabOperation`.
 pub struct StoppedLab {
     reason: StopReason,
     _lease: OwnedRwLockWriteGuard<()>,
@@ -109,6 +113,8 @@ pub struct StoppedLab {
 }
 
 /// The scanner's hold on a lab no operation holds. Node states are only observed under it.
+/// `_lease` must stay before `_entry` so the lock is released before the entry can be removed, as
+/// in `LabOperation`.
 pub struct ObservedLab {
     _lease: OwnedRwLockWriteGuard<()>,
     _entry: LeaseEntry,
