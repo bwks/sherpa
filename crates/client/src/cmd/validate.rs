@@ -3,14 +3,14 @@ use anyhow::{Context, Result};
 use super::manifest_processing::{check_file_settings, process_manifest_nodes};
 use shared::data::NodeCpuPins;
 use shared::util;
-use shared::validators::effective_data_interface_count;
+use shared::validators::{effective_data_interface_count, effective_ztp};
 use topology::validate::{
     check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_lab_description, check_lab_name,
     check_link_impairments, check_node_kind_settings, check_node_model_kind, check_node_names,
-    check_node_ztp, check_nonzero_node_settings, check_ptx_platform, check_ready_timeout,
-    check_text_file_modes, check_vm_tuning, validate_environment_variables, validate_provisioners,
-    validate_tailscale, validate_talos_clusters,
+    check_node_ztp, check_node_ztp_config, check_nonzero_node_settings, check_ptx_platform,
+    check_ready_timeout, check_text_file_modes, check_vm_tuning, validate_environment_variables,
+    validate_provisioners, validate_tailscale, validate_talos_clusters,
 };
 use topology::{Manifest, process_manifest_bridges, process_manifest_links};
 
@@ -115,6 +115,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
         check_vm_tuning(node, &node_image)?;
         check_ptx_platform(node, &node_image)?;
         check_node_ztp(node)?;
+        check_node_ztp_config(node, effective_ztp(node.ztp.method, &node_image))?;
     }
     let pins: Vec<NodeCpuPins> = nodes_expanded
         .iter()
@@ -195,6 +196,30 @@ nodes = [
         let message = format!("{:#}", result.unwrap_err());
         assert!(
             message.contains("key 'BAD-KEY' for node 'dev01'"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn validate_command_004_a_ztp_config_its_node_takes_none_of_is_refused_as_up_refuses_it() {
+        let path = write_temp_manifest(
+            "ztp-config",
+            r#"
+name = "ztp-lab"
+
+nodes = [
+  { name = "dev01", model = "ubuntu_linux", ztp = { config = "dev01.cfg" } },
+]
+"#,
+        );
+        let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
+        fs::remove_file(path).ok();
+
+        let message = format!("{:#}", result.unwrap_err());
+        assert!(
+            message.contains(
+                "node: 'dev01' sets `ztp.config`, which ZTP method 'cloud-init' does not use"
+            ),
             "{message}"
         );
     }

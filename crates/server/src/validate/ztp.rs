@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 
-use shared::data::{NodeConfig, NodeModel, Ztp};
+use shared::data::{NodeConfig, Ztp};
 use shared::validators::{check_ztp, effective_ztp};
+use topology::validate::check_node_ztp_config;
 use topology::{NodeExpanded, TalosCluster, find_talos_cluster};
 
 use crate::services::error::ServiceError;
@@ -34,37 +35,15 @@ pub fn validate_node_ztp(
         ))
         .into());
     }
-    if node.ztp.config.is_some() {
-        check_ztp_config_is_used(&node.name, node.model_kind.model(), ztp)?;
-    }
+    check_node_ztp_config(node, ztp)
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     Ok(ztp)
-}
-
-/// Whether a node's own `ztp.config` is used with its ZTP setting. The methods that deliver a
-/// config file take it in place of the generated one. Cloud-init, Ignition and the HTTP
-/// config of `sonic_linux` are built from the manifest's other fields, and with ZTP off nothing delivers it;
-/// the one exception is Vault, whose `ztp.config` is its own `config.hcl`, a start setting.
-fn check_ztp_config_is_used(node_name: &str, model: NodeModel, ztp: Ztp) -> Result<()> {
-    match ztp {
-        Ztp::Tftp | Ztp::Cdrom | Ztp::Disk | Ztp::Usb | Ztp::NoCloud | Ztp::Volume => Ok(()),
-        Ztp::Disabled if model == NodeModel::HashicorpVault => Ok(()),
-        Ztp::Disabled => Err(ServiceError::Invalid(format!(
-            "Node '{node_name}' sets ztp.config, but its ZTP is disabled, so the config would \
-             not be used"
-        ))
-        .into()),
-        Ztp::CloudInit | Ztp::Ignition | Ztp::Http => Err(ServiceError::Invalid(format!(
-            "Node '{node_name}' sets ztp.config, which ZTP method '{ztp}' does not use. Only \
-             tftp, cdrom, disk, usb, nocloud and volume take a custom ZTP config"
-        ))
-        .into()),
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::{KindSettings, ModelKind};
+    use shared::data::{KindSettings, ModelKind, NodeModel};
     use topology::NodeZtp;
 
     fn node(model: NodeModel, ztp: Option<Ztp>, ztp_config: Option<&str>) -> NodeExpanded {
@@ -119,49 +98,6 @@ mod tests {
         let error =
             validate_node_ztp(&node(NodeModel::UbuntuLinux, None, None), &image, &[]).unwrap_err();
         assert!(format!("{error:#}").contains("allows: disabled, cloud-init"));
-    }
-
-    #[test]
-    fn custom_config_005_a_config_is_taken_only_by_the_methods_that_deliver_one() {
-        for (model, ztp) in [
-            (NodeModel::JuniperEvolved, Ztp::Tftp),
-            (NodeModel::JuniperEvolved, Ztp::Usb),
-            (NodeModel::JuniperSrxv3, Ztp::Cdrom),
-            (NodeModel::FrrLinux, Ztp::Volume),
-            (NodeModel::TalosLinux, Ztp::NoCloud),
-        ] {
-            assert_eq!(
-                validate(model, Some(ztp), Some("config")).unwrap(),
-                ztp,
-                "{model} with {ztp}"
-            );
-        }
-        for (model, ztp) in [
-            (NodeModel::UbuntuLinux, Ztp::CloudInit),
-            (NodeModel::FlatcarLinux, Ztp::Ignition),
-        ] {
-            let error = validate(model, Some(ztp), Some("config"))
-                .unwrap_err()
-                .to_string();
-            assert!(
-                error.contains(&format!("which ZTP method '{ztp}' does not use")),
-                "{model}: {error}"
-            );
-            assert!(validate(model, Some(ztp), None).is_ok(), "{model}");
-        }
-    }
-
-    #[test]
-    fn custom_config_006_a_config_with_ztp_off_is_refused_except_for_vault() {
-        for model in NodeModel::to_vec() {
-            let result = validate(model, Some(Ztp::Disabled), Some("config"));
-            if model == NodeModel::HashicorpVault {
-                assert_eq!(result.unwrap(), Ztp::Disabled);
-            } else {
-                let error = result.unwrap_err().to_string();
-                assert!(error.contains("its ZTP is disabled"), "{model}: {error}");
-            }
-        }
     }
 
     #[test]

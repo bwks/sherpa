@@ -115,7 +115,7 @@ The lab's CA and a node's certificate are here because they reach the node in it
 
 ## `custom_config`: a node's own `ztp.config` replaces the config Sherpa generates
 
-**Statement:** a node's `ztp.config` file is delivered to it in place of the config Sherpa generates, byte for byte, by the methods that deliver a config file, and is refused on any other node.
+**Statement:** a node's `ztp.config` file is delivered to it in place of the config Sherpa generates, byte for byte, by the methods that deliver a config file, and is refused on any other node by `sherpa validate`, up and redeploy alike, with one message.
 **Relied on by:** the user who brings a device config of their own. **Priority:** P1.
 
 | Case | What it shows | Level |
