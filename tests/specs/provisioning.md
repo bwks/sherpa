@@ -135,14 +135,14 @@ A node the CLI has no route to fails at once: `ssh_access_006`. A provisioner as
 
 ## `provisioner_files`: an ssh provisioner copies its files to the node as its owner, never more readable than their mode
 
-**Statement:** an ssh provisioner's `files` are copied to the node as its owner, each to its destination with its mode, replacing what was there in one step, and every client file the provisioner names is read before the node is changed.
+**Statement:** an ssh provisioner's `files` are copied to the node as its owner, each to its destination with its mode, replacing what was there in one step, and every client file of every provisioner of the node is read before the node is changed.
 **Relied on by:** the user, for credentials their tools on the node read. **Priority:** P1.
 
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | After up, a file with a `~/` destination is in the owner's home on the node with the client file's contents, its mode, and the owner as its owner (no test yet) | e2e |
 | 002 | Every client file of a provisioner is read before anything is done on the node, with where it goes: a file to its destination with its mode, an env file to `~/.env.d/` under its own name with mode `600`, a script as its contents | unit |
-| 003 | A client file that is missing fails the node, with an error that carries the file, before the node is changed | unit |
+| 003 | A client file that is missing, in any of the node's provisioners, fails the node, with an error that carries the file, before the node is changed: a first provisioner does not run | unit |
 | 004 | The missing folders on the way to a destination are made readable by the owner alone, and the file is not made by that step | unit |
 | 005 | A file already at the destination keeps its contents and its mode until the copy replaces it | unit |
 | 006 | A `~/` destination is under the login user's home, in the command and in the copy, and an absolute one is where it says | unit |
@@ -165,7 +165,7 @@ A file removed from the manifest stays on the node. That is documented; no case 
 | 004 | A variable that is set and empty resolves to an empty value | unit |
 | 005 | Every other line is kept as written: comments, blank lines, plain and quoted values, and a value with a reference inside it, such as `$HOME/bin:$PATH`, which the node's shell expands | unit |
 | 006 | Line endings are kept, `\r\n` and a last line with none included | unit |
-| 007 | A reference to a variable that is not set fails before the node is changed, and the error carries the file, the line and the variable | unit |
+| 007 | A reference to a variable that is not set, in any of the node's provisioners, fails before the node is changed, and the error carries the file, the line and the variable | unit |
 | 008 | An error never shows a value | unit |
 | 009 | The value is read from the environment `sherpa` itself runs in | unit |
 | 010 | The line that loads the env files is added once to the login file bash reads, however many times a node is provisioned | unit |

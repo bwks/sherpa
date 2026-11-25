@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use shared::konst::{PROVISIONER_FILE_DEFAULT_MODE, PROVISIONER_SSH_RETRY_INTERVAL};
 use shared::validators::mode_from_octal_digits;
 use tokio::time;
-use topology::SshProvisioner;
+use topology::{Provisioner, SshProvisioner};
 
 use super::client_files::{existing_client_file, resolve_client_path};
 use super::env_file::{client_variable, resolve_env_file};
@@ -35,6 +35,13 @@ struct FileCopy {
 struct Script {
     path: PathBuf,
     content: Vec<u8>,
+}
+
+/// What one ssh provisioner puts on a node, read from the client before the node is changed.
+pub(super) struct ClientFiles {
+    files: Vec<FileCopy>,
+    env_files: Vec<FileCopy>,
+    scripts: Vec<Script>,
 }
 
 /// Connect once the node accepts the login user, then wait until cloud-init has finished
@@ -68,23 +75,46 @@ pub async fn wait_for_node(target: &SshTarget, timeout: Duration) -> Result<Node
     Ok(session)
 }
 
+/// Read the client files of every ssh provisioner of a node, in manifest order, so a missing
+/// file or unset variable in any of them fails the node before it is changed.
+///
+/// # Errors
+///
+/// The first client file that cannot be read, or env file variable that is not set.
+#[tracing::instrument(level = "debug", skip_all)]
+pub(super) fn read_node_provisioners(
+    provisioners: &[Provisioner],
+    manifest_dir: &Path,
+) -> Result<Vec<ClientFiles>> {
+    let mut read = Vec::with_capacity(provisioners.len());
+    for provisioner in provisioners {
+        if let Provisioner::Ssh(ssh) = provisioner {
+            read.push(read_client_files(ssh, manifest_dir)?);
+        }
+    }
+    Ok(read)
+}
+
 /// Run one SSH provisioner on a node: files, then env files, then scripts, showing progress
 /// and script output in `output`.
 #[tracing::instrument(level = "debug", skip_all)]
 pub async fn provision(
     session: &NodeSession,
-    provisioner: &SshProvisioner,
-    manifest_dir: &Path,
+    client_files: &ClientFiles,
     output: &mut NodeOutput,
 ) -> Result<()> {
-    let (files, env_files, scripts) = read_client_files(provisioner, manifest_dir)?;
+    let ClientFiles {
+        files,
+        env_files,
+        scripts,
+    } = client_files;
 
-    for file in &files {
+    for file in files {
         output.status(&format!("copying {} to {}", file.src.display(), file.dst));
         copy_file(session, file).await?;
     }
     if !env_files.is_empty() {
-        for file in &env_files {
+        for file in env_files {
             output.status(&format!(
                 "copying env file {} to {}",
                 file.src.display(),
@@ -97,7 +127,7 @@ pub async fn provision(
             .await
             .context("Cannot make login shells load env files")?;
     }
-    for script in &scripts {
+    for script in scripts {
         output.status(&format!("running {}", script.path.display()));
         session
             .run_with_input(&script_wrapper_command(), &script.content, output)
@@ -109,10 +139,7 @@ pub async fn provision(
 
 /// Resolve and read every client file the provisioner uses, and resolve the variable
 /// references in env files, so a missing file or variable fails before the node is changed.
-fn read_client_files(
-    provisioner: &SshProvisioner,
-    manifest_dir: &Path,
-) -> Result<(Vec<FileCopy>, Vec<FileCopy>, Vec<Script>)> {
+fn read_client_files(provisioner: &SshProvisioner, manifest_dir: &Path) -> Result<ClientFiles> {
     let mut files = Vec::with_capacity(provisioner.files.len());
     for file in &provisioner.files {
         let src = existing_client_file(manifest_dir, &file.src)?;
@@ -154,7 +181,11 @@ fn read_client_files(
         scripts.push(Script { path, content });
     }
 
-    Ok((files, env_files, scripts))
+    Ok(ClientFiles {
+        files,
+        env_files,
+        scripts,
+    })
 }
 
 async fn copy_file(session: &NodeSession, file: &FileCopy) -> Result<()> {
@@ -198,7 +229,11 @@ mod tests {
             env_files: vec!["dev.env".to_string()],
             scripts: vec!["setup.sh".to_string()],
         };
-        let (files, env_files, scripts) = read_client_files(&provisioner, dir.path()).unwrap();
+        let ClientFiles {
+            files,
+            env_files,
+            scripts,
+        } = read_client_files(&provisioner, dir.path()).unwrap();
         assert_eq!(files[0].src, dir.path().join("token"));
         assert_eq!(files[0].content, b"t");
         assert_eq!(files[0].dst, "~/.config/token");
@@ -220,7 +255,9 @@ mod tests {
             env_files: vec!["dev.env".to_string()],
             ..Default::default()
         };
-        let (_, env_files, _) = read_client_files(&provisioner, dir.path()).unwrap();
+        let env_files = read_client_files(&provisioner, dir.path())
+            .unwrap()
+            .env_files;
         // PATH is set on every client platform, and holds no single quote; HOME is not set on
         // Windows.
         let path = env::var("PATH").unwrap();
@@ -230,8 +267,20 @@ mod tests {
         );
     }
 
+    /// A node's provisioners: a first one whose script is there, then `second`.
+    fn after_a_good_provisioner(dir: &Path, second: SshProvisioner) -> Vec<Provisioner> {
+        fs::write(dir.join("first.sh"), "#!/bin/sh\n").unwrap();
+        vec![
+            Provisioner::Ssh(SshProvisioner {
+                scripts: vec!["first.sh".to_string()],
+                ..Default::default()
+            }),
+            Provisioner::Ssh(second),
+        ]
+    }
+
     #[test]
-    fn provisioner_env_007_an_unset_variable_fails_before_the_node_is_changed_carrying_file_line_and_variable()
+    fn provisioner_env_007_an_unset_variable_in_any_provisioner_fails_before_the_node_is_changed_carrying_file_line_and_variable()
      {
         let dir = tempdir().unwrap();
         fs::write(
@@ -239,11 +288,14 @@ mod tests {
             "A=1\nTOKEN=$SHERPA_TEST_UNSET_TOKEN\n",
         )
         .unwrap();
-        let provisioner = SshProvisioner {
-            env_files: vec!["dev.env".to_string()],
-            ..Default::default()
-        };
-        let Err(error) = read_client_files(&provisioner, dir.path()) else {
+        let provisioners = after_a_good_provisioner(
+            dir.path(),
+            SshProvisioner {
+                env_files: vec!["dev.env".to_string()],
+                ..Default::default()
+            },
+        );
+        let Err(error) = read_node_provisioners(&provisioners, dir.path()) else {
             panic!("an env file with an unset variable was read");
         };
         assert!(
@@ -264,13 +316,16 @@ mod tests {
     }
 
     #[test]
-    fn provisioner_files_003_a_missing_client_file_fails_the_node_carrying_it() {
+    fn provisioner_files_003_a_missing_client_file_in_any_provisioner_fails_the_node_carrying_it() {
         let dir = tempdir().unwrap();
-        let provisioner = SshProvisioner {
-            env_files: vec!["missing.env".to_string()],
-            ..Default::default()
-        };
-        let Err(error) = read_client_files(&provisioner, dir.path()) else {
+        let provisioners = after_a_good_provisioner(
+            dir.path(),
+            SshProvisioner {
+                env_files: vec!["missing.env".to_string()],
+                ..Default::default()
+            },
+        );
+        let Err(error) = read_node_provisioners(&provisioners, dir.path()) else {
             panic!("a missing env file was read");
         };
         assert!(
