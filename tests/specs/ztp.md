@@ -109,7 +109,7 @@ The lab's CA and a node's certificate are here because they reach the node in it
 | 012 | A volume label that is empty, has a space or is too long is refused | unit |
 | 013 | A name too long for the format, and two names that become one in it, are refused | unit |
 | 014 | Folders nested more than eight deep are refused | unit |
-| 015 | A symlink in the folder is refused, naming it | unit |
+| 015 | A symlink in the folder is refused, and the error carries its path | unit |
 | 016 | A date the format cannot hold is refused, in a record and in a volume descriptor | unit |
 | 017 | A config ISO Sherpa made is mounted by a Linux guest, which reads each file under its name (no test yet) | e2e |
 
