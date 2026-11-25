@@ -26,6 +26,8 @@ use virt::domain::Domain;
 use virt::error::ErrorNumber;
 use virt::sys::VIR_DOMAIN_AFFECT_LIVE;
 
+use crate::error::LibvirtError;
+
 /// Whether the interface on host tap `tap` of running domain `domain` has its link up. `None`
 /// when the domain does not exist, is not running, or has no interface on `tap`.
 ///
@@ -99,12 +101,11 @@ fn find_interface<'a>(xml: &'a str, tap: &str) -> Result<Option<Vec<(usize, Even
     let mut on_tap = false;
     let mut found = None;
     loop {
-        let event = reader.read_event().with_context(|| {
-            format!(
-                "Cannot parse the domain XML at byte {}",
-                reader.error_position()
-            )
-        })?;
+        let event = reader
+            .read_event()
+            .with_context(|| LibvirtError::DomainXmlInvalidAt {
+                position: reader.error_position(),
+            })?;
         // The depth of the element the event opens, closes or sits in.
         let depth = match &event {
             Event::Start(_) => {
@@ -118,7 +119,7 @@ fn find_interface<'a>(xml: &'a str, tap: &str) -> Result<Option<Vec<(usize, Even
                 open
             }
             Event::Eof if open > 0 => {
-                bail!("Cannot parse the domain XML: it ends inside an element")
+                bail!(LibvirtError::DomainXmlEndsInsideElement)
             }
             Event::Eof => break,
             _ => open,
@@ -126,7 +127,7 @@ fn find_interface<'a>(xml: &'a str, tap: &str) -> Result<Option<Vec<(usize, Even
         // Attributes are only parsed when asked for; reading them all refuses duplicates.
         if let Event::Start(element) | Event::Empty(element) = &event {
             for attribute in element.attributes() {
-                attribute.context("Cannot parse the domain XML")?;
+                attribute.context(LibvirtError::DomainXmlInvalid)?;
             }
         }
         if found.is_some() {
@@ -172,11 +173,11 @@ pub(crate) fn attribute<'a>(
         return Ok(None);
     }
     for attribute in element.attributes() {
-        let attribute = attribute.context("Cannot parse the domain XML")?;
+        let attribute = attribute.context(LibvirtError::DomainXmlInvalid)?;
         if attribute.key.as_ref() == name {
             let value = attribute
                 .normalized_value(XmlVersion::Implicit1_0)
-                .context("Cannot parse the domain XML")?;
+                .context(LibvirtError::DomainXmlInvalid)?;
             return Ok(Some(value));
         }
     }
@@ -352,22 +353,36 @@ mod tests {
         assert_eq!(link_up_in(LIVE, "tpa0").unwrap(), Some(false));
         assert_eq!(link_up_in(DOMAIN, "tpa9").unwrap(), None);
 
-        for xml in [
-            "<domain",
-            "<domain><devices></domain>",
-            "<domain><devices><interface type='ethernet'><target dev='tpa0'/></interface>",
-            "<domain><interface type='ethernet'><target dev='tpa0'/></interface></domain></x>",
-            "<domain><interface type='ethernet'><target dev='tpa0' dev='tpa1'/></interface></domain>",
+        for (xml, expected) in [
+            ("<domain", LibvirtError::DomainXmlInvalidAt { position: 0 }),
+            (
+                "<domain><devices></domain>",
+                LibvirtError::DomainXmlInvalidAt { position: 17 },
+            ),
+            (
+                "<domain><devices><interface type='ethernet'><target dev='tpa0'/></interface>",
+                LibvirtError::DomainXmlEndsInsideElement,
+            ),
+            (
+                "<domain><interface type='ethernet'><target dev='tpa0'/></interface></domain></x>",
+                LibvirtError::DomainXmlInvalidAt { position: 76 },
+            ),
+            (
+                "<domain><interface type='ethernet'><target dev='tpa0' dev='tpa1'/></interface></domain>",
+                LibvirtError::DomainXmlInvalid,
+            ),
         ] {
-            let error = format!("{:#}", interface_with_link(xml, "tpa0", false).unwrap_err());
-            assert!(
-                error.contains("Cannot parse the domain XML"),
-                "{xml}: {error}"
+            let error = interface_with_link(xml, "tpa0", false).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<LibvirtError>(),
+                Some(&expected),
+                "{xml}"
             );
-            let error = format!("{:#}", link_up_in(xml, "tpa0").unwrap_err());
-            assert!(
-                error.contains("Cannot parse the domain XML"),
-                "{xml}: {error}"
+            let error = link_up_in(xml, "tpa0").unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<LibvirtError>(),
+                Some(&expected),
+                "{xml}"
             );
         }
     }

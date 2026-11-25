@@ -2863,6 +2863,7 @@ dependencies = [
  "quick-xml",
  "serde",
  "shared",
+ "thiserror 2.0.18",
  "tracing",
  "virt",
 ]

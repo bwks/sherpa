@@ -1,3 +1,5 @@
+use std::fmt;
+
 use anyhow::{Context, Result, bail};
 use quick_xml::de::from_str;
 use serde::Deserialize;
@@ -6,6 +8,8 @@ use virt::connect::Connect;
 use virt::domain::Domain;
 use virt::error::ErrorNumber;
 use virt::sys::{VIR_DOMAIN_NUMATUNE_MEM_RESTRICTIVE, VIR_DOMAIN_NUMATUNE_MEM_STRICT};
+
+use crate::error::LibvirtError;
 
 /// The server's online CPUs and NUMA nodes, as libvirt reports them. Both are numbered from 0.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,6 +41,14 @@ pub struct DomainMemory {
     pub active: bool,
     pub memory_kib: u64,
     pub strict_numa_node: Option<u32>,
+}
+
+/// A value a NUMA cell of the capabilities XML gives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NumaCellValue {
+    Memory,
+    PageSize,
+    PageCount,
 }
 
 /// libvirt's capabilities XML, read only as far as the NUMA cells. Every other element is
@@ -230,7 +242,7 @@ fn strict_numa_node(mode: Option<i32>, nodeset: Option<&str>) -> Option<u32> {
 /// memory and hugepage pools. Empty when the XML describes no cells.
 fn parse_numa_cells(capabilities: &str) -> Result<Vec<NumaCell>> {
     let capabilities: Capabilities =
-        from_str(capabilities).context("The server's capabilities are not valid XML")?;
+        from_str(capabilities).context(LibvirtError::CapabilitiesNotXml)?;
     let Some(CapabilitiesHost {
         topology: Some(HostTopology { cells: Some(cells) }),
     }) = capabilities.host
@@ -245,25 +257,35 @@ fn parse_numa_cell(cell: TopologyCell) -> Result<NumaCell> {
     let id: u32 = cell
         .id
         .as_deref()
-        .context("A NUMA cell in the capabilities has no id")?
+        .ok_or(LibvirtError::NumaCellWithoutId)?
         .trim()
         .parse()
         .context("A NUMA cell id in the capabilities is not a number")?;
     let total_kib = match cell.memory {
         Some(memory) => to_kib(
-            number(memory.value.as_deref(), "memory")?,
+            number(memory.value.as_deref(), NumaCellValue::Memory)?,
             memory.unit.as_deref(),
         )
-        .with_context(|| format!("Cannot read NUMA node {id}'s memory"))?,
+        .context(LibvirtError::NumaCellUnreadable {
+            node: id,
+            value: NumaCellValue::Memory,
+        })?,
         None => 0,
     };
     let mut pages = Vec::new();
     for pool in cell.pages {
-        let size = number(pool.size.as_deref(), "page size")
+        let size = number(pool.size.as_deref(), NumaCellValue::PageSize)
             .and_then(|size| to_kib(size, pool.unit.as_deref()))
-            .with_context(|| format!("Cannot read NUMA node {id}'s page size"))?;
-        let count = number(pool.count.as_deref(), "page count")
-            .with_context(|| format!("Cannot read NUMA node {id}'s page count"))?;
+            .context(LibvirtError::NumaCellUnreadable {
+                node: id,
+                value: NumaCellValue::PageSize,
+            })?;
+        let count = number(pool.count.as_deref(), NumaCellValue::PageCount).context(
+            LibvirtError::NumaCellUnreadable {
+                node: id,
+                value: NumaCellValue::PageCount,
+            },
+        )?;
         pages.push((size, count));
     }
     // The smallest page is the base page; the larger ones are hugepage pools.
@@ -281,10 +303,10 @@ fn parse_numa_cell(cell: TopologyCell) -> Result<NumaCell> {
 }
 
 /// A whole number from an element's text or an attribute; `what` names it in the error.
-fn number(value: Option<&str>, what: &str) -> Result<u64> {
+fn number(value: Option<&str>, what: NumaCellValue) -> Result<u64> {
     let value = value.map_or_default(str::trim);
     if value.is_empty() {
-        bail!("The {what} has no value");
+        bail!(LibvirtError::NumaCellValueMissing { value: what });
     }
     value
         .parse()
@@ -298,8 +320,9 @@ fn to_kib(value: u64, unit: Option<&str>) -> Result<u64> {
     let Some(unit) = unit else {
         return Ok(value);
     };
-    let bytes_per_unit =
-        unit_bytes(unit).with_context(|| format!("Unknown memory unit '{unit}'"))?;
+    let bytes_per_unit = unit_bytes(unit).ok_or_else(|| LibvirtError::UnknownMemoryUnit {
+        unit: unit.to_owned(),
+    })?;
     let kib = u128::from(value) * bytes_per_unit / 1024;
     u64::try_from(kib).with_context(|| format!("{value} {unit} is too large"))
 }
@@ -326,6 +349,16 @@ fn unit_bytes(unit: &str) -> Option<u128> {
         _ => return None,
     };
     Some(base.pow(power))
+}
+
+impl fmt::Display for NumaCellValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Memory => "memory",
+            Self::PageSize => "page size",
+            Self::PageCount => "page count",
+        })
+    }
 }
 
 #[cfg(test)]
@@ -446,33 +479,61 @@ mod tests {
     fn an_unknown_memory_unit_is_refused() {
         let xml = "<capabilities><host><topology><cells num='1'><cell id='0'>\
             <memory unit='pages'>1</memory></cell></cells></topology></host></capabilities>";
-        let error = format!("{:#}", parse_numa_cells(xml).unwrap_err());
-        assert!(error.contains("NUMA node 0's memory"), "{error}");
-        assert!(error.contains("Unknown memory unit 'pages'"), "{error}");
+        let error = parse_numa_cells(xml).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<LibvirtError>(),
+            Some(&LibvirtError::NumaCellUnreadable {
+                node: 0,
+                value: NumaCellValue::Memory,
+            })
+        );
+        assert_eq!(
+            error.root_cause().downcast_ref::<LibvirtError>(),
+            Some(&LibvirtError::UnknownMemoryUnit {
+                unit: "pages".to_owned(),
+            })
+        );
     }
 
     #[test]
     fn a_cell_without_an_id_is_refused() {
         let xml = "<capabilities><host><topology><cells num='1'><cell>\
             <memory unit='KiB'>1</memory></cell></cells></topology></host></capabilities>";
-        let error = format!("{:#}", parse_numa_cells(xml).unwrap_err());
-        assert!(error.contains("has no id"), "{error}");
+        let error = parse_numa_cells(xml).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<LibvirtError>(),
+            Some(&LibvirtError::NumaCellWithoutId)
+        );
     }
 
     #[test]
     fn a_page_pool_without_a_size_is_refused() {
         let xml = "<capabilities><host><topology><cells num='1'><cell id='1'>\
             <pages unit='KiB'>1</pages></cell></cells></topology></host></capabilities>";
-        let error = format!("{:#}", parse_numa_cells(xml).unwrap_err());
-        assert!(error.contains("NUMA node 1's page size"), "{error}");
-        assert!(error.contains("page size has no value"), "{error}");
+        let error = parse_numa_cells(xml).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<LibvirtError>(),
+            Some(&LibvirtError::NumaCellUnreadable {
+                node: 1,
+                value: NumaCellValue::PageSize,
+            })
+        );
+        assert_eq!(
+            error.root_cause().downcast_ref::<LibvirtError>(),
+            Some(&LibvirtError::NumaCellValueMissing {
+                value: NumaCellValue::PageSize,
+            })
+        );
     }
 
     #[test]
     fn invalid_xml_is_refused() {
         let xml = "<capabilities><host><topology><cells num='1'><cell id='0'></cells>";
-        let error = format!("{:#}", parse_numa_cells(xml).unwrap_err());
-        assert!(error.contains("not valid XML"), "{error}");
+        let error = parse_numa_cells(xml).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<LibvirtError>(),
+            Some(&LibvirtError::CapabilitiesNotXml)
+        );
     }
 
     #[test]
@@ -516,9 +577,20 @@ mod tests {
     fn a_page_pool_without_a_count_is_refused() {
         let xml = "<capabilities><host><topology><cells num='1'><cell id='2'>\
             <pages unit='KiB' size='2048'/></cell></cells></topology></host></capabilities>";
-        let error = format!("{:#}", parse_numa_cells(xml).unwrap_err());
-        assert!(error.contains("NUMA node 2's page count"), "{error}");
-        assert!(error.contains("page count has no value"), "{error}");
+        let error = parse_numa_cells(xml).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<LibvirtError>(),
+            Some(&LibvirtError::NumaCellUnreadable {
+                node: 2,
+                value: NumaCellValue::PageCount,
+            })
+        );
+        assert_eq!(
+            error.root_cause().downcast_ref::<LibvirtError>(),
+            Some(&LibvirtError::NumaCellValueMissing {
+                value: NumaCellValue::PageCount,
+            })
+        );
     }
 
     #[test]

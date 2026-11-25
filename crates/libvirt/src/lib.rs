@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod console;
+mod error;
 mod host;
 mod interface;
 mod names;
@@ -15,8 +16,10 @@ mod vm;
 mod vnc;
 
 pub use console::{ConsoleSockets, SerialConsole, move_consoles_to_sockets, serial_console};
+pub use error::LibvirtError;
 pub use host::{
-    DomainMemory, HostCpus, HostMemory, NumaCell, host_cpus, host_memory, list_domain_memory,
+    DomainMemory, HostCpus, HostMemory, NumaCell, NumaCellValue, host_cpus, host_memory,
+    list_domain_memory,
 };
 pub use interface::{interface_link_up, set_interface_link};
 pub use names::{is_device_volume, is_lab_volume};
