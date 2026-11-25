@@ -204,21 +204,23 @@ mod tests {
     }
 
     fn auth_failed(node: Node) -> anyhow::Error {
-        anyhow::Error::new(Error::AuthFailed {
+        let error: anyhow::Error = Error::AuthFailed {
             node,
             username: "sherpa".into(),
             tried: Vec::new(),
-        })
-        .context("Failed to connect")
+        }
+        .into();
+        error.context("Failed to connect")
     }
 
     #[test]
     fn provision_run_009_a_node_refusing_the_login_or_connection_is_tried_again() {
         assert!(retryable(&auth_failed(node()), &node()));
-        let refused = anyhow::Error::new(Error::Connect {
+        let refused: anyhow::Error = Error::Connect {
             node: node(),
             source: io::Error::from(io::ErrorKind::ConnectionRefused),
-        });
+        }
+        .into();
         assert!(retryable(&refused, &node()));
     }
 

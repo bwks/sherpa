@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use serde_json::Map;
 
 use shared::data::{BackupResponse, ServerConnection};
 use shared::util::term_msg_surround;
@@ -13,7 +14,7 @@ pub async fn backup(
     output: &OutputFormat,
 ) -> Result<()> {
     // An empty object: the token is added to the params, so they must be an object.
-    let params = serde_json::Map::new();
+    let params = Map::new();
     let response: BackupResponse = rpc_call("server.backup", params, server_url, server_connection)
         .await
         .context("Backup RPC call failed")?;

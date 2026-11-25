@@ -7,6 +7,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use tokio::task;
 
 use shared::data::{CancelLabResponse, ServerConnection};
 use shared::util::Emoji;
@@ -97,7 +98,7 @@ async fn handle_interrupt(target: &OperationTarget<'_>) -> Result<()> {
     println!("   {}", target.operation.stop_effect());
     print!("Stop the {operation} on the server too? [y/N]: ");
     io::stdout().flush()?;
-    let answer = tokio::task::spawn_blocking(read_answer)
+    let answer = task::spawn_blocking(read_answer)
         .await
         .context("Failed to read the answer")??;
     if !wants_stop(&answer) {

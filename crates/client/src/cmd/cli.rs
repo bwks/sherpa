@@ -445,6 +445,7 @@ async fn run_remote(command: &Commands, server_url: &str, config: &ClientConfig)
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::iter;
 
     use super::*;
     use crate::lab_folder_migration::migrate_lab_folder;
@@ -486,7 +487,7 @@ mod tests {
     #[test]
     fn lab_folder_upgrade_014_only_destroy_goes_on_after_a_failed_migration() {
         let parse = |args: &[&str]| {
-            Cli::try_parse_from(std::iter::once("sherpa").chain(args.iter().copied()))
+            Cli::try_parse_from(iter::once("sherpa").chain(args.iter().copied()))
                 .unwrap()
                 .commands
         };

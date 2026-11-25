@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
 use clap::{ArgGroup, Subcommand};
+use serde_json::Value;
 
 use shared::data::{
     ClientConfig, ImpairmentDirection, LinkInfo, UpdateImpairmentRequest, UpdateImpairmentResponse,
@@ -153,7 +154,7 @@ async fn update_impairment_rpc(
 
     let mut params =
         serde_json::to_value(&request).context("Failed to encode impairment request")?;
-    params["token"] = serde_json::Value::String(token);
+    params["token"] = Value::String(token);
     let response = rpc_client
         .call(RpcRequest::new("link.update_impairment", params))
         .await

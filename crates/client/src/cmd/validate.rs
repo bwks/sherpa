@@ -142,13 +142,15 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
 mod tests {
     use super::*;
     use shared::data::Ztp;
+    use std::env;
     use std::fs;
     use std::path::PathBuf;
+    use std::process;
     use topology::TopologyError;
 
     fn write_temp_manifest(name: &str, contents: &str) -> PathBuf {
-        let mut path = std::env::temp_dir();
-        path.push(format!("sherpa-{name}-{}.toml", std::process::id()));
+        let mut path = env::temp_dir();
+        path.push(format!("sherpa-{name}-{}.toml", process::id()));
         fs::write(&path, contents).expect("writes temp manifest");
         path
     }
