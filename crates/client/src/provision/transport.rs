@@ -17,6 +17,7 @@ use shared::konst::{
 };
 
 use super::output::NodeOutput;
+use crate::error::ClientError;
 use crate::ssh_client::{self, HostKeyRefresh, PromptScope, SshAccess, node_route};
 
 /// A node reached through the lab's SSH config.
@@ -51,10 +52,7 @@ impl SshTarget {
         let host = format!("{node_name}.{lab_id}");
         let route = node_route(config, &host, access.jump.as_ref())?;
         if route.target.hostname == host {
-            bail!(
-                "{host} is not in the lab SSH config; was the node added to the manifest after \
-                 the lab was created?"
-            );
+            bail!(ClientError::HostNotInSshConfig { host });
         }
         Ok(Self {
             node_name: node_name.to_owned(),
@@ -258,10 +256,12 @@ mod tests {
         )
         .err()
         .unwrap();
-        assert_eq!(
-            error.to_string(),
-            "web02.ab12cd34 is not in the lab SSH config; was the node added to the manifest \
-             after the lab was created?"
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::HostNotInSshConfig { host }) if host == "web02.ab12cd34"
+            ),
+            "{error:#}"
         );
     }
 }

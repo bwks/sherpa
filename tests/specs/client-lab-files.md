@@ -35,7 +35,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 007 | `sherpa download <lab-id>` in an empty folder saves the same files and no `manifest.toml`, and `sherpa inspect` and `sherpa ssh` then work there (no test yet) | e2e |
 | 008 | `sherpa download` in a folder that already has a lab's files is refused and changes nothing; with `--force` the files are replaced (no test yet) | e2e |
 | 009 | After `sherpa redeploy` and after `sherpa resume` the folder's files are the ones the server has then (no test yet) | e2e |
-| 010 | `sherpa download` in a folder that has only one of the files it would save, such as a Vault node's credentials and no `lab-info.toml`, is refused naming that file, and the file is kept | unit |
+| 010 | `sherpa download` in a folder that has only one of the files it would save, such as a Vault node's credentials and no `lab-info.toml`, is refused with an error that carries that file, and the file is kept | unit |
 
 An up the server refuses writes no `lab-info.toml`: `owner_login_001` checks it. A console opened from a folder made by `sherpa download` is `console_access_005`.
 
@@ -54,7 +54,7 @@ An up the server refuses writes no `lab-info.toml`: `owner_login_001` checks it.
 | 006 | A new secret file is readable by the current user alone: mode `600` on Linux and macOS, and on Windows an access list that names that user alone and inherits nothing | unit |
 | 007 | A secret written over a file others can read replaces it, readable by the user alone, and leaves no temporary file | unit |
 | 008 | A symlink where a secret file belongs is replaced by the file, and what it pointed to is untouched | unit |
-| 009 | A secret that cannot be written fails, saying what the file is and where | unit |
+| 009 | A secret that cannot be written fails, and the error carries what the file is and where | unit |
 | 010 | A write that fails part way leaves no partial file beside the secret (no test yet) | unit |
 
 Cases 006 and 007 read the file's access list when they run on Windows, so they prove the Windows half only in a Windows run. `lab-info.toml`, the SSH config and the lab CA's certificate hold no secret and are written as the user's other files are. On Windows the folders of `.sherpa` keep the access of the lab folder; no case asserts it.
@@ -198,8 +198,8 @@ A lab destroyed from somewhere other than its folder, by an admin, from the web 
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | A node is taken by its name, by `<node>.<lab-id>` and by `<node>.<lab-id>.sherpa.lab.local` | unit |
-| 002 | A node that is not in the folder's `manifest.toml` is refused, naming the node, before any lab file is needed | unit |
-| 003 | A node with no host in the lab's SSH config is refused, naming it: a comment, a `HostName` line and the host of a node with a longer name are not it | unit |
+| 002 | A node that is not in the folder's `manifest.toml` is refused, with an error that carries the node, before any lab file is needed | unit |
+| 003 | A node with no host in the lab's SSH config is refused, and the error carries it: a comment, a `HostName` line and the host of a node with a longer name are not it | unit |
 | 004 | A folder with a manifest and no connection files says to run `sherpa up`, or `sherpa download <lab-id> --force` | unit |
 | 005 | A folder made by `sherpa download`, with no manifest, connects by any of the node's names | unit |
 | 006 | Connection files that belong to another lab are refused | unit |

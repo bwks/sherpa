@@ -2,7 +2,7 @@
 
 Connecting a lab to its owner's Tailscale tailnet: the gateway container a lab with `[tailscale]` enabled gets on its management network, the auth key that enrolls it, from the variable on the user's machine to the gateway, the routes the gateway advertises and what it forwards, the gateway status Sherpa reports, what a whole-lab down, a resume, a single-node operation, a destroy, a clean and a failed up do to the gateway, and the server's `[tailscale]` settings. The gateway is made, enrolled, stopped and removed by the server through Docker; the client's part is reading the key and printing the status. Parsing `[tailscale]` in `manifest.toml`, checking the name in `auth_key_env` and refusing a container node with the gateway's name (`node_naming_005`) are in the Manifests spec; the gateway's address at offset 3 is `lab_addressing_007` in [lab lifecycle](lab-lifecycle.md), and the lab operations themselves are there too; the lab keeping its record when anything cannot be removed is `lab_destroy`; the rest of what `sherpa inspect` shows is in the Inspect and web UI spec; a client with no route to a node being told to join the tailnet is `ssh_access_006` in [client lab files](client-lab-files.md).
 
-Each behaviour lists its cases. A case is one test, whose name is its ID: `<behaviour>_<NNN>_<description>`, such as `tailnet_key_002_an_unset_variable_is_refused_naming_it`. The level is the highest that can show the case: e2e through the `sherpa` CLI, integration against real libvirt, Docker and the database, unit only for logic with too many branches to cover above. Unit cases marked "mock Docker" run the gateway code against a Docker API that answers from a script. Cases marked "real tailnet" join a tailnet at Tailscale; what they need is at the end.
+Each behaviour lists its cases. A case is one test, whose name is its ID: `<behaviour>_<NNN>_<description>`, such as `tailnet_key_002_an_unset_variable_is_refused_carrying_it`. The level is the highest that can show the case: e2e through the `sherpa` CLI, integration against real libvirt, Docker and the database, unit only for logic with too many branches to cover above. Unit cases marked "mock Docker" run the gateway code against a Docker API that answers from a script. Cases marked "real tailnet" join a tailnet at Tailscale; what they need is at the end.
 
 ## `tailnet_join`: up joins a lab to its owner's tailnet through a gateway
 
@@ -30,7 +30,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | The key is the value of the variable `auth_key_env` names, and the manifest that is sent does not hold it | unit |
-| 002 | A variable that is not set is refused, naming the variable | unit |
+| 002 | A variable that is not set is refused, and the error carries the variable | unit |
 | 003 | A server address that is not `wss://`, or a connection set to `insecure`, is refused before the key is sent | unit |
 | 004 | With `[tailscale]` absent or not enabled no variable is read and no key is sent, over any connection | unit |
 | 005 | A key that is empty, only the `tskey-auth-` prefix, has whitespace, or is another kind of Tailscale credential is refused with an error that carries nothing of it | unit |

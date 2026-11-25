@@ -1,7 +1,7 @@
 use ssh_key::Algorithm;
 use thiserror::Error;
 
-use crate::data::{NodeModel, Ztp};
+use crate::data::{NodeKind, NodeModel, Ztp, model_kinds_list};
 use crate::konst::{USERNAME_MAX_LENGTH, USERNAME_MIN_LENGTH};
 use crate::validators::{MAX_IMPAIRMENT_DELAY_MS, PasswordRequirement};
 
@@ -24,6 +24,18 @@ pub enum SharedError {
 
     #[error("Impairment {field} must be between 0 and 100, not {value}")]
     ImpairmentPercentOutOfRange { field: &'static str, value: f64 },
+
+    #[error(
+        "Model '{model}' has no default kind; set its kind to one of: {}",
+        model_kinds_list(*model)
+    )]
+    NoDefaultKind { model: NodeModel },
+
+    #[error(
+        "Model '{model}' is not a {kind}; it comes only as: {}",
+        model_kinds_list(*model)
+    )]
+    KindNotTaken { model: NodeModel, kind: NodeKind },
 
     #[error("Mode {digits} is not octal digits up to 777, such as 644")]
     ModeNotOctal { digits: u32 },

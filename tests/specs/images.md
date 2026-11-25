@@ -111,7 +111,7 @@ Only an Ubuntu release, downloaded without `--url`, publishes a SHA-256 (its `SH
 | 017 | A folder that is not a model's, and a symlinked version folder, is skipped (no test yet) | integration |
 | 018 | `--kind` scans that kind only (no test yet) | integration |
 | 019 | The CLI lists each image found with its status, and each skipped model with the reason | unit |
-| 020 | A scan that fails to record a version it found exits non-zero, naming each such version, after the table lists every row | unit |
+| 020 | A scan that fails to record a version it found exits non-zero with an error that carries each such version, after the table lists every row | unit |
 | 021 | A scan that records, would record or already has every version it found exits 0 | unit |
 
 ## `image_default`: each model and kind with images has one default version

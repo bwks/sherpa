@@ -5,11 +5,12 @@
 use std::fs;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, ensure};
 use base64::{Engine as _, engine::general_purpose};
 
 use shared::auth::jwt::Claims;
 
+use crate::error::ClientError;
 use crate::secret_file::write_secret_file;
 
 /// The file that holds the login token.
@@ -39,9 +40,7 @@ impl TokenFile {
 
     /// The saved token.
     fn load(&self) -> Result<String> {
-        if !self.path.exists() {
-            bail!("No token found. Please run: sherpa login");
-        }
+        ensure!(self.path.exists(), ClientError::NoToken);
         let token = fs::read_to_string(&self.path).context("Failed to read token file")?;
         Ok(token.trim().to_string())
     }
@@ -90,10 +89,7 @@ pub fn delete_token() -> Result<()> {
 ///
 /// Fails when `token` is not a JWT or its claims do not parse.
 pub fn username_from_token(token: &str) -> Result<String> {
-    let payload = token
-        .split('.')
-        .nth(1)
-        .context("The login token is not a JWT; run: sherpa login")?;
+    let payload = token.split('.').nth(1).context(ClientError::TokenNotJwt)?;
     let payload = general_purpose::URL_SAFE_NO_PAD
         .decode(payload)
         .context("Failed to decode the login token")?;
@@ -135,10 +131,10 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let error = token_file(dir.path()).load().unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "No token found. Please run: sherpa login"
-        );
+        assert!(matches!(
+            error.downcast_ref::<ClientError>(),
+            Some(ClientError::NoToken)
+        ));
     }
 
     #[test]
@@ -149,9 +145,10 @@ mod tests {
         let token = format!("header.{payload}.signature");
         assert_eq!(username_from_token(&token).unwrap(), "dev");
 
-        assert_eq!(
-            username_from_token("not-a-jwt").unwrap_err().to_string(),
-            "The login token is not a JWT; run: sherpa login"
-        );
+        let error = username_from_token("not-a-jwt").unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<ClientError>(),
+            Some(ClientError::TokenNotJwt)
+        ));
     }
 }

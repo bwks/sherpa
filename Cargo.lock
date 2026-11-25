@@ -5107,6 +5107,7 @@ dependencies = [
  "serde_json",
  "shared",
  "tempfile",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite",
  "toml",

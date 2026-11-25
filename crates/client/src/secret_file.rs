@@ -5,6 +5,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result, anyhow, bail};
 
+use crate::error::ClientError;
+
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
@@ -26,7 +28,10 @@ pub(crate) fn write_secret_file(path: &Path, contents: &str, what: &str) -> Resu
 
     let written = write_private_file(&temp, contents)
         .and_then(|()| fs::rename(&temp, path))
-        .with_context(|| format!("Failed to write {what}: {}", path.display()));
+        .with_context(|| ClientError::SecretNotWritten {
+            what: what.to_owned(),
+            path: path.to_owned(),
+        });
     if let Err(error) = written {
         return match fs::remove_file(&temp) {
             Ok(()) => Err(error),
@@ -103,13 +108,14 @@ pub(crate) fn restrict_secret_permissions(path: &Path, what: &str) -> Result<()>
 pub(crate) fn ensure_private_dir(path: &Path) -> Result<()> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
-            bail!(
-                "{} is a symlink; Sherpa keeps lab files only in a real folder",
-                path.display()
-            );
+            bail!(ClientError::SymlinkedFolder {
+                path: path.to_owned()
+            });
         }
         Ok(metadata) if !metadata.is_dir() => {
-            bail!("{} is not a folder", path.display());
+            bail!(ClientError::NotAFolder {
+                path: path.to_owned()
+            });
         }
         Ok(_) => {}
         Err(error) if error.kind() == ErrorKind::NotFound => {
@@ -137,6 +143,7 @@ mod tests {
     use crate::windows_acl::acl_inspection::is_restricted_to_current_user;
 
     use super::{ensure_private_dir, write_secret_file};
+    use crate::error::ClientError;
 
     /// What the secret files in these tests are called in error messages.
     const LABEL: &str = "kubeconfig";
@@ -195,7 +202,13 @@ mod tests {
 
         let error = ensure_private_dir(&file).expect_err("file refused");
 
-        assert!(error.to_string().contains("is not a folder"), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::NotAFolder { path }) if *path == file
+            ),
+            "{error:#}"
+        );
     }
 
     #[test]
@@ -251,18 +264,20 @@ mod tests {
     }
 
     #[test]
-    fn lab_file_privacy_009_a_secret_that_cannot_be_written_names_the_file_and_where() {
+    fn lab_file_privacy_009_a_secret_that_cannot_be_written_carries_the_file_and_where() {
         let temp_dir = tempfile::tempdir().expect("create temp directory");
         let missing = temp_dir.path().join("missing").join("kubeconfig");
 
         let error = write_secret_file(&missing, "config", LABEL)
             .expect_err("missing directory should fail");
 
-        let message = error.to_string();
-        assert!(message.contains("Failed to write kubeconfig"), "{message}");
         assert!(
-            message.contains(&missing.display().to_string()),
-            "{message}"
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::SecretNotWritten { what, path })
+                    if what == LABEL && *path == missing
+            ),
+            "{error:#}"
         );
     }
 }

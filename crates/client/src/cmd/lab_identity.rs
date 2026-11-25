@@ -14,6 +14,7 @@ use shared::konst::SHERPA_MANIFEST_FILE;
 use shared::util::{LabFolder, get_id_for_user, load_file};
 use topology::Manifest;
 
+use crate::error::ClientError;
 use crate::token::{load_token, username_from_token};
 
 /// The lab a folder names, before any ID is worked out.
@@ -71,14 +72,12 @@ pub fn manifest_lab_identity(dir: &Path, manifest: &Manifest) -> Result<LabIdent
 ///
 /// Fails when there is no file at `path`, or it does not load.
 pub fn load_source_manifest(path: &Path, command: &str) -> Result<Manifest> {
-    if !path.exists() {
-        bail!(
-            "This folder has no {SHERPA_MANIFEST_FILE}, and 'sherpa {command}' needs the lab's \
-             source manifest. A folder made by 'sherpa download' has none: run 'sherpa \
-             {command}' in the folder the lab was started from, or copy its \
-             {SHERPA_MANIFEST_FILE} here."
-        );
-    }
+    ensure!(
+        path.exists(),
+        ClientError::NoSourceManifest {
+            command: command.to_owned()
+        }
+    );
     Manifest::load_file(&path.to_string_lossy())
 }
 
@@ -135,13 +134,7 @@ fn folder_lab_info(dir: &Path) -> Result<Option<LabInfo>> {
     load_file(&path.to_string_lossy())
         .and_then(|content| content.parse::<LabInfo>())
         .map(Some)
-        .with_context(|| {
-            format!(
-                "{} does not parse; restore it with 'sherpa download' of the lab, or remove it \
-                 if this folder is for the lab named in {SHERPA_MANIFEST_FILE}",
-                path.display()
-            )
-        })
+        .with_context(|| ClientError::LabInfoUnparsable { path: path.clone() })
 }
 
 /// Stop unless the user logged in owns the lab of the folder `dir`: only a lab's owner can
@@ -164,8 +157,9 @@ pub fn require_lab_owner(dir: &Path) -> Result<()> {
 fn check_lab_owner(lab_info: &LabInfo, username: &str) -> Result<()> {
     ensure!(
         lab_info.user == username,
-        "Only the owner of lab '{}' can connect to its nodes",
-        lab_info.id
+        ClientError::NotLabOwner {
+            lab_id: lab_info.id.clone()
+        }
     );
     Ok(())
 }
@@ -179,28 +173,22 @@ fn folder_lab(
 ) -> Result<FolderLab> {
     match (lab_info, manifest_name) {
         (Some(lab_info), Some(manifest_name)) => {
-            let path = lab_info_file(dir);
             ensure!(
                 lab_info.name == manifest_name,
-                "{} is for lab {}-{}, but {SHERPA_MANIFEST_FILE} is for lab {}; destroy lab \
-                 {}-{} or remove {} before using this folder for lab {}",
-                path.display(),
-                lab_info.name,
-                lab_info.id,
-                manifest_name,
-                lab_info.name,
-                lab_info.id,
-                path.display(),
-                manifest_name
+                ClientError::LabsDiffer {
+                    path: lab_info_file(dir),
+                    name: lab_info.name,
+                    id: lab_info.id,
+                    manifest_name,
+                }
             );
             Ok(FolderLab::Recorded(lab_info))
         }
         (Some(lab_info), None) => Ok(FolderLab::Recorded(lab_info)),
         (None, Some(manifest_name)) => Ok(FolderLab::Named(manifest_name)),
-        (None, None) => bail!(
-            "This folder has no {SHERPA_MANIFEST_FILE} or {}",
-            lab_info_file(dir).display()
-        ),
+        (None, None) => bail!(ClientError::NoLabFiles {
+            lab_info: lab_info_file(dir)
+        }),
     }
 }
 
@@ -299,25 +287,32 @@ mod tests {
         let error =
             folder_lab(Path::new(""), Some(lab("a", "1")), Some("b".to_string())).unwrap_err();
         // The path is the platform's, `.sherpa\lab-info.toml` on Windows.
-        let path = Path::new(".sherpa").join("lab-info.toml");
+        let Some(ClientError::LabsDiffer {
+            path,
+            name,
+            id,
+            manifest_name,
+        }) = error.downcast_ref::<ClientError>()
+        else {
+            panic!("not labs that differ: {error:#}");
+        };
+        assert_eq!(*path, Path::new(".sherpa").join("lab-info.toml"));
         assert_eq!(
-            error.to_string(),
-            format!(
-                "{} is for lab a-1, but manifest.toml is for lab b; destroy lab a-1 or \
-                 remove {} before using this folder for lab b",
-                path.display(),
-                path.display()
-            )
+            (name.as_str(), id.as_str(), manifest_name.as_str()),
+            ("a", "1", "b")
         );
     }
 
     #[test]
     fn lab_identity_006_a_folder_with_neither_file_is_refused() {
         let error = folder_lab(Path::new(""), None, None).unwrap_err();
-        let path = Path::new(".sherpa").join("lab-info.toml");
-        assert_eq!(
-            error.to_string(),
-            format!("This folder has no manifest.toml or {}", path.display())
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::NoLabFiles { lab_info })
+                    if *lab_info == Path::new(".sherpa").join("lab-info.toml")
+            ),
+            "{error:#}"
         );
     }
 
@@ -327,14 +322,12 @@ mod tests {
         for command in ["up", "redeploy", "provision"] {
             let error =
                 load_source_manifest(&dir.path().join(SHERPA_MANIFEST_FILE), command).unwrap_err();
-            assert_eq!(
-                error.to_string(),
-                format!(
-                    "This folder has no manifest.toml, and 'sherpa {command}' needs the lab's \
-                     source manifest. A folder made by 'sherpa download' has none: run 'sherpa \
-                     {command}' in the folder the lab was started from, or copy its \
-                     manifest.toml here."
-                )
+            assert!(
+                matches!(
+                    error.downcast_ref::<ClientError>(),
+                    Some(ClientError::NoSourceManifest { command: named }) if named == command
+                ),
+                "{error:#}"
             );
         }
     }
@@ -352,15 +345,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let manifest = dir.path().join(SHERPA_MANIFEST_FILE);
         fs::write(&manifest, BROKEN_MANIFEST).unwrap();
-        let error = resolve_lab_identity(dir.path()).unwrap_err().to_string();
-        assert_eq!(
-            error,
-            format!("Failed to parse manifest {}", manifest.display())
-        );
+        let error = resolve_lab_identity(dir.path()).unwrap_err();
+        assert!(error.root_cause().is::<toml::de::Error>(), "{error:#}");
     }
 
     #[test]
-    fn lab_identity_009_a_lab_info_that_does_not_parse_stops_the_command_naming_the_file() {
+    fn lab_identity_009_a_lab_info_that_does_not_parse_stops_the_command_carrying_the_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = lab_info_file(dir.path());
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -371,18 +361,19 @@ mod tests {
         )
         .unwrap();
         let manifest: Manifest = toml::from_str("name = 'core'\nnodes = []\n").unwrap();
-        let expected = format!(
-            "{} does not parse; restore it with 'sherpa download' of the lab, or remove it if \
-             this folder is for the lab named in manifest.toml",
-            path.display()
-        );
 
         for error in [
             resolve_lab_identity(dir.path()).unwrap_err(),
             manifest_lab_identity(dir.path(), &manifest).unwrap_err(),
             require_lab_owner(dir.path()).unwrap_err(),
         ] {
-            assert_eq!(error.to_string(), expected);
+            assert!(
+                matches!(
+                    error.downcast_ref::<ClientError>(),
+                    Some(ClientError::LabInfoUnparsable { path: named }) if *named == path
+                ),
+                "{error:#}"
+            );
         }
     }
 
@@ -392,9 +383,13 @@ mod tests {
         let lab_info = folder_lab_info(dir.path()).unwrap().unwrap();
         assert!(check_lab_owner(&lab_info, "dev").is_ok());
         for other in ["admin", "dana"] {
-            assert_eq!(
-                check_lab_owner(&lab_info, other).unwrap_err().to_string(),
-                "Only the owner of lab '0a1b2c3d' can connect to its nodes"
+            let error = check_lab_owner(&lab_info, other).unwrap_err();
+            assert!(
+                matches!(
+                    error.downcast_ref::<ClientError>(),
+                    Some(ClientError::NotLabOwner { lab_id }) if lab_id == "0a1b2c3d"
+                ),
+                "{error:#}"
             );
         }
 

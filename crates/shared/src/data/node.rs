@@ -1110,7 +1110,7 @@ impl NodeConfig {
     ///
     /// Fails when the image's model does not take its kind, as a record edited by hand could.
     pub fn model_kind(&self) -> Result<ModelKind> {
-        ModelKind::new(self.model, Some(self.kind()))
+        Ok(ModelKind::new(self.model, Some(self.kind()))?)
     }
 
     /// The image's ZTP setting: its group's, and `disabled` for a unikernel, which has none.
@@ -2295,6 +2295,8 @@ fn cisco_iol_interfaces() -> InterfaceSettings {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::error::Category;
+
     use super::*;
 
     #[test]
@@ -2324,10 +2326,8 @@ mod tests {
         )
     }
 
-    fn from_manifest(name: &str) -> Result<NodeModel, String> {
-        toml::from_str::<ManifestNode>(&format!(r#"model = "{name}""#))
-            .map(|node| node.model)
-            .map_err(|error| error.to_string())
+    fn from_manifest(manifest: &str) -> Result<NodeModel, toml::de::Error> {
+        toml::from_str::<ManifestNode>(manifest).map(|node| node.model)
     }
 
     #[test]
@@ -2335,7 +2335,10 @@ mod tests {
         for model in NodeModel::iter() {
             let name = model.to_string();
             assert_eq!(name.parse::<NodeModel>().unwrap(), model);
-            assert_eq!(from_manifest(&name).unwrap(), model);
+            assert_eq!(
+                from_manifest(&format!(r#"model = "{name}""#)).unwrap(),
+                model
+            );
             assert_eq!(
                 serde_json::to_value(model).unwrap(),
                 serde_json::json!(name)
@@ -2359,13 +2362,12 @@ mod tests {
                 name: "nosuch_model".to_owned()
             }
         );
-        let expected = "Unknown node model: nosuch_model";
-        let error = from_manifest("nosuch_model").unwrap_err();
-        assert!(error.contains(expected), "{error}");
-        let error = serde_json::from_value::<NodeModel>(serde_json::json!("nosuch_model"))
-            .unwrap_err()
-            .to_string();
-        assert_eq!(error, expected);
+        let manifest = r#"model = "nosuch_model""#;
+        let span = from_manifest(manifest).unwrap_err().span().unwrap();
+        assert_eq!(&manifest[span], r#""nosuch_model""#);
+        let error =
+            serde_json::from_value::<NodeModel>(serde_json::json!("nosuch_model")).unwrap_err();
+        assert_eq!(error.classify(), Category::Data);
         let error = model_option()
             .try_get_matches_from(["test", "--model", "nosuch_model"])
             .unwrap_err();

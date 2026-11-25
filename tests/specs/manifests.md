@@ -52,8 +52,8 @@ A redeploy reads one node of the manifest it is sent. The lab's description, lin
 |---|---|---|
 | 001 | `sherpa validate` in a folder with no `manifest.toml` exits 1 and says the file was not found | e2e |
 | 002 | A file that is not TOML is refused, and the error carries the file's path | unit |
-| 003 | A manifest without `name`, or without `nodes`, is refused, naming the missing key | unit |
-| 004 | An unknown key is refused in every table of a manifest, naming the key: the top level, a node, each group of a node, a link, an impairment, a bridge, a text file, a systemd unit, a volume, a Talos cluster, `[tailscale]`, a provisioner and a provisioner's file | unit |
+| 003 | A manifest without `name`, or without `nodes`, is refused, and the error's span is the top-level table that lacks the key | unit |
+| 004 | An unknown key is refused in every table of a manifest, and the error's span is the key, or for a provisioner and its files, which are read through the provisioner's `type`, the provisioner's table: the top level, a node, each group of a node, a link, an impairment, a bridge, a text file, a systemd unit, a volume, a Talos cluster, `[tailscale]`, a provisioner and a provisioner's file | unit |
 | 005 | Every key a manifest takes is read as the setting it names: the lab's own, a virtual machine with every shared group and `vm`, a container with `container`, a unikernel with `unikernel`, text files, links and bridges | unit |
 | 006 | A key left out stays unset and is not given a value: a node's `kind`, its `ztp.method` and its groups; a manifest without `[tailscale]` has no tailnet and `enabled` left out is off; a provisioner file's `mode` is 600 and a secret file's 444; a cluster's `cni` is `flannel` and it has no workers | unit |
 | 007 | A manifest written out as TOML has a table only for the groups a node sets, and reads back the same | unit |
@@ -108,11 +108,11 @@ The server runs these at up before anything is created (`lab_preflight_002`). Th
 | 001 | A node without `kind` is its model's default kind: a virtual machine for `arista_eos`, `juniper_evolved` and `sonic_linux` | unit |
 | 002 | A `generic` node without `kind` is refused, and the error carries the node, the model and its three kinds; with each kind it is a node of that kind | unit |
 | 003 | A `kind` the model does not take is refused, and the error carries the node, the kind, the model and the kinds it comes as | unit |
-| 004 | A model and kind read from JSON, as a stored record or a request holds them, are refused when the model does not take the kind | unit |
+| 004 | A model and kind read from JSON, as a stored record or a request holds them, are refused as data when the model does not take the kind, and the check they go through refuses them with an error that carries the model and the kind | unit |
 | 005 | Every model and kind has built-in settings, and they are of that model and kind | unit |
 | 006 | A message names a model with its kind only when the model takes several: `cisco_asa`, but `arista_eos, container` | unit |
 | 007 | Every model is taken by the name it is shown as, from a manifest, from JSON and on the command line | unit |
-| 008 | A model name Sherpa does not know is refused from a manifest, from JSON and on the command line, and the error carries the name | unit |
+| 008 | A model name Sherpa does not know is refused by its parse with an error that carries the name; from a manifest the error's span is the name, from JSON it is refused as data, and on the command line the error is an invalid value that carries the name | unit |
 | 009 | A `--model` option lists every model name as a possible value | unit |
 
 ## `node_settings`: a node sets only what its kind and its model take

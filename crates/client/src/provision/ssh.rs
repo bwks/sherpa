@@ -20,6 +20,7 @@ use super::remote::{
     script_wrapper_command, sftp_path,
 };
 use super::transport::{NodeSession, SshTarget};
+use crate::error::ClientError;
 use crate::ssh_client::retryable;
 
 /// A client file to copy, read before the node is changed.
@@ -135,7 +136,7 @@ fn read_client_files(
         let text = fs::read_to_string(&src)
             .with_context(|| format!("Cannot read env file {} as text", src.display()))?;
         let content = resolve_env_file(&text, client_variable)
-            .with_context(|| format!("Env file {}", src.display()))?
+            .with_context(|| ClientError::EnvFile { path: src.clone() })?
             .into_bytes();
         env_files.push(FileCopy {
             src,
@@ -230,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn provisioner_env_007_an_unset_variable_fails_before_the_node_is_changed_naming_file_line_and_variable()
+    fn provisioner_env_007_an_unset_variable_fails_before_the_node_is_changed_carrying_file_line_and_variable()
      {
         let dir = tempdir().unwrap();
         fs::write(
@@ -245,14 +246,25 @@ mod tests {
         let Err(error) = read_client_files(&provisioner, dir.path()) else {
             panic!("an env file with an unset variable was read");
         };
-        let error = format!("{error:#}");
-        assert!(error.contains("dev.env"), "{error}");
-        assert!(error.contains("line 2"), "{error}");
-        assert!(error.contains("SHERPA_TEST_UNSET_TOKEN"), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::EnvFile { path }) if *path == dir.path().join("dev.env")
+            ),
+            "{error:#}"
+        );
+        assert!(
+            matches!(
+                error.root_cause().downcast_ref::<ClientError>(),
+                Some(ClientError::UnsetEnvFileVariable { line: 2, variable })
+                    if variable == "SHERPA_TEST_UNSET_TOKEN"
+            ),
+            "{error:#}"
+        );
     }
 
     #[test]
-    fn provisioner_files_003_a_missing_client_file_fails_the_node_naming_it() {
+    fn provisioner_files_003_a_missing_client_file_fails_the_node_carrying_it() {
         let dir = tempdir().unwrap();
         let provisioner = SshProvisioner {
             env_files: vec!["missing.env".to_string()],
@@ -261,8 +273,14 @@ mod tests {
         let Err(error) = read_client_files(&provisioner, dir.path()) else {
             panic!("a missing env file was read");
         };
-        let error = format!("{error:#}");
-        assert!(error.contains("missing.env"), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::ProvisionerFileUnreadable { path })
+                    if *path == dir.path().join("missing.env")
+            ),
+            "{error:#}"
+        );
     }
 
     /// A target for `web01` of lab `ab12cd34`, whose SSH config puts it at `address`, reached
@@ -306,21 +324,17 @@ mod tests {
             panic!("a node with no route was reached");
         };
         let waited = started.elapsed();
-        let message = format!("{error:#}");
         assert!(
             waited < Duration::from_secs(60),
-            "waited {waited:?} before failing: {message}"
+            "waited {waited:?} before failing: {error:#}"
         );
         assert!(
-            message.contains("web01 at 192.0.2.10:22 is not reachable from this machine"),
-            "{message}"
-        );
-        assert!(
-            message.contains(
-                "Use --ssh-jump to go through the Sherpa server, or join the lab's tailnet and \
-                 accept its routes."
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::NoRouteToNode { node_name, address, .. })
+                    if node_name == "web01" && address == "192.0.2.10:22"
             ),
-            "{message}"
+            "{error:#}"
         );
     }
 }

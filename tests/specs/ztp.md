@@ -122,8 +122,8 @@ The lab's CA and a node's certificate are here because they reach the node in it
 |---|---|---|
 | 001 | A node with a `ztp.config` boots with that config and not Sherpa's (no test yet) | e2e |
 | 002 | The CLI reads `ztp.config` from the user's machine, relative to the manifest's folder, and sends its contents; a node without one is left alone | unit |
-| 003 | A `ztp.config` file that is empty is refused, naming the node and the file | unit |
-| 004 | A `ztp.config` file that cannot be read is refused, naming the node and the file | unit |
+| 003 | A `ztp.config` file that is empty is refused, and the error carries the node and the file | unit |
+| 004 | A `ztp.config` file that cannot be read is refused, and the error carries the node and the file | unit |
 | 005 | A config is taken with `tftp`, `cdrom`, `disk`, `usb`, `nocloud` and `volume`, and refused with `cloud-init`, `ignition` and `http`, and the error carries the method | unit |
 | 006 | A config on a node with ZTP off is refused for every model but `hashicorp_vault` | unit |
 | 007 | A `hashicorp_vault` node's `ztp.config` is Vault's own config file, mounted as it is with its ZTP off | unit |

@@ -12,6 +12,7 @@ use shared::validators::validate_username;
 
 use super::OutputFormat;
 use super::rpc_call;
+use crate::error::ClientError;
 use crate::table::render_ssh_keys_table;
 use crate::token::{load_token, username_from_token};
 
@@ -453,7 +454,7 @@ async fn change_password(
     let current_password = if own_account {
         Some(
             rpassword::prompt_password(format!("Current password for {target_username}: "))
-                .context("Failed to read password")?,
+                .context(ClientError::PasswordNotRead)?,
         )
     } else {
         None
@@ -537,11 +538,11 @@ fn device_password_request(
     mut prompt: impl FnMut(String) -> io::Result<String>,
 ) -> Result<data::SetDevicePasswordRequest> {
     let login_password = prompt(format!("Sherpa login password for {username}: "))
-        .context("Failed to read password")?;
+        .context(ClientError::PasswordNotRead)?;
     let device_password =
-        prompt("New device password: ".to_owned()).context("Failed to read password")?;
+        prompt("New device password: ".to_owned()).context(ClientError::PasswordNotRead)?;
     let confirm =
-        prompt("Confirm device password: ".to_owned()).context("Failed to read password")?;
+        prompt("Confirm device password: ".to_owned()).context(ClientError::PasswordNotRead)?;
     let device_password = confirmed_password(device_password, &confirm)?;
     Ok(data::SetDevicePasswordRequest {
         username,
@@ -630,16 +631,16 @@ fn device_password_state(set: bool) -> &'static str {
 /// Ask for a new password with `prompt`, then again to confirm it. It is always typed, never
 /// taken from `SHERPA_USER_PASSWORD`, which holds the caller's own password for `login`.
 fn prompt_new_password(prompt: &str) -> Result<String> {
-    let password = rpassword::prompt_password(prompt).context("Failed to read password")?;
+    let password = rpassword::prompt_password(prompt).context(ClientError::PasswordNotRead)?;
     let confirm =
-        rpassword::prompt_password("Confirm password: ").context("Failed to read password")?;
+        rpassword::prompt_password("Confirm password: ").context(ClientError::PasswordNotRead)?;
     confirmed_password(password, &confirm)
 }
 
 /// The new `password`, if it is not empty and `confirm` matches it.
 fn confirmed_password(password: String, confirm: &str) -> Result<String> {
-    ensure!(!password.is_empty(), "The password cannot be empty");
-    ensure!(password == confirm, "Passwords do not match");
+    ensure!(!password.is_empty(), ClientError::EmptyPassword);
+    ensure!(password == confirm, ClientError::PasswordsDiffer);
     Ok(password)
 }
 
@@ -706,20 +707,29 @@ mod tests {
             ),
         )
         .unwrap_err();
-        assert_eq!(error.to_string(), "Passwords do not match");
+        assert!(matches!(
+            error.downcast_ref::<ClientError>(),
+            Some(ClientError::PasswordsDiffer)
+        ));
         let mut asked = Vec::new();
         let error = device_password_request(
             "alice".to_owned(),
             scripted(&["Login-Pass-1!", "", ""], &mut asked),
         )
         .unwrap_err();
-        assert_eq!(error.to_string(), "The password cannot be empty");
+        assert!(matches!(
+            error.downcast_ref::<ClientError>(),
+            Some(ClientError::EmptyPassword)
+        ));
 
         let mut asked = Vec::new();
         let error =
             device_password_request("alice".to_owned(), scripted(&["Login-Pass-1!"], &mut asked))
                 .unwrap_err();
-        assert_eq!(error.to_string(), "Failed to read password");
+        assert!(matches!(
+            error.downcast_ref::<ClientError>(),
+            Some(ClientError::PasswordNotRead)
+        ));
         assert_eq!(asked.len(), 2, "it asked on after a failed read: {asked:?}");
 
         let cli = TestCli::try_parse_from(["user", "device-password"]).unwrap();

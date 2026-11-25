@@ -6,11 +6,15 @@ use anyhow::{Context, Result, ensure};
 
 use shared::util::expand_path;
 
+use crate::error::ClientError;
+
 /// Resolve a client path and check that it is a readable file.
 pub(super) fn existing_client_file(manifest_dir: &Path, path: &str) -> Result<PathBuf> {
     let resolved = resolve_client_path(manifest_dir, path);
-    let metadata = fs::metadata(&resolved)
-        .with_context(|| format!("Cannot read provisioner file {}", resolved.display()))?;
+    let metadata =
+        fs::metadata(&resolved).with_context(|| ClientError::ProvisionerFileUnreadable {
+            path: resolved.clone(),
+        })?;
     ensure!(
         metadata.is_file(),
         "Provisioner file {} is not a file",

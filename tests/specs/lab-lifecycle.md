@@ -151,11 +151,11 @@ The node states themselves are `node_state` in [nodes](nodes.md). A lab's status
 | 002 | With a manifest of the same name beside it, the lab has the ID `lab-info.toml` records, for the commands that load the manifest and for those that do not | unit |
 | 003 | A folder with only a manifest is the lab of the manifest's name, with the ID of the login's Sherpa username and that name, so another Sherpa user gets another ID | unit |
 | 004 | A new lab's ID is eight hex digits from the owner's Sherpa username and the lab's name: the same for the same two every time, and another for another user or another name | unit |
-| 005 | A `lab-info.toml` and a manifest that name different labs are refused, naming both labs and the file, and saying to destroy the recorded lab or remove the file | unit |
-| 006 | A folder with neither file is refused, naming both files | unit |
+| 005 | A `lab-info.toml` and a manifest that name different labs are refused, with an error that carries both labs and the file and says to destroy the recorded lab or remove the file | unit |
+| 006 | A folder with neither file is refused, and the error carries the `lab-info.toml` it looked for | unit |
 | 007 | `up`, `redeploy` and `provision` in a folder with no manifest are refused, saying a folder made by `sherpa download` has none and where to run the command | unit |
 | 008 | A manifest that does not load beside a `lab-info.toml` does not stop a command that needs no manifest: the lab is the recorded one; with no `lab-info.toml` the command fails with the manifest's error | unit |
-| 009 | A `lab-info.toml` that is there but does not parse stops the command, beside a manifest too, with an error that names the file and says to restore it with `sherpa download` or remove it; only a folder with no `lab-info.toml` is the lab of its manifest | unit |
+| 009 | A `lab-info.toml` that is there but does not parse stops the command, beside a manifest too, with an error that carries the file and says to restore it with `sherpa download` or remove it; only a folder with no `lab-info.toml` is the lab of its manifest | unit |
 | 010 | A folder with only a manifest and no login is refused, since the lab's ID comes from the login (no test yet) | unit |
 | 011 | After the lab's name is changed in the `manifest.toml` of a running lab's folder, `sherpa inspect` and `sherpa up` exit non-zero naming both labs, and the running lab is untouched (no test yet) | e2e |
 

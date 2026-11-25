@@ -3,10 +3,12 @@
 //!
 //! Commands print the server's summary first, then call these, so the user sees what failed.
 
-use anyhow::{Result, bail};
+use anyhow::{Result, bail, ensure};
 
 use shared::data::{DestroyResponse, LinkReport, LinkState, NodeActionResult, ScannedImage};
 use shared::util::Emoji;
+
+use crate::error::ClientError;
 
 /// Fail unless the server destroyed every resource of the lab. `retry` is the command that
 /// tries again, such as `sherpa destroy`.
@@ -14,54 +16,50 @@ pub(crate) fn ensure_lab_destroyed(response: &DestroyResponse, retry: &str) -> R
     if response.success {
         return Ok(());
     }
-    let lab = format!("{}-{}", response.lab_name, response.lab_id);
+    let lab_name = response.lab_name.clone();
+    let lab_id = response.lab_id.clone();
     if response.summary.database_records_deleted {
-        bail!(
-            "Lab {lab} was removed, but not all of its resources were cleaned up; see the errors \
-             above"
-        );
+        bail!(ClientError::LabResourcesLeft { lab_name, lab_id });
     }
-    bail!(
-        "Lab {lab} was not fully destroyed and still exists on the server; fix the problem, \
-         then run `{retry}` again"
-    );
+    bail!(ClientError::LabNotDestroyed {
+        lab_name,
+        lab_id,
+        retry: retry.to_owned(),
+    });
 }
 
 /// Fail if any node's action failed. `action` names it for the message, such as `stopped`.
 pub(crate) fn ensure_nodes_succeeded(action: &str, results: &[NodeActionResult]) -> Result<()> {
-    let mut failed = vec![];
-    for result in results {
-        if !result.success {
-            failed.push(result.name.as_str());
+    let failed: Vec<String> = results
+        .iter()
+        .filter(|result| !result.success)
+        .map(|result| result.name.clone())
+        .collect();
+    ensure!(
+        failed.is_empty(),
+        ClientError::NodesFailed {
+            action: action.to_owned(),
+            failed,
+            total: results.len(),
         }
-    }
-    if !failed.is_empty() {
-        bail!(
-            "{} of {} nodes were not {action}: {}",
-            failed.len(),
-            results.len(),
-            failed.join(", ")
-        );
-    }
+    );
     Ok(())
 }
 
 /// Fail if an image scan failed to record any version it found, naming each.
 pub(crate) fn ensure_images_recorded(scanned: &[ScannedImage]) -> Result<()> {
-    let mut failed = vec![];
-    for image in scanned {
-        if image.failed {
-            failed.push(format!("{} {} {}", image.model, image.kind, image.version));
+    let unrecorded: Vec<ScannedImage> = scanned
+        .iter()
+        .filter(|image| image.failed)
+        .cloned()
+        .collect();
+    ensure!(
+        unrecorded.is_empty(),
+        ClientError::ImagesNotRecorded {
+            unrecorded,
+            total: scanned.len(),
         }
-    }
-    if !failed.is_empty() {
-        bail!(
-            "{} of {} images found were not recorded: {}",
-            failed.len(),
-            scanned.len(),
-            failed.join(", ")
-        );
-    }
+    );
     Ok(())
 }
 
@@ -168,21 +166,30 @@ mod tests {
 
     #[test]
     fn test_lab_left_on_the_server_is_an_error_naming_the_retry() {
-        let error = ensure_lab_destroyed(&destroy_response(false, false), "sherpa destroy")
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("bridges-e9f870b2"), "{error}");
-        assert!(error.contains("still exists"), "{error}");
-        assert!(error.contains("`sherpa destroy`"), "{error}");
+        let error =
+            ensure_lab_destroyed(&destroy_response(false, false), "sherpa destroy").unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::LabNotDestroyed { lab_name, lab_id, retry })
+                    if lab_name == "bridges" && lab_id == "e9f870b2" && retry == "sherpa destroy"
+            ),
+            "{error:#}"
+        );
     }
 
     #[test]
     fn test_removed_lab_with_leftover_resources_is_an_error() {
-        let error = ensure_lab_destroyed(&destroy_response(false, true), "sherpa destroy")
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("bridges-e9f870b2"), "{error}");
-        assert!(error.contains("not all of its resources"), "{error}");
+        let error =
+            ensure_lab_destroyed(&destroy_response(false, true), "sherpa destroy").unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::LabResourcesLeft { lab_name, lab_id })
+                    if lab_name == "bridges" && lab_id == "e9f870b2"
+            ),
+            "{error:#}"
+        );
     }
 
     #[test]
@@ -192,11 +199,18 @@ mod tests {
             node_result("dev02", false),
             node_result("dev03", false),
         ];
-        let error = ensure_nodes_succeeded("stopped", &results)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("2 of 3 nodes were not stopped"), "{error}");
-        assert!(error.contains("dev02, dev03"), "{error}");
+        let error = ensure_nodes_succeeded("stopped", &results).unwrap_err();
+        let Some(ClientError::NodesFailed {
+            action,
+            failed,
+            total,
+        }) = error.downcast_ref::<ClientError>()
+        else {
+            panic!("not failed nodes: {error:#}");
+        };
+        assert_eq!(action, "stopped");
+        assert_eq!(failed, &["dev02", "dev03"]);
+        assert_eq!(*total, 3);
     }
 
     fn scanned(version: &str, status: &str, failed: bool) -> ScannedImage {
@@ -210,7 +224,7 @@ mod tests {
     }
 
     #[test]
-    fn image_scan_020_a_scan_with_a_version_it_failed_to_record_exits_non_zero_naming_it() {
+    fn image_scan_020_a_scan_with_a_version_it_failed_to_record_exits_non_zero_carrying_it() {
         let scanned = [
             scanned("2.10", "imported (default)", false),
             scanned("2.11", "error: database is locked", true),
@@ -219,10 +233,20 @@ mod tests {
         let error = ensure_images_recorded(&scanned).unwrap_err();
 
         assert_eq!(exit_status(&error), 1);
-        let message = error.to_string();
-        assert!(message.contains("1 of 2 images"), "{message}");
-        assert!(message.contains("nats_bus container 2.11"), "{message}");
-        assert!(!message.contains("2.10"), "{message}");
+        let Some(ClientError::ImagesNotRecorded { unrecorded, total }) =
+            error.downcast_ref::<ClientError>()
+        else {
+            panic!("not unrecorded images: {error:#}");
+        };
+        let unrecorded: Vec<_> = unrecorded
+            .iter()
+            .map(|image| (image.model, image.kind, image.version.as_str()))
+            .collect();
+        assert_eq!(
+            unrecorded,
+            [(NodeModel::NatsBus, NodeKind::Container, "2.11")]
+        );
+        assert_eq!(*total, 2);
     }
 
     #[test]
