@@ -92,6 +92,17 @@ a second VM in the same namespace fails to start. A redeploy removes the holder 
 container (`node_ops::destroy_container_node`), and a lab's destroy removes it with the lab's
 other containers, as its name ends in the lab ID.
 
+## Memory
+
+virtiofsd maps the VM's whole memory, shared with Cloud Hypervisor, to serve virtio-fs, so its
+RSS counts the guest's RAM a second time: on a nested guest, 1.1–1.6 GB for a cEOS or SR Linux
+node, of which 13–35 MiB is its own. The host pays for the guest's RAM once, in the shared
+memory both processes map, plus about 0.4–0.6 GB that Cloud Hypervisor holds privately. A node's
+cost is best read as Cloud Hypervisor's RSS plus virtiofsd's private memory.
+`virtio_fs_cache = "never"` stops cEOS booting and does not lower SR Linux's once it runs, and
+`--thread-pool-size=1` does not change virtiofsd's own memory, so Sherpa's Kata config keeps
+Kata's defaults for both.
+
 ## Starting a stopped node
 
 `down` pauses a VM-run container and `resume` unpauses it, as for any container: its VM, holder
