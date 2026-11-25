@@ -3,8 +3,8 @@ use futures::future::join_all;
 use libvirt::ConsoleSockets;
 use opentelemetry::KeyValue;
 use shared::data::{
-    self, DbLab, Halt, LabNodeActionResponse, ModelKind, NodeActionResult, NodeKind,
-    OperationEvent, RecordId, Runtime, StatusKind, TailnetAuthKey, TailnetStatus,
+    self, DbBridge, DbLab, Halt, LabNodeActionResponse, LinkReport, ModelKind, NodeActionResult,
+    NodeKind, OperationEvent, RecordId, Runtime, StatusKind, TailnetAuthKey, TailnetStatus,
 };
 use shared::konst::{READINESS_TIMEOUT, SHERPA_LABS_PATH};
 use std::collections::{HashMap, HashSet};
@@ -27,8 +27,8 @@ use super::lab_operations::{self, LabOperation, Operation};
 use super::node_lifecycle::{self, query_runtimes};
 use super::node_ops::{self, VmReadiness};
 use super::p2p_links::{
-    KernelHost, LabLinks, PlannedNode, follow_started_links, reattach_node_links, recreated_end,
-    report_links,
+    KernelHost, LabLinks, PlannedNode, RecreatedEnd, follow_started_links, reattach_node_links,
+    recreated_end, report_links,
 };
 use super::progress::ProgressSender;
 use super::ssh_config;
@@ -62,6 +62,9 @@ enum StartOutcome {
     AlreadyRunning,
     Failed(String),
 }
+
+/// What starting one node did, with the node's name, record and kind.
+type Started = (StartOutcome, String, Option<RecordId>, NodeKind);
 
 /// A node that resume cold-booted and waits for.
 #[derive(Debug, Clone)]
@@ -141,53 +144,6 @@ pub async fn start_lab_nodes(
     // A lab started before consoles moved behind sherpad has no console folder yet.
     console::create_console_dir(lab_id)?;
 
-    // Build futures for all node operations concurrently
-    let mut futures = Vec::new();
-    let mut immediate_results = Vec::new();
-
-    for node in &target_nodes {
-        let device_name = format!("{}-{}", node.name, lab_id);
-        let (kind, model) = match startable_image(node, &node_images) {
-            Ok(image) => (image.kind(), image.model),
-            Err(refused) => {
-                immediate_results.push(refused);
-                continue;
-            }
-        };
-
-        let node_name = node.name.clone();
-        let node_id = node.id.clone();
-        let state = state.clone();
-        let sockets = console::console_sockets(lab_id, node.index);
-
-        futures.push(async move {
-            let outcome = match (kind, sockets) {
-                (NodeKind::VirtualMachine | NodeKind::Unikernel, Ok(sockets)) => {
-                    start_vm(&device_name, sockets, &state).await
-                }
-                (NodeKind::VirtualMachine | NodeKind::Unikernel, Err(error)) => {
-                    StartOutcome::Failed(
-                        Unexpected::log(&error, "Failed to start a node").to_string(),
-                    )
-                }
-                (NodeKind::Container, _) => start_container_node(&device_name, model, &state).await,
-            };
-
-            (outcome, node_name, node_id, kind)
-        });
-    }
-
-    // Run all operations concurrently
-    let concurrent_results = join_all(futures).await;
-
-    // Booted or unpaused: their links' states and carrier are decided once they are re-attached.
-    let started: HashSet<RecordId> = concurrent_results
-        .iter()
-        .filter(|(outcome, ..)| matches!(outcome, StartOutcome::ColdBooted | StartOutcome::Resumed))
-        .filter_map(|(_, _, node_id, _)| node_id.clone())
-        .collect();
-    let mut results = immediate_results;
-    let cold_booted = record_outcomes(state, &operation, concurrent_results, &mut results).await;
     let lab = ResumedLab {
         lab_id,
         lab_record_id: &lab_record_id,
@@ -198,8 +154,25 @@ pub async fn start_lab_nodes(
         operation: &operation,
     };
 
+    let (concurrent_results, immediate_results, vm_run_links) =
+        start_nodes(&lab, &node_images).await;
+
+    // Booted or unpaused: their links' states and carrier are decided once they are re-attached.
+    let started: HashSet<RecordId> = concurrent_results
+        .iter()
+        .filter(|(outcome, ..)| matches!(outcome, StartOutcome::ColdBooted | StartOutcome::Resumed))
+        .filter_map(|(_, _, node_id, _)| node_id.clone())
+        .collect();
+    let mut results = immediate_results;
+    let cold_booted = record_outcomes(state, &operation, concurrent_results, &mut results).await;
+    for (name, links) in vm_run_links {
+        if let Some(result) = results.iter_mut().find(|result| result.name == name) {
+            result.links = links;
+        }
+    }
+
     // A cold boot makes a node's link ends again, so its links are re-attached before its
-    // readiness is awaited, as `up` does.
+    // readiness is awaited, as `up` does. A VM-run node's were made before it started.
     reattach_cold_booted(&lab, &node_images, &cold_booted, &mut results).await;
     // An unpaused node made no ends again, and a booted one's re-attach takes a paused peer as
     // up: the links of both are decided now, as the next scan would, and their carrier set.
@@ -224,6 +197,66 @@ pub async fn start_lab_nodes(
     );
 
     Ok(LabNodeActionResponse { results, tailscale })
+}
+
+/// Start each node: VMs, unikernels and containers on runc concurrently, then the VM-run
+/// containers one at a time, as their links are made before their VMs boot, after their peers
+/// have started. Returns what starting each did, the results of the nodes that cannot be
+/// started, and the links of each VM-run node.
+async fn start_nodes(
+    lab: &ResumedLab<'_>,
+    node_images: &[data::NodeConfig],
+) -> (
+    Vec<Started>,
+    Vec<NodeActionResult>,
+    Vec<(String, Vec<LinkReport>)>,
+) {
+    // Build futures for all node operations concurrently
+    let mut futures = Vec::new();
+    let mut immediate_results = Vec::new();
+    let mut vm_run_nodes = Vec::new();
+
+    for node in lab.nodes {
+        let device_name = format!("{}-{}", node.name, lab.lab_id);
+        let (kind, model) = match startable_image(node, node_images) {
+            Ok(image) => (image.kind(), image.model),
+            Err(refused) => {
+                immediate_results.push(refused);
+                continue;
+            }
+        };
+        if runs_in_vm(kind, model) {
+            vm_run_nodes.push(node);
+            continue;
+        }
+
+        let node_name = node.name.clone();
+        let node_id = node.id.clone();
+        let state = lab.state.clone();
+        let sockets = console::console_sockets(lab.lab_id, node.index);
+
+        futures.push(async move {
+            let outcome = match (kind, sockets) {
+                (NodeKind::VirtualMachine | NodeKind::Unikernel, Ok(sockets)) => {
+                    start_vm(&device_name, sockets, &state).await
+                }
+                (NodeKind::VirtualMachine | NodeKind::Unikernel, Err(error)) => {
+                    StartOutcome::Failed(
+                        Unexpected::log(&error, "Failed to start a node").to_string(),
+                    )
+                }
+                (NodeKind::Container, _) => start_container_node(&device_name, model, &state).await,
+            };
+
+            (outcome, node_name, node_id, kind)
+        });
+    }
+
+    // Run all operations concurrently
+    let mut concurrent_results = join_all(futures).await;
+    let (vm_run_results, vm_run_links) = start_vm_run_nodes(lab, &vm_run_nodes, node_images).await;
+    concurrent_results.extend(vm_run_results);
+    (concurrent_results, immediate_results, vm_run_links)
 }
 
 /// Admit the target nodes that are stopped: VMs, unikernels and containers with a memory limit.
@@ -684,7 +717,7 @@ fn startable_image<'a>(
 async fn record_outcomes(
     state: &AppState,
     operation: &LabOperation,
-    outcomes: Vec<(StartOutcome, String, Option<RecordId>, NodeKind)>,
+    outcomes: Vec<Started>,
     results: &mut Vec<NodeActionResult>,
 ) -> Vec<(String, NodeKind)> {
     let mut cold_booted = vec![];
@@ -849,6 +882,141 @@ async fn start_container_node(
     }
 }
 
+/// Start the VM-run container nodes `nodes`, one at a time, so each one's links attach to the
+/// ends of those started before it. A paused node is unpaused; a stopped one is cold-booted by
+/// `boot_vm_run_node`. Returns what starting each did, and the links of each cold-booted one.
+#[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
+async fn start_vm_run_nodes(
+    lab: &ResumedLab<'_>,
+    nodes: &[&data::DbNode],
+    node_images: &[data::NodeConfig],
+) -> (Vec<Started>, Vec<(String, Vec<LinkReport>)>) {
+    let mut started = vec![];
+    let mut node_links = vec![];
+    if nodes.is_empty() {
+        return (started, node_links);
+    }
+    let db = &lab.state.db;
+    let links = match LabLinks::load(db, lab.lab_id, lab.lab_record_id).await {
+        Ok(lab_links) => Ok(lab_links),
+        Err(error) => Err(Unexpected::log(&error, "Failed to load the lab's links").to_string()),
+    };
+    let bridges = db::list_bridges(db, lab.lab_record_id)
+        .await
+        .map_err(|error| Unexpected::log(&error, "Failed to list the lab's bridges").to_string());
+    for node in nodes {
+        let device_name = format!("{}-{}", node.name, lab.lab_id);
+        let Some(image) = node_images
+            .iter()
+            .find(|image| image.id.as_ref() == Some(&node.image))
+        else {
+            continue;
+        };
+        let status = container::container_status(&lab.state.docker, &device_name).await;
+        let boot = status.as_ref().is_ok_and(|status| {
+            start_step(node_lifecycle::container_runtime(*status), "container")
+                == Ok(StartStep::Boot)
+        });
+        let (outcome, links) = if boot {
+            match boot_vm_run_node(lab, node, image, links.as_ref(), bridges.as_deref()).await {
+                Ok(links) => (StartOutcome::ColdBooted, links),
+                Err(error) => (
+                    StartOutcome::Failed(
+                        Unexpected::log(&error, "Failed to start a node").to_string(),
+                    ),
+                    vec![],
+                ),
+            }
+        } else {
+            (
+                start_container_node(&device_name, image.model, lab.state).await,
+                vec![],
+            )
+        };
+        started.push((
+            outcome,
+            node.name.clone(),
+            node.id.clone(),
+            NodeKind::Container,
+        ));
+        node_links.push((node.name.clone(), links));
+    }
+    (started, node_links)
+}
+
+/// Whether a node of `kind` and `model` is a container that runs in its own VM.
+fn runs_in_vm(kind: NodeKind, model: data::NodeModel) -> bool {
+    kind == NodeKind::Container
+        && ModelKind::new(model, Some(NodeKind::Container)).is_ok_and(ModelKind::runs_in_vm)
+}
+
+/// Cold-boot the stopped VM-run container of `node`. Its VM reads its network namespace's
+/// interfaces only as it boots, and a namespace a Kata VM has used cannot take another, so the
+/// node's holder is started afresh, its veths are made and its links attached in the holder's
+/// new namespace, and only then is its container started. Returns its links' states.
+#[instrument(skip_all, fields(node_name = %node.name), level = "debug")]
+async fn boot_vm_run_node(
+    lab: &ResumedLab<'_>,
+    node: &data::DbNode,
+    image: &data::NodeConfig,
+    links: Result<&LabLinks, &String>,
+    bridges: Result<&[DbBridge], &String>,
+) -> Result<Vec<LinkReport>> {
+    let docker = &lab.state.docker;
+    let device_name = format!("{}-{}", node.name, lab.lab_id);
+    let holder = node_ops::netns_holder_name(&node.name, lab.lab_id);
+    let node_id = node.id.as_ref().context("Node missing record ID")?;
+    let model_kind = image.model_kind()?;
+    let lab_links = links.map_err(|error| anyhow!("{error}"))?;
+
+    let holder_status = container::container_status(docker, &holder)
+        .await
+        .with_context(|| {
+            format!("The node has no network namespace holder {holder}; redeploy it")
+        })?;
+    if node_lifecycle::container_runtime(holder_status) != Runtime::Stopped(Halt::Off) {
+        container::kill_container(docker, &holder).await?;
+    }
+    container::start_container(docker, &holder).await?;
+
+    let host = KernelHost::new(docker, &lab.state.qemu);
+    let planned = PlannedNode {
+        lab_id: lab.lab_id,
+        node,
+        node_id,
+        kind: &NodeKind::Container,
+        image: Some(image),
+    };
+    let reports = match recreated_end(&planned, lab.definition, lab_links, bridges) {
+        Some(end) => {
+            let end = match end {
+                RecreatedEnd::Container { veths, .. } => RecreatedEnd::Container {
+                    container: holder,
+                    veths,
+                },
+                other => other,
+            };
+            let outcomes = reattach_node_links(&host, lab_links, node_id, end).await;
+            report_links(
+                &host,
+                lab_links,
+                node_id,
+                lab.progress,
+                &lab.state.link_states,
+                outcomes,
+            )
+            .await
+        }
+        None => vec![],
+    };
+
+    container::start_container(docker, &device_name)
+        .await
+        .context("Failed to start")?;
+    node_ops::finish_management_checksums(&host, &device_name, model_kind).await?;
+    Ok(reports)
+}
+
 /// Re-attach the links of each cold-booted node, whose ends were made again, and add their
 /// states to its result. A link that is not attached does not fail the node.
 #[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
@@ -903,6 +1071,9 @@ async fn reattach_cold_booted(
         let image = node_images
             .iter()
             .find(|image| image.id.as_ref() == Some(&node.image));
+        if image.is_some_and(|image| runs_in_vm(*kind, image.model)) {
+            continue;
+        }
         let Some(end) = recreated_end(
             &PlannedNode {
                 lab_id: lab.lab_id,
@@ -967,6 +1138,19 @@ mod tests {
     use shared::data::VaultSealed;
     use shared::data::{NodeModel, ReadyCheck};
     use shared::konst::SSH_PORT;
+
+    #[test]
+    fn container_vm_010_resume_starts_only_a_ceos_or_srlinux_container_on_the_vm_run_path() {
+        assert!(runs_in_vm(NodeKind::Container, NodeModel::AristaEos));
+        assert!(runs_in_vm(NodeKind::Container, NodeModel::NokiaSrlinux));
+        assert!(!runs_in_vm(NodeKind::Container, NodeModel::CiscoIol));
+        assert!(!runs_in_vm(NodeKind::Container, NodeModel::Generic));
+        assert!(!runs_in_vm(NodeKind::VirtualMachine, NodeModel::AristaEos));
+        assert!(!runs_in_vm(
+            NodeKind::VirtualMachine,
+            NodeModel::NokiaSrlinux
+        ));
+    }
 
     #[test]
     fn node_resume_001_resume_boots_unpauses_or_leaves_a_node_by_its_runtime() {

@@ -71,6 +71,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 006 | A redeploy or destroy removes a VM-run node's holder with its container, and leaves no VM, tap or Kata process on the host (no test at this level yet) | e2e |
 | 007 | A P2p link between two VM-run nodes carries traffic, and an impairment on it applies (no test at this level yet) | e2e |
 | 008 | A VM-run container on no link starts without its disabled interfaces, which Docker would give it as data networks | unit |
+| 009 | Resuming a stopped VM-run node, after `docker stop` or a host reboot, starts its holder afresh, makes its veths in the holder and attaches its links before its VM boots, and its links carry traffic (no test at this level yet) | e2e |
+| 010 | Resume starts an `arista_ceos` or `nokia_srlinux` container, and no other node, on the VM-run path, after the lab's other nodes | unit |
+| 011 | The scanner makes no veth again for a VM-run node whose link end is gone, as its running VM would not see it, and only for such a node | unit |
 
 ## `node_ready`: a node is running only once its ready check passes
 

@@ -270,6 +270,12 @@ async fn repair_links(
             let Some(node_id) = &node.node.id else {
                 continue;
             };
+            // A VM reads its interfaces only as it boots: a veth made now would never reach
+            // it, so a VM-run node's links are made again only when it starts.
+            if runs_in_vm(node) {
+                tracing::warn!(node = %node.node.name, "A link end of a VM-run node is gone; redeploy the node to make it again");
+                continue;
+            }
             let planned = PlannedNode {
                 lab_id: &lab.lab_id,
                 node: node.node,
@@ -299,6 +305,15 @@ async fn repair_links(
     follow_carrier(&host, &lab_links, &previous, &states, &fresh).await;
     state.link_states.replace_lab(&lab.lab_id, states);
     Ok(())
+}
+
+/// Whether scanned `node` is a container that runs in its own VM.
+fn runs_in_vm(node: &ScannedNode<'_>) -> bool {
+    node.kind == NodeKind::Container
+        && node
+            .model
+            .and_then(|model| ModelKind::new(model, Some(NodeKind::Container)).ok())
+            .is_some_and(ModelKind::runs_in_vm)
 }
 
 /// The private bridge member host ends of the lab's containers.
@@ -804,6 +819,20 @@ mod tests {
             probe_port(&scanned(&keyless, NodeKind::VirtualMachine), true),
             Some(SSH_PORT)
         );
+    }
+
+    #[test]
+    fn container_vm_011_the_scanner_makes_no_veth_again_only_for_a_vm_run_node() {
+        let node = db_node(NodeState::Running, true);
+        assert!(runs_in_vm(&container(&node, NodeModel::AristaEos, "c-lab")));
+        assert!(runs_in_vm(&container(
+            &node,
+            NodeModel::NokiaSrlinux,
+            "s-lab"
+        )));
+        assert!(!runs_in_vm(&container(&node, NodeModel::CiscoIol, "r-lab")));
+        assert!(!runs_in_vm(&container(&node, NodeModel::Generic, "g-lab")));
+        assert!(!runs_in_vm(&scanned(&node, NodeKind::VirtualMachine)));
     }
 
     #[tokio::test]

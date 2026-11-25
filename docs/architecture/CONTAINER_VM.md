@@ -89,6 +89,24 @@ a second VM in the same namespace fails to start. A redeploy removes the holder 
 container (`node_ops::destroy_container_node`), and a lab's destroy removes it with the lab's
 other containers, as its name ends in the lab ID.
 
+## Starting a stopped node
+
+`down` pauses a VM-run container and `resume` unpauses it, as for any container: its VM, holder
+and veths are untouched. A VM-run container that has stopped, after a `docker stop` or a host
+reboot, needs its interfaces made again before its VM boots, and the namespace its last VM used
+cannot take another. Resume (`resume::start_vm_run_nodes`) starts the lab's other nodes first,
+then each stopped VM-run node in turn (`resume::boot_vm_run_node`):
+
+1. its holder is killed when it still runs, and started again, which gives it a new namespace
+   with the management address;
+2. the node's veths are planned as for any cold-booted container and made in the holder, and its
+   links attached, to the peers already started;
+3. its container is started, and its VM reads the holder's interfaces.
+
+The other nodes' links to it are attached by their own re-attach, which runs after. The scanner
+does not make a VM-run node's veths again (`scanner::runs_in_vm`): its running VM would not see
+them. A link end of a running VM-run node that is gone stays down until the node is redeployed.
+
 ## Limits
 
 - A disabled interface is down at both ends, has no carrier, and so is not in the VM.
@@ -98,5 +116,10 @@ other containers, as its name ends in the lab ID.
 - `docker exec` into cEOS fails: Kata's agent cannot add a process to the cgroup that systemd
   has made a parent. Sherpa does not exec into cEOS.
 - Its hostname is the container's ID; the NOS sets its own from its config.
-- A cold start of a stopped VM-run container, as resume does after a host reboot, and scanner
-  repair of its veths make the veths after the VM has booted, so they do not reach it.
+- The scanner does not repair a running VM-run node's lost veths; a redeploy makes them again.
+- After a cold start, SR Linux's guest keeps the management address on `mgmt0` in its root
+  namespace as well as on `mgmt0.0` in `srbase-mgmt`, so SSH to it reaches the wrong `sshd` and
+  is reset. Removing the address from `mgmt0` in the guest makes SSH work.
+- cEOS cannot `write memory` ("Permission denied" on `flash:/startup-config`): virtio-fs does
+  not apply the guest root's `CAP_DAC_OVERRIDE` to the host's file. SR Linux cannot `commit save`: its `config.json` is a bind mount,
+  which the rename onto it fails on. A saved config is not kept across a cold start.
