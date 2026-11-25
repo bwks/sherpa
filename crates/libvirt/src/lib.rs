@@ -18,7 +18,8 @@ mod vnc;
 
 pub use console::{ConsoleSockets, SerialConsole, move_consoles_to_sockets, serial_console};
 pub use container_vm::{
-    ContainerVm, ContainerVmNic, create_container_vm, domain_state, remove_domain,
+    ContainerVm, ContainerVmNic, create_container_vm, delete_volume_if_present, domain_state,
+    ensure_raw_volume, remove_domain,
 };
 pub use error::LibvirtError;
 pub use host::{

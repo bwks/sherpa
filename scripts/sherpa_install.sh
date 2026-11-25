@@ -519,9 +519,11 @@ fail() { echo "sherpa-init: $*" > /dev/console; sleep 5; poweroff -f; }
 mkdir -p /lower /node /upper /newroot /tmp
 mount -t virtiofs rootfs /lower -o ro || fail "no rootfs share"
 mount -t virtiofs node /node || fail "no node share"
-mount -t tmpfs -o mode=0755 upper /upper
+[ -b /dev/vda ] || fail "no node disk"
+[ "$(hexdump -s 1080 -n 2 -e '1/2 "%04x"' /dev/vda)" = ef53 ] || mke2fs -q /dev/vda || fail "cannot format the node disk"
+mount -t ext4 /dev/vda /upper || fail "cannot mount the node disk"
 mkdir -p /upper/u /upper/w
-mount -t overlay overlay -o lowerdir=/lower,upperdir=/upper/u,workdir=/upper/w /newroot || fail "overlay failed"
+mount -t overlay overlay -o lowerdir=/lower,upperdir=/upper/u,workdir=/upper/w,index=off,uuid=off,xino=off,metacopy=off,redirect_dir=off /newroot || fail "overlay failed"
 n=0
 while [ "$n" -lt 300 ]; do
   missing=0
@@ -557,10 +559,16 @@ mount -t mqueue mqueue $R/dev/mqueue
 mount -t tmpfs -o mode=1777,size=$(cat /node/shm_size 2>/dev/null || echo 67108864) shm $R/dev/shm
 mount --move /node $R/.sherpa-node
 while read -r src dst mode; do
+  if [ "$mode" = rw ]; then
+    [ -f /upper/seeded ] && continue
+    mkdir -p "$R${dst%/*}"; rm -rf "$R$dst"; cp -a "$R/.sherpa-node/$src" "$R$dst"
+    continue
+  fi
   [ -d "$R/.sherpa-node/$src" ] && mkdir -p "$R$dst" || { mkdir -p "$R${dst%/*}"; touch "$R$dst"; }
   mount --bind "$R/.sherpa-node/$src" "$R$dst"
-  [ "$mode" = ro ] && mount -o remount,bind,ro "$R$dst"
+  mount -o remount,bind,ro "$R$dst"
 done < $R/.sherpa-node/mounts
+touch /upper/seeded
 hostname "$(cat $R/.sherpa-node/hostname)"
 cp $R/.sherpa-node/hostname $R/etc/hostname
 printf '127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n127.0.1.1\t%s\n' "$(hostname)" > $R/etc/hosts

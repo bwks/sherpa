@@ -79,6 +79,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 014 | A lab of an `arista_ceos` and a `nokia_srlinux` node linked P2p comes up with neither container privileged on the host, pings across the link, answers SSH and the serial console, redeploys a node, and leaves no domain, tap, socket or process behind once destroyed (live test in the pull request, no test yet) | e2e |
 | 015 | The guest names each interface by its MAC whatever the MAC's letter case | unit |
 | 016 | `sherpa inspect` reports a container VM's recorded state, not Docker's absent container | unit |
+| 017 | The guest's changes to its root filesystem are written to the node's own disk, a virtio disk, so they outlive the domain | unit |
+| 018 | A node's disk is a sparse raw volume in the storage pool, named like the node's other disks so destroy deletes it | unit |
 
 ## `node_ready`: a node is running only once its ready check passes
 

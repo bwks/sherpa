@@ -7,9 +7,14 @@ use tracing::instrument;
 use virt::connect::Connect;
 use virt::domain::Domain;
 use virt::error::ErrorNumber;
+use virt::storage_pool::StoragePool;
+use virt::storage_vol::StorageVol;
 use virt::sys::VIR_DOMAIN_RUNNING;
 
+use shared::konst::SHERPA_STORAGE_POOL;
+
 use crate::error::LibvirtError;
+use crate::storage::refresh_pool;
 
 /// The guest kernel's command line: the serial console, the initramfs init, and a guest whose
 /// init ended stops at once instead of hanging.
@@ -29,6 +34,7 @@ pub struct ContainerVm {
     pub initrd: String,
     pub rootfs_dir: String,
     pub node_dir: String,
+    pub disk: String,
     pub management_network: String,
     pub management_mac: String,
     pub nics: Vec<ContainerVmNic>,
@@ -46,8 +52,8 @@ pub struct ContainerVmNic {
 
 impl ContainerVm {
     /// The domain XML of the container VM: q35 with no video, balloon or USB, booted straight
-    /// into the kernel and initramfs, with the rootfs and node shares on virtio-fs, the
-    /// management interface on the lab's management network, a tap per P2p interface, and the
+    /// into the kernel and initramfs, with the rootfs and node shares on virtio-fs, the node's
+    /// raw disk on virtio, the management interface on the lab's management network, a tap per P2p interface, and the
     /// serial console on a Unix socket.
     ///
     /// # Errors
@@ -107,6 +113,20 @@ impl ContainerVm {
     fn write_devices(&self, w: &mut Writer<Vec<u8>>) -> io::Result<()> {
         share(w, &self.rootfs_dir, ROOTFS_TAG)?;
         share(w, &self.node_dir, NODE_TAG)?;
+        w.create_element("disk")
+            .with_attributes([("type", "file"), ("device", "disk")])
+            .write_inner_content(|w| {
+                w.create_element("driver")
+                    .with_attributes([("name", "qemu"), ("type", "raw")])
+                    .write_empty()?;
+                w.create_element("source")
+                    .with_attribute(("file", self.disk.as_str()))
+                    .write_empty()?;
+                w.create_element("target")
+                    .with_attributes([("dev", "vda"), ("bus", "virtio")])
+                    .write_empty()?;
+                Ok::<(), io::Error>(())
+            })?;
         w.create_element("interface")
             .with_attribute(("type", "network"))
             .write_inner_content(|w| {
@@ -228,6 +248,75 @@ pub fn create_container_vm(conn: &Connect, vm: &ContainerVm) -> Result<()> {
     Ok(())
 }
 
+/// The XML of a sparse raw volume `name` of `capacity_bytes`.
+fn raw_volume_xml(name: &str, capacity_bytes: u64) -> Result<String, LibvirtError> {
+    let mut writer = Writer::new(Vec::new());
+    writer
+        .create_element("volume")
+        .with_attribute(("type", "file"))
+        .write_inner_content(|w| {
+            text(w, "name", name)?;
+            w.create_element("capacity")
+                .with_attribute(("unit", "bytes"))
+                .write_text_content(BytesText::new(&capacity_bytes.to_string()))?;
+            text(w, "allocation", "0")?;
+            w.create_element("target").write_inner_content(|w| {
+                w.create_element("format")
+                    .with_attribute(("type", "raw"))
+                    .write_empty()?;
+                Ok::<(), io::Error>(())
+            })?;
+            Ok::<(), io::Error>(())
+        })
+        .map_err(|_| LibvirtError::DomainXmlWrite)?;
+    String::from_utf8(writer.into_inner()).map_err(|_| LibvirtError::DomainXmlWrite)
+}
+
+/// The path of volume `name` in the Sherpa storage pool, created as a sparse raw disk of
+/// `capacity_bytes` when the pool has no such volume. A volume that is there is kept with what
+/// it holds, so a node's changes outlive its domain.
+///
+/// # Errors
+///
+/// Fails when the pool cannot be found or refreshed, or libvirt cannot create the volume or
+/// read its path.
+#[instrument(level = "debug", skip(conn))]
+pub fn ensure_raw_volume(conn: &Connect, name: &str, capacity_bytes: u64) -> Result<String> {
+    let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)
+        .with_context(|| format!("Cannot find storage pool '{SHERPA_STORAGE_POOL}'"))?;
+    refresh_pool(&pool)?;
+    let volume = match StorageVol::lookup_by_name(&pool, name) {
+        Ok(volume) => volume,
+        Err(error) if error.code() == ErrorNumber::NoStorageVolume => {
+            StorageVol::create_xml(&pool, &raw_volume_xml(name, capacity_bytes)?, 0)
+                .with_context(|| format!("Cannot create volume '{name}'"))?
+        }
+        Err(error) => return Err(error).with_context(|| format!("Cannot look up volume '{name}'")),
+    };
+    volume
+        .get_path()
+        .with_context(|| format!("Cannot read the path of volume '{name}'"))
+}
+
+/// Delete volume `name` from the Sherpa storage pool; one already gone counts as deleted.
+///
+/// # Errors
+///
+/// Fails when the pool cannot be found or refreshed, or libvirt cannot delete the volume.
+#[instrument(level = "debug", skip(conn))]
+pub fn delete_volume_if_present(conn: &Connect, name: &str) -> Result<()> {
+    let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)
+        .with_context(|| format!("Cannot find storage pool '{SHERPA_STORAGE_POOL}'"))?;
+    refresh_pool(&pool)?;
+    match StorageVol::lookup_by_name(&pool, name) {
+        Ok(volume) => volume
+            .delete(0)
+            .with_context(|| format!("Cannot delete volume '{name}'")),
+        Err(error) if error.code() == ErrorNumber::NoStorageVolume => Ok(()),
+        Err(error) => Err(error).with_context(|| format!("Cannot look up volume '{name}'")),
+    }
+}
+
 /// Whether domain `name` is running, or `None` when it does not exist.
 ///
 /// # Errors
@@ -286,6 +375,7 @@ mod tests {
             initrd: "/opt/sherpa/vmboot/initramfs.img".to_string(),
             rootfs_dir: "/opt/sherpa/vmroot-ro/0096fe3e".to_string(),
             node_dir: "/opt/sherpa/labs/abc123/srl1/vm".to_string(),
+            disk: "/opt/sherpa/libvirt/images/srl1-abc123-disk.img".to_string(),
             management_network: "sherpa-management-abc123".to_string(),
             management_mac: "52:54:00:00:00:01".to_string(),
             nics: vec![
@@ -353,6 +443,25 @@ mod tests {
         let xml = vm().domain_xml().unwrap();
         assert!(xml.contains("<on_reboot>destroy</on_reboot>"));
         assert!(xml.contains("<on_crash>destroy</on_crash>"));
+    }
+
+    #[test]
+    fn container_vm_017_the_nodes_raw_disk_is_a_virtio_disk() {
+        let xml = vm().domain_xml().unwrap();
+        assert!(xml.contains(r#"<driver name="qemu" type="raw"/>"#));
+        assert!(
+            xml.contains(r#"<source file="/opt/sherpa/libvirt/images/srl1-abc123-disk.img"/>"#)
+        );
+        assert!(xml.contains(r#"<target dev="vda" bus="virtio"/>"#));
+    }
+
+    #[test]
+    fn container_vm_018_the_node_disk_volume_is_sparse_raw() {
+        let xml = raw_volume_xml("srl1-abc123-disk.img", 1 << 33).unwrap();
+        assert!(xml.contains("<name>srl1-abc123-disk.img</name>"));
+        assert!(xml.contains(r#"<capacity unit="bytes">8589934592</capacity>"#));
+        assert!(xml.contains("<allocation>0</allocation>"));
+        assert!(xml.contains(r#"<format type="raw"/>"#));
     }
 
     #[test]

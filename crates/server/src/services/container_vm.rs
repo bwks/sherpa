@@ -18,7 +18,7 @@ use tokio::task;
 use tracing::instrument;
 
 use shared::data::ModelKind;
-use shared::konst::KVM_OUI;
+use shared::konst::{CONTAINER_DISK_NAME, KVM_OUI};
 use shared::util;
 
 use crate::konst::{NODE_CONFIG_DIR_MODE, NODE_CONFIG_FILE_MODE, SHERPA_MANAGEMENT_NETWORK_NAME};
@@ -42,6 +42,8 @@ const MANAGEMENT_INTERFACE: &str = "eth0";
 /// Memory and vCPUs of a guest whose node records none.
 const DEFAULT_MEMORY_MIB: u64 = 4096;
 const DEFAULT_VCPUS: u8 = 2;
+/// The size of a node's disk, which holds the guest's changes to its root filesystem.
+const DISK_BYTES: u64 = 8 << 30;
 /// Docker's `/dev/shm` size, used when a node sets none.
 const DEFAULT_SHM_BYTES: i64 = 64 * 1024 * 1024;
 /// The search path a container gets from Docker when its image sets none.
@@ -79,8 +81,13 @@ pub(crate) fn domain_name(node_name: &str, lab_id: &str) -> String {
     format!("{node_name}-{lab_id}")
 }
 
-/// Unpack the node's image if no node has yet, write its share, and define and start its
-/// domain with every P2p end as a tap named like the container's host veth, and join each
+/// The storage pool volume of container VM `domain` that holds its changes to the image.
+fn disk_name(domain: &str) -> String {
+    format!("{domain}-{CONTAINER_DISK_NAME}")
+}
+
+/// Unpack the node's image if no node has yet, write its share, make the node's disk unless it
+/// has one, and define and start its domain with every P2p end as a tap named like the container's host veth, and join each
 /// bridge end's tap to its bridge.
 ///
 /// # Errors
@@ -126,6 +133,7 @@ pub(crate) async fn start_container_vm(
         initrd: format!("{BOOT_DIR}/initramfs.img"),
         rootfs_dir: format!("{ROOTFS_VIEW}/{rootfs_id}"),
         node_dir: share.display().to_string(),
+        disk: String::new(),
         management_network: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{}", start.lab_id),
         management_mac,
         nics,
@@ -138,6 +146,8 @@ pub(crate) async fn start_container_vm(
     let qemu = Arc::clone(qemu);
     task::spawn_blocking(move || {
         let conn = qemu.connect()?;
+        let mut vm = vm;
+        vm.disk = libvirt::ensure_raw_volume(&conn, &disk_name(&vm.name), DISK_BYTES)?;
         libvirt::create_container_vm(&conn, &vm)
     })
     .await
@@ -178,18 +188,21 @@ pub(crate) async fn domain_status(
     }))
 }
 
-/// Stop and undefine container VM `domain`; one already gone counts as removed.
+/// Stop and undefine container VM `domain` and delete its disk; what is already gone counts as
+/// removed.
 ///
 /// # Errors
 ///
-/// Fails when libvirt cannot be reached, or the domain cannot be stopped or undefined.
+/// Fails when libvirt cannot be reached, the domain cannot be stopped or undefined, or its
+/// disk cannot be deleted.
 #[instrument(skip(qemu))]
 pub(crate) async fn remove_container_vm(qemu: &Arc<Qemu>, domain: &str) -> Result<()> {
     let qemu = Arc::clone(qemu);
     let domain = domain.to_string();
     task::spawn_blocking(move || {
         let conn = qemu.connect()?;
-        libvirt::remove_domain(&conn, &domain)
+        libvirt::remove_domain(&conn, &domain)?;
+        libvirt::delete_volume_if_present(&conn, &disk_name(&domain))
     })
     .await
     .context("The container VM removal panicked")?

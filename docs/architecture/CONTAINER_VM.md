@@ -26,7 +26,7 @@ flowchart LR
     Q -->|serial on the node's console socket| C[console relay]
   end
   subgraph guest[Guest]
-    I[/init in initramfs/] -->|overlay: virtiofs rootfs + tmpfs upper| O[image root]
+    I[/init in initramfs/] -->|overlay: virtiofs rootfs + node disk upper| O[image root]
     I -->|switch_root, exec start.sh| P[image entrypoint + command]
   end
   V1 --> I
@@ -106,22 +106,38 @@ Every interface is on the domain when it is defined, and none is hotplugged. cEO
 a NIC added after it boots (#683, option 2). A lab's links are known before its nodes start, so
 this costs nothing.
 
+## Node disk
+
+Each node has a disk, `<node>-<lab_id>-disk.img`: a sparse 8 GiB raw volume in the Sherpa
+storage pool, attached as `vda`. It holds every change the guest makes to the image, saved
+configuration included, so the changes outlive the domain: a stopped node started again finds
+them. `container_vm::start_container_vm` creates the volume only when the pool has none, and
+keeps one that is there. Redeploy deletes it with the domain, so a redeployed node starts from
+the image. Destroy deletes it with the lab's other disks, since its name ends in one of
+`LAB_VOLUME_SUFFIXES`.
+
+The disk is ext2 with no journal, as busybox's `mke2fs` makes. A domain stopped hard can leave
+it needing a check; the guest mounts it anyway.
+
 ## Guest init
 
 The initramfs holds busybox-static and `/init`, a shell script. `scripts/sherpa_install.sh`
 builds it in `setup_container_vms`. The init:
 
 1. mounts the `rootfs` share read-only and the `node` share;
-2. builds an overlay with the rootfs as its lower layer and guest tmpfs as its upper layer, so
-   every permission and ACL check happens in the guest kernel (SR Linux needs POSIX ACLs, which
-   virtio-fs does not pass);
+2. builds an overlay with the rootfs as its lower layer and the node's disk as its upper layer,
+   so every permission and ACL check happens in the guest kernel (SR Linux needs POSIX ACLs,
+   which virtio-fs does not pass). The disk is formatted ext2 on the first boot, when it has no
+   ext superblock, and mounted with the ext4 driver;
 3. waits up to 30 s for every NIC in `interfaces` to appear, since virtio-net probes them
    asynchronously, then renames them by MAC in two phases so no names clash. `sherpad` writes
    the MACs in lowercase, as the guest kernel reports them;
 4. mounts `proc`, `sysfs`, a read-write `cgroup2` (systemd in cEOS needs it), `devtmpfs` (which
    gives cEOS its `/dev/net/tun`), `devpts` and `/dev/shm`;
-5. bind-mounts each volume copy from `mounts` where Docker would mount it, read-only when the
-   volume is;
+5. bind-mounts each read-only volume copy from `mounts` where Docker would mount it, and, on
+   the node's first boot only, copies each read-write one there. A node's saved configuration,
+   such as SR Linux's `config.json`, is then the node's own and outlives a restart; a bind-mounted
+   file could not be replaced by the rename a save does;
 6. writes the hostname and `/etc/hosts`;
 7. `switch_root`s into `start.sh`.
 
@@ -134,6 +150,7 @@ working directory, and `exec`s the image's entrypoint with the node's command (o
 The guest kernel needs these built in:
 - virtio-pci, virtio-net, virtio-fs and FUSE;
 - overlayfs and tmpfs with POSIX ACLs;
+- virtio-blk and ext4 (which mounts ext2);
 - tun;
 - netfilter with the `xt_HL` target (cEOS loads it on demand);
 - cgroup v2 with BPF;
@@ -176,8 +193,6 @@ Measured on a nested-virtualization dev guest, so the numbers are indicative onl
 - The scanner's repair of a missing end. `repair_node` makes a container's veth in its network
   namespace, which a container VM does not have.
 - Removing an image's root filesystem when the image is deleted.
-- A persistent upper layer, for example a qcow2 disk per node, so changes survive a domain
-  restart.
 - Shipping the kernel, and `sherpa_update.sh`.
 - The `sonic_linux` container, which needs a SONiC image to test with.
 - A login on the serial console. The console relay reaches the guest's serial port and shows
