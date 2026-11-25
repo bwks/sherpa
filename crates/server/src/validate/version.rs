@@ -295,7 +295,7 @@ mod tests {
         Node {
             name: name.to_string(),
             model,
-            version: version.map(std::string::ToString::to_string),
+            version: version.map(ToString::to_string),
             ..Default::default()
         }
     }

@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
+use reqwest::cookie::Jar;
 use reqwest::header;
+use reqwest::redirect::Policy;
 use reqwest::{Client, Response};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -14,10 +16,10 @@ pub struct TestHttpClient {
 impl TestHttpClient {
     /// Create a new HTTP client pointing at the given address
     pub fn new(addr: SocketAddr) -> Self {
-        let jar = Arc::new(reqwest::cookie::Jar::default());
+        let jar = Arc::new(Jar::default());
         let client = Client::builder()
             .cookie_provider(jar)
-            .redirect(reqwest::redirect::Policy::none())
+            .redirect(Policy::none())
             .build()
             .unwrap_or_default();
 

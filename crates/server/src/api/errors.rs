@@ -237,6 +237,8 @@ impl From<anyhow::Error> for ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Error;
+    use axum::body::to_bytes;
     use axum::response::IntoResponse;
     use shared::error::{CpuPinConflict, CpuPinRole};
 
@@ -261,9 +263,7 @@ mod tests {
             .context("Failed to read lab key");
         let response = ApiError::from(err).into_response();
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["error"]["code"], "INTERNAL_ERROR");
         reference_of(json["error"]["message"].as_str().unwrap());
@@ -275,15 +275,13 @@ mod tests {
 
     #[tokio::test]
     async fn api_errors_019_a_rest_refusal_of_a_known_kind_is_answered_with_its_own_message() {
-        let err = anyhow::Error::new(ServiceError::NotFound(
+        let err = Error::new(ServiceError::NotFound(
             "Node 'r9' not found in lab 'abc12345'".to_owned(),
         ))
         .context("Failed to stop node");
         let response = ApiError::from(err).into_response();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["error"]["code"], "NOT_FOUND");
         assert_eq!(
@@ -306,7 +304,7 @@ mod tests {
 
     #[test]
     fn access_denied_errors_convert_to_forbidden_through_context() {
-        let err = anyhow::Error::new(ServiceError::Denied("not yours".to_owned()))
+        let err = Error::new(ServiceError::Denied("not yours".to_owned()))
             .context("Failed to destroy lab");
         let api_err: ApiError = err.into();
         assert_eq!(api_err.into_response().status(), StatusCode::FORBIDDEN);
@@ -314,7 +312,7 @@ mod tests {
 
     #[test]
     fn conflict_errors_convert_to_conflict() {
-        let err = anyhow::Error::new(ServiceError::Conflict("owns labs".to_owned()))
+        let err = Error::new(ServiceError::Conflict("owns labs".to_owned()))
             .context("Failed to delete user");
         let api_err: ApiError = err.into();
         assert_eq!(api_err.into_response().status(), StatusCode::CONFLICT);
@@ -322,7 +320,7 @@ mod tests {
 
     #[test]
     fn access_not_found_errors_convert_to_not_found() {
-        let err = anyhow::Error::new(ServiceError::NotFound("Lab not found: x".to_owned()));
+        let err = Error::new(ServiceError::NotFound("Lab not found: x".to_owned()));
         let api_err: ApiError = err.into();
         assert_eq!(api_err.into_response().status(), StatusCode::NOT_FOUND);
     }
@@ -344,7 +342,7 @@ mod tests {
     }
 
     fn memory_refusal() -> anyhow::Error {
-        anyhow::Error::new(ServiceError::InsufficientMemory {
+        Error::new(ServiceError::InsufficientMemory {
             shortage: shortage(),
         })
         .context("Memory admission failed")
@@ -355,9 +353,7 @@ mod tests {
         let api_err: ApiError = memory_refusal().into();
         let response = api_err.into_response();
         assert_eq!(response.status(), StatusCode::INSUFFICIENT_STORAGE);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["error"]["code"], "INSUFFICIENT_MEMORY");
         assert_eq!(json["error"]["message"], shortage().to_string());
@@ -376,7 +372,7 @@ mod tests {
     }
 
     fn pin_refusal() -> anyhow::Error {
-        anyhow::Error::new(ServiceError::CpuPinsHeld {
+        Error::new(ServiceError::CpuPinsHeld {
             message: "Host CPU 2 is held".to_owned(),
             conflict: CpuPinConflict {
                 host_cpus: vec![2],
@@ -392,9 +388,7 @@ mod tests {
         let api_err: ApiError = pin_refusal().into();
         let response = api_err.into_response();
         assert_eq!(response.status(), StatusCode::CONFLICT);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["error"]["code"], "CPU_PINS_HELD");
         assert_eq!(json["error"]["message"], "Host CPU 2 is held");

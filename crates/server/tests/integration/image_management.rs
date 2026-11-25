@@ -4,6 +4,7 @@ use bollard::query_parameters::{
     CreateContainerOptions, RemoveImageOptions, StartContainerOptions, TagImageOptions,
 };
 use db::DefaultRequest;
+use reqwest::redirect::Policy;
 use reqwest::{Client, Method, StatusCode, header};
 use serde_json::{Value, json};
 use shared::error::RpcErrorCode;
@@ -783,9 +784,7 @@ async fn request(
     path: &str,
     token: &str,
 ) -> Result<(StatusCode, String)> {
-    let client = Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()?;
+    let client = Client::builder().redirect(Policy::none()).build()?;
     let response = client
         .request(method, format!("http://{}{path}", server.addr))
         .bearer_auth(token)

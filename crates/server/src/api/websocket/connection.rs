@@ -1,3 +1,4 @@
+use axum::Error;
 use axum::extract::ws::{Message, WebSocket};
 use dashmap::DashMap;
 use futures_util::SinkExt;
@@ -28,13 +29,13 @@ impl Connection {
     /// # Errors
     ///
     /// Fails when the WebSocket is closed or the message cannot be written to it.
-    pub async fn send(&self, message: Message) -> Result<(), axum::Error> {
+    pub async fn send(&self, message: Message) -> Result<(), Error> {
         self.sender
             .lock()
             .await
             .send(message)
             .await
-            .map_err(axum::Error::new)
+            .map_err(Error::new)
     }
 }
 

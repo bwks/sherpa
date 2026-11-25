@@ -1,13 +1,15 @@
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Error, Result, bail, ensure};
 use bollard::Docker;
 use bollard::models::{Ipam, IpamConfig, NetworkCreateRequest};
 use bollard::query_parameters::{
     InspectContainerOptions, InspectNetworkOptions, ListNetworksOptions,
 };
 use bollard::secret::ContainerStateStatusEnum;
-use db::DefaultRequest;
+use db::{DefaultRequest, LabDetails};
 use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Secret, Session};
-use reqwest::{Client, StatusCode};
+use libvirt::Qemu;
+use reqwest::redirect::Policy;
+use reqwest::{Client, StatusCode, header};
 use serde_json::{Value, json};
 use shared::data::{
     ContainerNetworkAttachment, ContainerSettings, DbUser, KindSettings, LabNodeActionResponse,
@@ -17,12 +19,14 @@ use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use std::collections::{BTreeMap, HashMap};
+use std::env;
 use std::fs;
 use std::path::Path;
 use std::process;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+use tokio::time;
 
 use crate::helpers::test_server::{
     TEST_ADMIN_PASSWORD, TEST_DEVICE_PASSWORD, TEST_LAB_ADMIN, TEST_SSH_PUBLIC_KEY, TestServer,
@@ -138,7 +142,7 @@ async fn cleanup_lab(
     lab_id: &str,
     checks: &Result<()>,
 ) -> Result<()> {
-    if checks.is_err() && std::env::var("SHERPA_TEST_KEEP_FAILED_LABS").as_deref() == Ok("1") {
+    if checks.is_err() && env::var("SHERPA_TEST_KEEP_FAILED_LABS").as_deref() == Ok("1") {
         eprintln!("Keeping failed lab {lab_id} for debugging");
         return Ok(());
     }
@@ -199,7 +203,7 @@ async fn wait_for_password_login(
         if start.elapsed() >= timeout {
             return Ok(false);
         }
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        time::sleep(Duration::from_secs(5)).await;
     }
 }
 
@@ -213,7 +217,7 @@ async fn node_address(server: &TestServer, lab_id: &str, name: &str) -> Result<S
 
 /// What lab `lab_id` left in libvirt: its domains, networks and storage volumes, by name.
 fn libvirt_leftovers(lab_id: &str) -> Result<Vec<String>> {
-    let conn = libvirt::Qemu::default().connect()?;
+    let conn = Qemu::default().connect()?;
     let mut leftovers: Vec<String> = libvirt::list_domain_memory(&conn)?
         .into_iter()
         .map(|domain| domain.name)
@@ -267,7 +271,7 @@ async fn wait_for_node_state(
         if start.elapsed() > timeout {
             bail!("node {name} was not recorded {state} within {timeout:?}: {states:?}");
         }
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        time::sleep(Duration::from_millis(250)).await;
     }
 }
 
@@ -315,7 +319,7 @@ async fn lab_up_004_a_node_that_fails_to_start_fails_the_node_not_the_lab_and_up
     alpine.default = true;
     db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;
 
-    let lab_name = format!("tx{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("tx{:06}", process::id() % 1_000_000);
     let manifest = json!({
         "name": lab_name,
         "nodes": [
@@ -401,7 +405,7 @@ async fn lab_up_005_a_container_that_exits_shortly_after_starting_fails_with_its
 
     // Like mysql without a root password: running when Docker first reports it, gone a moment
     // later, with a reason in its log.
-    let lab_name = format!("te{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("te{:06}", process::id() % 1_000_000);
     let manifest = json!({
         "name": lab_name,
         "nodes": [
@@ -459,7 +463,7 @@ async fn node_state_004_inspect_reports_a_container_that_exited_as_stopped_and_r
     bootstrap_images(&mut ws, &token).await?;
     register_alpine(&server).await?;
 
-    let lab_name = format!("ti{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("ti{:06}", process::id() % 1_000_000);
     let manifest = json!({
         "name": lab_name,
         "nodes": [
@@ -525,7 +529,7 @@ async fn lab_clean_001_clean_removes_a_running_lab() -> Result<()> {
     alpine.default = true;
     db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;
 
-    let lab_name = format!("tk{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("tk{:06}", process::id() % 1_000_000);
     let manifest = json!({
         "name": lab_name,
         "nodes": [
@@ -626,7 +630,7 @@ async fn image_selection_013_an_official_docker_hub_image_pulled_by_its_full_nam
         "a tag that was never pulled was found"
     );
 
-    let lab_name = format!("tb{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("tb{:06}", process::id() % 1_000_000);
     let manifest = json!({
         "name": lab_name,
         "nodes": [
@@ -714,7 +718,7 @@ async fn lab_redeploy_005_a_redeploy_that_fails_after_teardown_fails_its_node() 
     alpine.default = true;
     db::upsert_node_image(&server.db, alpine, DefaultRequest::Keep).await?;
 
-    let lab_name = format!("tf{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("tf{:06}", process::id() % 1_000_000);
     let manifest = json!({
         "name": lab_name,
         "nodes": [
@@ -838,7 +842,7 @@ async fn config_delivery_005_frr_with_ztp_on_has_its_config_mounts_and_command_a
     frr.version = FRR_TEST_VERSION.to_owned();
     db::upsert_node_image(&server.db, frr, DefaultRequest::Make).await?;
 
-    let lab_name = format!("tz{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("tz{:06}", process::id() % 1_000_000);
     let manifest = json!({
         "name": lab_name,
         "nodes": [{ "name": "on", "model": "frr_linux" }]
@@ -880,7 +884,7 @@ async fn ztp_setting_006_a_redeploy_to_a_method_the_model_does_not_take_is_refus
     frr.version = FRR_TEST_VERSION.to_owned();
     db::upsert_node_image(&server.db, frr, DefaultRequest::Make).await?;
 
-    let lab_name = format!("tr{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("tr{:06}", process::id() % 1_000_000);
     let manifest = json!({
         "name": lab_name,
         "nodes": [{ "name": "on", "model": "frr_linux" }]
@@ -925,8 +929,8 @@ async fn container_run_005_a_container_with_ztp_off_keeps_its_volumes_and_the_im
     frr.version = FRR_TEST_VERSION.to_owned();
     db::upsert_node_image(&server.db, frr, DefaultRequest::Make).await?;
 
-    let lab_name = format!("tv{:06}", std::process::id() % 1_000_000);
-    let own_config = std::env::temp_dir().join(format!("{lab_name}-own.conf"));
+    let lab_name = format!("tv{:06}", process::id() % 1_000_000);
+    let own_config = env::temp_dir().join(format!("{lab_name}-own.conf"));
     fs::write(&own_config, "! the user's own config\n")?;
     let manifest = json!({
         "name": lab_name,
@@ -974,7 +978,7 @@ async fn lab_preflight_004_an_unsupported_ztp_setting_is_refused() -> Result<()>
     frr.version = FRR_TEST_VERSION.to_owned();
     db::upsert_node_image(&server.db, frr, DefaultRequest::Make).await?;
 
-    let lab_name = format!("ty{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("ty{:06}", process::id() % 1_000_000);
     let unsupported = json!({
         "name": lab_name,
         "nodes": [{ "name": "frr1", "model": "frr_linux", "ztp": { "method": "cdrom" } }]
@@ -1040,7 +1044,7 @@ async fn scanned_alpine_lab(
     let token = ws.login_lab_admin(&server).await?;
     bootstrap_images(&mut ws, &token).await?;
     register_alpine(&server).await?;
-    let lab_name = format!("{prefix}{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("{prefix}{:06}", process::id() % 1_000_000);
     let nodes: Vec<serde_json::Value> = (1..=count)
         .map(|index| {
             json!({ "name": format!("live{index}"), "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] }, "interfaces": { "data_count": 0 } })
@@ -1077,7 +1081,7 @@ async fn node_state_001_while_up_builds_a_lab_nothing_is_recorded_stopped_or_mis
                                 .then_some(LabState::Stopped)
                         }));
                     }
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    time::sleep(Duration::from_millis(100)).await;
                 }
                 seen
             })
@@ -1220,7 +1224,7 @@ async fn lab_up_001_a_container_lab_comes_up_with_every_node_running() -> Result
     bootstrap_images(&mut ws, &token).await?;
 
     // lab_id must be exactly 8 characters
-    let lab_name = format!("tc{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("tc{:06}", process::id() % 1_000_000);
     let description = "Practice BGP.\nTwo routers, café";
     let mut manifest = container_manifest(&lab_name);
     manifest["description"] = json!(description);
@@ -1276,7 +1280,7 @@ async fn lab_down_resume_001_a_container_lab_goes_down_and_resumes_with_its_node
     bootstrap_images(&mut ws, &token).await?;
 
     // lab_id must be exactly 8 characters
-    let lab_name = format!("dr{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("dr{:06}", process::id() % 1_000_000);
     let manifest = container_manifest(&lab_name);
 
     let checks: Result<()> = async {
@@ -1339,7 +1343,7 @@ async fn lab_destroy_001_a_container_lab_is_destroyed_with_nothing_left_in_docke
     bootstrap_images(&mut ws, &token).await?;
 
     // lab_id must be exactly 8 characters
-    let lab_name = format!("ds{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("ds{:06}", process::id() % 1_000_000);
     let manifest = container_manifest(&lab_name);
 
     let checks: Result<()> = async {
@@ -1408,7 +1412,7 @@ async fn lab_concurrency_001_a_second_up_of_a_lab_that_is_coming_up_is_refused_a
     let mut second = TestWsClient::connect(&server).await?;
     let token = first.login_lab_admin(&server).await?;
     bootstrap_images(&mut first, &token).await?;
-    let lab_name = format!("tu{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("tu{:06}", process::id() % 1_000_000);
     let manifest = sleeping_container_lab(&server, &lab_name).await?;
     let request = json!({ "token": token, "lab_id": lab_name, "manifest": manifest });
 
@@ -1457,7 +1461,7 @@ async fn lab_concurrency_002_two_destroys_of_one_lab_both_succeed() -> Result<()
     let mut second = TestWsClient::connect(&server).await?;
     let token = first.login_lab_admin(&server).await?;
     bootstrap_images(&mut first, &token).await?;
-    let lab_name = format!("td{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("td{:06}", process::id() % 1_000_000);
     let manifest = sleeping_container_lab(&server, &lab_name).await?;
     lab_up(
         &mut first,
@@ -1497,8 +1501,8 @@ async fn lab_clean_002_clean_removes_a_lab_folder_with_no_record() -> Result<()>
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let admin_token = ws.login_admin().await?;
-    let lab_id = format!("tf{:06}", std::process::id() % 1_000_000);
-    let lab_dir = std::path::Path::new(SHERPA_LABS_PATH).join(&lab_id);
+    let lab_id = format!("tf{:06}", process::id() % 1_000_000);
+    let lab_dir = Path::new(SHERPA_LABS_PATH).join(&lab_id);
     fs::create_dir_all(&lab_dir)?;
     fs::write(lab_dir.join("sherpa_ssh_key"), "left by a destroy")?;
 
@@ -1530,7 +1534,7 @@ async fn lab_concurrency_003_labs_brought_up_at_once_get_distinct_management_sub
     bootstrap_images(&mut first, &token).await?;
 
     // lab_id must be exactly 8 characters
-    let pid = std::process::id() % 1_000_000;
+    let pid = process::id() % 1_000_000;
     let first_lab = format!("ca{pid:06}");
     let second_lab = format!("cb{pid:06}");
     let first_manifest = container_manifest(&first_lab);
@@ -1579,7 +1583,7 @@ async fn lab_concurrency_003_labs_brought_up_at_once_get_distinct_management_sub
 /// Fail unless the host can run VMs: a missing requirement is a failure, not a pass.
 fn require_kvm() -> Result<()> {
     ensure!(
-        std::path::Path::new("/dev/kvm").exists(),
+        Path::new("/dev/kvm").exists(),
         "/dev/kvm is required for the VM lab tests"
     );
     Ok(())
@@ -1595,7 +1599,7 @@ async fn lab_up_002_a_vm_lab_comes_up_and_its_node_accepts_an_ssh_login() -> Res
     bootstrap_images(&mut ws, &token).await?;
 
     // lab_id must be exactly 8 characters
-    let lab_name = format!("vu{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("vu{:06}", process::id() % 1_000_000);
     let manifest = vm_manifest(&lab_name);
 
     let checks: Result<()> = async {
@@ -1624,7 +1628,7 @@ async fn lab_destroy_002_a_vm_lab_is_destroyed_with_nothing_left_in_libvirt() ->
     bootstrap_images(&mut ws, &token).await?;
 
     // lab_id must be exactly 8 characters
-    let lab_name = format!("vd{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("vd{:06}", process::id() % 1_000_000);
     let manifest = vm_manifest(&lab_name);
 
     let checks: Result<()> = async {
@@ -1772,7 +1776,7 @@ async fn lab_preflight_003_a_lab_id_already_in_use_is_refused() -> Result<()> {
         lab_id,
         &admin_user,
         &ipv4_lab_networks("10.0.1.0/24", "10.0.1.1", "10.0.1.254"),
-        &db::LabDetails::default(),
+        &LabDetails::default(),
     )
     .await?;
 
@@ -1912,10 +1916,7 @@ async fn check_redeploy_http(
             "http://{}/labs/{lab_id}/nodes/vm/redeploy",
             server.addr
         ))
-        .header(
-            reqwest::header::COOKIE,
-            format!("{AUTH_COOKIE_NAME}={token}"),
-        )
+        .header(header::COOKIE, format!("{AUTH_COOKIE_NAME}={token}"))
         .send()
         .await?;
     ensure!(
@@ -1943,9 +1944,7 @@ async fn access_control_002_only_the_labs_owner_can_redeploy_over_rpc_and_http()
     let bob = create_keyed_user(&server, "bob", false).await?;
     let alice_token = ws.login("alice", TEST_ADMIN_PASSWORD).await?;
     let bob_token = ws.login("bob", TEST_ADMIN_PASSWORD).await?;
-    let http = Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()?;
+    let http = Client::builder().redirect(Policy::none()).build()?;
     let callers = [
         ("alice", alice_token.as_str(), false),
         ("bob", bob_token.as_str(), false),
@@ -1964,7 +1963,7 @@ async fn access_control_002_only_the_labs_owner_can_redeploy_over_rpc_and_http()
                 &format!("10.200.{index}.1"),
                 &format!("10.200.{index}.2"),
             ),
-            &db::LabDetails::default(),
+            &LabDetails::default(),
         )
         .await?;
         // As `up` leaves it once built: a redeploy needs a ready lab.
@@ -2032,7 +2031,7 @@ async fn wait_until_starting(server: &TestServer, lab_id: &str, name: &str) -> R
         if start.elapsed() > CANCEL_TIMEOUT {
             bail!("node {name} was not recorded starting within {CANCEL_TIMEOUT:?}");
         }
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        time::sleep(Duration::from_millis(250)).await;
     }
 }
 
@@ -2047,7 +2046,7 @@ async fn wait_for_container(
         if start.elapsed() > CANCEL_TIMEOUT {
             bail!("container {name} was not {status} within {CANCEL_TIMEOUT:?}");
         }
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        time::sleep(Duration::from_millis(250)).await;
     }
     Ok(())
 }
@@ -2133,7 +2132,7 @@ async fn lab_cancel_004_a_cancelled_up_leaves_nothing_of_the_lab_and_is_answered
 -> Result<()> {
     let (server, mut ws, mut second, token) = cancel_server().await?;
     let docker = Docker::connect_with_local_defaults()?;
-    let lab_name = format!("xa{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("xa{:06}", process::id() % 1_000_000);
     let manifest = waiting_container_lab(&lab_name, &json!({ "port": UNANSWERED_PORT }), 600);
 
     let checks: Result<()> = async {
@@ -2179,7 +2178,7 @@ async fn lab_cancel_005_a_cancelled_up_whose_rollback_leaves_something_behind_is
 -> Result<()> {
     let (server, mut ws, mut second, token) = cancel_server().await?;
     let docker = Docker::connect_with_local_defaults()?;
-    let lab_name = format!("xb{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("xb{:06}", process::id() % 1_000_000);
     let manifest = waiting_container_lab(&lab_name, &json!({ "port": UNANSWERED_PORT }), 600);
     let mut blocker = None;
 
@@ -2229,7 +2228,7 @@ async fn lab_cancel_006_a_cancelled_resume_leaves_the_nodes_it_started_running_a
 -> Result<()> {
     let (server, mut ws, mut second, token) = cancel_server().await?;
     let docker = Docker::connect_with_local_defaults()?;
-    let lab_name = format!("xc{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("xc{:06}", process::id() % 1_000_000);
     let container = format!("box1-{lab_name}");
     // Up waits out the ready timeout and keeps the node; resume would wait as long.
     let manifest = waiting_container_lab(&lab_name, &json!({ "port": UNANSWERED_PORT }), 30);
@@ -2278,7 +2277,7 @@ async fn lab_cancel_006_a_cancelled_resume_leaves_the_nodes_it_started_running_a
 async fn lab_cancel_007_a_cancelled_redeploy_says_so_fails_its_node_and_leaves_the_lab_ready()
 -> Result<()> {
     let (server, mut ws, mut second, token) = cancel_server().await?;
-    let lab_name = format!("xd{:06}", std::process::id() % 1_000_000);
+    let lab_name = format!("xd{:06}", process::id() % 1_000_000);
     let manifest = waiting_container_lab(&lab_name, &json!({}), 600);
     let waiting = waiting_container_lab(&lab_name, &json!({ "port": UNANSWERED_PORT }), 600);
 
@@ -2418,10 +2417,7 @@ async fn management_network_009_a_docker_management_network_that_is_not_the_labs
     }
     .await;
     let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
-    let removed = docker
-        .remove_network(&network)
-        .await
-        .map_err(anyhow::Error::from);
+    let removed = docker.remove_network(&network).await.map_err(Error::from);
     with_cleanup(checks, cleanup.and(removed))
 }
 
@@ -2467,9 +2463,6 @@ async fn management_network_010_a_docker_management_network_that_refused_an_up_i
     }
     .await;
     let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
-    let removed = docker
-        .remove_network(&network)
-        .await
-        .map_err(anyhow::Error::from);
+    let removed = docker.remove_network(&network).await.map_err(Error::from);
     with_cleanup(checks, cleanup.and(removed))
 }

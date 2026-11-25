@@ -3,6 +3,8 @@
 use std::net::{IpAddr, Ipv4Addr};
 
 use anyhow::{Result, ensure};
+use jiff::Timestamp;
+use reqwest::redirect::Policy;
 use reqwest::{Client, StatusCode, header};
 use serde_json::{Value, json};
 use shared::error::RpcErrorCode;
@@ -97,7 +99,7 @@ async fn web_login(
 /// A web request with `token` as the session cookie.
 async fn web_post(server: &TestServer, token: &str, path: &str) -> Result<reqwest::Response> {
     Ok(Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
+        .redirect(Policy::none())
         .build()?
         .post(format!("http://{}{path}", server.addr))
         .header(header::COOKIE, format!("{AUTH_COOKIE_NAME}={token}"))
@@ -271,7 +273,7 @@ async fn user_login_020_failed_logins_at_the_same_time_check_no_more_than_three_
 async fn user_login_021_each_attempt_is_stored_with_its_result_and_ipv4_address_on_every_path()
 -> Result<()> {
     let server = server_with_users().await?;
-    let started = jiff::Timestamp::now();
+    let started = Timestamp::now();
 
     ensure!(logs_in(&server, "bob", BOB_PASSWORD).await?, "RPC login");
     let (status, _) = rest_login(&server, "bob", WRONG_PASSWORD).await?;
@@ -290,7 +292,7 @@ async fn user_login_021_each_attempt_is_stored_with_its_result_and_ipv4_address_
             attempt.user == bob_id
                 && attempt.address == loopback
                 && attempt.attempted_at >= started
-                && attempt.attempted_at <= jiff::Timestamp::now(),
+                && attempt.attempted_at <= Timestamp::now(),
             "{attempt:?}"
         );
     }

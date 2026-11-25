@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, ensure};
 use reqwest::header::HeaderName;
-use reqwest::{Method, Response, StatusCode, header};
-use serde_json::json;
+use reqwest::{Client, Method, Response, StatusCode, header};
+use serde_json::{Value, json};
 use shared::api_spec::{HttpMethod, build_spec};
 use shared::error::RpcErrorCode;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
@@ -34,10 +34,7 @@ async fn user_login_014_an_rpc_login_gives_a_token_the_username_admin_flag_and_e
         result.get("username").and_then(|v| v.as_str()),
         Some("sherpa-admin")
     );
-    assert_eq!(
-        result.get("is_admin").and_then(serde_json::Value::as_bool),
-        Some(true)
-    );
+    assert_eq!(result.get("is_admin").and_then(Value::as_bool), Some(true));
     assert!(result.get("expires_at").is_some(), "should have expires_at");
 
     Ok(())
@@ -85,10 +82,7 @@ async fn user_login_010_a_login_without_a_username_or_password_is_invalid() -> R
     let response = ws.rpc_call("auth.login", json!({})).await?;
 
     let error = response.get("error").expect("should have error");
-    assert_eq!(
-        error.get("code").and_then(serde_json::Value::as_i64),
-        Some(-32602)
-    ); // InvalidParams
+    assert_eq!(error.get("code").and_then(Value::as_i64), Some(-32602)); // InvalidParams
 
     Ok(())
 }
@@ -104,18 +98,12 @@ async fn user_login_013_a_token_is_checked_over_rest_as_over_rpc() -> Result<()>
         .rpc_call("auth.validate", json!({ "token": token }))
         .await?;
     let result = response.get("result").expect("should have result");
-    assert_eq!(
-        result.get("valid").and_then(serde_json::Value::as_bool),
-        Some(true)
-    );
+    assert_eq!(result.get("valid").and_then(Value::as_bool), Some(true));
     assert_eq!(
         result.get("username").and_then(|v| v.as_str()),
         Some("sherpa-admin")
     );
-    assert_eq!(
-        result.get("is_admin").and_then(serde_json::Value::as_bool),
-        Some(true)
-    );
+    assert_eq!(result.get("is_admin").and_then(Value::as_bool), Some(true));
     assert!(result.get("expires_at").is_some());
 
     let valid: serde_json::Value = client
@@ -130,10 +118,7 @@ async fn user_login_013_a_token_is_checked_over_rest_as_over_rpc() -> Result<()>
         .rpc_call("auth.validate", json!({ "token": "invalid.jwt.token" }))
         .await?;
     let result = response.get("result").expect("should have result");
-    assert_eq!(
-        result.get("valid").and_then(serde_json::Value::as_bool),
-        Some(false)
-    );
+    assert_eq!(result.get("valid").and_then(Value::as_bool), Some(false));
 
     let invalid: serde_json::Value = client
         .post_json("/api/v1/auth/validate", &json!({ "token": "not-a-token" }))
@@ -158,10 +143,7 @@ async fn access_control_015_a_request_with_no_token_is_refused() -> Result<()> {
 
     let error = response.get("error").expect("should have error");
     // AuthRequired = -32002
-    assert_eq!(
-        error.get("code").and_then(serde_json::Value::as_i64),
-        Some(-32002)
-    );
+    assert_eq!(error.get("code").and_then(Value::as_i64), Some(-32002));
 
     Ok(())
 }
@@ -420,7 +402,7 @@ async fn user_sessions_015_a_deleted_users_token_is_rejected_on_all_transports()
     client.set_token(token.clone());
     let response = client.get("/api/v1/admin/users").await?;
     ensure!(
-        response.status() == reqwest::StatusCode::UNAUTHORIZED,
+        response.status() == StatusCode::UNAUTHORIZED,
         "Deleted user was not rejected over REST: {}",
         response.status()
     );
@@ -723,7 +705,7 @@ async fn user_sessions_016_a_recreated_user_does_not_inherit_the_old_accounts_to
 #[tokio::test]
 async fn api_documents_002_every_rest_operation_in_the_spec_is_routed() -> Result<()> {
     let server = TestServer::start().await?;
-    let client = reqwest::Client::new();
+    let client = Client::new();
     let mut unrouted = Vec::new();
 
     for op in build_spec().operations {

@@ -126,6 +126,8 @@ fn check_dummy_hash(password: &str) {
 mod tests {
     use std::net::Ipv4Addr;
 
+    use tokio::runtime::Builder;
+
     use super::*;
     use crate::log_capture::capture_log;
 
@@ -151,7 +153,7 @@ mod tests {
     #[test]
     fn user_login_023_locked_and_unknown_user_attempts_are_logged_and_not_stored() {
         // One thread, so the log of every attempt is captured.
-        let runtime = tokio::runtime::Builder::new_current_thread()
+        let runtime = Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("runtime");

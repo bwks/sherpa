@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use axum_server::tls_rustls::RustlsConfig;
+use jiff::{SignedDuration, Timestamp};
 use rcgen::KeyPair;
 use shared::data::{Config, TlsConfig};
 use shared::tls::{certificate_scope, compute_key_pin};
@@ -32,7 +33,7 @@ pub struct CertificateManager {
 pub enum CertificateWarning {
     ExpiresSoon {
         cert_path: PathBuf,
-        not_after: jiff::Timestamp,
+        not_after: Timestamp,
     },
     AddressesNotCovered {
         cert_path: PathBuf,
@@ -45,7 +46,7 @@ pub enum CertificateWarning {
 pub struct CertificateReport {
     pub cert_path: PathBuf,
     pub key_pin: String,
-    pub not_after: jiff::Timestamp,
+    pub not_after: Timestamp,
     pub self_generated: bool,
     pub warnings: Vec<CertificateWarning>,
 }
@@ -133,7 +134,7 @@ impl CertificateManager {
             }
         }
         tracing::info!("Serving the admin's TLS certificate and key");
-        for warning in self.warnings(addresses, jiff::Timestamp::now())? {
+        for warning in self.warnings(addresses, Timestamp::now())? {
             tracing::warn!("{warning}");
         }
         Ok(())
@@ -179,7 +180,7 @@ impl CertificateManager {
     pub fn warnings(
         &self,
         addresses: &[IpAddr],
-        now: jiff::Timestamp,
+        now: Timestamp,
     ) -> Result<Vec<CertificateWarning>> {
         let pem = read_certificate(&self.cert_path)?;
         let scope = certificate_scope(&pem)
@@ -187,7 +188,7 @@ impl CertificateManager {
         let mut warnings = Vec::new();
         let warn_from = scope
             .not_after
-            .checked_sub(jiff::SignedDuration::from_hours(EXPIRY_WARNING_DAYS * 24))
+            .checked_sub(SignedDuration::from_hours(EXPIRY_WARNING_DAYS * 24))
             .context("The certificate's expiry is out of range")?;
         if now >= warn_from {
             warnings.push(CertificateWarning::ExpiresSoon {
@@ -216,7 +217,7 @@ impl CertificateManager {
     ///
     /// Fails when the certificate cannot be read or parsed.
     #[instrument(level = "debug", skip_all, fields(cert_path = %self.cert_path.display()))]
-    pub fn report(&self, addresses: &[IpAddr], now: jiff::Timestamp) -> Result<CertificateReport> {
+    pub fn report(&self, addresses: &[IpAddr], now: Timestamp) -> Result<CertificateReport> {
         let pem = read_certificate(&self.cert_path)?;
         let scope = certificate_scope(&pem)
             .with_context(|| format!("Failed to parse {}", self.cert_path.display()))?;
@@ -290,10 +291,11 @@ mod tests {
     use super::*;
     use crate::log_capture::capture_log;
     use shared::tls::extract_cert_info;
+    use std::net::Ipv4Addr;
     use std::os::unix::fs::PermissionsExt;
     use tempfile::TempDir;
 
-    const SERVER_ADDRESS: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(192, 0, 2, 10));
+    const SERVER_ADDRESS: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10));
 
     /// A manager for files in `dir`, with `self_generate_cert` set to `self_generate`.
     fn manager_in(dir: &TempDir, self_generate: bool) -> CertificateManager {
@@ -502,9 +504,7 @@ mod tests {
         let manager = manager_in(&dir, false);
         write_admin_certificate(&manager, "192.0.2.20".parse().unwrap(), 10);
 
-        let report = manager
-            .report(&[SERVER_ADDRESS], jiff::Timestamp::now())
-            .unwrap();
+        let report = manager.report(&[SERVER_ADDRESS], Timestamp::now()).unwrap();
 
         assert!(matches!(
             report.warnings.as_slice(),

@@ -549,13 +549,14 @@ mod tests {
     use crate::auth::session::SessionRejection;
     use crate::log_capture::capture_log;
     use axum::http::HeaderMap;
+    use jiff::Timestamp;
     use jsonwebtoken::{EncodingKey, Header, encode};
     use shared::auth::jwt::Claims;
 
     const TEST_SECRET: &[u8] = b"test_secret_32_bytes_long_enough";
 
     fn make_token(username: &str, is_admin: bool) -> String {
-        let now = jiff::Timestamp::now().as_second();
+        let now = Timestamp::now().as_second();
         let claims = Claims::new(
             username.to_owned(),
             format!("{username}-session"),
@@ -567,7 +568,7 @@ mod tests {
     }
 
     fn make_expired_token() -> String {
-        let now = jiff::Timestamp::now().as_second();
+        let now = Timestamp::now().as_second();
         let claims = Claims {
             sub: "expired_user".to_string(),
             sid: "expired-session".to_string(),
@@ -670,7 +671,7 @@ mod tests {
     fn test_invalid_session_redirect_clears_cookie() {
         let response = AuthRedirect::InvalidSession.into_response();
 
-        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
         assert_eq!(
             response.headers().get(header::LOCATION).unwrap(),
             "/login?error=session_expired"
@@ -689,7 +690,7 @@ mod tests {
     fn test_missing_session_redirect_does_not_set_cookie() {
         let response = AuthRedirect::SessionRequired.into_response();
 
-        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
         assert_eq!(
             response.headers().get(header::LOCATION).unwrap(),
             "/login?error=session_required"

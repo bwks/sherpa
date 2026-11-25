@@ -7,8 +7,12 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response, sse};
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
+use std::io::{Cursor, Write};
 use strum::IntoEnumIterator;
 use tokio::sync::{mpsc, oneshot};
+use uuid::Uuid;
+use zip::write::SimpleFileOptions;
+use zip::{CompressionMethod, ZipWriter};
 
 use crate::api::request_parse::FormBody;
 use crate::api::sse::{destroy_progress_stream, up_progress_stream};
@@ -624,16 +628,15 @@ pub async fn lab_download_handler(
         entries.push((SHERPA_KNOWN_HOSTS_FILE, files.known_hosts));
     }
 
-    let mut buf = std::io::Cursor::new(Vec::new());
+    let mut buf = Cursor::new(Vec::new());
     {
-        let mut zip = zip::ZipWriter::new(&mut buf);
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
+        let mut zip = ZipWriter::new(&mut buf);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 
         for (name, content) in entries {
             zip.start_file(name, options)
                 .map_err(|e| ApiError::internal(e, "Failed to create zip"))?;
-            std::io::Write::write_all(&mut zip, content.as_bytes())
+            Write::write_all(&mut zip, content.as_bytes())
                 .map_err(|e| ApiError::internal(e, "Failed to write zip"))?;
         }
 
@@ -707,7 +710,7 @@ pub async fn lab_destroy_post_handler(
     let auth = auth.into_context();
     let db_lab = require_lab_access(&auth, &state.db, &lab_id).await?;
 
-    let job_id = uuid::Uuid::new_v4().to_string();
+    let job_id = Uuid::new_v4().to_string();
     state.pending_jobs.insert(
         job_id.clone(),
         Job {
@@ -972,7 +975,7 @@ pub async fn lab_create_post_handler(
         file_contents: None,
     };
 
-    let job_id = uuid::Uuid::new_v4().to_string();
+    let job_id = Uuid::new_v4().to_string();
     state.pending_jobs.insert(
         job_id.clone(),
         Job {
@@ -995,6 +998,7 @@ pub async fn lab_create_post_handler(
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Error;
     use axum::body::to_bytes;
 
     use super::*;
@@ -1009,7 +1013,7 @@ mod tests {
 
     #[tokio::test]
     async fn api_errors_024_a_labs_grid_refused_with_a_known_kind_shows_its_own_message() {
-        let error = anyhow::Error::new(ServiceError::NotFound("User not found: alice".to_owned()))
+        let error = Error::new(ServiceError::NotFound("User not found: alice".to_owned()))
             .context("Failed to look up user");
         let html = grid_html(labs_grid(Err(error), "alice".to_owned())).await;
         assert!(html.contains("User not found: alice"), "{html}");

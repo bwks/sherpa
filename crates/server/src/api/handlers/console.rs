@@ -34,6 +34,7 @@ use axum::{Extension, Json};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
+use tokio::time;
 use tracing::instrument;
 
 use shared::data::ConsoleCheck;
@@ -337,7 +338,7 @@ async fn pump(websocket: &mut WebSocket, console: &mut OpenConsole, state: &AppS
             ConsoleKind::Vnc => VNC_READ_BUFFER,
         }
     ];
-    let mut login_check = tokio::time::interval(Duration::from_secs(CONSOLE_SESSION_CHECK_SECS));
+    let mut login_check = time::interval(Duration::from_secs(CONSOLE_SESSION_CHECK_SECS));
     // The first tick is now, and the login was checked when the console opened.
     login_check.tick().await;
     loop {

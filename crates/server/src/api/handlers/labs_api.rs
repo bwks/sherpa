@@ -5,6 +5,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, sse};
 use serde::Deserialize;
+use serde_json::Value;
 use std::future::Future;
 use tokio::sync::{mpsc, oneshot};
 
@@ -274,7 +275,7 @@ pub async fn redeploy_node_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
     Path((lab_id, node_name)): Path<(String, String)>,
-    JsonBody(payload): JsonBody<serde_json::Value>,
+    JsonBody(payload): JsonBody<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
     let auth = auth.into_context();
     // Checked before the body is read and the stream opens, so a refusal keeps its status.
@@ -285,7 +286,7 @@ pub async fn redeploy_node_json(
         .cloned()
         .ok_or_else(|| ApiError::bad_request("Missing 'manifest' field in request body"))?;
     let secrets = match payload.get("secrets") {
-        None | Some(serde_json::Value::Null) => None,
+        None | Some(Value::Null) => None,
         Some(value) => Some(
             serde_json::from_value(value.clone())
                 .map_err(|_| ApiError::bad_request("Invalid 'secrets' field in request body"))?,
@@ -373,6 +374,10 @@ pub struct ListLabsQuery {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use tokio::time;
+
     use super::*;
 
     #[tokio::test]
@@ -391,7 +396,7 @@ mod tests {
         waiting.abort();
         assert!(waiting.await.unwrap_err().is_cancelled());
         release_tx.send(()).unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(5), finished_rx)
+        time::timeout(Duration::from_secs(5), finished_rx)
             .await
             .unwrap()
             .unwrap();

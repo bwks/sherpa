@@ -2,12 +2,16 @@
 //! refused to every other node, from the moment the operation is admitted, with the pin
 //! refusal (-32006). The tests boot `alpine_linux` VMs and pin host CPUs 2 to 5.
 
+use std::path::Path;
+use std::process;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
+use libvirt::Qemu;
 use serde_json::{Value, json};
 use shared::data::NodeState;
 use shared::error::RpcErrorCode;
+use tokio::time;
 
 use crate::helpers::test_server::TestServer;
 use crate::helpers::ws_client::TestWsClient;
@@ -31,13 +35,13 @@ fn pinned_lab(lab_id: &str, cpus: [u16; 2]) -> Value {
 
 /// An eight-character lab ID unique to this test run.
 fn lab_id(prefix: &str) -> String {
-    format!("{prefix}{:06}", std::process::id() % 1_000_000)
+    format!("{prefix}{:06}", process::id() % 1_000_000)
 }
 
 /// A test server with the images on disk scanned in, and a client logged in as a lab admin.
 async fn server() -> Result<(TestServer, TestWsClient, String)> {
     ensure!(
-        std::path::Path::new("/dev/kvm").exists(),
+        Path::new("/dev/kvm").exists(),
         "/dev/kvm is required for the CPU pin tests"
     );
     let server = TestServer::start().await?;
@@ -90,7 +94,7 @@ async fn nothing_created(server: &TestServer, lab_id: &str) -> Result<()> {
         db::find_lab(&server.db, lab_id).await?.is_none(),
         "the refused lab {lab_id} kept its record"
     );
-    let conn = libvirt::Qemu::default().connect()?;
+    let conn = Qemu::default().connect()?;
     let domains = libvirt::list_domain_memory(&conn)?;
     ensure!(
         !domains.iter().any(|domain| domain.name.ends_with(lab_id)),
@@ -153,7 +157,7 @@ async fn wait_for_n1(server: &TestServer, lab_id: &str, state: NodeState) -> Res
                 node.state
             );
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        time::sleep(Duration::from_millis(100)).await;
     }
 }
 

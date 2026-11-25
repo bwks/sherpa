@@ -12,8 +12,9 @@ use axum::http::{HeaderMap, header};
 use axum::response::{IntoResponse, Response};
 use mime::Mime;
 use serde::de::DeserializeOwned;
-use serde_json::Value;
+use serde_json::{Deserializer as JsonDeserializer, Value};
 use serde_path_to_error::Segment;
+use serde_urlencoded::Deserializer as FormDeserializer;
 
 use thiserror::Error;
 
@@ -111,7 +112,7 @@ impl<T: DeserializeOwned + Send, S: Send + Sync> FromRequestParts<S> for QueryPa
 ///
 /// Fails, with the fixed message of [`InvalidRequest`], when `bytes` are not JSON or not a `T`.
 pub(crate) fn parse_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, InvalidRequest> {
-    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    let mut deserializer = JsonDeserializer::from_slice(bytes);
     let parsed = serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
         if error.inner().is_data() {
             invalid_at(error.path())
@@ -134,10 +135,8 @@ pub(crate) fn parse_value<T: DeserializeOwned>(value: &Value) -> Result<T, Inval
 
 /// Read the `application/x-www-form-urlencoded` `bytes`, a form body or a query string, as `T`.
 fn parse_urlencoded<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, InvalidRequest> {
-    serde_path_to_error::deserialize(serde_urlencoded::Deserializer::new(form_urlencoded::parse(
-        bytes,
-    )))
-    .map_err(|error| invalid_at(error.path()))
+    serde_path_to_error::deserialize(FormDeserializer::new(form_urlencoded::parse(bytes)))
+        .map_err(|error| invalid_at(error.path()))
 }
 
 /// Whether `headers` say the body is JSON: `application/json` or `application/*+json`.
@@ -194,9 +193,11 @@ mod tests {
     use axum::http::{Method, StatusCode};
     use axum::routing::{get, post};
     use http_body_util::BodyExt;
+    use reqwest::{Client, RequestBuilder};
     use serde::Deserialize;
     use shared::data::{CreateUserRequest, ListImagesRequest, LoginRequest};
     use tokio::net::TcpListener;
+    use tokio::runtime::Builder;
 
     use super::*;
     use crate::api::websocket::messages::ClientMessage;
@@ -260,7 +261,7 @@ mod tests {
     }
 
     /// The status and error message the server answers `request` with.
-    async fn refusal_of(request: reqwest::RequestBuilder) -> (StatusCode, String) {
+    async fn refusal_of(request: RequestBuilder) -> (StatusCode, String) {
         let response = request.send().await.unwrap();
         let status = StatusCode::from_u16(response.status().as_u16()).unwrap();
         let body = response.text().await.unwrap();
@@ -321,7 +322,7 @@ mod tests {
     #[tokio::test]
     async fn api_errors_011_a_form_or_query_that_does_not_parse_names_the_path_never_the_value() {
         let url = serve().await;
-        let client = reqwest::Client::new();
+        let client = Client::new();
         let invalid_at = |path: &str| (StatusCode::BAD_REQUEST, format!("{MSG_INVALID} at {path}"));
 
         let form = |body: String| {
@@ -391,10 +392,7 @@ mod tests {
 
     #[test]
     fn api_errors_013_a_request_that_does_not_parse_logs_nothing_of_what_was_sent() {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
         let ((), log) = capture_log(|| {
             runtime.block_on(async {
                 for body in [
