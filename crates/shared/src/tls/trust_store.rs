@@ -4,6 +4,7 @@
 //! server certificates. Certificates are stored in ~/.`sherpa/trusted_certs`/
 
 use anyhow::{Context, Result, anyhow};
+use jiff::Timestamp;
 use rustls::pki_types::CertificateDer;
 use rustls_pemfile::certs;
 use sha2::{Digest, Sha256};
@@ -345,7 +346,7 @@ pub fn certificate_scope(cert_pem: &str) -> Result<CertificateScope> {
     let cert_der = parse_certificate_pem(cert_pem)?;
     let (_, cert) = x509_parser::parse_x509_certificate(cert_der.as_ref())
         .map_err(|error| anyhow!("Failed to parse X.509 certificate: {error}"))?;
-    let not_after = jiff::Timestamp::from_second(cert.validity().not_after.timestamp())
+    let not_after = Timestamp::from_second(cert.validity().not_after.timestamp())
         .context("The certificate's expiry is out of range")?;
     let mut dns_names = Vec::new();
     let mut ip_addresses = Vec::new();

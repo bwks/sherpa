@@ -276,12 +276,14 @@ impl Sherpa {
 
 #[cfg(test)]
 mod tests {
+    use toml::Value;
+
     use super::*;
     use crate::util::default_config;
 
     #[test]
     fn server_config_005_a_config_without_otel_scanner_or_host_memory_loads_with_their_defaults() {
-        let mut value = toml::Value::try_from(default_config()).unwrap();
+        let mut value = Value::try_from(default_config()).unwrap();
         let table = value.as_table_mut().unwrap();
         for name in ["otel", "scanner", "host_memory"] {
             table.remove(name);
