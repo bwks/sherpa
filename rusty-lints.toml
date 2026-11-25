@@ -1,0 +1,33 @@
+exclude = []
+
+[field_comment]
+enabled = true
+exclude = []
+exempt_derives = ["Parser", "Subcommand", "Args", "ValueEnum"]
+
+[use_in_function]
+enabled = true
+exclude = []
+
+[code_in_mod_rs]
+enabled = true
+exclude = []
+
+[version_number]
+enabled = true
+exclude = []
+names = ["sherpa"]
+
+[qualified_call]
+enabled = true
+exclude = []
+min_segments = 3
+allow = []
+
+[error_text_match]
+enabled = true
+exclude = []
+
+[single_use_closure]
+enabled = true
+exclude = []

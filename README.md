@@ -72,7 +72,8 @@ lint exceptions, `check-mod-rs.sh` code in a `mod.rs`, `check-doc-code-blocks.sh
 doc comments, `check-comment-issue-numbers.sh` issue and pull request numbers in comments,
 `check-ebpf-unwrap.sh` `.unwrap()` and `.expect(` in `crates/ebpf-redirect`, which Clippy does not
 check, and `check-template-text-decisions.sh` web UI template tags that decide from an enum's
-text. CI runs the same checks.
+text. It also runs `rusty-lints scan`, configured in `rusty-lints.toml`, when `mise install` has put
+`rusty-lints` on the PATH. CI runs the same checks.
 
 ### Dev Scripts
 
@@ -87,6 +88,7 @@ dev/check-doc-code-blocks.sh  # refuse code blocks in doc comments
 dev/check-comment-issue-numbers.sh  # refuse issue and pull request numbers in comments
 dev/check-ebpf-unwrap.sh  # refuse unwrap and expect in ebpf-redirect
 dev/check-template-text-decisions.sh  # refuse template tags that decide from an enum's text
+rusty-lints scan       # check the syntax rules in rusty-lints.toml
 ```
 
 ## Logging
