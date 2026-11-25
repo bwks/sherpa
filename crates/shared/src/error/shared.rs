@@ -11,7 +11,7 @@ const SUPPORTED_SSH_KEY_ALGORITHMS: &str = "ssh-ed25519, ssh-rsa, ecdsa-sha2-nis
      sk-ecdsa-sha2-nistp256@openssh.com";
 
 /// A shared check's failure that a caller tells apart from the others.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum SharedError {
     #[error("Unknown node model: {name}")]
     UnknownNodeModel { name: String },

@@ -232,10 +232,7 @@ fn parse_form_choice<T: DeserializeOwned>(value: &str, field_name: &str) -> anyh
 fn updated_image_config(config: NodeConfig, form: ImageForm) -> anyhow::Result<NodeConfig> {
     let kind = config.kind();
     if let Some((key, ..)) = kind_settings::first_not_taken(kind, &form.kind_fields()) {
-        return Err(ServiceError::Invalid(format!(
-            "The form sets `{key}`, which a {kind} image does not take"
-        ))
-        .into());
+        return Err(ServiceError::ImageFormFieldNotTaken { field: key, kind }.into());
     }
     let settings = match &config.settings {
         KindSettings::VirtualMachine(_) => KindSettings::VirtualMachine(VmSettings {
@@ -312,19 +309,14 @@ fn updated_image_config(config: NodeConfig, form: ImageForm) -> anyhow::Result<N
 }
 
 /// A form field an image of `kind` needs.
-fn form_field<T>(value: Option<T>, field: &str, kind: NodeKind) -> anyhow::Result<T> {
-    value.ok_or_else(|| {
-        ServiceError::Invalid(format!(
-            "The form has no `{field}`, which a {kind} image needs"
-        ))
-        .into()
-    })
+fn form_field<T>(value: Option<T>, field: &'static str, kind: NodeKind) -> anyhow::Result<T> {
+    value.ok_or_else(|| ServiceError::ImageFormFieldMissing { field, kind }.into())
 }
 
 /// A choice an image of `kind` needs, by the enum's serde name.
 fn form_choice<T: DeserializeOwned>(
     value: Option<&str>,
-    field: &str,
+    field: &'static str,
     kind: NodeKind,
 ) -> anyhow::Result<T> {
     parse_form_choice(form_field(value, field, kind)?, field)
@@ -1071,15 +1063,13 @@ mod tests {
         ] {
             let mut form = form_for(config);
             setter(&mut form);
-            let error = updated_image_config(config.clone(), form)
-                .unwrap_err()
-                .to_string();
+            let error = updated_image_config(config.clone(), form).unwrap_err();
             assert_eq!(
-                error,
-                format!(
-                    "The form sets `{field}`, which a {} image does not take",
-                    config.kind()
-                )
+                error.downcast_ref::<ServiceError>(),
+                Some(&ServiceError::ImageFormFieldNotTaken {
+                    field,
+                    kind: config.kind()
+                })
             );
         }
     }
@@ -1089,14 +1079,24 @@ mod tests {
         let [vm, container, _] = one_image_of_each_kind();
         let mut form = form_for(&vm);
         form.bios = None;
-        let error = updated_image_config(vm, form).unwrap_err().to_string();
-        assert!(error.contains("no `bios`"), "{error}");
+        let error = updated_image_config(vm, form).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::ImageFormFieldMissing {
+                field: "bios",
+                kind: NodeKind::VirtualMachine
+            })
+        );
         let mut form = form_for(&container);
         form.ztp = None;
-        let error = updated_image_config(container, form)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("no `ztp`"), "{error}");
+        let error = updated_image_config(container, form).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::ImageFormFieldMissing {
+                field: "ztp",
+                kind: NodeKind::Container
+            })
+        );
     }
 
     #[tokio::test]
@@ -1253,7 +1253,12 @@ mod tests {
             .await
             .err()
             .expect("version was accepted");
-        assert_eq!(rejection.message, "the request is not valid at version");
+        assert_eq!(
+            rejection,
+            InvalidRequest::Invalid {
+                path: Some("version".to_owned())
+            }
+        );
     }
 
     #[test]

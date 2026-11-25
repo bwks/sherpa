@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use topology::NodeExpanded;
 
@@ -21,22 +21,22 @@ pub fn check_host_resources(
             continue;
         };
         if let Some(cpu) = cpus.iter().find(|cpu| u32::from(**cpu) >= host_cpus) {
-            return Err(ServiceError::Invalid(format!(
-                "Node '{node_name}' `{setting}` uses host CPU {cpu}, but the server has CPUs 0 \
-                 to {}",
-                host_cpus.saturating_sub(1)
-            ))
-            .into());
+            bail!(ServiceError::HostCpuMissing {
+                node: node_name.clone(),
+                setting,
+                cpu: *cpu,
+                host_cpus,
+            });
         }
     }
     if let Some(numa_node) = node.numa.node
         && u32::from(numa_node) >= host_numa_nodes
     {
-        return Err(ServiceError::Invalid(format!(
-            "Node '{node_name}' `numa.node` is NUMA node {numa_node}, but the server has \
-             {host_numa_nodes} NUMA node(s), numbered from 0"
-        ))
-        .into());
+        bail!(ServiceError::NumaNodeMissing {
+            node: node_name.clone(),
+            numa_node,
+            host_numa_nodes,
+        });
     }
     Ok(())
 }
@@ -45,11 +45,11 @@ pub fn check_host_resources(
 /// Docker refuses.
 pub fn check_container_cpus(node_name: &str, cpu_count: u8, host_cpus: u32) -> Result<()> {
     if u32::from(cpu_count) > host_cpus {
-        return Err(ServiceError::Invalid(format!(
-            "Node '{node_name}' `cpu.count` is {cpu_count}, but the server has {host_cpus} CPUs; \
-             a container's CPU quota cannot be more than the server's CPUs"
-        ))
-        .into());
+        bail!(ServiceError::ContainerCpusOverHost {
+            node: node_name.to_owned(),
+            cpu_count,
+            host_cpus,
+        });
     }
     Ok(())
 }
@@ -77,11 +77,20 @@ mod tests {
         }
     }
 
-    fn error(node: &NodeExpanded, host_cpus: u32, host_numa_nodes: u32) -> String {
-        format!(
-            "{:#}",
-            check_host_resources(node, host_cpus, host_numa_nodes).expect_err("tuning is rejected")
-        )
+    fn error(node: &NodeExpanded, host_cpus: u32, host_numa_nodes: u32) -> ServiceError {
+        check_host_resources(node, host_cpus, host_numa_nodes)
+            .expect_err("tuning is rejected")
+            .downcast::<ServiceError>()
+            .expect("a service error")
+    }
+
+    fn missing_cpu(setting: &'static str, cpu: u16, host_cpus: u32) -> ServiceError {
+        ServiceError::HostCpuMissing {
+            node: "dev".to_owned(),
+            setting,
+            cpu,
+            host_cpus,
+        }
     }
 
     #[test]
@@ -92,20 +101,31 @@ mod tests {
 
     #[test]
     fn test_each_cpu_list_must_name_host_cpus() {
-        assert!(error(&tuned(), 16, 2).contains("`cpu.pinning` uses host CPU 25"));
+        assert_eq!(error(&tuned(), 16, 2), missing_cpu("cpu.pinning", 25, 16));
         let mut emulator = untuned();
         emulator.cpu.emulator_pinning = Some(vec![40]);
-        assert!(error(&emulator, 32, 2).contains("`cpu.emulator_pinning` uses host CPU 40"));
+        assert_eq!(
+            error(&emulator, 32, 2),
+            missing_cpu("cpu.emulator_pinning", 40, 32)
+        );
         let mut io = untuned();
         io.boot_disk.io_thread_cpus = Some(vec![32]);
-        let message = error(&io, 32, 2);
-        assert!(message.contains("CPUs 0 to 31"), "{message}");
+        assert_eq!(
+            error(&io, 32, 2),
+            missing_cpu("boot_disk.io_thread_cpus", 32, 32)
+        );
     }
 
     #[test]
     fn test_numa_node_must_exist() {
-        let message = error(&tuned(), 32, 1);
-        assert!(message.contains("NUMA node 1"), "{message}");
+        assert_eq!(
+            error(&tuned(), 32, 1),
+            ServiceError::NumaNodeMissing {
+                node: "dev".to_owned(),
+                numa_node: 1,
+                host_numa_nodes: 1,
+            }
+        );
     }
 
     #[test]
@@ -116,9 +136,14 @@ mod tests {
 
     #[test]
     fn a_container_cpu_quota_over_the_servers_cpus_is_refused() {
-        let error = check_container_cpus("db", 8, 4).unwrap_err().to_string();
-        assert!(error.contains("'db'"), "{error}");
-        assert!(error.contains("`cpu.count` is 8"), "{error}");
-        assert!(error.contains("4 CPUs"), "{error}");
+        let error = check_container_cpus("db", 8, 4).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::ContainerCpusOverHost {
+                node: "db".to_owned(),
+                cpu_count: 8,
+                host_cpus: 4,
+            })
+        );
     }
 }

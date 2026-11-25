@@ -14,7 +14,7 @@ use std::io::ErrorKind;
 use std::path::Path;
 
 use crate::daemon::state::AppState;
-use crate::services::error::ServiceError;
+use crate::services::error::{ServiceCategory, ServiceError};
 use crate::validate::validate_image_version;
 
 /// Delete an imported image: its record, then its file, or for a container its Docker image.
@@ -57,11 +57,12 @@ pub async fn delete_image(
         image_filename(&node_image.settings).map(|filename| version_dir.join(filename));
     if kind != NodeKind::Container {
         ensure_image_has_no_overlays(state.qemu.as_ref(), &version_dir).map_err(|error| {
-            match ServiceError::find(&error) {
-                Some(ServiceError::Conflict(_)) => {
-                    ServiceError::Conflict(format!("Cannot safely delete image: {error}")).into()
-                }
-                _ => error.context("Cannot safely delete image"),
+            if ServiceError::find(&error).and_then(ServiceError::category)
+                == Some(ServiceCategory::Conflict)
+            {
+                ServiceError::Conflict(format!("Cannot safely delete image: {error}")).into()
+            } else {
+                error.context("Cannot safely delete image")
             }
         })?;
     }

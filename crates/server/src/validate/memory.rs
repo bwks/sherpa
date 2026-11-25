@@ -1,3 +1,5 @@
+use std::fmt;
+
 use anyhow::{Result, bail};
 
 use libvirt::HostMemory;
@@ -12,6 +14,38 @@ pub struct MemoryClaim {
     pub name: String,
     pub memory_mib: u64,
     pub numa_node: Option<u32>,
+}
+
+/// Why requested nodes do not fit in the server's memory, with every number the check used.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MemoryShortage {
+    Server {
+        requested: Vec<String>,
+        needed_mib: u64,
+        left_mib: u64,
+        total_mib: u64,
+        hugepages_mib: u64,
+        reserve_mib: u64,
+        overcommit_percent: u32,
+        limit_mib: u64,
+        running_mib: u64,
+        running_count: usize,
+        starting_mib: u64,
+        starting_count: usize,
+    },
+    NumaNode {
+        numa_node: u32,
+        requested: Vec<String>,
+        needed_mib: u64,
+        left_mib: u64,
+        node_mib: u64,
+        hugepages_mib: u64,
+        reserve_share_mib: u64,
+        overcommit_percent: u32,
+        limit_mib: u64,
+        held_mib: u64,
+        holders: Vec<MemoryClaim>,
+    },
 }
 
 /// Memory already promised to other guests.
@@ -58,28 +92,22 @@ pub fn check_memory_fits(
     let needed = total(requested);
     let left = limit.saturating_sub(running + starting);
     if needed > left {
-        let message = format!(
-            "Not enough memory on the server: {} {needed} MiB, but only {left} MiB of guest \
-             memory is left, {} MiB short. The server has {total_mib} MiB; less \
-             {hugepages_mib} MiB in hugepages and the {reserve_mib} MiB host reserve, at an \
-             overcommit of {percent}%, guests may have {limit} MiB. Running VMs, \
-             unikernels and containers hold {running} MiB ({}), and nodes other operations are starting hold \
-             {starting} MiB ({}). Stop or destroy nodes to free memory, or an admin can lower \
-             `host_memory.reserve_mib` or raise `host_memory.overcommit_percent` in sherpa.toml.",
-            needing(requested),
-            needed - left,
-            committed.running.len(),
-            committed.starting.len(),
-        );
-        return Err(ServiceError::InsufficientMemory {
-            message,
-            shortfall: MemoryShortfall {
-                requested_mib: needed,
-                available_mib: left,
-                numa_node: None,
+        bail!(ServiceError::InsufficientMemory {
+            shortage: MemoryShortage::Server {
+                requested: names(requested),
+                needed_mib: needed,
+                left_mib: left,
+                total_mib,
+                hugepages_mib,
+                reserve_mib,
+                overcommit_percent: percent,
+                limit_mib: limit,
+                running_mib: running,
+                running_count: committed.running.len(),
+                starting_mib: starting,
+                starting_count: committed.starting.len(),
             },
-        }
-        .into());
+        });
     }
 
     let mut numa_nodes: Vec<u32> = requested.iter().filter_map(|c| c.numa_node).collect();
@@ -100,9 +128,7 @@ fn check_numa_node_fits(
     settings: HostMemorySettings,
 ) -> Result<()> {
     let Some(cell) = host.cells.iter().find(|cell| cell.id == numa_node) else {
-        return Err(
-            ServiceError::Invalid(format!("The server has no NUMA node {numa_node}")).into(),
-        );
+        bail!(ServiceError::NumaNodeNotOnServer { numa_node });
     };
     let percent = settings.overcommit_percent;
     let cell_mib = cell.total_kib / 1024;
@@ -130,29 +156,21 @@ fn check_numa_node_fits(
     let needed = total(&wanted);
     let left = limit.saturating_sub(held);
     if needed > left {
-        let holder_list = if holders.is_empty() {
-            "none".to_string()
-        } else {
-            holders
-                .iter()
-                .map(|claim| format!("{} ({} MiB)", claim.name, claim.memory_mib))
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-        let message = format!(
-            r#"Not enough memory on NUMA node {numa_node} for nodes held there with `numa_node = {numa_node}`: {} {needed} MiB, but only {left} MiB is left, {} MiB short. NUMA node {numa_node} has {cell_mib} MiB; less {hugepages_mib} MiB in hugepages and its {reserve_share} MiB share of the host reserve, at an overcommit of {percent}%, guests may have {limit} MiB. VMs held strictly on NUMA node {numa_node} hold {held} MiB: {holder_list}. Memory held on one NUMA node cannot use another node's. Choose another `numa_node`, set `numa_memory_mode = "preferred"` to let the node's memory spill to other NUMA nodes, stop or destroy those nodes, or an admin can lower `host_memory.reserve_mib` or raise `host_memory.overcommit_percent` in sherpa.toml."#,
-            needing(&wanted),
-            needed - left,
-        );
-        return Err(ServiceError::InsufficientMemory {
-            message,
-            shortfall: MemoryShortfall {
-                requested_mib: needed,
-                available_mib: left,
-                numa_node: Some(numa_node),
+        bail!(ServiceError::InsufficientMemory {
+            shortage: MemoryShortage::NumaNode {
+                numa_node,
+                requested: names(&wanted),
+                needed_mib: needed,
+                left_mib: left,
+                node_mib: cell_mib,
+                hugepages_mib,
+                reserve_share_mib: reserve_share,
+                overcommit_percent: percent,
+                limit_mib: limit,
+                held_mib: held,
+                holders,
             },
-        }
-        .into());
+        });
     }
     Ok(())
 }
@@ -161,11 +179,11 @@ fn check_numa_node_fits(
 ///
 /// # Errors
 ///
-/// Fails when the overcommit percentage is 0.
+/// `ServiceError::OvercommitPercentTooLow` when the overcommit percentage is 0.
 pub fn check_host_memory_settings(settings: HostMemorySettings) -> Result<()> {
     let percent = settings.overcommit_percent;
     if percent < 1 {
-        bail!("`host_memory.overcommit_percent` must be at least 1, not {percent}");
+        bail!(ServiceError::OvercommitPercentTooLow { percent });
     }
     Ok(())
 }
@@ -178,17 +196,114 @@ fn total(claims: &[MemoryClaim]) -> u64 {
         .fold(0, u64::saturating_add)
 }
 
+/// The names of the claims' nodes.
+fn names(claims: &[MemoryClaim]) -> Vec<String> {
+    claims.iter().map(|claim| claim.name.clone()).collect()
+}
+
 /// "node 'a' needs" or "nodes 'a', 'b' need".
-fn needing(claims: &[MemoryClaim]) -> String {
-    let names = claims
+fn needing(names: &[String]) -> String {
+    let quoted = names
         .iter()
-        .map(|claim| format!("'{}'", claim.name))
+        .map(|name| format!("'{name}'"))
         .collect::<Vec<_>>()
         .join(", ");
-    if claims.len() == 1 {
-        format!("node {names} needs")
+    if names.len() == 1 {
+        format!("node {quoted} needs")
     } else {
-        format!("nodes {names} need")
+        format!("nodes {quoted} need")
+    }
+}
+
+impl MemoryShortage {
+    /// The shortfall a client is sent: the memory needed, the memory left, and the NUMA node
+    /// that is short.
+    #[must_use]
+    pub fn shortfall(&self) -> MemoryShortfall {
+        match self {
+            Self::Server {
+                needed_mib,
+                left_mib,
+                ..
+            } => MemoryShortfall {
+                requested_mib: *needed_mib,
+                available_mib: *left_mib,
+                numa_node: None,
+            },
+            Self::NumaNode {
+                numa_node,
+                needed_mib,
+                left_mib,
+                ..
+            } => MemoryShortfall {
+                requested_mib: *needed_mib,
+                available_mib: *left_mib,
+                numa_node: Some(*numa_node),
+            },
+        }
+    }
+}
+
+impl fmt::Display for MemoryShortage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Server {
+                requested,
+                needed_mib,
+                left_mib,
+                total_mib,
+                hugepages_mib,
+                reserve_mib,
+                overcommit_percent,
+                limit_mib,
+                running_mib,
+                running_count,
+                starting_mib,
+                starting_count,
+            } => write!(
+                f,
+                "Not enough memory on the server: {} {needed_mib} MiB, but only {left_mib} MiB of \
+                 guest memory is left, {} MiB short. The server has {total_mib} MiB; less \
+                 {hugepages_mib} MiB in hugepages and the {reserve_mib} MiB host reserve, at an \
+                 overcommit of {overcommit_percent}%, guests may have {limit_mib} MiB. Running \
+                 VMs, unikernels and containers hold {running_mib} MiB ({running_count}), and \
+                 nodes other operations are starting hold {starting_mib} MiB ({starting_count}). \
+                 Stop or destroy nodes to free memory, or an admin can lower \
+                 `host_memory.reserve_mib` or raise `host_memory.overcommit_percent` in \
+                 sherpa.toml.",
+                needing(requested),
+                needed_mib - left_mib,
+            ),
+            Self::NumaNode {
+                numa_node,
+                requested,
+                needed_mib,
+                left_mib,
+                node_mib,
+                hugepages_mib,
+                reserve_share_mib,
+                overcommit_percent,
+                limit_mib,
+                held_mib,
+                holders,
+            } => {
+                let holder_list = if holders.is_empty() {
+                    "none".to_string()
+                } else {
+                    holders
+                        .iter()
+                        .map(|claim| format!("{} ({} MiB)", claim.name, claim.memory_mib))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                write!(
+                    f,
+                    r#"Not enough memory on NUMA node {numa_node} for nodes held there with `numa_node = {numa_node}`: {} {needed_mib} MiB, but only {left_mib} MiB is left, {} MiB short. NUMA node {numa_node} has {node_mib} MiB; less {hugepages_mib} MiB in hugepages and its {reserve_share_mib} MiB share of the host reserve, at an overcommit of {overcommit_percent}%, guests may have {limit_mib} MiB. VMs held strictly on NUMA node {numa_node} hold {held_mib} MiB: {holder_list}. Memory held on one NUMA node cannot use another node's. Choose another `numa_node`, set `numa_memory_mode = "preferred"` to let the node's memory spill to other NUMA nodes, stop or destroy those nodes, or an admin can lower `host_memory.reserve_mib` or raise `host_memory.overcommit_percent` in sherpa.toml."#,
+                    needing(requested),
+                    needed_mib - left_mib,
+                )
+            }
+        }
     }
 }
 
@@ -261,13 +376,23 @@ mod tests {
         )
     }
 
-    fn error(result: Result<()>) -> String {
-        format!("{:#}", result.unwrap_err())
+    fn error(result: Result<()>) -> ServiceError {
+        result
+            .unwrap_err()
+            .downcast::<ServiceError>()
+            .expect("a service error")
+    }
+
+    fn shortage(result: Result<()>) -> MemoryShortage {
+        match error(result) {
+            ServiceError::InsufficientMemory { shortage } => shortage,
+            other => panic!("not a memory shortage: {other}"),
+        }
     }
 
     fn shortfall(error: &anyhow::Error) -> Option<MemoryShortfall> {
         match ServiceError::find(error) {
-            Some(ServiceError::InsufficientMemory { shortfall, .. }) => Some(*shortfall),
+            Some(ServiceError::InsufficientMemory { shortage }) => Some(shortage.shortfall()),
             _ => None,
         }
     }
@@ -280,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn the_global_oom_of_514_is_refused_naming_every_number_and_the_settings() {
+    fn the_global_oom_of_514_is_refused_carrying_every_number() {
         // 148 GiB of guests on a 160 GiB server leaves less than the 16 GiB reserve.
         let running = [
             claim("dev", 48, Some(1)),
@@ -289,38 +414,42 @@ mod tests {
             claim("win", 16, None),
         ];
         let requested = [claim("rel2604", 30, None)];
-        let message = error(check(&requested, &running, &[], settings(16 * 1024, 100)));
-        for expected in [
-            "Not enough memory on the server",
-            "node 'rel2604' needs 30720 MiB",
-            "only 26624 MiB",
-            "4096 MiB short",
-            "The server has 163840 MiB",
-            "16384 MiB host reserve",
-            "overcommit of 100%",
-            "guests may have 147456 MiB",
-            "Running VMs, unikernels and containers hold 120832 MiB (4)",
-            "`host_memory.reserve_mib`",
-            "`host_memory.overcommit_percent`",
-            "sherpa.toml",
-        ] {
-            assert!(message.contains(expected), "{expected:?} not in: {message}");
-        }
+        assert_eq!(
+            shortage(check(&requested, &running, &[], settings(16 * 1024, 100))),
+            MemoryShortage::Server {
+                requested: vec!["rel2604".to_owned()],
+                needed_mib: 30720,
+                left_mib: 26624,
+                total_mib: 163_840,
+                hugepages_mib: 0,
+                reserve_mib: 16384,
+                overcommit_percent: 100,
+                limit_mib: 147_456,
+                running_mib: 120_832,
+                running_count: 4,
+                starting_mib: 0,
+                starting_count: 0,
+            }
+        );
     }
 
     #[test]
     fn nodes_other_operations_are_starting_count_too() {
         let starting = [claim("other-lab", 100, None)];
         let requested = [claim("a", 40, None), claim("b", 20, None)];
-        let message = error(check(&requested, &[], &starting, settings(4096, 100)));
-        assert!(
-            message.contains("nodes 'a', 'b' need 61440 MiB"),
-            "{message}"
-        );
-        assert!(
-            message.contains("nodes other operations are starting hold 102400 MiB (1)"),
-            "{message}"
-        );
+        let MemoryShortage::Server {
+            requested,
+            needed_mib,
+            starting_mib,
+            starting_count,
+            ..
+        } = shortage(check(&requested, &[], &starting, settings(4096, 100)))
+        else {
+            panic!("not a shortage of the server's memory");
+        };
+        assert_eq!(requested, ["a", "b"]);
+        assert_eq!(needed_mib, 61440);
+        assert_eq!((starting_mib, starting_count), (102_400, 1));
     }
 
     #[test]
@@ -384,33 +513,38 @@ mod tests {
             running: &[],
             starting: &[],
         };
-        let message = error(check_memory_fits(
+        let MemoryShortage::Server { hugepages_mib, .. } = shortage(check_memory_fits(
             &requested,
             committed,
             &host,
             settings(0, 100),
-        ));
-        assert!(message.contains("less 40960 MiB in hugepages"), "{message}");
+        )) else {
+            panic!("not a shortage of the server's memory");
+        };
+        assert_eq!(hugepages_mib, 40960);
     }
 
     #[test]
-    fn the_numa_node_oom_of_514_is_refused_naming_the_node_and_its_holders() {
+    fn the_numa_node_oom_of_514_is_refused_carrying_the_node_and_its_holders() {
         // The whole server has room, but NUMA node 0 does not.
         let running = [claim("agent", 60, Some(0)), claim("dev", 10, Some(1))];
         let requested = [claim("pinned", 24, Some(0))];
-        let message = error(check(&requested, &running, &[], settings(4096, 100)));
-        for expected in [
-            "Not enough memory on NUMA node 0",
-            "`numa_node = 0`",
-            "node 'pinned' needs 24576 MiB",
-            "NUMA node 0 has 81920 MiB",
-            "2048 MiB share of the host reserve",
-            "VMs held strictly on NUMA node 0 hold 61440 MiB: agent (61440 MiB)",
-            r#"`numa_memory_mode = "preferred"`"#,
-            "`host_memory.reserve_mib`",
-        ] {
-            assert!(message.contains(expected), "{expected:?} not in: {message}");
-        }
+        assert_eq!(
+            shortage(check(&requested, &running, &[], settings(4096, 100))),
+            MemoryShortage::NumaNode {
+                numa_node: 0,
+                requested: vec!["pinned".to_owned()],
+                needed_mib: 24576,
+                left_mib: 18432,
+                node_mib: 81920,
+                hugepages_mib: 0,
+                reserve_share_mib: 2048,
+                overcommit_percent: 100,
+                limit_mib: 79872,
+                held_mib: 61440,
+                holders: vec![claim("agent", 60, Some(0))],
+            }
+        );
     }
 
     #[test]
@@ -423,30 +557,27 @@ mod tests {
     #[test]
     fn several_requested_nodes_on_one_numa_node_add_up() {
         let requested = [claim("a", 40, Some(1)), claim("b", 40, Some(1))];
-        let message = error(check(&requested, &[], &[], settings(4096, 100)));
-        assert!(
-            message.contains("Not enough memory on NUMA node 1"),
-            "{message}"
-        );
-        assert!(
-            message.contains("nodes 'a', 'b' need 81920 MiB"),
-            "{message}"
-        );
+        let MemoryShortage::NumaNode {
+            numa_node,
+            requested,
+            needed_mib,
+            ..
+        } = shortage(check(&requested, &[], &[], settings(4096, 100)))
+        else {
+            panic!("not a shortage of a NUMA node's memory");
+        };
+        assert_eq!(numa_node, 1);
+        assert_eq!(requested, ["a", "b"]);
+        assert_eq!(needed_mib, 81920);
     }
 
     #[test]
     fn a_numa_node_the_server_does_not_have_is_refused() {
         let requested = [claim("a", 1, Some(7))];
-        let refused = check(&requested, &[], &[], settings(4096, 100)).unwrap_err();
-        assert!(
-            !matches!(
-                ServiceError::find(&refused),
-                Some(ServiceError::InsufficientMemory { .. })
-            ),
-            "a missing NUMA node is not a memory shortage: {refused:#}"
+        assert_eq!(
+            error(check(&requested, &[], &[], settings(4096, 100))),
+            ServiceError::NumaNodeNotOnServer { numa_node: 7 }
         );
-        let message = format!("{refused:#}");
-        assert!(message.contains("NUMA node 7"), "{message}");
     }
 
     #[test]
@@ -490,10 +621,9 @@ mod tests {
         check_host_memory_settings(settings(4096, 100)).unwrap();
         check_host_memory_settings(settings(0, 1)).unwrap();
         check_host_memory_settings(settings(0, u32::MAX)).unwrap();
-        let message = error(check_host_memory_settings(settings(4096, 0)));
-        assert!(
-            message.contains("`host_memory.overcommit_percent` must be at least 1, not 0"),
-            "{message}"
+        assert_eq!(
+            error(check_host_memory_settings(settings(4096, 0))),
+            ServiceError::OvercommitPercentTooLow { percent: 0 }
         );
     }
 }

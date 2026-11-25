@@ -181,10 +181,17 @@ progress, takes a lock or touches a resource; requests carry no username. Refusa
 
 ### What a caller is told of an error
 
-`services::error` classifies every failure by type. A `ServiceError` (not found, denied, invalid,
-conflict, memory, CPU pins) carries the message the user is shown, so a refusal of what the user
-sent or of the current state is typed where it is raised, or where a validator that refuses only
-user input is called, with its full wording. Anything else is `Unexpected`: `Unexpected::log`
+`services::error` classifies every failure by type. `ServiceError`, re-exported from the crate
+root, is the server crate's one error enum. Its four text variants (not found, denied, invalid,
+conflict) carry the message the user is shown; a refusal a test or caller tells apart has its own
+variant, which carries the values it is about as fields and builds its message from them, as the
+memory (`MemoryShortage`) and CPU pin refusals do. `ServiceError::category` maps every variant to
+the kind of refusal a transport answers with (`ServiceCategory`: not found, denied, conflict,
+invalid), so each transport picks its status from the category and a new variant cannot miss its
+code. A variant whose category is `None`, such as a startup or `sherpad` command failure, is not a
+refusal: `ServiceError::find` skips it and the caller is not told of it. A refusal of what the
+user sent or of the current state is typed where it is raised, or where a validator that refuses
+only user input is called, with its full wording. Anything else is `Unexpected`: `Unexpected::log`
 logs what failed and the error's chain at `error` level with a short random reference, and the
 caller gets only `internal error (ref <id>); see the server log`. A problem the server meets on
 each scan and works around logs once instead, with `Unexpected::warn` at `warn` level, and keeps
@@ -193,7 +200,12 @@ its reference (see the scanner's unreadable link ends in `P2P-ARCHITECTURE.md`).
 (`caller_message`), and the errors inside an answer (a destroy's `DestroyError`s, an up's
 service errors, down and resume per-node messages) all go through it, so no caller sees a path,
 libvirt or Docker text, or a chain. The outer `.context` of a typed error is not sent: only the
-`ServiceError`'s own message is. The cases are `tests/specs/inspect-and-web-ui.md`, `api_errors`.
+`ServiceError`'s own message is, with the message of each error the variant carries as its
+`#[source]` after it (`ServiceError::message`). A variant that carries the check that refused the
+request as its source, such as `RequestUnreadable` with its `InvalidRequest`, keeps that error's
+words out of its own message, so a chain reads each cause once. A request that does not parse is
+an `InvalidRequest`, the extractors' rejection: a variant per reason, the path of the field that
+is wrong carried as data, never the value sent. The cases are `tests/specs/inspect-and-web-ui.md`, `api_errors`.
 
 #### The admin boundary
 

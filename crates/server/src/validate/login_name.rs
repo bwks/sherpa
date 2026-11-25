@@ -13,7 +13,7 @@
 //! - PAN-OS: at most 31 characters (PAN-OS web interface help, Device > Administrators).
 //! - OpenBSD: at most 31 characters (`adduser(8)`).
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use shared::data::{ModelKind, NodeModel};
 
@@ -49,18 +49,20 @@ fn login_name_rule(model: NodeModel) -> LoginNameRule {
 ///
 /// # Errors
 ///
-/// Fails when the name is longer than the model takes, or starts with a character it does not
-/// take, naming the node, the model and the limit.
+/// `ServiceError::LoginNameTooLong` when the name is longer than the model takes, and
+/// `ServiceError::LoginNameFirstCharacter` when it starts with a character the model does not
+/// take, each carrying the node, the model and the name.
 pub fn validate_login_name(model_kind: ModelKind, node_name: &str, username: &str) -> Result<()> {
     let rule = login_name_rule(model_kind.model());
     let length = username.chars().count();
     if length > rule.max_length {
-        return Err(ServiceError::Invalid(format!(
-            "Node '{node_name}' ({model_kind}) takes login names of at most {} characters; \
-             '{username}' has {length}. Start this lab from an account with a shorter name.",
-            rule.max_length
-        ))
-        .into());
+        bail!(ServiceError::LoginNameTooLong {
+            node: node_name.to_owned(),
+            model_kind,
+            username: username.to_owned(),
+            max_length: rule.max_length,
+            length,
+        });
     }
     if rule.alphanumeric_first
         && !username
@@ -68,11 +70,11 @@ pub fn validate_login_name(model_kind: ModelKind, node_name: &str, username: &st
             .next()
             .is_some_and(|first| first.is_ascii_alphanumeric())
     {
-        return Err(ServiceError::Invalid(format!(
-            "Node '{node_name}' ({model_kind}) takes login names that start with a letter or a digit; \
-             '{username}' does not. Start this lab from an account whose name does."
-        ))
-        .into());
+        bail!(ServiceError::LoginNameFirstCharacter {
+            node: node_name.to_owned(),
+            model_kind,
+            username: username.to_owned(),
+        });
     }
     Ok(())
 }
@@ -108,25 +110,32 @@ mod tests {
             );
             let error =
                 validate_login_name(ModelKind::default_for(model), "n1", &name('a', limit + 1))
-                    .unwrap_err()
-                    .to_string();
-            assert!(
-                error.contains(&format!(
-                    "Node 'n1' ({model}) takes login names of at most {limit} characters"
-                )),
-                "{error}"
+                    .unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<ServiceError>(),
+                Some(&ServiceError::LoginNameTooLong {
+                    node: "n1".to_owned(),
+                    model_kind: ModelKind::default_for(model),
+                    username: name('a', limit + 1),
+                    max_length: limit,
+                    length: limit + 1,
+                })
             );
-            assert!(error.contains(&format!("has {}", limit + 1)), "{error}");
         }
     }
 
     fn nx_os_and_eos_refuse_a_leading_underscore() {
         for model in [NodeModel::CiscoNexus9300, NodeModel::AristaEos] {
-            let error = validate_login_name(ModelKind::default_for(model), "sw1", "_svc")
-                .unwrap_err()
-                .to_string();
-            assert!(error.contains("start with a letter or a digit"), "{error}");
-            assert!(error.contains("'_svc'"), "{error}");
+            let error =
+                validate_login_name(ModelKind::default_for(model), "sw1", "_svc").unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<ServiceError>(),
+                Some(&ServiceError::LoginNameFirstCharacter {
+                    node: "sw1".to_owned(),
+                    model_kind: ModelKind::default_for(model),
+                    username: "_svc".to_owned(),
+                })
+            );
             assert!(validate_login_name(ModelKind::default_for(model), "sw1", "svc_1").is_ok());
         }
     }
@@ -134,13 +143,13 @@ mod tests {
     fn both_kinds_of_eos_take_its_rule_and_the_message_names_the_kind() {
         for kind in [NodeKind::VirtualMachine, NodeKind::Container] {
             let model_kind = ModelKind::new(NodeModel::AristaEos, Some(kind)).unwrap();
-            let error = validate_login_name(model_kind, "sw1", "_svc")
-                .unwrap_err()
-                .to_string();
+            let error = validate_login_name(model_kind, "sw1", "_svc").unwrap_err();
             assert!(
-                error.contains(&format!(
-                    "Node 'sw1' (arista_eos, {kind}) takes login names"
-                )),
+                matches!(
+                    error.downcast_ref::<ServiceError>(),
+                    Some(ServiceError::LoginNameFirstCharacter { model_kind: refused, .. })
+                        if *refused == model_kind
+                ),
                 "{error}"
             );
         }
@@ -170,9 +179,12 @@ mod tests {
     fn the_account_of_a_node_is_refused_a_name_its_model_cannot_take() {
         let long = test_account(&"a".repeat(21), &[KEY]);
         let image = ModelKind::default_for(NodeModel::WindowsServer).node_config();
-        let error = node_account(&long, "win1", &image).unwrap_err().to_string();
+        let error = node_account(&long, "win1", &image).unwrap_err();
         assert!(
-            error.contains("Node 'win1' (windows_server) takes login names of at most 20"),
+            matches!(
+                error.downcast_ref::<ServiceError>(),
+                Some(ServiceError::LoginNameTooLong { node, max_length: 20, .. }) if node == "win1"
+            ),
             "{error}"
         );
         let image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();

@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use crate::api::request_parse::FormBody;
 use crate::daemon::state::AppState;
-use crate::services::error::ServiceError;
+use crate::services::error::{ServiceCategory, ServiceError};
 use crate::services::{user_device_password, user_password, user_ssh_keys};
 use crate::templates::{
     DevicePasswordStatusTemplate, DevicePasswordSuccessTemplate, NavPage, PasswordErrorTemplate,
@@ -118,8 +118,12 @@ pub async fn update_password_handler(
     .await
     {
         let message = match ServiceError::find(&error) {
-            Some(ServiceError::Denied(_)) => "Current password is incorrect".to_owned(),
-            Some(refusal @ ServiceError::Invalid(_)) => refusal.to_string(),
+            Some(refusal) if refusal.category() == Some(ServiceCategory::Denied) => {
+                "Current password is incorrect".to_owned()
+            }
+            Some(refusal) if refusal.category() == Some(ServiceCategory::Invalid) => {
+                refusal.message()
+            }
             _ => {
                 tracing::error!(username = %ctx.username, "Failed to update password: {error:?}");
                 "Failed to update password".to_owned()
@@ -163,10 +167,12 @@ pub async fn update_device_password_handler(
     )
     .await
     {
-        let message = if let Some(refusal @ (ServiceError::Denied(_) | ServiceError::Invalid(_))) =
-            ServiceError::find(&error)
-        {
-            refusal.to_string()
+        let message = if let Some(refusal) = ServiceError::find(&error)
+            && matches!(
+                refusal.category(),
+                Some(ServiceCategory::Denied | ServiceCategory::Invalid)
+            ) {
+            refusal.message()
         } else {
             tracing::error!(username = %ctx.username, "Failed to set the device password: {error:?}");
             "Failed to set the device password".to_owned()
@@ -201,13 +207,16 @@ pub async fn add_ssh_key_handler(
         }
         .into_response(),
         Err(error) => {
-            let message = if let Some(
-                refusal @ (ServiceError::Invalid(_)
-                | ServiceError::Conflict(_)
-                | ServiceError::NotFound(_)),
-            ) = ServiceError::find(&error)
-            {
-                refusal.to_string()
+            let message = if let Some(refusal) = ServiceError::find(&error)
+                && matches!(
+                    refusal.category(),
+                    Some(
+                        ServiceCategory::Invalid
+                            | ServiceCategory::Conflict
+                            | ServiceCategory::NotFound
+                    )
+                ) {
+                refusal.message()
             } else {
                 tracing::error!(username = %ctx.username, "Failed to add SSH key: {error:?}");
                 "Failed to add SSH key".to_owned()
@@ -259,9 +268,11 @@ pub async fn delete_ssh_key_handler(
         .await
         .map_err(ServiceError::from_user_write)
     {
-        if let Some(refusal @ ServiceError::Conflict(_)) = ServiceError::find(&e) {
+        if let Some(refusal) = ServiceError::find(&e)
+            && refusal.category() == Some(ServiceCategory::Conflict)
+        {
             return SshKeyErrorTemplate {
-                message: refusal.to_string(),
+                message: refusal.message(),
             }
             .into_response();
         }

@@ -34,7 +34,7 @@ use crate::auth::policy::require_lab_owner;
 use crate::daemon::state::AppState;
 use crate::daemon::storage::restrict_dir;
 use crate::konst::{CONSOLE_GROUP, CONSOLE_LAB_DIR_MODE, SHERPA_CONSOLE_DIR, UNIX_SOCKET_PATH_MAX};
-use crate::services::error::ServiceError;
+use crate::services::error::{ServiceCategory, ServiceError};
 
 /// A node console sherpad relays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -146,7 +146,10 @@ pub async fn console_target(
 ) -> Result<ConsoleTarget> {
     let lab = match require_lab_owner(ctx, db, lab_id).await {
         Ok(lab) => lab,
-        Err(error) if matches!(ServiceError::find(&error), Some(ServiceError::Denied(_))) => {
+        Err(error)
+            if ServiceError::find(&error).and_then(ServiceError::category)
+                == Some(ServiceCategory::Denied) =>
+        {
             return Err(ServiceError::Denied(format!(
                 "only the owner of lab '{lab_id}' can open its consoles"
             ))

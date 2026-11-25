@@ -459,6 +459,7 @@ mod tests {
 
     use super::*;
     use crate::services::error::ServiceError;
+    use crate::validate::MemoryShortage;
     use container::{
         ContainerSpec, docker_connection, kill_container, remove_container, run_container,
     };
@@ -855,25 +856,22 @@ mod tests {
         )
         .await
         .unwrap_err();
-        let message = format!("{refused:#}");
-        assert!(
-            matches!(
-                ServiceError::find(&refused),
-                Some(ServiceError::InsufficientMemory { shortfall, .. })
-                    if shortfall.requested_mib == size && shortfall.numa_node.is_none()
-            ),
-            "{message}"
-        );
-        assert!(
-            message.contains(&format!("node 'second' needs {size} MiB")),
-            "{message}"
-        );
-        assert!(
-            message.contains(&format!(
-                "nodes other operations are starting hold {size} MiB (1)"
-            )),
-            "{message}"
-        );
+        let Some(ServiceError::InsufficientMemory {
+            shortage:
+                MemoryShortage::Server {
+                    requested,
+                    needed_mib,
+                    starting_mib,
+                    starting_count,
+                    ..
+                },
+        }) = ServiceError::find(&refused)
+        else {
+            panic!("not a shortage of the server's memory: {refused:#}");
+        };
+        assert_eq!(requested, &["second"]);
+        assert_eq!(*needed_mib, size);
+        assert_eq!((*starting_mib, *starting_count), (size, 1));
 
         drop(held);
         let admitted = admit_lab_nodes(
@@ -1025,14 +1023,13 @@ mod tests {
         )
         .await
         .unwrap_err();
-        let message = format!("{refused:#}");
         assert!(
             matches!(
                 ServiceError::find(&refused),
-                Some(ServiceError::InsufficientMemory { shortfall, .. })
-                    if shortfall.requested_mib == count * u64::from(u16::MAX)
+                Some(ServiceError::InsufficientMemory { shortage })
+                    if shortage.shortfall().requested_mib == count * u64::from(u16::MAX)
             ),
-            "{message}"
+            "{refused:#}"
         );
     }
 

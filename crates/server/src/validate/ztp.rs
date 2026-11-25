@@ -1,6 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 use shared::data::{NodeConfig, Ztp};
+use shared::error::SharedError;
 use shared::validators::{check_ztp, effective_ztp};
 use topology::validate::check_node_ztp_config;
 use topology::{NodeExpanded, TalosCluster, find_talos_cluster};
@@ -22,18 +23,22 @@ pub fn validate_node_ztp(
     talos_clusters: &[TalosCluster],
 ) -> Result<Ztp> {
     let ztp = effective_ztp(node.ztp.method, image);
-    check_ztp(node.model_kind, ztp)
-        .with_context(|| format!("ZTP validation failed for node: {}", node.name))
-        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    if let Err(error) = check_ztp(node.model_kind, ztp) {
+        let refusal = error
+            .downcast::<SharedError>()
+            .context("Failed to check the node's ZTP setting")?;
+        bail!(ServiceError::NodeZtpUnsupported {
+            node: node.name.clone(),
+            refusal,
+        });
+    }
     if let Some((cluster, _)) = find_talos_cluster(talos_clusters, &node.name)
         && ztp == Ztp::Disabled
     {
-        return Err(ServiceError::Invalid(format!(
-            "Node '{}' joins talos cluster '{}' but its ZTP is disabled, so the machine config \
-             Sherpa generates for it would not reach it",
-            node.name, cluster.name
-        ))
-        .into());
+        bail!(ServiceError::TalosMemberZtpDisabled {
+            node: node.name.clone(),
+            cluster: cluster.name.clone(),
+        });
     }
     check_node_ztp_config(node, ztp)
         .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
@@ -85,9 +90,17 @@ mod tests {
     #[test]
     fn ztp_setting_005_up_and_redeploy_refuse_an_images_method_as_a_manifests() {
         let error = validate(NodeModel::FrrLinux, Some(Ztp::Cdrom), None).unwrap_err();
-        let error = format!("{error:#}");
-        assert!(error.contains("node1"), "{error}");
-        assert!(error.contains("allows: disabled, volume"), "{error}");
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::NodeZtpUnsupported {
+                node: "node1".to_owned(),
+                refusal: SharedError::UnsupportedZtp {
+                    ztp: Ztp::Cdrom,
+                    model: NodeModel::FrrLinux,
+                    allowed: vec![Ztp::Disabled, Ztp::Volume],
+                },
+            })
+        );
 
         // An image whose stored setting its model does not take, however it got there.
         let mut image = ModelKind::default_for(NodeModel::UbuntuLinux).node_config();
@@ -97,7 +110,16 @@ mod tests {
         vm.ztp.method = Ztp::Volume;
         let error =
             validate_node_ztp(&node(NodeModel::UbuntuLinux, None, None), &image, &[]).unwrap_err();
-        assert!(format!("{error:#}").contains("allows: disabled, cloud-init"));
+        assert!(
+            matches!(
+                error.downcast_ref::<ServiceError>(),
+                Some(ServiceError::NodeZtpUnsupported {
+                    refusal: SharedError::UnsupportedZtp { allowed, .. },
+                    ..
+                }) if allowed == &[Ztp::Disabled, Ztp::CloudInit]
+            ),
+            "{error:#}"
+        );
     }
 
     #[test]
@@ -109,10 +131,14 @@ mod tests {
         }];
         let image = ModelKind::default_for(NodeModel::TalosLinux).node_config();
         let member = node(NodeModel::TalosLinux, Some(Ztp::Disabled), None);
-        let error = validate_node_ztp(&member, &image, &clusters)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("talos cluster 'prod'"), "{error}");
+        let error = validate_node_ztp(&member, &image, &clusters).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::TalosMemberZtpDisabled {
+                node: "node1".to_owned(),
+                cluster: "prod".to_owned(),
+            })
+        );
 
         let member = node(NodeModel::TalosLinux, None, None);
         assert_eq!(

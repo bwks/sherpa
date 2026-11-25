@@ -35,6 +35,7 @@ pub fn validate_management_prefix_ipv6(prefix: Ipv6Net) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ipnet::AddrParseError;
     use shared::util::get_ipv4_network;
 
     #[test]
@@ -73,6 +74,6 @@ mod tests {
         }
 
         let error = get_ipv4_network("10.0.0/24").unwrap_err();
-        assert!(error.to_string().contains("10.0.0/24"), "{error}");
+        assert!(error.downcast_ref::<AddrParseError>().is_some(), "{error}");
     }
 }

@@ -6,6 +6,8 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
+use crate::services::error::ServiceError;
+
 /// Load certificates from PEM file
 pub fn load_certificates(path: &Path) -> Result<Vec<CertificateDer<'static>>> {
     let file = File::open(path)
@@ -17,7 +19,9 @@ pub fn load_certificates(path: &Path) -> Result<Vec<CertificateDer<'static>>> {
         .context("Failed to parse certificates from PEM file")?;
 
     if certs.is_empty() {
-        anyhow::bail!("No certificates found in file: {}", path.display());
+        anyhow::bail!(ServiceError::NoCertificates {
+            path: path.to_owned()
+        });
     }
 
     tracing::debug!(
@@ -85,11 +89,10 @@ LkK3HQdFGQWqVGqfyN5x
         let error = load_certificates(cert_file.path()).unwrap_err();
 
         assert_eq!(
-            error.to_string(),
-            format!(
-                "No certificates found in file: {}",
-                cert_file.path().display()
-            )
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::NoCertificates {
+                path: cert_file.path().to_owned()
+            })
         );
     }
 }

@@ -22,7 +22,7 @@ use tracing::instrument;
 
 use crate::daemon::state::AppState;
 use crate::services::container_scan::{ScanTarget, plan_container_scan, tagged_versions};
-use crate::services::error::{ServiceError, Unexpected};
+use crate::services::error::{ServiceCategory, ServiceError, Unexpected};
 use crate::services::image_lifecycle::{
     BackedVolumes, ensure_image_has_no_overlays, image_model_kind, lock_image,
 };
@@ -284,11 +284,12 @@ fn ensure_disk_replaceable(
              the image as a new version",
             version_disk.display()
         );
-        match ServiceError::find(&error) {
-            Some(ServiceError::Conflict(_)) => {
-                ServiceError::Conflict(format!("{context}: {error}")).into()
-            }
-            _ => error.context(context),
+        if ServiceError::find(&error).and_then(ServiceError::category)
+            == Some(ServiceCategory::Conflict)
+        {
+            ServiceError::Conflict(format!("{context}: {error}")).into()
+        } else {
+            error.context(context)
         }
     })?;
     let _ = progress.send_status(

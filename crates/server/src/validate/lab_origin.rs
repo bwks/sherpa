@@ -1,5 +1,7 @@
 use anyhow::{Result, bail};
 
+use crate::services::error::ServiceError;
+
 /// The longest hostname DNS allows.
 const MAX_CLIENT_HOST_LENGTH: usize = 253;
 /// Linux's `PATH_MAX`; Windows and macOS paths are shorter.
@@ -21,15 +23,15 @@ pub fn validate_lab_origin(client_host: Option<&str>, client_folder: Option<&str
     Ok(())
 }
 
-fn check_text(value: &str, field: &str, max_length: usize) -> Result<()> {
+fn check_text(value: &str, field: &'static str, max_length: usize) -> Result<()> {
     if value.is_empty() {
-        bail!("{field} must not be empty");
+        bail!(ServiceError::LabOriginEmpty { field });
     }
     if value.chars().count() > max_length {
-        bail!("{field} must be at most {max_length} characters");
+        bail!(ServiceError::LabOriginTooLong { field, max_length });
     }
     if value.chars().any(char::is_control) {
-        bail!("{field} must not contain control characters");
+        bail!(ServiceError::LabOriginControlCharacters { field });
     }
     Ok(())
 }
@@ -52,10 +54,20 @@ mod tests {
 
     #[test]
     fn empty_values_are_refused() {
-        let error = validate_lab_origin(Some(""), None).unwrap_err().to_string();
-        assert!(error.contains("client_host"), "{error}");
-        let error = validate_lab_origin(None, Some("")).unwrap_err().to_string();
-        assert!(error.contains("client_folder"), "{error}");
+        let error = validate_lab_origin(Some(""), None).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::LabOriginEmpty {
+                field: "client_host"
+            })
+        );
+        let error = validate_lab_origin(None, Some("")).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::LabOriginEmpty {
+                field: "client_folder"
+            })
+        );
     }
 
     #[test]
@@ -70,10 +82,13 @@ mod tests {
 
     #[test]
     fn control_characters_are_refused() {
-        let error = validate_lab_origin(Some("dev\u{1b}[2J"), None)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("control characters"), "{error}");
+        let error = validate_lab_origin(Some("dev\u{1b}[2J"), None).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::LabOriginControlCharacters {
+                field: "client_host"
+            })
+        );
         assert!(validate_lab_origin(None, Some("/home/user\nlabs")).is_err());
     }
 }

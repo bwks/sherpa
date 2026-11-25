@@ -188,11 +188,11 @@ Only an Ubuntu release, downloaded without `--url`, publishes a SHA-256 (its `SH
 | 001 | A form saved unchanged leaves an image of each kind as it was | unit |
 | 002 | A changed CPU count, memory and interface count are stored, under the same image | integration |
 | 003 | A node built after an edit runs with the edited settings (no test yet) | integration |
-| 004 | A form with a field of another kind is refused naming the field | unit |
-| 005 | A form without a field its kind needs is refused naming the field | unit |
+| 004 | A form with a field of another kind is refused, carrying the field and the kind | unit |
+| 005 | A form without a field its kind needs is refused, carrying the field and the kind | unit |
 | 006 | A form with a field the server does not take, as a page loaded from an older server sends, is refused naming the field, not saved without it | unit |
 | 007 | An edit cannot change the image's model, kind, version, management interface or, for a unikernel, boot mode | unit |
-| 008 | A CPU count under 1, memory under 64 MB or an interface MTU outside 576 to 9600 is refused naming the setting, and values in range are taken | unit |
+| 008 | A CPU count under 1, memory under 64 MB or an interface MTU outside 576 to 9600 is refused with that setting's error, and values in range are taken | unit |
 | 009 | A container image has no interface MTU to check | unit |
 | 010 | The edit page shows the image's own settings chosen, and names its kind | unit |
 | 011 | The image page shows each kind only the settings it takes | unit |
@@ -210,13 +210,13 @@ The ZTP setting of an image, and which methods a model and kind take, belong to 
 | 001 | A node with a `version` gets that version, not the default | unit |
 | 002 | A node without a `version` gets its model and kind's default version | unit |
 | 003 | A node gets an image of its own kind only: the same version of the model's other kind is never taken, default or not | unit |
-| 004 | A model and kind with no image is refused, naming the model, the kind and the node | unit |
-| 005 | A version that is not on the server is refused, listing the versions that are | unit |
-| 006 | A VM image that is recorded but whose file is gone is refused, naming the path it should be at | unit |
+| 004 | A model and kind with no image is refused, carrying the model, the kind and the node | unit |
+| 005 | A version that is not on the server is refused, carrying the versions that are | unit |
+| 006 | A VM image that is recorded but whose file is gone is refused, carrying the path it should be at | unit |
 | 007 | A unikernel's image is looked for under the file name of its boot mode | unit |
 | 008 | A container node runs the manifest's `image` over the repo recorded for its version, for a model with a built-in repo too | unit |
 | 009 | A container node without `image` runs the repo recorded for its version | unit |
-| 010 | A container node with neither is refused, naming both ways to give it one | unit |
+| 010 | A container node with neither is refused with the error that gives both ways to give it one, carrying the node, its model and its version | unit |
 | 011 | The recorded repo is used as written: a full Docker Hub name, a short one, or another registry's path | unit |
 | 012 | A container node whose image is not in local Docker is refused before anything is created, saying how to pull it (no test yet) | integration |
 | 013 | An official Docker Hub image pulled by its full name is found, and its node comes up | integration |

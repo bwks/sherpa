@@ -18,7 +18,7 @@ use crate::auth::policy::{
 use crate::auth::session::SessionLookup;
 use crate::daemon::state::AppState;
 use crate::daemon::state::{Job, JobType};
-use crate::services::error::{ServiceError, caller_message};
+use crate::services::error::{ServiceCategory, ServiceError, caller_message};
 use crate::services::progress::ProgressSender;
 use crate::services::{
     destroy, down, download, inspect, lab_definition, list_labs, redeploy, resume, up,
@@ -384,15 +384,15 @@ fn lab_error_page(
     error: &anyhow::Error,
     failure_message: &str,
 ) -> Response {
-    match ServiceError::find(error) {
-        Some(ServiceError::Denied(_)) => Error403Template {
+    match ServiceError::find(error).and_then(ServiceError::category) {
+        Some(ServiceCategory::Denied) => Error403Template {
             username,
             is_admin,
             nav: NavPage::Other.into(),
             message: "You don't have permission to view this lab.".to_string(),
         }
         .into_response(),
-        Some(ServiceError::NotFound(_)) => {
+        Some(ServiceCategory::NotFound) => {
             tracing::debug!("Lab '{}' not found for user '{}'", lab_id, username);
             Error404Template {
                 username,
@@ -402,13 +402,7 @@ fn lab_error_page(
             }
             .into_response()
         }
-        Some(
-            ServiceError::Conflict(_)
-            | ServiceError::Invalid(_)
-            | ServiceError::InsufficientMemory { .. }
-            | ServiceError::CpuPinsHeld { .. },
-        )
-        | None => Error404Template {
+        Some(ServiceCategory::Conflict | ServiceCategory::Invalid) | None => Error404Template {
             username,
             is_admin,
             nav: NavPage::Other.into(),
@@ -428,16 +422,10 @@ fn lab_error_fragment(error: &anyhow::Error, failure_message: &str) -> Response 
         "{failure_message}: {}",
         caller_message(error, failure_message)
     );
-    let status = match ServiceError::find(error) {
-        Some(ServiceError::Denied(_)) => StatusCode::FORBIDDEN,
-        Some(ServiceError::NotFound(_)) => StatusCode::NOT_FOUND,
-        Some(
-            ServiceError::Conflict(_)
-            | ServiceError::Invalid(_)
-            | ServiceError::InsufficientMemory { .. }
-            | ServiceError::CpuPinsHeld { .. },
-        )
-        | None => StatusCode::OK,
+    let status = match ServiceError::find(error).and_then(ServiceError::category) {
+        Some(ServiceCategory::Denied) => StatusCode::FORBIDDEN,
+        Some(ServiceCategory::NotFound) => StatusCode::NOT_FOUND,
+        Some(ServiceCategory::Conflict | ServiceCategory::Invalid) | None => StatusCode::OK,
     };
     (status, ErrorTemplate { message }).into_response()
 }
@@ -903,7 +891,7 @@ pub async fn lab_create_post_handler(
     let auth = auth.into_context();
     if let Err(refusal) = require_lab_starter(&auth) {
         return ErrorTemplate {
-            message: refusal.to_string(),
+            message: refusal.message(),
         }
         .into_response();
     }

@@ -21,6 +21,7 @@ iso = { path = "../iso" }
 
 # Errors
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 jato = { workspace = true }
 
 # Process/Signal management

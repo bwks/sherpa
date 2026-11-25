@@ -18,7 +18,7 @@ use crate::api::websocket::messages::{RpcError, ServerMessage};
 use crate::auth::context::AuthContext;
 use crate::auth::middleware;
 use crate::daemon::state::AppState;
-use crate::services::error::{ServiceError, Unexpected};
+use crate::services::error::{ServiceCategory, ServiceError, Unexpected};
 use crate::services::progress::ProgressSender;
 
 const RPC_MSG_AUTH_REQUIRED: &str = "Authentication required";
@@ -351,7 +351,7 @@ pub(super) fn parse<T: DeserializeOwned>(params: &Value, message: &str) -> Resul
     parse_value(params).map_err(|error| RpcError {
         code: RpcErrorCode::InvalidParams,
         message: message.to_string(),
-        context: Some(error.message),
+        context: Some(error.to_string()),
         data: None,
     })
 }
@@ -379,25 +379,30 @@ pub(super) fn respond<T: Serialize>(
 /// with only its reference.
 pub(super) fn service_error(error: &anyhow::Error, failure: &str) -> RpcError {
     let (code, message, data) = match ServiceError::find(error) {
-        Some(access @ ServiceError::Denied(_)) => {
-            (RpcErrorCode::AccessDenied, access.to_string(), None)
-        }
-        Some(ServiceError::NotFound(message)) => (RpcErrorCode::NotFound, message.clone(), None),
-        // JSON-RPC has no conflict code; the message tells the caller what to change.
-        Some(ServiceError::Conflict(message)) => (RpcErrorCode::ServerError, message.clone(), None),
-        Some(ServiceError::Invalid(message)) => {
-            (RpcErrorCode::InvalidParams, message.clone(), None)
-        }
-        Some(ServiceError::InsufficientMemory { message, shortfall }) => (
+        Some(ServiceError::InsufficientMemory { shortage }) => (
             RpcErrorCode::InsufficientMemory,
-            message.clone(),
-            serde_json::to_value(shortfall).ok(),
+            shortage.to_string(),
+            serde_json::to_value(shortage.shortfall()).ok(),
         ),
         Some(ServiceError::CpuPinsHeld { message, conflict }) => (
             RpcErrorCode::CpuPinsHeld,
             message.clone(),
             serde_json::to_value(conflict).ok(),
         ),
+        Some(refusal) => match refusal.category() {
+            Some(ServiceCategory::Denied) => (RpcErrorCode::AccessDenied, refusal.message(), None),
+            Some(ServiceCategory::NotFound) => (RpcErrorCode::NotFound, refusal.message(), None),
+            // JSON-RPC has no conflict code; the message tells the caller what to change.
+            Some(ServiceCategory::Conflict) => (RpcErrorCode::ServerError, refusal.message(), None),
+            Some(ServiceCategory::Invalid) => {
+                (RpcErrorCode::InvalidParams, refusal.message(), None)
+            }
+            None => (
+                RpcErrorCode::ServerError,
+                Unexpected::log(error, failure).to_string(),
+                None,
+            ),
+        },
         None => (
             RpcErrorCode::ServerError,
             Unexpected::log(error, failure).to_string(),
@@ -417,8 +422,10 @@ mod tests {
     use super::*;
     use crate::log_capture::capture_log;
     use shared::api_spec::{AuthRequirement, build_spec};
-    use shared::error::{CpuPinConflict, CpuPinRole, MemoryShortfall};
+    use shared::error::{CpuPinConflict, CpuPinRole};
     use std::collections::HashSet;
+
+    use crate::validate::MemoryShortage;
 
     #[test]
     fn api_documents_004_the_rpc_methods_answered_are_the_ones_the_spec_lists_each_once() {
@@ -633,19 +640,27 @@ mod tests {
 
     #[test]
     fn a_memory_refusal_has_its_own_code_and_the_shortfall_as_data() {
-        let shortfall = MemoryShortfall {
-            requested_mib: 16384,
-            available_mib: 11614,
-            numa_node: None,
+        let shortage = MemoryShortage::Server {
+            requested: vec!["r1".to_owned()],
+            needed_mib: 16384,
+            left_mib: 11614,
+            total_mib: 32768,
+            hugepages_mib: 0,
+            reserve_mib: 4096,
+            overcommit_percent: 100,
+            limit_mib: 28672,
+            running_mib: 17058,
+            running_count: 2,
+            starting_mib: 0,
+            starting_count: 0,
         };
         let error = anyhow::Error::new(ServiceError::InsufficientMemory {
-            message: "Not enough memory on the server".to_owned(),
-            shortfall,
+            shortage: shortage.clone(),
         })
         .context("Memory admission failed");
         let rpc = service_error(&error, "Up operation failed");
         assert_eq!(rpc.code, RpcErrorCode::InsufficientMemory);
-        assert_eq!(rpc.message, "Not enough memory on the server");
+        assert_eq!(rpc.message, shortage.to_string());
         assert!(rpc.context.is_none());
         assert_eq!(
             rpc.data,

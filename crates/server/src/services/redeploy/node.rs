@@ -18,7 +18,7 @@ use super::vm::redeploy_vm;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_lab_owner, require_lab_starter};
 use crate::daemon::state::AppState;
-use crate::services::error::ServiceError;
+use crate::services::error::{ServiceCategory, ServiceError};
 use crate::services::guest_account;
 use crate::services::lab_definition;
 use crate::services::lab_lifecycle;
@@ -164,11 +164,13 @@ async fn tear_down_and_rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkRe
     )
     .await
     .map_err(|error| match ServiceError::find(&error) {
-        Some(ServiceError::Conflict(message)) => ServiceError::Conflict(format!(
-            "Cannot redeploy node '{}': {message}",
-            redeploy.node_name
-        ))
-        .into(),
+        Some(refusal) if refusal.category() == Some(ServiceCategory::Conflict) => {
+            ServiceError::Conflict(format!(
+                "Cannot redeploy node '{}': {refusal}",
+                redeploy.node_name
+            ))
+            .into()
+        }
         _ => error.context(format!("Cannot redeploy node '{}'", redeploy.node_name)),
     })?;
     // The rebuilt node gets a new host key, recorded again once it is ready.

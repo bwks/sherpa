@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::Value;
 use tracing::instrument;
 
@@ -25,15 +25,24 @@ use crate::validate::check_web_redeployable;
 ///
 /// # Errors
 ///
-/// Fails when either is not what it should be, or the file contents name a node the manifest
-/// does not have.
+/// Fails with `ServiceError::RequestUnreadable` when either is not what it should be, and with
+/// `ServiceError::Invalid` when the file contents name a node the manifest does not have.
 pub fn parse_manifest(manifest: &Value, file_contents: Option<&Value>) -> Result<Manifest> {
-    let mut manifest: Manifest = parse_value(manifest).context("Failed to deserialize manifest")?;
+    let mut manifest: Manifest =
+        parse_value(manifest).map_err(|refusal| ServiceError::RequestUnreadable {
+            what: "manifest",
+            refusal,
+        })?;
     let file_contents: Option<BTreeMap<String, NodeFileContents>> = file_contents
         .map(parse_value)
         .transpose()
-        .context("Failed to deserialize the file contents")?;
-    manifest.put_file_contents(file_contents.unwrap_or_default())?;
+        .map_err(|refusal| ServiceError::RequestUnreadable {
+            what: "the file contents",
+            refusal,
+        })?;
+    manifest
+        .put_file_contents(file_contents.unwrap_or_default())
+        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
     Ok(manifest)
 }
 
@@ -41,12 +50,14 @@ pub fn parse_manifest(manifest: &Value, file_contents: Option<&Value>) -> Result
 ///
 /// # Errors
 ///
-/// Fails when they are not parts as written.
+/// Fails with `ServiceError::RequestUnreadable` when they are not parts as written.
 pub fn parse_as_written(as_written: Option<&Value>) -> Result<Option<ManifestAsWritten>> {
-    as_written
-        .map(parse_value)
-        .transpose()
-        .context("Failed to deserialize the manifest as written")
+    Ok(as_written.map(parse_value).transpose().map_err(|refusal| {
+        ServiceError::RequestUnreadable {
+            what: "the manifest as written",
+            refusal,
+        }
+    })?)
 }
 
 /// The definition to store for `manifest`, as the client sent it: the manifest as written, with
@@ -143,7 +154,7 @@ pub async fn web_redeploy_manifest(
                 "Node '{node_name}' is not in the lab's stored definition"
             ))
         })?;
-    check_web_redeployable(node).map_err(|error| ServiceError::Conflict(error.to_string()))?;
+    check_web_redeployable(node)?;
     definition.nodes.retain(|node| node.name == node_name);
     Ok(definition)
 }
@@ -344,12 +355,10 @@ ztp = { config = "configs/files01.yaml" }
             .unwrap_err();
         assert_eq!(
             ServiceError::find(&refusal),
-            Some(&ServiceError::Conflict(
-                "Node 'files01' cannot be redeployed from the web UI: it needs ztp.config, \
-                 startup_scripts, which the server does not keep. Run `sherpa redeploy -n \
-                 files01` from the lab folder"
-                    .to_owned()
-            ))
+            Some(&ServiceError::NotWebRedeployable {
+                node: "files01".to_owned(),
+                missing: vec!["ztp.config", "startup_scripts"],
+            })
         );
         let absent = web_redeploy_manifest(&db, &lab_id, "ghost")
             .await

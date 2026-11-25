@@ -1,7 +1,8 @@
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 
 use crate::services::error::ServiceError;
 use shared::data::{ModelKind, NodeConfig};
+use shared::error::SharedError;
 use shared::validators::check_ztp;
 
 /// The longest image version.
@@ -16,8 +17,12 @@ const IMAGE_VERSION_MAX_LEN: usize = 64;
 ///
 /// Fails on the first setting out of range, naming it.
 pub fn validate_node_image_update(model_kind: ModelKind, image: &NodeConfig) -> Result<()> {
-    check_ztp(model_kind, image.ztp())
-        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    if let Err(error) = check_ztp(model_kind, image.ztp()) {
+        let refusal = error
+            .downcast::<SharedError>()
+            .context("Failed to check the image's ZTP setting")?;
+        bail!(ServiceError::ImageZtpUnsupported { refusal });
+    }
     validate_cpu_count(image.cpu.count)?;
     validate_memory(image.memory)?;
     if let Some(device) = image.interface_device() {
@@ -29,23 +34,21 @@ pub fn validate_node_image_update(model_kind: ModelKind, image: &NodeConfig) -> 
 
 fn validate_cpu_count(count: u8) -> Result<()> {
     if count < 1 {
-        return Err(ServiceError::Invalid("CPU count must be at least 1".to_owned()).into());
+        bail!(ServiceError::ImageCpuCountZero);
     }
     Ok(())
 }
 
 fn validate_memory(mb: u16) -> Result<()> {
     if mb < 64 {
-        return Err(ServiceError::Invalid("Memory must be at least 64 MB".to_owned()).into());
+        bail!(ServiceError::ImageMemoryTooLow);
     }
     Ok(())
 }
 
 fn validate_interface_mtu(mtu: u16) -> Result<()> {
     if !(576..=9600).contains(&mtu) {
-        return Err(
-            ServiceError::Invalid("Interface MTU must be between 576 and 9600".to_owned()).into(),
-        );
+        bail!(ServiceError::ImageMtuOutOfRange);
     }
     Ok(())
 }
@@ -147,14 +150,24 @@ mod tests {
         assert!(validate(ubuntu, &image(ubuntu, Ztp::CloudInit, 2, 1024, 1500)).is_ok());
 
         let error = validate(ubuntu, &image(ubuntu, Ztp::CloudInit, 0, 1024, 1500)).unwrap_err();
-        assert!(error.to_string().contains("CPU count"));
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::ImageCpuCountZero)
+        );
 
         let error = validate(ubuntu, &image(ubuntu, Ztp::CloudInit, 1, 32, 1500)).unwrap_err();
-        assert!(error.to_string().contains("Memory"));
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::ImageMemoryTooLow)
+        );
 
         for model in [NodeModel::UbuntuLinux, NodeModel::NanosUnikernel] {
             let error = validate(model, &image(model, Ztp::Disabled, 1, 1024, 100)).unwrap_err();
-            assert!(error.to_string().contains("MTU"), "{model}");
+            assert_eq!(
+                error.downcast_ref::<ServiceError>(),
+                Some(&ServiceError::ImageMtuOutOfRange),
+                "{model}"
+            );
         }
     }
 
@@ -167,10 +180,17 @@ mod tests {
     #[test]
     fn ztp_setting_012_an_edit_to_a_method_the_model_does_not_take_is_refused() {
         let ubuntu = NodeModel::UbuntuLinux;
-        let error = validate(ubuntu, &image(ubuntu, Ztp::Tftp, 1, 1024, 1500))
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("allows: disabled, cloud-init"), "{error}");
+        let error = validate(ubuntu, &image(ubuntu, Ztp::Tftp, 1, 1024, 1500)).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::ImageZtpUnsupported {
+                refusal: SharedError::UnsupportedZtp {
+                    ztp: Ztp::Tftp,
+                    model: NodeModel::UbuntuLinux,
+                    allowed: vec![Ztp::Disabled, Ztp::CloudInit],
+                },
+            })
+        );
         let evolved = NodeModel::JuniperEvolved;
         for ztp in [Ztp::Disabled, Ztp::Tftp, Ztp::Usb] {
             assert!(

@@ -15,6 +15,8 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use serde_path_to_error::Segment;
 
+use thiserror::Error;
+
 use super::errors::ApiError;
 
 const MSG_INVALID: &str = "the request is not valid";
@@ -25,10 +27,23 @@ const MSG_NOT_FORM_CONTENT_TYPE: &str = "the form must be sent with \
      `Content-Type: application/x-www-form-urlencoded`";
 const MSG_UNREADABLE: &str = "the request could not be read";
 
-/// A request that did not parse, with the fixed message it is answered with.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InvalidRequest {
-    pub(crate) message: String,
+/// Why a request did not parse; its message is the fixed one the request is answered with.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum InvalidRequest {
+    #[error("{}", invalid_message(path.as_deref()))]
+    Invalid { path: Option<String> },
+
+    #[error("{MSG_NOT_JSON}")]
+    NotJson,
+
+    #[error("{MSG_NOT_JSON_CONTENT_TYPE}")]
+    NotJsonContentType,
+
+    #[error("{MSG_NOT_FORM_CONTENT_TYPE}")]
+    NotFormContentType,
+
+    #[error("{MSG_UNREADABLE}")]
+    Unreadable,
 }
 
 /// A JSON request body, read as `T`.
@@ -43,26 +58,10 @@ pub(crate) struct FormBody<T>(pub T);
 #[derive(Debug)]
 pub(crate) struct QueryParams<T>(pub T);
 
-impl InvalidRequest {
-    fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
-    }
-}
-
-impl std::fmt::Display for InvalidRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for InvalidRequest {}
-
 impl IntoResponse for InvalidRequest {
     fn into_response(self) -> Response {
-        tracing::debug!(reason = %self.message, "Refused a request that does not parse");
-        ApiError::bad_request(self.message).into_response()
+        tracing::debug!(reason = %self, "Refused a request that does not parse");
+        ApiError::bad_request(self.to_string()).into_response()
     }
 }
 
@@ -71,11 +70,11 @@ impl<T: DeserializeOwned, S: Send + Sync> FromRequest<S> for JsonBody<T> {
 
     async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
         if !is_json(request.headers()) {
-            return Err(InvalidRequest::new(MSG_NOT_JSON_CONTENT_TYPE));
+            return Err(InvalidRequest::NotJsonContentType);
         }
         let bytes = Bytes::from_request(request, state)
             .await
-            .map_err(|_| InvalidRequest::new(MSG_UNREADABLE))?;
+            .map_err(|_| InvalidRequest::Unreadable)?;
         parse_json(&bytes).map(Self)
     }
 }
@@ -87,10 +86,8 @@ impl<T: DeserializeOwned, S: Send + Sync> FromRequest<S> for FormBody<T> {
         let RawForm(bytes) = RawForm::from_request(request, state)
             .await
             .map_err(|rejection| match rejection {
-                RawFormRejection::InvalidFormContentType(_) => {
-                    InvalidRequest::new(MSG_NOT_FORM_CONTENT_TYPE)
-                }
-                _ => InvalidRequest::new(MSG_UNREADABLE),
+                RawFormRejection::InvalidFormContentType(_) => InvalidRequest::NotFormContentType,
+                _ => InvalidRequest::Unreadable,
             })?;
         parse_urlencoded(&bytes).map(Self)
     }
@@ -119,12 +116,10 @@ pub(crate) fn parse_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, Invalid
         if error.inner().is_data() {
             invalid_at(error.path())
         } else {
-            InvalidRequest::new(MSG_NOT_JSON)
+            InvalidRequest::NotJson
         }
     })?;
-    deserializer
-        .end()
-        .map_err(|_| InvalidRequest::new(MSG_NOT_JSON))?;
+    deserializer.end().map_err(|_| InvalidRequest::NotJson)?;
     Ok(parsed)
 }
 
@@ -168,10 +163,16 @@ fn invalid_at(path: &serde_path_to_error::Path) -> InvalidRequest {
         Segment::Enum { variant } => is_name(variant),
         Segment::Unknown => false,
     });
-    if plain && path.iter().next().is_some() {
-        InvalidRequest::new(format!("{MSG_INVALID} at {path}"))
-    } else {
-        InvalidRequest::new(MSG_INVALID)
+    InvalidRequest::Invalid {
+        path: (plain && path.iter().next().is_some()).then(|| path.to_string()),
+    }
+}
+
+/// The message of a request that is not valid, at `path` when it is named.
+fn invalid_message(path: Option<&str>) -> String {
+    match path {
+        Some(path) => format!("{MSG_INVALID} at {path}"),
+        None => MSG_INVALID.to_owned(),
     }
 }
 
@@ -303,13 +304,18 @@ mod tests {
         let body =
             format!(r#"{{"username":"dev","password":"p","is_admin":"{SENT}","token":"t"}}"#);
         let rejection = json_refusal::<CreateUserRequest>(&body).await;
-        assert_eq!(rejection.message, "the request is not valid at is_admin");
+        assert_eq!(
+            rejection,
+            InvalidRequest::Invalid {
+                path: Some("is_admin".to_owned())
+            }
+        );
 
         let body = format!(r#"{{"username":"dev","password":"{SENT}"}}"#);
         let rejection = JsonBody::<LoginRequest>::from_request(json_request(&body, None), &())
             .await
             .expect_err("parsed");
-        assert_eq!(rejection.message, MSG_NOT_JSON_CONTENT_TYPE);
+        assert_eq!(rejection, InvalidRequest::NotJsonContentType);
     }
 
     #[tokio::test]
@@ -367,17 +373,19 @@ mod tests {
         let cases = [
             (
                 format!(r#"{{"type":"{SENT}","id":"1","method":"m","params":{{}}}}"#),
-                "the request is not valid at type",
+                InvalidRequest::Invalid {
+                    path: Some("type".to_owned()),
+                },
             ),
             (
                 format!(r#"{{"type":"rpc_request","id":["{SENT}"],"method":"m","params":{{}}}}"#),
-                MSG_INVALID,
+                InvalidRequest::Invalid { path: None },
             ),
-            (SENT.to_string(), MSG_NOT_JSON),
+            (SENT.to_string(), InvalidRequest::NotJson),
         ];
         for (text, expected) in cases {
             let error = parse_json::<ClientMessage>(text.as_bytes()).expect_err("parsed");
-            assert_eq!(error.message, expected, "{text}");
+            assert_eq!(error, expected, "{text}");
         }
     }
 

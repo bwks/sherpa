@@ -17,3 +17,5 @@ pub(crate) mod templates;
 pub(crate) mod tls;
 pub mod user;
 pub(crate) mod validate;
+
+pub use services::error::{ServiceCategory, ServiceError};

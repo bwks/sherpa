@@ -1,6 +1,8 @@
 use anyhow::{Result, ensure};
 use tracing::instrument;
 
+use crate::services::error::ServiceError;
+
 /// Refuse manifests whose nodes have provisioners.
 ///
 /// The `sherpa` CLI runs provisioners itself and never sends them, so they only arrive here from
@@ -10,9 +12,9 @@ pub fn reject_provisioners(manifest: &topology::Manifest) -> Result<()> {
     for node in &manifest.nodes {
         ensure!(
             node.provisioners.as_deref().unwrap_or_default().is_empty(),
-            "Node '{}' has provisioners, which only the sherpa CLI can run: start the lab with \
-             `sherpa up`, or remove them",
-            node.name
+            ServiceError::NodeHasProvisioners {
+                node: node.name.clone()
+            }
         );
     }
     Ok(())
@@ -44,11 +46,13 @@ mod tests {
 
     #[test]
     fn provisioner_secrecy_002_a_manifest_with_provisioners_is_refused_and_one_without_is_taken() {
-        let error = reject_provisioners(&manifest(SSH_PROVISIONER))
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("dev01"), "{error}");
-        assert!(error.contains("sherpa up"), "{error}");
+        let error = reject_provisioners(&manifest(SSH_PROVISIONER)).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::NodeHasProvisioners {
+                node: "dev01".to_owned()
+            })
+        );
         reject_provisioners(&manifest("")).unwrap();
     }
 
