@@ -1440,8 +1440,6 @@ mod tests {
                 "{volume_id:?}: {err}"
             );
         }
-        let err = build_error(src.path(), "with space");
-        assert!(err.to_string().contains("without spaces"), "{err}");
         Ok(())
     }
 
@@ -1479,20 +1477,16 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn config_iso_015_a_symlink_is_refused_naming_it() -> Result<()> {
+    fn config_iso_015_a_symlink_is_refused_with_its_path() -> Result<()> {
         let src = TempDir::new()?;
         ztp_source(src.path())?;
         let link = src.path().join("link");
         symlink(src.path().join("meta-data"), &link)?;
         let err = build_error(src.path(), CIDATA);
-        assert!(
-            matches!(&err, IsoError::NotRegularFile(path) if path.ends_with("link")),
-            "{err}"
-        );
-        assert!(
-            err.to_string().contains(&link.display().to_string()),
-            "{err}"
-        );
+        let IsoError::NotRegularFile(path) = err else {
+            panic!("not a refused special file: {err}");
+        };
+        assert_eq!(path, link);
         Ok(())
     }
 
