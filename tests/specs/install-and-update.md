@@ -127,7 +127,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `server_file_modes`: the server's files are readable only by the accounts that need them
 
-**Statement:** the files and folders of the table above have its modes and owners, however the scripts and sherpad were run and whatever an older release left there: the settings, the secrets, the database, the logs and the lab data are closed to every other account on the server, and `sherpa.toml` and the env files to the `sherpa` group too; what systemd and the scripts run is root's, so neither `sherpa` nor its group can change it, and the scripts change nothing as root through a symlink.
+**Statement:** the files and folders of the table above have its modes and owners, however the scripts and sherpad were run and whatever an older release left there: the settings, the secrets, the database, the logs and the lab data are closed to every other account on the server, and `sherpa.toml` and the env files to the `sherpa` group too; what systemd and the scripts run is root's, so neither `sherpa` nor its group can change it, and neither the scripts nor `sherpad doctor` change anything as root through a symlink.
 **Relied on by:** the admin; every user, whose password hashes, device password and lab data are in them. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -151,6 +151,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 017 | A symlink at `/opt/sherpa`, at one of those folders, or at a folder above them stops the script with the link named, and the link's target keeps its owner and mode | unit (bats) |
 | 018 | Both scripts install a binary `755`, root's, in place of the file or the link at its name, and never write through the link | unit (bats) |
 | 019 | After an install and `sherpad init`, the user who installed, a member of the `sherpa` group, can write nothing in `/opt/sherpa` but the images and blank disk folders, and `sherpa` cannot write `/opt/sherpa`, `bin`, the binaries, `libvirt` or the service's unit | e2e (fresh VM) |
+| 020 | `sherpad doctor --boxes` skips a symlink under the images folder, leaving the link's target's mode as it is, names the link, and fixes the rest | unit |
 
 ## `database_key`: the database's secrets open only with the key sherpad made for it
 

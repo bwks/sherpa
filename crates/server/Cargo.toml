@@ -25,7 +25,7 @@ thiserror = { workspace = true }
 jato = { workspace = true }
 
 # Process/Signal management
-nix = { workspace = true, features = ["signal", "process", "user", "fs"] }
+nix = { workspace = true, features = ["signal", "process", "user", "fs", "dir"] }
 
 # CLI
 clap = { workspace = true, features = ["env"] }
