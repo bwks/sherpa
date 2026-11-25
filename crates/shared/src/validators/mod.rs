@@ -15,6 +15,7 @@ mod username;
 mod ztp;
 
 pub use file_mode::mode_from_octal_digits;
+pub(crate) use impairment::MAX_IMPAIRMENT_DELAY_MS;
 pub use impairment::validate_link_impairment;
 pub use interface_count::{effective_data_interface_count, validate_data_interface_count_override};
 pub use password::{PasswordRequirement, validate_password_strength};

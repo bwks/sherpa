@@ -1,6 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::{Node, TopologyError};
+use shared::SharedError;
 use shared::validators::mode_from_octal_digits;
 
 /// Check every node's text file modes are octal digits up to 777, as manifests write modes.
@@ -23,12 +24,16 @@ pub fn check_text_file_modes(nodes: &[Node]) -> Result<()> {
             .flatten()
             .map(|file| (file.dst.as_str(), file.permissions));
         for (dst, permissions) in files.chain(read) {
-            mode_from_octal_digits(permissions).with_context(|| {
-                TopologyError::TextFilePermissions {
+            if let Err(error) = mode_from_octal_digits(permissions) {
+                let mode = error
+                    .downcast::<SharedError>()
+                    .context("Failed to check a text file's mode")?;
+                bail!(TopologyError::TextFilePermissions {
                     node: node.name.clone(),
                     dst: dst.to_owned(),
-                }
-            })?;
+                    mode,
+                });
+            }
         }
     }
     Ok(())
@@ -37,14 +42,14 @@ pub fn check_text_file_modes(nodes: &[Node]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use crate::{TextFile, TextFileData};
-    use shared::SharedError;
 
     use super::*;
 
-    fn refused(dst: &str) -> TopologyError {
+    fn refused(dst: &str, digits: u32) -> TopologyError {
         TopologyError::TextFilePermissions {
             node: "dev01".to_owned(),
             dst: dst.to_owned(),
+            mode: SharedError::ModeNotOctal { digits },
         }
     }
 
@@ -76,7 +81,10 @@ mod tests {
             (node(None, Some(1000)), "/etc/issue", 1000),
         ] {
             let error = check_text_file_modes(&[node]).unwrap_err();
-            assert_eq!(error.downcast_ref::<TopologyError>(), Some(&refused(dst)));
+            assert_eq!(
+                error.downcast_ref::<TopologyError>(),
+                Some(&refused(dst, digits))
+            );
             assert_eq!(
                 error.root_cause().downcast_ref::<SharedError>(),
                 Some(&SharedError::ModeNotOctal { digits })

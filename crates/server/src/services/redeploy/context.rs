@@ -36,12 +36,12 @@ use shared::data::{DbLab, DbNode, RecordId, RedeployRequest, StatusKind};
 use shared::konst::{READINESS_TIMEOUT, SHERPA_LABS_PATH};
 use shared::util;
 use shared::validators::effective_data_interface_count;
-use topology::find_talos_cluster;
 use topology::validate::{
     check_client_read_files, check_lab_name, check_node_file_settings, check_node_kind_settings,
     check_nonzero_node_settings, check_ptx_platform, check_ready_timeout, check_text_file_modes,
     check_vm_tuning, check_windows_startup_script_names, validate_environment_variables,
 };
+use topology::{TopologyError, find_talos_cluster};
 
 /// The node being redeployed and its lab, loaded and checked before the node is torn down.
 /// Every later stage takes it.
@@ -276,11 +276,15 @@ fn check_manifest(ctx: &AuthContext, request: &RedeployRequest) -> Result<Redepl
     })
 }
 
-/// The refusal of a manifest that fails `check`. Its message is the failure's whole chain, and
-/// the failure stays in the chain beneath it, so a caller can tell it by its type.
-fn manifest_refusal(check: &str, error: anyhow::Error) -> anyhow::Error {
-    let message = format!("Manifest validation failed: {check}: {error:#}");
-    error.context(ServiceError::Invalid(message))
+/// The refusal of a manifest that fails `check`, carrying the check's `TopologyError` as its
+/// source; a failure of any other type is refused with its chain as the message.
+fn manifest_refusal(check: &'static str, error: anyhow::Error) -> anyhow::Error {
+    match error.downcast::<TopologyError>() {
+        Ok(refusal) => ServiceError::ManifestCheckFailed { check, refusal }.into(),
+        Err(error) => {
+            ServiceError::Invalid(format!("Manifest validation failed: {check}: {error:#}")).into()
+        }
+    }
 }
 
 /// The Talos clusters of the lab `lab_record_id`'s stored definition, which node `node_name` is
@@ -644,7 +648,7 @@ mod tests {
 
     use shared::data::{NodeModel, NodeState};
 
-    use topology::TopologyError;
+    use shared::SharedError;
 
     use crate::services::error::ServiceCategory;
     use crate::services::guest_account::tests::test_account;
@@ -714,13 +718,18 @@ mod tests {
         let Err(error) = check_manifest(&ctx, &request(manifest.clone(), None)) else {
             panic!("a redeploy of {manifest} was not refused");
         };
-        assert_eq!(
-            ServiceError::find(&error).and_then(ServiceError::category),
-            Some(ServiceCategory::Invalid)
-        );
-        error
-            .downcast::<TopologyError>()
-            .expect("a manifest check's refusal")
+        check_refusal(&error)
+    }
+
+    /// The `TopologyError` of the manifest check that refused a redeploy with `error`.
+    fn check_refusal(error: &anyhow::Error) -> TopologyError {
+        let Some(refusal @ ServiceError::ManifestCheckFailed { refusal: check, .. }) =
+            ServiceError::find(error)
+        else {
+            panic!("not a manifest check's refusal: {error:#}");
+        };
+        assert_eq!(refusal.category(), Some(ServiceCategory::Invalid));
+        check.clone()
     }
 
     #[test]
@@ -821,11 +830,12 @@ mod tests {
             panic!("a redeploy of a text file mode 999 was not refused");
         };
         assert_eq!(
-            error.downcast_ref::<TopologyError>(),
-            Some(&TopologyError::TextFilePermissions {
+            check_refusal(&error),
+            TopologyError::TextFilePermissions {
                 node: "r1".to_owned(),
-                dst: "/etc/motd".to_owned()
-            })
+                dst: "/etc/motd".to_owned(),
+                mode: SharedError::ModeNotOctal { digits: 999 },
+            }
         );
     }
 

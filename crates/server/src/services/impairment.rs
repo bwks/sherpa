@@ -246,6 +246,7 @@ mod tests {
     use std::cell::Cell;
     use std::io;
 
+    use shared::SharedError;
     use shared::data::RecordId;
 
     use crate::services::p2p_links::fake::FakeHost;
@@ -401,25 +402,38 @@ mod tests {
         validate_link_impairment(0, 0, 0.0, 0.0, 0.0).unwrap();
         validate_link_impairment(274_877, 274_877, 100.0, 100.0, 100.0).unwrap();
 
-        let error = validate_link_impairment(274_877 + 1, 0, 0.0, 0.0, 0.0)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("delay"), "{error}");
-        let error = validate_link_impairment(0, u32::MAX, 0.0, 0.0, 0.0)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("jitter"), "{error}");
+        let error = validate_link_impairment(274_877 + 1, 0, 0.0, 0.0, 0.0).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<SharedError>(),
+            Some(&SharedError::ImpairmentDelayTooLong {
+                field: "delay",
+                value: 274_878
+            })
+        );
+        let error = validate_link_impairment(0, u32::MAX, 0.0, 0.0, 0.0).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<SharedError>(),
+            Some(&SharedError::ImpairmentDelayTooLong {
+                field: "jitter",
+                value: u32::MAX
+            })
+        );
 
-        for (loss, reorder, corrupt, field) in [
-            (-5.0, 0.0, 0.0, "loss_percent"),
-            (150.0, 0.0, 0.0, "loss_percent"),
-            (0.0, f64::NAN, 0.0, "reorder_percent"),
-            (0.0, 0.0, 100.1, "corrupt_percent"),
+        for (loss, reorder, corrupt, field, value) in [
+            (-5.0, 0.0, 0.0, "loss_percent", -5.0),
+            (150.0, 0.0, 0.0, "loss_percent", 150.0),
+            (0.0, f64::NAN, 0.0, "reorder_percent", f64::NAN),
+            (0.0, 0.0, 100.1, "corrupt_percent", 100.1),
         ] {
-            let error = validate_link_impairment(0, 0, loss, reorder, corrupt)
-                .unwrap_err()
-                .to_string();
-            assert!(error.contains(field), "{error}");
+            let error = validate_link_impairment(0, 0, loss, reorder, corrupt).unwrap_err();
+            assert!(
+                matches!(
+                    error.downcast_ref::<SharedError>(),
+                    Some(SharedError::ImpairmentPercentOutOfRange { field: refused, value: given })
+                        if *refused == field && given.total_cmp(&value).is_eq()
+                ),
+                "{error}"
+            );
         }
 
         for bad in [

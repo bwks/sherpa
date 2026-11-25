@@ -20,6 +20,7 @@ use shared::konst::{
     SSH_KEYS_DOCS_URL,
 };
 use thiserror::Error;
+use topology::TopologyError;
 use uuid::Uuid;
 
 use crate::api::request_parse::InvalidRequest;
@@ -40,7 +41,7 @@ const REFERENCE_LENGTH: usize = 8;
 
 /// A service refused a request for a reason the caller can act on, or failed in a way a caller
 /// tells apart from other failures.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, PartialEq, Error)]
 pub enum ServiceError {
     #[error("{0}")]
     NotFound(String),
@@ -568,6 +569,13 @@ pub enum ServiceError {
         #[source]
         refusal: InvalidRequest,
     },
+
+    #[error("Manifest validation failed: {check}")]
+    ManifestCheckFailed {
+        check: &'static str,
+        #[source]
+        refusal: TopologyError,
+    },
 }
 
 /// The kind of refusal a transport answers a [`ServiceError`] with.
@@ -761,7 +769,8 @@ impl ServiceError {
             | Self::DownloadUrlMissing { .. }
             | Self::ResumeNeedsAuthKey { .. }
             | Self::TalosVersionUnsupported { .. }
-            | Self::RequestUnreadable { .. } => Some(ServiceCategory::Invalid),
+            | Self::RequestUnreadable { .. }
+            | Self::ManifestCheckFailed { .. } => Some(ServiceCategory::Invalid),
             Self::OvercommitPercentTooLow { .. }
             | Self::NotServiceAccount { .. }
             | Self::TailscaleImageInvalid
