@@ -13,7 +13,10 @@ The VM is a [Kata Containers](https://katacontainers.io/) sandbox on Cloud Hyper
 Kata's Rust runtime (`containerd-shim-kata-v2` from `runtime-rs`). Docker knows it as the runtime
 `sherpa-kata` (`shared::konst::CONTAINER_VM_RUNTIME`), registered in `/etc/docker/daemon.json`
 by `scripts/sherpa_install.sh` (`install_kata`), with Sherpa's own Kata config,
-`/etc/kata-containers/sherpa-clh.toml`. Sherpa drives it through bollard as any other container:
+`/etc/kata-containers/sherpa-clh.toml`. `scripts/sherpa_update.sh` holds a copy of `install_kata` and runs it before sherpad stops,
+also when there is nothing to update. Both register the runtime with `systemctl reload docker`,
+which reads `daemon.json` again and leaves running containers as they are.
+Sherpa drives it through bollard as any other container:
 the create body sets `HostConfig.runtime`.
 
 A VM-run container is not `--privileged`. Docker's `--privileged` lists every host device in the

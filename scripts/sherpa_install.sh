@@ -412,8 +412,9 @@ else:
 PY
 )"
     if [[ "${changed}" == "yes" ]]; then
-        print_info "Registered the ${KATA_DOCKER_RUNTIME} runtime in ${DOCKER_DAEMON_CONFIG}; restarting Docker..."
-        systemctl restart docker
+        # A reload reads the runtimes again and leaves running containers as they are.
+        print_info "Registered the ${KATA_DOCKER_RUNTIME} runtime in ${DOCKER_DAEMON_CONFIG}; reloading Docker..."
+        systemctl reload docker
     fi
     if ! docker info --format '{{json .Runtimes}}' | grep -q "\"${KATA_DOCKER_RUNTIME}\""; then
         print_error "Docker does not list the ${KATA_DOCKER_RUNTIME} runtime"

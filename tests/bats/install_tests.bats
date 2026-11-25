@@ -809,3 +809,124 @@ _stub_docker_with_containers() {
     _blank_disks_case_010 "${SCRIPT}"
     _blank_disks_case_010 "${UPDATE_SCRIPT}"
 }
+
+# ============================================================
+# Kata Containers, in both scripts
+# ============================================================
+
+# Stubs for install_kata: curl writes WORK_DIR/kata.tar.zst for the archive, tar unpacks a Kata
+# tree under WORK_DIR/root, systemctl records its arguments and docker lists the runtimes in
+# the daemon config. Python, sed and grep are the host's.
+_stub_kata_install() {
+    mkdir -p "${WORK_DIR}/src/opt/kata/share/defaults/kata-containers/runtime-rs"
+    echo "4.4.0" > "${WORK_DIR}/src/opt/kata/VERSION"
+    cat > "${WORK_DIR}/src/opt/kata/share/defaults/kata-containers/runtime-rs/configuration-clh-runtime-rs.toml" << 'TOML'
+default_vcpus = 1
+virtio_fs_extra_args = ["-o", "announce_submounts"]
+TOML
+    echo "archive" > "${WORK_DIR}/kata.tar.zst"
+    cat > "${MOCK_BIN}/curl" << STUB
+#!/bin/bash
+echo "\$@" >> '${WORK_DIR}/curl.args'
+while [ \$# -gt 1 ]; do
+    [ "\$1" = "-o" ] && cp '${WORK_DIR}/kata.tar.zst' "\$2"
+    shift
+done
+STUB
+    cat > "${MOCK_BIN}/tar" << STUB
+#!/bin/bash
+echo "\$@" >> '${WORK_DIR}/tar.args'
+mkdir -p '${WORK_DIR}/root'
+cp -r '${WORK_DIR}/src/opt' '${WORK_DIR}/root/'
+STUB
+    printf '#!/bin/bash\necho "$@" >> "%s/systemctl.args"\n' "${WORK_DIR}" > "${MOCK_BIN}/systemctl"
+    cat > "${MOCK_BIN}/docker" << STUB
+#!/bin/bash
+python3 -I -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get("runtimes", {})))' '${WORK_DIR}/daemon.json'
+STUB
+    chmod +x "${MOCK_BIN}"/*
+}
+
+# Run install_kata of the given script, sourced without its main, with the stubs, Kata under
+# WORK_DIR/root and the archive pinned to $2.
+_run_install_kata() {
+    local stripped="${WORK_DIR}/script.sh"
+    grep -v '^main "\$@"' "$1" > "${stripped}"
+    run bash -c "
+        set +e
+        PATH='${MOCK_BIN}:${PATH}'
+        source '${stripped}'
+        KATA_SHA256='$2'
+        KATA_DIR='${WORK_DIR}/root/opt/kata'
+        KATA_DEFAULT_CONFIG='${WORK_DIR}/root/opt/kata/share/defaults/kata-containers/runtime-rs/configuration-clh-runtime-rs.toml'
+        KATA_SHERPA_CONFIG='${WORK_DIR}/etc/kata-containers/sherpa-clh.toml'
+        DOCKER_DAEMON_CONFIG='${WORK_DIR}/daemon.json'
+        install_kata
+    "
+}
+
+# install_host 020 for the given script.
+_kata_case_020() {
+    WORK_DIR="$(mktemp -d)"
+    _stub_kata_install
+    echo '{"log-level": "warn"}' > "${WORK_DIR}/daemon.json"
+    local pin
+    pin="$(sha256sum "${WORK_DIR}/kata.tar.zst" | awk '{ print $1 }')"
+    _run_install_kata "$1" "${pin}"
+    echo "${output}"
+    [ "$status" -eq 0 ]
+    grep -q "kata-static-4.4.0-amd64.tar.zst$" "${WORK_DIR}/curl.args"
+    grep -q -- "--zstd -xf" "${WORK_DIR}/tar.args"
+    grep -qx 'virtio_fs_extra_args = \["-o", "announce_submounts", "--xattr"\]' "${WORK_DIR}/etc/kata-containers/sherpa-clh.toml"
+    grep -qx 'default_vcpus = 2' "${WORK_DIR}/etc/kata-containers/sherpa-clh.toml"
+    [ "$(stat -c '%a' "${WORK_DIR}/etc/kata-containers/sherpa-clh.toml")" = "644" ]
+    python3 -I - "${WORK_DIR}" << 'PY'
+import json, sys
+daemon = json.load(open(sys.argv[1] + "/daemon.json"))
+assert daemon["log-level"] == "warn", daemon
+runtime = daemon["runtimes"]["sherpa-kata"]
+assert runtime["runtimeType"] == "/opt/kata/runtime-rs/bin/containerd-shim-kata-v2", runtime
+assert runtime["options"]["ConfigPath"] == sys.argv[1] + "/etc/kata-containers/sherpa-clh.toml", runtime
+PY
+    # Docker is reloaded, never restarted, so running containers keep running.
+    [ "$(cat "${WORK_DIR}/systemctl.args")" = "reload docker" ]
+
+    # A second run downloads nothing and leaves Docker alone.
+    rm "${WORK_DIR}/curl.args" "${WORK_DIR}/systemctl.args"
+    local before
+    before="$(cat "${WORK_DIR}/daemon.json")"
+    _run_install_kata "$1" "${pin}"
+    [ "$status" -eq 0 ]
+    [ ! -e "${WORK_DIR}/curl.args" ]
+    [ ! -e "${WORK_DIR}/systemctl.args" ]
+    [ "$(cat "${WORK_DIR}/daemon.json")" = "${before}" ]
+    rm -rf "${WORK_DIR}"
+}
+
+# install_host 021 for the given script.
+_kata_case_021() {
+    WORK_DIR="$(mktemp -d)"
+    _stub_kata_install
+    _run_install_kata "$1" "$(printf '0%.0s' {1..64})"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"does not match its pinned SHA-256"* ]]
+    [ ! -e "${WORK_DIR}/tar.args" ]
+    [ ! -e "${WORK_DIR}/root" ]
+    [ ! -e "${WORK_DIR}/daemon.json" ]
+    [ ! -e "${WORK_DIR}/systemctl.args" ]
+    rm -rf "${WORK_DIR}"
+}
+
+@test "install_host_020_kata_is_installed_from_its_pinned_archive_and_registered_with_a_reload_of_docker_once" {
+    _kata_case_020 "${SCRIPT}"
+}
+
+@test "install_host_021_a_kata_archive_that_is_not_the_pinned_one_installs_and_registers_nothing" {
+    _kata_case_021 "${SCRIPT}"
+}
+
+# Cases 020 and 021 above run the install script's install_kata; this runs the update script's.
+@test "update_script_031_install_host_020_and_021_hold_for_the_update_scripts_install_kata" {
+    _kata_case_020 "${UPDATE_SCRIPT}"
+    _kata_case_021 "${UPDATE_SCRIPT}"
+}

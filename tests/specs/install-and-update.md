@@ -62,7 +62,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `install_host`: the install script leaves a bare host ready for `sherpad init`
 
-**Statement:** on a bare Ubuntu 24.04 or later host with KVM, the install script installs Docker from its signed apt repository, libvirt and QEMU, the `sherpa` account, the release's binaries, the router image by its digest, the service and its environment file, and running it again on an installed server keeps the server's settings and data.
+**Statement:** on a bare Ubuntu 24.04 or later host with KVM, the install script installs Docker from its signed apt repository, libvirt and QEMU, the `sherpa` account, the release's binaries, the router image by its digest, Kata Containers with Docker's `sherpa-kata` runtime, the service and its environment file, and running it again on an installed server keeps the server's settings and data.
 **Relied on by:** the admin. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -84,6 +84,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 017 | A Docker key that is not the pinned one stops the install before apt trusts it: no keyring, no source and no package | unit (bats) |
 | 018 | The router image is pulled by the digest the script pins and tagged with the name sherpad runs it by; a pull that fails stops the install | unit (bats) |
 | 019 | Run again, it keeps `sherpa.env` line for line, an operator's lines and the settings it holds included, and adds at its end only the settings it writes that the file lacks; a run that finds none missing leaves the file as it was | unit (bats) |
+| 020 | Kata Containers is installed from the archive whose SHA-256 the script pins, its config gets `--xattr` and 2 vCPUs, and the `sherpa-kata` runtime is merged into Docker's `daemon.json`, keeping its other settings, with one reload of Docker, never a restart; a second run downloads nothing and leaves Docker alone | unit (bats) |
+| 021 | A Kata archive that is not the pinned one stops the script: nothing is unpacked, `daemon.json` is not written and Docker is not reloaded | unit (bats) |
 
 ## `blank_disks`: the scripts make each blank disk template that is missing and never change one that is there
 
@@ -283,6 +285,8 @@ Each case builds a database at the schema version that stored the value, upgrade
 | 028 | `--version` with no value, or followed by another option, is an error that says so and shows the usage | unit (bats) |
 | 029 | The router image is pulled by the digest this release's install script pins and tagged with the name sherpad runs it by; a pull that fails stops the update | unit (bats) |
 | 030 | The router image is pulled before sherpad is stopped, also when there is nothing to update, and the closing summary names it by its digest (no test yet) | e2e (fresh VM) |
+| 031 | The update script installs Kata as the install script does: `install_host` 020 and 021 hold for its copy | unit (bats) |
+| 032 | Kata is installed before sherpad is stopped, also when there is nothing to update, and running labs keep running (no test yet: the bats cases read only the function) | e2e (fresh VM) |
 
 ## `uninstall_script`: the uninstall script removes the service and only the data it is told to
 
