@@ -32,8 +32,8 @@ pub use network::{
 
 // Re-export image operations
 pub use image::{
-    get_local_images, image_exists, image_reference, load_image, pull_image, remove_image,
-    running_containers_of_image,
+    ImageRunConfig, get_local_images, image_exists, image_reference, image_run_config, load_image,
+    pull_image, remove_image, running_containers_of_image, unpack_image_rootfs,
 };
 
 // Re-export Docker type for convenience

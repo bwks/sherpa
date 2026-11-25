@@ -12,6 +12,7 @@ use super::context::Redeploy;
 use super::ready::{ReadyWait, ready_wait, wait_until_ready};
 use crate::konst::{SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR};
 use crate::services::container_networks;
+use crate::services::container_vm::{self, ContainerVmStart};
 use crate::services::keycloak;
 use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle::{self, query_runtimes};
@@ -80,7 +81,7 @@ pub(super) async fn redeploy_container(
     };
 
     // Secret files are replaced, removed or kept, and mounted from RAM.
-    let mut volumes = ztp_result.volumes;
+    let mut volumes = ztp_result.volumes.clone();
     if let Some(dir) = secrets_for_redeploy(
         Path::new(SHERPA_SECRETS_DIR),
         lab_id,
@@ -90,6 +91,10 @@ pub(super) async fn redeploy_container(
     .with_context(|| format!("Cannot write secret files for node '{node_name}'"))?
     {
         volumes.push(format!("{}:{CONTAINER_SECRETS_DIR}:ro", dir.display()));
+    }
+
+    if redeploy.target_node.model_kind.runs_in_vm() {
+        return redeploy_container_vm(redeploy, ztp_result, volumes, &lab_links, p2p_veths).await;
     }
 
     let has_disabled = additional_networks.iter().any(|n| n.admin_down);
@@ -153,6 +158,71 @@ pub(super) async fn redeploy_container(
             .await?;
         }
     }
+    Ok(link_reports)
+}
+
+/// Start the redeployed container VM, its P2p ends taps libvirt makes with the domain, then
+/// re-attach its links as a VM's are, and wait for it as a container is.
+async fn redeploy_container_vm(
+    redeploy: &mut Redeploy<'_>,
+    ztp_result: ContainerZtpResult,
+    volumes: Vec<String>,
+    lab_links: &LabLinks,
+    p2p_veths: Vec<ContainerVeth>,
+) -> Result<Vec<LinkReport>> {
+    let lab_id = redeploy.lab_id.clone();
+    let node_name = redeploy.node_name.clone();
+    let image = container::image_reference(&ztp_result.image, &redeploy.node_image.version);
+    let veths: Vec<&ContainerVeth> = p2p_veths.iter().collect();
+    container_vm::start_container_vm(
+        &redeploy.state.docker,
+        &redeploy.state.qemu,
+        &ContainerVmStart {
+            lab_id: &lab_id,
+            lab_dir: &redeploy.lab_dir,
+            node_name: &node_name,
+            node_index: redeploy.db_node.index,
+            model_kind: redeploy.target_node.model_kind,
+            image: &image,
+            env_vars: &ztp_result.env_vars,
+            commands: &ztp_result.commands,
+            volumes: &volumes,
+            shm_size: ztp_result.shm_size,
+            memory_mib: redeploy.db_node.memory.map(u64::from),
+            cpu_count: redeploy.db_node.cpu_count,
+            p2p: &veths,
+        },
+    )
+    .await?;
+    node_lifecycle::record(
+        &redeploy.state.db,
+        redeploy.operation,
+        &redeploy.node_record_id,
+        OperationEvent::Launched,
+    )
+    .await?;
+    let host = KernelHost::new(&redeploy.state.docker, &redeploy.state.qemu);
+    let link_reports = if p2p_veths.is_empty() {
+        vec![]
+    } else {
+        let outcomes = reattach_node_links(
+            &host,
+            lab_links,
+            &redeploy.node_record_id,
+            RecreatedEnd::Domain,
+        )
+        .await;
+        report_links(
+            &host,
+            lab_links,
+            &redeploy.node_record_id,
+            Some(redeploy.progress),
+            &redeploy.state.link_states,
+            outcomes,
+        )
+        .await
+    };
+    wait_until_ready(redeploy).await?;
     Ok(link_reports)
 }
 

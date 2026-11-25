@@ -496,6 +496,111 @@ write_sherpa_file() {
 }
 
 ################################################################################
+# Container VMs
+################################################################################
+# The built-in container models that need root-like privileges (arista_ceos, nokia_srlinux)
+# run as the root of a QEMU guest. See docs/architecture/CONTAINER_VM.md.
+
+CONTAINER_VM_PACKAGES=(virtiofsd busybox-static cpio)
+CONTAINER_VM_BOOT_DIR="${SHERPA_BASE_DIR}/vmboot"
+CONTAINER_VM_ROOTFS_DIR="${SHERPA_BASE_DIR}/vmroot"
+CONTAINER_VM_ROOTFS_VIEW="${SHERPA_BASE_DIR}/vmroot-ro"
+
+# The guest's /init: assemble the image's root filesystem and run its entrypoint.
+container_vm_init() {
+    cat << 'INIT'
+#!/bin/busybox sh
+# Sherpa container VM init: assemble the image rootfs and exec its entrypoint.
+/bin/busybox --install -s /bin
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t devtmpfs dev /dev
+fail() { echo "sherpa-init: $*" > /dev/console; sleep 5; poweroff -f; }
+mkdir -p /lower /node /upper /newroot /tmp
+mount -t virtiofs rootfs /lower -o ro || fail "no rootfs share"
+mount -t virtiofs node /node || fail "no node share"
+mount -t tmpfs -o mode=0755 upper /upper
+mkdir -p /upper/u /upper/w
+mount -t overlay overlay -o lowerdir=/lower,upperdir=/upper/u,workdir=/upper/w /newroot || fail "overlay failed"
+n=0
+while [ "$n" -lt 300 ]; do
+  missing=0
+  while read -r mac name; do grep -qix "$mac" /sys/class/net/*/address || missing=1; done < /node/interfaces
+  [ "$missing" = 0 ] && break
+  n=$((n+1))
+  usleep 100000
+done
+i=0
+while read -r mac name; do
+  for d in /sys/class/net/*; do
+    [ "$(cat "$d/address")" = "$mac" ] && ip link set "${d##*/}" name "shtmp$i" && echo "shtmp$i $name" >> /tmp/renames
+  done
+  i=$((i+1))
+done < /node/interfaces
+[ -f /tmp/renames ] && while read -r tmp name; do ip link set "$tmp" name "$name"; done < /tmp/renames
+ip link set lo up
+R=/newroot
+mkdir -p $R/proc $R/sys $R/dev $R/.sherpa-node
+mount -t proc proc $R/proc
+mount -t sysfs sys $R/sys
+mount -t cgroup2 cgroup2 $R/sys/fs/cgroup
+mount -t devtmpfs dev $R/dev
+mkdir -p $R/dev/pts $R/dev/shm
+mount -t devpts -o newinstance,ptmxmode=0666,gid=5,mode=0620 devpts $R/dev/pts
+ln -sf pts/ptmx $R/dev/ptmx
+ln -sf /proc/self/fd $R/dev/fd
+ln -sf /proc/self/fd/0 $R/dev/stdin
+ln -sf /proc/self/fd/1 $R/dev/stdout
+ln -sf /proc/self/fd/2 $R/dev/stderr
+mkdir -p $R/dev/mqueue
+mount -t mqueue mqueue $R/dev/mqueue
+mount -t tmpfs -o mode=1777,size=$(cat /node/shm_size 2>/dev/null || echo 67108864) shm $R/dev/shm
+mount --move /node $R/.sherpa-node
+while read -r src dst mode; do
+  [ -d "$R/.sherpa-node/$src" ] && mkdir -p "$R$dst" || { mkdir -p "$R${dst%/*}"; touch "$R$dst"; }
+  mount --bind "$R/.sherpa-node/$src" "$R$dst"
+  [ "$mode" = ro ] && mount -o remount,bind,ro "$R$dst"
+done < $R/.sherpa-node/mounts
+hostname "$(cat $R/.sherpa-node/hostname)"
+cp $R/.sherpa-node/hostname $R/etc/hostname
+printf '127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n127.0.1.1\t%s\n' "$(hostname)" > $R/etc/hosts
+umount /proc /sys /dev 2>/dev/null
+exec switch_root $R /bin/sh /.sherpa-node/start.sh
+INIT
+}
+
+# Install virtiofsd and the initramfs tools, make the root filesystem store and its read-only
+# view, and build the initramfs. The guest kernel goes at ${CONTAINER_VM_BOOT_DIR}/vmlinuz.
+setup_container_vms() {
+    print_header "Setting up container VMs"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "${CONTAINER_VM_PACKAGES[@]}"
+
+    install -d -o sherpa -g sherpa -m 700 "${CONTAINER_VM_ROOTFS_DIR}" "${CONTAINER_VM_ROOTFS_VIEW}"
+    if ! grep -q " ${CONTAINER_VM_ROOTFS_VIEW} " /etc/fstab; then
+        echo "${CONTAINER_VM_ROOTFS_DIR} ${CONTAINER_VM_ROOTFS_VIEW} none bind,ro 0 0" >> /etc/fstab
+    fi
+    if ! mountpoint -q "${CONTAINER_VM_ROOTFS_VIEW}"; then
+        mount "${CONTAINER_VM_ROOTFS_VIEW}"
+    fi
+
+    install -d -m 755 "${CONTAINER_VM_BOOT_DIR}"
+    local root
+    root="$(mktemp -d)"
+    install -d "${root}/bin" "${root}/dev" "${root}/proc" "${root}/sys"
+    install -m 755 /usr/bin/busybox "${root}/bin/busybox"
+    container_vm_init > "${root}/init"
+    chmod 755 "${root}/init"
+    (cd "${root}" && find . | cpio -o -H newc --quiet | gzip -9) > "${CONTAINER_VM_BOOT_DIR}/initramfs.img"
+    chmod 644 "${CONTAINER_VM_BOOT_DIR}/initramfs.img"
+    rm -rf "${root}"
+
+    if [ ! -f "${CONTAINER_VM_BOOT_DIR}/vmlinuz" ]; then
+        print_warning "No guest kernel at ${CONTAINER_VM_BOOT_DIR}/vmlinuz: arista_ceos and nokia_srlinux nodes cannot start until one is installed"
+    fi
+    print_success "Container VMs set up"
+}
+
+################################################################################
 # Server Folders
 ################################################################################
 # This section is the same in sherpa_install.sh and sherpa_update.sh, between the BEGIN and END
@@ -1273,6 +1378,7 @@ main() {
     setup_sherpa_user
     setup_directories
     ensure_blank_disks
+    setup_container_vms
     pull_sherpa_router_image
     
     # Install binaries and systemd service

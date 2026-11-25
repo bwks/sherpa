@@ -1997,7 +1997,7 @@ fn user_env_loader_runcmd(username: &str, passwd_file: &str) -> String {
 }
 
 /// Quote a value as one POSIX shell word.
-fn shell_quote(value: &str) -> String {
+pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 

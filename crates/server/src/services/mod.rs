@@ -8,6 +8,7 @@ pub mod console;
 pub(crate) mod container_networks;
 pub mod container_pull;
 pub(crate) mod container_scan;
+pub(crate) mod container_vm;
 pub mod delete;
 pub mod destroy;
 #[cfg(test)]

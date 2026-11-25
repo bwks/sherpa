@@ -12,9 +12,13 @@
 /// even when it fails, so one failure cannot cascade into the others.
 use anyhow::{Result, ensure};
 use bollard::Docker;
-use bollard::query_parameters::InspectContainerOptions;
+use bollard::models::{ContainerCreateBody, HostConfig};
+use bollard::query_parameters::{
+    CreateContainerOptions, InspectContainerOptions, StartContainerOptions,
+};
 use std::env;
 use std::fs;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::process::{self, Command};
 use std::time::Duration;
 use tokio::time;
@@ -540,4 +544,87 @@ async fn container_run_013_a_cisco_iol_container_runs_unprivileged_holds_its_add
     let _ = delete_network(&docker, &data_net.name).await;
     let _ = fs::remove_dir_all(&config_dir);
     checks
+}
+
+// ============================================================================
+// Container VM root filesystems
+// ============================================================================
+
+/// Remove the root-owned files in `dir` through a container, as the test user cannot.
+async fn remove_as_root(docker: &Docker, dir: &str) -> Result<()> {
+    let name = "sherpa-test-unpack-clean";
+    let _ = remove_container(docker, name).await;
+    docker
+        .create_container(
+            Some(CreateContainerOptions {
+                name: Some(name.to_string()),
+                ..Default::default()
+            }),
+            ContainerCreateBody {
+                image: Some(TEST_IMAGE.to_string()),
+                cmd: Some(vec![
+                    "rm".to_string(),
+                    "-rf".to_string(),
+                    "/t/rootfs".to_string(),
+                ]),
+                host_config: Some(HostConfig {
+                    binds: Some(vec![format!("{dir}:/t")]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        )
+        .await?;
+    docker
+        .start_container(name, None::<StartContainerOptions>)
+        .await?;
+    for _ in 0..30 {
+        if docker
+            .inspect_container(name, None::<InspectContainerOptions>)
+            .await?
+            .state
+            .and_then(|state| state.running)
+            != Some(true)
+        {
+            break;
+        }
+        time::sleep(Duration::from_secs(1)).await;
+    }
+    remove_container(docker, name).await
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon"]
+async fn container_vm_012_an_unpacked_root_filesystem_keeps_its_owners_and_modes() -> Result<()> {
+    let docker = docker_connection()?;
+    let dir = env::temp_dir().join(format!("sherpa-test-unpack-{}", process::id()));
+    fs::create_dir_all(&dir)?;
+    let dir_name = dir.display().to_string();
+    let target = format!("{dir_name}/rootfs");
+
+    let result: Result<()> = async {
+        container::unpack_image_rootfs(&docker, TEST_IMAGE, &target, "sherpa-test-unpack").await?;
+        // alpine's shadow file is root:shadow, mode 0640.
+        let shadow = fs::metadata(format!("{target}/etc/shadow"))?;
+        ensure!(shadow.uid() == 0, "shadow owner is {}", shadow.uid());
+        ensure!(shadow.gid() == 42, "shadow group is {}", shadow.gid());
+        ensure!(
+            shadow.permissions().mode() & 0o7777 == 0o640,
+            "shadow mode is {:o}",
+            shadow.permissions().mode()
+        );
+        ensure!(
+            fs::metadata(format!("{target}/bin/busybox"))?.is_file(),
+            "busybox missing"
+        );
+        ensure!(
+            !container_listed(&docker, "sherpa-test-unpack").await?,
+            "the unpack container was left behind"
+        );
+        Ok(())
+    }
+    .await;
+    remove_as_root(&docker, &dir_name).await?;
+    fs::remove_dir_all(&dir)?;
+    result
 }

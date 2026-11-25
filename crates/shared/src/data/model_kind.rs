@@ -321,6 +321,14 @@ impl ModelKind {
         self.model == NodeModel::JuniperEvolved && self.kind == NodeKind::Container
     }
 
+    /// Whether a container of this model runs as the root of its own QEMU guest instead of on
+    /// the server's kernel: the built-in models that need root-like privileges to boot.
+    #[must_use]
+    pub fn runs_in_vm(self) -> bool {
+        self.kind == NodeKind::Container
+            && matches!(self.model, NodeModel::AristaEos | NodeModel::NokiaSrlinux)
+    }
+
     /// Whether the host must finish the checksums of packets it sends to a container of this
     /// model, so transmit checksum offload goes off on the host end of its veths. IOL reads its
     /// interfaces through packet sockets, which hand it a packet whose checksum a veth left for
@@ -342,7 +350,9 @@ impl ModelKind {
                 NodeModel::TalosLinux => TALOS_API_PORT,
                 _ => SSH_PORT,
             }),
-            NodeKind::Container if self.model == NodeModel::SonicLinux => Some(SSH_PORT),
+            NodeKind::Container if self.model == NodeModel::SonicLinux || self.runs_in_vm() => {
+                Some(SSH_PORT)
+            }
             NodeKind::Container | NodeKind::Unikernel => None,
         }
     }

@@ -28,7 +28,7 @@ use libvirt::{
     ConsoleSockets, SerialConsole, VncConsole, move_consoles_to_sockets, serial_console,
     vnc_console,
 };
-use shared::data::NodeKind;
+use shared::data::{ModelKind, NodeKind};
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_owner;
@@ -173,7 +173,9 @@ pub async fn console_target(
         .await
         .context("Failed to read the node's image")?
         .ok_or_else(|| anyhow!("Node '{node_name}' has no image"))?;
+    let in_vm = image.model_kind().is_ok_and(ModelKind::runs_in_vm);
     match (image.kind(), kind) {
+        (NodeKind::Container, ConsoleKind::Serial) if in_vm => {}
         (NodeKind::Container, _) => {
             return Err(ServiceError::Invalid(format!(
                 "{node_name} is a container, and containers have no {kind}. Connect with \
@@ -406,7 +408,7 @@ mod tests {
     use crate::services::node_lifecycle::tests::lab_of;
     use db::{DefaultRequest, upsert_node_image};
     use nix::unistd::{self, Group};
-    use shared::data::{ModelKind, NodeModel};
+    use shared::data::NodeModel;
 
     #[test]
     fn console_sockets_006_destroy_removes_the_console_folder_and_a_folder_already_gone_is_no_error()

@@ -13,11 +13,12 @@ use super::links::{
     P2pAttachment, P2pContainerVeth, attach_ready_p2p_links, exited_owners, gone_end_owners,
 };
 use crate::konst::{READINESS_SLEEP, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR};
+use crate::services::container_vm::{self, ContainerVmStart};
 use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::node_secrets::write_node_secrets;
-use crate::services::p2p_links::{KernelHost, LinkHost, make_veth};
+use crate::services::p2p_links::{ContainerVeth, KernelHost, LinkHost, make_veth};
 use crate::services::talos;
 
 use container::ContainerSpec;
@@ -308,6 +309,9 @@ impl Readiness<'_, '_> {
     /// the links that now have both ends. It is then waited for in `check_container`, unless
     /// its check is skipped.
     async fn start_container(&mut self, container: &topology::NodeExpanded) -> Result<()> {
+        if container.model_kind.runs_in_vm() {
+            return self.start_container_vm(container).await;
+        }
         let lab_id = self.build.lab_id;
         let mgmt_ipv4 = container.ipv4_address.map(|ip| ip.to_string());
         let container_name = format!("{}-{lab_id}", container.name);
@@ -319,15 +323,7 @@ impl Readiness<'_, '_> {
             .version
             .as_ref()
             .ok_or_else(|| anyhow!("Container version not set for node: {}", container.name))?;
-        let mut volumes = self
-            .inputs
-            .container_volumes
-            .get(&container.name)
-            .cloned()
-            .with_context(|| format!("Container node '{}' has no generated ZTP", container.name))?;
-        if let Some(mount) = self.secret_mounts.get(container.name.as_str()) {
-            volumes.push(mount.clone());
-        }
+        let volumes = self.container_volumes(container)?;
         let management_network = data::ContainerNetworkAttachment {
             name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
             ipv4_address: mgmt_ipv4.clone(),
@@ -419,6 +415,124 @@ impl Readiness<'_, '_> {
         Ok(())
     }
 
+    /// Start a container VM, its P2p ends taps libvirt makes with the domain, then attach the
+    /// links that now have both ends. A container VM on no link has no data interfaces. It is
+    /// then waited for in `check_container`, as a container is, with libvirt reporting whether
+    /// it runs.
+    async fn start_container_vm(&mut self, container: &topology::NodeExpanded) -> Result<()> {
+        let lab_id = self.build.lab_id;
+        let mgmt_ipv4 = container.ipv4_address.map(|ip| ip.to_string());
+        let image_name = container
+            .image
+            .as_ref()
+            .ok_or_else(|| anyhow!("Container image not set for node: {}", container.name))?;
+        let version = container
+            .version
+            .as_ref()
+            .ok_or_else(|| anyhow!("Container version not set for node: {}", container.name))?;
+        let volumes = self.container_volumes(container)?;
+        let settings = container.container.clone().unwrap_or_default();
+        let record = &self.node_data(&container.name)?.record;
+        let veths: Vec<&ContainerVeth> = self
+            .inputs
+            .p2p_container_veths
+            .iter()
+            .filter(|veth| veth.node_name == container.name)
+            .map(|veth| &veth.veth)
+            .collect();
+        let image = container::image_reference(image_name, version);
+        let _ = self.build.progress.send_status(
+            format!("Node {} - Starting its container VM", container.name),
+            StatusKind::Progress,
+        );
+        container_vm::start_container_vm(
+            self.build.docker_conn,
+            self.build.qemu,
+            &ContainerVmStart {
+                lab_id,
+                lab_dir: self.build.lab_dir,
+                node_name: &container.name,
+                node_index: container.index,
+                model_kind: container.model_kind,
+                image: &image,
+                env_vars: container
+                    .environment_variables
+                    .as_deref()
+                    .unwrap_or_default(),
+                commands: settings.commands.as_deref().unwrap_or_default(),
+                volumes: &volumes,
+                shm_size: settings.shm_size,
+                memory_mib: record.memory.map(u64::from),
+                cpu_count: record.cpu_count,
+                p2p: &veths,
+            },
+        )
+        .await?;
+        for veth in &veths {
+            self.p2p.ready_ends.insert(veth.host_veth.clone());
+        }
+        if !veths.is_empty() {
+            let host = KernelHost::new(self.build.docker_conn, self.build.qemu);
+            let attached = attach_ready_p2p_links(
+                &host,
+                lab_id,
+                self.inputs.p2p_links,
+                self.inputs.links_detailed,
+                &self.p2p.ready_ends,
+                &mut self.p2p.attached,
+            )
+            .await?;
+            self.fail_exited_owners(container, &attached.gone_ends)
+                .await?;
+        }
+        if container.ready_check.skip.unwrap_or(false) {
+            let state = self
+                .record(
+                    &container.name,
+                    &[OperationEvent::Launched, OperationEvent::Ready],
+                    None,
+                )
+                .await?;
+            self.connected(container, state, mgmt_ipv4, Some(SSH_PORT));
+            return Ok(());
+        }
+        self.record(&container.name, &[OperationEvent::Launched], None)
+            .await?;
+        self.settling.insert(container.name.clone(), Instant::now());
+        Ok(())
+    }
+
+    /// The volumes of container node `container`: its generated ZTP files and its secret files.
+    fn container_volumes(&self, container: &topology::NodeExpanded) -> Result<Vec<String>> {
+        let mut volumes = self
+            .inputs
+            .container_volumes
+            .get(&container.name)
+            .cloned()
+            .with_context(|| format!("Container node '{}' has no generated ZTP", container.name))?;
+        if let Some(mount) = self.secret_mounts.get(container.name.as_str()) {
+            volumes.push(mount.clone());
+        }
+        Ok(volumes)
+    }
+
+    /// The status of container `container_name`, from Docker, or for a container VM from
+    /// libvirt as Docker would report it: running while its domain runs, exited otherwise.
+    async fn container_status(
+        &self,
+        container: &topology::NodeExpanded,
+        container_name: &str,
+    ) -> Result<Option<ContainerStateStatusEnum>> {
+        if container.model_kind.runs_in_vm() {
+            return container_vm::domain_status(self.build.qemu, container_name).await;
+        }
+        Ok(
+            container::container_state(self.build.docker_conn, container_name)
+                .await?
+                .and_then(|state| state.status),
+        )
+    }
+
     /// Check a container started `started`: ready once it has kept running for
     /// `CONTAINER_SETTLE` and its ready port, when it has one, answers on its management
     /// address; failed when it stopped running before. The port is checked as a VM's is.
@@ -431,9 +545,8 @@ impl Readiness<'_, '_> {
         let ready_port =
             node_ops::container_ready_port(container.model_kind, &container.ready_check);
         let ready_label = ready_port.map(node_ops::ready_port_label);
-        let status = match container::container_state(self.build.docker_conn, &container_name).await
-        {
-            Ok(state) => state.and_then(|state| state.status),
+        let status = match self.container_status(container, &container_name).await {
+            Ok(status) => status,
             Err(error) => {
                 // Docker did not answer; the next poll asks again, and the readiness timeout
                 // ends the wait.
@@ -762,7 +875,7 @@ impl Readiness<'_, '_> {
                 continue;
             }
             let container_name = format!("{}-{}", container.name, self.build.lab_id);
-            match container::container_status(self.build.docker_conn, &container_name).await {
+            match self.container_status(container, &container_name).await {
                 Ok(Some(ContainerStateStatusEnum::RUNNING)) => {
                     tracing::debug!(node_name = %container.name, "Container still running");
                 }

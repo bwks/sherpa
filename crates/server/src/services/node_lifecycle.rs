@@ -117,14 +117,22 @@ impl Runtimes {
     }
 
     /// What the runtime reports for the node of `kind` whose domain or container is named
-    /// `runtime_name`, or `None` when its runtime was not queried.
+    /// `runtime_name`, or `None` when its runtime was not queried. A container that runs in a
+    /// container VM is the domain of its name.
     pub(crate) fn runtime_of(&self, kind: NodeKind, runtime_name: &str) -> Option<Runtime> {
         Some(match kind {
             NodeKind::VirtualMachine | NodeKind::Unikernel => {
                 libvirt_runtime(self.domains.as_ref()?.get(runtime_name).copied())
             }
             NodeKind::Container => {
-                container_runtime(self.containers.as_ref()?.get(runtime_name).copied())
+                match self
+                    .domains
+                    .as_ref()
+                    .and_then(|domains| domains.get(runtime_name))
+                {
+                    Some(code) => libvirt_runtime(Some(*code)),
+                    None => container_runtime(self.containers.as_ref()?.get(runtime_name).copied()),
+                }
             }
         })
     }
@@ -248,6 +256,32 @@ pub(crate) mod tests {
         upsert_node_image,
     };
     use shared::data::{LabState, ModelKind, NodeModel, Probe, Refused};
+
+    #[test]
+    fn container_vm_013_a_container_vm_is_read_from_libvirt_and_any_other_container_from_docker() {
+        let runtimes = Runtimes {
+            domains: Some(HashMap::from([(
+                "ceos1-abc12345".to_string(),
+                VIR_DOMAIN_SHUTOFF,
+            )])),
+            containers: Some(HashMap::from([(
+                "web-abc12345".to_string(),
+                ContainerStateStatusEnum::RUNNING,
+            )])),
+        };
+        assert_eq!(
+            runtimes.runtime_of(NodeKind::Container, "ceos1-abc12345"),
+            Some(Runtime::Stopped(Halt::Off))
+        );
+        assert_eq!(
+            runtimes.runtime_of(NodeKind::Container, "web-abc12345"),
+            Some(Runtime::Running)
+        );
+        assert_eq!(
+            runtimes.runtime_of(NodeKind::Container, "gone-abc12345"),
+            Some(Runtime::Absent)
+        );
+    }
 
     #[test]
     fn node_state_012_a_runtime_that_cannot_be_asked_leaves_its_nodes_as_recorded() {

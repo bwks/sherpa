@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod console;
+mod container_vm;
 mod error;
 mod host;
 mod interface;
@@ -16,6 +17,9 @@ mod vm;
 mod vnc;
 
 pub use console::{ConsoleSockets, SerialConsole, move_consoles_to_sockets, serial_console};
+pub use container_vm::{
+    ContainerVm, ContainerVmNic, create_container_vm, domain_state, remove_domain,
+};
 pub use error::LibvirtError;
 pub use host::{
     DomainMemory, HostCpus, HostMemory, NumaCell, NumaCellValue, host_cpus, host_memory,

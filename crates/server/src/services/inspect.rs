@@ -3,7 +3,7 @@ use bollard::secret::ContainerStateStatusEnum;
 use libvirt::is_device_volume;
 use shared::data::{
     BridgeInfo, DbLink, DbNode, DeviceInfo, InspectResponse, LabInfo, LabState, LinkInfo,
-    LinkState, NodeConfig, NodeKind, NodeState, Observation, Probe, RecordId,
+    LinkState, ModelKind, NodeConfig, NodeKind, NodeState, Observation, Probe, RecordId,
 };
 use shared::konst::SHERPA_STORAGE_POOL;
 use std::collections::HashMap;
@@ -191,7 +191,12 @@ async fn devices(
             .ok_or_else(|| anyhow!("Node image not found for node '{}'", node.name))?;
 
         let mut device = device_info(node, node_image, volumes, lab_info);
-        device.state = reported_state(node, node_image.kind(), &lab_info.id, containers.as_ref());
+        device.state = reported_state(
+            node,
+            node_image.model_kind()?,
+            &lab_info.id,
+            containers.as_ref(),
+        );
         device.vault_sealed = vault_seals.get(&node.name).cloned();
         if device.state != node.state {
             tracing::debug!(node = %node.name, recorded = %node.state, reported = %device.state, "Reporting the container's state from Docker");
@@ -230,13 +235,13 @@ fn device_info(
     }
 }
 
-/// The state to report for `node` of `kind` in lab `lab_id`. A container's comes from Docker's
+/// The state to report for `node` of `model` in lab `lab_id`. A container's comes from Docker's
 /// `containers` listing, moved from the recorded state as the scanner would record it: a running
 /// container that exited is `Stopped`, a gone one `Missing`, and a failed or building node stays
 /// as recorded. Inspect does not probe, so a running container whose stored check has a port is
 /// taken as not having answered: one waiting for its port stays `Starting`, as the scanner left
-/// it. Other nodes, and containers when Docker did not answer (`None`), are reported as
-/// recorded.
+/// it. Other nodes, a container that runs in its own VM, and containers when Docker did not
+/// answer (`None`), are reported as recorded.
 ///
 /// Nothing is written. While the server runs, a node's state is written only by the operation
 /// holding the lab's lease (`node_lifecycle::record`) or by the scanner holding it
@@ -244,11 +249,13 @@ fn device_info(
 /// be a third writer racing them for a state the scanner records on its next cycle anyway.
 fn reported_state(
     node: &DbNode,
-    kind: NodeKind,
+    model: ModelKind,
     lab_id: &str,
     containers: Option<&HashMap<String, ContainerStateStatusEnum>>,
 ) -> NodeState {
-    let Some(containers) = containers.filter(|_| kind == NodeKind::Container) else {
+    let Some(containers) =
+        containers.filter(|_| model.kind() == NodeKind::Container && !model.runs_in_vm())
+    else {
         return node.state;
     };
     let status = containers.get(&format!("{}-{lab_id}", node.name)).copied();
@@ -325,6 +332,10 @@ mod tests {
         HashMap::from([("db01-ab12cd34".to_string(), status)])
     }
 
+    fn container() -> ModelKind {
+        ModelKind::new(NodeModel::FrrLinux, Some(NodeKind::Container)).unwrap()
+    }
+
     fn container_in(state: NodeState) -> DbNode {
         DbNode {
             state,
@@ -335,12 +346,7 @@ mod tests {
     #[test]
     fn node_state_005_inspect_reports_a_container_that_is_gone_as_missing() {
         let node = container_in(NodeState::Running);
-        let state = reported_state(
-            &node,
-            NodeKind::Container,
-            "ab12cd34",
-            Some(&HashMap::new()),
-        );
+        let state = reported_state(&node, container(), "ab12cd34", Some(&HashMap::new()));
         assert_eq!(state, NodeState::Missing);
     }
 
@@ -389,7 +395,7 @@ mod tests {
             let containers = listing(status);
             let state = reported_state(
                 &container_in(recorded),
-                NodeKind::Container,
+                container(),
                 "ab12cd34",
                 Some(&containers),
             );
@@ -413,7 +419,7 @@ mod tests {
                 },
                 ..container_in(recorded)
             };
-            let state = reported_state(&node, NodeKind::Container, "ab12cd34", Some(&containers));
+            let state = reported_state(&node, container(), "ab12cd34", Some(&containers));
             assert_eq!(state, reported, "{recorded}");
         }
     }
@@ -421,7 +427,19 @@ mod tests {
     #[test]
     fn node_state_008_inspect_reports_a_container_as_recorded_when_docker_does_not_answer() {
         let node = container_in(NodeState::Running);
-        let state = reported_state(&node, NodeKind::Container, "ab12cd34", None);
+        let state = reported_state(&node, container(), "ab12cd34", None);
+        assert_eq!(state, NodeState::Running);
+    }
+
+    #[test]
+    fn container_vm_016_inspect_reports_a_container_vm_as_recorded_not_from_docker() {
+        let node = container_in(NodeState::Running);
+        let state = reported_state(
+            &node,
+            ModelKind::new(NodeModel::NokiaSrlinux, Some(NodeKind::Container)).unwrap(),
+            "ab12cd34",
+            Some(&HashMap::new()),
+        );
         assert_eq!(state, NodeState::Running);
     }
 
@@ -431,7 +449,7 @@ mod tests {
         let containers = listing(ContainerStateStatusEnum::EXITED);
         let state = reported_state(
             &node,
-            NodeKind::VirtualMachine,
+            ModelKind::default_for(NodeModel::UbuntuLinux),
             "ab12cd34",
             Some(&containers),
         );

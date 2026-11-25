@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 
 use super::context::Redeploy;
+use crate::services::container_vm;
 use crate::services::error::ServiceError;
 use crate::services::node_ops;
 
@@ -33,6 +34,14 @@ pub(super) async fn destroy_node(redeploy: &Redeploy<'_>) -> Result<()> {
                 redeploy.node_image.interfaces.reserved_count,
             )
             .await?;
+        }
+        data::NodeKind::Container if redeploy.target_node.model_kind.runs_in_vm() => {
+            container_vm::remove_container_vm(
+                &redeploy.state.qemu,
+                &container_vm::domain_name(node_name, lab_id),
+            )
+            .await?;
+            node_ops::destroy_container_node(&redeploy.state.docker, node_name, lab_id).await?;
         }
         data::NodeKind::Container => {
             node_ops::destroy_container_node(&redeploy.state.docker, node_name, lab_id).await?;

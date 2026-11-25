@@ -56,6 +56,30 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 012 | A container that cannot be attached to one of its networks is removed, and the error is reported | integration |
 | 013 | A `cisco_iol` container runs unprivileged, holds its management address and relays its interfaces | integration |
 
+## `container_vm`: a privileged container model runs in its own VM, not on the server's kernel
+
+**Statement:** an `arista_ceos` or `nokia_srlinux` container runs as the root of its own QEMU guest, so the privileges it needs reach only that guest's kernel, and it keeps the links, impairment, SSH, readiness, redeploy and destroy a container has.
+**Relied on by:** the admin, every user of the server. **Priority:** P0.
+
+| Case | What it shows | Level |
+|---|---|---|
+| 001 | The domain boots the guest kernel and initramfs directly on a q35 machine with no video or balloon | unit |
+| 002 | The image's root filesystem and the node's files reach the guest as virtio-fs shares with extended attributes, on shared memory | unit |
+| 003 | Each P2p or disabled data interface is a tap named like the container's host veth, a disabled one with its link down | unit |
+| 004 | The serial console is on the node's console socket, with its output kept in a log | unit |
+| 005 | A guest that stops or reboots stops its domain, as a container that exits stops | unit |
+| 006 | Values in the domain XML are escaped | unit |
+| 007 | The guest runs the image's entrypoint with the node's command, and the node's environment over the image's | unit |
+| 008 | A node with no command runs the image's command | unit |
+| 009 | An environment value with a quote stays one value | unit |
+| 010 | The node's volumes are mounted in the guest at their targets, read-only when the volume is | unit |
+| 011 | An image's root filesystem is named by its image ID, and an ID that is not a digest is refused | unit |
+| 012 | An image's root filesystem unpacked through Docker keeps its owners and modes | integration |
+| 013 | A container VM's state is its domain's: the scanner reads libvirt for it, and Docker for any other container | unit |
+| 014 | A lab of an `arista_ceos` and a `nokia_srlinux` node linked P2p comes up with neither container privileged on the host, pings across the link, answers SSH and the serial console, redeploys a node, and leaves no domain, tap, socket or process behind once destroyed (live test in the pull request, no test yet) | e2e |
+| 015 | The guest names each interface by its MAC whatever the MAC's letter case | unit |
+| 016 | `sherpa inspect` reports a container VM's recorded state, not Docker's absent container | unit |
+
 ## `node_ready`: a node is running only once its ready check passes
 
 **Statement:** a node is reported `running` only once its ready check passes.

@@ -14,6 +14,9 @@ pub enum ContainerError {
         source: io::Error,
     },
 
+    #[error("Container image {reference} has no ID")]
+    ImageWithoutId { reference: String },
+
     #[error("Refusing to remove an unowned Tailscale gateway")]
     UnownedGateway,
 

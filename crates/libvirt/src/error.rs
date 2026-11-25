@@ -28,4 +28,7 @@ pub enum LibvirtError {
 
     #[error("Cannot parse the domain XML: it ends inside an element")]
     DomainXmlEndsInsideElement,
+
+    #[error("Cannot write the container VM's domain XML")]
+    DomainXmlWrite,
 }
