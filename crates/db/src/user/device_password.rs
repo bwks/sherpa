@@ -159,8 +159,8 @@ mod tests {
             .unwrap();
         let row = rows.next().await.unwrap().unwrap();
         match row.get_value(0).unwrap() {
-            turso::Value::Text(text) => Some(text),
-            turso::Value::Null => None,
+            Value::Text(text) => Some(text),
+            Value::Null => None,
             other => panic!("device_password is {other:?}"),
         }
     }
