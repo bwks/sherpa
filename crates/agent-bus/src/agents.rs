@@ -13,6 +13,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
+use toml::de;
 use tracing::instrument;
 
 use crate::error::AgentBusError;
@@ -56,7 +57,7 @@ struct File {
 /// Describe a TOML error in `what` (such as "the agents file") without quoting the file:
 /// `toml`'s own display shows the offending line, which could be a seed pasted in the wrong
 /// place. Its message can quote a value too, so anything the length of a key is hidden.
-pub fn parse_error(what: &str, text: &str, error: &toml::de::Error) -> anyhow::Error {
+pub fn parse_error(what: &str, text: &str, error: &de::Error) -> anyhow::Error {
     let line = error.span().map_or(0, |span| {
         text.get(..span.start)
             .map_or(0, |before| before.matches('\n').count())
