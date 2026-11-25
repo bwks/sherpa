@@ -112,7 +112,11 @@ them. A link end of a running VM-run node that is gone stays down until the node
 
 ## Limits
 
-- A disabled interface is down at both ends, has no carrier, and so is not in the VM.
+- A disabled interface is down at both ends, has no carrier, and so is not in the VM. Bringing
+  it up would give the VM one virtio-net device per port, and Cloud Hypervisor under Kata has
+  one PCI segment: a cEOS with its 52 data veths up fails to boot ("Could not find an available
+  device slot on the PCI bus"). Each port would also show connected in the NOS, as a virtio-net
+  link is always up.
 - A VM-run container takes no Docker data networks: an enabled one is refused
   (`ContainerError::VmDataNetworks`), and the disabled ones a container on no link would get
   are left out (`container::create::vm_data_networks`).
