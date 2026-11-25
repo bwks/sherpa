@@ -10,7 +10,7 @@ use super::veths::{
     ContainerNode, container_veths, data_interface_indices, node_bridge_interfaces, node_links,
 };
 
-use shared::data::{DbBridge, DbLink, DbNode, NodeConfig, NodeKind, RecordId};
+use shared::data::{DbBridge, DbLink, DbNode, ModelKind, NodeConfig, NodeKind, RecordId};
 use shared::validators::effective_data_interface_count;
 use topology::Manifest;
 
@@ -39,6 +39,15 @@ pub(crate) fn recreated_end(
 ) -> Option<RecreatedEnd> {
     match node.kind {
         NodeKind::VirtualMachine | NodeKind::Unikernel => Some(RecreatedEnd::Domain),
+        // Cloud Hypervisor makes a microVM's link ends as taps at boot, as libvirt does.
+        NodeKind::Container
+            if node
+                .image
+                .and_then(|image| image.model_kind().ok())
+                .is_some_and(ModelKind::runs_in_microvm) =>
+        {
+            Some(RecreatedEnd::Domain)
+        }
         NodeKind::Container => {
             let links = node_links(lab_links.links(), node.node_id);
             let bridge_interfaces =
@@ -204,6 +213,17 @@ data_count = 2
         };
         assert_eq!(container, "ctr1-lab1");
         veths.into_iter().map(|v| v.host_veth).collect()
+    }
+
+    #[test]
+    fn privileged_microvm_020_a_microvm_containers_link_ends_are_re_attached_as_a_domains() {
+        let image = ModelKind::new(NodeModel::AristaEos, Some(NodeKind::Container))
+            .expect("model and kind")
+            .node_config();
+        assert!(matches!(
+            end_of("ctr1", NodeKind::Container, Some(&image), None),
+            Some(RecreatedEnd::Domain)
+        ));
     }
 
     #[tokio::test]

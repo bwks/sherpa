@@ -87,9 +87,10 @@ throwaway guest (`microvm::ensure_base_disk`):
 4. `cloud-hypervisor --api-socket path=<runtime>/api.sock`, spawned in its own process group,
    then `PUT vm.create` with the kernel, initramfs, the three disks, every NIC and the serial
    socket, and `PUT vm.boot`. The API is spoken with `hyper` and `hyperlocal` over the Unix
-   socket.
+   socket. The `vm.create` body is kept as `<runtime>/vm.json`.
 5. The management tap is put on the lab's `brm-<lab>` bridge, a bridge member's tap on its
-   bridge, and a disabled interface's tap set down.
+   bridge, and a disabled interface's tap set down. This wiring is kept as `taps.toml` in the
+   node's `microvm` folder.
 
 A microVM that cannot be defined, booted or wired is stopped again before the error returns,
 so a retry, or the rollback of a failed up, starts clean.
@@ -157,10 +158,24 @@ as a VM's. A container in Docker still has no console.
 
 ## Stopping, Destroy and Rollback
 
-`microvm::stop_microvm` asks the VMM to shut down (`vmm.shutdown`), waits for the process
+`microvm::halt_microvm` asks the VMM to shut down (`vmm.shutdown`), waits for the process
 recorded in `ch.pid` (checked against its command line, so a reused pid is never signalled),
-kills it when it does not exit in 15 seconds, and removes the runtime folder. A microVM that is
-not there is already stopped.
+and kills it when it does not exit in 15 seconds. The taps go with the process; the runtime
+folder, with `vm.json`, stays. `microvm::stop_microvm` halts the microVM and removes the
+runtime folder. A microVM that is not there is already stopped.
+
+## Down and Resume
+
+`down` halts a microVM node (`Route::HaltMicroVm`) instead of pausing it, so its memory is
+freed as a VM's is. Its runtime folder stays, so its state reads as `exited` and the node is
+recorded `stopped`.
+
+`resume` boots it again (`microvm::restart_microvm`): a new Cloud Hypervisor process takes the
+kept `vm.json`, so the node gets the same disks, its writable node disk as it left it, and the
+same NICs, whose taps Cloud Hypervisor makes again. The taps are wired from `taps.toml`, and
+the node's P2p links are re-attached as a cold-booted domain's are: `recreated_end` plans a
+microVM node's ends as `RecreatedEnd::Domain`, which the scanner's repair uses too. A paused
+microVM (paused outside Sherpa) is resumed with `vm.resume`.
 
 - Destroy, clean and the rollback of a failed up stop every microVM of the lab
   (`stop_lab_microvms`) before they remove containers.
@@ -173,7 +188,6 @@ domains are, and `sherpad` finds them again by their API sockets.
 
 ## Limits
 
-- `down` and `resume` do not stop or start a microVM node.
 - A container command that exits panics the guest kernel, and Cloud Hypervisor reboots the
   microVM rather than stopping it, so the node is not reported `failed`.
 - Only `arista_eos` and `nokia_srlinux` containers run in a microVM. A microVM node on no link

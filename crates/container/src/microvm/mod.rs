@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
+use serde_json::Value;
 use tokio::process::Command;
 use tokio::time::{Instant, sleep};
 use tracing::instrument;
@@ -33,6 +34,7 @@ const INITRAMFS_FILE: &str = "initramfs.img";
 const API_SOCKET: &str = "api.sock";
 const PID_FILE: &str = "ch.pid";
 const LOG_FILE: &str = "ch.log";
+const VM_CONFIG_FILE: &str = "vm.json";
 const KERNEL_CMDLINE: &str = "console=ttyS0 net.ifnames=0 panic=-1 quiet";
 const API_WAIT: Duration = Duration::from_secs(10);
 const STOP_WAIT: Duration = Duration::from_secs(15);
@@ -92,8 +94,9 @@ fn io_error(action: &'static str, path: &Path) -> impl FnOnce(io::Error) -> Micr
 }
 
 /// Start Cloud Hypervisor for `spec`, define the microVM through its API and boot it. Cloud
-/// Hypervisor creates every NIC's tap, which goes when it exits. A microVM that does not boot
-/// is stopped again, so a retry starts clean.
+/// Hypervisor creates every NIC's tap, which goes when it exits. The microVM's definition is
+/// kept in its runtime folder, so `restart_microvm` boots it again. A microVM that does not
+/// boot is stopped again, so a retry starts clean.
 ///
 /// # Errors
 ///
@@ -106,9 +109,6 @@ pub async fn start_microvm(spec: &MicroVmSpec) -> Result<(), MicroVmError> {
     if let Some(parent) = spec.serial_socket.parent() {
         fs::create_dir_all(parent).map_err(io_error("create", parent))?;
     }
-    let _ = fs::remove_file(&spec.serial_socket);
-    let socket = dir.join(API_SOCKET);
-    let _ = fs::remove_file(&socket);
     let disk = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -117,42 +117,6 @@ pub async fn start_microvm(spec: &MicroVmSpec) -> Result<(), MicroVmError> {
         .map_err(io_error("create", &spec.node_disk))?;
     disk.set_len(spec.node_disk_bytes)
         .map_err(io_error("size", &spec.node_disk))?;
-
-    let log_path = dir.join(LOG_FILE);
-    let log = File::create(&log_path).map_err(io_error("create", &log_path))?;
-    let log_err = log.try_clone().map_err(io_error("open", &log_path))?;
-    let mut child = Command::new(microvm_file(HYPERVISOR_BINARY))
-        .arg("--api-socket")
-        .arg(format!("path={}", socket.display()))
-        .stdin(Stdio::null())
-        .stdout(log)
-        .stderr(log_err)
-        .process_group(0)
-        .spawn()
-        .map_err(|source| MicroVmError::Spawn {
-            name: spec.name.clone(),
-            source,
-        })?;
-    if let Some(pid) = child.id() {
-        let pid_path = dir.join(PID_FILE);
-        fs::write(&pid_path, pid.to_string()).map_err(io_error("write", &pid_path))?;
-    }
-    // Reap the process whenever it exits; the microVM is found again by its socket.
-    tokio::spawn(async move {
-        let _ = child.wait().await;
-    });
-
-    let deadline = Instant::now() + API_WAIT;
-    while !api::ping(&socket).await {
-        if Instant::now() > deadline {
-            let _ = stop_microvm(&spec.name, dir).await;
-            return Err(MicroVmError::ApiNotReady {
-                name: spec.name.clone(),
-                socket,
-            });
-        }
-        sleep(POLL).await;
-    }
 
     let kernel = microvm_file(KERNEL_FILE);
     let initramfs = microvm_file(INITRAMFS_FILE);
@@ -171,7 +135,9 @@ pub async fn start_microvm(spec: &MicroVmSpec) -> Result<(), MicroVmError> {
         nics: &spec.nics,
         serial_socket: &spec.serial_socket,
     });
-    if let Err(error) = api::create_and_boot(&socket, &config).await {
+    let config_path = dir.join(VM_CONFIG_FILE);
+    fs::write(&config_path, config.to_string()).map_err(io_error("write", &config_path))?;
+    if let Err(error) = boot(&spec.name, dir, &config).await {
         let _ = stop_microvm(&spec.name, dir).await;
         return Err(error);
     }
@@ -179,10 +145,91 @@ pub async fn start_microvm(spec: &MicroVmSpec) -> Result<(), MicroVmError> {
     Ok(())
 }
 
+/// Boot the microVM `name` whose runtime folder is `dir` again, from the definition
+/// `start_microvm` kept there. Its disks are as it left them, and Cloud Hypervisor makes its
+/// taps again. A microVM that does not boot is halted, so its folder stays for a retry.
+///
+/// # Errors
+///
+/// Fails when the definition cannot be read, Cloud Hypervisor cannot start, or the API refuses
+/// the microVM.
+#[instrument]
+pub async fn restart_microvm(name: &str, dir: &Path) -> Result<(), MicroVmError> {
+    let config_path = dir.join(VM_CONFIG_FILE);
+    let saved = fs::read(&config_path).map_err(io_error("read", &config_path))?;
+    let config = serde_json::from_slice(&saved).map_err(|source| MicroVmError::SavedConfig {
+        path: config_path,
+        source,
+    })?;
+    boot(name, dir, &config).await?;
+    tracing::info!(%name, "MicroVM booted again");
+    Ok(())
+}
+
+/// Start Cloud Hypervisor in `dir`, then define and boot the microVM `config` through its API.
+/// A VMM that does not take the microVM is halted again.
+async fn boot(name: &str, dir: &Path, config: &Value) -> Result<(), MicroVmError> {
+    if let Some(serial) = config["serial"]["socket"].as_str() {
+        let _ = fs::remove_file(serial);
+    }
+    let socket = dir.join(API_SOCKET);
+    let _ = fs::remove_file(&socket);
+    let log_path = dir.join(LOG_FILE);
+    let log = File::create(&log_path).map_err(io_error("create", &log_path))?;
+    let log_err = log.try_clone().map_err(io_error("open", &log_path))?;
+    let mut child = Command::new(microvm_file(HYPERVISOR_BINARY))
+        .arg("--api-socket")
+        .arg(format!("path={}", socket.display()))
+        .stdin(Stdio::null())
+        .stdout(log)
+        .stderr(log_err)
+        .process_group(0)
+        .spawn()
+        .map_err(|source| MicroVmError::Spawn {
+            name: name.to_owned(),
+            source,
+        })?;
+    if let Some(pid) = child.id() {
+        let pid_path = dir.join(PID_FILE);
+        fs::write(&pid_path, pid.to_string()).map_err(io_error("write", &pid_path))?;
+    }
+    // Reap the process whenever it exits; the microVM is found again by its socket.
+    tokio::spawn(async move {
+        let _ = child.wait().await;
+    });
+
+    let deadline = Instant::now() + API_WAIT;
+    while !api::ping(&socket).await {
+        if Instant::now() > deadline {
+            let _ = halt_microvm(name, dir).await;
+            return Err(MicroVmError::ApiNotReady {
+                name: name.to_owned(),
+                socket,
+            });
+        }
+        sleep(POLL).await;
+    }
+    if let Err(error) = api::create_and_boot(&socket, config).await {
+        let _ = halt_microvm(name, dir).await;
+        return Err(error);
+    }
+    Ok(())
+}
+
 /// The state of the microVM whose runtime folder is `dir`.
 #[instrument(level = "debug")]
 pub async fn microvm_state(dir: &Path) -> MicroVmState {
     api::vm_state(&dir.join(API_SOCKET)).await
+}
+
+/// Resume the paused microVM whose runtime folder is `dir`.
+///
+/// # Errors
+///
+/// Fails when its VMM does not answer or refuses.
+#[instrument(level = "debug")]
+pub async fn resume_microvm(dir: &Path) -> Result<(), MicroVmError> {
+    api::resume_vm(&dir.join(API_SOCKET)).await
 }
 
 /// The Cloud Hypervisor process recorded in `dir`, when it still runs from that folder.
@@ -200,18 +247,15 @@ fn recorded_pid(dir: &Path) -> Option<Pid> {
         .then_some(Pid::from_raw(pid))
 }
 
-/// Stop the microVM `name` whose runtime folder is `dir`: ask its VMM to shut down, kill it
-/// when it does not, and remove the folder. Its taps go with the process. Stopping a microVM
-/// that is not there succeeds.
+/// Halt the microVM `name` whose runtime folder is `dir`: ask its VMM to shut down, and kill
+/// it when it does not. Its taps go with the process; its folder, disks and definition stay,
+/// so `restart_microvm` boots it again. Halting a microVM that does not run succeeds.
 ///
 /// # Errors
 ///
-/// Fails when the process cannot be killed or the folder cannot be removed.
+/// Fails when the process cannot be killed.
 #[instrument(level = "debug")]
-pub async fn stop_microvm(name: &str, dir: &Path) -> Result<(), MicroVmError> {
-    if !dir.exists() {
-        return Ok(());
-    }
+pub async fn halt_microvm(name: &str, dir: &Path) -> Result<(), MicroVmError> {
     let socket = dir.join(API_SOCKET);
     if let Err(error) = api::shutdown_vmm(&socket).await {
         tracing::debug!(%name, %error, "VMM did not take the shutdown request");
@@ -235,6 +279,24 @@ pub async fn stop_microvm(name: &str, dir: &Path) -> Result<(), MicroVmError> {
         }
         sleep(POLL).await;
     }
+    let _ = fs::remove_file(dir.join(PID_FILE));
+    let _ = fs::remove_file(&socket);
+    tracing::info!(%name, "MicroVM halted");
+    Ok(())
+}
+
+/// Stop the microVM `name` whose runtime folder is `dir`: halt it and remove the folder.
+/// Stopping a microVM that is not there succeeds.
+///
+/// # Errors
+///
+/// Fails when the process cannot be killed or the folder cannot be removed.
+#[instrument(level = "debug")]
+pub async fn stop_microvm(name: &str, dir: &Path) -> Result<(), MicroVmError> {
+    if !dir.exists() {
+        return Ok(());
+    }
+    halt_microvm(name, dir).await?;
     fs::remove_dir_all(dir).map_err(io_error("remove", dir))?;
     tracing::info!(%name, "MicroVM stopped");
     Ok(())
@@ -292,22 +354,19 @@ mod tests {
     use super::*;
     use crate::docker_connection;
 
-    #[tokio::test]
-    #[ignore = "requires root (taps), Docker with alpine:latest, and /opt/sherpa/microvm installed"]
-    async fn privileged_microvm_013_a_stopped_microvm_leaves_no_process_tap_or_runtime_folder() {
+    /// A one-NIC alpine microVM named `name` on tap `tap`, with its files in `dir`.
+    async fn alpine_microvm(dir: &Path, name: &str, tap: &str) -> MicroVmSpec {
         let docker = docker_connection().expect("docker");
         let base_disk = ensure_base_disk(&docker, "alpine:latest")
             .await
             .expect("base disk");
-        let dir = tempfile::tempdir().expect("tempdir");
-        let tap = "smv013-test";
         let nics = vec![MicroVmNic {
             tap: tap.to_owned(),
             mac: "02:53:00:00:13:00".to_owned(),
             guest_name: "eth0".to_owned(),
         }];
         let config = GuestConfig {
-            hostname: "mv013".to_owned(),
+            hostname: name.to_owned(),
             mgmt_address: None,
             mgmt_gateway: None,
             nics: nics.clone(),
@@ -317,21 +376,36 @@ mod tests {
             working_dir: None,
             volumes: vec![],
         };
-        let config_iso = dir.path().join("config.iso");
-        write_config_iso(&config, &dir.path().join("config"), &config_iso).expect("iso");
-        let runtime_dir = dir.path().join("run");
-        let spec = MicroVmSpec {
-            name: "mv013".to_owned(),
-            runtime_dir: runtime_dir.clone(),
+        let config_iso = dir.join("config.iso");
+        write_config_iso(&config, &dir.join("config"), &config_iso).expect("iso");
+        MicroVmSpec {
+            name: name.to_owned(),
+            runtime_dir: dir.join("run"),
             base_disk,
             config_iso,
-            node_disk: dir.path().join("node.raw"),
+            node_disk: dir.join("node.raw"),
             node_disk_bytes: 256 * 1024 * 1024,
-            serial_socket: dir.path().join("serial.sock"),
+            serial_socket: dir.join("serial.sock"),
             cpus: 1,
             memory_mib: 256,
             nics,
-        };
+        }
+    }
+
+    /// Whether Cloud Hypervisor `pid` has exited.
+    fn exited(pid: Pid) -> bool {
+        fs::read(format!("/proc/{pid}/cmdline"))
+            .unwrap_or_default()
+            .is_empty()
+    }
+
+    #[tokio::test]
+    #[ignore = "requires root (taps), Docker with alpine:latest, and /opt/sherpa/microvm installed"]
+    async fn privileged_microvm_013_a_stopped_microvm_leaves_no_process_tap_or_runtime_folder() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let tap = "smv013-test";
+        let spec = alpine_microvm(dir.path(), "mv013", tap).await;
+        let runtime_dir = spec.runtime_dir.clone();
         start_microvm(&spec).await.expect("start");
         assert_eq!(microvm_state(&runtime_dir).await, MicroVmState::Running);
         let pid = recorded_pid(&runtime_dir).expect("pid");
@@ -340,7 +414,30 @@ mod tests {
         stop_microvm("mv013", &runtime_dir).await.expect("stop");
         assert!(!runtime_dir.exists());
         assert!(!Path::new("/sys/class/net").join(tap).exists());
-        let cmdline = fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
-        assert!(cmdline.is_empty(), "Cloud Hypervisor {pid} still runs");
+        assert!(exited(pid), "Cloud Hypervisor {pid} still runs");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires root (taps), Docker with alpine:latest, and /opt/sherpa/microvm installed"]
+    async fn privileged_microvm_022_a_halted_microvm_boots_again_with_its_taps_from_its_folder() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let tap = "smv022-test";
+        let spec = alpine_microvm(dir.path(), "mv022", tap).await;
+        let runtime_dir = spec.runtime_dir.clone();
+        start_microvm(&spec).await.expect("start");
+        let pid = recorded_pid(&runtime_dir).expect("pid");
+
+        halt_microvm("mv022", &runtime_dir).await.expect("halt");
+        assert!(exited(pid), "Cloud Hypervisor {pid} still runs");
+        assert!(!Path::new("/sys/class/net").join(tap).exists());
+        assert_eq!(microvm_state(&runtime_dir).await, MicroVmState::Stopped);
+        assert!(runtime_dir.exists());
+
+        restart_microvm("mv022", &runtime_dir)
+            .await
+            .expect("restart");
+        assert_eq!(microvm_state(&runtime_dir).await, MicroVmState::Running);
+        assert!(Path::new("/sys/class/net").join(tap).exists());
+        stop_microvm("mv022", &runtime_dir).await.expect("stop");
     }
 }

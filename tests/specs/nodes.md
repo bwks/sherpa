@@ -179,7 +179,7 @@ Cases 001 to 020 are up, 021 to 026 resume, 027 and 028 redeploy, 029 to 035 the
 
 ## `privileged_microvm`: a privileged network-OS container runs in its own microVM
 
-**Statement:** a container node whose model needs `--privileged` (`arista_eos` and `nokia_srlinux` containers) runs from its image inside its own Cloud Hypervisor microVM, privileged in the guest kernel only, and does everything a container node does: management address, P2p links, impairment, console, SSH, readiness, redeploy, destroy and rollback.
+**Statement:** a container node whose model needs `--privileged` (`arista_eos` and `nokia_srlinux` containers) runs from its image inside its own Cloud Hypervisor microVM, privileged in the guest kernel only, and does everything a container node does: management address, P2p links, impairment, console, SSH, readiness, down and resume, redeploy, destroy and rollback.
 **Relied on by:** the user, the admin (no lab user gets root on the server). **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -202,3 +202,8 @@ Cases 001 to 020 are up, 021 to 026 resume, 027 and 028 redeploy, 029 to 035 the
 | 016 | An up that fails after a microVM started stops it before it returns (no test yet) | e2e |
 | 017 | No Docker container and no privileged process runs on the host for a microVM node (no test yet) | e2e |
 | 018 | Restarting sherpad leaves running microVMs running (no test yet) | e2e |
+| 019 | Down halts the microVM of an `arista_eos` or `nokia_srlinux` container instead of pausing it | unit |
+| 020 | A microVM node's link ends are re-attached as a domain's, as Cloud Hypervisor makes its taps at every boot | unit |
+| 021 | A microVM's taps are wired at its next boot as at its first: management tap on the management bridge, bridge members on their bridge, disabled interfaces without carrier | unit |
+| 022 | A halted microVM has no process or tap, keeps its runtime folder, and boots again from it with its taps | integration |
+| 023 | Down then resume of a lab of microVM nodes boots each again with its config kept, and its P2p links pass traffic again (no test yet) | e2e |

@@ -24,6 +24,7 @@ use super::lab_definition::stored_definition;
 use super::lab_lifecycle;
 use super::lab_nodes::load_target_nodes;
 use super::lab_operations::{self, LabOperation, Operation};
+use super::microvm;
 use super::node_lifecycle::{self, query_runtimes};
 use super::node_ops::{self, VmReadiness};
 use super::p2p_links::{
@@ -75,7 +76,8 @@ struct ReadinessTarget {
 /// Start/poweron all (or a specific) node(s) for a lab.
 ///
 /// VMs: if shutoff, calls `domain.create()` (cold boot). If paused, calls `domain.resume()`.
-/// Containers: calls `docker start`, or `docker unpause` if paused. A crashed or dead node, one
+/// Containers: calls `docker start`, or `docker unpause` if paused; a container that runs in a
+/// microVM has its halted microVM booted again. A crashed or dead node, one
 /// between states, one with no domain or container, and one another operation is building are
 /// refused.
 /// A cold-booted node is recorded `Starting`, then `Running` once it is ready; a resumed one
@@ -169,6 +171,9 @@ pub async fn start_lab_nodes(
                     StartOutcome::Failed(
                         Unexpected::log(&error, "Failed to start a node").to_string(),
                     )
+                }
+                (NodeKind::Container, _) if runs_in_microvm(model) => {
+                    start_microvm_node(&device_name, &node_name).await
                 }
                 (NodeKind::Container, _) => start_container_node(&device_name, model, &state).await,
             };
@@ -844,6 +849,38 @@ async fn start_container_node(
                 }
             }
         }
+        Ok(StartStep::Nothing) => StartOutcome::AlreadyRunning,
+        Err(reason) => StartOutcome::Failed(reason),
+    }
+}
+
+/// Whether a container of `model` runs in a microVM.
+fn runs_in_microvm(model: data::NodeModel) -> bool {
+    ModelKind::new(model, Some(NodeKind::Container)).is_ok_and(ModelKind::runs_in_microvm)
+}
+
+/// Boot the halted microVM of node `node_name`, whose container is `device_name`
+/// (`<node>-<lab>`), again, or resume a paused one. Cloud Hypervisor makes its taps again,
+/// which are wired to their bridges here and get their links re-attached as a cold-booted
+/// domain's do.
+async fn start_microvm_node(device_name: &str, node_name: &str) -> StartOutcome {
+    let lab_id = microvm::lab_of_container(device_name, node_name);
+    let status = microvm::microvm_status(lab_id, device_name).await;
+    match start_step(node_lifecycle::container_runtime(status), "microVM") {
+        Ok(StartStep::Boot) => match microvm::restart_microvm_node(lab_id, node_name).await {
+            Ok(()) => StartOutcome::ColdBooted,
+            Err(e) => StartOutcome::Failed(format!(
+                "Failed to start: {}",
+                Unexpected::log(&e, "Failed to start")
+            )),
+        },
+        Ok(StartStep::Resume) => match microvm::resume_microvm_node(lab_id, node_name).await {
+            Ok(()) => StartOutcome::Resumed,
+            Err(e) => StartOutcome::Failed(format!(
+                "Failed to resume: {}",
+                Unexpected::log(&e, "Failed to resume")
+            )),
+        },
         Ok(StartStep::Nothing) => StartOutcome::AlreadyRunning,
         Err(reason) => StartOutcome::Failed(reason),
     }

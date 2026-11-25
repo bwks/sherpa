@@ -179,6 +179,13 @@ pub async fn add_nic(socket: &Path, nic: &MicroVmNic, id: &str) -> Result<(), Mi
     Ok(())
 }
 
+/// Resume the paused microVM behind `socket`.
+#[instrument(level = "debug")]
+pub(crate) async fn resume_vm(socket: &Path) -> Result<(), MicroVmError> {
+    call_ok(socket, Method::PUT, "vm.resume", None).await?;
+    Ok(())
+}
+
 /// Ask the VMM behind `socket` to stop its microVM and exit.
 #[instrument(level = "debug")]
 pub(crate) async fn shutdown_vmm(socket: &Path) -> Result<(), MicroVmError> {

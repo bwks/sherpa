@@ -67,6 +67,13 @@ pub enum MicroVmError {
         source: iso::IsoError,
     },
 
+    #[error("Cannot read the saved microVM definition {path}")]
+    SavedConfig {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+
     #[error("Volume '{volume}' has no container path")]
     Volume { volume: String },
 

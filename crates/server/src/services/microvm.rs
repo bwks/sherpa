@@ -3,6 +3,7 @@
 //! See `docs/architecture/MICROVM.md`.
 
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
@@ -11,6 +12,7 @@ use bollard::models::ContainerStateStatusEnum;
 use bollard::query_parameters::InspectNetworkOptions;
 use container::ContainerSpec;
 use container::microvm::{self, GuestConfig, MicroVmNic, MicroVmSpec, MicroVmState};
+use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use crate::konst::{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME};
@@ -25,6 +27,7 @@ const MICROVM_NODE_DIR: &str = "microvm";
 const CONFIG_STAGING_DIR: &str = "config";
 const CONFIG_ISO: &str = "config.iso";
 const NODE_DISK: &str = "node.raw";
+const TAP_WIRING: &str = "taps.toml";
 const NODE_DISK_BYTES: u64 = 16 * 1024 * 1024 * 1024;
 const MGMT_TAP_PREFIX: &str = "cm";
 const MGMT_GUEST_INTERFACE: &str = "eth0";
@@ -39,6 +42,23 @@ pub(crate) struct MicroVmNode<'a> {
     pub(crate) node_name: &'a str,
     pub(crate) node_index: u16,
     pub(crate) veths: Vec<&'a ContainerVeth>,
+}
+
+/// What a microVM node's taps are wired to on the host: its management tap on the lab's
+/// management bridge, and each data tap on its bridge or with its carrier taken. Cloud
+/// Hypervisor makes the taps again at every boot, so they are wired again from this.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct TapWiring {
+    mgmt_tap: String,
+    mgmt_bridge: String,
+    taps: Vec<WiredTap>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct WiredTap {
+    tap: String,
+    bridge: Option<String>,
+    down: bool,
 }
 
 /// The MAC of NIC `nic` of the node with index `node_index` in lab `lab_id`.
@@ -195,6 +215,8 @@ pub(crate) async fn start_microvm_node(
     let dir = node_microvm_dir(node.lab_id, node.node_name);
     let config_iso = dir.join(CONFIG_ISO);
     microvm::write_config_iso(&config, &dir.join(CONFIG_STAGING_DIR), &config_iso)?;
+    let wiring = tap_wiring(node);
+    save_wiring(&dir, &wiring)?;
     console::create_console_dir(node.lab_id)?;
     let serial = console::console_sockets(node.lab_id, node.node_index)?.serial;
     let runtime_dir = microvm::runtime_dir(node.lab_id, node.node_name);
@@ -211,7 +233,7 @@ pub(crate) async fn start_microvm_node(
         nics,
     };
     microvm::start_microvm(&vm).await?;
-    if let Err(error) = wire_taps(node).await {
+    if let Err(error) = wire_taps(&wiring).await {
         let _ = microvm::stop_microvm(&spec.name, &runtime_dir).await;
         return Err(error);
     }
@@ -222,20 +244,51 @@ pub(crate) async fn start_microvm_node(
     Ok(microvm::microvm_state(&runtime_dir).await == MicroVmState::Running)
 }
 
-/// Put the management tap of `node` on the lab's management bridge, each bridge member's tap
-/// on its bridge, and take the carrier from a disabled interface.
-async fn wire_taps(node: &MicroVmNode<'_>) -> Result<()> {
-    let bridge = format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{}", node.lab_id);
-    network::enslave_to_bridge(&mgmt_tap(node.lab_id, node.node_index), &bridge).await?;
-    for veth in &node.veths {
-        if let Some(bridge) = &veth.bridge {
-            network::enslave_to_bridge(&veth.host_veth, bridge).await?;
+/// How the taps of `node` are wired: its management tap on the lab's management bridge, each
+/// bridge member's tap on its bridge, and a disabled interface's tap without carrier.
+fn tap_wiring(node: &MicroVmNode<'_>) -> TapWiring {
+    TapWiring {
+        mgmt_tap: mgmt_tap(node.lab_id, node.node_index),
+        mgmt_bridge: format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{}", node.lab_id),
+        taps: node
+            .veths
+            .iter()
+            .map(|veth| WiredTap {
+                tap: veth.host_veth.clone(),
+                bridge: veth.bridge.clone(),
+                down: veth.admin_down,
+            })
+            .collect(),
+    }
+}
+
+/// Wire the taps of a booted microVM as `wiring` says.
+async fn wire_taps(wiring: &TapWiring) -> Result<()> {
+    network::enslave_to_bridge(&wiring.mgmt_tap, &wiring.mgmt_bridge).await?;
+    for tap in &wiring.taps {
+        if let Some(bridge) = &tap.bridge {
+            network::enslave_to_bridge(&tap.tap, bridge).await?;
         }
-        if veth.admin_down {
-            network::set_link_state(&veth.host_veth, false).await?;
+        if tap.down {
+            network::set_link_state(&tap.tap, false).await?;
         }
     }
     Ok(())
+}
+
+/// Keep `wiring` in the node's microVM folder `dir`, for its next boot.
+fn save_wiring(dir: &Path, wiring: &TapWiring) -> Result<()> {
+    let path = dir.join(TAP_WIRING);
+    let text = toml::to_string(wiring).context("Cannot write the microVM's tap wiring")?;
+    fs::write(&path, text).with_context(|| format!("Cannot write {}", path.display()))
+}
+
+/// The wiring kept in the node's microVM folder `dir`.
+fn load_wiring(dir: &Path) -> Result<TapWiring> {
+    let path = dir.join(TAP_WIRING);
+    let text =
+        fs::read_to_string(&path).with_context(|| format!("Cannot read {}", path.display()))?;
+    toml::from_str(&text).with_context(|| format!("Cannot parse {}", path.display()))
 }
 
 /// Whether container `container_name` of lab `lab_id` runs in a microVM, and if so the state
@@ -259,6 +312,15 @@ pub(crate) fn microvm_dir_of(container_name: &str) -> Option<PathBuf> {
     let (node_name, lab_id) = container_name.rsplit_once('-')?;
     let dir = microvm::runtime_dir(lab_id, node_name);
     dir.exists().then_some(dir)
+}
+
+/// The lab of node `node_name` whose container is `container_name` (`<node>-<lab>`), or ""
+/// when the container is not the node's.
+pub(crate) fn lab_of_container<'a>(container_name: &'a str, node_name: &str) -> &'a str {
+    container_name
+        .strip_prefix(node_name)
+        .and_then(|rest| rest.strip_prefix('-'))
+        .unwrap_or_default()
 }
 
 /// The Docker state matching microVM state `state`.
@@ -295,6 +357,55 @@ pub(crate) async fn stop_microvm_node(lab_id: &str, node_name: &str) -> Result<(
     .with_context(|| format!("Cannot stop the microVM of node {node_name}"))
 }
 
+/// Halt the microVM of node `node_name` in lab `lab_id`, keeping its disks and definition for
+/// `restart_microvm_node`.
+///
+/// # Errors
+///
+/// Fails when the microVM cannot be halted.
+#[instrument(level = "debug")]
+pub(crate) async fn halt_microvm_node(lab_id: &str, node_name: &str) -> Result<()> {
+    microvm::halt_microvm(
+        &format!("{node_name}-{lab_id}"),
+        &microvm::runtime_dir(lab_id, node_name),
+    )
+    .await
+    .with_context(|| format!("Cannot halt the microVM of node {node_name}"))
+}
+
+/// Boot the halted microVM of node `node_name` in lab `lab_id` again, and wire its new taps as
+/// they were. A microVM whose taps cannot be wired is halted again.
+///
+/// # Errors
+///
+/// Fails when the microVM cannot boot or its taps cannot be wired.
+#[instrument(level = "debug")]
+pub(crate) async fn restart_microvm_node(lab_id: &str, node_name: &str) -> Result<()> {
+    let name = format!("{node_name}-{lab_id}");
+    let runtime_dir = microvm::runtime_dir(lab_id, node_name);
+    let wiring = load_wiring(&node_microvm_dir(lab_id, node_name))?;
+    microvm::restart_microvm(&name, &runtime_dir)
+        .await
+        .with_context(|| format!("Cannot boot the microVM of node {node_name}"))?;
+    if let Err(error) = wire_taps(&wiring).await {
+        let _ = microvm::halt_microvm(&name, &runtime_dir).await;
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// Resume the paused microVM of node `node_name` in lab `lab_id`.
+///
+/// # Errors
+///
+/// Fails when the VMM refuses.
+#[instrument(level = "debug")]
+pub(crate) async fn resume_microvm_node(lab_id: &str, node_name: &str) -> Result<()> {
+    microvm::resume_microvm(&microvm::runtime_dir(lab_id, node_name))
+        .await
+        .with_context(|| format!("Cannot resume the microVM of node {node_name}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,6 +423,29 @@ mod tests {
             assert!(mac.starts_with("02:"), "{mac}");
             assert!(!macs[i + 1..].contains(mac), "{mac} repeats");
         }
+    }
+
+    #[test]
+    fn privileged_microvm_021_a_microvms_taps_are_wired_at_its_next_boot_as_at_its_first() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let wiring = TapWiring {
+            mgmt_tap: "cm1-lab1".to_owned(),
+            mgmt_bridge: "brm-lab1".to_owned(),
+            taps: vec![
+                WiredTap {
+                    tap: "tpa0-lab1".to_owned(),
+                    bridge: None,
+                    down: false,
+                },
+                WiredTap {
+                    tap: "cb1i2-lab1".to_owned(),
+                    bridge: Some("brs0-lab1".to_owned()),
+                    down: true,
+                },
+            ],
+        };
+        save_wiring(dir.path(), &wiring).expect("save");
+        assert_eq!(load_wiring(dir.path()).expect("load"), wiring);
     }
 
     #[test]

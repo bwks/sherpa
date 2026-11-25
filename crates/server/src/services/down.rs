@@ -15,8 +15,8 @@ use virt::connect::Connect;
 use virt::domain::Domain;
 
 use shared::data::{
-    ClusterRole, LabNodeActionResponse, NodeActionResult, NodeConfig, NodeKind, NodeModel,
-    OperationEvent, TailscaleGatewaySettings,
+    ClusterRole, LabNodeActionResponse, ModelKind, NodeActionResult, NodeConfig, NodeKind,
+    NodeModel, OperationEvent, TailscaleGatewaySettings,
 };
 use shared::konst::SHERPA_LABS_PATH;
 
@@ -27,6 +27,7 @@ use crate::services::error::Unexpected;
 use crate::services::lab_lifecycle;
 use crate::services::lab_nodes::load_target_nodes;
 use crate::services::lab_operations::{self, Operation};
+use crate::services::microvm;
 use crate::services::node_lifecycle;
 use crate::services::talos;
 
@@ -48,6 +49,7 @@ enum Route {
     TalosApi,
     PowerOff(&'static str),
     Pause,
+    HaltMicroVm,
 }
 
 /// A node's route, resolved with what it needs.
@@ -60,6 +62,7 @@ enum ShutdownMethod {
     PowerOff(&'static str),
     Unavailable(String),
     Pause,
+    HaltMicroVm,
 }
 
 /// What `stop_domain` does with a running guest.
@@ -91,7 +94,8 @@ enum VmStop {
 /// button; for Talos cluster nodes, the Talos API), then up to `VM_SHUTDOWN_TIMEOUT` seconds
 /// for the guest to stop, and a forced power-off only if it has not. Talos cluster controllers
 /// stop after every other node. Unikernels and Talos nodes outside a Sherpa-built cluster:
-/// powered off. Containers: paused.
+/// powered off. Containers: paused, except those that run in a microVM, which is halted and
+/// keeps its disks for resume.
 /// DB node state is updated to `Stopped` once a node has stopped. A node an operation is
 /// building, or one with no domain or container, is refused before anything is done to it.
 ///
@@ -175,6 +179,7 @@ pub async fn shutdown_lab_nodes(
         let future = async move {
             let result = match method {
                 ShutdownMethod::Pause => shutdown_container(&device_name, &node_name, &state).await,
+                ShutdownMethod::HaltMicroVm => shutdown_microvm(&device_name, &node_name).await,
                 method => shutdown_vm(&device_name, &node_name, method, &state).await,
             };
             (result, node_name, node_id)
@@ -257,6 +262,7 @@ fn shutdown_method(
         (Route::Acpi, _, None) => ShutdownMethod::Acpi,
         (Route::PowerOff(reason), _, None) => ShutdownMethod::PowerOff(reason),
         (Route::Pause, _, None) => ShutdownMethod::Pause,
+        (Route::HaltMicroVm, _, None) => ShutdownMethod::HaltMicroVm,
     };
     (method, role)
 }
@@ -298,6 +304,11 @@ async fn stop_tailscale_gateway(
 /// How `down` stops a node, decided from its kind, model and Talos cluster role.
 fn shutdown_route(kind: NodeKind, model: NodeModel, role: Option<ClusterRole>) -> Route {
     match kind {
+        NodeKind::Container
+            if ModelKind::new(model, Some(kind)).is_ok_and(ModelKind::runs_in_microvm) =>
+        {
+            Route::HaltMicroVm
+        }
         NodeKind::Container => Route::Pause,
         NodeKind::Unikernel => Route::PowerOff(UNIKERNEL_POWER_OFF),
         NodeKind::VirtualMachine if model == NodeModel::TalosLinux => match role {
@@ -412,11 +423,11 @@ async fn shutdown_vm(
         }
         ShutdownMethod::PowerOff(reason) => StopPlan::PowerOff(reason),
         ShutdownMethod::Unavailable(reason) => StopPlan::RequestFailed(reason),
-        ShutdownMethod::Pause => {
+        ShutdownMethod::Pause | ShutdownMethod::HaltMicroVm => {
             return NodeActionResult {
                 name: node_name.to_string(),
                 success: false,
-                message: "Containers are paused, not shut down".to_string(),
+                message: "Containers are paused or halted, not shut down".to_string(),
                 links: Vec::new(),
             };
         }
@@ -508,6 +519,32 @@ async fn shutdown_container(
             format!(
                 "Failed to pause: {}",
                 Unexpected::log(&e, "Failed to pause")
+            ),
+        ),
+    }
+}
+
+/// Halt the running microVM of node `node_name`, whose container is `device_name`
+/// (`<node>-<lab>`); one not running is reported as such and is not an error.
+async fn shutdown_microvm(device_name: &str, node_name: &str) -> NodeActionResult {
+    let result = |success: bool, message: String| NodeActionResult {
+        name: node_name.to_string(),
+        success,
+        message,
+        links: Vec::new(),
+    };
+    let lab_id = microvm::lab_of_container(device_name, node_name);
+    let status = microvm::microvm_status(lab_id, device_name).await;
+    if let Err(already) = container_down_step(status) {
+        return result(true, already.to_string());
+    }
+    match microvm::halt_microvm_node(lab_id, node_name).await {
+        Ok(()) => result(true, "Stopped its microVM".to_string()),
+        Err(e) => result(
+            false,
+            format!(
+                "Failed to stop its microVM: {}",
+                Unexpected::log(&e, "Failed to stop a microVM")
             ),
         ),
     }
@@ -626,6 +663,20 @@ mod tests {
         assert_eq!(
             shutdown_route(NodeKind::Container, NodeModel::Generic, None),
             Route::Pause
+        );
+    }
+
+    #[test]
+    fn privileged_microvm_019_down_halts_the_microvm_of_a_container_that_runs_in_one() {
+        for model in [NodeModel::AristaEos, NodeModel::NokiaSrlinux] {
+            assert_eq!(
+                shutdown_route(NodeKind::Container, model, None),
+                Route::HaltMicroVm
+            );
+        }
+        assert_eq!(
+            shutdown_route(NodeKind::VirtualMachine, NodeModel::AristaEos, None),
+            Route::Acpi
         );
     }
 
