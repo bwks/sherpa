@@ -3,6 +3,8 @@
 
 pub(crate) mod linux;
 
+mod error;
+
 pub mod ebpf;
 pub mod ethtool;
 pub mod tap;
@@ -12,6 +14,8 @@ pub use linux::{
     container_has_interface, container_veth_peer_ifindex, create_bridge, create_veth_pair,
     delete_interface, enslave_to_bridge, link_is_up, list_interface_names, set_link_state,
 };
+
+pub use error::NetworkError;
 
 pub use ebpf::{attach_p2p_redirect, has_p2p_redirect};
 pub use ethtool::{disable_tx_checksum_offload, tx_checksum_offload_on};

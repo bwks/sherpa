@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 use turso::{Connection, Value};
 
+use crate::error::AgentBusError;
 use crate::store::cells::{Cells, boolean, integer, optional_integer, optional_text};
 use crate::store::facts::{Ref, Source, facts};
 use crate::store::host::{Focus, add_focus};
@@ -115,7 +116,7 @@ pub async fn record(
                 ],
             )
             .await
-            .context("Unable to record a model of the run")?;
+            .context(AgentBusError::RunModelUnrecorded)?;
         }
     }
     tx.commit().await.context("Unable to commit the message")?;
@@ -441,7 +442,13 @@ mod tests {
         .await
         .err()
         .unwrap();
-        assert!(format!("{error:#}").contains("model"), "{error:#}");
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::RunModelUnrecorded)
+            ),
+            "{error:#}"
+        );
         assert_eq!(count(&conn, "message").await, 0);
         assert_eq!(count(&conn, "task").await, 0);
         assert_eq!(count(&conn, "run").await, 0);

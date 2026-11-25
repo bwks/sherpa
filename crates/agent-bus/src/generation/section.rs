@@ -23,6 +23,7 @@ use std::ops::{Not, Range};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
+use crate::error::AgentBusError;
 use crate::generation::placement::PullRequestId;
 use crate::message::{TaskUsage, cache_hit_permille, check_agent_name, check_repo};
 use crate::report::usage::{HOST, Time};
@@ -188,9 +189,10 @@ pub fn read(section: &str) -> Result<Rows> {
         .context("Unable to read the Generation data in the pull request body")?;
     ensure!(
         data.version <= FORMAT,
-        "The Generation data in the pull request body is format {}, newer than {FORMAT} that \
-         this agent-bus writes: use a newer agent-bus",
-        data.version
+        AgentBusError::GenerationDataTooNew {
+            version: data.version,
+            newest: FORMAT,
+        }
     );
     let rows = Rows {
         tasks: data.task,
@@ -265,11 +267,7 @@ fn section_range(body: &str) -> Result<Option<Range<usize>>> {
     match (starts.as_slice(), ends.as_slice()) {
         ([], []) => Ok(None),
         ([start], [end]) if start < end => Ok(Some(*start..end + END.len())),
-        _ => bail!(
-            "The pull request body has its Generation markers out of order or more than once: \
-             {START} must be followed by {END}, once each, each on a line of its own. Fix the \
-             body by hand"
-        ),
+        _ => bail!(AgentBusError::GenerationMarkers),
     }
 }
 
@@ -1132,8 +1130,17 @@ duration_api_ms = 0
     #[test]
     fn data_of_a_newer_format_is_refused() {
         let body = format!("{START}\n{DATA_START}\nversion = 4\n-->\n{END}");
-        let error = format!("{:#}", update_body(&body, &tasks(&[first()])).unwrap_err());
-        assert!(error.contains("format 4"), "{error}");
+        let error = update_body(&body, &tasks(&[first()])).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::GenerationDataTooNew {
+                    version: 4,
+                    newest: FORMAT
+                })
+            ),
+            "{error:#}"
+        );
     }
 
     #[test]
@@ -1145,10 +1152,14 @@ duration_api_ms = 0
             format!("{END}\n{START}"),
             format!("{section}\n{section}"),
         ] {
-            let error = update_body(&body, &tasks(&[first()]))
-                .unwrap_err()
-                .to_string();
-            assert!(error.contains("markers"), "{error}");
+            let error = update_body(&body, &tasks(&[first()])).unwrap_err();
+            assert!(
+                matches!(
+                    error.downcast_ref::<AgentBusError>(),
+                    Some(AgentBusError::GenerationMarkers)
+                ),
+                "{error:#}"
+            );
         }
     }
 

@@ -1,6 +1,7 @@
 use anyhow::{Result, ensure};
 use tracing::instrument;
 
+use crate::SharedError;
 use crate::konst::{
     RESERVED_USERNAME_PREFIXES, RESERVED_USERNAMES, USERNAME_MAX_LENGTH, USERNAME_MIN_LENGTH,
 };
@@ -19,11 +20,13 @@ use crate::konst::{
 pub fn validate_username(username: &str) -> Result<()> {
     ensure!(
         username.len() >= USERNAME_MIN_LENGTH && is_portable(username),
-        "Username must be {USERNAME_MIN_LENGTH}–{USERNAME_MAX_LENGTH} lowercase letters, digits, underscores or hyphens, starting with a letter or underscore"
+        SharedError::InvalidUsername
     );
     ensure!(
         !is_reserved(username, RESERVED_USERNAMES),
-        "Username '{username}' is reserved"
+        SharedError::ReservedUsername {
+            username: username.to_owned()
+        }
     );
     Ok(())
 }
@@ -93,8 +96,12 @@ mod tests {
             "brad smith",
             &"a".repeat(33),
         ] {
-            let error = validate_username(name).unwrap_err().to_string();
-            assert!(error.contains("lowercase letters"), "{name:?}: {error}");
+            let error = validate_username(name).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<SharedError>(),
+                Some(&SharedError::InvalidUsername),
+                "{name:?}"
+            );
         }
     }
 
@@ -115,8 +122,13 @@ mod tests {
             "superuser",
             "sysadmin",
         ] {
-            let error = validate_username(name).unwrap_err().to_string();
-            assert!(error.contains("is reserved"), "{name:?}: {error}");
+            let error = validate_username(name).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<SharedError>(),
+                Some(&SharedError::ReservedUsername {
+                    username: name.to_owned()
+                })
+            );
         }
     }
 }

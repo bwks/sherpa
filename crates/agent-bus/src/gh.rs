@@ -14,6 +14,8 @@ use tokio::process::Command;
 use tokio::time::timeout;
 use tracing::instrument;
 
+use crate::error::AgentBusError;
+
 /// The GitHub CLI.
 pub const GH: &str = "gh";
 /// The variable `gh`, and through `gh auth git-credential` git, take the token from.
@@ -60,7 +62,9 @@ pub async fn run(command: &mut Command, input: Option<&str>, what: &str) -> Resu
         .kill_on_drop(true);
     let mut child = command
         .spawn()
-        .with_context(|| format!("Unable to start {what}"))?;
+        .with_context(|| AgentBusError::CommandNotStarted {
+            what: what.to_owned(),
+        })?;
     let stdin = child.stdin.take();
     let write = async {
         match (stdin, input) {
@@ -78,13 +82,13 @@ pub async fn run(command: &mut Command, input: Option<&str>, what: &str) -> Resu
         Ok(()) => Ok(output),
         Err(_) if !output.status.success() && !output.stderr.is_empty() => Ok(output),
         Err(error) if output.status.success() => {
-            Err(error).with_context(|| format!("Unable to write to {what}"))
+            Err(error).context(AgentBusError::InputNotWritten {
+                what: what.to_owned(),
+            })
         }
-        Err(error) => Err(error).with_context(|| {
-            format!(
-                "Unable to write to {what}, which ended with {}",
-                output.status
-            )
+        Err(error) => Err(error).context(AgentBusError::InputNotWrittenAfterExit {
+            what: what.to_owned(),
+            status: output.status,
         }),
     }
 }
@@ -108,6 +112,7 @@ pub fn stderr(output: &Output) -> String {
 mod tests {
     use std::env;
     use std::fs;
+    use std::io::{self, ErrorKind};
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
     use std::process;
@@ -168,10 +173,19 @@ exit 0
         let error = edit_without_reading_the_body("fails-silently", Some("edit-fails-silently"))
             .await
             .unwrap_err();
-        let error = format!("{error:#}");
-        assert!(error.contains("Unable to write to gh pr edit"), "{error}");
-        assert!(error.contains("exit status: 1"), "{error}");
-        assert!(error.contains("Broken pipe"), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::InputNotWrittenAfterExit { what, status })
+                    if what == "gh pr edit" && status.code() == Some(1)
+            ),
+            "{error:#}"
+        );
+        assert_eq!(
+            error.downcast_ref::<io::Error>().map(io::Error::kind),
+            Some(ErrorKind::BrokenPipe),
+            "{error:#}"
+        );
     }
 
     #[tokio::test]
@@ -179,9 +193,18 @@ exit 0
         let error = edit_without_reading_the_body("ignores-body", None)
             .await
             .unwrap_err();
-        let error = format!("{error:#}");
-        assert!(error.contains("Unable to write to gh pr edit"), "{error}");
-        assert!(error.contains("Broken pipe"), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::InputNotWritten { what }) if what == "gh pr edit"
+            ),
+            "{error:#}"
+        );
+        assert_eq!(
+            error.downcast_ref::<io::Error>().map(io::Error::kind),
+            Some(ErrorKind::BrokenPipe),
+            "{error:#}"
+        );
     }
 
     #[tokio::test]
@@ -189,8 +212,11 @@ exit 0
         let mut command = gh_command("/nonexistent/agent-bus-gh");
         let error = run(&mut command, None, "gh pr view").await.unwrap_err();
         assert!(
-            error.to_string().contains("Unable to start gh pr view"),
-            "{error}"
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::CommandNotStarted { what }) if what == "gh pr view"
+            ),
+            "{error:#}"
         );
     }
 

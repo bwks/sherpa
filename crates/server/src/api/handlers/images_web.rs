@@ -648,7 +648,7 @@ pub struct RawUploadFields {
 /// a model with no default kind (`generic`) needs one.
 pub fn validate_upload_fields(raw: RawUploadFields) -> Result<UploadFields, String> {
     let model_str = raw.model.ok_or("Missing required field: model")?;
-    let parsed_model = NodeModel::from_str(&model_str)?;
+    let parsed_model = NodeModel::from_str(&model_str).map_err(|error| error.to_string())?;
     let parsed_kind = raw
         .kind
         .filter(|kind| !kind.is_empty())

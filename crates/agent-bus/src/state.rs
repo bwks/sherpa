@@ -16,6 +16,7 @@ use shared::konst::{LAB_FILE_NAME, LAB_STATE_DIR};
 use shared::util::LabFolder;
 use tracing::instrument;
 
+use crate::error::AgentBusError;
 use crate::files::{PRIVATE_FILE_MODE, private_dir, write_atomic};
 
 /// The environment variable that names the bus.
@@ -48,21 +49,13 @@ pub struct BusRecord {
 pub fn read_lab_info(lab_dir: &Path) -> Result<LabInfo> {
     let path = LabFolder::new(lab_dir).lab_info();
     if !lab_dir.join(LAB_STATE_DIR).exists() && lab_dir.join(LAB_FILE_NAME).exists() {
-        bail!(
-            "{} has a {LAB_FILE_NAME} but no {LAB_STATE_DIR}/ folder: it is in the old lab \
-             layout. Run any sherpa 0.5.15 command in that folder (such as `sherpa inspect`) \
-             to move its files into {LAB_STATE_DIR}/, then try again",
-            lab_dir.display()
-        );
+        bail!(AgentBusError::OldLabLayout {
+            dir: lab_dir.to_owned()
+        });
     }
     let text = fs::read_to_string(&path)
-        .with_context(|| format!("Unable to read {}: is it a lab directory?", path.display()))?;
-    LabInfo::from_str(&text).with_context(|| {
-        format!(
-            "{} is not a lab info file with an ipv4_gateway",
-            path.display()
-        )
-    })
+        .with_context(|| AgentBusError::LabInfoUnreadable { path: path.clone() })?;
+    LabInfo::from_str(&text).context(AgentBusError::NotLabInfo { path })
 }
 
 /// The address to listen on for the lab in `lab_dir`: its management bridge address.
@@ -141,10 +134,9 @@ pub fn find_server(
     }
     match read(record_path)? {
         Some(record) => Ok(record.url),
-        None => bail!(
-            "No bus to connect to: run `agent-bus bus start`, or set --server or {SERVER_ENV} (looked for {})",
-            record_path.display()
-        ),
+        None => bail!(AgentBusError::NoServer {
+            record: record_path.to_owned()
+        }),
     }
 }
 
@@ -210,8 +202,14 @@ ipv4_router = "192.0.2.2"
     fn a_missing_or_gatewayless_lab_info_names_the_file() {
         let dir = scratch("missing");
         let path = dir.join(".sherpa").join("lab-info.toml");
-        let error = format!("{:#}", lab_gateway(&dir).unwrap_err());
-        assert!(error.contains(&path.display().to_string()), "{error}");
+        let error = lab_gateway(&dir).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::LabInfoUnreadable { path: named }) if *named == path
+            ),
+            "{error:#}"
+        );
 
         write_lab_info(
             &dir,
@@ -221,8 +219,14 @@ ipv4_router = "192.0.2.2"
                 "",
             ),
         );
-        let error = format!("{:#}", lab_gateway(&dir).unwrap_err());
-        assert!(error.contains(&path.display().to_string()), "{error}");
+        let error = lab_gateway(&dir).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::NotLabInfo { path: named }) if *named == path
+            ),
+            "{error:#}"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -230,10 +234,14 @@ ipv4_router = "192.0.2.2"
     fn a_loose_lab_info_is_not_read_and_says_to_migrate() {
         let dir = scratch("loose");
         fs::write(dir.join("lab-info.toml"), LAB_INFO).unwrap();
-        let error = format!("{:#}", lab_gateway(&dir).unwrap_err());
-        assert!(error.contains("old lab layout"), "{error}");
-        assert!(error.contains("sherpa 0.5.15"), "{error}");
-        assert!(error.contains(&dir.display().to_string()), "{error}");
+        let error = lab_gateway(&dir).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::OldLabLayout { dir: named }) if *named == dir
+            ),
+            "{error:#}"
+        );
 
         // Once migrated, the loose file is gone and .sherpa/ is read.
         fs::remove_file(dir.join("lab-info.toml")).unwrap();
@@ -286,10 +294,13 @@ ipv4_router = "192.0.2.2"
         let some = |url: &str| Some(url.to_owned());
 
         // Nothing set: an error that says what to do.
-        let error = format!("{:#}", find_server(None, None, &path).unwrap_err());
+        let error = find_server(None, None, &path).unwrap_err();
         assert!(
-            error.contains("bus start") && error.contains(SERVER_ENV),
-            "{error}"
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::NoServer { record }) if *record == path
+            ),
+            "{error:#}"
         );
 
         write(&path, &record("nats://from-record:4222")).unwrap();

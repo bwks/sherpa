@@ -15,6 +15,7 @@ use serde::Deserialize;
 use tokio::process::Command;
 use tracing::instrument;
 
+use crate::error::AgentBusError;
 use crate::gh::{gh_command, run, stderr};
 use crate::message::{Ended, PullRequestRef, check_repo};
 
@@ -219,7 +220,10 @@ async fn repository(gh: &str, checkout: &Path) -> Result<Repository> {
     ]);
     let output = run(&mut command, None, "gh repo view").await?;
     if !output.status.success() {
-        bail!("gh repo view failed: {}", stderr(&output));
+        bail!(AgentBusError::CommandFailed {
+            what: "gh repo view".to_owned(),
+            stderr: stderr(&output),
+        });
     }
     let repository: Repository = serde_json::from_slice(&output.stdout)
         .context("Unable to read the output of gh repo view")?;
@@ -239,7 +243,10 @@ async fn list(gh: &str, checkout: &Path, branch: &str) -> Result<Vec<PullRequest
         .args(["--json", "number,url,isCrossRepository"]);
     let output = run(&mut command, None, "gh pr list").await?;
     if !output.status.success() {
-        bail!("gh pr list failed: {}", stderr(&output));
+        bail!(AgentBusError::CommandFailed {
+            what: "gh pr list".to_owned(),
+            stderr: stderr(&output),
+        });
     }
     serde_json::from_slice(&output.stdout).context("Unable to read the output of gh pr list")
 }
@@ -522,11 +529,15 @@ esac
         let sherpa = dir.join("sherpa");
         fake_checkout(&sherpa, "o/r", "feat/x", &serde_json::json!([]));
         fs::remove_file(sherpa.join("repo.json")).unwrap();
-        let error = format!(
-            "{:#}",
-            ended(&gh, &sherpa, &BTreeSet::new()).await.unwrap_err()
+        let error = ended(&gh, &sherpa, &BTreeSet::new()).await.unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::CommandFailed { what, stderr })
+                    if what == "gh repo view" && stderr == "no git remotes found"
+            ),
+            "{error:#}"
         );
-        assert!(error.contains("no git remotes found"), "{error}");
         fs::remove_dir_all(&dir).unwrap();
     }
 }

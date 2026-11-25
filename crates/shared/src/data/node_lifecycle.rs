@@ -210,10 +210,5 @@ mod tests {
         // `down` during `up` must not be overtaken by `up` starting the node afterwards.
         let refusal = Building.on_operation(OperationEvent::Stopped);
         assert_eq!(refusal, refused(Building, OperationEvent::Stopped));
-        assert!(
-            refusal
-                .err()
-                .is_some_and(|refusal| refusal.to_string().contains("being built"))
-        );
     }
 }

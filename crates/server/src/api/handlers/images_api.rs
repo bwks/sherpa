@@ -29,7 +29,9 @@ use shared::data::{
 /// (an old model name gets the message naming its replacement), the kind is unknown, or the
 /// model does not take the kind.
 pub(super) fn path_model_kind(model: &str, kind: &str) -> Result<ModelKind, ApiError> {
-    let model: NodeModel = model.parse().map_err(ApiError::bad_request)?;
+    let model = model
+        .parse::<NodeModel>()
+        .map_err(|error| ApiError::bad_request(error.to_string()))?;
     let kind: NodeKind = kind.parse().map_err(ApiError::bad_request)?;
     ModelKind::new(model, Some(kind)).map_err(|e| ApiError::bad_request(e.to_string()))
 }

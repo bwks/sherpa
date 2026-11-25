@@ -33,7 +33,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 002 | A variable that is not set is refused, naming the variable | unit |
 | 003 | A server address that is not `wss://`, or a connection set to `insecure`, is refused before the key is sent | unit |
 | 004 | With `[tailscale]` absent or not enabled no variable is read and no key is sent, over any connection | unit |
-| 005 | A key that is empty, only the `tskey-auth-` prefix, has whitespace, or is another kind of Tailscale credential is refused, and the error does not repeat it | unit |
+| 005 | A key that is empty, only the `tskey-auth-` prefix, has whitespace, or is another kind of Tailscale credential is refused with an error that carries nothing of it | unit |
 | 006 | The key's debug output is `[REDACTED]`, and the request still carries the key itself | unit |
 | 007 | The server refuses an up with `[tailscale]` enabled that has no key, and one on a server with TLS off | unit |
 | 008 | The server refuses a key sent for a lab whose manifest does not enable `[tailscale]` | unit |

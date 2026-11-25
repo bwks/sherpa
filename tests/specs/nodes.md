@@ -140,7 +140,7 @@ Cases 001 to 020 are up, 021 to 026 resume, 027 and 028 redeploy, 029 to 035 the
 | 002 | A VM's result says it shut down, or that it was forced off and why: still running after 60 seconds, or the request refused, with the reference of the logged error | unit |
 | 003 | Down pauses only a running container; one already paused or not running is reported as such and is not an error | unit |
 | 004 | A second down of a lab that is down succeeds, each node reported already stopped or paused (no test yet) | integration |
-| 005 | Down leaves a node an operation is building alone, saying to wait | unit |
+| 005 | Down leaves a node an operation is building alone, and the refusal carries its `building` state | unit |
 | 006 | `--node` downs that node alone (no test with its ID yet; `tests/labs/talos-linux` uses it) | e2e |
 
 ## `node_resume`: resume brings each node back as its kind and state allow

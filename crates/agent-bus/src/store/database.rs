@@ -14,6 +14,7 @@ use anyhow::{Context, Result, bail};
 use tracing::instrument;
 use turso::{Builder, Connection, Database};
 
+use crate::error::AgentBusError;
 use crate::files::{PRIVATE_FILE_MODE, private_dir};
 use crate::store::sql::MIGRATIONS;
 
@@ -96,10 +97,7 @@ impl Store {
         let version = schema_version(&tx).await?;
         let current = MIGRATIONS.len();
         if version > current {
-            bail!(
-                "The record has schema version {version}, newer than {current} that this \
-                 agent-bus knows: use a newer agent-bus"
-            );
+            bail!(AgentBusError::SchemaTooNew { version, current });
         }
         for (target, migration) in MIGRATIONS.iter().enumerate().skip(version) {
             let target = target + 1;
@@ -244,7 +242,14 @@ mod tests {
             .unwrap();
         drop(store);
         let error = Store::open(&path).await.err().unwrap();
-        assert!(format!("{error:#}").contains("newer"), "{error:#}");
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::SchemaTooNew { version, current })
+                    if *version == MIGRATIONS.len() + 1 && *current == MIGRATIONS.len()
+            ),
+            "{error:#}"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 

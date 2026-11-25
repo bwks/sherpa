@@ -1099,6 +1099,7 @@ mod tests {
     use tokio::sync::oneshot;
     use tokio::time::timeout;
 
+    use crate::error::AgentBusError;
     use crate::guest::github::{REDACTED, WriteToken};
     use crate::guest::secrets::{ClaudeToken, REDACTED_CLAUDE};
     use crate::keys::{Seed, generate};
@@ -2093,19 +2094,25 @@ esac
         };
 
         let lock = InstanceLock::acquire(&state.with_extension("lock")).unwrap();
-        let error = format!("{:#}", Box::pin(attempt()).await.unwrap_err());
+        let error = Box::pin(attempt()).await.unwrap_err();
         assert!(
-            error.contains("Another guest agent of this name is running"),
-            "{error}"
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::GuestRunning { .. })
+            ),
+            "{error:#}"
         );
         assert!(!state.exists(), "the state was written");
 
         // With the lock free the same start gets past it, to the token or the bus.
         drop(lock);
-        let error = format!("{:#}", Box::pin(attempt()).await.unwrap_err());
+        let error = Box::pin(attempt()).await.unwrap_err();
         assert!(
-            !error.contains("Another guest agent of this name is running"),
-            "{error}"
+            !matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::GuestRunning { .. })
+            ),
+            "{error:#}"
         );
         fs::remove_dir_all(&dir).unwrap();
     }

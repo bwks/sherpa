@@ -13,6 +13,7 @@ use clap::{Args, Subcommand};
 use jiff::Timestamp;
 
 use crate::bus::{self, Bus};
+use crate::error::AgentBusError;
 use crate::files::{millis, now_ms, standard_state_dir};
 use crate::generation::placement::{Placements, PullRequestId};
 use crate::generation::sync::{Request, Scope};
@@ -20,7 +21,7 @@ use crate::host::import::Options;
 use crate::keys::seed_from_environment;
 use crate::listen;
 use crate::message::{RefKind, check_agent_name, check_repo};
-use crate::record::{BusAccess, Busy, HOOK_LOCK_WAIT, LOCK_WAIT, Paths, Record};
+use crate::record::{BusAccess, HOOK_LOCK_WAIT, LOCK_WAIT, Paths, Record};
 use crate::report::generation::{GenerationAction, sync_after_command, sync_now};
 use crate::report::grouped::{self, By};
 use crate::report::host::{self, HostAction};
@@ -872,7 +873,14 @@ async fn open_record(
 pub async fn refresh_after_send(home_repo: Option<&str>) {
     match open_record(None, home_repo, HOOK_LOCK_WAIT).await {
         Ok(record) => drop(record),
-        Err(error) if error.downcast_ref::<Busy>().is_some() => return,
+        Err(error)
+            if matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::RecordBusy { .. })
+            ) =>
+        {
+            return;
+        }
         Err(error) => {
             eprintln!("Sent, but the record was not updated: {error:#}");
             return;

@@ -15,6 +15,7 @@ use anyhow::{Context, Result, bail};
 use tracing::instrument;
 use turso::{Connection, Row, Value};
 
+use crate::error::AgentBusError;
 use crate::message::RefKind;
 use crate::store::cells::{Cells, integer};
 use crate::store::facts::{Facts, Ref, Source, parse_generation_line};
@@ -147,7 +148,9 @@ pub async fn link(conn: &mut Connection, task: &str, target: &Ref, at_ms: u64) -
         .context("Unable to read the task")?
         .is_none()
     {
-        bail!("The record has no task '{task}'");
+        bail!(AgentBusError::NoTask {
+            task: task.to_owned()
+        });
     }
     drop(rows);
     let linked = match (ref_item(&tx, target).await?, task_item(&tx, task).await?) {
@@ -763,7 +766,13 @@ mod tests {
         let error = link(&mut bench.conn, "nope", &issue(3), 1)
             .await
             .unwrap_err();
-        assert!(error.to_string().contains("no task 'nope'"), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::NoTask { task }) if task == "nope"
+            ),
+            "{error:#}"
+        );
     }
 
     fn home(number: u64) -> Placement {

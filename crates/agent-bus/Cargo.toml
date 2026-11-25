@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 # Errors
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 # Message bus
 # Only what the bus uses: JetStream with its key-value store, nkey auth, and TLS on aws-lc-rs,

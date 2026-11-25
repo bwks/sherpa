@@ -1,16 +1,19 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
+
+use crate::SharedError;
 
 /// The permission bits of a file mode written as octal digits, such as `644` for `0o644`, as
 /// manifests write modes.
 ///
 /// # Errors
 ///
-/// Fails when `digits` are not octal digits up to `777`.
+/// `SharedError::ModeNotOctal` when `digits` are not octal digits up to `777`.
 pub fn mode_from_octal_digits(digits: u32) -> Result<u32> {
-    u32::from_str_radix(&digits.to_string(), 8)
+    let bits = u32::from_str_radix(&digits.to_string(), 8)
         .ok()
         .filter(|bits| *bits <= 0o777)
-        .with_context(|| format!("Mode {digits} is not octal digits up to 777, such as 644"))
+        .ok_or(SharedError::ModeNotOctal { digits })?;
+    Ok(bits)
 }
 
 #[cfg(test)]
@@ -30,8 +33,8 @@ mod tests {
         for digits in [8, 9, 448, 800, 999, 1000] {
             let error = mode_from_octal_digits(digits).unwrap_err();
             assert_eq!(
-                error.to_string(),
-                format!("Mode {digits} is not octal digits up to 777, such as 644")
+                error.downcast_ref::<SharedError>(),
+                Some(&SharedError::ModeNotOctal { digits })
             );
         }
     }

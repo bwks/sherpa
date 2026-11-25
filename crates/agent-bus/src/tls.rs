@@ -31,6 +31,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tracing::instrument;
 
+use crate::error::AgentBusError;
 use crate::files::{PRIVATE_FILE_MODE, private_dir, standard_state_dir, write_atomic};
 
 /// The directory, in the state directory, holding the CA and the record of the server
@@ -237,13 +238,10 @@ fn load_or_create_ca(files: &TlsFiles, now: Timestamp) -> Result<(KeyPair, bool)
             } else {
                 (&files.ca_cert, &files.ca_key)
             };
-            bail!(
-                "{} exists but {} does not. Remove {} too to make a new bus CA, then start every \
-                 guest agent again so it gets the new CA certificate",
-                there.display(),
-                missing.display(),
-                there.display()
-            )
+            bail!(AgentBusError::HalfCa {
+                there: there.clone(),
+                missing: missing.clone(),
+            })
         }
     }
 }
@@ -363,12 +361,12 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::sync::Arc;
 
-    use async_nats::rustls::RootCertStore;
     use async_nats::rustls::client::WebPkiServerVerifier;
     use async_nats::rustls::client::danger::ServerCertVerifier;
     use async_nats::rustls::crypto::aws_lc_rs;
     use async_nats::rustls::pki_types::pem::PemObject;
     use async_nats::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+    use async_nats::rustls::{CertificateError, Error as TlsError, RootCertStore};
 
     const LISTEN: IpAddr = IpAddr::V4(Ipv4Addr::new(172, 31, 3, 1));
 
@@ -392,7 +390,7 @@ mod tests {
 
     /// Verify the server certificate in `files` for `address` as a client trusting only the CA
     /// certificate at `ca` does.
-    fn verify(ca: &Path, files: &TlsFiles, address: IpAddr) -> Result<()> {
+    fn verify(ca: &Path, files: &TlsFiles, address: IpAddr) -> Result<(), TlsError> {
         let mut roots = RootCertStore::empty();
         roots.add(certificate(ca)).unwrap();
         let verifier = WebPkiServerVerifier::builder_with_provider(
@@ -410,7 +408,6 @@ mod tests {
                 UnixTime::now(),
             )
             .map(drop)
-            .map_err(|error| anyhow::anyhow!("{error}"))
     }
 
     fn issued(addresses: &[IpAddr], not_after: Timestamp) -> Issued {
@@ -435,19 +432,30 @@ mod tests {
         verify(&files.ca_cert, &files, LISTEN).unwrap();
         // Another address is not in the certificate.
         let other = IpAddr::V4(Ipv4Addr::new(172, 31, 3, 2));
-        let error = verify(&files.ca_cert, &files, other)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("not valid for name"), "{error}");
+        let error = verify(&files.ca_cert, &files, other).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                TlsError::InvalidCertificate(
+                    CertificateError::NotValidForName
+                        | CertificateError::NotValidForNameContext { .. }
+                )
+            ),
+            "{error}"
+        );
         // Another bus's CA does not vouch for it. Every bus CA has the same subject, so the
         // other CA is found as the issuer and its signature does not match.
         let stranger = scratch("chain-stranger");
         let stranger_files = files_in(&stranger);
         ensure(&stranger_files, &[LISTEN]).unwrap();
-        let error = verify(&stranger_files.ca_cert, &files, LISTEN)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("BadSignature"), "{error}");
+        let error = verify(&stranger_files.ca_cert, &files, LISTEN).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                TlsError::InvalidCertificate(CertificateError::BadSignature)
+            ),
+            "{error}"
+        );
         fs::remove_dir_all(&dir).unwrap();
         fs::remove_dir_all(&stranger).unwrap();
     }
@@ -516,9 +524,15 @@ mod tests {
         );
         verify(&files.ca_cert, &files, LISTEN).unwrap();
         fs::remove_file(&files.ca_cert).unwrap();
-        let error = ensure(&files, &[LISTEN]).unwrap_err().to_string();
-        assert!(error.contains(CA_CERT_FILE), "{error}");
-        assert!(error.contains("start every guest agent again"), "{error}");
+        let error = ensure(&files, &[LISTEN]).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::HalfCa { there, missing })
+                    if *there == files.ca_key && *missing == files.ca_cert
+            ),
+            "{error:#}"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 

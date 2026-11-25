@@ -168,9 +168,9 @@ Names are compared, never IDs, so a lab keeps the ID it was given. Refusing to c
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | The allowed moves: `creating` to `ready` when built, `creating` to removed when its up gives it back, any phase to `destroying`, `destroying` to removed or to `destroy failed`; any other move is refused, naming the move and the phase | unit |
+| 001 | The allowed moves: `creating` to `ready` when built, `creating` to removed when its up gives it back, any phase to `destroying`, `destroying` to removed or to `destroy failed`; any other move is refused, and the refusal carries the move and the phase | unit |
 | 002 | Only `ready` takes operations on the lab's nodes; every other phase refuses them | unit |
-| 003 | The refusal of each phase says what to do: wait or destroy for `creating`, destroy again for `destroy failed`, destroy and start again for `interrupted`, destroy for `unknown` | unit |
+| 003 | The refusal of each phase that is not `ready` carries the phase, which its message says what to do from | unit |
 | 004 | A lab that lost its operation moves from `creating` to `interrupted` and from `destroying` to `destroy failed`, and both can then be destroyed | unit |
 | 005 | A phase this version does not know reads as `unknown`, which is not ready and can be destroyed | unit |
 | 006 | The record up reserves a lab with is `creating` | integration |

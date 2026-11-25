@@ -75,7 +75,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 001 | An admin cannot add an SSH key to another user's account, and the account's keys are unchanged | e2e |
 | 002 | A user adds a key from a `.pub` file with `sherpa server user ssh-key add`, sees it listed with its fingerprint, and removes it by its `SHA256:` fingerprint (no test at this level yet) | e2e |
 | 003 | Each supported key type is accepted: Ed25519, RSA, ECDSA P-256, P-384 and P-521 and the two security key types, with or without a comment or surrounding space | unit |
-| 004 | An empty key, a key over more than one line, key data that is not a key of its type, a DSA key and an unknown type are each refused, with the reason | unit |
+| 004 | An empty key, a key over more than one line, key data that is not a key of its type, a DSA key and an unknown type are each refused, and a DSA key's error carries its algorithm | unit |
 | 005 | A key already on the account is refused, even with a different comment, and the account's keys are unchanged | integration |
 | 006 | A key is removed by the key itself, whatever its comment, or by its fingerprint, and a key that is not on the account is not found | integration |
 | 007 | An admin removes a key from another user's account, over RPC, REST and the admin's page for the user | integration |
@@ -95,7 +95,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 002 | A user created as an admin is one, and one created without is not, over RPC and REST | integration |
 | 003 | A username is stored in lower case and trimmed, and the account is found and logs in under any case | integration |
 | 004 | A username already taken, in any case, is refused | integration |
-| 005 | A name that is not 3 to 32 of `a-z`, `0-9`, `_` and `-` starting with a letter or `_` is refused, naming the rule | unit |
+| 005 | A name that is not 3 to 32 of `a-z`, `0-9`, `_` and `-` starting with a letter or `_` is refused as breaking the rule | unit |
 | 006 | A reserved name is refused: Sherpa's own and privileged accounts, system accounts, the default users of guest images, and any name starting `systemd-` | unit |
 | 007 | The database itself refuses a username that breaks the rule or is taken, whatever writes it | integration |
 | 008 | A new account has no SSH keys, and a create request that carries keys is refused | integration |
@@ -112,7 +112,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 019 | With signup on, the signup page is served and the login page links to it | integration |
 | 020 | Signing up makes an account that is not an admin and signs it in (no test yet) | integration |
 | 021 | Signup refuses passwords that differ, a taken name, a name that breaks the rule and a weak password, each with its reason (no test yet) | integration |
-| 022 | `sherpa-admin`, any name starting `sherpa-`, `admin`, `administrator`, `superuser` and `sysadmin` are refused as new usernames, as reserved | unit |
+| 022 | `sherpa-admin`, any name starting `sherpa-`, `admin`, `administrator`, `superuser` and `sysadmin` are refused as new usernames, as reserved, and the error carries the name | unit |
 
 ## `builtin_admin`: the built-in `sherpa-admin` account always exists and runs the server, not labs
 
@@ -222,7 +222,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 005 | An admin resets another user's password without knowing it, over RPC, REST and the admin's page for the user | integration |
 | 006 | A user who is not an admin cannot change another user's password | integration |
 | 007 | The admin's page for their own account refuses to reset their password and points to the profile page (no test yet) | integration |
-| 008 | A password needs 8 characters, an uppercase letter, a lowercase letter and one of `!@#$%^&*_+-=`, and a refusal lists every part it lacks | unit |
+| 008 | A password needs 8 characters, an uppercase letter, a lowercase letter and one of `!@#$%^&*_+-=`, and the refusal carries every part it lacks | unit |
 | 009 | A new password that breaks the rule is refused at change and at reset, and the old one still logs in | integration |
 | 010 | A password is stored as an Argon2id hash with a salt of its own, so the same password hashes differently each time, and only the right password verifies | unit |
 | 011 | A hash stored by an earlier release still verifies | unit |
