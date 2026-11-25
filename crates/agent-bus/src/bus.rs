@@ -30,6 +30,7 @@ use container::{
     container_status, docker_connection, remove_container, start_container, stop_container,
 };
 use futures_util::TryStreamExt;
+use tokio::time::sleep;
 use tracing::instrument;
 
 use crate::agents::Agents;
@@ -660,7 +661,7 @@ async fn connect_when_ready(server: &Endpoint, seed: &str) -> Result<Channel> {
             Ok(channel) => return Ok(channel),
             Err(error) => last = Some(error),
         }
-        tokio::time::sleep(CONNECT_DELAY).await;
+        sleep(CONNECT_DELAY).await;
     }
     match last {
         Some(error) => Err(error).context("The bus did not accept the connection"),
@@ -712,7 +713,10 @@ fn container_config(bus: &Bus) -> ContainerCreateBody {
 #[cfg(test)]
 mod tests {
     use std::env::temp_dir;
-    use std::fs::{create_dir_all, read_to_string, remove_dir_all, write};
+    use std::fs::{
+        create_dir, create_dir_all, metadata, read_to_string, remove_dir, remove_dir_all,
+        remove_file, write,
+    };
     use std::io::{self, Write, stderr};
     use std::net::TcpListener;
     use std::os::unix::fs::PermissionsExt;
@@ -837,8 +841,8 @@ mod tests {
 
     #[test]
     fn the_recorded_bus_gives_the_address_and_the_agents_file() {
-        let dir = std::env::temp_dir().join(format!("agent-bus-recorded-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = temp_dir().join(format!("agent-bus-recorded-{}", process::id()));
+        let _ = remove_dir_all(&dir);
         let state_dir = dir.join("agent-bus");
         let error = Bus::from_record("c", "v", state_dir.clone()).err().unwrap();
         assert!(
@@ -862,7 +866,7 @@ mod tests {
         record.url = "tls://example:4222".to_owned();
         state::write(&state_dir.join(RECORD_FILE), &record).unwrap();
         assert!(Bus::from_record("c", "v", state_dir).is_err());
-        std::fs::remove_dir_all(&dir).unwrap();
+        remove_dir_all(&dir).unwrap();
     }
 
     fn message(from: &str, to: &str, text: &str) -> Message {
@@ -1140,7 +1144,7 @@ mod tests {
             "the heartbeat was not killed"
         );
         // A write in flight as it was killed has landed by now.
-        tokio::time::sleep(BEAT).await;
+        sleep(BEAT).await;
         let last = dev_status(&host_channel).await?;
         ensure!(
             last.status.online,
@@ -1153,7 +1157,7 @@ mod tests {
         );
         let stale_at = Duration::from_millis(last.stored_ms.saturating_add(millis(stale)));
         let until = stale_at.saturating_sub(Duration::from_millis(now_ms()));
-        tokio::time::sleep(until + Duration::from_millis(500)).await;
+        sleep(until + Duration::from_millis(500)).await;
         let after = dev_status(&host_channel).await?;
         ensure!(
             after == last,
@@ -1192,7 +1196,7 @@ mod tests {
                 {
                     return;
                 }
-                tokio::time::sleep(BEAT).await;
+                sleep(BEAT).await;
             }
         })
         .await
@@ -1300,7 +1304,7 @@ mod tests {
             // The listener dies with a pull request outstanding, and the guest sends meanwhile.
             drop(inbox);
             drop(host_channel);
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            sleep(Duration::from_millis(500)).await;
             let mut late = message("dev", "host", "late");
             late.task.clone_from(&task);
             late.kind = Kind::Progress;
@@ -1334,9 +1338,9 @@ mod tests {
         let listener = {
             let channel = Channel::connect(&bus.endpoint(), &host.seed).await?;
             let journal = Journal::new(path.clone());
-            tokio::spawn(async move {
-                serve(&channel, "host", journal, None, &mut std::io::sink()).await
-            })
+            tokio::spawn(
+                async move { serve(&channel, "host", journal, None, &mut io::sink()).await },
+            )
         };
         for n in 0..3 {
             let mut reply = message("dev", "host", &format!("journal {n}"));
@@ -1344,7 +1348,7 @@ mod tests {
             dev_channel.send(&reply).await?;
         }
         let journaled = |path: &Path| {
-            std::fs::read_to_string(path).map_or(0, |text| {
+            read_to_string(path).map_or(0, |text| {
                 text.lines()
                     .filter(|line| line.contains("journal1"))
                     .count()
@@ -1352,7 +1356,7 @@ mod tests {
         };
         timeout(wait, async {
             while journaled(&path) < 3 {
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                sleep(Duration::from_millis(100)).await;
             }
         })
         .await
@@ -1360,7 +1364,7 @@ mod tests {
         // Journaled before acknowledged: wait for the last acknowledgement to be taken.
         timeout(wait, async {
             while host_channel.waiting("host").await.unwrap_or(1) > 0 {
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                sleep(Duration::from_millis(100)).await;
             }
         })
         .await
@@ -1368,11 +1372,11 @@ mod tests {
         listener.abort();
         let _ = listener.await;
         ensure!(
-            std::fs::metadata(&path)?.permissions().mode() & 0o777 == PRIVATE_FILE_MODE,
+            metadata(&path)?.permissions().mode() & 0o777 == PRIVATE_FILE_MODE,
             "the journal is not private"
         );
         ensure!(
-            std::fs::metadata(path.parent().context("no directory")?)?
+            metadata(path.parent().context("no directory")?)?
                 .permissions()
                 .mode()
                 & 0o777
@@ -1456,11 +1460,11 @@ role = "guest"
 "#,
             host.public_key, dev.public_key, other.public_key
         );
-        let id = std::process::id();
-        let dir = std::env::temp_dir().join(format!("agent-bus-it-{id}"));
-        std::fs::create_dir_all(&dir).unwrap();
+        let id = process::id();
+        let dir = temp_dir().join(format!("agent-bus-it-{id}"));
+        create_dir_all(&dir).unwrap();
         let agents_path = dir.join("agents.toml");
-        std::fs::write(&agents_path, &text).unwrap();
+        write(&agents_path, &text).unwrap();
         let port = TcpListener::bind("127.0.0.1:0")
             .unwrap()
             .local_addr()
@@ -1469,8 +1473,8 @@ role = "guest"
         // The bus is started for a lab whose gateway is the loopback address.
         let lab_dir = dir.join("lab");
         let lab_info = LabFolder::new(&lab_dir).lab_info();
-        std::fs::create_dir_all(lab_info.parent().unwrap()).unwrap();
-        std::fs::write(&lab_info, LOOPBACK_LAB_INFO).unwrap();
+        create_dir_all(lab_info.parent().unwrap()).unwrap();
+        write(&lab_info, LOOPBACK_LAB_INFO).unwrap();
         let (gateway, lab) = state::lab_gateway(&lab_dir).unwrap();
         let bus = Bus {
             container: format!("sherpa-agent-bus-test-{id}"),
@@ -1540,7 +1544,7 @@ role = "guest"
         let _ = docker
             .remove_volume(&bus.volume, None::<RemoveVolumeOptions>)
             .await;
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = remove_dir_all(&dir);
         result.unwrap();
     }
 
@@ -1621,7 +1625,7 @@ role = "guest"
         );
         timeout(Duration::from_secs(10), async {
             while a_drops.load(Ordering::SeqCst) == 0 {
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                sleep(Duration::from_millis(100)).await;
             }
         })
         .await
@@ -1639,7 +1643,7 @@ role = "guest"
         }
 
         // The registry holds the public keys only, privately.
-        let registry = std::fs::read_to_string(bus.registry_path())?;
+        let registry = read_to_string(bus.registry_path())?;
         ensure!(
             registry.contains(&public_key_of(&new_a)?) && registry.contains(&public_key_of(&b)?),
             "the registry lacks a key"
@@ -1651,8 +1655,7 @@ role = "guest"
             );
         }
         ensure!(
-            std::fs::metadata(bus.registry_path())?.permissions().mode() & 0o777
-                == PRIVATE_FILE_MODE,
+            metadata(bus.registry_path())?.permissions().mode() & 0o777 == PRIVATE_FILE_MODE,
             "the registry is not private"
         );
 
@@ -1731,9 +1734,9 @@ role = "guest"
     ) -> Result<()> {
         let url = bus.endpoint();
         // The config cannot be written: a directory stands where it goes.
-        let before = std::fs::read_to_string(bus.registry_path())?;
-        std::fs::remove_file(bus.config_path())?;
-        std::fs::create_dir(bus.config_path())?;
+        let before = read_to_string(bus.registry_path())?;
+        remove_file(bus.config_path())?;
+        create_dir(bus.config_path())?;
         let error = enroll(bus, agents_path, "worker-b", &host.seed)
             .await
             .err()
@@ -1746,14 +1749,14 @@ role = "guest"
             "{error:#}"
         );
         ensure!(
-            std::fs::read_to_string(bus.registry_path())? == before,
+            read_to_string(bus.registry_path())? == before,
             "the failed enrollment changed the registry"
         );
         ensure!(
             !refused(&url, b).await,
             "the failed enrollment refused the previous key"
         );
-        std::fs::remove_dir(bus.config_path())?;
+        remove_dir(bus.config_path())?;
 
         Ok(())
     }
@@ -1784,7 +1787,7 @@ role = "guest"
         )
         .await?;
         ensure!(
-            !std::fs::read_to_string(bus.registry_path())?.contains(&public_key_of(b)?),
+            !read_to_string(bus.registry_path())?.contains(&public_key_of(b)?),
             "the registry kept the unenrolled key"
         );
         start(bus, agents_path, &host.seed).await?;
@@ -1803,11 +1806,11 @@ role = "guest"
     async fn enrolled_guests_get_their_own_keys_and_old_keys_are_refused() {
         install_crypto_provider();
         let host = generate().unwrap();
-        let id = std::process::id();
-        let dir = std::env::temp_dir().join(format!("agent-bus-enroll-it-{id}"));
-        std::fs::create_dir_all(&dir).unwrap();
+        let id = process::id();
+        let dir = temp_dir().join(format!("agent-bus-enroll-it-{id}"));
+        create_dir_all(&dir).unwrap();
         let agents_path = dir.join("agents.toml");
-        std::fs::write(
+        write(
             &agents_path,
             format!(
                 r#"[[agent]]
@@ -1844,7 +1847,7 @@ role = "host"
         let _ = docker
             .remove_volume(&bus.volume, None::<RemoveVolumeOptions>)
             .await;
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = remove_dir_all(&dir);
         result.unwrap();
     }
     /// The bus takes TLS from the first byte, from a client that trusts its CA: a plaintext
@@ -1928,11 +1931,11 @@ role = "host"
     async fn the_bus_takes_only_tls_from_clients_trusting_its_ca() {
         install_crypto_provider();
         let host = generate().unwrap();
-        let id = std::process::id();
-        let dir = std::env::temp_dir().join(format!("agent-bus-tls-it-{id}"));
-        std::fs::create_dir_all(&dir).unwrap();
+        let id = process::id();
+        let dir = temp_dir().join(format!("agent-bus-tls-it-{id}"));
+        create_dir_all(&dir).unwrap();
         let agents_path = dir.join("agents.toml");
-        std::fs::write(
+        write(
             &agents_path,
             format!(
                 r#"[[agent]]
@@ -1961,29 +1964,23 @@ role = "host"
         let result = async {
             start(&bus, &agents_path, &host.seed).await?;
             tls_only(&bus, &host).await?;
-            let ca = std::fs::read_to_string(bus.endpoint().ca)?;
-            let server = std::fs::read_to_string(bus.tls_files().server_cert)?;
+            let ca = read_to_string(bus.endpoint().ca)?;
+            let server = read_to_string(bus.tls_files().server_cert)?;
 
             // Started again on the same address: the same CA and certificate.
             start(&bus, &agents_path, &host.seed).await?;
+            ensure!(read_to_string(bus.endpoint().ca)? == ca, "a new CA");
             ensure!(
-                std::fs::read_to_string(bus.endpoint().ca)? == ca,
-                "a new CA"
-            );
-            ensure!(
-                std::fs::read_to_string(bus.tls_files().server_cert)? == server,
+                read_to_string(bus.tls_files().server_cert)? == server,
                 "a new server certificate for the same address"
             );
 
             // On another loopback address: a new certificate, the same CA.
             bus.listen = Ipv4Addr::new(127, 0, 0, 2);
             start(&bus, &agents_path, &host.seed).await?;
+            ensure!(read_to_string(bus.endpoint().ca)? == ca, "a new CA");
             ensure!(
-                std::fs::read_to_string(bus.endpoint().ca)? == ca,
-                "a new CA"
-            );
-            ensure!(
-                std::fs::read_to_string(bus.tls_files().server_cert)? != server,
+                read_to_string(bus.tls_files().server_cert)? != server,
                 "no new server certificate for the new address"
             );
             Channel::connect(&bus.endpoint(), &host.seed).await?;
@@ -1996,7 +1993,7 @@ role = "host"
         let _ = docker
             .remove_volume(&bus.volume, None::<RemoveVolumeOptions>)
             .await;
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = remove_dir_all(&dir);
         result.unwrap();
     }
 
@@ -2256,7 +2253,7 @@ role = "host"
                     while journaled_at(&path, "unprint1").map_or(0, |at| at.len()) < 2
                         || channel.waiting("host").await.unwrap_or(1) > 0
                     {
-                        tokio::time::sleep(Duration::from_millis(200)).await;
+                        sleep(Duration::from_millis(200)).await;
                     }
                 } => Ok(()),
             }
@@ -2286,6 +2283,8 @@ role = "host"
     /// not have.
     #[cfg(feature = "record")]
     mod recorded {
+        use async_nats::jetstream;
+
         use super::*;
 
         use crate::files::record_lock::try_lock_exclusive;
@@ -2448,7 +2447,7 @@ role = "host"
             .custom_inbox_prefix(inbox_prefix(&host.public_key))
             .connect(&bus.endpoint().url)
             .await?;
-            let raw = async_nats::jetstream::new(raw_host);
+            let raw = jetstream::new(raw_host);
             let (mut refused, mut skipped) = (0, 0);
             for n in 0..BACKLOG_VALID {
                 let task = format!("backlog{}", n / 10);
@@ -2540,11 +2539,11 @@ role = "host"
         async fn one_command_records_a_backlog_of_many_pull_batches() {
             install_crypto_provider();
             let (host, dev) = (generate().unwrap(), generate().unwrap());
-            let id = std::process::id();
-            let dir = std::env::temp_dir().join(format!("agent-bus-backlog-it-{id}"));
-            std::fs::create_dir_all(&dir).unwrap();
+            let id = process::id();
+            let dir = temp_dir().join(format!("agent-bus-backlog-it-{id}"));
+            create_dir_all(&dir).unwrap();
             let agents_path = dir.join("agents.toml");
-            std::fs::write(
+            write(
                 &agents_path,
                 format!(
                     r#"[[agent]]
@@ -2624,7 +2623,7 @@ role = "guest"
             let _ = docker
                 .remove_volume(&bus.volume, None::<RemoveVolumeOptions>)
                 .await;
-            let _ = std::fs::remove_dir_all(&dir);
+            let _ = remove_dir_all(&dir);
             result.unwrap();
         }
 
@@ -2636,11 +2635,11 @@ role = "guest"
         async fn the_record_takes_every_message_once_on_a_real_bus() {
             install_crypto_provider();
             let (host, dev) = (generate().unwrap(), generate().unwrap());
-            let id = std::process::id();
-            let dir = std::env::temp_dir().join(format!("agent-bus-record-it-{id}"));
-            std::fs::create_dir_all(&dir).unwrap();
+            let id = process::id();
+            let dir = temp_dir().join(format!("agent-bus-record-it-{id}"));
+            create_dir_all(&dir).unwrap();
             let agents_path = dir.join("agents.toml");
-            std::fs::write(
+            write(
                 &agents_path,
                 format!(
                     r#"[[agent]]
@@ -2681,7 +2680,7 @@ role = "guest"
             let _ = docker
                 .remove_volume(&bus.volume, None::<RemoveVolumeOptions>)
                 .await;
-            let _ = std::fs::remove_dir_all(&dir);
+            let _ = remove_dir_all(&dir);
             result.unwrap();
         }
     }

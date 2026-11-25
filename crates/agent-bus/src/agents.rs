@@ -8,6 +8,7 @@
 
 use std::collections::HashSet;
 use std::fs;
+use std::iter;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail, ensure};
@@ -151,7 +152,7 @@ impl Agents {
 
     /// Every agent: the host first, then the guests.
     pub fn all(&self) -> impl Iterator<Item = &Agent> {
-        std::iter::once(&self.host).chain(self.guests.iter())
+        iter::once(&self.host).chain(self.guests.iter())
     }
 }
 

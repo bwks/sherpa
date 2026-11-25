@@ -13,6 +13,7 @@
 
 use std::fs;
 use std::io::ErrorKind;
+use std::mem;
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
@@ -111,7 +112,7 @@ impl Registry {
     /// returned. A new guest goes last.
     pub fn enroll(&mut self, name: &str, key: &str) -> Option<String> {
         if let Some(agent) = self.agents.iter_mut().find(|agent| agent.name == name) {
-            return Some(std::mem::replace(&mut agent.key, key.to_owned()));
+            return Some(mem::replace(&mut agent.key, key.to_owned()));
         }
         self.agents.push(Agent {
             name: name.to_owned(),
@@ -157,9 +158,11 @@ pub fn merge(fixed: Agents, registry: &Registry) -> Result<Merged> {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
     use std::fmt::Write;
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     use std::path::PathBuf;
+    use std::process;
 
     use serde_json::Value;
 
@@ -173,8 +176,7 @@ mod tests {
     }
 
     fn scratch(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("agent-bus-registry-{name}-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("agent-bus-registry-{name}-{}", process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }

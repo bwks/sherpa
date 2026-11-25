@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
+use tokio::fs;
 use tokio::process::Command;
 use tracing::instrument;
 
@@ -56,14 +57,14 @@ struct BranchName {
 /// of `worked_in` (the places the run's tool calls named), each once and at most
 /// `MAX_CHECKOUTS`. A path in no checkout, or gone, is left out.
 pub(super) async fn checkouts(workdir: &Path, worked_in: &BTreeSet<PathBuf>) -> Vec<PathBuf> {
-    let own = tokio::fs::canonicalize(workdir)
+    let own = fs::canonicalize(workdir)
         .await
         .unwrap_or_else(|_| workdir.to_owned());
     let mut found: Vec<PathBuf> = Vec::new();
     if let Some(parent) = workdir.parent() {
         let docs = parent.join(DOCS_CHECKOUT);
         if docs != workdir && docs.join(".git").exists() {
-            found.push(tokio::fs::canonicalize(&docs).await.unwrap_or(docs));
+            found.push(fs::canonicalize(&docs).await.unwrap_or(docs));
         }
     }
     for path in worked_in {
@@ -82,7 +83,7 @@ pub(super) async fn checkouts(workdir: &Path, worked_in: &BTreeSet<PathBuf>) -> 
 
 /// The top of the checkout holding `path`, resolved; `None` when it is in none or is gone.
 async fn toplevel(path: &Path) -> Option<PathBuf> {
-    let dir = if tokio::fs::metadata(path).await.ok()?.is_dir() {
+    let dir = if fs::metadata(path).await.ok()?.is_dir() {
         path
     } else {
         path.parent()?
@@ -96,7 +97,7 @@ async fn toplevel(path: &Path) -> Option<PathBuf> {
         return None;
     }
     let top = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
-    tokio::fs::canonicalize(&top).await.ok()
+    fs::canonicalize(&top).await.ok()
 }
 
 /// The branch `workdir` has checked out; `None` for a detached HEAD.
@@ -253,9 +254,10 @@ async fn list(gh: &str, checkout: &Path, branch: &str) -> Result<Vec<PullRequest
 
 #[cfg(test)]
 mod tests {
+    use std::env;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
-    use std::process::Command as StdCommand;
+    use std::process::{self, Command as StdCommand};
     use std::slice;
 
     use super::*;
@@ -280,7 +282,7 @@ esac
 "#;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("agent-bus-pr-{name}-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("agent-bus-pr-{name}-{}", process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir

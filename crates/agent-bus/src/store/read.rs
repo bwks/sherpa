@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result};
 use serde::Serialize;
+use serde_json::Value as JsonValue;
 use tracing::instrument;
 use turso::{Connection, Value};
 
@@ -154,7 +155,7 @@ fn message_row(cells: &mut Cells<'_>) -> Result<Message> {
     let task = cells.text("task")?;
     let from = cells.text("from_agent")?;
     let to = cells.text("to_agent")?;
-    let kind: Kind = serde_json::from_value(serde_json::Value::String(cells.text("kind")?))
+    let kind: Kind = serde_json::from_value(JsonValue::String(cells.text("kind")?))
         .context("kind is not a message kind")?;
     let text = cells.text("text")?;
     let model = cells.optional_text("model")?;

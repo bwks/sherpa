@@ -170,7 +170,9 @@ fn user(key: &str, publish: Vec<String>) -> User {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
     use std::os::unix::fs::MetadataExt;
+    use std::process;
 
     use serde_json::{Value, json};
 
@@ -310,7 +312,7 @@ role = "guest"
     fn the_file_is_written_readable_by_the_container_user() {
         let fixture = fixture();
         let agents = Agents::parse(&fixture.text).unwrap();
-        let root = std::env::temp_dir().join(format!("agent-bus-config-{}", std::process::id()));
+        let root = env::temp_dir().join(format!("agent-bus-config-{}", process::id()));
         let _ = fs::remove_dir_all(&root);
         let state = root.join("agent-bus");
         let path = state.join("nats").join("nats.conf");

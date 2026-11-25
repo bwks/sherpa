@@ -111,6 +111,10 @@ fn hash_of(bytes: &[u8]) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+    use std::fs;
+    use std::process::{self, Command};
+
     use super::*;
 
     /// A second short of the idle limit, in milliseconds.
@@ -172,7 +176,7 @@ mod tests {
     }
 
     fn git(dir: &Path, args: &[&str]) {
-        let status = std::process::Command::new("git")
+        let status = Command::new("git")
             .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
             .args(args)
             .current_dir(dir)
@@ -184,17 +188,17 @@ mod tests {
     #[tokio::test]
     #[ignore = "runs git in a temporary checkout; run with -- --ignored"]
     async fn a_commit_or_another_branch_keeps_the_base() {
-        let dir = std::env::temp_dir().join(format!("agent-bus-base-git-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join(AGENTS_FILE), "rules of the checkout").unwrap();
+        let dir = env::temp_dir().join(format!("agent-bus-base-git-{}", process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(AGENTS_FILE), "rules of the checkout").unwrap();
         git(&dir, &["init", "-q", "-b", "main"]);
         git(&dir, &["add", "."]);
         git(&dir, &["commit", "-q", "-m", "one"]);
         let before = Inputs::current(&dir, "rules", "m").await;
         let base = Base::new(false, "m", "b1".to_owned(), &before, NOW);
 
-        std::fs::write(dir.join("file"), "change").unwrap();
+        fs::write(dir.join("file"), "change").unwrap();
         git(&dir, &["add", "."]);
         git(&dir, &["commit", "-q", "-m", "two"]);
         git(&dir, &["checkout", "-q", "-b", "feat"]);
@@ -203,8 +207,8 @@ mod tests {
         assert!(!base.needs_rebuild(&after, NOW));
 
         // AGENTS.md is still an input.
-        std::fs::write(dir.join(AGENTS_FILE), "other rules").unwrap();
+        fs::write(dir.join(AGENTS_FILE), "other rules").unwrap();
         assert!(base.needs_rebuild(&Inputs::current(&dir, "rules", "m").await, NOW));
-        std::fs::remove_dir_all(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
     }
 }
