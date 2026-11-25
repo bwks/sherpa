@@ -293,6 +293,7 @@ mod tests {
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     use super::*;
+    #[cfg(unix)]
     use crate::error::ClientError;
 
     const LAB_INFO: &str = r#"id = "fecb1a12"
