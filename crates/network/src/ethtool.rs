@@ -416,8 +416,11 @@ pub fn disable_tx_checksum_offload(ifindex: u32) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+
     use super::*;
 
+    use crate::linux::ENODEV;
     use crate::{create_veth_pair, delete_interface, get_ifindex};
 
     /// Attributes the kernel puts in a bitset that the code here does not read.
@@ -449,7 +452,14 @@ mod tests {
         let error = reply_datagram(NLMSG_ERROR, FEATURES_SEQ, &(-19i32).to_ne_bytes());
         let messages = replies(&error).unwrap();
         let result = acknowledgement(&messages[0], FEATURES_SEQ).unwrap();
-        assert!(result.unwrap_err().to_string().contains("No such device"));
+        let error = result.unwrap_err();
+        assert_eq!(
+            error
+                .downcast_ref::<io::Error>()
+                .and_then(io::Error::raw_os_error),
+            Some(ENODEV),
+            "{error:#}"
+        );
 
         let ack = reply_datagram(NLMSG_ERROR, FAMILY_SEQ, &0i32.to_ne_bytes());
         let messages = replies(&ack).unwrap();
@@ -461,7 +471,13 @@ mod tests {
 
         let error = reply_datagram(NLMSG_ERROR, FEATURES_SEQ, &(-19i32).to_ne_bytes());
         let error = offload_in(&error).unwrap_err();
-        assert!(error.to_string().contains("No such device"), "{error:#}");
+        assert_eq!(
+            error
+                .downcast_ref::<io::Error>()
+                .and_then(io::Error::raw_os_error),
+            Some(ENODEV),
+            "{error:#}"
+        );
         let ack = reply_datagram(NLMSG_ERROR, FEATURES_SEQ, &0i32.to_ne_bytes());
         assert!(offload_in(&ack).is_err());
 

@@ -10,6 +10,7 @@ use shared::data::LinkImpairment;
 use shared::konst::{NETEM_QOPT_LEN, TCA_NETEM_CORRUPT, TCA_NETEM_REORDER, TCA_OPTIONS};
 use tracing::instrument;
 
+use crate::error::NetworkError;
 use crate::linux::setup_netlink;
 
 /// What removing an interface's netem qdisc found.
@@ -39,9 +40,9 @@ fn percent_to_kernel(pct: f64) -> u32 {
 /// `micros` microseconds in PSCHED ticks, the unit of netem's latency and jitter. Modern
 /// kernels use a fixed 15.625 MHz PSCHED clock: ticks = µs * 15625 / 1000. `what` names the
 /// value when it does not fit.
-fn psched_ticks(micros: u32, what: &str) -> Result<u32> {
+fn psched_ticks(micros: u32, what: &'static str) -> Result<u32> {
     u32::try_from(u64::from(micros) * 15_625 / 1_000)
-        .with_context(|| format!("{what} of {micros} µs is too long for netem"))
+        .context(NetworkError::TooLongForNetem { what, micros })
 }
 
 /// `iface_index` as the signed index a TC message carries.
@@ -291,7 +292,10 @@ mod tests {
         })
         .unwrap_err();
         assert!(
-            error.to_string().contains("too long for netem"),
+            matches!(
+                error.downcast_ref::<NetworkError>(),
+                Some(NetworkError::TooLongForNetem { .. })
+            ),
             "{error:#}"
         );
     }

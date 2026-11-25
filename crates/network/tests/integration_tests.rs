@@ -16,10 +16,10 @@ use std::time::Duration;
 use anyhow::Result;
 
 use network::{
-    NetemRemoval, NetnsVethState, apply_netem, attach_p2p_redirect, container_veth_peer_ifindex,
-    create_bridge, create_veth_in_netns, create_veth_pair, delete_interface,
-    disable_tx_checksum_offload, enslave_to_bridge, get_ifindex, list_interface_names,
-    remove_netem, set_link_state, sync_netem,
+    NetemRemoval, NetnsVethState, NetworkError, apply_netem, attach_p2p_redirect,
+    container_veth_peer_ifindex, create_bridge, create_veth_in_netns, create_veth_pair,
+    delete_interface, disable_tx_checksum_offload, enslave_to_bridge, get_ifindex,
+    list_interface_names, remove_netem, set_link_state, sync_netem,
 };
 use shared::data::LinkImpairment;
 
@@ -407,7 +407,7 @@ async fn p2p_link_010_attaching_a_link_keeps_no_descriptor_open() -> Result<()> 
 
 #[tokio::test]
 #[ignore = "requires root or CAP_NET_ADMIN"]
-async fn p2p_link_012_a_missing_host_end_is_not_attached_and_the_error_names_it() -> Result<()> {
+async fn p2p_link_012_a_missing_host_end_is_not_attached_and_the_error_carries_it() -> Result<()> {
     let result = attach_p2p_redirect("st-noexist99", 1);
     assert!(
         result.is_err(),
@@ -415,10 +415,10 @@ async fn p2p_link_012_a_missing_host_end_is_not_attached_and_the_error_names_it(
     );
 
     let error = get_ifindex("st-noexist99").await.unwrap_err();
-    assert!(
-        error.to_string().contains("Link st-noexist99 not found"),
-        "{error:#}"
-    );
+    let Some(NetworkError::LinkNotFound { name }) = error.downcast_ref::<NetworkError>() else {
+        panic!("not a missing link: {error:#}");
+    };
+    assert_eq!(name, "st-noexist99");
     Ok(())
 }
 

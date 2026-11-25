@@ -8,8 +8,10 @@ use rtnetlink::{Error, Handle, LinkBridge, LinkVeth, new_connection};
 use shared::konst::MTU_JUMBO_NET;
 use tracing::instrument;
 
+use crate::error::NetworkError;
+
 /// Linux's `ENODEV`: netlink's answer for a link name that does not exist.
-const ENODEV: i32 = 19;
+pub(crate) const ENODEV: i32 = 19;
 
 /// The link-local group addresses a bridge forwards, by the last nibble of
 /// 01-80-C2-00-00-0X.
@@ -44,9 +46,12 @@ pub(crate) async fn find_link_index(handle: &Handle, name: &str) -> Result<Optio
 
 /// The index of the link `name`.
 pub(crate) async fn get_link_index(handle: &Handle, name: &str) -> Result<u32> {
-    find_link_index(handle, name)
-        .await?
-        .with_context(|| format!("Link {name} not found"))
+    find_link_index(handle, name).await?.ok_or_else(|| {
+        NetworkError::LinkNotFound {
+            name: name.to_owned(),
+        }
+        .into()
+    })
 }
 
 /// Send `message` and return the first answer: the message the kernel sent back, or `None` for
