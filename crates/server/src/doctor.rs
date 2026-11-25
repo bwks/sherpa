@@ -15,9 +15,9 @@ use shared::util::term_msg_surround;
 use crate::konst::SHERPA_BLANK_DISK_DIR;
 
 /// Every folder under the images folder: `sherpa` and its group, who import images, may write.
-const BOX_FOLDER_MODE: Mode = Mode::from_bits_truncate(0o775);
+const IMAGE_FOLDER_MODE: Mode = Mode::from_bits_truncate(0o775);
 /// Any other file under the images folder: `sherpa` and its group may read and replace it.
-const BOX_FILE_MODE: Mode = Mode::from_bits_truncate(0o660);
+const IMAGE_FILE_MODE: Mode = Mode::from_bits_truncate(0o660);
 /// A blank disk template: only sherpad, as `sherpa`, its owner, reads it, to copy it.
 const BLANK_DISK_FILE_MODE: Mode = Mode::from_bits_truncate(0o400);
 /// How a folder under the images folder is opened: to read, and never through a symlink.
@@ -26,25 +26,25 @@ const FOLDER_OPEN_FLAGS: OFlag = OFlag::O_RDONLY
     .union(OFlag::O_NOFOLLOW)
     .union(OFlag::O_CLOEXEC);
 
-/// Fix the server's local state: with `boxes`, the permissions of the base box images.
+/// Fix the server's local state: with `images`, the permissions of the node images.
 ///
 /// # Errors
 ///
 /// Fails when the image permissions cannot be changed.
-pub fn doctor(boxes: bool) -> Result<()> {
-    if boxes {
-        term_msg_surround("Fixing base box permissions");
-        for link in fix_box_permissions(Path::new(SHERPA_IMAGES_PATH), BOX_FILE_MODE)? {
+pub fn doctor(images: bool) -> Result<()> {
+    if images {
+        term_msg_surround("Fixing node image permissions");
+        for link in fix_image_permissions(Path::new(SHERPA_IMAGES_PATH), IMAGE_FILE_MODE)? {
             println!("Skipped symlink {}", link.display());
         }
     }
     Ok(())
 }
 
-/// Set the folder `path` and everything under it to the box modes without following a symlink,
+/// Set the folder `path` and everything under it to the image modes without following a symlink,
 /// returning the symlinks it skipped.
 #[instrument(level = "debug", fields(path = %path.display()))]
-fn fix_box_permissions(path: &Path, file_mode: Mode) -> Result<Vec<PathBuf>> {
+fn fix_image_permissions(path: &Path, file_mode: Mode) -> Result<Vec<PathBuf>> {
     let mut links = Vec::new();
     match Dir::open(path, FOLDER_OPEN_FLAGS, Mode::empty()) {
         Ok(folder) => fix_folder(folder, path, file_mode, &mut links)?,
@@ -56,7 +56,7 @@ fn fix_box_permissions(path: &Path, file_mode: Mode) -> Result<Vec<PathBuf>> {
     Ok(links)
 }
 
-/// Set the open `folder` at `path` to `BOX_FOLDER_MODE` and its entries to the box modes,
+/// Set the open `folder` at `path` to `IMAGE_FOLDER_MODE` and its entries to the image modes,
 /// adding each symlink found to `links`.
 fn fix_folder(
     mut folder: Dir,
@@ -64,7 +64,7 @@ fn fix_folder(
     file_mode: Mode,
     links: &mut Vec<PathBuf>,
 ) -> Result<()> {
-    fchmod(&folder, BOX_FOLDER_MODE)
+    fchmod(&folder, IMAGE_FOLDER_MODE)
         .with_context(|| format!("Failed to set the mode of {}", path.display()))?;
     let file_mode = if path.file_name() == Some(OsStr::new(SHERPA_BLANK_DISK_DIR)) {
         BLANK_DISK_FILE_MODE
@@ -121,7 +121,7 @@ mod tests {
     }
 
     #[test]
-    fn server_file_modes_015_doctor_boxes_sets_folders_775_blank_disks_400_and_other_files_660() {
+    fn server_file_modes_015_doctor_images_sets_folders_775_blank_disks_400_and_other_files_660() {
         let images = TempDir::new().unwrap();
         let version = images.path().join("alpine_linux/3.22");
         fs::create_dir_all(&version).unwrap();
@@ -135,7 +135,7 @@ mod tests {
         fs::write(&blank_disk, "disk").unwrap();
         fs::set_permissions(&blank_disk, Permissions::from_mode(0o660)).unwrap();
 
-        fix_box_permissions(images.path(), BOX_FILE_MODE).unwrap();
+        fix_image_permissions(images.path(), IMAGE_FILE_MODE).unwrap();
 
         for folder in [images.path(), &version, &blank_disks] {
             assert_eq!(mode(folder), 0o775, "{}", folder.display());
@@ -146,8 +146,8 @@ mod tests {
     }
 
     #[test]
-    fn server_file_modes_020_doctor_boxes_skips_and_names_a_symlink_and_leaves_its_target_as_it_is()
-    {
+    fn server_file_modes_020_doctor_images_skips_and_names_a_symlink_and_leaves_its_target_as_it_is()
+     {
         let root = TempDir::new().unwrap();
         let outside = root.path().join("outside");
         fs::write(&outside, "secret").unwrap();
@@ -161,7 +161,7 @@ mod tests {
         fs::write(&image, "image").unwrap();
         fs::set_permissions(&image, Permissions::from_mode(0o644)).unwrap();
 
-        let links = fix_box_permissions(&images, BOX_FILE_MODE).unwrap();
+        let links = fix_image_permissions(&images, IMAGE_FILE_MODE).unwrap();
 
         assert_eq!(links, vec![link]);
         assert_eq!(mode(&outside), 0o600);

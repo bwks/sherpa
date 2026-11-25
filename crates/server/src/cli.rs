@@ -102,9 +102,9 @@ pub enum Commands {
 
     /// Fix up server environment
     Doctor {
-        /// Set base box permissions to read-only
+        /// Set node image permissions
         #[arg(long, action = clap::ArgAction::SetTrue)]
-        boxes: bool,
+        images: bool,
     },
 
     /// Manage accounts in the database of a stopped server. Run as the sherpa user

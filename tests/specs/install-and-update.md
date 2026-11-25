@@ -146,12 +146,12 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 012 | The update script leaves a symlink in the place of one, or in the place of its folder, and the link's target, as they are, and says so | unit (bats) |
 | 013 | The install and update scripts make `/opt/sherpa`, `bin` and `libvirt` root's and `755`, the `775 sherpa:sherpa` an older release left included; they give the config, env, log and database folders `750`, and the lab folder and the storage pool `2750`, every run; and they make `.secret` and `.certs` `700`, the images folder `775`, and `containers`, `bins` and `run` `755`, all `sherpa`'s, when missing, leaving one that is there | unit (bats) |
 | 014 | The update script does all of this when there is nothing to update, too (no test yet: `update_tests.bats` reads the order of the calls in the script's text) | e2e (fresh VM) |
-| 015 | `sherpad doctor --boxes` sets every folder under the images folder to `775`, every blank disk template to `400` and every other file to `660` | unit |
+| 015 | `sherpad doctor --images` sets every folder under the images folder to `775`, every blank disk template to `400` and every other file to `660` | unit |
 | 016 | Nothing in those folders changes owner or mode: the scripts change the folders only, never what is in them | unit (bats) |
 | 017 | A symlink at `/opt/sherpa`, at one of those folders, or at a folder above them stops the script with the link named, and the link's target keeps its owner and mode | unit (bats) |
 | 018 | Both scripts install a binary `755`, root's, in place of the file or the link at its name, and never write through the link | unit (bats) |
 | 019 | After an install and `sherpad init`, the user who installed, a member of the `sherpa` group, can write nothing in `/opt/sherpa` but the images and blank disk folders, and `sherpa` cannot write `/opt/sherpa`, `bin`, the binaries, `libvirt` or the service's unit | e2e (fresh VM) |
-| 020 | `sherpad doctor --boxes` skips a symlink under the images folder, leaving the link's target's mode as it is, names the link, and fixes the rest | unit |
+| 020 | `sherpad doctor --images` skips a symlink under the images folder, leaving the link's target's mode as it is, names the link, and fixes the rest | unit |
 
 ## `database_key`: the database's secrets open only with the key sherpad made for it
 
