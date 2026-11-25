@@ -350,7 +350,7 @@ pub async fn signup_form_handler(
                     "Username is unavailable".to_string()
                 }
                 Some(refusal) if refusal.category() == Some(ServiceCategory::Invalid) => {
-                    let message = refusal.to_string();
+                    let message = refusal.message();
                     tracing::debug!("Signup validation failed: {}", message);
                     message
                 }

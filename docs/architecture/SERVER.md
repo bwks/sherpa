@@ -200,7 +200,12 @@ its reference (see the scanner's unreadable link ends in `P2P-ARCHITECTURE.md`).
 (`caller_message`), and the errors inside an answer (a destroy's `DestroyError`s, an up's
 service errors, down and resume per-node messages) all go through it, so no caller sees a path,
 libvirt or Docker text, or a chain. The outer `.context` of a typed error is not sent: only the
-`ServiceError`'s own message is. The cases are `tests/specs/inspect-and-web-ui.md`, `api_errors`.
+`ServiceError`'s own message is, with the message of each error the variant carries as its
+`#[source]` after it (`ServiceError::message`). A variant that carries the check that refused the
+request as its source, such as `RequestUnreadable` with its `InvalidRequest`, keeps that error's
+words out of its own message, so a chain reads each cause once. A request that does not parse is
+an `InvalidRequest`, the extractors' rejection: a variant per reason, the path of the field that
+is wrong carried as data, never the value sent. The cases are `tests/specs/inspect-and-web-ui.md`, `api_errors`.
 
 #### The admin boundary
 

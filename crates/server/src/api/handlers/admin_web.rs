@@ -324,7 +324,7 @@ pub async fn admin_update_user_password_handler(
             && refusal.category() == Some(ServiceCategory::Invalid)
         {
             return Ok(AdminPasswordErrorTemplate {
-                error_message: refusal.to_string(),
+                error_message: refusal.message(),
             }
             .into_response());
         }
@@ -434,7 +434,7 @@ pub async fn admin_delete_user_handler(
                         ),
                     ],
                     AdminNotificationErrorTemplate {
-                        message: refusal.to_string(),
+                        message: refusal.message(),
                     },
                 )
                     .into_response())
@@ -474,7 +474,7 @@ pub async fn admin_unlock_user_handler(
                         ),
                     ],
                     AdminNotificationErrorTemplate {
-                        message: refusal.to_string(),
+                        message: refusal.message(),
                     },
                 )
                     .into_response())

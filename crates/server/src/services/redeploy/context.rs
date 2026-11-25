@@ -232,8 +232,7 @@ pub(super) async fn load_redeploy<'a>(
 fn check_manifest(ctx: &AuthContext, request: &RedeployRequest) -> Result<RedeployDefinition> {
     let node_name = request.node_name.as_str();
     let manifest =
-        lab_definition::parse_manifest(&request.manifest, request.file_contents.as_ref())
-            .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+        lab_definition::parse_manifest(&request.manifest, request.file_contents.as_ref())?;
     check_lab_name(&manifest.name).map_err(|error| manifest_refusal("lab name", error))?;
     require_host_access(ctx, &manifest.nodes)?;
     check_ready_timeout(manifest.ready_timeout)
@@ -253,9 +252,7 @@ fn check_manifest(ctx: &AuthContext, request: &RedeployRequest) -> Result<Redepl
     reject_provisioners(&manifest)
         .context("Manifest validation failed: provisioners")
         .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
-    let as_written = match lab_definition::parse_as_written(request.as_written.as_ref())
-        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?
-    {
+    let as_written = match lab_definition::parse_as_written(request.as_written.as_ref())? {
         Some(parts) => Some(
             lab_definition::definition(&manifest, Some(&parts))
                 .context("Manifest validation failed: the manifest as written")
@@ -642,6 +639,7 @@ fn node_management_addresses(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::request_parse::InvalidRequest;
     use shared::data::{ModelKind, ReadyCheck};
 
     use shared::data::{NodeModel, NodeState};
@@ -686,8 +684,13 @@ mod tests {
             panic!("parsed");
         };
         assert_eq!(
-            format!("{error:#}"),
-            "Failed to deserialize manifest: the request is not valid at nodes[0].model"
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::RequestUnreadable {
+                what: "manifest",
+                refusal: InvalidRequest::Invalid {
+                    path: Some("nodes[0].model".to_owned())
+                },
+            })
         );
     }
     fn request(

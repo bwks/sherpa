@@ -891,7 +891,7 @@ pub async fn lab_create_post_handler(
     let auth = auth.into_context();
     if let Err(refusal) = require_lab_starter(&auth) {
         return ErrorTemplate {
-            message: refusal.to_string(),
+            message: refusal.message(),
         }
         .into_response();
     }

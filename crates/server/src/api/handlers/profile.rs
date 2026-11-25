@@ -122,7 +122,7 @@ pub async fn update_password_handler(
                 "Current password is incorrect".to_owned()
             }
             Some(refusal) if refusal.category() == Some(ServiceCategory::Invalid) => {
-                refusal.to_string()
+                refusal.message()
             }
             _ => {
                 tracing::error!(username = %ctx.username, "Failed to update password: {error:?}");
@@ -172,7 +172,7 @@ pub async fn update_device_password_handler(
                 refusal.category(),
                 Some(ServiceCategory::Denied | ServiceCategory::Invalid)
             ) {
-            refusal.to_string()
+            refusal.message()
         } else {
             tracing::error!(username = %ctx.username, "Failed to set the device password: {error:?}");
             "Failed to set the device password".to_owned()
@@ -216,7 +216,7 @@ pub async fn add_ssh_key_handler(
                             | ServiceCategory::NotFound
                     )
                 ) {
-                refusal.to_string()
+                refusal.message()
             } else {
                 tracing::error!(username = %ctx.username, "Failed to add SSH key: {error:?}");
                 "Failed to add SSH key".to_owned()
@@ -272,7 +272,7 @@ pub async fn delete_ssh_key_handler(
             && refusal.category() == Some(ServiceCategory::Conflict)
         {
             return SshKeyErrorTemplate {
-                message: refusal.to_string(),
+                message: refusal.message(),
             }
             .into_response();
         }
