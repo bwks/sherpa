@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use shared::data::{ClientConfig, NodeInfo, StatusMessage, UpResponse};
 use shared::util::{
-    Emoji, LabFolder, base64_encode, get_cwd, load_file, term_msg_surround, term_msg_underline,
+    Emoji, LabFolder, base64_encode, get_cwd, load_file, resolve_env_value, term_msg_surround,
+    term_msg_underline,
 };
 use topology::{Manifest, StartupScript, SystemdUnit, SystemdUnitData};
 
@@ -75,7 +76,7 @@ pub async fn up(
     let as_written = serde_json::to_value(manifest.as_written())
         .context("Failed to serialize the manifest as written to JSON")?;
 
-    // Read ztp.config, text_files and scripts relative to the manifest, and $VAR values.
+    // Read ztp.config, text_files and scripts relative to the manifest, and ${NAME} values.
     resolve_manifest_files(&mut manifest, manifest_path)?;
 
     // Container secret files go outside the manifest, so the server never stores them.
@@ -289,7 +290,7 @@ fn read_scripts(node: &str, paths: &[String], manifest_dir: &Path) -> Result<Vec
     Ok(scripts)
 }
 
-/// Resolve every client file and `$VAR` value the server needs, for `up` and `redeploy`, and
+/// Resolve every client file and `${NAME}` value the server needs, for `up` and `redeploy`, and
 /// check the names of the Windows startup scripts read, which the server puts in a `cmd` line.
 pub(crate) fn resolve_manifest_files(
     manifest: &mut topology::Manifest,
@@ -383,37 +384,32 @@ fn read_systemd_units(
         .collect()
 }
 
-/// Resolve `$ENV_VAR` references in environment variable values.
+/// Resolve the `${NAME}` references and `\$` literals in each node's `environment_variables`
+/// values, taking variables from `lookup`, the user's environment.
 ///
-/// For each node's `environment_variables`, entries of the form `KEY=$VAR`
-/// have the `$VAR` portion resolved with `lookup`, from the user's shell environment.
-/// Only exact `$VAR` values are expanded (not partial references like `prefix$VAR`).
+/// # Errors
+///
+/// An entry that is not `KEY=VALUE`, carrying the node, or a value with a `$` that is neither,
+/// or naming a variable that is not set, carrying the key and the node.
 pub(crate) fn resolve_environment_variables(
     manifest: &mut topology::Manifest,
     lookup: fn(&str) -> Option<String>,
 ) -> Result<()> {
     for node in &mut manifest.nodes {
-        let env_vars = match &mut node.environment_variables {
-            Some(vars) if !vars.is_empty() => vars,
-            _ => continue,
-        };
-
-        for entry in env_vars.iter_mut() {
+        for entry in node.environment_variables.iter_mut().flatten() {
             let Some((key, value)) = entry.split_once('=') else {
                 bail!(ClientError::InvalidEnvironmentEntry {
                     entry: entry.clone(),
                     node: node.name.clone(),
                 });
             };
-
-            if let Some(var_name) = value.strip_prefix('$') {
-                let resolved =
-                    lookup(var_name).ok_or_else(|| ClientError::UnsetEnvironmentVariable {
-                        variable: var_name.to_owned(),
-                        node: node.name.clone(),
-                    })?;
-                *entry = format!("{key}={resolved}");
-            }
+            let resolved = resolve_env_value(value, lookup).with_context(|| {
+                ClientError::EnvironmentValue {
+                    key: key.to_owned(),
+                    node: node.name.clone(),
+                }
+            })?;
+            *entry = format!("{key}={resolved}");
         }
     }
 
@@ -491,6 +487,7 @@ fn display_up_results(response: &UpResponse) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::SharedError;
     use shared::data::NodeModel;
     use shared::util::base64_decode;
     use tempfile::NamedTempFile;
@@ -652,12 +649,15 @@ mod tests {
     }
 
     #[test]
-    fn client_content_008_a_dollar_name_value_is_sent_as_the_client_value_and_others_as_written() {
+    fn client_content_008_references_are_sent_as_client_values_escapes_as_dollars_and_others_as_written()
+     {
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::UbuntuLinux,
             environment_variables: Some(vec![
-                "MY_TOKEN=$SHERPA_TEST_TOKEN".to_string(),
+                "MY_TOKEN=${SHERPA_TEST_TOKEN}".to_string(),
+                "URL=https://${SHERPA_TEST_TOKEN}:8443".to_string(),
+                r"PASS=\$ecret".to_string(),
                 "EDITOR=vim".to_string(),
             ]),
             ..Default::default()
@@ -667,16 +667,23 @@ mod tests {
 
         assert_eq!(
             manifest.nodes[0].environment_variables.as_deref(),
-            Some(&["MY_TOKEN=secret123".to_string(), "EDITOR=vim".to_string()][..])
+            Some(
+                &[
+                    "MY_TOKEN=secret123".to_string(),
+                    "URL=https://secret123:8443".to_string(),
+                    "PASS=$ecret".to_string(),
+                    "EDITOR=vim".to_string(),
+                ][..]
+            )
         );
     }
 
     #[test]
-    fn client_content_009_an_unset_name_is_refused_carrying_the_variable_and_node() {
+    fn client_content_009_an_unset_name_is_refused_carrying_the_key_the_node_and_the_variable() {
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::UbuntuLinux,
-            environment_variables: Some(vec!["MY_VAR=$SHERPA_NONEXISTENT_VAR_12345".to_string()]),
+            environment_variables: Some(vec!["MY_VAR=${SHERPA_NONEXISTENT_VAR_12345}".to_string()]),
             ..Default::default()
         }]);
 
@@ -684,10 +691,16 @@ mod tests {
         assert!(
             matches!(
                 error.downcast_ref::<ClientError>(),
-                Some(ClientError::UnsetEnvironmentVariable { variable, node })
-                    if variable == "SHERPA_NONEXISTENT_VAR_12345" && node == "dev01"
+                Some(ClientError::EnvironmentValue { key, node })
+                    if key == "MY_VAR" && node == "dev01"
             ),
             "{error:#}"
+        );
+        assert_eq!(
+            error.root_cause().downcast_ref::<SharedError>(),
+            Some(&SharedError::EnvValueUnsetVariable {
+                variable: "SHERPA_NONEXISTENT_VAR_12345".to_owned(),
+            })
         );
     }
 

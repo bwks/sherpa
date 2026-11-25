@@ -11,7 +11,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `client_content`: the CLI reads what a manifest names for a node, on the user's machine
 
-**Statement:** at up and at redeploy the `sherpa` CLI reads every file a manifest names for a node's first boot and every `$VAR` in its `environment_variables` on the user's machine, and sends their contents and values; a manifest that lists files without their contents is refused by the server.
+**Statement:** at up and at redeploy the `sherpa` CLI reads every file a manifest names for a node's first boot and every `${NAME}` in its `environment_variables` on the user's machine, and sends their contents and values; a manifest that lists files without their contents is refused by the server.
 **Relied on by:** the user, whose paths and variables are their own machine's; the server, which opens no path a manifest names. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -23,8 +23,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 005 | A script that is empty is refused, and the error carries the node | unit |
 | 006 | A systemd unit is sent with its name, its contents and whether it is enabled | unit |
 | 007 | Retired: binary files are no longer a setting | — |
-| 008 | An `environment_variables` value that is `$NAME` is sent as the value `NAME` has where `sherpa` runs, and any other value as written | unit |
-| 009 | A `$NAME` that is not set where `sherpa` runs is refused, and the error carries the variable and the node | unit |
+| 008 | In an `environment_variables` value each `${NAME}`, the whole value or inside it, is sent as the value `NAME` has where `sherpa` runs, each `\$` as `$`, and the rest as written, by the rule env files follow (`provisioner_env_014` to `017`) | unit |
+| 009 | A `${NAME}` that is not set where `sherpa` runs is refused, and the error carries the key, the node and the variable | unit |
 | 010 | An `environment_variables` entry that is not `KEY=VALUE` is refused, and the error carries the node | unit |
 | 011 | An up whose manifest lists files with no contents, as one sent to the REST API is, is refused, and the error carries the node and the setting (no test at this level yet) | integration |
 | 012 | A systemd unit sent under a name that is not a plain file name, a path, `.`, `..` or one starting with `-`, is refused | unit |
@@ -155,22 +155,28 @@ A file removed from the manifest stays on the node. That is documented; no case 
 
 ## `provisioner_env`: an ssh provisioner's env files are exported by the owner's login shells
 
-**Statement:** an ssh provisioner's `env_files` are copied to `~/.env.d/` on the node, readable by its owner alone, with each value that is exactly `$NAME` or `${NAME}` replaced by the value `NAME` has where `sherpa` runs, and the owner's login shells export them.
+**Statement:** an ssh provisioner's `env_files` are data, never shell: each `KEY=value` line is copied to `~/.env.d/` on the node, readable by its owner alone, with each `${NAME}` in its value replaced by the value `NAME` has where `sherpa` runs, each `\$` by `$`, and the value quoted so the node's shell expands nothing in it; any other `$` is refused, by the one rule `environment_variables` follow, and the owner's login shells export them.
 **Relied on by:** the user, for tokens that are in their own environment and must not be written to a file or sent to the server. **Priority:** P1.
 
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | After up, the owner's login shell on the node has an env file's variables, one of them with the value it has on the user's machine (no test yet) | e2e |
-| 002 | A value that is exactly `$NAME` becomes the client's value, quoted so the node's shell reads it whole, a single quote and a `$` in it included | unit |
-| 003 | `${NAME}`, a line starting with `export`, and an indented line with spaces after the value are resolved the same way | unit |
-| 004 | A variable that is set and empty resolves to an empty value | unit |
-| 005 | Every other line is kept as written: comments, blank lines, plain and quoted values, and a value with a reference inside it, such as `$HOME/bin:$PATH`, which the node's shell expands | unit |
+| 002 | A `${NAME}`, the whole value or inside it, becomes the client's value, quoted so the node's shell reads it whole, a single quote and a `$` in it included, and a variable that is set and empty is an empty value | unit |
+| 003 | A line starting with `export`, an indented line, a value in single or double quotes, and one with spaces after it are resolved the same way | unit |
+| 004 | `\$` is a literal `$`, which the node's shell does not expand | unit |
+| 005 | Comments, blank lines and indentation are kept as written, and a plain value is sent as written, quoted | unit |
 | 006 | Line endings are kept, `\r\n` and a last line with none included | unit |
-| 007 | A reference to a variable that is not set, in any of the node's provisioners, fails before the node is changed, and the error carries the file, the line and the variable | unit |
+| 007 | A reference to a variable that is not set, in any of the node's provisioners, fails before the node is changed, and the error carries the file, the line, the key and the variable | unit |
 | 008 | An error never shows a value | unit |
 | 009 | The value is read from the environment `sherpa` itself runs in | unit |
 | 010 | The line that loads the env files is added once to the login file bash reads, however many times a node is provisioned | unit |
 | 011 | A login shell that reads that file exports the variables of every env file, to the programs it starts | unit |
+| 012 | A `$` that is not `${NAME}` or `\$`, as in `$NAME`, `$HOME/bin`, `$1` or a lone `$`, is refused, and the error carries the file, the line and the key | unit |
+| 013 | A line that is not `KEY=value`, a comment or blank, such as a shell command, is refused, and the error carries the file and the line | unit |
+| 014 | The one rule for env file and `environment_variables` values: a `${NAME}`, the whole value or inside it, is the client's value, and a set but empty variable an empty one | unit |
+| 015 | Under that rule `\$` is a literal `$`, and every other character, `\` and quotes included, is kept as written | unit |
+| 016 | Under that rule any other `$` is refused: `$NAME`, `$ecret`, `$HOME/bin`, `$1`, a lone `$`, and `${` with no `}`, no name or a name that is not one | unit |
+| 017 | Under that rule a reference to a variable that is not set is refused, and the error carries the variable and never a value | unit |
 
 ## `provisioner_scripts`: an ssh provisioner's scripts run on the node as its owner, as from a login
 

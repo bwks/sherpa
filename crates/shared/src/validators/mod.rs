@@ -4,6 +4,7 @@
 //! checks on manifest types live in `topology::validate`. Validators only inspect the data
 //! they are given; they do not generate data.
 
+mod env_value;
 mod file_mode;
 mod impairment;
 mod interface_count;
@@ -14,6 +15,7 @@ mod tailscale_key;
 mod username;
 mod ztp;
 
+pub use env_value::validate_env_value;
 pub use file_mode::mode_from_octal_digits;
 pub(crate) use impairment::MAX_IMPAIRMENT_DELAY_MS;
 pub use impairment::validate_link_impairment;

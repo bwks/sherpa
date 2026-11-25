@@ -280,19 +280,21 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 
 ## `boot_settings`: a node's first-boot settings are well formed
 
-**Statement:** a text file's `permissions` are octal digits up to 777, in the files as written and in the contents the CLI sends, and `sherpa validate`, up and redeploy, in the CLI and on the server, take an `environment_variables` entry only as `KEY=VALUE` whose key is a name of letters, digits and `_` that does not start with a digit.
+**Statement:** a text file's `permissions` are octal digits up to 777, in the files as written and in the contents the CLI sends, and `sherpa validate`, up and redeploy, in the CLI and on the server, take an `environment_variables` entry only as `KEY=VALUE` whose key is a name of letters, digits and `_` that does not start with a digit, and the CLI takes a value only when every `$` in it is a `${NAME}` or a `\$`.
 **Relied on by:** the node's first-boot config, where the key is written into a shell file and a mode into a file's permissions. **Priority:** P1.
 
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | A text file whose `permissions` are not octal digits up to 777 is refused, and the error carries the node, the file's `dst` and the mode, in the files as written and in the contents the CLI read | unit |
-| 002 | An entry with a name as its key is taken: a literal value, a `$VAR`, an empty value and a value with `=` in it | unit |
+| 002 | An entry with a name as its key is taken: a literal value, a `${NAME}`, the whole value or inside it, a `\$`, an empty value and a value with `=` in it | unit |
 | 003 | An entry with no `=`, an empty key, a key that starts with a digit or a key with another character is refused, and the error carries the entry or the key and the node | unit |
 | 004 | Retired: `sherpa validate` now refuses an entry whose key is not a name; see 008 | — |
 | 005 | Retired: a redeploy now runs both checks; see 006 and 007 | — |
 | 006 | A redeploy whose manifest has an `environment_variables` key that is not a name is refused before any node is torn down, carrying the key and the node | unit |
 | 007 | A redeploy whose manifest gives a Flatcar node a text file mode that is not octal digits up to 777 is refused before any node is torn down, carrying the node and the file's `dst` | unit |
 | 008 | `sherpa validate` refuses a manifest with an `environment_variables` key that is not a name, naming the key and the node | unit |
+| 009 | In the CLI, a value as written with a `$` that is not `${NAME}` or `\$`, as in `$NAME`, `$ecret`, `$HOME/bin` or a lone `$`, is refused, and the error carries the key and the node; the server, which gets the resolved values, does not check this | unit |
+| 010 | `sherpa validate` refuses a manifest with an `environment_variables` value `$NAME`, naming the key and the node | unit |
 
 ## `lab_settings`: the lab's own settings are checked before it is built
 

@@ -1,7 +1,7 @@
 //! A manifest as the user wrote it, which is what the server stores as a lab's definition.
 //!
 //! Before it sends a manifest, the client changes some of it. It replaces `ztp.config`, a path,
-//! with the file's contents, and `KEY=$VAR` environment variables with their values; it reads
+//! with the file's contents, and the `${NAME}` references and `\$` literals of environment variables with their values; it reads
 //! the files and scripts the manifest names, whose contents travel beside it as
 //! [`crate::NodeFileContents`]; and it never serializes `provisioners` or
 //! `provision_concurrency`. The server builds nodes from that
@@ -118,7 +118,7 @@ provision_concurrency = 2
 [[nodes]]
 name = "dev01"
 model = "ubuntu_linux"
-environment_variables = ["MODE=lab", "TOKEN=$LAB_TOKEN"]
+environment_variables = ["MODE=lab", "TOKEN=${LAB_TOKEN}"]
 startup_scripts = ["scripts/start.sh"]
 ztp = { config = "configs/dev01.yaml" }
 [[nodes.text_files]]

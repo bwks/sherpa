@@ -6,7 +6,8 @@ use topology::NodeExpanded;
 use topology::validate::{
     check_bridges, check_duplicate_device, check_lab_name, check_links_to_itself,
     check_node_file_settings, check_nonzero_node_settings, check_ready_timeout,
-    check_text_file_modes, validate_environment_variables, validate_provisioners,
+    check_text_file_modes, validate_environment_variable_values, validate_environment_variables,
+    validate_provisioners,
 };
 
 /// Process manifest nodes into expanded format with indices assigned, each with its kind.
@@ -66,6 +67,8 @@ pub fn check_manifest(manifest: &topology::Manifest) -> Result<()> {
     validate_provisioners(manifest).context("Manifest validation failed: provisioners")?;
     check_text_file_modes(&manifest.nodes).context("Manifest validation failed: text files")?;
     validate_environment_variables(&manifest.nodes)
+        .context("Manifest validation failed: environment variables")?;
+    validate_environment_variable_values(&manifest.nodes)
         .context("Manifest validation failed: environment variables")?;
     check_file_settings(&manifest.nodes).context("Manifest validation failed: node settings")
 }

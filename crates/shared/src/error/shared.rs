@@ -37,6 +37,14 @@ pub enum SharedError {
     )]
     KindNotTaken { model: NodeModel, kind: NodeKind },
 
+    #[error(
+        r"The value has a `$` that is not a reference; write `${{NAME}}` for a variable from your environment, or `\$` for a literal `$`"
+    )]
+    EnvValueUnescapedDollar,
+
+    #[error("The value refers to {variable}, which is not set in this environment")]
+    EnvValueUnsetVariable { variable: String },
+
     #[error("Mode {digits} is not octal digits up to 777, such as 644")]
     ModeNotOctal { digits: u32 },
 

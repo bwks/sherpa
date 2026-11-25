@@ -191,9 +191,7 @@ fn read_client_files(provisioner: &SshProvisioner, manifest_dir: &Path) -> Resul
             .to_owned();
         let text = fs::read_to_string(&src)
             .with_context(|| format!("Cannot read env file {} as text", src.display()))?;
-        let content = resolve_env_file(&text, client_variable)
-            .with_context(|| ClientError::EnvFile { path: src.clone() })?
-            .into_bytes();
+        let content = resolve_env_file(&src, &text, client_variable)?.into_bytes();
         env_files.push(FileCopy {
             src,
             content,
@@ -236,6 +234,7 @@ mod tests {
     use std::future;
 
     use jato::{PromptCache, SshConfig};
+    use shared::SharedError;
     use shared::data::ClientConfig;
     use topology::ProvisionerFile;
 
@@ -278,7 +277,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(
             dir.path().join("dev.env"),
-            "WHERE=$PATH\nPATH=$HOME/bin:$PATH\n",
+            "WHERE=${PATH}\nLITERAL=\\$HOME/bin\n",
         )
         .unwrap();
         let provisioner = SshProvisioner {
@@ -293,7 +292,7 @@ mod tests {
         let path = env::var("PATH").unwrap();
         assert_eq!(
             String::from_utf8(env_files[0].content.clone()).unwrap(),
-            format!("WHERE='{path}'\nPATH=$HOME/bin:$PATH\n")
+            format!("WHERE='{path}'\nLITERAL='$HOME/bin'\n")
         );
     }
 
@@ -315,7 +314,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(
             dir.path().join("dev.env"),
-            "A=1\nTOKEN=$SHERPA_TEST_UNSET_TOKEN\n",
+            "A=1\nTOKEN=${SHERPA_TEST_UNSET_TOKEN}\n",
         )
         .unwrap();
         let provisioners = after_a_good_provisioner(
@@ -331,17 +330,16 @@ mod tests {
         assert!(
             matches!(
                 error.downcast_ref::<ClientError>(),
-                Some(ClientError::EnvFile { path }) if *path == dir.path().join("dev.env")
+                Some(ClientError::EnvFileValue { path, line: 2, key })
+                    if *path == dir.path().join("dev.env") && key == "TOKEN"
             ),
             "{error:#}"
         );
-        assert!(
-            matches!(
-                error.root_cause().downcast_ref::<ClientError>(),
-                Some(ClientError::UnsetEnvFileVariable { line: 2, variable })
-                    if variable == "SHERPA_TEST_UNSET_TOKEN"
-            ),
-            "{error:#}"
+        assert_eq!(
+            error.root_cause().downcast_ref::<SharedError>(),
+            Some(&SharedError::EnvValueUnsetVariable {
+                variable: "SHERPA_TEST_UNSET_TOKEN".to_owned(),
+            })
         );
     }
 

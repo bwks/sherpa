@@ -66,6 +66,9 @@ pub enum TopologyError {
     )]
     EnvironmentVariableKeyNotAName { key: String, node: String },
 
+    #[error("Node '{node}': environment variable '{key}'")]
+    EnvironmentVariableValue { key: String, node: String },
+
     #[error(
         "Manifest - node: '{node}' lists {listed} {field} but {read} were read; the Sherpa \
          CLI reads these files on the client, so start the lab with `sherpa up`"
