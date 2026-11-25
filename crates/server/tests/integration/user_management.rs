@@ -1,4 +1,6 @@
 use anyhow::{Result, ensure};
+use db::LabDetails;
+use reqwest::redirect::Policy;
 use reqwest::{Client, Method, Response, StatusCode, header};
 use serde_json::json;
 use shared::data::LabPhase;
@@ -506,7 +508,7 @@ async fn web_request(
     form: &[(&str, &str)],
 ) -> Result<Response> {
     let mut request = Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
+        .redirect(Policy::none())
         .build()?
         .request(method, format!("http://{}{path}", server.addr))
         .header(header::COOKIE, format!("{AUTH_COOKIE_NAME}={token}"));
@@ -869,7 +871,7 @@ async fn user_accounts_015_deleting_a_user_who_owns_labs_is_refused_on_all_trans
         "c0ffee01",
         &carol,
         &ipv4_lab_networks(),
-        &db::LabDetails::default(),
+        &LabDetails::default(),
     )
     .await?;
 

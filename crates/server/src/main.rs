@@ -1,18 +1,24 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 #![cfg_attr(not(test), forbid(unsafe_code))]
 
+use std::env;
+use std::io;
 use std::path::Path;
 
 use anyhow::Result;
 use clap::Parser;
 use rustls::crypto::aws_lc_rs;
 use shared::konst::SHERPA_DB_FILE_PATH;
+use sherpad::check_database::check_database;
 use sherpad::cli::{Cli, Commands, UserCommands};
 use sherpad::daemon::SHERPAD_PID_FILE_PATH;
 use sherpad::daemon::manager::{
     logs_daemon, restart_daemon, run_background_child, start_daemon, status_daemon, stop_daemon,
 };
+use sherpad::doctor::doctor;
 use sherpad::host_account::running_account_name;
+use sherpad::init::init;
+use sherpad::user::unlock;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -21,7 +27,7 @@ async fn main() -> Result<()> {
     let _ = aws_lc_rs::default_provider().install_default();
 
     // Check if we're being spawned as a background child
-    let args: Vec<String> = std::env::args().collect();
+    let args: Vec<String> = env::args().collect();
     if args.len() > 1 && args[1] == "--background-child" {
         return run_background_child().await;
     }
@@ -45,7 +51,7 @@ async fn main() -> Result<()> {
             management_prefix_ipv4,
             management_prefix_ipv6,
         } => {
-            sherpad::init::init(
+            init(
                 force,
                 server_ipv4,
                 server_ipv6,
@@ -56,19 +62,17 @@ async fn main() -> Result<()> {
             )
             .await
         }
-        Commands::CheckDatabase => {
-            sherpad::check_database::check_database(Path::new(SHERPA_DB_FILE_PATH)).await
-        }
-        Commands::Doctor { images } => sherpad::doctor::doctor(images),
+        Commands::CheckDatabase => check_database(Path::new(SHERPA_DB_FILE_PATH)).await,
+        Commands::Doctor { images } => doctor(images),
         Commands::User {
             command: UserCommands::Unlock { username },
         } => {
             tracing_subscriber::fmt()
-                .with_writer(std::io::stderr)
+                .with_writer(io::stderr)
                 .with_target(false)
                 .compact()
                 .init();
-            sherpad::user::unlock(
+            unlock(
                 &running_account_name()?,
                 &username,
                 Path::new(SHERPA_DB_FILE_PATH),

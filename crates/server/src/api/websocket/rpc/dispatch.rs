@@ -421,6 +421,7 @@ pub(super) fn service_error(error: &anyhow::Error, failure: &str) -> RpcError {
 mod tests {
     use super::*;
     use crate::log_capture::capture_log;
+    use anyhow::Error;
     use shared::api_spec::{AuthRequirement, build_spec};
     use shared::error::{CpuPinConflict, CpuPinRole};
     use std::collections::HashSet;
@@ -631,7 +632,7 @@ mod tests {
 
     #[test]
     fn api_errors_004_a_known_rpc_refusal_keeps_its_code_and_message_and_has_no_context() {
-        let error = anyhow::Error::new(ServiceError::Invalid("bad lab ID".to_owned()));
+        let error = Error::new(ServiceError::Invalid("bad lab ID".to_owned()));
         let rpc = service_error(&error, "Clean failed");
         assert_eq!(rpc.code, RpcErrorCode::InvalidParams);
         assert_eq!(rpc.message, "bad lab ID");
@@ -654,7 +655,7 @@ mod tests {
             starting_mib: 0,
             starting_count: 0,
         };
-        let error = anyhow::Error::new(ServiceError::InsufficientMemory {
+        let error = Error::new(ServiceError::InsufficientMemory {
             shortage: shortage.clone(),
         })
         .context("Memory admission failed");
@@ -674,7 +675,7 @@ mod tests {
 
     #[test]
     fn a_pin_refusal_has_its_own_code_and_the_conflict_as_data() {
-        let error = anyhow::Error::new(ServiceError::CpuPinsHeld {
+        let error = Error::new(ServiceError::CpuPinsHeld {
             message: "Host CPU 2 is held".to_owned(),
             conflict: CpuPinConflict {
                 host_cpus: vec![2, 3],

@@ -1,5 +1,6 @@
 //! The web UI's admin image pages and upload.
 
+use anyhow::Error;
 use axum::extract::{Multipart, Path, State};
 use axum::http::header;
 use axum::response::{Html, IntoResponse, Response};
@@ -7,11 +8,14 @@ use serde::Deserialize;
 use serde::de::value::{Error as DeError, StrDeserializer};
 use serde::de::{DeserializeOwned, IntoDeserializer};
 use std::collections::BTreeMap;
+use std::env;
 use std::fmt::Display;
 use std::iter;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
+use tokio::fs;
 use tokio::sync::mpsc;
+use uuid::Uuid;
 
 use db::{DefaultRequest, LastDefaultImage};
 
@@ -771,25 +775,22 @@ pub async fn admin_image_upload_handler(
     };
 
     // Write file data to a temp file
-    let temp_dir = std::env::temp_dir();
+    let temp_dir = env::temp_dir();
     let temp_file = temp_dir.join(format!(
         "sherpa_upload_{}_{}_{}_{}",
         fields.model_kind.model(),
         fields.model_kind.kind(),
         fields.version,
-        uuid::Uuid::new_v4()
+        Uuid::new_v4()
     ));
     let temp_path = temp_file.to_string_lossy().to_string();
 
-    if let Err(e) = tokio::fs::write(&temp_file, &fields.file_data).await {
+    if let Err(e) = fs::write(&temp_file, &fields.file_data).await {
         tracing::error!("Failed to write temp file {}: {:?}", temp_path, e);
         return Ok(AdminNotificationErrorTemplate {
             message: format!(
                 "Failed to save uploaded file: {}",
-                caller_message(
-                    &anyhow::Error::from(e),
-                    "Failed to save the uploaded image file"
-                )
+                caller_message(&Error::from(e), "Failed to save the uploaded image file")
             ),
         }
         .into_response());
@@ -810,7 +811,7 @@ pub async fn admin_image_upload_handler(
     let result = import::import_image(request, &state, progress).await;
 
     // Clean up temp file regardless of result
-    if let Err(e) = tokio::fs::remove_file(&temp_file).await {
+    if let Err(e) = fs::remove_file(&temp_file).await {
         tracing::warn!("Failed to clean up temp file {}: {:?}", temp_path, e);
     }
 
@@ -864,11 +865,11 @@ mod tests {
         default: Option<&str>,
     ) -> RawUploadFields {
         RawUploadFields {
-            model: model.map(std::string::ToString::to_string),
+            model: model.map(ToString::to_string),
             kind: None,
-            version: version.map(std::string::ToString::to_string),
+            version: version.map(ToString::to_string),
             file_data,
-            default: default.map(std::string::ToString::to_string),
+            default: default.map(ToString::to_string),
         }
     }
 

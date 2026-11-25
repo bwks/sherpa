@@ -3,7 +3,7 @@
 use axum::Json;
 use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, StatusCode, header};
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -157,7 +157,7 @@ pub async fn login_page_handler(
             } else {
                 "/"
             };
-            axum::response::Redirect::to(redirect_path).into_response()
+            Redirect::to(redirect_path).into_response()
         }
         Err(CookieSessionError::Missing) => LoginPageTemplate {
             error,

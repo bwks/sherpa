@@ -227,7 +227,9 @@ pub async fn warn_on_sherpa_logins(db: &db::Database) -> Result<usize> {
 mod tests {
     use super::*;
 
+    use db::{DefaultRequest, LabDetails};
     use shared::data::{ModelKind, NodeModel, SessionChannel};
+    use tokio::runtime::Builder;
 
     use crate::auth::session::SessionRejection;
     use crate::log_capture::capture_log;
@@ -324,14 +326,14 @@ mod tests {
             "lab-0001",
             &user,
             &networks,
-            &db::LabDetails::default(),
+            &LabDetails::default(),
         )
         .await
         .expect("lab");
         let image = db::upsert_node_image(
             &db,
             ModelKind::default_for(NodeModel::UbuntuLinux).node_config(),
-            db::DefaultRequest::Keep,
+            DefaultRequest::Keep,
         )
         .await
         .expect("image");
@@ -354,7 +356,7 @@ mod tests {
 
     #[test]
     fn upgraded_labs_003_sherpad_warns_with_the_count_of_nodes_that_log_in_as_sherpa() {
-        let runtime = tokio::runtime::Builder::new_current_thread()
+        let runtime = Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("runtime");

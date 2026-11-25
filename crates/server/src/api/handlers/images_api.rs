@@ -7,6 +7,7 @@ use axum::extract::{Multipart, Path, State};
 use axum::response::{IntoResponse, sse};
 use std::collections::HashMap;
 use std::env;
+use tokio::fs;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
@@ -121,7 +122,7 @@ pub async fn upload_image_multipart(
     let temp_file = env::temp_dir().join(format!("sherpa_upload_{}", Uuid::new_v4()));
     let temp_path = temp_file.to_string_lossy().to_string();
 
-    tokio::fs::write(&temp_file, &fields.file_data)
+    fs::write(&temp_file, &fields.file_data)
         .await
         .map_err(|e| ApiError::internal(e, "Failed to write temp file"))?;
 
@@ -139,7 +140,7 @@ pub async fn upload_image_multipart(
     let result = import::import_image(request, &state, progress).await;
 
     // Clean up temp file regardless of result
-    if let Err(e) = tokio::fs::remove_file(&temp_file).await {
+    if let Err(e) = fs::remove_file(&temp_file).await {
         tracing::warn!("Failed to clean up temp file {}: {:?}", temp_path, e);
     }
 

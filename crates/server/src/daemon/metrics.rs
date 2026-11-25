@@ -1,3 +1,4 @@
+use opentelemetry::global;
 use opentelemetry::metrics::{Counter, Histogram, Meter, UpDownCounter};
 
 const OTEL_METRIC_WS_CONNECTIONS: &str = "sherpad.ws.connections";
@@ -56,7 +57,7 @@ impl Metrics {
     /// Create noop instruments (used when `OTel` is disabled).
     #[must_use]
     pub fn noop() -> Self {
-        let meter = opentelemetry::global::meter("noop");
+        let meter = global::meter("noop");
         Self::new(&meter)
     }
 }

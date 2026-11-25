@@ -4,8 +4,10 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::{StatusCode, header};
 use axum::response::IntoResponse;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::path::PathBuf;
+use std::sync::OnceLock;
+use tokio::fs;
 
 use crate::daemon::state::AppState;
 
@@ -87,7 +89,7 @@ pub async fn get_certificate_handler(State(state): State<AppState>) -> impl Into
     }
 
     // Read certificate file
-    match tokio::fs::read_to_string(&cert_path).await {
+    match fs::read_to_string(&cert_path).await {
         Ok(cert_pem) => {
             tracing::info!("Serving certificate from: {}", cert_path.display());
             (
@@ -124,8 +126,7 @@ pub async fn get_certificate_handler(State(state): State<AppState>) -> impl Into
 /// GET `/api/v1/spec`
 /// Public endpoint - no authentication required
 pub async fn api_spec_handler() -> Result<impl IntoResponse, ApiError> {
-    static SPEC_JSON: std::sync::OnceLock<Result<serde_json::Value, String>> =
-        std::sync::OnceLock::new();
+    static SPEC_JSON: OnceLock<Result<Value, String>> = OnceLock::new();
     let result = SPEC_JSON.get_or_init(|| {
         let spec = api_spec::build_spec();
         serde_json::to_value(spec).map_err(|e| e.to_string())
@@ -144,7 +145,7 @@ pub async fn api_spec_handler() -> Result<impl IntoResponse, ApiError> {
 /// GET `/api/v1/openapi.json`
 /// Public endpoint - no authentication required
 pub async fn openapi_handler() -> impl IntoResponse {
-    static OPENAPI_JSON: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+    static OPENAPI_JSON: OnceLock<Value> = OnceLock::new();
     Json(OPENAPI_JSON.get_or_init(api_spec::build_openapi).clone())
 }
 

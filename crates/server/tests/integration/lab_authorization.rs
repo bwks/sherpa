@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, ensure};
-use db::DefaultRequest;
+use db::{DefaultRequest, LabDetails};
+use reqwest::redirect::Policy;
 use reqwest::{Client, RequestBuilder, Response, StatusCode, header};
 use serde_json::{Value, json};
 use shared::data::{DbUser, LabPhase, ModelKind, NodeModel, NodeState};
@@ -78,7 +79,7 @@ async fn seed_lab(server: &TestServer, owner: &DbUser, index: usize) -> Result<S
         &lab_id,
         owner,
         &ipv4_lab_networks(index),
-        &db::LabDetails::default(),
+        &LabDetails::default(),
     )
     .await?;
     // As `up` leaves it once built: operations on a lab's nodes need a ready lab.
@@ -187,9 +188,7 @@ async fn list_labs(http: &Client, base: &str, token: &str, query: &str) -> Resul
 }
 
 fn http_client() -> Result<Client> {
-    Ok(Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()?)
+    Ok(Client::builder().redirect(Policy::none()).build()?)
 }
 
 #[tokio::test]
@@ -1304,7 +1303,7 @@ async fn lab_phase_012_down_resume_and_redeploy_of_a_lab_not_ready_are_refused_a
         &lab_id,
         &owner,
         &ipv4_lab_networks(12),
-        &db::LabDetails::default(),
+        &LabDetails::default(),
     )
     .await?
     .id

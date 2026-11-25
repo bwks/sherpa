@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result, ensure};
 use db::DefaultRequest;
+use reqwest::redirect::Policy;
 use reqwest::{Client, Method, Response, StatusCode, header};
 use serde_json::{Value, json};
 use shared::data::{ModelKind, NodeModel};
@@ -168,9 +169,7 @@ async fn web_request(
 
 /// A client that does not follow redirects, so a login redirect is seen as one.
 fn no_redirect_client() -> Result<Client> {
-    Ok(Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()?)
+    Ok(Client::builder().redirect(Policy::none()).build()?)
 }
 
 /// Assert an admin web route sent an anonymous caller to log in.

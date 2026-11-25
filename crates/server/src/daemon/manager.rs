@@ -1,5 +1,7 @@
 use anyhow::{Context, Result, bail};
+use jiff::Timestamp;
 use nix::sys::signal::Signal;
+use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -49,7 +51,7 @@ pub async fn start_daemon(foreground: bool) -> Result<()> {
         tracing::info!("Starting sherpad in background mode");
 
         // Spawn sherpad in a detached child process using nohup pattern
-        let exe = std::env::current_exe()?;
+        let exe = env::current_exe()?;
 
         // We'll use a simple fork-like approach by spawning ourselves with a special flag
         // The child process will write its own PID
@@ -225,7 +227,7 @@ fn print_certificate_status() {
         return;
     }
     let manager = CertificateManager::new(&config.tls);
-    match manager.report(&server_addresses(&config), jiff::Timestamp::now()) {
+    match manager.report(&server_addresses(&config), Timestamp::now()) {
         Ok(report) => {
             for line in certificate_status_lines(&report) {
                 println!("{line}");

@@ -2,12 +2,13 @@ use anyhow::Result;
 use axum::routing::get;
 use bollard::Docker;
 use dashmap::DashMap;
+use db::SecretKey;
 use libvirt::Qemu;
 use shared::data::{
     Config, HostMemorySettings, OtelConfig, ScannerConfig, ServerConnection,
     TailscaleGatewaySettings, TlsConfig, VmProviders,
 };
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -60,7 +61,7 @@ impl TestServer {
     pub async fn start_with_config(config: Config) -> Result<Self> {
         let db = db::open_in_memory()
             .await?
-            .with_secret_key(db::SecretKey::generate());
+            .with_secret_key(SecretKey::generate());
         db::apply_schema(&db).await?;
         db::verify_secret_key(&db).await?;
         db::seed_admin_user(&db, TEST_ADMIN_PASSWORD).await?;
@@ -121,7 +122,7 @@ impl TestServer {
 pub fn test_config() -> Result<Config> {
     Ok(Config {
         name: "test-server".to_string(),
-        server_ipv4: std::net::Ipv4Addr::LOCALHOST,
+        server_ipv4: Ipv4Addr::LOCALHOST,
         server_ipv6: None,
         ws_port: 0,
         http_port: 0,

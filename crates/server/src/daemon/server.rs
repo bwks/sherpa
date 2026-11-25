@@ -1,21 +1,28 @@
 use anyhow::{Context, Result};
 use axum::Router;
 use axum::routing::get;
+use axum_server::Handle;
+use jiff::Zoned;
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry::trace::TracerProvider;
-use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_otlp::{MetricExporter, SpanExporter, WithExportConfig};
 use opentelemetry_sdk::Resource;
-use opentelemetry_sdk::metrics::SdkMeterProvider;
-use opentelemetry_sdk::trace::SdkTracerProvider;
+use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
+use opentelemetry_sdk::trace::{Sampler, SdkTracerProvider};
+use std::env;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
+#[cfg(not(unix))]
+use tokio::signal::ctrl_c;
 #[cfg(unix)]
 use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio_util::sync::CancellationToken;
+use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt;
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::FormatTime;
 use tracing_subscriber::layer::SubscriberExt;
@@ -50,7 +57,7 @@ struct MillisecondTime;
 
 impl FormatTime for MillisecondTime {
     fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
-        let now = jiff::Zoned::now();
+        let now = Zoned::now();
         // Format with millisecond precision (3 decimal places)
         // Format: YYYY-MM-DDTHH:MM:SS.sssZ
         write!(w, "{}", now.strftime("%Y-%m-%dT%H:%M:%S.%3fZ"))
@@ -104,7 +111,7 @@ impl ShutdownSignals {
 
     #[cfg(not(unix))]
     async fn wait(self) {
-        match tokio::signal::ctrl_c().await {
+        match ctrl_c().await {
             Ok(()) => tracing::info!("Received CTRL+C signal"),
             Err(e) => tracing::error!("Failed to listen for CTRL+C, shutting down: {}", e),
         }
@@ -142,27 +149,27 @@ struct Listening<'a> {
 
 /// Resolve the OTLP endpoint, preferring the env var over config.
 fn otel_endpoint(otel_config: &OtelConfig) -> String {
-    std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").unwrap_or_else(|_| otel_config.endpoint.clone())
+    env::var("OTEL_EXPORTER_OTLP_ENDPOINT").unwrap_or_else(|_| otel_config.endpoint.clone())
 }
 
 /// Build the shared `OTel` Resource (service identity) from config / env vars.
 fn otel_resource(otel_config: &OtelConfig) -> Resource {
     let service_name =
-        std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| otel_config.service_name.clone());
+        env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| otel_config.service_name.clone());
     Resource::builder().with_service_name(service_name).build()
 }
 
 /// Build an OTLP tracer provider from config.
 fn init_tracer_provider(otel_config: &OtelConfig) -> Result<SdkTracerProvider> {
     let sampler = if (otel_config.sample_ratio - 1.0).abs() < f64::EPSILON {
-        opentelemetry_sdk::trace::Sampler::AlwaysOn
+        Sampler::AlwaysOn
     } else if otel_config.sample_ratio <= 0.0 {
-        opentelemetry_sdk::trace::Sampler::AlwaysOff
+        Sampler::AlwaysOff
     } else {
-        opentelemetry_sdk::trace::Sampler::TraceIdRatioBased(otel_config.sample_ratio)
+        Sampler::TraceIdRatioBased(otel_config.sample_ratio)
     };
 
-    let exporter = opentelemetry_otlp::SpanExporter::builder()
+    let exporter = SpanExporter::builder()
         .with_tonic()
         .with_endpoint(otel_endpoint(otel_config))
         .build()
@@ -179,13 +186,13 @@ fn init_tracer_provider(otel_config: &OtelConfig) -> Result<SdkTracerProvider> {
 
 /// Build an OTLP meter provider from config.
 fn init_meter_provider(otel_config: &OtelConfig) -> Result<SdkMeterProvider> {
-    let exporter = opentelemetry_otlp::MetricExporter::builder()
+    let exporter = MetricExporter::builder()
         .with_tonic()
         .with_endpoint(otel_endpoint(otel_config))
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build OTLP metric exporter: {e}"))?;
 
-    let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(exporter)
+    let reader = PeriodicReader::builder(exporter)
         .with_interval(Duration::from_secs(OTEL_METRIC_EXPORT_INTERVAL_SECS))
         .build();
 
@@ -343,7 +350,7 @@ fn init_telemetry(config: &Config, foreground: bool) -> Result<(Option<OtelGuard
         let meter_provider = init_meter_provider(&config.otel)?;
 
         let tracer = tracer_provider.tracer("sherpad");
-        let layer = tracing_opentelemetry::OpenTelemetryLayer::new(tracer);
+        let layer = OpenTelemetryLayer::new(tracer);
 
         let meter = meter_provider.meter("sherpad");
         let metrics = Metrics::new(&meter);
@@ -360,7 +367,7 @@ fn init_telemetry(config: &Config, foreground: bool) -> Result<(Option<OtelGuard
     // Setup logging based on mode using a layered registry.
     // OTel layer is added first (directly on Registry) so its type parameter matches.
     if foreground {
-        let fmt_layer = tracing_subscriber::fmt::layer()
+        let fmt_layer = fmt::layer()
             .with_timer(MillisecondTime)
             .with_target(false)
             .with_thread_ids(false)
@@ -376,7 +383,7 @@ fn init_telemetry(config: &Config, foreground: bool) -> Result<(Option<OtelGuard
 
         let log_file = Arc::new(log_file);
 
-        let fmt_layer = tracing_subscriber::fmt::layer()
+        let fmt_layer = fmt::layer()
             .with_timer(MillisecondTime)
             .with_writer(move || log_file.clone())
             .with_target(false)
@@ -399,7 +406,7 @@ fn init_telemetry(config: &Config, foreground: bool) -> Result<(Option<OtelGuard
     if config.otel.enabled {
         tracing::info!(
             "OpenTelemetry trace export enabled, endpoint: {}",
-            std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+            env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
                 .unwrap_or_else(|_| config.otel.endpoint.clone())
         );
     }
@@ -411,7 +418,7 @@ fn init_telemetry(config: &Config, foreground: bool) -> Result<(Option<OtelGuard
 /// and ports. An invalid value is logged and the config value kept.
 fn apply_env_overrides(config: &mut Config) {
     // Allow SHERPA_SERVER_IPV4 env var to override the config file value
-    if let Ok(ip_str) = std::env::var("SHERPA_SERVER_IPV4") {
+    if let Ok(ip_str) = env::var("SHERPA_SERVER_IPV4") {
         match ip_str.parse() {
             Ok(ip) => {
                 tracing::info!(
@@ -432,7 +439,7 @@ fn apply_env_overrides(config: &mut Config) {
     }
 
     // Allow SHERPA_SERVER_IPV6 env var to override the config file value
-    if let Ok(ip_str) = std::env::var("SHERPA_SERVER_IPV6") {
+    if let Ok(ip_str) = env::var("SHERPA_SERVER_IPV6") {
         match ip_str.parse::<Ipv6Addr>() {
             Ok(ip) => {
                 tracing::info!(
@@ -448,7 +455,7 @@ fn apply_env_overrides(config: &mut Config) {
     }
 
     // Allow SHERPA_SERVER_WS_PORT env var to override the config file value
-    if let Ok(port_str) = std::env::var("SHERPA_SERVER_WS_PORT") {
+    if let Ok(port_str) = env::var("SHERPA_SERVER_WS_PORT") {
         match port_str.parse::<u16>() {
             Ok(port) => {
                 tracing::info!(
@@ -469,7 +476,7 @@ fn apply_env_overrides(config: &mut Config) {
     }
 
     // Allow SHERPA_SERVER_HTTP_PORT env var to override the config file value
-    if let Ok(port_str) = std::env::var("SHERPA_SERVER_HTTP_PORT") {
+    if let Ok(port_str) = env::var("SHERPA_SERVER_HTTP_PORT") {
         match port_str.parse::<u16>() {
             Ok(port) => {
                 tracing::info!(
@@ -503,7 +510,7 @@ async fn serve_tls(listening: Listening<'_>, http_state: AppState) -> Result<()>
     let cert_mgr = CertificateManager::new(&config.tls);
 
     // Create a handle for graceful shutdown of axum-server
-    let handle = axum_server::Handle::new();
+    let handle = Handle::new();
     let shutdown_handle = handle.clone();
     let shutdown_token = cancel_token.clone();
     tokio::spawn(async move {
@@ -575,11 +582,9 @@ async fn serve_plain(listening: Listening<'_>) -> Result<()> {
     } = listening;
     tracing::warn!("Starting server WITHOUT TLS encryption on ws://{}", addr);
 
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .with_context(|| {
-            format!("Failed to bind to {addr} - ensure the IP address is valid and available")
-        })?;
+    let listener = TcpListener::bind(&addr).await.with_context(|| {
+        format!("Failed to bind to {addr} - ensure the IP address is valid and available")
+    })?;
 
     tracing::info!("sherpad listening on ws://{}", addr);
 
@@ -588,7 +593,7 @@ async fn serve_plain(listening: Listening<'_>) -> Result<()> {
         let ipv6_addr = SocketAddr::new(ipv6.into(), config.ws_port);
         let ipv6_app = app.clone();
         tokio::spawn(async move {
-            match tokio::net::TcpListener::bind(&ipv6_addr).await {
+            match TcpListener::bind(&ipv6_addr).await {
                 Ok(listener) => {
                     tracing::info!("sherpad also listening on ws://[{}]", ipv6_addr);
                     if let Err(e) = axum::serve(
@@ -742,18 +747,24 @@ async fn serve_cert_endpoint(addr: SocketAddr, state: AppState) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use std::process::{self, Command};
+
+    #[cfg(unix)]
+    use tokio::time;
+
     use super::*;
 
     #[cfg(unix)]
     async fn wait_after_signal(signal_name: &str) {
         let signals = ShutdownSignals::install().unwrap();
-        let status = std::process::Command::new("kill")
+        let status = Command::new("kill")
             .arg(format!("-{signal_name}"))
-            .arg(std::process::id().to_string())
+            .arg(process::id().to_string())
             .status()
             .unwrap();
         assert!(status.success());
-        tokio::time::timeout(Duration::from_secs(5), signals.wait())
+        time::timeout(Duration::from_secs(5), signals.wait())
             .await
             .unwrap();
     }

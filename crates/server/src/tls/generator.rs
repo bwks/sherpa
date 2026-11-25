@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use jiff::{Span, Timestamp};
 use rand::RngCore;
 use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, IsCa,
@@ -7,6 +8,7 @@ use rcgen::{
 use shared::util::write_file_with_permissions;
 use std::net::IpAddr;
 use std::path::Path;
+use time::OffsetDateTime;
 use tracing::instrument;
 
 /// Write a self-signed server certificate for `key_pair` to `cert_path`, valid from now for
@@ -137,13 +139,13 @@ pub fn generate_key_pair(algorithm: KeyAlgorithm) -> Result<KeyPair> {
 
 /// Set a certificate's validity to start now and last `validity_days`.
 fn set_validity(params: &mut CertificateParams, validity_days: u32) -> Result<()> {
-    let now = jiff::Timestamp::now();
+    let now = Timestamp::now();
     let future = now
-        .checked_add(jiff::Span::new().hours(i64::from(validity_days) * 24))
+        .checked_add(Span::new().hours(i64::from(validity_days) * 24))
         .context("Failed to calculate certificate expiration date")?;
-    params.not_before = time::OffsetDateTime::from_unix_timestamp(now.as_second())
+    params.not_before = OffsetDateTime::from_unix_timestamp(now.as_second())
         .context("Failed to convert start time to OffsetDateTime")?;
-    params.not_after = time::OffsetDateTime::from_unix_timestamp(future.as_second())
+    params.not_after = OffsetDateTime::from_unix_timestamp(future.as_second())
         .context("Failed to convert end time to OffsetDateTime")?;
     Ok(())
 }
@@ -267,9 +269,10 @@ pub fn issue_server_certificate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use x509_parser::pem::{Pem, parse_x509_pem};
 
-    fn parse(pem: &str) -> x509_parser::pem::Pem {
-        let (_, pem) = x509_parser::pem::parse_x509_pem(pem.as_bytes()).unwrap();
+    fn parse(pem: &str) -> Pem {
+        let (_, pem) = parse_x509_pem(pem.as_bytes()).unwrap();
         pem
     }
 
@@ -381,7 +384,7 @@ mod tests {
         let rendered: Vec<String> = names
             .general_names
             .iter()
-            .map(std::string::ToString::to_string)
+            .map(ToString::to_string)
             .collect();
         assert_eq!(
             rendered,

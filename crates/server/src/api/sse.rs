@@ -229,6 +229,7 @@ fn render_summary(response: &DestroyResponse) -> String {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Error;
     use futures::StreamExt;
 
     use super::*;
@@ -236,7 +237,7 @@ mod tests {
 
     /// The `Debug` text of every event a web destroy job's stream sends when it fails with
     /// `error`.
-    async fn failed_job_events(error: anyhow::Error) -> String {
+    async fn failed_job_events(error: Error) -> String {
         let (tx, rx) = oneshot::channel();
         tx.send(Err(error)).unwrap();
         let (progress_tx, progress_rx) = mpsc::unbounded_channel();
@@ -260,7 +261,7 @@ mod tests {
 
     #[tokio::test]
     async fn api_errors_020_a_failed_web_job_of_a_known_kind_shows_its_own_message() {
-        let error = anyhow::Error::new(ServiceError::NotFound(
+        let error = Error::new(ServiceError::NotFound(
             "Job not found or already consumed".to_owned(),
         ));
         let events = failed_job_events(error).await;

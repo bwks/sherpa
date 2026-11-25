@@ -29,6 +29,8 @@ pub async fn check_database(path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[tokio::test]
@@ -51,10 +53,10 @@ mod tests {
             db::apply_schema(&db).await.unwrap();
         }
 
-        let before = std::fs::read(&path).unwrap();
+        let before = fs::read(&path).unwrap();
 
         check_database(&path).await.unwrap();
 
-        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(fs::read(&path).unwrap(), before);
     }
 }

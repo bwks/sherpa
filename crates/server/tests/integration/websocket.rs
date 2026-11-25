@@ -1,5 +1,5 @@
 use anyhow::Result;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::helpers::test_server::TestServer;
 use crate::helpers::ws_client::TestWsClient;
@@ -15,10 +15,7 @@ async fn api_errors_001_an_unknown_rpc_method_is_answered_method_not_found() -> 
 
     let error = response.get("error").expect("should have error");
     // MethodNotFound = -32601
-    assert_eq!(
-        error.get("code").and_then(serde_json::Value::as_i64),
-        Some(-32601)
-    );
+    assert_eq!(error.get("code").and_then(Value::as_i64), Some(-32601));
     assert!(
         error
             .get("message")
