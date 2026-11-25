@@ -6,9 +6,12 @@ set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
 "${root}/dev/check-lint-exceptions.sh"
-"${root}/dev/check-mod-rs.sh"
 "${root}/dev/check-doc-code-blocks.sh"
 "${root}/dev/check-comment-issue-numbers.sh"
-"${root}/dev/check-field-comments.sh"
 "${root}/dev/check-ebpf-unwrap.sh"
+if command -v rusty-lints >/dev/null; then
+    rusty-lints -C "${root}" scan
+else
+    echo "rusty-lints not found: run mise install to add it to the pre-commit checks" >&2
+fi
 exec "${root}/dev/check-template-text-decisions.sh"

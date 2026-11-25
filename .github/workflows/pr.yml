@@ -109,20 +109,28 @@ jobs:
       - name: Check templates decide nothing from an enum's text
         run: dev/check-template-text-decisions.sh
 
-      - name: Check mod.rs files hold no code
-        run: dev/check-mod-rs.sh
-
       - name: Check doc comments hold no code blocks
         run: dev/check-doc-code-blocks.sh
 
       - name: Check comments name no issue or pull request numbers
         run: dev/check-comment-issue-numbers.sh
 
-      - name: Check struct fields and enum variants carry no comments
-        run: dev/check-field-comments.sh
-
       - name: Check ebpf-redirect calls no unwrap or expect
         run: dev/check-ebpf-unwrap.sh
+
+      - name: Check rusty-lints scan rules
+        env:
+          RUSTY_LINTS_VERSION: v0.2.1
+        run: |
+          name="rusty-lints-${RUSTY_LINTS_VERSION}-x86_64-unknown-linux-musl"
+          url="https://github.com/bwks/rusty-lints/releases/download/${RUSTY_LINTS_VERSION}"
+          cd "$RUNNER_TEMP"
+          curl -sSfLO "${url}/${name}.tar.gz"
+          curl -sSfLO "${url}/SHA256SUMS"
+          grep " ${name}.tar.gz\$" SHA256SUMS | sha256sum -c -
+          tar xzf "${name}.tar.gz"
+          cd "$GITHUB_WORKSPACE"
+          "${RUNNER_TEMP}/${name}/rusty-lints" scan
 
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings

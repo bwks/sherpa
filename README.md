@@ -68,11 +68,13 @@ git config core.hooksPath .githooks
 ```
 
 It runs the `dev/check-*.sh` scripts: `check-lint-exceptions.sh` refuses new `allow`/`expect`
-lint exceptions, `check-mod-rs.sh` code in a `mod.rs`, `check-doc-code-blocks.sh` code blocks in
-doc comments, `check-comment-issue-numbers.sh` issue and pull request numbers in comments,
-`check-ebpf-unwrap.sh` `.unwrap()` and `.expect(` in `crates/ebpf-redirect`, which Clippy does not
-check, and `check-template-text-decisions.sh` web UI template tags that decide from an enum's
-text. CI runs the same checks.
+lint exceptions, `check-doc-code-blocks.sh` code blocks in doc comments,
+`check-comment-issue-numbers.sh` issue and pull request numbers in comments, `check-ebpf-unwrap.sh`
+`.unwrap()` and `.expect(` in `crates/ebpf-redirect`, which Clippy does not check, and
+`check-template-text-decisions.sh` web UI template tags that decide from an enum's text. It also
+runs `rusty-lints scan`, configured in `rusty-lints.toml`, which refuses among others code in a
+`mod.rs` and comments on struct fields and enum variants, when `mise install` has put `rusty-lints`
+on the PATH. CI runs the same checks.
 
 ### Dev Scripts
 
@@ -82,11 +84,11 @@ Helper scripts are in the `dev/` directory:
 dev/serve              # run the server in development mode
 dev/rebuild            # Rebuild the project and copy binaries to path
 dev/check-lint-exceptions.sh  # refuse lint exceptions not on its allowlist
-dev/check-mod-rs.sh    # refuse code in a mod.rs
 dev/check-doc-code-blocks.sh  # refuse code blocks in doc comments
 dev/check-comment-issue-numbers.sh  # refuse issue and pull request numbers in comments
 dev/check-ebpf-unwrap.sh  # refuse unwrap and expect in ebpf-redirect
 dev/check-template-text-decisions.sh  # refuse template tags that decide from an enum's text
+rusty-lints scan       # check the syntax rules in rusty-lints.toml
 ```
 
 ## Logging

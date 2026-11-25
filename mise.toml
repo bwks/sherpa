@@ -9,6 +9,7 @@ uv = "latest"
 "aqua:nextest-rs/nextest/cargo-nextest" = "0.9.151"
 bats = "latest"
 git-cliff = "2.14.2"
+"github:bwks/rusty-lints" = "0.2.1"
 
 [tasks."release:bump"]
 description = "Set the next version, update Cargo.lock and regenerate CHANGELOG.md, without committing"
