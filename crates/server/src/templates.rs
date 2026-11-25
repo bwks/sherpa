@@ -75,11 +75,12 @@ pub struct NodeRow {
     pub vault_sealed: Option<String>,
 }
 
-impl From<DeviceInfo> for NodeRow {
-    fn from(device: DeviceInfo) -> Self {
+impl NodeRow {
+    /// The row of `device`, offering redeploy only when the viewer owns the lab.
+    pub fn new(device: DeviceInfo, owns_lab: bool) -> Self {
         Self {
             state_badge: Badge::for_node_state(device.state, BadgeSize::Small),
-            actions: NodeActions::for_state(device.state),
+            actions: NodeActions::for_node(device.state, owns_lab),
             vault_sealed: device.vault_sealed.as_ref().map(ToString::to_string),
             device,
         }
@@ -818,7 +819,10 @@ mod tests {
         };
         let html = NodesTableFragment {
             lab_id: "a1b2c3d4".to_string(),
-            nodes: vec![NodeRow::from(sealed), NodeRow::from(test_device())],
+            nodes: vec![
+                NodeRow::new(sealed, true),
+                NodeRow::new(test_device(), true),
+            ],
             device_count: 2,
         }
         .render()
@@ -834,7 +838,7 @@ mod tests {
     fn lab_page_009_the_nodes_table_names_each_node_with_its_lab_id_linked_to_its_page() {
         let tpl = NodesTableFragment {
             lab_id: "a1b2c3d4".to_string(),
-            nodes: vec![NodeRow::from(test_device())],
+            nodes: vec![NodeRow::new(test_device(), true)],
             device_count: 1,
         };
         let html = tpl.render().expect("template should render");
@@ -850,7 +854,7 @@ mod tests {
             lab_id: "a1b2c3d4".to_string(),
             lab_name: "test-lab".to_string(),
             state_badge: Badge::for_node_state(device.state, BadgeSize::Large),
-            actions: NodeActions::for_state(device.state),
+            actions: NodeActions::for_node(device.state, true),
             device,
             node_config: ModelKind::default_for(model).node_config(),
             ztp: ModelKind::default_for(model).node_config().ztp(),
@@ -879,7 +883,7 @@ mod tests {
             };
             let table = NodesTableFragment {
                 lab_id: "a1b2c3d4".to_string(),
-                nodes: vec![NodeRow::from(device.clone())],
+                nodes: vec![NodeRow::new(device.clone(), true)],
                 device_count: 1,
             }
             .render()

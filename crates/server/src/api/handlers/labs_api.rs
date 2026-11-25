@@ -46,8 +46,7 @@ use shared::data::{
 ///
 /// # Errors
 /// - `401 Unauthorized` - Missing or invalid token
-/// - `403 Forbidden` - User doesn't own this lab
-/// - `404 Not Found` - Lab doesn't exist
+/// - `404 Not Found` - Lab doesn't exist, or another user owns it and the caller is not an admin
 /// - `500 Internal Server Error` - Server-side error
 ///
 pub async fn get_lab(
@@ -190,7 +189,7 @@ pub async fn delete_lab_json(
     Path(lab_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let auth = auth.into_context();
-    // Checked before the stream opens so a refusal is a 403, not an error event.
+    // Checked before the stream opens so a refusal is an HTTP status, not an error event.
     require_lab_access(&auth, &state.db, &lab_id).await?;
 
     let (progress_tx, progress_rx) = mpsc::unbounded_channel();
@@ -278,7 +277,7 @@ pub async fn redeploy_node_json(
     JsonBody(payload): JsonBody<serde_json::Value>,
 ) -> Result<impl IntoResponse, ApiError> {
     let auth = auth.into_context();
-    // Checked before the body is validated and the stream opens, so a non-owner gets 403.
+    // Checked before the body is read and the stream opens, so a refusal keeps its status.
     require_lab_owner(&auth, &state.db, &lab_id).await?;
 
     let manifest = payload

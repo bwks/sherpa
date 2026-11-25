@@ -23,32 +23,33 @@ const ADMIN_LAB_START_MESSAGE: &str = "the built-in sherpa-admin account cannot 
 
 /// Which callers may act on a lab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LabRule {
+enum LabRule {
     OwnerOrAdmin,
     OwnerOnly,
 }
 
-/// Decide whether the caller may act on a lab owned by `owner_username`.
-pub fn check_lab_rule(
+/// Decide whether the caller may act on a lab owned by `owner_username`: a lab the caller may
+/// not see is refused as not found, the same as a lab that does not exist.
+fn check_lab_rule(
     ctx: &AuthContext,
     rule: LabRule,
     lab_id: &str,
     owner_username: &str,
 ) -> Result<(), ServiceError> {
-    let allowed = match rule {
-        LabRule::OwnerOrAdmin => ctx.can_access(owner_username),
-        LabRule::OwnerOnly => ctx.can_redeploy(owner_username),
-    };
-    if allowed {
-        return Ok(());
+    if !ctx.can_access(owner_username) {
+        return Err(lab_not_found(lab_id));
     }
-    let message = match rule {
-        LabRule::OwnerOrAdmin => format!("Lab '{lab_id}' is owned by another user"),
-        LabRule::OwnerOnly => {
-            format!("Only the owner of lab '{lab_id}' can perform this operation")
-        }
-    };
-    Err(ServiceError::Denied(message))
+    if rule == LabRule::OwnerOnly && !ctx.can_redeploy(owner_username) {
+        return Err(ServiceError::Denied(format!(
+            "Only the owner of lab '{lab_id}' can perform this operation"
+        )));
+    }
+    Ok(())
+}
+
+/// The refusal for a lab that does not exist or that the caller may not see.
+fn lab_not_found(lab_id: &str) -> ServiceError {
+    ServiceError::NotFound(format!("Lab not found: {lab_id}"))
 }
 
 /// Require admin privileges.
@@ -174,7 +175,7 @@ async fn authorize_lab(
     let lab = db::find_lab(db, lab_id)
         .await
         .context("Failed to look up lab for authorization")?
-        .ok_or_else(|| ServiceError::NotFound(format!("Lab not found: {lab_id}")))?;
+        .ok_or_else(|| lab_not_found(lab_id))?;
     let owner = db::find_user_by_id(db, lab.user.clone())
         .await
         .context("Failed to look up lab owner for authorization")?
@@ -266,9 +267,7 @@ mod tests {
         assert!(check_lab_rule(&ctx("admin", true), rule, "lab1", "alice").is_ok());
         assert_eq!(
             check_lab_rule(&ctx("bob", false), rule, "lab1", "alice"),
-            Err(ServiceError::Denied(
-                "Lab 'lab1' is owned by another user".to_owned()
-            ))
+            Err(lab_not_found("lab1"))
         );
     }
 
@@ -281,10 +280,10 @@ mod tests {
             check_lab_rule(&ctx("admin", true), rule, "lab1", "alice"),
             Err(ServiceError::Denied(_))
         ));
-        assert!(matches!(
+        assert_eq!(
             check_lab_rule(&ctx("bob", false), rule, "lab1", "alice"),
-            Err(ServiceError::Denied(_))
-        ));
+            Err(lab_not_found("lab1"))
+        );
     }
 
     #[test]

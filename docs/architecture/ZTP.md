@@ -109,8 +109,10 @@ changes a file that exists, since node disks may have been copied from it, and b
 as `sherpa`, never as root, under a temporary name and links it into place, so a disk is either
 whole or absent and a link put in the folder, which the `sherpa` group can write, gets nothing
 of root's. Each disk is `0400`: only sherpad, as `sherpa`, its owner, opens a template, to copy
-it, and QEMU only ever opens the copies. `sherpad doctor --boxes` sets the templates back to
-`0400` (`doctor::fix_box_permissions`). The section
+it, and QEMU only ever opens the copies. `sherpad doctor --images` sets the templates back to
+`0400` (`doctor::fix_image_permissions`), working through open folder descriptors with
+`O_NOFOLLOW` and `fchmodat(AT_SYMLINK_NOFOLLOW)`, so a link a group member puts in the images
+folder is skipped and named, and root changes nothing through it. The section
 between `# BEGIN blank disks` and `# END blank disks` is copied in both scripts, because each is
 fetched alone with `curl` and has nothing beside it to source; the BATS tests run against each
 copy.

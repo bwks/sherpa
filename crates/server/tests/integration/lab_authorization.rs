@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, ensure};
 use db::DefaultRequest;
-use reqwest::{Client, Response, StatusCode, header};
+use reqwest::{Client, RequestBuilder, Response, StatusCode, header};
 use serde_json::{Value, json};
 use shared::data::{DbUser, LabPhase, ModelKind, NodeModel, NodeState};
 use shared::error::RpcErrorCode;
@@ -37,6 +37,24 @@ struct ConsoleLab {
     lab_id: String,
     alice: String,
 }
+
+/// One caller on one lab: their token, the lab, and whether they may act on it.
+#[derive(Clone, Copy)]
+struct LabCheck<'a> {
+    token: &'a str,
+    lab_id: &'a str,
+    allowed: bool,
+}
+
+/// What a request was answered: an RPC call's result or error, or an HTTP status and body.
+#[derive(Debug, PartialEq)]
+enum Answer {
+    Rpc { result: Value, error: Value },
+    Http { status: StatusCode, body: Vec<u8> },
+}
+
+/// A labelled answer with the progress an RPC streamed before it.
+type LabAnswer = (String, Vec<Value>, Answer);
 
 /// IPv4-only lab networks for tests that seed lab records directly.
 fn ipv4_lab_networks(index: usize) -> db::LabNetworks {
@@ -192,134 +210,128 @@ async fn access_control_009_lab_operations_allow_owner_and_admins_on_all_transpo
             let lab_id = seed_lab(&server, owner, index).await?;
             let allowed = caller.is_admin || caller.username == owner.username;
             let who = format!("{} on {}'s lab", caller.username, owner.username);
-            let token = caller.token.as_str();
-
             let check = LabCheck {
-                token,
+                token: caller.token.as_str(),
                 lab_id: &lab_id,
                 allowed,
-                who: &who,
             };
-            check_lab_rpcs(&mut ws, &check).await?;
-            check_lab_rest(&http, &base, &check).await?;
-            check_lab_web(&http, &base, &check).await?;
 
-            // Destroy last: an allowed destroy removes the lab.
-            let params = json!({ "token": token, "lab_id": lab_id });
-            check_rpc(
-                &mut ws,
-                "destroy",
-                params,
-                allowed,
-                &format!("RPC destroy, {who}"),
-            )
-            .await?;
+            let present = lab_answers(&mut ws, &http, &base, &check).await?;
             if !allowed {
-                let response = http
-                    .delete(format!("{base}/api/v1/labs/{lab_id}"))
-                    .bearer_auth(token)
-                    .send()
-                    .await?;
-                check_http(&response, allowed, &format!("REST destroy, {who}"))?;
                 ensure!(
                     db::find_lab(&server.db, &lab_id).await?.is_some(),
                     "{who}: refused destroy removed the lab"
                 );
             }
             remove_lab(&server, &lab_id).await?;
+            let missing = lab_answers(&mut ws, &http, &base, &check).await?;
+            for ((label, progress, here), (_, _, gone)) in present.iter().zip(&missing) {
+                ensure!(
+                    (here == gone) != allowed,
+                    "{label}, {who}: expected allowed={allowed}, answered {here:?}, and {gone:?} \
+                     once the lab was removed"
+                );
+                ensure!(
+                    allowed || progress.is_empty(),
+                    "{label}, {who}: refused request streamed progress: {progress:?}"
+                );
+            }
         }
     }
     Ok(())
 }
 
-/// One caller on one lab: their token, the lab, whether they may act on it, and who they are
-/// for failure messages.
-#[derive(Clone, Copy)]
-struct LabCheck<'a> {
-    token: &'a str,
-    lab_id: &'a str,
-    allowed: bool,
-    who: &'a str,
+/// Call an RPC method and return the progress it streamed and its answer.
+async fn rpc_answer(ws: &mut TestWsClient, method: &str, params: Value) -> Result<LabAnswer> {
+    let (statuses, response) = ws.rpc_call_streaming(method, params, RPC_TIMEOUT).await?;
+    Ok((
+        format!("RPC {method}"),
+        statuses,
+        Answer::Rpc {
+            result: response["result"].clone(),
+            error: response["error"].clone(),
+        },
+    ))
 }
 
-/// The lab RPCs other than destroy: read-only, node power and link impairment.
-async fn check_lab_rpcs(ws: &mut TestWsClient, check: &LabCheck<'_>) -> Result<()> {
+/// Send an HTTP request and return its answer.
+async fn http_answer(label: String, request: RequestBuilder) -> Result<LabAnswer> {
+    let response = request.send().await?;
+    let status = response.status();
+    let body = response.bytes().await?.to_vec();
+    Ok((label, Vec::new(), Answer::Http { status, body }))
+}
+
+/// The answers to every lab operation for `check`'s caller, over RPC, REST and the web UI,
+/// destroy last. A REST destroy is sent only by a caller who may not destroy the lab, so that
+/// an allowed one leaves the RPC destroy a lab to remove.
+async fn lab_answers(
+    ws: &mut TestWsClient,
+    http: &Client,
+    base: &str,
+    check: &LabCheck<'_>,
+) -> Result<Vec<LabAnswer>> {
     let LabCheck {
         token,
         lab_id,
         allowed,
-        who,
     } = *check;
-    // Read-only and node power operations.
+    let mut answers = Vec::new();
     for method in ["inspect", "down", "resume"] {
-        let params = json!({ "token": token, "lab_id": lab_id });
-        check_rpc(ws, method, params, allowed, &format!("RPC {method}, {who}")).await?;
+        answers.push(rpc_answer(ws, method, json!({ "token": token, "lab_id": lab_id })).await?);
     }
-    let params = json!({ "token": token, "lab_id": lab_id, "link_index": 0 });
-    check_rpc(
-        ws,
-        "link.update_impairment",
-        params,
-        allowed,
-        &format!("RPC link.update_impairment, {who}"),
-    )
-    .await?;
-    Ok(())
-}
+    answers.push(
+        rpc_answer(
+            ws,
+            "link.update_impairment",
+            json!({ "token": token, "lab_id": lab_id, "link_index": 0 }),
+        )
+        .await?,
+    );
 
-/// The lab's REST operations other than destroy.
-async fn check_lab_rest(http: &Client, base: &str, check: &LabCheck<'_>) -> Result<()> {
-    let LabCheck {
-        token,
-        lab_id,
-        allowed,
-        who,
-    } = *check;
-    let response = http
-        .get(format!("{base}/api/v1/labs/{lab_id}"))
-        .bearer_auth(token)
-        .send()
-        .await?;
-    check_http(&response, allowed, &format!("REST inspect, {who}"))?;
+    answers.push(
+        http_answer(
+            "REST inspect".to_owned(),
+            http.get(format!("{base}/api/v1/labs/{lab_id}"))
+                .bearer_auth(token),
+        )
+        .await?,
+    );
     for action in ["down", "resume"] {
-        let response = http
-            .post(format!("{base}/api/v1/labs/{lab_id}/{action}"))
-            .bearer_auth(token)
-            .json(&json!({}))
-            .send()
-            .await?;
-        check_http(&response, allowed, &format!("REST {action}, {who}"))?;
+        answers.push(
+            http_answer(
+                format!("REST {action}"),
+                http.post(format!("{base}/api/v1/labs/{lab_id}/{action}"))
+                    .bearer_auth(token)
+                    .json(&json!({})),
+            )
+            .await?,
+        );
     }
-    let response = http
-        .post(format!("{base}/api/v1/labs/{lab_id}/links/0/impairment"))
-        .bearer_auth(token)
-        .json(&json!({ "lab_id": lab_id, "link_index": 0 }))
-        .send()
-        .await?;
-    check_http(&response, allowed, &format!("REST impairment, {who}"))?;
-    Ok(())
-}
+    answers.push(
+        http_answer(
+            "REST impairment".to_owned(),
+            http.post(format!("{base}/api/v1/labs/{lab_id}/links/0/impairment"))
+                .bearer_auth(token)
+                .json(&json!({ "lab_id": lab_id, "link_index": 0 })),
+        )
+        .await?,
+    );
 
-/// The lab's web pages and form posts. The destroy post creates a job without running it.
-async fn check_lab_web(http: &Client, base: &str, check: &LabCheck<'_>) -> Result<()> {
-    let LabCheck {
-        token,
-        lab_id,
-        allowed,
-        who,
-    } = *check;
     for path in [
         format!("/labs/{lab_id}"),
         format!("/labs/{lab_id}/nodes"),
         format!("/labs/{lab_id}/nodes/vm"),
         format!("/labs/{lab_id}/destroy/confirm"),
     ] {
-        let response = http
-            .get(format!("{base}{path}"))
-            .header(header::COOKIE, cookie(token))
-            .send()
-            .await?;
-        check_http(&response, allowed, &format!("web GET {path}, {who}"))?;
+        answers.push(
+            http_answer(
+                format!("web GET {path}"),
+                http.get(format!("{base}{path}"))
+                    .header(header::COOKIE, cookie(token)),
+            )
+            .await?,
+        );
     }
     for path in [
         format!("/labs/{lab_id}/stop"),
@@ -329,14 +341,194 @@ async fn check_lab_web(http: &Client, base: &str, check: &LabCheck<'_>) -> Resul
         // Creates a destroy job without running it.
         format!("/labs/{lab_id}/destroy"),
     ] {
-        let response = http
-            .post(format!("{base}{path}"))
-            .header(header::COOKIE, cookie(token))
-            .send()
-            .await?;
-        check_http(&response, allowed, &format!("web POST {path}, {who}"))?;
+        answers.push(
+            http_answer(
+                format!("web POST {path}"),
+                http.post(format!("{base}{path}"))
+                    .header(header::COOKIE, cookie(token)),
+            )
+            .await?,
+        );
+    }
+
+    if !allowed {
+        answers.push(
+            http_answer(
+                "REST destroy".to_owned(),
+                http.delete(format!("{base}/api/v1/labs/{lab_id}"))
+                    .bearer_auth(token),
+            )
+            .await?,
+        );
+    }
+    answers.push(rpc_answer(ws, "destroy", json!({ "token": token, "lab_id": lab_id })).await?);
+    Ok(answers)
+}
+
+/// The answers to the lab operations only a lab's owner may run, and to the destroy button, for
+/// `token`'s caller on lab `lab_id`, over RPC, REST and the web UI.
+async fn owner_only_answers(
+    ws: &mut TestWsClient,
+    http: &Client,
+    base: &str,
+    token: &str,
+    lab_id: &str,
+) -> Result<Vec<LabAnswer>> {
+    let mut answers = Vec::new();
+    for (method, params) in [
+        ("download", json!({ "token": token, "lab_id": lab_id })),
+        ("cancel", json!({ "token": token, "lab_id": lab_id })),
+        (
+            "node.host_keys",
+            json!({ "token": token, "lab_id": lab_id, "node_name": "vm" }),
+        ),
+        (
+            "node.secrets",
+            json!({ "token": token, "lab_id": lab_id, "node_name": "vm", "files": [] }),
+        ),
+        (
+            "redeploy",
+            json!({
+                "token": token, "lab_id": lab_id, "node_name": "vm",
+                "manifest": { "name": "auth-matrix", "nodes": [{ "name": "vm", "model": "ubuntu_linux" }] },
+            }),
+        ),
+    ] {
+        answers.push(rpc_answer(ws, method, params).await?);
+    }
+
+    answers.push(
+        http_answer(
+            "REST cancel".to_owned(),
+            http.post(format!("{base}/api/v1/labs/{lab_id}/cancel"))
+                .bearer_auth(token),
+        )
+        .await?,
+    );
+    answers.push(
+        http_answer(
+            "REST redeploy".to_owned(),
+            http.post(format!("{base}/api/v1/labs/{lab_id}/nodes/vm/redeploy"))
+                .bearer_auth(token)
+                .json(&json!({})),
+        )
+        .await?,
+    );
+    for route in CONSOLE_ROUTES {
+        answers.push(
+            http_answer(
+                format!("REST {route}"),
+                http.get(format!(
+                    "{base}/api/v1/labs/{lab_id}/nodes/vm/{route}?check=true"
+                ))
+                .bearer_auth(token),
+            )
+            .await?,
+        );
+    }
+
+    for path in [
+        format!("/labs/{lab_id}/download"),
+        format!("/labs/{lab_id}/destroy/button"),
+    ] {
+        answers.push(
+            http_answer(
+                format!("web GET {path}"),
+                http.get(format!("{base}{path}"))
+                    .header(header::COOKIE, cookie(token)),
+            )
+            .await?,
+        );
+    }
+    answers.push(
+        http_answer(
+            "web POST redeploy".to_owned(),
+            http.post(format!("{base}/labs/{lab_id}/nodes/vm/redeploy"))
+                .header(header::COOKIE, cookie(token)),
+        )
+        .await?,
+    );
+    Ok(answers)
+}
+
+/// Whether `answer` is a not-found refusal: RPC error `NotFound`, or HTTP 404.
+fn is_not_found(answer: &Answer) -> bool {
+    match answer {
+        Answer::Rpc { error, .. } => error["code"] == json!(RpcErrorCode::NotFound),
+        Answer::Http { status, .. } => *status == StatusCode::NOT_FOUND,
+    }
+}
+
+#[tokio::test]
+async fn access_control_019_another_users_lab_is_answered_as_a_lab_that_does_not_exist()
+-> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let (callers, owners) = login_callers(&server, &mut ws).await?;
+    let lab_id = seed_lab(&server, owner(&owners, "alice")?, 1).await?;
+    let bob = token_of(&callers, "bob")?;
+    let http = http_client()?;
+    let base = format!("http://{}", server.addr);
+    let check = LabCheck {
+        token: &bob,
+        lab_id: &lab_id,
+        allowed: false,
+    };
+
+    let mut present = lab_answers(&mut ws, &http, &base, &check).await?;
+    present.extend(owner_only_answers(&mut ws, &http, &base, &bob, &lab_id).await?);
+    ensure!(
+        db::find_lab(&server.db, &lab_id).await?.is_some(),
+        "a refused request removed the lab"
+    );
+    remove_lab(&server, &lab_id).await?;
+    let mut missing = lab_answers(&mut ws, &http, &base, &check).await?;
+    missing.extend(owner_only_answers(&mut ws, &http, &base, &bob, &lab_id).await?);
+
+    ensure!(
+        present.len() == missing.len(),
+        "the two runs sent different requests"
+    );
+    for ((label, progress, here), (_, _, gone)) in present.iter().zip(&missing) {
+        ensure!(
+            is_not_found(here) && here == gone,
+            "{label}: alice's lab answered {here:?}, and {gone:?} once it was removed"
+        );
+        ensure!(
+            progress.is_empty(),
+            "{label}: refused request streamed progress: {progress:?}"
+        );
     }
     Ok(())
+}
+
+#[tokio::test]
+async fn access_control_020_the_destroy_button_is_served_to_the_owner_and_an_admin_only()
+-> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let (callers, owners) = login_callers(&server, &mut ws).await?;
+    let lab_id = seed_lab(&server, owner(&owners, "alice")?, 1).await?;
+    let http = http_client()?;
+    let base = format!("http://{}", server.addr);
+
+    for (caller, expected) in [
+        ("alice", StatusCode::OK),
+        ("dana", StatusCode::OK),
+        ("bob", StatusCode::NOT_FOUND),
+    ] {
+        let response = http
+            .get(format!("{base}/labs/{lab_id}/destroy/button"))
+            .header(header::COOKIE, cookie(&token_of(&callers, caller)?))
+            .send()
+            .await?;
+        ensure!(
+            response.status() == expected,
+            "{caller}: expected {expected}, got {}",
+            response.status()
+        );
+    }
+    remove_lab(&server, &lab_id).await
 }
 
 /// Assert `response` is an RPC refusal naming the lab's owner-only rule.
@@ -371,7 +563,7 @@ async fn access_control_010_lab_files_and_host_keys_are_for_the_lab_owner_only()
             ensure_owner_only_refusal(&response, &lab_id, &format!("RPC download, {who}"))?;
         } else {
             ensure!(
-                response["error"]["code"] == json!(RpcErrorCode::AccessDenied),
+                response["error"]["code"] == json!(RpcErrorCode::NotFound),
                 "RPC download, {who}: {response}"
             );
         }
@@ -385,7 +577,7 @@ async fn access_control_010_lab_files_and_host_keys_are_for_the_lab_owner_only()
             ensure_owner_only_refusal(&response, &lab_id, &format!("RPC node.host_keys, {who}"))?;
         } else {
             ensure!(
-                response["error"]["code"] == json!(RpcErrorCode::AccessDenied),
+                response["error"]["code"] == json!(RpcErrorCode::NotFound),
                 "RPC node.host_keys, {who}: {response}"
             );
         }
@@ -394,7 +586,16 @@ async fn access_control_010_lab_files_and_host_keys_are_for_the_lab_owner_only()
             .header(header::COOKIE, cookie(&token))
             .send()
             .await?;
-        check_http(&response, false, &format!("web download, {who}"))?;
+        let refusal = if caller == "dana" {
+            StatusCode::FORBIDDEN
+        } else {
+            StatusCode::NOT_FOUND
+        };
+        ensure!(
+            response.status() == refusal,
+            "web download, {who}: {}",
+            response.status()
+        );
     }
 
     // The owner gets the files on every transport.
@@ -984,7 +1185,7 @@ fn owner<'a>(owners: &'a [DbUser], username: &str) -> Result<&'a DbUser> {
 }
 
 #[tokio::test]
-async fn access_control_013_a_node_operation_is_refused_to_a_non_owner_and_unknowns_are_not_found()
+async fn access_control_013_a_node_operation_on_another_users_lab_or_unknowns_is_not_found()
 -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -995,7 +1196,7 @@ async fn access_control_013_a_node_operation_is_refused_to_a_non_owner_and_unkno
 
     for method in ["node.secrets", "node.host_keys"] {
         for (token, lab, node, code) in [
-            (&bob, lab_id.as_str(), "box1", RpcErrorCode::AccessDenied),
+            (&bob, lab_id.as_str(), "box1", RpcErrorCode::NotFound),
             (&alice, UNKNOWN_LAB, "box1", RpcErrorCode::NotFound),
             (&alice, lab_id.as_str(), "ghost", RpcErrorCode::NotFound),
         ] {
@@ -1013,7 +1214,7 @@ async fn access_control_013_a_node_operation_is_refused_to_a_non_owner_and_unkno
     }
 
     for (token, lab, code) in [
-        (&bob, lab_id.as_str(), RpcErrorCode::AccessDenied),
+        (&bob, lab_id.as_str(), RpcErrorCode::NotFound),
         (&alice, UNKNOWN_LAB, RpcErrorCode::NotFound),
     ] {
         let response = ws

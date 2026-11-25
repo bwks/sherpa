@@ -59,7 +59,7 @@ async fn main() -> Result<()> {
         Commands::CheckDatabase => {
             sherpad::check_database::check_database(Path::new(SHERPA_DB_FILE_PATH)).await
         }
-        Commands::Doctor { boxes } => sherpad::doctor::doctor(boxes),
+        Commands::Doctor { images } => sherpad::doctor::doctor(images),
         Commands::User {
             command: UserCommands::Unlock { username },
         } => {

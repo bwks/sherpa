@@ -96,8 +96,8 @@ It holds the e2e cases of [`tests/specs/consoles.md`](../../specs/consoles.md) t
 | `vnc_console_005` | With a viewer holding the console, a second `sherpa vnc alp01` prints its address, says the VNC console is in use by the owner and offers `--force`, and keeps running |
 | `vnc_console_006` | With a viewer holding the console, a second viewer of the same command gets nothing, and the command says the console is in use by the owner and keeps running |
 | `vnc_console_007` | Once a viewer leaves, the command says it disconnected, and a new viewer gets the banner |
-| `console_access_001` | The other user, in a folder holding a copy of the owner's `.sherpa/lab-info.toml`, is refused `sherpa console alp01` by the server with `Access denied: only the owner of lab '<id>' can open its consoles` |
-| `console_access_002` | The other user and the admin each run `sherpa vnc alp01` in their folder: it ends with exit code 1, the same `Access denied`, and no local address |
+| `console_access_001` | The other user, in a folder holding a copy of the owner's `.sherpa/lab-info.toml`, is refused `sherpa console alp01` by the server with `Lab not found: <id>`, the answer for a lab that does not exist |
+| `console_access_002` | The other user and the admin each run `sherpa vnc alp01` in their folder: it ends with exit code 1 and no local address, the user told `Lab not found: <id>` and the admin `Access denied: only the owner of lab '<id>' can open its consoles` |
 | `console_session_001` | With the console open, a second `sherpa console alp01` fails, naming the owner as the holder and offering `--force` |
 | `console_session_002` | `sherpa console alp01 --force` takes the open console over, at the login prompt; the console taken over ends with code 0, saying it was taken over by the owner |
 | `console_refusal_001` | `sherpa console ctr01` fails, saying containers have no serial console and to use `sherpa ssh` |

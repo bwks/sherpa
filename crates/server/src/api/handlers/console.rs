@@ -113,10 +113,10 @@ enum Ended {
 ///
 /// # Errors
 ///
-/// 401 without a valid bearer token; 403 for anyone but the lab's owner; 404 for a lab or node
-/// that does not exist; 400 for a container; 409 when the node is not running, was started
-/// before consoles moved behind sherpad, or another session holds its console; 500 when the
-/// console's socket cannot be reached.
+/// 401 without a valid bearer token; 403 for an admin who does not own the lab; 404 for a lab
+/// or node that does not exist, or a lab of another user; 400 for a container; 409 when the
+/// node is not running, was started before consoles moved behind sherpad, or another session
+/// holds its console; 500 when the console's socket cannot be reached.
 pub async fn node_console_handler(
     BearerUser(auth): BearerUser,
     State(state): State<AppState>,
