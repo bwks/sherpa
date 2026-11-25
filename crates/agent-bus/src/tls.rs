@@ -14,6 +14,7 @@
 //! The CA's certificate is not parsed back to sign with: it is rebuilt from its key and its fixed
 //! subject, which is all a certificate it issues takes from it.
 
+use std::env;
 use std::ffi::OsString;
 use std::fmt;
 use std::fs;
@@ -128,7 +129,7 @@ impl TlsFiles {
 ///
 /// Fails when `AGENT_BUS_CA` is not set and there is no state directory.
 pub fn client_ca() -> Result<PathBuf> {
-    client_ca_in(std::env::var_os(CA_ENV), standard_state_dir)
+    client_ca_in(env::var_os(CA_ENV), standard_state_dir)
 }
 
 /// `environment` when set, else `tls/ca.pem` in the state directory.
@@ -359,6 +360,7 @@ mod tests {
 
     use std::net::Ipv4Addr;
     use std::os::unix::fs::PermissionsExt;
+    use std::process;
     use std::sync::Arc;
 
     use async_nats::rustls::client::WebPkiServerVerifier;
@@ -371,7 +373,7 @@ mod tests {
     const LISTEN: IpAddr = IpAddr::V4(Ipv4Addr::new(172, 31, 3, 1));
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("agent-bus-tls-{name}-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("agent-bus-tls-{name}-{}", process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }

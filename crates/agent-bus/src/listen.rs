@@ -222,7 +222,9 @@ fn print(out: &mut impl Write, message: &Message) -> Result<()> {
 mod tests {
     use super::*;
 
+    use std::env;
     use std::path::Path;
+    use std::process;
 
     use crate::message::Kind;
 
@@ -231,8 +233,7 @@ mod tests {
     const DAY: u64 = 24 * 60 * MINUTE;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("agent-bus-listen-{name}-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("agent-bus-listen-{name}-{}", process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }

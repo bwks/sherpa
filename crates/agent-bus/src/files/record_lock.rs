@@ -35,6 +35,8 @@ pub fn lock_holder(path: &Path) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
+    use std::process;
+
     use super::*;
 
     use super::super::lock_exclusive;
@@ -63,11 +65,11 @@ mod tests {
         fs::write(&path, "not a pid").unwrap();
         assert_eq!(lock_holder(&path), None);
         let lock = try_lock_exclusive(&path).unwrap().unwrap();
-        assert_eq!(lock_holder(&path), Some(std::process::id()));
+        assert_eq!(lock_holder(&path), Some(process::id()));
         drop(lock);
         fs::write(&path, "").unwrap();
         let lock = lock_exclusive(&path).unwrap();
-        assert_eq!(lock_holder(&path), Some(std::process::id()));
+        assert_eq!(lock_holder(&path), Some(process::id()));
         drop(lock);
         assert_eq!(lock_holder(&dir.join("missing.lock")), None);
         fs::remove_dir_all(&dir).unwrap();

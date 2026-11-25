@@ -5,6 +5,7 @@
 //! `cancel` read the URL when they are given no server; `enroll` and `unenroll` read all of it.
 
 use std::fs;
+use std::io::ErrorKind;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -99,7 +100,7 @@ pub fn read(path: &Path) -> Result<Option<BusRecord>> {
         Ok(text) => toml::from_str(&text)
             .map(Some)
             .with_context(|| format!("{} is not a bus record", path.display())),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error).with_context(|| format!("Unable to read {}", path.display())),
     }
 }
@@ -113,7 +114,7 @@ pub fn read(path: &Path) -> Result<Option<BusRecord>> {
 pub fn remove(path: &Path) -> Result<()> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error).with_context(|| format!("Unable to remove {}", path.display())),
     }
 }
@@ -144,7 +145,9 @@ pub fn find_server(
 mod tests {
     use super::*;
 
+    use std::env;
     use std::os::unix::fs::PermissionsExt;
+    use std::process;
 
     const LAB_INFO: &str = r#"
 id = "abc123"
@@ -164,8 +167,7 @@ ipv4_router = "192.0.2.2"
     }
 
     fn scratch(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("agent-bus-state-{name}-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("agent-bus-state-{name}-{}", process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir

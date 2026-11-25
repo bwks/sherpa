@@ -97,6 +97,7 @@ mod tests {
     use std::env;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
+    use std::process;
 
     use crate::files::{DIR_MODE, PRIVATE_FILE_MODE, now_ms};
 
@@ -118,7 +119,7 @@ mod tests {
 
     #[test]
     fn lines_are_wrapped_appended_and_private() {
-        let dir = env::temp_dir().join(format!("agent-bus-record-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("agent-bus-record-{}", process::id()));
         let _ = fs::remove_dir_all(&dir);
         let mut log = ResultLog::new(dir.join("state").join(FILE_NAME));
         let now = now_ms();
@@ -150,7 +151,7 @@ mod tests {
     #[test]
     fn results_older_than_the_retention_are_pruned() {
         const DAY: u64 = 24 * 60 * 60 * 1000;
-        let dir = env::temp_dir().join(format!("agent-bus-record-prune-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("agent-bus-record-prune-{}", process::id()));
         let _ = fs::remove_dir_all(&dir);
         let now = now_ms();
         let mut log = ResultLog::new(dir.join(FILE_NAME));
