@@ -323,11 +323,13 @@ pub(crate) fn lab_of_container<'a>(container_name: &'a str, node_name: &str) -> 
         .unwrap_or_default()
 }
 
-/// The Docker state matching microVM state `state`.
+/// The Docker state matching microVM state `state`. A guest that stopped itself had its
+/// command exit, so its node has failed: `dead`, not `exited`, which a halt by down reports.
 fn docker_status(state: MicroVmState) -> ContainerStateStatusEnum {
     match state {
         MicroVmState::Running => ContainerStateStatusEnum::RUNNING,
         MicroVmState::Paused => ContainerStateStatusEnum::PAUSED,
+        MicroVmState::Exited => ContainerStateStatusEnum::DEAD,
         MicroVmState::Stopped => ContainerStateStatusEnum::EXITED,
     }
 }
@@ -409,6 +411,8 @@ pub(crate) async fn resume_microvm_node(lab_id: &str, node_name: &str) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::node_lifecycle;
+    use shared::data::{Halt, Runtime};
 
     #[test]
     fn privileged_microvm_009_each_nic_of_a_lab_gets_its_own_locally_administered_mac() {
@@ -446,6 +450,19 @@ mod tests {
         };
         save_wiring(dir.path(), &wiring).expect("save");
         assert_eq!(load_wiring(dir.path()).expect("load"), wiring);
+    }
+
+    #[test]
+    fn privileged_microvm_025_a_microvm_that_stopped_itself_reads_failed_and_a_halted_one_stopped()
+    {
+        assert_eq!(
+            node_lifecycle::container_runtime(Some(docker_status(MicroVmState::Exited))),
+            Runtime::Faulted("dead")
+        );
+        assert_eq!(
+            node_lifecycle::container_runtime(Some(docker_status(MicroVmState::Stopped))),
+            Runtime::Stopped(Halt::Off)
+        );
     }
 
     #[test]

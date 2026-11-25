@@ -207,3 +207,5 @@ Cases 001 to 020 are up, 021 to 026 resume, 027 and 028 redeploy, 029 to 035 the
 | 021 | A microVM's taps are wired at its next boot as at its first: management tap on the management bridge, bridge members on their bridge, disabled interfaces without carrier | unit |
 | 022 | A halted microVM has no process or tap, keeps its runtime folder, and boots again from it with its taps | integration |
 | 023 | Down then resume of a lab of microVM nodes boots each again with its config kept, and its P2p links pass traffic again (no test yet) | e2e |
+| 024 | A microVM whose command exits stops and stays stopped, with its VMM still there, instead of booting again | integration |
+| 025 | A microVM that stopped itself reads as a dead container, so its node is `failed`; one halted by down reads as stopped | unit |

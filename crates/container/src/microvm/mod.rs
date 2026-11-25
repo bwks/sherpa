@@ -49,11 +49,13 @@ pub struct MicroVmNic {
     pub guest_name: String,
 }
 
-/// What a microVM reports.
+/// What a microVM reports. `Exited` is a guest that stopped itself, as its command exited or
+/// its init failed, with its VMM still there; `Stopped` is a microVM whose VMM does not run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MicroVmState {
     Running,
     Paused,
+    Exited,
     Stopped,
 }
 
@@ -180,6 +182,9 @@ async fn boot(name: &str, dir: &Path, config: &Value) -> Result<(), MicroVmError
     let mut child = Command::new(microvm_file(HYPERVISOR_BINARY))
         .arg("--api-socket")
         .arg(format!("path={}", socket.display()))
+        // The guest kernel panics, and resets, when the container's command exits: the
+        // microVM then stops as the container would, rather than booting again.
+        .args(["--guest-reset-action", "shutdown-vm"])
         .stdin(Stdio::null())
         .stdout(log)
         .stderr(log_err)
@@ -439,5 +444,41 @@ mod tests {
         assert_eq!(microvm_state(&runtime_dir).await, MicroVmState::Running);
         assert!(Path::new("/sys/class/net").join(tap).exists());
         stop_microvm("mv022", &runtime_dir).await.expect("stop");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires root (taps), Docker with alpine:latest, and /opt/sherpa/microvm installed"]
+    async fn privileged_microvm_024_a_microvm_whose_command_exits_stays_exited_and_does_not_boot_again()
+     {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut spec = alpine_microvm(dir.path(), "mv024", "smv024-test").await;
+        let config = GuestConfig {
+            hostname: "mv024".to_owned(),
+            mgmt_address: None,
+            mgmt_gateway: None,
+            nics: spec.nics.clone(),
+            argv: vec![
+                "sh".to_owned(),
+                "-c".to_owned(),
+                "sleep 2; exit 3".to_owned(),
+            ],
+            env: vec![],
+            user: None,
+            working_dir: None,
+            volumes: vec![],
+        };
+        spec.config_iso = dir.path().join("exits.iso");
+        write_config_iso(&config, &dir.path().join("exits"), &spec.config_iso).expect("iso");
+        let runtime_dir = spec.runtime_dir.clone();
+        start_microvm(&spec).await.expect("start");
+
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while microvm_state(&runtime_dir).await != MicroVmState::Exited {
+            assert!(Instant::now() < deadline, "the microVM did not stop");
+            sleep(POLL).await;
+        }
+        sleep(Duration::from_secs(3)).await;
+        assert_eq!(microvm_state(&runtime_dir).await, MicroVmState::Exited);
+        stop_microvm("mv024", &runtime_dir).await.expect("stop");
     }
 }

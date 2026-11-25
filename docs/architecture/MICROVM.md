@@ -146,7 +146,8 @@ redeploy), `sync_netem` and the scanner work on them unchanged. See
 
 A microVM node is checked as a container is (`CONTAINER_SETTLE`, then its ready port if it has
 one). `microvm::microvm_status` maps the VM's state to Docker's (`Running` to `running`,
-`Paused` to `paused`, anything else to `exited`), and `node_lifecycle::container_states` adds
+`Paused` to `paused`, a guest that stopped itself to `dead`, and a VMM that does not
+answer to `exited`), and `node_lifecycle::container_states` adds
 every microVM under its container name, so the scanner, `up`, redeploy and `inspect` see one
 state for each container node, whichever runtime it has.
 
@@ -163,6 +164,16 @@ recorded in `ch.pid` (checked against its command line, so a reused pid is never
 and kills it when it does not exit in 15 seconds. The taps go with the process; the runtime
 folder, with `vm.json`, stays. `microvm::stop_microvm` halts the microVM and removes the
 runtime folder. A microVM that is not there is already stopped.
+
+## A Command That Exits
+
+The container's command is the guest's PID 1, so when it exits the guest kernel panics and,
+with `panic=-1`, resets. Cloud Hypervisor runs with `--guest-reset-action shutdown-vm`, so the
+reset shuts the microVM down instead of booting it again, and the VMM stays. The VM then reads
+`Created` (or `Shutdown`), which `vm_state` reports as `MicroVmState::Exited`, mapped to
+Docker's `dead`: the node is recorded `failed`, as a dead container is, and resume refuses it
+until it is redeployed. The init's own failures power the guest off and end the same way. A
+reboot asked for inside the node ends it too, as PID 1 exiting ends a container.
 
 ## Down and Resume
 
@@ -188,8 +199,6 @@ domains are, and `sherpad` finds them again by their API sockets.
 
 ## Limits
 
-- A container command that exits panics the guest kernel, and Cloud Hypervisor reboots the
-  microVM rather than stopping it, so the node is not reported `failed`.
 - Only `arista_eos` and `nokia_srlinux` containers run in a microVM. A microVM node on no link
   gets no data interfaces, where Docker gives a container on no link its disabled data
   networks.

@@ -151,7 +151,8 @@ pub(crate) async fn create_and_boot(socket: &Path, config: &Value) -> Result<(),
     Ok(())
 }
 
-/// The state of the microVM behind `socket`: stopped when the VMM does not answer.
+/// The state of the microVM behind `socket`: exited when the guest stopped itself, stopped when
+/// the VMM does not answer.
 #[instrument(level = "debug")]
 pub(crate) async fn vm_state(socket: &Path) -> MicroVmState {
     let Ok(bytes) = call_ok(socket, Method::GET, "vm.info", None).await else {
@@ -163,6 +164,8 @@ pub(crate) async fn vm_state(socket: &Path) -> MicroVmState {
     match state.as_deref() {
         Some("Running") => MicroVmState::Running,
         Some("Paused") => MicroVmState::Paused,
+        // A guest reset shuts the microVM down to `Created`, as it was before `vm.boot`.
+        Some("Shutdown" | "Created") => MicroVmState::Exited,
         _ => MicroVmState::Stopped,
     }
 }
