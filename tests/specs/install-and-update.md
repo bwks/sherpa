@@ -200,10 +200,10 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | A new database gets this release's schema version, and a second start changes nothing | integration |
-| 002 | A database with a newer schema version than this release's is refused, naming both versions, and is left unchanged | integration |
+| 002 | A database with a newer schema version than this release's is refused, the error carrying both versions, and is left unchanged | integration |
 | 003 | `check-database` refuses a newer schema version the same way | integration |
 | 004 | A database with a lab that logs in to its nodes with the server's shared SSH key is refused; the steps before that one are undone too, so its version and its records are as they were | integration |
-| 005 | That refusal names each such lab by ID, name and owner, and says to destroy them with the release the server ran before | unit |
+| 005 | That refusal carries each such lab's ID, name and owner | unit |
 | 006 | `check-database` refuses such a database the same way, and the database is unchanged | integration |
 | 007 | `check-database` passes an empty database, an older one with no such lab and one at this release's version, and none of them changes | integration |
 | 008 | `sherpad check-database` on a server with no database file passes and creates none | integration |

@@ -38,8 +38,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 006 | The shared and load balancer addresses lie above the lab's infrastructure addresses and below its node addresses, and the load balancer range divides into whole blocks | unit |
 | 007 | A stored plan reads back as it was planned, the clusters in manifest order | integration |
 | 008 | Storing a lab's plans again replaces them | integration |
-| 009 | A plan for a cluster the lab's definition does not have is refused, naming it, and nothing is stored | integration |
-| 010 | A plan whose member has no management address is refused when it is read, naming the node | integration |
+| 009 | A plan for a cluster the lab's definition does not have is refused, the error carrying its name, and nothing is stored | integration |
+| 010 | A plan whose member has no management address is refused when it is read, the error carrying the node | integration |
 | 011 | A later operation gets each cluster from its stored plan and its saved secrets, and finds a member with its role and address | unit |
 | 012 | Destroying the lab removes its plans | integration |
 | 013 | Two clusters with three controllers in one lab both come up, each at its own shared address (no test yet; real cluster) | e2e |

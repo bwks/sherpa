@@ -12,6 +12,7 @@ aes-gcm = { workspace = true }
 
 # Errors
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 # Sealed text columns hold the sealed bytes in hex
 hex = { workspace = true }

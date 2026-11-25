@@ -1,12 +1,12 @@
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use shared::data::{DbNode, NodeResources, NodeState, ReadyCheck, RecordId};
 use tracing::instrument;
 use turso::Value;
 
-use crate::Database;
 use crate::persistence::{NODE_IMAGE_TABLE, NODE_TABLE, enum_text, key_of, node_from_row};
 use crate::queries;
 use crate::sql::{Bound, query_count, query_optional};
+use crate::{Database, DbError};
 
 /// Set columns of one node with `query`, whose `?1` is the node's key, and return the node.
 async fn update_columns(
@@ -19,7 +19,12 @@ async fn update_columns(
     query_optional(&writer.conn, query, node_from_row)
         .await
         .context(format!("Failed to update {what} for node: {node_id:?}"))?
-        .ok_or_else(|| anyhow!("Node not found with id: {node_id:?}"))
+        .ok_or_else(|| {
+            DbError::NodeNotFound {
+                id: node_id.clone(),
+            }
+            .into()
+        })
 }
 
 /// Update a node's management IPv4 address.
@@ -145,7 +150,7 @@ pub async fn update_node_state_from(
             .await
             .context(format!("Failed to look up node: {node_id:?}"))?;
         if exists == 0 {
-            bail!("Node not found with id: {node_id:?}");
+            bail!(DbError::NodeNotFound { id: node_id });
         }
     }
     Ok(node)

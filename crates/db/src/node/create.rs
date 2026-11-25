@@ -4,10 +4,10 @@ use anyhow::{Context, Result, anyhow};
 use shared::data::{DbNode, NodeState, ReadyCheck, RecordId};
 use tracing::instrument;
 
-use crate::Database;
 use crate::persistence::{new_key, node_from_row, node_values};
 use crate::queries;
 use crate::sql::query_optional;
+use crate::{Database, DbError};
 
 /// Create a new node in the database.
 ///
@@ -67,9 +67,11 @@ pub async fn create_node(
         node_from_row,
     )
     .await
-    .context(format!(
-        "Failed to create node: name='{name}', index={index}, lab={lab:?}"
-    ))?;
+    .context(DbError::NodeNotCreated {
+        name: name.to_owned(),
+        index,
+        lab: lab.clone(),
+    })?;
 
     node.ok_or_else(|| {
         anyhow!(

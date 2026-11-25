@@ -1,6 +1,6 @@
 /// DELETE operation tests for user
 use anyhow::Result;
-use db::delete_user;
+use db::{DbError, delete_user};
 use shared::data::RecordId;
 
 use crate::setup_db;
@@ -11,13 +11,12 @@ async fn user_accounts_017_deleting_a_user_that_does_not_exist_is_not_found() ->
 
     let fake_id = RecordId::new("user", "nonexistent");
 
-    let result = delete_user(&db, fake_id).await;
+    let error = delete_user(&db, fake_id.clone()).await.unwrap_err();
 
-    assert!(result.is_err(), "Should fail when user doesn't exist");
-    let error_msg = result.unwrap_err().to_string();
-    assert!(
-        error_msg.contains("not found"),
-        "Error should mention user not found: {error_msg}"
+    assert_eq!(
+        error.downcast_ref::<DbError>(),
+        Some(&DbError::UserToDeleteNotFound { id: fake_id }),
+        "{error:#}"
     );
 
     Ok(())

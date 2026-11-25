@@ -1,11 +1,11 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use shared::data::{DbUser, RecordId};
 use tracing::instrument;
 
-use crate::Database;
 use crate::persistence::{USER_TABLE, key_of, user_from_row};
 use crate::queries;
 use crate::sql::query_optional;
+use crate::{Database, DbError};
 
 /// Delete a user by `RecordId`
 ///
@@ -38,7 +38,7 @@ pub async fn delete_user(db: &Database, id: RecordId) -> Result<()> {
     .context(format!("Failed to delete user: {id:?}"))?;
 
     // Verify the record was found and deleted
-    deleted.ok_or_else(|| anyhow!("User not found for deletion: {id:?}"))?;
+    deleted.ok_or(DbError::UserToDeleteNotFound { id })?;
 
     Ok(())
 }

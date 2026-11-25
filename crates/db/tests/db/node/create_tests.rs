@@ -1,6 +1,7 @@
 use anyhow::Result;
 use db::{
-    DefaultRequest, LabDetails, create_lab, create_node, create_user, get_node, upsert_node_image,
+    DbError, DefaultRequest, LabDetails, create_lab, create_node, create_user, get_node,
+    upsert_node_image,
 };
 use shared::data::{ModelKind, NodeModel};
 
@@ -51,11 +52,15 @@ async fn test_create_node_duplicate_name_per_lab_fails() -> Result<()> {
         result.is_err(),
         "Should fail on duplicate (name, lab) combination"
     );
-    let error_msg = result.unwrap_err().to_string();
-    println!("Duplicate name+lab error: {error_msg}");
-    assert!(
-        error_msg.contains("Failed to create node") && error_msg.contains("node1"),
-        "Error should mention the failed node creation, got: {error_msg}"
+    let error = result.unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<DbError>(),
+        Some(&DbError::NodeNotCreated {
+            name: "node1".to_owned(),
+            index: 2,
+            lab: lab.id.clone().unwrap(),
+        }),
+        "{error:#}"
     );
 
     Ok(())
@@ -106,11 +111,15 @@ async fn test_create_node_duplicate_index_per_lab_fails() -> Result<()> {
         result.is_err(),
         "Should fail on duplicate (index, lab) combination"
     );
-    let error_msg = result.unwrap_err().to_string();
-    println!("Duplicate index+lab error: {error_msg}");
-    assert!(
-        error_msg.contains("Failed to create node") && error_msg.contains("router2"),
-        "Error should mention the failed node creation, got: {error_msg}"
+    let error = result.unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<DbError>(),
+        Some(&DbError::NodeNotCreated {
+            name: "router2".to_owned(),
+            index: 10,
+            lab: lab.id.clone().unwrap(),
+        }),
+        "{error:#}"
     );
 
     Ok(())

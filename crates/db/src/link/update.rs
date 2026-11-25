@@ -3,10 +3,10 @@ use shared::data::{DbLink, LinkImpairment, RecordId};
 use tracing::instrument;
 use turso::Value;
 
-use crate::Database;
 use crate::persistence::{LINK_TABLE, impairment_values, key_of, link_from_row};
 use crate::queries;
 use crate::sql::query_optional;
+use crate::{Database, DbError};
 
 /// Set the impairments of the link `id`, in each direction. Only those columns are written, so
 /// the rest of the link is kept as stored.
@@ -44,5 +44,5 @@ pub async fn update_link_impairments(
     )
     .await
     .with_context(|| format!("Failed to update the impairments of link {id:?}"))?;
-    updated.with_context(|| format!("Link not found: {id:?}"))
+    updated.with_context(|| DbError::LinkNotFound { id: id.clone() })
 }

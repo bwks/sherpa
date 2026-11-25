@@ -2,16 +2,16 @@
 
 use std::net::Ipv4Addr;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use tracing::instrument;
 use turso::Row;
 
 use shared::data::{AddressRange, ClusterCni, ClusterMember, ClusterPlan, RecordId};
 
-use crate::Database;
 use crate::persistence::{Cells, LAB_TABLE, key_of};
 use crate::queries::talos;
 use crate::sql::{execute, query_all};
+use crate::{Database, DbError};
 
 /// A stored cluster: its position in the definition and its plan, with no members yet.
 struct PlanRow {
@@ -71,7 +71,10 @@ pub async fn store_talos_cluster_plans(
         .await
         .with_context(|| format!("Failed to store the plan of Talos cluster {name}"))?;
         if stored != 1 {
-            bail!("Talos cluster {name} is not in the definition of lab {lab_id}");
+            bail!(DbError::TalosClusterNotInDefinition {
+                name: name.to_owned(),
+                lab_id: lab_id.clone(),
+            });
         }
     }
     tx.commit()
@@ -186,7 +189,12 @@ fn member_row(row: &Row) -> Result<MemberRow> {
 
 /// The management address of the node `name`, which a cluster needs.
 fn node_address(name: &str, ipv4: Option<Ipv4Addr>) -> Result<Ipv4Addr> {
-    ipv4.ok_or_else(|| anyhow!("Node {name}, used by a Talos cluster, has no management address"))
+    ipv4.ok_or_else(|| {
+        DbError::TalosMemberWithoutAddress {
+            name: name.to_owned(),
+        }
+        .into()
+    })
 }
 
 #[cfg(test)]
@@ -402,7 +410,14 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(format!("{error:#}").contains("gone"), "{error:#}");
+        assert_eq!(
+            error.downcast_ref::<DbError>(),
+            Some(&DbError::TalosClusterNotInDefinition {
+                name: "gone".to_owned(),
+                lab_id,
+            }),
+            "{error:#}"
+        );
         assert_eq!(plan_rows(&db).await, 0);
     }
 
@@ -423,7 +438,13 @@ mod tests {
 
         let error = list_talos_cluster_plans(&db, &lab_id).await.unwrap_err();
 
-        assert!(format!("{error:#}").contains("w1"), "{error:#}");
+        assert_eq!(
+            error.root_cause().downcast_ref::<DbError>(),
+            Some(&DbError::TalosMemberWithoutAddress {
+                name: "w1".to_owned()
+            }),
+            "{error:#}"
+        );
     }
 
     #[tokio::test]
