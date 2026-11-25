@@ -12,9 +12,9 @@ use crate::daemon::state::AppState;
 use crate::services::error::{ServiceCategory, ServiceError};
 use crate::services::{clean, import, user_delete, user_password, user_unlock};
 use crate::templates::{
-    AdminNotificationErrorTemplate, AdminPasswordErrorTemplate, AdminPasswordSuccessTemplate,
-    AdminSshKeysListTemplate, AdminToolsTemplate, AdminUserEditTemplate, AdminUsersTemplate,
-    NavPage,
+    AdminLabSummary, AdminLabsTemplate, AdminNotificationErrorTemplate, AdminPasswordErrorTemplate,
+    AdminPasswordSuccessTemplate, AdminSshKeysListTemplate, AdminToolsTemplate,
+    AdminUserEditTemplate, AdminUsersTemplate, NavPage,
 };
 
 use crate::api::errors::ApiError;
@@ -110,7 +110,7 @@ pub async fn admin_labs_list_handler(
         .await
         .map_err(|e| ApiError::internal(e, "Failed to list labs"))?;
 
-    let mut lab_summaries: Vec<crate::templates::AdminLabSummary> = Vec::new();
+    let mut lab_summaries: Vec<AdminLabSummary> = Vec::new();
 
     for lab in labs {
         let owner_username = match db::find_user_by_id(&state.db, lab.user.clone()).await {
@@ -126,7 +126,7 @@ pub async fn admin_labs_list_handler(
             0
         };
 
-        lab_summaries.push(crate::templates::AdminLabSummary::new(
+        lab_summaries.push(AdminLabSummary::new(
             lab.lab_id,
             lab.name,
             lab.description,
@@ -141,7 +141,7 @@ pub async fn admin_labs_list_handler(
 
     tracing::debug!("Loaded {} labs for admin labs list", lab_summaries.len());
 
-    Ok(crate::templates::AdminLabsTemplate {
+    Ok(AdminLabsTemplate {
         username: admin.username,
         is_admin: true,
         nav: NavPage::AdminLabs.into(),

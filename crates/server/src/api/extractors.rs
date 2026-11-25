@@ -1,6 +1,6 @@
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use jsonwebtoken::errors::{Error as JwtError, ErrorKind};
 use shared::auth::jwt::Claims;
@@ -236,7 +236,7 @@ pub(super) fn trace_rejected_session(path: &str, error: &CookieSessionError, act
 
 // Extractor logic helper: extract and validate token from Authorization header or Cookie
 /// The claims of a valid token in the `Authorization: Bearer` header, if there is one.
-fn bearer_claims(headers: &axum::http::HeaderMap, jwt_secret: &[u8]) -> Option<Claims> {
+fn bearer_claims(headers: &HeaderMap, jwt_secret: &[u8]) -> Option<Claims> {
     let token = headers
         .get(header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok())?
@@ -245,7 +245,7 @@ fn bearer_claims(headers: &axum::http::HeaderMap, jwt_secret: &[u8]) -> Option<C
 }
 
 fn extract_and_validate_token(
-    headers: &axum::http::HeaderMap,
+    headers: &HeaderMap,
     jwt_secret: &[u8],
 ) -> Result<Claims, &'static str> {
     // Try Authorization header first
@@ -548,7 +548,6 @@ mod tests {
     use super::*;
     use crate::auth::session::SessionRejection;
     use crate::log_capture::capture_log;
-    use axum::http::HeaderMap;
     use jiff::Timestamp;
     use jsonwebtoken::{EncodingKey, Header, encode};
     use shared::auth::jwt::Claims;

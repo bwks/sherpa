@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use axum::http::Response;
+use axum::http::{HeaderMap, Response};
 use http_body_util::BodyExt;
 use reqwest::{Certificate, Client, Identity};
 use serde_json::Value;
@@ -241,7 +241,7 @@ fn api_client(ca_cert: &str, identity: &PemPair, http2: bool) -> Result<Client> 
         .context("Failed to build cluster API client")
 }
 
-fn header_value(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
+fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
     headers
         .get(name)
         .and_then(|value| value.to_str().ok())

@@ -26,7 +26,8 @@ use crate::services::image_lifecycle::lock_image;
 use crate::services::import;
 use crate::services::progress::ProgressSender;
 use crate::templates::{
-    AdminImageEditTemplate, AdminImageUploadTemplate, AdminNotificationErrorTemplate,
+    AdminImageDetailTemplate, AdminImageEditTemplate, AdminImageUploadTemplate,
+    AdminImageVersionsTemplate, AdminImagesListTemplate, AdminNotificationErrorTemplate,
     DeviceEditChoices, FormChoice, KindBadge, ModelChoice, NavPage, VmEditChoices, kind_choices,
     kind_label,
 };
@@ -118,7 +119,7 @@ pub async fn admin_images_list_handler(
 
     let summaries: Vec<ImageSummary> = best_by_model_kind.into_values().collect();
 
-    let template = crate::templates::AdminImagesListTemplate {
+    let template = AdminImagesListTemplate {
         username: admin.username.clone(),
         is_admin: true,
         nav: NavPage::AdminImages.into(),
@@ -340,7 +341,7 @@ pub async fn admin_image_detail_handler(
 
     let config = find_image_config(&state, &params).await?;
 
-    let template = crate::templates::AdminImageDetailTemplate {
+    let template = AdminImageDetailTemplate {
         username: admin.username.clone(),
         is_admin: true,
         nav: NavPage::AdminImages.into(),
@@ -603,7 +604,7 @@ pub async fn admin_image_versions_handler(
     tracing::debug!("Found {} versions for {}", versions.len(), model);
 
     // Create template and render
-    let template = crate::templates::AdminImageVersionsTemplate {
+    let template = AdminImageVersionsTemplate {
         username,
         is_admin: true,
         nav: NavPage::AdminImages.into(),

@@ -1177,7 +1177,7 @@ pub(crate) mod tests {
             node_account(&account(&[KEY, RSA_KEY, ECDSA_KEY]), "vm", &image).unwrap();
         assert_eq!(node_account.account.username, "alice");
         assert_eq!(node_account.account.ssh_keys, vec![KEY, RSA_KEY, ECDSA_KEY]);
-        assert_eq!(node_account.skipped_keys, [] as [std::string::String; 0]);
+        assert_eq!(node_account.skipped_keys, [] as [String; 0]);
     }
 
     #[test]

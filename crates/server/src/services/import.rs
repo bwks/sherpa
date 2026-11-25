@@ -4,9 +4,11 @@ use futures_util::{Stream, StreamExt};
 use opentelemetry::KeyValue;
 use reqwest::Client;
 use sha2::{Digest, Sha256};
+use std::error::Error;
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::result;
 use std::time::Instant;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
@@ -967,9 +969,9 @@ async fn write_download<S, B, E>(
     progress: &ProgressSender,
 ) -> Result<(PlacedDisk, u64)>
 where
-    S: Stream<Item = std::result::Result<B, E>> + Unpin,
+    S: Stream<Item = result::Result<B, E>> + Unpin,
     B: AsRef<[u8]>,
-    E: std::error::Error + Send + Sync + 'static,
+    E: Error + Send + Sync + 'static,
 {
     let staged = StagedDisk::new(dest);
     let mut file = fs::File::create(staged.partial_path())

@@ -430,7 +430,7 @@ mod tests {
 
     use super::*;
     use db::LabDetails;
-    use shared::data::{ModelKind, NodeCpu};
+    use shared::data::{DbLab, DbUser, ModelKind, NodeCpu};
 
     fn node(cpu_count: Option<u8>, memory: Option<u16>) -> topology::NodeExpanded {
         topology::NodeExpanded {
@@ -544,13 +544,7 @@ mod tests {
         db
     }
 
-    async fn create_lab(
-        db: &db::Database,
-        user: &shared::data::DbUser,
-        lab_id: &str,
-        name: &str,
-        index: usize,
-    ) {
+    async fn create_lab(db: &db::Database, user: &DbUser, lab_id: &str, name: &str, index: usize) {
         let networks = db::LabNetworks {
             management_network: format!("172.31.{index}.0/24"),
             gateway_ipv4: format!("172.31.{index}.1"),
@@ -565,7 +559,7 @@ mod tests {
             .unwrap();
     }
 
-    fn lab_record(lab: &shared::data::DbLab) -> RecordId {
+    fn lab_record(lab: &DbLab) -> RecordId {
         db::get_lab_id(lab).unwrap()
     }
 

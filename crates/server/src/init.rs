@@ -423,7 +423,7 @@ mod tests {
     #[test]
     fn server_init_007_the_ssh_key_answer_is_a_key_a_file_or_nothing() {
         assert_eq!(read_ssh_key(TEST_SSH_KEY).unwrap(), vec![TEST_SSH_KEY]);
-        assert_eq!(read_ssh_key("").unwrap(), [] as [std::string::String; 0]);
+        assert_eq!(read_ssh_key("").unwrap(), [] as [String; 0]);
 
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("id_ed25519.pub");
