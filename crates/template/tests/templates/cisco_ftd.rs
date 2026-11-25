@@ -1,6 +1,6 @@
 use std::net::Ipv4Addr;
 
-use template::{CiscoFtdZtpTemplate, CiscoFxosIpMode, YesNo};
+use template::{CiscoFtdZtpTemplate, CiscoFxosFirewallMode};
 
 use crate::helpers;
 
@@ -10,9 +10,9 @@ use crate::helpers;
 
 // CiscoFtdZtpTemplate serializes to JSON via serde.
 // Field names are PascalCase via #[serde(rename)].
-// CiscoFxosIpMode serializes lowercase. CiscoFxosFirewallMode serializes lowercase.
+// The IP modes and CiscoFxosFirewallMode serialize lowercase.
 // manage_locally serializes as Yes or No.
-// Optional fields with skip_serializing_if are omitted when None.
+// The IPv6 keys are omitted without both an IPv6 address and an IPv6 network.
 
 const EXPECTED_MANUAL_IPV4: &str = r#"{
   "EULA": "accept",
@@ -37,13 +37,13 @@ fn generated_config_005_cisco_ftdv_day0_json() {
         eula: "accept".to_string(),
         hostname: "ftdv01".to_string(),
         admin_password: "Admin123!".to_string(),
-        manage_locally: YesNo(true),
-        dns1: Some(Ipv4Addr::new(172, 20, 0, 1)),
-        ipv4_mode: Some(CiscoFxosIpMode::Manual),
-        ipv4_addr: Some(Ipv4Addr::new(172, 20, 0, 10)),
-        ipv4_gw: Some(Ipv4Addr::new(172, 20, 0, 1)),
-        ipv4_mask: Some(Ipv4Addr::new(255, 255, 255, 0)),
-        ..Default::default()
+        firewall_mode: CiscoFxosFirewallMode::Routed,
+        dns: Ipv4Addr::new(172, 20, 0, 1),
+        manage_locally: true,
+        mgmt_ipv4: helpers::test_network_v4(),
+        mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
+        mgmt_ipv6_address: None,
+        mgmt_ipv6: None,
     };
     let json = serde_json::to_string_pretty(&t).expect("serializes");
     assert_eq!(json, EXPECTED_MANUAL_IPV4);
@@ -53,9 +53,16 @@ fn generated_config_005_cisco_ftdv_day0_json() {
 fn device_accounts_002_cisco_ftdv_admin() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
         let t = CiscoFtdZtpTemplate {
+            eula: "accept".to_string(),
             hostname: "ftdv01".to_string(),
             admin_password: (*password).to_string(),
-            ..Default::default()
+            firewall_mode: CiscoFxosFirewallMode::Routed,
+            dns: Ipv4Addr::new(172, 20, 0, 1),
+            manage_locally: true,
+            mgmt_ipv4: helpers::test_network_v4(),
+            mgmt_ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
+            mgmt_ipv6_address: None,
+            mgmt_ipv6: None,
         };
         let json = serde_json::to_string_pretty(&t).expect("serializes");
         let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid json");

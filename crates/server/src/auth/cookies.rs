@@ -11,7 +11,7 @@ pub const COOKIE_MAX_AGE_REMEMBER: i64 = 30 * 24 * 60 * 60; // 30 days in second
 ///
 /// The cookie is:
 /// - `HttpOnly` (prevents JavaScript access)
-/// - Secure (HTTPS only in production)
+/// - `Secure` (sent over HTTPS only)
 /// - SameSite=Strict (CSRF protection)
 /// - Path=/ (available for entire site)
 ///
@@ -29,8 +29,6 @@ pub fn create_auth_cookie(token: &str, remember_me: bool) -> String {
         COOKIE_MAX_AGE_NORMAL
     };
 
-    // In production, add Secure flag. For development/testing, omit it.
-    // You can check an env var or compile-time flag if needed.
     format!(
         "{AUTH_COOKIE_NAME}={token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age={max_age}"
     )
@@ -65,34 +63,42 @@ pub(crate) fn extract_tokens_from_cookie(cookie_header: &str) -> Vec<&str> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn user_login_008_the_session_cookie_is_http_only_secure_strict_for_7_or_30_days() {
-        let cookie = create_auth_cookie("test_token_123", false);
-
-        assert!(cookie.contains("sherpa_auth=test_token_123"));
-        assert!(cookie.contains("HttpOnly"));
-        assert!(cookie.contains("Secure"));
-        assert!(cookie.contains("SameSite=Strict"));
-        assert!(cookie.contains("Max-Age=604800"));
-        assert!(cookie.contains("Path=/"));
-
-        let remembered = create_auth_cookie("test_token_456", true);
-
-        assert!(remembered.contains("sherpa_auth=test_token_456"));
-        assert!(remembered.contains("HttpOnly"));
-        assert!(remembered.contains("Secure"));
-        assert!(remembered.contains("SameSite=Strict"));
-        assert!(remembered.contains("Max-Age=2592000"));
+    /// The cookie's name and value, and its attributes in order.
+    fn parse_cookie(cookie: &str) -> ((&str, &str), Vec<&str>) {
+        let mut parts = cookie.split("; ");
+        let pair = parts.next().unwrap().split_once('=').unwrap();
+        (pair, parts.collect())
     }
 
     #[test]
-    fn test_create_clear_cookie() {
-        let cookie = create_clear_cookie();
+    fn user_login_008_the_session_cookie_is_http_only_secure_strict_for_7_or_30_days() {
+        for (remember_me, max_age) in [(false, "Max-Age=604800"), (true, "Max-Age=2592000")] {
+            let cookie = create_auth_cookie("test_token_123", remember_me);
+            assert_eq!(
+                parse_cookie(&cookie),
+                (
+                    ("sherpa_auth", "test_token_123"),
+                    vec!["Path=/", "HttpOnly", "Secure", "SameSite=Strict", max_age]
+                )
+            );
+        }
+    }
 
-        assert!(cookie.contains("sherpa_auth="));
-        assert!(cookie.contains("Max-Age=0"));
-        assert!(cookie.contains("Expires=Thu, 01 Jan 1970 00:00:00 GMT"));
-        assert!(cookie.contains("HttpOnly"));
-        assert!(cookie.contains("SameSite=Strict"));
+    #[test]
+    fn user_sessions_026_the_cookie_that_ends_a_session_is_secure_http_only_strict_and_expired() {
+        assert_eq!(
+            parse_cookie(&create_clear_cookie()),
+            (
+                ("sherpa_auth", ""),
+                vec![
+                    "Path=/",
+                    "HttpOnly",
+                    "Secure",
+                    "SameSite=Strict",
+                    "Max-Age=0",
+                    "Expires=Thu, 01 Jan 1970 00:00:00 GMT"
+                ]
+            )
+        );
     }
 }

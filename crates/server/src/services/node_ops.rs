@@ -2918,8 +2918,8 @@ fn asav_config(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>) -> Result<Strin
     .render()?)
 }
 
-/// `FTDv`: its day-0 JSON, managed locally. Its only account, `admin`, takes the lab owner's
-/// device password.
+/// `FTDv`: its day-0 JSON, managed locally, with an IPv6 management address in a lab with IPv6.
+/// Its only account, `admin`, takes the lab owner's device password.
 fn ftdv_config(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>) -> Result<String> {
     let NodeZtp {
         mgmt_net,
@@ -2931,13 +2931,13 @@ fn ftdv_config(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>) -> Result<Strin
         eula: "accept".to_string(),
         hostname: node.name.clone(),
         admin_password: guest_account::device_password(device_password, PasswordForm::Plain)?,
-        dns1: Some(mgmt_net.v4.boot_server),
-        ipv4_mode: Some(template::CiscoFxosIpMode::Manual),
-        ipv4_addr: Some(node_ipv4_address),
-        ipv4_gw: Some(mgmt_net.v4.first),
-        ipv4_mask: Some(mgmt_net.v4.subnet_mask),
-        manage_locally: template::YesNo(true),
-        ..Default::default()
+        firewall_mode: template::CiscoFxosFirewallMode::Routed,
+        dns: mgmt_net.v4.boot_server,
+        manage_locally: true,
+        mgmt_ipv4: mgmt_net.v4.clone(),
+        mgmt_ipv4_address: node_ipv4_address,
+        mgmt_ipv6_address: node.ipv6_address,
+        mgmt_ipv6: mgmt_net.v6.clone(),
     })?)
 }
 
@@ -4653,6 +4653,7 @@ pub(crate) mod tests {
     use crate::services::guest_account::tests::{RSA_4096_KEY, RSA_8192_KEY, test_account};
     use axum::extract::ws::Message;
     use nix::sys::stat::{Mode, umask};
+    use serde_json::{Value, from_str, json};
     use shared::data::{ModelKind, Ztp};
     use std::env;
     use std::os::unix::fs::PermissionsExt;
@@ -5897,6 +5898,20 @@ echo "$*" >> '{}'
             }
         }
 
+        /// A lab whose management network also has IPv6.
+        fn with_ipv6() -> Self {
+            let mut lab = Self::new();
+            lab.network.v6 = Some(data::NetworkV6 {
+                prefix: "2001:db8::/64".parse().unwrap(),
+                first: "2001:db8::1".parse().unwrap(),
+                last: "2001:db8::ffff".parse().unwrap(),
+                boot_server: "2001:db8::2".parse().unwrap(),
+                network: "2001:db8::".parse().unwrap(),
+                prefix_length: 64,
+            });
+            lab
+        }
+
         fn root(&self) -> &str {
             self.dir.path().to_str().unwrap()
         }
@@ -6232,6 +6247,121 @@ echo "$*" >> '{}'
             "the owner and root: {config}"
         );
         assert!(config.contains(r#"ssh-ed25519 ""#), "{config}");
+    }
+
+    /// The day-0 JSON generated for `FTDv` node `ftd01` in `lab`, with the IPv6 address `ipv6`.
+    fn ftdv_day0(lab: &ZtpLab, ipv6: Option<Ipv6Addr>) -> Value {
+        let mut node = named_node("ftd01", data::NodeModel::CiscoFtd);
+        node.ipv6_address = ipv6;
+        let image = node.model_kind.node_config();
+        generate_vm_ztp(
+            &mut node,
+            &image,
+            &lab.lab(),
+            "192.0.2.10".parse().unwrap(),
+            None,
+            None,
+        )
+        .unwrap();
+        let config = fs::read_to_string(format!(
+            "{}/{VM_BOOT_DIR}/ftd01/{CISCO_FTDV_ZTP_CONFIG}",
+            lab.root()
+        ))
+        .unwrap();
+        from_str(&config).unwrap()
+    }
+
+    #[test]
+    fn config_addressing_015_ftdv_in_a_lab_with_ipv6_has_its_ipv6_address_and_gateway() {
+        let config = ftdv_day0(&ZtpLab::with_ipv6(), Some("2001:db8::10".parse().unwrap()));
+        assert_eq!(config["IPv4Addr"], "192.0.2.10");
+        assert_eq!(config["IPv4Gw"], "192.0.2.1");
+        assert_eq!(config["IPv6Mode"], "manual");
+        assert_eq!(config["IPv6Addr"], "2001:db8::10");
+        assert_eq!(config["IPv6Mask"], "64");
+        assert_eq!(config["IPv6Gw"], "2001:db8::1");
+    }
+
+    #[test]
+    fn config_addressing_016_ftdv_in_an_ipv4_lab_has_only_its_ipv4_address() {
+        let config = ftdv_day0(&ZtpLab::new(), None);
+        let keys: Vec<&str> = config
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "AdminPassword",
+                "DNS1",
+                "EULA",
+                "FirewallMode",
+                "Hostname",
+                "IPv4Addr",
+                "IPv4Gw",
+                "IPv4Mask",
+                "IPv4Mode",
+                "ManageLocally"
+            ]
+        );
+        assert_eq!(config["IPv4Addr"], "192.0.2.10");
+        assert_eq!(config["IPv4Gw"], "192.0.2.1");
+        assert_eq!(config["IPv4Mask"], "255.255.255.0");
+    }
+
+    /// The `config_db.json` generated for `SONiC` VM node `sonic01` in `lab`, with the IPv6
+    /// address `ipv6`.
+    fn sonic_vm_config_db(lab: &ZtpLab, ipv6: Option<Ipv6Addr>) -> Value {
+        let mut node = topology::NodeExpanded {
+            name: "sonic01".to_owned(),
+            model_kind: ModelKind::new(
+                data::NodeModel::SonicLinux,
+                Some(data::NodeKind::VirtualMachine),
+            )
+            .unwrap(),
+            ipv6_address: ipv6,
+            ..Default::default()
+        };
+        let image = node.model_kind.node_config();
+        generate_vm_ztp(
+            &mut node,
+            &image,
+            &lab.lab(),
+            "192.0.2.10".parse().unwrap(),
+            None,
+            None,
+        )
+        .unwrap();
+        let config = fs::read_to_string(format!(
+            "{}/{ZTP_DIR}/{NODE_CONFIGS_DIR}/sonic01_config_db.json",
+            lab.root()
+        ))
+        .unwrap();
+        from_str(&config).unwrap()
+    }
+
+    #[test]
+    fn config_addressing_017_a_sonic_vm_in_a_lab_with_ipv6_has_both_management_addresses() {
+        let config =
+            sonic_vm_config_db(&ZtpLab::with_ipv6(), Some("2001:db8::10".parse().unwrap()));
+        assert_eq!(
+            config["MGMT_INTERFACE"],
+            json!({
+                "eth0|192.0.2.10/24": { "gwaddr": "192.0.2.1" },
+                "eth0|2001:db8::10/64": { "gwaddr": "2001:db8::1" },
+            })
+        );
+    }
+
+    #[test]
+    fn config_addressing_018_a_sonic_vm_in_an_ipv4_lab_has_only_its_ipv4_address() {
+        let config = sonic_vm_config_db(&ZtpLab::new(), None);
+        assert_eq!(
+            config["MGMT_INTERFACE"],
+            json!({ "eth0|192.0.2.10/24": { "gwaddr": "192.0.2.1" } })
+        );
     }
 
     #[test]

@@ -814,8 +814,8 @@ pub async fn job_stream_handler(
         );
     };
 
-    // The job runs as the user who created it, as they are now: a requester whose session has
-    // ended since queuing it is refused, and one whose rights changed runs with the new rights.
+    // The job runs as the user who created it: a requester whose session has ended since
+    // queuing it is refused.
     let requester = match job.resolve_requester(&state.db).await {
         Ok(SessionLookup::Active(requester)) => requester,
         Ok(SessionLookup::Rejected(rejection)) => {

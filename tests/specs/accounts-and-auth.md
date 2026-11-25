@@ -176,6 +176,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 031 | `sherpad user unlock` of an unknown username fails, carrying the username, and unlocks no other account | integration |
 | 032 | `sherpad user unlock` run as any account but `sherpa`, root included, is refused, carrying the account and the command, and the database is as it was | integration |
 | 033 | Root unlocks a locked account, `sherpa-admin` included, with `sherpad user unlock` while the server is stopped: refused while it runs, as root and for an unknown username, changing nothing, and after the restart the account logs in and `sherpa-admin` is no longer locked | e2e |
+| 034 | `sherpa login` and `sherpa whoami` give a token's time left in whole days, in hours when under a day, in minutes when under an hour, and say an expired token has expired | unit |
 
 ## `user_sessions`: a token works only while its session lasts
 
@@ -200,7 +201,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 014 | A password change that is refused ends no session | integration |
 | 015 | Deleting a user ends their sessions, on every transport | integration |
 | 016 | A user created again under a deleted user's name is not let in by the old account's tokens | integration |
-| 017 | A user's admin rights are read on every request, so a token issued before they changed has the new rights at once, on every transport | integration |
+| 017 | Retired: nothing changes a user's admin rights after the account is created | — |
 | 018 | The sweep deletes the sessions that have expired and no other, when sherpad starts and at each interval, and stops when sherpad shuts down | integration |
 | 019 | A REST request takes the bearer token before the cookie, and the cookie when the bearer token is not valid | unit |
 | 020 | Of two session cookies in one request, a valid one is used whichever comes first | unit |
@@ -209,6 +210,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 023 | sherpad generates its token secret once, in a file only it can read, and loads the same one on the next start | unit |
 | 024 | sherpad refuses to start on a token secret of the wrong length, carrying the file and its length, and leaves it as it is | unit |
 | 025 | A page of another origin is never granted cross-origin access to the API | integration |
+| 026 | The cookie that ends a session has the session cookie's `Secure`, `HttpOnly` and `SameSite=Strict`, no value and has already expired, so the browser replaces the session cookie with it | unit |
 
 ## `user_passwords`: a login password is changed by its user, or reset by an admin
 
@@ -230,6 +232,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 011 | A hash stored by an earlier release still verifies | unit |
 | 012 | A stored hash that cannot be checked is an error, not a wrong password | unit |
 | 013 | A password change keeps an edit of the user's other details made at the same time | integration |
+| 014 | A password's length is counted in characters: 7 characters that take more than 8 bytes are too short, and 8 are enough | unit |
 
 ## `device_password`: a user's device password is theirs alone
 

@@ -113,7 +113,7 @@ Path parameters are read by axum's own `Path`: they come from the URL, which is 
 
 Cookies, bearer tokens and the RPC `params.token` carry the same JWT. Each names a login session,
 and identity comes from the session's row, not the token: `auth::session::lookup` reads the session and its user in one query, so a token works only while
-its session is active, a demotion applies on the next request, and a deleted user's token never
+its session is active, and a deleted user's token never
 works for a new account of the same name. No authorization decision reads the token's own claims.
 What ends a session is `tests/specs/accounts-and-auth.md`, `user_sessions`.
 
