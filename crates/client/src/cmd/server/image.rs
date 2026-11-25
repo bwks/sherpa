@@ -581,7 +581,7 @@ async fn download_vm_image(
         model: model_kind.model(),
         kind: Some(model_kind.kind()),
         version: version.to_string(),
-        url: url.map(std::string::ToString::to_string),
+        url: url.map(ToString::to_string),
         default,
     };
 

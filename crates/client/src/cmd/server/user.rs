@@ -4,6 +4,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result, ensure};
 use clap::Subcommand;
+use jiff::Timestamp;
 
 use shared::data::{self, ServerConnection};
 use shared::konst::SSH_KEYS_DOCS_URL;
@@ -345,12 +346,10 @@ async fn list_users(
                             format!("{} key(s)", user.ssh_keys.len())
                         }
                     );
-                    let created = jiff::Timestamp::from_second(user.created_at)
-                        .ok()
-                        .map_or_else(
-                            || "Unknown".to_string(),
-                            |ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string(),
-                        );
+                    let created = Timestamp::from_second(user.created_at).ok().map_or_else(
+                        || "Unknown".to_string(),
+                        |ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                    );
                     println!(
                         "    Device password: {}",
                         device_password_state(user.device_password_set)
@@ -598,18 +597,14 @@ async fn get_user_info(
                     println!("    {}. {}", i + 1, key_preview);
                 }
             }
-            let created = jiff::Timestamp::from_second(user.created_at)
-                .ok()
-                .map_or_else(
-                    || "Unknown".to_string(),
-                    |ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string(),
-                );
-            let updated = jiff::Timestamp::from_second(user.updated_at)
-                .ok()
-                .map_or_else(
-                    || "Unknown".to_string(),
-                    |ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string(),
-                );
+            let created = Timestamp::from_second(user.created_at).ok().map_or_else(
+                || "Unknown".to_string(),
+                |ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string(),
+            );
+            let updated = Timestamp::from_second(user.updated_at).ok().map_or_else(
+                || "Unknown".to_string(),
+                |ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string(),
+            );
             println!(
                 "  Device password: {}",
                 device_password_state(user.device_password_set)

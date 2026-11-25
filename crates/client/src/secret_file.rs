@@ -133,6 +133,7 @@ pub(crate) fn ensure_private_dir(path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use std::fs;
     use std::path::Path;
 
@@ -236,7 +237,7 @@ mod tests {
             .expect("list directory")
             .map(|entry| entry.expect("entry").file_name())
             .collect();
-        assert_eq!(names, vec![std::ffi::OsString::from("kubeconfig-k8s")]);
+        assert_eq!(names, vec![OsString::from("kubeconfig-k8s")]);
     }
 
     #[cfg(unix)]

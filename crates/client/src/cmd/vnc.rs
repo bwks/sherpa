@@ -19,6 +19,7 @@ use anyhow::{Context, Result};
 use futures_util::{FutureExt, SinkExt, StreamExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::signal;
 use tokio::task::JoinSet;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -87,7 +88,7 @@ pub async fn vnc(
     // One Ctrl+C future for the whole command, polled once now so its handler is in place before
     // the address is printed. A new one per loop turn would miss a Ctrl+C that came while another
     // branch ran, such as a viewer's relay ending.
-    let mut interrupt = pin!(tokio::signal::ctrl_c());
+    let mut interrupt = pin!(signal::ctrl_c());
     if let Some(interrupted) = (&mut interrupt).now_or_never() {
         interrupted.context("Cannot wait for Ctrl+C")?;
         return Ok(());
@@ -284,6 +285,7 @@ mod tests {
     use shared::data::ServerConnection;
     use tokio::sync::oneshot;
     use tokio::task::JoinHandle;
+    use tokio::time;
 
     /// The exit status of a failed command, as a refused viewer's ended it before checks.
     const FAILED: u8 = 1;
@@ -507,7 +509,7 @@ mod tests {
                 serve,
             ));
             let _viewer = TcpStream::connect(address).await.unwrap();
-            tokio::time::timeout(Duration::from_secs(5), command)
+            time::timeout(Duration::from_secs(5), command)
                 .await
                 .expect("the command ended on the interrupt")
                 .unwrap()
@@ -526,7 +528,7 @@ mod tests {
             .into())
         }));
         let _viewer = TcpStream::connect(address).await.unwrap();
-        let error = tokio::time::timeout(Duration::from_secs(5), command)
+        let error = time::timeout(Duration::from_secs(5), command)
             .await
             .unwrap()
             .unwrap()

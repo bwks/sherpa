@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use shared::data::{ClientConfig, RedeployResponse};
 use shared::util::{Emoji, term_msg_surround};
+use topology::Manifest;
 
 use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
@@ -39,7 +40,7 @@ pub async fn redeploy(
     let token = load_token()?;
 
     // Load the manifest and resolve its client files, as `up` does.
-    let mut manifest = topology::Manifest::load_file(manifest_path)?;
+    let mut manifest = Manifest::load_file(manifest_path)?;
     check_manifest(&manifest)?;
     // As written, before the files and variables are resolved: what the server stores.
     let as_written = serde_json::to_value(manifest.as_written())
