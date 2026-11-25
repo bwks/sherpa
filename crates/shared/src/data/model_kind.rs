@@ -8,11 +8,11 @@
 
 use std::fmt;
 
-use anyhow::{Result, bail};
 use serde_derive::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
 use super::node::{NodeConfig, NodeKind, NodeModel, Ztp};
+use crate::error::SharedError;
 use crate::konst::{SSH_PORT, TALOS_API_PORT, TALOS_DEFAULT_BOOT_DISK_SIZE};
 
 /// A node model and one of the kinds it takes. Its fields are private: build one with
@@ -34,9 +34,9 @@ struct ModelKindFields {
 }
 
 impl TryFrom<ModelKindFields> for ModelKind {
-    type Error = anyhow::Error;
+    type Error = SharedError;
 
-    fn try_from(fields: ModelKindFields) -> Result<Self> {
+    fn try_from(fields: ModelKindFields) -> Result<Self, SharedError> {
         Self::new(fields.model, Some(fields.kind))
     }
 }
@@ -66,18 +66,12 @@ impl ModelKind {
     ///
     /// Fails when the model does not take `kind`, naming the kinds it takes, and when `kind`
     /// is `None` for a model with no default kind (`generic`).
-    pub fn new(model: NodeModel, kind: Option<NodeKind>) -> Result<Self> {
+    pub fn new(model: NodeModel, kind: Option<NodeKind>) -> Result<Self, SharedError> {
         let Some(kind) = kind.or(model.default_kind()) else {
-            bail!(
-                "Model '{model}' has no default kind; set its kind to one of: {}",
-                model_kinds_list(model)
-            );
+            return Err(SharedError::NoDefaultKind { model });
         };
         if !model.kinds().contains(&kind) {
-            bail!(
-                "Model '{model}' is not a {kind}; it comes only as: {}",
-                model_kinds_list(model)
-            );
+            return Err(SharedError::KindNotTaken { model, kind });
         }
         Ok(Self { model, kind })
     }
@@ -399,15 +393,26 @@ pub fn model_kinds_list(model: NodeModel) -> String {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::error::Category;
+
     use super::*;
 
     #[test]
     fn node_kind_004_a_model_and_kind_from_json_are_refused_when_the_model_does_not_take_it() {
+        let fields = ModelKindFields {
+            model: NodeModel::CiscoAsa,
+            kind: NodeKind::Container,
+        };
+        assert!(matches!(
+            ModelKind::try_from(fields),
+            Err(SharedError::KindNotTaken {
+                model: NodeModel::CiscoAsa,
+                kind: NodeKind::Container
+            })
+        ));
         let json = serde_json::json!({"model": "cisco_asa", "kind": "container"});
-        let error = serde_json::from_value::<ModelKind>(json)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("comes only as: virtual_machine"), "{error}");
+        let error = serde_json::from_value::<ModelKind>(json).unwrap_err();
+        assert_eq!(error.classify(), Category::Data);
     }
 
     #[test]
