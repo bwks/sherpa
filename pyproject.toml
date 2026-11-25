@@ -1,5 +1,3 @@
-# Python for Sherpa's test harness, lab tests and development helpers. uv installs the
-# interpreter and the dependencies; the scripts are not a package.
 [project]
 name = "sherpa-dev"
 version = "0.0.0"
@@ -9,5 +7,4 @@ dependencies = []
 
 [tool.uv]
 package = false
-# Use only Python that uv installs, never the system's.
 python-preference = "only-managed"

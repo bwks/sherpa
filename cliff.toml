@@ -31,9 +31,7 @@ body = """
 """
 footer = ""
 trim = true
-# trim strips the blank line that ends a release's section, which dev/release-bump needs between
-# the section it prepends and the previous version's heading. The body ends with this marker so
-# the blank line survives the trim; the postprocessor, which runs after it, removes the marker.
+# The marker keeps the blank line dev/release-bump needs from being trimmed.
 postprocessors = [{ pattern = '<!-- end of release -->\z', replace = "" }]
 
 [git]
@@ -41,13 +39,8 @@ conventional_commits = true
 filter_unconventional = false
 split_commits = false
 commit_parsers = [
-    # Merge commits repeat the pull request's own commits, and a revert and the commit it
-    # reverts cancel out, so neither belongs in the changelog. git-cliff cannot pair a revert
-    # with its commit, so a reverted commit is skipped by its id (below).
     { message = "^Merge ", skip = true },
     { message = "^Revert ", skip = true },
-    # "chore: temporary version bump to test the Version check", reverted by 63ce07b.
-    { sha = "04c369f6b34e480ffcdf78bdcf5f19c4464b0c3b", skip = true },
     { message = "^feat", group = "Features" },
     { message = "^fix", group = "Bug Fixes" },
     { message = "^refactor", group = "Refactor" },
@@ -64,15 +57,10 @@ filter_commits = false
 tag_pattern = "v[0-9].*"
 sort_commits = "newest"
 
-# How `mise run release:bump` works out the next version (`git cliff --bumped-version`). While Sherpa is
-# on 0.x, a feature bumps the patch number and a breaking change the minor number; git-cliff's
-# defaults would bump the minor and major numbers instead.
 [bump]
 features_always_bump_minor = false
 breaking_always_bump_major = false
 
-# The repository whose pull requests and authors the changelog links. git-cliff reads the token
-# for the GitHub API from GITHUB_TOKEN; dev/release-bump sets it from GH_TOKEN_RO.
 [remote.github]
 owner = "bwks"
 repo = "sherpa"
