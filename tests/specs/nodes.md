@@ -184,7 +184,7 @@ Cases 001 to 020 are up, 021 to 026 resume, 027 and 028 redeploy, 029 to 035 the
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | The microVM definition carries the base, config and node disks, every NIC and the serial socket | unit |
+| 001 | The microVM definition carries the base, config, node and secrets disks, every NIC and the serial socket | unit |
 | 002 | The guest runs the container's command with only its own environment | unit |
 | 003 | A non-root image or manifest user runs the command as that user | unit |
 | 004 | The guest config names each NIC by its MAC, management first | unit |
@@ -209,3 +209,6 @@ Cases 001 to 020 are up, 021 to 026 resume, 027 and 028 redeploy, 029 to 035 the
 | 023 | Down then resume of a lab of microVM nodes boots each again with its config kept, and its P2p links pass traffic again (no test yet) | e2e |
 | 024 | A microVM whose command exits stops and stays stopped, with its VMM still there, instead of booting again | integration |
 | 025 | A microVM that stopped itself reads as a dead container, so its node is `failed`; one halted by down reads as stopped | unit |
+| 026 | A secret volume lands in its own ISO with a `modes` file giving each file's mode | unit |
+| 027 | A node's secret files go to a secrets ISO in RAM beside them, with no staging copy left, and never into its config ISO | unit |
+| 028 | A secret file reaches the guest's tmpfs `/run/secrets` with its mode, and nothing of it lands on the host disk (no test yet) | e2e |

@@ -23,7 +23,7 @@ use tracing::instrument;
 
 pub use api::add_nic;
 pub use error::MicroVmError;
-pub use guest::{GuestConfig, write_config_iso};
+pub use guest::{GuestConfig, write_config_iso, write_secrets_iso};
 pub use image::ensure_base_disk;
 
 pub const MICROVM_DIR: &str = "/opt/sherpa/microvm";
@@ -59,13 +59,15 @@ pub enum MicroVmState {
     Stopped,
 }
 
-/// A microVM to start: its disks, its NICs, its serial socket and its size.
+/// A microVM to start: its disks, its NICs, its serial socket and its size. `secrets_iso`,
+/// kept in RAM, holds the container's secret files.
 #[derive(Debug, Clone)]
 pub struct MicroVmSpec {
     pub name: String,
     pub runtime_dir: PathBuf,
     pub base_disk: PathBuf,
     pub config_iso: PathBuf,
+    pub secrets_iso: PathBuf,
     pub node_disk: PathBuf,
     pub node_disk_bytes: u64,
     pub serial_socket: PathBuf,
@@ -126,6 +128,7 @@ pub async fn start_microvm(spec: &MicroVmSpec) -> Result<(), MicroVmError> {
         (spec.base_disk.as_path(), true),
         (spec.config_iso.as_path(), true),
         (spec.node_disk.as_path(), false),
+        (spec.secrets_iso.as_path(), true),
     ];
     let config = api::vm_config(&api::VmDefinition {
         kernel: &kernel,
@@ -383,11 +386,14 @@ mod tests {
         };
         let config_iso = dir.join("config.iso");
         write_config_iso(&config, &dir.join("config"), &config_iso).expect("iso");
+        let secrets_iso = dir.join("secrets.iso");
+        write_secrets_iso(&[], &dir.join("secrets"), &secrets_iso).expect("secrets iso");
         MicroVmSpec {
             name: name.to_owned(),
             runtime_dir: dir.join("run"),
             base_disk,
             config_iso,
+            secrets_iso,
             node_disk: dir.join("node.raw"),
             node_disk_bytes: 256 * 1024 * 1024,
             serial_socket: dir.join("serial.sock"),

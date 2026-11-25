@@ -15,18 +15,27 @@ use container::microvm::{self, GuestConfig, MicroVmNic, MicroVmSpec, MicroVmStat
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-use crate::konst::{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME};
+use crate::daemon::storage::restrict_dir;
+use crate::konst::{
+    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
+};
 use crate::services::console;
+use crate::services::node_secrets::node_secrets_dir;
 use crate::services::p2p_links::ContainerVeth;
 use crate::services::progress::ProgressSender;
 use shared::data::{ModelKind, NodeModel, StatusKind};
-use shared::konst::SHERPA_LABS_PATH;
+use shared::konst::{CONTAINER_SECRETS_DIR, SHERPA_LABS_PATH};
 use shared::util;
 
 const MICROVM_NODE_DIR: &str = "microvm";
 const CONFIG_STAGING_DIR: &str = "config";
 const CONFIG_ISO: &str = "config.iso";
 const NODE_DISK: &str = "node.raw";
+/// Suffix of a node's microVM secrets folder in the lab's secrets folder; `~` is in no node
+/// name.
+const SECRETS_ISO_DIR_SUFFIX: &str = "~microvm";
+const SECRETS_STAGING_DIR: &str = "staging";
+const SECRETS_ISO: &str = "secrets.iso";
 const TAP_WIRING: &str = "taps.toml";
 const NODE_DISK_BYTES: u64 = 16 * 1024 * 1024 * 1024;
 const MGMT_TAP_PREFIX: &str = "cm";
@@ -185,8 +194,49 @@ async fn guest_config(
             .or(image.user)
             .filter(|user| !user.is_empty()),
         working_dir: image.working_dir.filter(|dir| !dir.is_empty()),
-        volumes: spec.volumes.clone(),
+        volumes: spec
+            .volumes
+            .iter()
+            .filter(|volume| !is_secrets_volume(volume))
+            .cloned()
+            .collect(),
     })
+}
+
+/// Whether `volume` mounts a node's secret files, which reach the guest from RAM rather than
+/// in its config ISO.
+fn is_secrets_volume(volume: &str) -> bool {
+    volume
+        .split(':')
+        .nth(1)
+        .is_some_and(|dst| dst == CONTAINER_SECRETS_DIR)
+}
+
+/// The folder of the secrets ISO of node `node_name`, in its lab's secrets folder under `root`.
+fn secrets_iso_dir(root: &Path, lab_id: &str, node_name: &str) -> PathBuf {
+    root.join(lab_id)
+        .join(format!("{node_name}{SECRETS_ISO_DIR_SUFFIX}"))
+}
+
+/// Pack the secret files of node `node_name` under `root` into its secrets ISO, in RAM beside
+/// them, and return the ISO's path. A node without secret files gets an empty ISO. Written at
+/// every boot, so the guest gets the node's files as they are then.
+fn write_secrets_iso(root: &Path, lab_id: &str, node_name: &str) -> Result<PathBuf> {
+    let secrets = node_secrets_dir(root, lab_id, node_name);
+    let volumes: Vec<String> = if secrets.is_dir() {
+        vec![format!("{}:{CONTAINER_SECRETS_DIR}:ro", secrets.display())]
+    } else {
+        Vec::new()
+    };
+    restrict_dir(root, 0o700, None)?;
+    restrict_dir(&root.join(lab_id), 0o700, None)?;
+    let dir = secrets_iso_dir(root, lab_id, node_name);
+    restrict_dir(&dir, 0o700, None)?;
+    let staging = dir.join(SECRETS_STAGING_DIR);
+    let iso_path = dir.join(SECRETS_ISO);
+    microvm::write_secrets_iso(&volumes, &staging, &iso_path)?;
+    fs::remove_dir_all(&staging).with_context(|| format!("Cannot remove {}", staging.display()))?;
+    Ok(iso_path)
 }
 
 /// Start container node `node` from `spec` in its own microVM: build its image's base disk
@@ -215,6 +265,8 @@ pub(crate) async fn start_microvm_node(
     let dir = node_microvm_dir(node.lab_id, node.node_name);
     let config_iso = dir.join(CONFIG_ISO);
     microvm::write_config_iso(&config, &dir.join(CONFIG_STAGING_DIR), &config_iso)?;
+    let secrets_iso =
+        write_secrets_iso(Path::new(SHERPA_SECRETS_DIR), node.lab_id, node.node_name)?;
     let wiring = tap_wiring(node);
     save_wiring(&dir, &wiring)?;
     console::create_console_dir(node.lab_id)?;
@@ -225,6 +277,7 @@ pub(crate) async fn start_microvm_node(
         runtime_dir: runtime_dir.clone(),
         base_disk,
         config_iso,
+        secrets_iso,
         node_disk: dir.join(NODE_DISK),
         node_disk_bytes: NODE_DISK_BYTES,
         serial_socket: PathBuf::from(serial),
@@ -375,8 +428,9 @@ pub(crate) async fn halt_microvm_node(lab_id: &str, node_name: &str) -> Result<(
     .with_context(|| format!("Cannot halt the microVM of node {node_name}"))
 }
 
-/// Boot the halted microVM of node `node_name` in lab `lab_id` again, and wire its new taps as
-/// they were. A microVM whose taps cannot be wired is halted again.
+/// Boot the halted microVM of node `node_name` in lab `lab_id` again, with its secrets ISO
+/// written again from the node's secret files, and wire its new taps as they were. A microVM
+/// whose taps cannot be wired is halted again.
 ///
 /// # Errors
 ///
@@ -386,6 +440,7 @@ pub(crate) async fn restart_microvm_node(lab_id: &str, node_name: &str) -> Resul
     let name = format!("{node_name}-{lab_id}");
     let runtime_dir = microvm::runtime_dir(lab_id, node_name);
     let wiring = load_wiring(&node_microvm_dir(lab_id, node_name))?;
+    write_secrets_iso(Path::new(SHERPA_SECRETS_DIR), lab_id, node_name)?;
     microvm::restart_microvm(&name, &runtime_dir)
         .await
         .with_context(|| format!("Cannot boot the microVM of node {node_name}"))?;
@@ -463,6 +518,26 @@ mod tests {
             node_lifecycle::container_runtime(Some(docker_status(MicroVmState::Stopped))),
             Runtime::Stopped(Halt::Off)
         );
+    }
+
+    #[test]
+    fn privileged_microvm_027_a_nodes_secret_files_go_to_a_secrets_iso_beside_them_not_the_config_iso()
+     {
+        let root = tempfile::tempdir().expect("tempdir");
+        let secrets = node_secrets_dir(root.path(), "lab1", "ceos01");
+        fs::create_dir_all(&secrets).expect("mkdir");
+        fs::write(secrets.join("token"), "s3cret").expect("write");
+        let iso = write_secrets_iso(root.path(), "lab1", "ceos01").expect("iso");
+        assert_eq!(iso, root.path().join("lab1/ceos01~microvm/secrets.iso"));
+        assert!(iso.exists());
+        assert!(!root.path().join("lab1/ceos01~microvm/staging").exists());
+        assert!(is_secrets_volume(&format!(
+            "{}:{CONTAINER_SECRETS_DIR}:ro",
+            secrets.display()
+        )));
+        assert!(!is_secrets_volume(
+            "/opt/sherpa/labs/lab1/ceos01/config:/mnt/flash:ro"
+        ));
     }
 
     #[test]

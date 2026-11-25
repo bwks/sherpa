@@ -2,7 +2,9 @@
 //! the files to place in the container root.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
@@ -12,6 +14,8 @@ use super::error::MicroVmError;
 use super::{MicroVmNic, io_error};
 
 const CONFIG_VOLUME_ID: &str = "SHERPA";
+const SECRETS_VOLUME_ID: &str = "SECRETS";
+const MODES_FILE: &str = "modes";
 const BUSYBOX: &str = "/.sherpa/busybox";
 const DEFAULT_PATH: &str = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
@@ -131,6 +135,34 @@ fn under(root: &Path, container_path: &str) -> PathBuf {
     root.join(relative)
 }
 
+/// Empty the folder `staging` and return its `files/` folder, made.
+fn fresh_staging(staging: &Path) -> Result<PathBuf, MicroVmError> {
+    let io = io_error;
+    if staging.exists() {
+        fs::remove_dir_all(staging).map_err(io("remove", staging))?;
+    }
+    let files = staging.join("files");
+    fs::create_dir_all(&files).map_err(io("create", &files))?;
+    Ok(files)
+}
+
+/// Copy each bind volume's source to its container path under `files`.
+fn stage_volumes(volumes: &[String], files: &Path) -> Result<(), MicroVmError> {
+    for volume in volumes {
+        let (src, dst) = split_volume(volume)?;
+        copy_tree(Path::new(src), &under(files, dst))?;
+    }
+    Ok(())
+}
+
+/// Pack the folder `staging` into the ISO `iso_path`, named `volume_id`.
+fn pack(staging: &Path, iso_path: &Path, volume_id: &str) -> Result<(), MicroVmError> {
+    iso::create_iso(staging, iso_path, volume_id).map_err(|source| MicroVmError::ConfigIso {
+        path: iso_path.to_path_buf(),
+        source,
+    })
+}
+
 /// Write `config` to the folder `staging` and pack it into the ISO `iso_path`. Each bind
 /// volume's source is copied to its container path under `files/`.
 ///
@@ -145,23 +177,57 @@ pub fn write_config_iso(
     iso_path: &Path,
 ) -> Result<(), MicroVmError> {
     let io = io_error;
-    if staging.exists() {
-        fs::remove_dir_all(staging).map_err(io("remove", staging))?;
-    }
-    let files = staging.join("files");
-    fs::create_dir_all(&files).map_err(io("create", &files))?;
+    let files = fresh_staging(staging)?;
     let node = staging.join("node.toml");
     fs::write(&node, node_toml(config)?).map_err(io("write", &node))?;
     let entrypoint = staging.join("entrypoint.sh");
     fs::write(&entrypoint, entrypoint_script(config)).map_err(io("write", &entrypoint))?;
-    for volume in &config.volumes {
-        let (src, dst) = split_volume(volume)?;
-        copy_tree(Path::new(src), &under(&files, dst))?;
+    stage_volumes(&config.volumes, &files)?;
+    pack(staging, iso_path, CONFIG_VOLUME_ID)
+}
+
+/// Append `<mode> <path>` for each file under `dir`, its path relative to `root`, to `modes`.
+fn list_modes(root: &Path, dir: &Path, modes: &mut String) -> Result<(), MicroVmError> {
+    let io = io_error;
+    for entry in fs::read_dir(dir).map_err(io("read", dir))? {
+        let path = entry.map_err(io("read", dir))?.path();
+        if path.is_dir() {
+            list_modes(root, &path, modes)?;
+            continue;
+        }
+        let mode = fs::metadata(&path)
+            .map_err(io("read", &path))?
+            .permissions()
+            .mode()
+            & 0o7777;
+        let relative = path.strip_prefix(root).unwrap_or(&path);
+        let _ = writeln!(modes, "{mode:o} {}", relative.display());
     }
-    iso::create_iso(staging, iso_path, CONFIG_VOLUME_ID).map_err(|source| MicroVmError::ConfigIso {
-        path: iso_path.to_path_buf(),
-        source,
-    })
+    Ok(())
+}
+
+/// Write the secret bind volumes `volumes` to the folder `staging` and pack them into the ISO
+/// `iso_path`, as `write_config_iso` does, with a `modes` file giving each file's mode, as the
+/// ISO makes every file read-only for all. With no volumes the ISO holds no files. `staging`
+/// and `iso_path` belong in RAM, as the secrets do.
+///
+/// # Errors
+///
+/// Fails when a volume has no container path, a source cannot be copied, or the ISO cannot be
+/// written.
+#[instrument(skip(volumes), level = "debug")]
+pub fn write_secrets_iso(
+    volumes: &[String],
+    staging: &Path,
+    iso_path: &Path,
+) -> Result<(), MicroVmError> {
+    let files = fresh_staging(staging)?;
+    stage_volumes(volumes, &files)?;
+    let mut modes = String::new();
+    list_modes(&files, &files, &mut modes)?;
+    let modes_path = staging.join(MODES_FILE);
+    fs::write(&modes_path, modes).map_err(io_error("write", &modes_path))?;
+    pack(staging, iso_path, SECRETS_VOLUME_ID)
 }
 
 #[cfg(test)]
@@ -247,6 +313,28 @@ mod tests {
         let copied = staging.join("files/mnt/sherpa-ztp/startup-config");
         assert_eq!(fs::read_to_string(copied).expect("read"), "hostname r1\n");
         assert!(dir.path().join("config.iso").exists());
+    }
+
+    #[test]
+    fn privileged_microvm_026_a_secret_volume_lands_in_its_own_iso_with_each_files_mode() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src = dir.path().join("secrets");
+        fs::create_dir_all(&src).expect("mkdir");
+        fs::write(src.join("token"), "s3cret").expect("write");
+        fs::set_permissions(src.join("token"), fs::Permissions::from_mode(0o600)).expect("chmod");
+        let staging = dir.path().join("sec");
+        let iso_path = dir.path().join("secrets.iso");
+        let volumes = [format!("{}:/run/secrets:ro", src.display())];
+        write_secrets_iso(&volumes, &staging, &iso_path).expect("iso");
+        assert_eq!(
+            fs::read_to_string(staging.join("files/run/secrets/token")).expect("read"),
+            "s3cret"
+        );
+        assert_eq!(
+            fs::read_to_string(staging.join("modes")).expect("modes"),
+            "600 run/secrets/token\n"
+        );
+        assert!(iso_path.exists());
     }
 
     #[test]

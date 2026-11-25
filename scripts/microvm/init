@@ -24,8 +24,9 @@ if [ "$mode" = build ]; then
   poweroff -f
 fi
 
-# vda: shared read-only base, vdb: node config ISO, vdc: per-node writable disk.
-mkdir -p /lower /upper /cfg /newroot
+# vda: shared read-only base, vdb: node config ISO, vdc: per-node writable disk,
+# vdd: secrets ISO, held in RAM on the host.
+mkdir -p /lower /upper /cfg /sec /newroot
 mount -t ext4 -o ro /dev/vda /lower || fail "mount base"
 mount -t iso9660 -o ro /dev/vdb /cfg || fail "mount config"
 if ! mount -t ext4 /dev/vdc /upper 2>/dev/null; then
@@ -92,6 +93,12 @@ mount -t cgroup2 cgroup2 /newroot/sys/fs/cgroup
 mkdir -p /newroot/run
 mount -t tmpfs -o mode=0755,nosuid,nodev run /newroot/run
 cp -a /lower/run/. /newroot/run/ 2>/dev/null
-umount /cfg /lower 2>/dev/null
+# Secret files go to the guest's tmpfs /run, never the node disk, with the modes the ISO lost.
+mount -t iso9660 -o ro /dev/vdd /sec || fail "mount secrets"
+while read -r m f; do
+  mkdir -p "/newroot/${f%/*}"
+  cp "/sec/files/$f" "/newroot/$f" && chmod "$m" "/newroot/$f"
+done < /sec/modes
+umount /sec /cfg /lower 2>/dev/null
 log "starting entrypoint"
 exec switch_root /newroot /.sherpa/busybox sh /.sherpa/entrypoint.sh

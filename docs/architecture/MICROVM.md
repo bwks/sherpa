@@ -20,6 +20,7 @@ flowchart LR
     S[sherpad] -->|bollard: inspect, create, export| D[(Docker image)]
     S -->|spawn, then REST on api.sock| CH[cloud-hypervisor process]
     S -->|iso crate| ISO[config.iso]
+    S -->|iso crate| SEC[secrets.iso<br/>in RAM]
     B[(images/&lt;image id&gt;.raw<br/>read-only, shared)]
     N[(node.raw<br/>per node, sparse)]
     CH --- TM[tap cm&lt;index&gt;-&lt;lab&gt;] --- BR[brm-&lt;lab&gt; bridge]
@@ -33,6 +34,7 @@ flowchart LR
   B -->|vda ro| guest
   ISO -->|vdb ro| guest
   N -->|vdc rw| guest
+  SEC -->|vdd ro| guest
 ```
 
 | Part | Where | What |
@@ -42,6 +44,7 @@ flowchart LR
 | Guest initramfs | `/opt/sherpa/microvm/initramfs.img` | Built by `scripts/microvm/build-guest.sh` at install and update: busybox-static, GNU tar and its libraries, `scripts/microvm/init`, and the host kernel's network, netfilter, overlayfs, isofs and FUSE modules with their dependencies. |
 | Base disks | `/opt/sherpa/microvm/images/<image id>.raw` | One read-only root disk per Docker image ID, built once and shared by every node of that image. |
 | Node files | `<lab dir>/<node>/microvm/` | `config.iso`, its staging folder, and `node.raw`, the node's writable disk. Removed with the node folder. |
+| Secrets ISO | `/run/sherpa/secrets/<lab>/<node>~microvm/secrets.iso` | The node's secret files, beside them in RAM. Removed with the lab's secret files. |
 | Runtime | `/opt/sherpa/run/microvm/<lab>/<node>/` | `api.sock`, `ch.pid`, `ch.log`. Its presence marks a node as running in a microVM. |
 | Serial socket | `/opt/sherpa/run/console/<lab>/<index>.serial` | The same path a VM's serial socket has, so the console relay serves it unchanged. |
 
@@ -83,12 +86,16 @@ throwaway guest (`microvm::ensure_base_disk`):
    working directory.
 3. `config.iso`, written with the `iso` crate: `node.toml` (hostname, management address and
    gateway, each NIC's guest name by MAC), `entrypoint.sh`, and `files/`, each bind volume's
-   source at its container path.
-4. `cloud-hypervisor --api-socket path=<runtime>/api.sock`, spawned in its own process group,
-   then `PUT vm.create` with the kernel, initramfs, the three disks, every NIC and the serial
+   source at its container path. The secret files volume is left out of it.
+4. `secrets.iso`, written in RAM beside the node's secret files (`/run/sherpa/secrets`), with
+   the files and a `modes` file, as the ISO makes every file read-only for all. The staging
+   copy is removed once it is packed. A node without secret files gets an empty one. It is
+   written again at every boot, so resume gives the guest the node's files as they are then.
+5. `cloud-hypervisor --api-socket path=<runtime>/api.sock`, spawned in its own process group,
+   then `PUT vm.create` with the kernel, initramfs, the four disks, every NIC and the serial
    socket, and `PUT vm.boot`. The API is spoken with `hyper` and `hyperlocal` over the Unix
    socket. The `vm.create` body is kept as `<runtime>/vm.json`.
-5. The management tap is put on the lab's `brm-<lab>` bridge, a bridge member's tap on its
+6. The management tap is put on the lab's `brm-<lab>` bridge, a bridge member's tap on its
    bridge, and a disabled interface's tap set down. This wiring is kept as `taps.toml` in the
    node's `microvm` folder.
 
@@ -130,7 +137,11 @@ platform gets as many segments as they need. Hotplug through `vm.add-net` works
    `/.dockerenv` (SR Linux decides it runs in a container from it), and a tmpfs `/run` holding
    the image's own `/run` tree (systemd would otherwise mount an empty one, and cEOS needs its
    `/run/lock/subsys`).
-6. `switch_root`s into the root and runs `entrypoint.sh` with the busybox it left in
+6. Mounts the secrets ISO and copies its files into the tmpfs `/run`, at `/run/secrets`, each
+   with its mode from `modes`, so secret files are in RAM on the host and in the guest and
+   never on the node disk. They are owned by root in the guest, where Docker shows the
+   `sherpa` user's uid.
+7. `switch_root`s into the root and runs `entrypoint.sh` with the busybox it left in
    `/.sherpa`. The script keeps a getty on `ttyS0`, respawned after each login, and `exec`s the
    command with `env -i` and the container's environment, so the command is PID 1.
 
@@ -202,5 +213,6 @@ domains are, and `sherpad` finds them again by their API sockets.
 - Only `arista_eos` and `nokia_srlinux` containers run in a microVM. A microVM node on no link
   gets no data interfaces, where Docker gives a container on no link its disabled data
   networks.
-- Secret files reach the guest in the config ISO on disk, where Docker mounts them from RAM.
+- `sherpa provision` cannot rewrite a microVM node's secret files: it checks the Docker
+  container's mount, which a microVM node has none of. A redeploy carries new files.
 - The guest kernel is the host's own.
