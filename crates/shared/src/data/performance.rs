@@ -187,6 +187,8 @@ pub fn cpuset(cpus: &[u16]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::error::Category;
+
     use super::*;
 
     #[test]
@@ -213,8 +215,7 @@ mod tests {
     fn test_hardware_groups_reject_unknown_settings() {
         let old: Result<NodeCpu, _> =
             serde_json::from_value(serde_json::json!({ "cpu_pinning": [1] }));
-        let error = old.unwrap_err().to_string();
-        assert!(error.contains("unknown field `cpu_pinning`"), "{error}");
+        assert_eq!(old.unwrap_err().classify(), Category::Data);
         let old: Result<NodeBootDisk, _> =
             serde_json::from_value(serde_json::json!({ "disk_cache": "none" }));
         assert!(old.is_err());

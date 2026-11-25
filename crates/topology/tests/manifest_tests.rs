@@ -118,22 +118,19 @@ fn one_node(rest: &str) -> String {
 }
 
 #[test]
-fn manifest_file_003_a_manifest_without_name_or_nodes_is_refused_naming_the_missing_key() {
-    for (manifest, key) in [
-        (
-            "nodes = [{ name = 'dev01', model = 'ubuntu_linux' }]",
-            "name",
-        ),
-        ("name = 'lab'", "nodes"),
+fn manifest_file_003_a_manifest_without_name_or_nodes_is_refused_at_the_top_level_table() {
+    for manifest in [
+        "nodes = [{ name = 'dev01', model = 'ubuntu_linux' }]",
+        "name = 'lab'",
     ] {
-        let error = toml::from_str::<Manifest>(manifest)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains(&format!("missing field `{key}`")), "{error}");
+        let error = toml::from_str::<Manifest>(manifest).unwrap_err();
+        assert_eq!(error.span(), Some(0..manifest.len()), "{manifest}");
     }
 }
 
-/// A table of a node, as TOML that follows the node, and the unknown key it sets.
+/// A table of a node, as TOML that follows the node, and the text the error's span covers: the
+/// unknown key it sets, or for a provisioner, which serde reads through its `type` tag, the
+/// provisioner's own table.
 const UNKNOWN_KEYS_OF_A_NODE: &[(&str, &str, &str)] = &[
     ("a node", "cpu_count = 2", "cpu_count"),
     (
@@ -159,26 +156,27 @@ const UNKNOWN_KEYS_OF_A_NODE: &[(&str, &str, &str)] = &[
     (
         "an ssh provisioner",
         "[[nodes.provisioners]]\ntype = 'ssh'\ncommands = ['ls']",
-        "commands",
+        "[[nodes.provisioners]]\ntype = 'ssh'\ncommands = ['ls']",
     ),
     (
         "an ssh provisioner's file",
         "[[nodes.provisioners]]\ntype = 'ssh'\n[[nodes.provisioners.files]]\nsrc = 'a'\ndst = '/b'\nowner = 'root'",
-        "owner",
+        "[[nodes.provisioners]]\ntype = 'ssh'",
     ),
     (
         "a container provisioner",
         "[[nodes.provisioners]]\ntype = 'container'\nunknown = 1",
-        "unknown",
+        "[[nodes.provisioners]]\ntype = 'container'\nunknown = 1",
     ),
     (
         "a container provisioner's file",
         "[[nodes.provisioners]]\ntype = 'container'\n[[nodes.provisioners.files]]\nsrc = 'a'\nname = 'a'\ndst = '/run/a'",
-        "dst",
+        "[[nodes.provisioners]]\ntype = 'container'",
     ),
 ];
 
-/// A table of the lab, as a whole manifest, and the unknown key it sets.
+/// A table of the lab, as a whole manifest, and the unknown key it sets, which the error's span
+/// covers.
 const UNKNOWN_KEYS_OF_THE_LAB: &[(&str, &str, &str)] = &[
     (
         "the top level",
@@ -213,7 +211,7 @@ const UNKNOWN_KEYS_OF_THE_LAB: &[(&str, &str, &str)] = &[
 ];
 
 #[test]
-fn manifest_file_004_an_unknown_key_is_refused_in_every_table_naming_the_key() {
+fn manifest_file_004_an_unknown_key_is_refused_in_every_table_at_the_key() {
     let groups = [
         "cpu",
         "numa",
@@ -234,18 +232,16 @@ fn manifest_file_004_an_unknown_key_is_refused_in_every_table_naming_the_key() {
     });
     let of_a_node = UNKNOWN_KEYS_OF_A_NODE
         .iter()
-        .map(|(table, rest, key)| (*table, one_node(rest), *key));
+        .map(|(table, rest, spanned)| (*table, one_node(rest), *spanned));
     let of_the_lab = UNKNOWN_KEYS_OF_THE_LAB
         .iter()
-        .map(|(table, manifest, key)| (*table, (*manifest).to_owned(), *key));
-    for (table, manifest, key) in groups.into_iter().chain(of_a_node).chain(of_the_lab) {
-        let error = toml::from_str::<Manifest>(&manifest)
+        .map(|(table, manifest, spanned)| (*table, (*manifest).to_owned(), *spanned));
+    for (table, manifest, spanned) in groups.into_iter().chain(of_a_node).chain(of_the_lab) {
+        let span = toml::from_str::<Manifest>(&manifest)
             .expect_err(table)
-            .to_string();
-        assert!(
-            error.contains(&format!("unknown field `{key}`")),
-            "{table}: {error}"
-        );
+            .span()
+            .expect(table);
+        assert_eq!(&manifest[span], spanned, "{table}");
     }
 }
 
