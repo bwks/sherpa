@@ -1,21 +1,28 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use anyhow::{Result, bail};
 
 use crate::{Node, TopologyError};
 use shared::konst::MANAGEMENT_NODE_HOST_OFFSETS;
 
-/// Check no two nodes share a name.
+/// Check no two nodes share a name, in any case: DNS takes names that differ only in case as
+/// one.
 ///
 /// # Errors
 ///
-/// Fails when a node name is used more than once.
+/// Fails when a node name is used more than once, or two names differ only in case.
 pub fn check_duplicate_device(devices: &[Node]) -> Result<()> {
-    let mut names = HashSet::new();
+    let mut names: HashMap<String, &str> = HashMap::new();
     for device in devices {
-        if !names.insert(device.name.as_str()) {
-            bail!(TopologyError::DuplicateNode {
+        if let Some(other) = names.insert(device.name.to_ascii_lowercase(), &device.name) {
+            if other == device.name {
+                bail!(TopologyError::DuplicateNode {
+                    node: device.name.clone(),
+                });
+            }
+            bail!(TopologyError::NodeNamesDifferInCase {
                 node: device.name.clone(),
+                other: other.to_owned(),
             });
         }
     }
@@ -59,6 +66,28 @@ mod tests {
             error.downcast_ref::<TopologyError>(),
             Some(&TopologyError::DuplicateNode {
                 node: "router1".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn node_naming_007_two_names_that_differ_only_in_case_are_refused_naming_both() {
+        let devices = vec![
+            Node {
+                name: "Router1".to_string(),
+                ..Default::default()
+            },
+            Node {
+                name: "router1".to_string(),
+                ..Default::default()
+            },
+        ];
+        let error = check_duplicate_device(&devices).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::NodeNamesDifferInCase {
+                node: "router1".to_owned(),
+                other: "Router1".to_owned(),
             })
         );
     }

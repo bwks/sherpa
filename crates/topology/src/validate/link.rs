@@ -4,6 +4,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::{BridgeDetailed, Connection, Link2, LinkDetailed, TopologyError};
 use shared::data::NodeModel;
+use shared::util::split_node_int;
 use shared::validators::validate_link_impairment;
 
 /// Which interface indices of a node can carry a link or a bridge.
@@ -86,6 +87,28 @@ fn check_device_interface(
         });
     }
     interfaces.push(interface);
+    Ok(())
+}
+
+/// Check no link has both ends on one node. An end not written `node::interface` is left to
+/// the link resolution, which refuses it.
+///
+/// # Errors
+///
+/// Fails on the first link whose two ends name the same node.
+pub fn check_links_to_itself(links: &[Link2]) -> Result<()> {
+    for link in links {
+        if let (Ok((node_a, _)), Ok((node_b, _))) =
+            (split_node_int(&link.src), split_node_int(&link.dst))
+            && node_a == node_b
+        {
+            bail!(TopologyError::LinkToItself {
+                src: link.src.clone(),
+                dst: link.dst.clone(),
+                node: node_a,
+            });
+        }
+    }
     Ok(())
 }
 
@@ -397,6 +420,34 @@ mod tests {
                 })
             );
         }
+    }
+
+    fn plain_link(src: &str, dst: &str) -> Link2 {
+        Link2 {
+            src: src.to_owned(),
+            dst: dst.to_owned(),
+            impairment: None,
+        }
+    }
+
+    #[test]
+    fn manifest_links_015_a_link_from_a_node_to_itself_is_refused_naming_the_link_and_the_node() {
+        for dst in ["r1::eth2", "r1::eth1"] {
+            let error = check_links_to_itself(&[
+                plain_link("r1::eth3", "r2::eth3"),
+                plain_link("r1::eth1", dst),
+            ])
+            .unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<TopologyError>(),
+                Some(&TopologyError::LinkToItself {
+                    src: "r1::eth1".to_owned(),
+                    dst: dst.to_owned(),
+                    node: "r1".to_owned(),
+                })
+            );
+        }
+        assert!(check_links_to_itself(&[plain_link("r1::eth1", "r2::eth1")]).is_ok());
     }
 
     fn impaired_link(impairment: ManifestImpairment) -> Link2 {

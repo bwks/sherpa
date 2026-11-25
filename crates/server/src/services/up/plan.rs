@@ -20,11 +20,12 @@ use shared::data;
 use shared::data::{NodeCpuPins, NodeKind, NodeSshUsername, StatusKind};
 use shared::validators::{effective_data_interface_count, effective_ztp};
 use topology::validate::{
-    check_cpu_pin_overlap, check_device_count, check_duplicate_device,
+    check_bridges, check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
-    check_node_file_settings, check_node_kind_settings, check_node_model_kind, check_node_names,
-    check_nonzero_node_settings, check_ptx_platform, check_text_file_modes, check_vm_tuning,
-    check_windows_startup_script_names, validate_environment_variables, validate_talos_clusters,
+    check_links_to_itself, check_node_file_settings, check_node_kind_settings,
+    check_node_model_kind, check_node_names, check_nonzero_node_settings, check_ptx_platform,
+    check_text_file_modes, check_vm_tuning, check_windows_startup_script_names,
+    validate_environment_variables, validate_talos_clusters,
 };
 use topology::{process_manifest_bridges, process_manifest_links};
 
@@ -199,11 +200,10 @@ async fn admit_nodes(
     Ok(admission)
 }
 
-/// The manifest's node checks that need nothing from the server: names, duplicates, count,
-/// Talos clusters and environment variables (CRITICAL ERROR - fail fast on validation failure).
-/// Check the manifest's nodes, and that the server has every node's image: a model and kind
-/// with an image, the version, and a VM's or unikernel's disk or a container's repo. Returns the
-/// images with the nodes, their versions and container images resolved.
+/// Check the manifest's nodes, its links for one to itself and its bridges' names and links,
+/// and that the server has every node's image: a model and kind with an image, the version, and
+/// a VM's or unikernel's disk or a container's repo. Returns the images with the nodes, their
+/// versions and container images resolved.
 ///
 /// Needs only the database's node images and the images directory, so `up` runs it before it
 /// connects to libvirt or Docker: a missing image gets the same answer whether or not the
@@ -218,6 +218,9 @@ pub(super) fn check_node_images(
     Ok(CheckedNodes { node_images, nodes })
 }
 
+/// Run the manifest checks that need nothing from the server: node names, duplicates, count,
+/// kinds, zero settings, Talos clusters, environment variables, startup scripts, a link to
+/// itself and the bridges' names and links.
 fn check_manifest_nodes(manifest: &topology::Manifest) -> Result<()> {
     check_node_names(&manifest.nodes).context("Manifest validation failed: node names")?;
     for node in &manifest.nodes {
@@ -229,6 +232,10 @@ fn check_manifest_nodes(manifest: &topology::Manifest) -> Result<()> {
     check_nonzero_node_settings(&manifest.nodes)
         .context("Manifest validation failed: node settings")?;
     validate_talos_clusters(manifest).context("Manifest validation failed: talos clusters")?;
+    check_links_to_itself(manifest.links.as_deref().unwrap_or_default())
+        .context("Manifest validation failed: links")?;
+    check_bridges(manifest.bridges.as_deref().unwrap_or_default())
+        .context("Manifest validation failed: bridges")?;
 
     validate_environment_variables(&manifest.nodes)
         .context("Manifest validation failed: environment variables")?;
@@ -524,6 +531,35 @@ mod tests {
                     ..
                 }) if name == "b2" && node == "r1"
             ),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn manifest_links_021_up_refuses_a_link_from_a_node_to_itself_before_libvirt_or_docker() {
+        let manifest = topology::Manifest {
+            name: "lab1".to_owned(),
+            nodes: vec![topology::Node {
+                name: "r1".to_owned(),
+                ..Default::default()
+            }],
+            links: Some(vec![topology::Link2 {
+                src: "r1::eth1".to_owned(),
+                dst: "r1::eth2".to_owned(),
+                impairment: None,
+            }]),
+            ..Default::default()
+        };
+
+        let error = check_manifest_nodes(&manifest).unwrap_err();
+
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::LinkToItself {
+                src: "r1::eth1".to_owned(),
+                dst: "r1::eth2".to_owned(),
+                node: "r1".to_owned(),
+            }),
             "{error:#}"
         );
     }

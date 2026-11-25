@@ -25,6 +25,11 @@ pub enum TopologyError {
     #[error("Manifest - node: '{node}' defined more than once")]
     DuplicateNode { node: String },
 
+    #[error(
+        "Manifest - nodes '{node}' and '{other}' differ only in case; DNS takes them as one name"
+    )]
+    NodeNamesDifferInCase { node: String, other: String },
+
     #[error("Manifest - {count} nodes defined, but a lab supports at most {max} nodes")]
     TooManyNodes { count: usize, max: usize },
 
@@ -447,6 +452,28 @@ pub enum TopologyError {
 
     #[error("Manifest bridge - '{bridge}': link '{link}' must be written node::interface")]
     BridgeLinkNotNodeInterface { bridge: String, link: String },
+
+    #[error("Manifest link - '{src}' to '{dst}': both ends are on node '{node}'")]
+    LinkToItself {
+        src: String,
+        dst: String,
+        node: String,
+    },
+
+    #[error("Manifest bridge - '{bridge}' has {links} links; a bridge needs at least 2")]
+    BridgeTooFewLinks { bridge: String, links: usize },
+
+    #[error("Manifest bridge - '{bridge}' defined more than once")]
+    DuplicateBridge { bridge: String },
+
+    #[error(
+        "Manifest bridge - name '{bridge}' is not allowed: a bridge name follows the node name rules"
+    )]
+    BridgeNameNotAllowed {
+        bridge: String,
+        #[source]
+        reason: Box<TopologyError>,
+    },
 
     #[error("{at}: node '{node}' ({model_kind}) has no interface '{interface}'")]
     NoSuchInterface {
