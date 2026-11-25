@@ -76,8 +76,7 @@ pub async fn up(
     let as_written = serde_json::to_value(manifest.as_written())
         .context("Failed to serialize the manifest as written to JSON")?;
 
-    // Read ztp.config, text_files and scripts relative to the manifest, and ${NAME} values.
-    resolve_manifest_files(&mut manifest, manifest_path)?;
+    resolve_client_inputs(&mut manifest, manifest_path)?;
 
     // Container secret files go outside the manifest, so the server never stores them.
     let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
@@ -292,7 +291,7 @@ fn read_scripts(node: &str, paths: &[String], manifest_dir: &Path) -> Result<Vec
 
 /// Resolve every client file and `${NAME}` value the server needs, for `up` and `redeploy`, and
 /// check the names of the Windows startup scripts read, which the server puts in a `cmd` line.
-pub(crate) fn resolve_manifest_files(
+pub(crate) fn resolve_client_inputs(
     manifest: &mut topology::Manifest,
     manifest_path: &str,
 ) -> Result<()> {

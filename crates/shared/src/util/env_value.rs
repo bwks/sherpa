@@ -27,17 +27,13 @@ pub(crate) fn value_parts(value: &str) -> Result<Vec<ValuePart<'_>>> {
             parts.push(ValuePart::Text(&value[text_start..index]));
             text_start = index + 1;
             index += 2;
-        } else if rest.starts_with('$') {
-            let name = rest
-                .strip_prefix("${")
-                .and_then(|braced| braced.split_once('}'))
-                .map(|(name, _)| name)
-                .filter(|name| is_variable_name(name))
-                .ok_or(SharedError::EnvValueUnescapedDollar)?;
+        } else if let Some(name) = reference_name(rest) {
             parts.push(ValuePart::Text(&value[text_start..index]));
             parts.push(ValuePart::Reference(name));
             index += name.len() + 3;
             text_start = index;
+        } else if rest.starts_with('$') {
+            return Err(SharedError::EnvValueUnescapedDollar.into());
         } else {
             index += rest.chars().next().map_or(1, char::len_utf8);
         }
@@ -71,13 +67,31 @@ pub fn resolve_env_value(value: &str, lookup: fn(&str) -> Option<String>) -> Res
     Ok(resolved)
 }
 
+/// The name of the `${NAME}` reference `text` starts with, if it starts with one.
+fn reference_name(text: &str) -> Option<&str> {
+    let (name, _) = text.strip_prefix("${")?.split_once('}')?;
+    if is_variable_name(name) {
+        Some(name)
+    } else {
+        None
+    }
+}
+
 /// Whether `name` is a variable name: a letter or `_`, then letters, digits and `_`.
 fn is_variable_name(name: &str) -> bool {
     let mut characters = name.chars();
-    characters
-        .next()
-        .is_some_and(|first| first == '_' || first.is_ascii_alphabetic())
-        && characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    if first != '_' && !first.is_ascii_alphabetic() {
+        return false;
+    }
+    for character in characters {
+        if character != '_' && !character.is_ascii_alphanumeric() {
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(test)]

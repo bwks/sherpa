@@ -105,9 +105,8 @@ fn assignment(line: &str) -> Option<Assignment<'_>> {
 /// `value` without one pair of matching single or double quotes around it.
 fn unquoted(value: &str) -> &str {
     for quote in ['\'', '"'] {
-        if let Some(inner) = value
-            .strip_prefix(quote)
-            .and_then(|rest| rest.strip_suffix(quote))
+        if let Some(rest) = value.strip_prefix(quote)
+            && let Some(inner) = rest.strip_suffix(quote)
         {
             return inner;
         }
