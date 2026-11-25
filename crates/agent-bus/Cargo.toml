@@ -41,7 +41,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 toml = { workspace = true }
 
-# rcgen takes time::OffsetDateTime; every other time is jiff's.
 rcgen = { version = "0.13", default-features = false, features = ["aws_lc_rs", "pem"] }
 time = "0.3"
 jiff = { workspace = true }
