@@ -103,7 +103,7 @@ fn full_node() -> Node {
 /// The files, scripts and provisioners of [`full_node`], as the manifest names them.
 fn full_node_files() -> Node {
     Node {
-        environment_variables: Some(vec!["MODE=lab".to_owned(), "TOKEN=$LAB_TOKEN".to_owned()]),
+        environment_variables: Some(vec!["MODE=lab".to_owned(), "TOKEN=${LAB_TOKEN}".to_owned()]),
         text_files: Some(vec![TextFile {
             src: "files/motd".to_owned(),
             dst: "/etc/motd".to_owned(),

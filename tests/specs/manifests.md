@@ -259,7 +259,7 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 
 ## `manifest_provisioners`: a provisioner is on a node it can run on and names what it needs
 
-**Statement:** an `ssh` provisioner is taken on a Linux or BSD virtual machine and a `container` provisioner on a container; each must have something to do, a file's `dst` on the node is an absolute or `~/` path of plain name parts, a mode is octal digits up to 777, and the env files and the secret files of a node each have a name of their own.
+**Statement:** an `ssh` provisioner is taken on the Linux and BSD virtual machine models it can log in to, and a `container` provisioner on a container; each must have something to do, a file's `dst` on the node is an absolute or `~/` path of plain name parts, a mode is octal digits up to 777, and the env files and the secret files of a node each have a name of their own.
 **Relied on by:** the CLI, which puts `dst` and the env file names into commands and paths on the node; the user, told before the lab is built and not after. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -268,9 +268,9 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 | 002 | A provisioner with nothing to do is refused: an `ssh` one with no files, env files or scripts, and a `container` one with no files | unit |
 | 003 | Two secret files of a node with one `name` are refused, and the error carries the node and the name | unit |
 | 004 | An empty `src`, of a provisioner file or a secret file, and an empty script path are refused | unit |
-| 005 | An `ssh` provisioner with files, env files and scripts is taken on Linux and BSD virtual machines: Ubuntu, Alpine, Flatcar, FreeBSD and OpenBSD | unit |
-| 006 | An `ssh` provisioner on a network device virtual machine, a container, a Windows node or a unikernel is refused, and the error carries the node | unit |
-| 007 | An `ssh` provisioner is taken on a `talos_linux` node and the other Linux virtual machines it cannot run on (#782) (no test yet) | unit |
+| 005 | An `ssh` provisioner with files, env files and scripts is taken on every model it runs on: `alma_linux`, `alpine_linux`, `centos_linux`, `devbox_linux`, `fedora_linux`, `flatcar_linux`, `kali_linux`, `nixos_linux`, `omarchy_linux`, `opensuse_linux`, `redhat_linux`, `rocky_linux`, `suse_linux`, `ubuntu_linux`, `free_bsd` and `open_bsd` | unit |
+| 006 | An `ssh` provisioner on a network device virtual machine, a container, a Windows node or a unikernel is refused, and the error carries the node and the model | unit |
+| 007 | An `ssh` provisioner on a Linux virtual machine it cannot log in to, `talos_linux`, the `sonic_linux` VM, `generic` and the server appliances, is refused, and the error carries the node and the model | unit |
 | 008 | A file `dst` is refused unless it is absolute or starts with `~/`, names a file, and has only parts of letters, digits and `. _ - + @`: no empty, `.` or `..` part, no space, quote, `$` or `;` | unit |
 | 009 | A mode is refused unless it is octal digits up to 777, and the error carries the mode | unit |
 | 010 | A provisioner file's `mode` that is not such digits is refused, and the error carries the file's `dst` and the mode | unit |
@@ -280,19 +280,21 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 
 ## `boot_settings`: a node's first-boot settings are well formed
 
-**Statement:** a text file's `permissions` are octal digits up to 777, in the files as written and in the contents the CLI sends, and `sherpa validate`, up and redeploy, in the CLI and on the server, take an `environment_variables` entry only as `KEY=VALUE` whose key is a name of letters, digits and `_` that does not start with a digit.
+**Statement:** a text file's `permissions` are octal digits up to 777, in the files as written and in the contents the CLI sends, and `sherpa validate`, up and redeploy, in the CLI and on the server, take an `environment_variables` entry only as `KEY=VALUE` whose key is a name of letters, digits and `_` that does not start with a digit, and the CLI takes a value only when every `$` in it is a `${NAME}` or a `\$`.
 **Relied on by:** the node's first-boot config, where the key is written into a shell file and a mode into a file's permissions. **Priority:** P1.
 
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | A text file whose `permissions` are not octal digits up to 777 is refused, and the error carries the node, the file's `dst` and the mode, in the files as written and in the contents the CLI read | unit |
-| 002 | An entry with a name as its key is taken: a literal value, a `$VAR`, an empty value and a value with `=` in it | unit |
+| 002 | An entry with a name as its key is taken: a literal value, a `${NAME}`, the whole value or inside it, a `\$`, an empty value and a value with `=` in it | unit |
 | 003 | An entry with no `=`, an empty key, a key that starts with a digit or a key with another character is refused, and the error carries the entry or the key and the node | unit |
 | 004 | Retired: `sherpa validate` now refuses an entry whose key is not a name; see 008 | — |
 | 005 | Retired: a redeploy now runs both checks; see 006 and 007 | — |
 | 006 | A redeploy whose manifest has an `environment_variables` key that is not a name is refused before any node is torn down, carrying the key and the node | unit |
 | 007 | A redeploy whose manifest gives a Flatcar node a text file mode that is not octal digits up to 777 is refused before any node is torn down, carrying the node and the file's `dst` | unit |
 | 008 | `sherpa validate` refuses a manifest with an `environment_variables` key that is not a name, naming the key and the node | unit |
+| 009 | In the CLI, a value as written with a `$` that is not `${NAME}` or `\$`, as in `$NAME`, `$ecret`, `$HOME/bin` or a lone `$`, is refused, and the error carries the key and the node; the server, which gets the resolved values, does not check this | unit |
+| 010 | `sherpa validate` refuses a manifest with an `environment_variables` value `$NAME`, naming the key and the node | unit |
 
 ## `lab_settings`: the lab's own settings are checked before it is built
 

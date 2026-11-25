@@ -66,6 +66,9 @@ pub enum TopologyError {
     )]
     EnvironmentVariableKeyNotAName { key: String, node: String },
 
+    #[error("Node '{node}': environment variable '{key}'")]
+    EnvironmentVariableValue { key: String, node: String },
+
     #[error(
         "Manifest - node: '{node}' lists {listed} {field} but {read} were read; the Sherpa \
          CLI reads these files on the client, so start the lab with `sherpa up`"
@@ -395,8 +398,10 @@ pub enum TopologyError {
     #[error("provision_concurrency must be at least 1")]
     ProvisionConcurrencyZero,
 
-    #[error("Node '{node}' has an ssh provisioner, which runs only on Linux and BSD VMs")]
-    SshProvisionerNotSupported { node: String },
+    #[error(
+        "Node '{node}' has an ssh provisioner, which does not run on model '{model}'; it runs on the Linux and BSD VMs with an SSH login"
+    )]
+    SshProvisionerNotSupported { node: String, model: NodeModel },
 
     #[error("Node '{node}' has a container provisioner, which runs only on containers")]
     ContainerProvisionerNotSupported { node: String },

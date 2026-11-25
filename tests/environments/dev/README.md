@@ -116,12 +116,12 @@ prompts too. Node images are not part of provisioning; [seed them](#seeding-imag
 
 ## Secrets
 
-The manifest names two env files for each node. Each line of the form `KEY=$NAME` is filled in by the CLI from
+The manifest names two env files for each node. Each `${NAME}` in a value is filled in by the CLI from
 your environment when it provisions, so no secret is in the repository, on a command line or sent
 to the Sherpa server. They land in `~/.env.d/` in the guest, mode `600`. `sherpa up` stops before
 it changes the node if a variable they name is not set.
 
-- `provision/github.env`: `GH_TOKEN=$GH_TOKEN_RO`, the read-only GitHub token, for git and `gh`.
+- `provision/github.env`: `GH_TOKEN=${GH_TOKEN_RO}`, the read-only GitHub token, for git and `gh`.
   It is the only GitHub token on the guest's disk. It can read issues, pull requests, checks and
   CI logs, and clone and fetch; GitHub refuses it a push or any other write.
 
