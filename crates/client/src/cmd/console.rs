@@ -18,6 +18,7 @@ use url::Url;
 use shared::data::{ClientConfig, LabIdentity};
 use shared::util::term_msg_surround;
 
+use crate::error::ClientError;
 use crate::token::load_token;
 use crate::ws_client::{WebSocketClient, WsStream};
 
@@ -29,7 +30,7 @@ struct ConsoleSocket {
 
 /// A node console the server relays: its route, and what the user is told it is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Route {
+pub enum Route {
     Serial,
     Vnc,
 }
@@ -93,7 +94,7 @@ pub async fn console(
 /// Why a console could not be opened.
 #[derive(Debug)]
 pub(super) enum OpenError {
-    Refused { status: u16, message: String },
+    Refused { status: u16, refusal: ClientError },
     Failed(anyhow::Error),
 }
 
@@ -122,11 +123,12 @@ pub(super) fn open_error(name: &str, route: Route, error: anyhow::Error) -> Open
     match http_answer(&error) {
         Some((status, body)) => OpenError::Refused {
             status,
-            message: refusal_message(name, route, status, body.as_deref()),
+            refusal: refusal(name, route, status, body.as_deref()),
         },
-        None => OpenError::Failed(error.context(format!(
-            "Failed to open the {route} of {name} through the Sherpa server"
-        ))),
+        None => OpenError::Failed(error.context(ClientError::ConsoleUnreachable {
+            route,
+            node: name.to_owned(),
+        })),
     }
 }
 
@@ -141,24 +143,21 @@ pub(super) fn http_answer(error: &anyhow::Error) -> Option<(u16, Option<Vec<u8>>
     })
 }
 
-/// The message for a `route` console the server refused with HTTP `status` and `body`.
-fn refusal_message(name: &str, route: Route, status: u16, body: Option<&[u8]>) -> String {
+/// The refusal of a `route` console the server answered with HTTP `status` and `body`.
+fn refusal(name: &str, route: Route, status: u16, body: Option<&[u8]>) -> ClientError {
     let message = body
         .and_then(|body| serde_json::from_slice::<ErrorBody>(body).ok())
         .map(|body| body.error.details.unwrap_or(body.error.message));
     match (status, message) {
-        (401, _) => "Not logged in to the Sherpa server, or the login has expired: run \
-                     'sherpa login'."
-            .to_owned(),
-        (_, Some(message)) => message,
+        (401, _) => ClientError::ConsoleLoginRefused,
+        (_, Some(message)) => ClientError::ConsoleRefused { message },
         // Only a server from before the console moved behind it has no such route.
-        (404, None) => format!(
-            "The Sherpa server has no {route} route: it is older than this client. Upgrade the \
-             server."
-        ),
-        (status, None) => {
-            format!("The Sherpa server refused the {route} of {name} (HTTP {status}).")
-        }
+        (404, None) => ClientError::NoConsoleRoute { route },
+        (status, None) => ClientError::ConsoleRefusedWithStatus {
+            route,
+            node: name.to_owned(),
+            status,
+        },
     }
 }
 
@@ -185,7 +184,7 @@ impl OpenError {
     /// The error the user is shown.
     pub(super) fn into_error(self) -> anyhow::Error {
         match self {
-            Self::Refused { message, .. } => anyhow!(message),
+            Self::Refused { refusal, .. } => refusal.into(),
             Self::Failed(error) => error,
         }
     }
@@ -314,22 +313,20 @@ mod tests {
     }
 
     #[test]
-    fn serial_console_007_a_console_that_cannot_be_reached_fails_naming_it_with_the_cause() {
-        for (route, node, says) in [
-            (
-                Route::Serial,
-                "alp01",
-                "Failed to open the console of alp01 through the Sherpa server",
-            ),
-            (
-                Route::Vnc,
-                "ubu01",
-                "Failed to open the VNC console of ubu01 through the Sherpa server",
-            ),
-        ] {
-            let error = open_error(node, route, anyhow!("Connection timeout")).into_error();
-            assert_eq!(error.to_string(), says);
-            assert_eq!(error.root_cause().to_string(), "Connection timeout");
+    fn serial_console_007_a_console_that_cannot_be_reached_fails_carrying_it_with_the_cause() {
+        for (route, node) in [(Route::Serial, "alp01"), (Route::Vnc, "ubu01")] {
+            let timeout = io::Error::from(io::ErrorKind::TimedOut);
+            let error = open_error(node, route, timeout.into()).into_error();
+            let Some(ClientError::ConsoleUnreachable {
+                route: console,
+                node: named,
+            }) = error.downcast_ref::<ClientError>()
+            else {
+                panic!("not an unreachable console: {error:#}");
+            };
+            assert_eq!((*console, named.as_str()), (route, node));
+            let cause = error.root_cause().downcast_ref::<io::Error>();
+            assert_eq!(cause.map(io::Error::kind), Some(io::ErrorKind::TimedOut));
         }
     }
 
@@ -358,7 +355,7 @@ mod tests {
              its VNC console.",
         ] {
             assert_eq!(
-                refusal_message("alp01", Route::Serial, 409, Some(&body(message))),
+                server_words(refusal("alp01", Route::Serial, 409, Some(&body(message)))),
                 message
             );
         }
@@ -372,7 +369,7 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(
-            refusal_message("srl01", Route::Serial, 400, Some(&details)),
+            server_words(refusal("srl01", Route::Serial, 400, Some(&details))),
             "srl01 is a container, and containers have no serial console. Connect with 'sherpa \
              ssh srl01' instead."
         );
@@ -385,38 +382,57 @@ mod tests {
             .unwrap();
         let error = anyhow::Error::new(tungstenite::Error::Http(Box::new(response)))
             .context("Failed to connect to secure WebSocket");
+        let OpenError::Refused { status, refusal } = open_error("alp01", Route::Serial, error)
+        else {
+            panic!("not a refusal");
+        };
+        assert_eq!(status, 409);
         assert_eq!(
-            open_error("alp01", Route::Serial, error)
-                .into_error()
-                .to_string(),
+            server_words(refusal),
             "Node 'alp01' is not running. Start it with 'sherpa resume'."
         );
     }
 
+    /// The server's words a refusal carries.
+    fn server_words(refusal: ClientError) -> String {
+        let ClientError::ConsoleRefused { message } = refusal else {
+            panic!("not in the server's words: {refusal}");
+        };
+        message
+    }
+
     /// A 401 as not logged in, and an answer with no words of the server's by its status.
     fn without_the_servers_words() {
-        assert_eq!(
-            refusal_message(
+        assert!(matches!(
+            refusal(
                 "alp01",
                 Route::Serial,
                 401,
                 Some(&body("Missing or invalid bearer token"))
             ),
-            "Not logged in to the Sherpa server, or the login has expired: run 'sherpa login'."
-        );
-        assert_eq!(
-            refusal_message(
+            ClientError::ConsoleLoginRefused
+        ));
+        assert!(matches!(
+            refusal(
                 "alp01",
                 Route::Serial,
                 502,
                 Some(b"<html>bad gateway</html>")
             ),
-            "The Sherpa server refused the console of alp01 (HTTP 502)."
-        );
-        assert_eq!(
-            refusal_message("ubu01", Route::Vnc, 502, None),
-            "The Sherpa server refused the VNC console of ubu01 (HTTP 502)."
-        );
+            ClientError::ConsoleRefusedWithStatus {
+                route: Route::Serial,
+                node,
+                status: 502,
+            } if node == "alp01"
+        ));
+        assert!(matches!(
+            refusal("ubu01", Route::Vnc, 502, None),
+            ClientError::ConsoleRefusedWithStatus {
+                route: Route::Vnc,
+                node,
+                status: 502,
+            } if node == "ubu01"
+        ));
     }
 
     #[test]
@@ -427,15 +443,11 @@ mod tests {
 
     #[test]
     fn console_refusal_009_a_server_with_no_console_route_is_told_as_older_than_the_client() {
-        assert_eq!(
-            refusal_message("alp01", Route::Serial, 404, None),
-            "The Sherpa server has no console route: it is older than this client. Upgrade \
-             the server."
-        );
-        assert_eq!(
-            refusal_message("ubu01", Route::Vnc, 404, None),
-            "The Sherpa server has no VNC console route: it is older than this client. Upgrade \
-             the server."
-        );
+        for route in [Route::Serial, Route::Vnc] {
+            assert!(matches!(
+                refusal("alp01", route, 404, None),
+                ClientError::NoConsoleRoute { route: told } if told == route
+            ));
+        }
     }
 }

@@ -3,6 +3,7 @@
 
 mod cluster_credentials;
 mod cmd;
+mod error;
 mod keycloak_credentials;
 mod lab_files;
 mod lab_folder_migration;

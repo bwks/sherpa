@@ -66,6 +66,7 @@ pub fn node_secrets(node: &Node, manifest_dir: &Path) -> Result<Vec<SecretFile>>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::ClientError;
 
     use tempfile::tempdir;
 
@@ -125,12 +126,16 @@ model = "nats_bus"
     }
 
     #[test]
-    fn container_secrets_003_a_missing_secret_file_is_refused_naming_it() {
+    fn container_secrets_003_a_missing_secret_file_is_refused_carrying_it() {
         let dir = tempdir().unwrap();
-        let error = format!(
-            "{:#}",
-            container_secrets(&manifest(), dir.path()).unwrap_err()
+        let error = container_secrets(&manifest(), dir.path()).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::ProvisionerFileUnreadable { path })
+                    if *path == dir.path().join("secrets/password")
+            ),
+            "{error:#}"
         );
-        assert!(error.contains("secrets/password"), "{error}");
     }
 }

@@ -428,7 +428,7 @@ Retired: sherpad does not move image folders. Cases 001 to 009 are retired, and 
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | With no config file the CLI uses its defaults | unit |
-| 002 | A config file that does not parse is an error that names the file | unit |
+| 002 | A config file that does not parse is an error that carries the file | unit |
 | 003 | The server URL is `wss://<address>:<port>/ws` with TLS on, and `ws://` with it off | unit |
 | 004 | The port the certificate is fetched from is the one in `[server_connection]` | unit |
 | 005 | `sherpa init` writes the address and port answered, and leaves an existing file unless `--force` is given (no test yet) | e2e |

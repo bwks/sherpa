@@ -13,6 +13,7 @@ use shared::konst::{SHERPA_DOMAIN_NAME, SHERPA_MANIFEST_FILE, SSH_PROMPT_AUTH_TI
 use shared::util::{LabFolder, term_msg_surround};
 
 use super::lab_identity::require_lab_owner;
+use crate::error::ClientError;
 use crate::ssh_client::{self, PromptScope, SshAccess, node_route};
 
 /// Qualify a device name with the lab ID suffix if not already present.
@@ -125,7 +126,9 @@ fn load_ssh_connection(name: &str, lab_id: &str, lab_dir: &Path) -> Result<Strin
             let node_name = node_name(name, lab_id);
             ensure!(
                 manifest.nodes.iter().any(|node| node.name == node_name),
-                "Node '{name}' not found in {SHERPA_MANIFEST_FILE}"
+                ClientError::NodeNotInManifest {
+                    node: name.to_owned()
+                }
             );
         }
         Err(error) if error.kind() == ErrorKind::NotFound => {}
@@ -141,12 +144,13 @@ pub(super) fn read_lab_connection_file(path: &Path, lab_id: &str) -> Result<Stri
     match fs::read_to_string(path) {
         Ok(contents) => Ok(contents),
         Err(error) if error.kind() == ErrorKind::NotFound => {
-            bail!(
-                "Lab connection files are missing. Start the lab with 'sherpa up', or restore existing lab files with 'sherpa download {lab_id} --force'."
-            );
+            bail!(ClientError::LabConnectionFilesMissing {
+                lab_id: lab_id.to_owned()
+            });
         }
-        Err(error) => Err(error)
-            .with_context(|| format!("Failed to read lab connection file: {}", path.display())),
+        Err(error) => Err(error).with_context(|| ClientError::LabConnectionFileUnreadable {
+            path: path.to_owned(),
+        }),
     }
 }
 
@@ -167,10 +171,16 @@ fn prepare_ssh_connection(
                 .take_while(|field| !field.starts_with('#'))
                 .any(|alias| alias == qualified_name)
     });
-    ensure!(configured, "Node '{name}' not found in lab '{lab_id}'");
+    ensure!(
+        configured,
+        ClientError::NodeNotInLab {
+            node: name.to_owned(),
+            lab_id: lab_id.to_owned(),
+        }
+    );
     ensure!(
         lab_info.id == lab_id,
-        "Saved SSH metadata belongs to a different lab"
+        ClientError::ConnectionFilesOfAnotherLab
     );
     Ok(qualified_name)
 }
@@ -200,7 +210,13 @@ mod tests {
         )
         .unwrap();
         let error = load_ssh_connection("oma1", "abcd1234", dir.path()).unwrap_err();
-        assert_eq!(error.to_string(), "Node 'oma1' not found in manifest.toml");
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::NodeNotInManifest { node }) if node == "oma1"
+            ),
+            "{error:#}"
+        );
     }
 
     #[test]
@@ -240,15 +256,12 @@ mod tests {
         let check = |dir: &Path| {
             for name in ["vm", "vm.abcd1234", "vm.abcd1234.sherpa.lab.local"] {
                 let error = load_ssh_connection(name, "abcd1234", dir).unwrap_err();
-                let message = error.to_string();
                 assert!(
-                    message.contains("Lab connection files are missing"),
+                    matches!(
+                        error.downcast_ref::<ClientError>(),
+                        Some(ClientError::LabConnectionFilesMissing { lab_id }) if lab_id == "abcd1234"
+                    ),
                     "{error:#}"
-                );
-                assert!(message.contains("sherpa up"), "{message}");
-                assert!(
-                    message.contains("sherpa download abcd1234 --force"),
-                    "{message}"
                 );
             }
         };
@@ -266,11 +279,12 @@ mod tests {
         let dir = tempdir().unwrap();
         let error = read_lab_connection_file(dir.path(), "abcd1234").unwrap_err();
         assert!(
-            error
-                .to_string()
-                .contains("Failed to read lab connection file")
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::LabConnectionFileUnreadable { path }) if path == dir.path()
+            ),
+            "{error:#}"
         );
-        assert!(!error.to_string().contains("sherpa up"));
         assert!(error.downcast_ref::<IoError>().is_some());
     }
 
@@ -301,11 +315,17 @@ mod tests {
             "Host vm.ffff0000\n    User alice\n",
         )
         .unwrap_err();
-        assert!(error.to_string().contains("different lab"), "{error:#}");
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::ConnectionFilesOfAnotherLab)
+            ),
+            "{error:#}"
+        );
     }
 
     #[test]
-    fn ssh_target_003_a_node_with_no_host_in_the_ssh_config_is_refused_naming_it() {
+    fn ssh_target_003_a_node_with_no_host_in_the_ssh_config_is_refused_carrying_it() {
         for config in [
             "Host 192.0.2.10 router.abcd1234 router.abcd1234.sherpa.lab.local\n    User alice\n",
             "# Host vm.abcd1234\n",
@@ -315,7 +335,11 @@ mod tests {
         ] {
             let error = prepare_ssh_connection("vm", "abcd1234", &lab_info(), config).unwrap_err();
             assert!(
-                error.to_string().contains("Node 'vm' not found"),
+                matches!(
+                    error.downcast_ref::<ClientError>(),
+                    Some(ClientError::NodeNotInLab { node, lab_id })
+                        if node == "vm" && lab_id == "abcd1234"
+                ),
                 "{error:#}"
             );
         }

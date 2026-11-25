@@ -7,6 +7,8 @@ use shared::validators::validate_tailscale_key;
 use topology::Manifest;
 use topology::validate::validate_tailscale;
 
+use crate::error::ClientError;
+
 /// Resolve the enrollment key separately so the manifest never contains it.
 #[tracing::instrument(skip(manifest, config), level = "debug")]
 pub(crate) fn resolve_tailscale_key(
@@ -71,10 +73,8 @@ fn resolve_tailscale_key_using(
         .auth_key_env
         .as_deref()
         .context("Missing tailscale.auth_key_env")?;
-    let key = lookup(name).with_context(|| {
-        format!(
-            "Tailscale auth-key environment variable '{name}' is not set or is not valid Unicode"
-        )
+    let key = lookup(name).ok_or_else(|| ClientError::TailscaleKeyUnset {
+        name: name.to_owned(),
     })?;
     validate_tailscale_key(&key)?;
     Ok(Some(TailnetAuthKey::new(key)))
@@ -104,7 +104,7 @@ mod tests {
     }
 
     #[test]
-    fn tailnet_key_002_an_unset_variable_is_refused_naming_it() {
+    fn tailnet_key_002_an_unset_variable_is_refused_carrying_it() {
         let manifest: Manifest = toml::from_str(TAILNET_MANIFEST).unwrap();
         let error = resolve_tailscale_key_using(
             &manifest,
@@ -114,8 +114,11 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            error.to_string().contains("SHERPA_TEST_NEVER_SET"),
-            "{error}"
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::TailscaleKeyUnset { name }) if name == "SHERPA_TEST_NEVER_SET"
+            ),
+            "{error:#}"
         );
     }
 

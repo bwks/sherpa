@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use clap::{ArgGroup, Subcommand};
 
 use shared::data::{
@@ -13,6 +13,7 @@ use topology::{Link2, Manifest};
 
 use super::inspect::fetch_inspect;
 use super::lab_identity::resolve_lab_identity;
+use crate::error::ClientError;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -104,20 +105,16 @@ fn inspect_link_index(links: &[LinkInfo], endpoint: &str) -> Result<Option<u16>>
     match found {
         Some(link) => Ok(link.index),
         None if links.iter().any(|link| link.index.is_none()) => Ok(None),
-        None => bail!("no link in the lab has the end {endpoint}"),
+        None => bail!(ClientError::NoLabLinkEnd {
+            endpoint: endpoint.to_owned()
+        }),
     }
 }
 
 /// The index of the link with `endpoint` at either end in the manifest at `path`, for a server
 /// that gives no link indexes.
 fn manifest_link_index(path: &Path, endpoint: &str) -> Result<u16> {
-    if !path.exists() {
-        bail!(
-            "The Sherpa server did not give the lab's link indexes: it is older than this \
-             client. Upgrade the server, or run 'sherpa link impair' in the folder the lab was \
-             started from, with its {SHERPA_MANIFEST_FILE}."
-        );
-    }
+    ensure!(path.exists(), ClientError::NoLinkIndexes);
     let manifest = Manifest::load_file(&path.to_string_lossy())?;
     find_link_index(manifest.links.as_deref().unwrap_or_default(), endpoint)
 }
@@ -129,7 +126,9 @@ fn find_link_index(links: &[Link2], endpoint: &str) -> Result<u16> {
         .iter()
         .position(|link| link.src == endpoint || link.dst == endpoint)
     else {
-        bail!("no link in {SHERPA_MANIFEST_FILE} has the end {endpoint}");
+        bail!(ClientError::NoManifestLinkEnd {
+            endpoint: endpoint.to_owned()
+        });
     };
     u16::try_from(position).context("link index does not fit in 16 bits")
 }
@@ -210,7 +209,13 @@ mod tests {
 
         let links = [link_info("u1::eth1", "u2::eth1", Some(0))];
         let error = inspect_link_index(&links, "u1::eth9").unwrap_err();
-        assert_eq!(error.to_string(), "no link in the lab has the end u1::eth9");
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::NoLabLinkEnd { endpoint }) if endpoint == "u1::eth9"
+            ),
+            "{error:#}"
+        );
         assert!(inspect_link_index(&[], "u1::eth1").is_err());
     }
 
@@ -237,11 +242,12 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let error = manifest_link_index(&dir.path().join(SHERPA_MANIFEST_FILE), "u1::eth1")
                 .unwrap_err();
-            assert_eq!(
-                error.to_string(),
-                "The Sherpa server did not give the lab's link indexes: it is older than this \
-                 client. Upgrade the server, or run 'sherpa link impair' in the folder the lab was \
-                 started from, with its manifest.toml."
+            assert!(
+                matches!(
+                    error.downcast_ref::<ClientError>(),
+                    Some(ClientError::NoLinkIndexes)
+                ),
+                "{error:#}"
             );
         }
 
@@ -254,8 +260,14 @@ mod tests {
 
         {
             let links = vec![link("u1::eth1", "u2::eth1")];
-            let error = find_link_index(&links, "u1::eth9").unwrap_err().to_string();
-            assert!(error.contains("u1::eth9"), "{error}");
+            let error = find_link_index(&links, "u1::eth9").unwrap_err();
+            assert!(
+                matches!(
+                    error.downcast_ref::<ClientError>(),
+                    Some(ClientError::NoManifestLinkEnd { endpoint }) if endpoint == "u1::eth9"
+                ),
+                "{error:#}"
+            );
         }
     }
 }

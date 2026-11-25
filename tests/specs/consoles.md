@@ -17,7 +17,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 004 | The owner opens a unikernel's serial console and reads what it prints (no test yet) | e2e |
 | 005 | The console opens in a folder made by `sherpa download`, which has no manifest (no test yet) | e2e |
 | 006 | Each console is asked for at the server the other commands use, with the same scheme, host and port, and with the lab and the node each one path segment whatever characters the name has | unit |
-| 007 | A console that cannot be reached, by a timeout or a TLS failure, fails naming the console and the node, with the cause kept | unit |
+| 007 | A console that cannot be reached, by a timeout or a TLS failure, fails with an error that carries the console and the node, with the cause kept | unit |
 | 008 | Leaving a console does not log the node's session out: the next console finds it as it was left (no test yet) | e2e |
 | 009 | On Windows, in Windows Terminal and in conhost, the console opens, the node's prompt shows and `Ctrl+]` ends it (no test yet) | e2e |
 

@@ -11,6 +11,7 @@ use shared::tls::{
 };
 use shared::util::{Emoji, confirm};
 
+use crate::error::ClientError;
 use crate::table::{CertificateTableInfo, render_certificates_table};
 
 /// List all trusted certificates
@@ -247,12 +248,14 @@ fn normalize_server_url(input: &str) -> Result<String> {
     let address = Url::parse(&format!("sherpa://{input}"))
         .ok()
         .filter(|url| matches!(url.path(), "" | "/") && url.query().is_none())
-        .with_context(|| {
-            format!("Server '{input}' must be a host, host:port, or a ws:// or wss:// URL")
+        .ok_or_else(|| ClientError::UnsupportedServer {
+            input: input.to_owned(),
         })?;
     let host = address
         .host_str()
-        .with_context(|| format!("Server '{input}' names no host"))?;
+        .ok_or_else(|| ClientError::ServerWithoutHost {
+            input: input.to_owned(),
+        })?;
     let port = address.port().unwrap_or(SHERPA_SERVER_WS_PORT);
     Ok(format!("wss://{host}:{port}/ws"))
 }
@@ -292,9 +295,23 @@ mod tests {
 
     #[test]
     fn certificate_trust_016_any_other_url_a_path_and_nothing_are_refused() {
-        for input in ["https://h:3030", "h:3030/path", ""] {
-            let error = normalize_server_url(input).unwrap_err().to_string();
-            assert!(error.starts_with(&format!("Server '{input}' ")), "{error}");
+        for input in ["https://h:3030", "h:3030/path"] {
+            let error = normalize_server_url(input).unwrap_err();
+            assert!(
+                matches!(
+                    error.downcast_ref::<ClientError>(),
+                    Some(ClientError::UnsupportedServer { input: refused }) if refused == input
+                ),
+                "{error:#}"
+            );
         }
+        let error = normalize_server_url("").unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::ServerWithoutHost { input }) if input.is_empty()
+            ),
+            "{error:#}"
+        );
     }
 }

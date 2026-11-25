@@ -6,6 +6,7 @@ use anyhow::{Context, Result, bail};
 use shared::data::{ClientConfig, DownloadLabResponse};
 use shared::util::{Emoji, LabFolder, get_cwd, term_msg_surround};
 
+use crate::error::ClientError;
 use crate::lab_files::{LabFileSet, LabFiles, register_ssh_config, save_lab_files};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
@@ -68,10 +69,9 @@ pub async fn download(
 /// one found, by its path in the folder.
 fn refuse_existing_lab_files(folder: &LabFolder, files: &LabFileSet) -> Result<()> {
     if let Some(path) = files.first_existing() {
-        bail!(
-            "Lab files already exist in this directory ({}).\nUse --force to overwrite.",
-            path.strip_prefix(folder.root()).unwrap_or(path).display()
-        );
+        bail!(ClientError::LabFilesExist {
+            path: path.strip_prefix(folder.root()).unwrap_or(path).to_owned()
+        });
     }
     Ok(())
 }
@@ -126,10 +126,11 @@ ipv4_router = "172.31.3.2"
             .join("vault")
             .join("vault-vault01.toml");
         assert!(
-            error
-                .to_string()
-                .contains(&vault_file.display().to_string()),
-            "{error}"
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::LabFilesExist { path }) if *path == vault_file
+            ),
+            "{error:#}"
         );
         assert!(!folder.lab_info().exists());
         assert_eq!(fs::read_to_string(folder.vault("vault01")).unwrap(), "kept");

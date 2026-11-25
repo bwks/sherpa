@@ -8,6 +8,7 @@ use super::OutputFormat;
 use super::{rpc_call, rpc_call_streaming};
 use crate::cmd::outcome::ensure_images_recorded;
 use crate::cmd::progress::status_emoji;
+use crate::error::ClientError;
 use crate::table::{
     render_image_detail_table, render_images_table, render_scanned_images_table,
     render_skipped_models_table,
@@ -36,7 +37,7 @@ impl ScanArgs {
     fn request(&self) -> Result<data::ScanImagesRequest> {
         ensure!(
             self.model.is_none() || self.kind == Some(NodeKind::Container),
-            "--model and --repo record container images: give them with --kind container"
+            ClientError::ScanModelWithoutContainerKind
         );
         Ok(data::ScanImagesRequest {
             kind: self.kind,
@@ -629,14 +630,10 @@ async fn download_vm_image(
 /// port such as `localhost:5000/img` is not taken for a tag. The repository is kept as written:
 /// Docker resolves a short Docker Hub name such as `nats` itself.
 fn split_image_reference(reference: &str) -> Result<(&str, &str)> {
-    let invalid = || {
-        format!(
-            "Image reference '{reference}' must be image:tag, such as nats:2.11, or \
-             registry/image:tag, such as ghcr.io/nokia/srlinux:1.2.3; digests (@sha256:...) are \
-             not supported"
-        )
+    let invalid = || ClientError::InvalidImageReference {
+        reference: reference.to_owned(),
     };
-    let (repo, tag) = reference.rsplit_once(':').with_context(invalid)?;
+    let (repo, tag) = reference.rsplit_once(':').ok_or_else(invalid)?;
     ensure!(
         !repo.is_empty() && !tag.is_empty() && !tag.contains('/') && !reference.contains('@'),
         invalid()
@@ -683,16 +680,15 @@ mod tests {
     #[test]
     fn image_pull_005_a_repo_without_a_tag_or_with_a_digest_is_refused_naming_the_forms_taken() {
         for reference in ["nats", "localhost:5000/img", "img:", ":1", "img@sha256:abc"] {
-            let message = split_image_reference(reference).unwrap_err().to_string();
+            let error = split_image_reference(reference).unwrap_err();
             assert!(
-                message.starts_with(&format!("Image reference '{reference}' must be")),
-                "{message}"
+                matches!(
+                    error.downcast_ref::<ClientError>(),
+                    Some(ClientError::InvalidImageReference { reference: refused })
+                        if refused == reference
+                ),
+                "{error:#}"
             );
-            assert!(
-                message.contains("image:tag, such as nats:2.11"),
-                "{message}"
-            );
-            assert!(message.contains("registry/image:tag"), "{message}");
         }
     }
 
@@ -715,9 +711,14 @@ mod tests {
         for kind in [NodeKind::VirtualMachine, NodeKind::Unikernel] {
             let error = scan(Some(kind), Some(NodeModel::MysqlDb))
                 .request()
-                .unwrap_err()
-                .to_string();
-            assert!(error.contains("--kind container"), "{error}");
+                .unwrap_err();
+            assert!(
+                matches!(
+                    error.downcast_ref::<ClientError>(),
+                    Some(ClientError::ScanModelWithoutContainerKind)
+                ),
+                "{error:#}"
+            );
         }
         for kind in [
             None,
