@@ -588,11 +588,14 @@ pub async fn remove_gateway(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bollard::errors::Error as DockerError;
     use bollard::models::{Ipam, IpamConfig, NetworkCreateRequest};
     use bollard::query_parameters::{InspectNetworkOptions, LogsOptions};
     use shared::util::load_config;
 
     use crate::mock_docker::{Reply, mock_docker};
+    use std::env;
+    use std::process;
     use std::sync::{Mutex, PoisonError};
     use tokio::runtime::Runtime;
     use tokio::time::error::Elapsed;
@@ -610,7 +613,7 @@ mod tests {
     const ENROLL: &str = r#""enroll""#;
 
     fn test_settings() -> Result<TailscaleGatewaySettings> {
-        match std::env::var("SHERPA_TEST_SERVER_CONFIG") {
+        match env::var("SHERPA_TEST_SERVER_CONFIG") {
             Ok(path) => Ok(load_config(&path)?.tailscale),
             Err(_) => Ok(TailscaleGatewaySettings::default()),
         }
@@ -867,8 +870,8 @@ mod tests {
             Some(ContainerError::EnrollmentFailed)
         ));
         assert!(matches!(
-            rollback.downcast_ref::<bollard::errors::Error>(),
-            Some(bollard::errors::Error::DockerResponseServerError {
+            rollback.downcast_ref::<DockerError>(),
+            Some(DockerError::DockerResponseServerError {
                 status_code: 500,
                 ..
             })
@@ -1021,13 +1024,12 @@ mod tests {
 
     fn live_config() -> GatewayConfig {
         GatewayConfig {
-            lab_id: format!("tntest{}", std::process::id()),
-            network: std::env::var("SHERPA_TEST_TAILSCALE_NETWORK")
+            lab_id: format!("tntest{}", process::id()),
+            network: env::var("SHERPA_TEST_TAILSCALE_NETWORK")
                 .expect("set a disposable Docker network"),
-            ipv4: std::env::var("SHERPA_TEST_TAILSCALE_IPV4")
-                .expect("set an unused gateway address"),
-            ipv6: std::env::var("SHERPA_TEST_TAILSCALE_IPV6").ok(),
-            routes: std::env::var("SHERPA_TEST_TAILSCALE_ROUTES")
+            ipv4: env::var("SHERPA_TEST_TAILSCALE_IPV4").expect("set an unused gateway address"),
+            ipv6: env::var("SHERPA_TEST_TAILSCALE_IPV6").ok(),
+            routes: env::var("SHERPA_TEST_TAILSCALE_ROUTES")
                 .expect("set comma-separated management routes")
                 .split(',')
                 .map(str::to_owned)
@@ -1049,7 +1051,7 @@ mod tests {
             let config = live_config();
             let settings = test_settings()?;
             let docker = Docker::connect_with_local_defaults()?;
-            let key = TailnetAuthKey::new(std::env::var("SHERPA_TEST_TAILSCALE_AUTH_KEY")?);
+            let key = TailnetAuthKey::new(env::var("SHERPA_TEST_TAILSCALE_AUTH_KEY")?);
             let id = match create_gateway(&docker, &config, &settings).await {
                 Ok(id) => id,
                 Err(error) => {
@@ -1185,10 +1187,10 @@ mod tests {
         async fn start(index: u16) -> Result<Self> {
             let docker = Docker::connect_with_local_defaults()?;
             let settings = test_settings()?;
-            let lab_id = format!("tnsmoke{index}{}", std::process::id());
+            let lab_id = format!("tnsmoke{index}{}", process::id());
             let network = format!("sherpa-{lab_id}");
-            let ipv6_prefix = format!("fdf{index:x}:{:x}::/64", std::process::id() % 65536);
-            let ipv6_address = format!("fdf{index:x}:{:x}::3", std::process::id() % 65536);
+            let ipv6_prefix = format!("fdf{index:x}:{:x}::/64", process::id() % 65536);
+            let ipv6_address = format!("fdf{index:x}:{:x}::3", process::id() % 65536);
             let created = docker
                 .create_network(NetworkCreateRequest {
                     name: network.clone(),

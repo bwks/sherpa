@@ -6,10 +6,12 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
 use bollard::Docker;
-use container::tailscale::Logout;
+use container::tailscale::{Logout, stop_gateway};
 use futures::future::join_all;
 use opentelemetry::KeyValue;
+use tokio::task;
 use tracing::instrument;
+use virt::domain::Domain;
 
 use shared::data::{
     ClusterRole, LabNodeActionResponse, NodeActionResult, NodeConfig, NodeKind, NodeModel,
@@ -69,7 +71,7 @@ enum StopPlan {
 
 /// A domain `down` may need to stop.
 enum DomainCheck {
-    Running(virt::domain::Domain),
+    Running(Domain),
     Done(NodeActionResult),
 }
 
@@ -266,7 +268,7 @@ async fn stop_tailscale_gateway(
     container_id: &str,
     lab_id: &str,
 ) -> NodeActionResult {
-    let stopped = container::tailscale::stop_gateway(docker, container_id, lab_id, settings).await;
+    let stopped = stop_gateway(docker, container_id, lab_id, settings).await;
     let (success, message) = match stopped {
         Ok(Logout::Done) => (true, "Stopped".into()),
         Ok(Logout::Failed(error)) => (
@@ -320,7 +322,7 @@ fn stop_message(stop: &VmStop) -> String {
 
 /// Stop a running domain according to its plan. Waiting for a requested shutdown blocks for up
 /// to `VM_SHUTDOWN_TIMEOUT` seconds; run it on a blocking thread.
-fn stop_domain(domain: &virt::domain::Domain, plan: StopPlan) -> Result<VmStop> {
+fn stop_domain(domain: &Domain, plan: StopPlan) -> Result<VmStop> {
     let stop = match plan {
         StopPlan::PowerOff(reason) => VmStop::PoweredOff(reason),
         StopPlan::RequestFailed(error) => VmStop::ForcedAfterRefusal(error),
@@ -338,7 +340,7 @@ fn stop_domain(domain: &virt::domain::Domain, plan: StopPlan) -> Result<VmStop> 
 }
 
 /// Poll until a guest that was asked to shut down has stopped, or the timeout passes.
-fn wait_for_shutdown(domain: &virt::domain::Domain) -> Result<VmStop> {
+fn wait_for_shutdown(domain: &Domain) -> Result<VmStop> {
     let deadline = Instant::now() + Duration::from_secs(VM_SHUTDOWN_TIMEOUT);
     loop {
         if !domain
@@ -356,7 +358,7 @@ fn wait_for_shutdown(domain: &virt::domain::Domain) -> Result<VmStop> {
 
 /// Look up a domain: running, or a finished node result when there is nothing to stop.
 fn check_domain(conn: &virt::connect::Connect, device_name: &str, node_name: &str) -> DomainCheck {
-    let domain = match virt::domain::Domain::lookup_by_name(conn, device_name) {
+    let domain = match Domain::lookup_by_name(conn, device_name) {
         Ok(domain) => domain,
         Err(e) => {
             return DomainCheck::Done(NodeActionResult {
@@ -422,7 +424,7 @@ async fn shutdown_vm(
     let qemu = state.qemu.clone();
     let device_name = device_name.to_string();
     let node_name_owned = node_name.to_string();
-    match tokio::task::spawn_blocking(move || -> Result<NodeActionResult> {
+    match task::spawn_blocking(move || -> Result<NodeActionResult> {
         let node_name = node_name_owned;
         let conn = qemu.connect().context("Failed to connect to libvirt")?;
         let domain = match check_domain(&conn, &device_name, &node_name) {

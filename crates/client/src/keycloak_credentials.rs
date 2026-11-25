@@ -74,6 +74,8 @@ pub(crate) fn print_keycloak_files(files: &[KeycloakFile]) {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     use crate::lab_files::write_lab_file;
@@ -112,8 +114,7 @@ mod tests {
             ),
             ("kc01", "https://172.31.1.23:8443/realms/sherpa", &path)
         );
-        let content: toml::Value =
-            toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let content: toml::Value = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(
             content["address"].as_str(),
             Some("https://172.31.1.23:8443")
@@ -137,7 +138,7 @@ mod tests {
         assert_eq!(content["users"][0]["password"].as_str(), Some("s3cret"));
         #[cfg(unix)]
         {
-            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            let mode = fs::metadata(&path).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }
     }

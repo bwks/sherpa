@@ -9,6 +9,8 @@
 //!
 //! The messages are built here byte by byte; the socket is netlink-sys, through rtnetlink.
 
+use std::io;
+
 use anyhow::{Context, Result, bail};
 use rtnetlink::sys::constants::NETLINK_GENERIC;
 use rtnetlink::sys::{Socket, SocketAddr};
@@ -284,7 +286,7 @@ fn acknowledgement(reply: &Reply<'_>, seq: u32) -> Option<Result<()>> {
     Some(if errno == 0 {
         Ok(())
     } else {
-        Err(std::io::Error::from_raw_os_error(-errno).into())
+        Err(io::Error::from_raw_os_error(-errno).into())
     })
 }
 

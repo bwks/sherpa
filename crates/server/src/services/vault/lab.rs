@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
+use tokio::time;
 use topology::Manifest;
 use tracing::instrument;
 
@@ -432,7 +433,7 @@ async fn wait_until_active(client: &VaultClient, node_name: &str, timeout: Durat
                 tracing::debug!(%node_name, error = %format!("{error:#}"), "Vault health not answered");
             }
         }
-        tokio::time::sleep(ACTIVE_POLL_INTERVAL).await;
+        time::sleep(ACTIVE_POLL_INTERVAL).await;
     }
     bail!(
         "Vault node '{node_name}' did not become active within {}s",
@@ -452,7 +453,7 @@ async fn wait_for_api(
             Ok(status) => return Ok(status),
             Err(error) if started.elapsed() < timeout => {
                 tracing::debug!(%node_name, error = %format!("{error:#}"), "Vault API not ready yet");
-                tokio::time::sleep(Duration::from_secs(READINESS_SLEEP)).await;
+                time::sleep(Duration::from_secs(READINESS_SLEEP)).await;
             }
             Err(error) => {
                 return Err(error.context(format!(
@@ -504,6 +505,7 @@ pub(crate) mod tests {
     };
     use shared::data::{KeycloakInfo, SurrealDbInfo};
     use tempfile::TempDir;
+    use tokio::runtime::Builder;
     use tokio::sync::mpsc;
 
     use crate::log_capture::capture_log;
@@ -1022,10 +1024,7 @@ cluster_addr = "https://127.0.0.1:8201"
             "unseal_key = \"s3cr3t-key\"\nroot_token = hvs.s3cr3t\n",
         )
         .unwrap();
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
         let ((), log) = capture_log(|| {
             for _ in 0..3 {
                 let outcome = runtime.block_on(unseal_with_saved_key(

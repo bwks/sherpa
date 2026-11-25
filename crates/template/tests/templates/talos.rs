@@ -1,6 +1,7 @@
 use serde_json::Value;
 
 use shared::data::ClusterRole;
+use shared::util;
 use template::{
     CiliumConfig, ClusterOidcConfig, ClusterVaultConfig, TalosClientCredentials,
     TalosClusterSecrets, TalosNodeConfig, kubeconfig, talos_machine_config, talosconfig,
@@ -163,7 +164,7 @@ fn machine_config_001_control_plane_config_matches_the_talos_document_set() {
     let documents = render(ClusterRole::ControlPlane, None, false, None);
     let mut expected: Vec<String> = CONTROL_PLANE_KINDS
         .iter()
-        .map(std::string::ToString::to_string)
+        .map(ToString::to_string)
         .collect();
     expected.push("KubeCoreDNSConfig".to_owned());
     assert_eq!(kinds(&documents), expected);
@@ -172,8 +173,7 @@ fn machine_config_001_control_plane_config_matches_the_talos_document_set() {
     assert_eq!(legacy["machine"]["token"], "ghijkl.0123456789abcdef");
     assert_eq!(legacy["cluster"]["token"], "abcdef.0123456789abcdef");
     // Legacy documents carry PEM as base64; typed documents carry raw PEM.
-    let os_ca =
-        shared::util::base64_decode(legacy["machine"]["ca"]["crt"].as_str().unwrap()).unwrap();
+    let os_ca = util::base64_decode(legacy["machine"]["ca"]["crt"].as_str().unwrap()).unwrap();
     assert!(os_ca.starts_with("-----BEGIN CERTIFICATE-----"));
     assert_eq!(
         find(&documents, "KubeAPIServerCAConfig")["issuingCA"]["key"],
@@ -291,15 +291,15 @@ fn cluster_credentials_003_talosconfig_targets_the_control_planes() {
     assert_eq!(context["endpoints"][1], "172.31.1.11");
     assert_eq!(context["nodes"][0], "172.31.1.10");
     assert_eq!(
-        shared::util::base64_decode(context["ca"].as_str().unwrap()).unwrap(),
+        util::base64_decode(context["ca"].as_str().unwrap()).unwrap(),
         "ca-pem"
     );
     assert_eq!(
-        shared::util::base64_decode(context["crt"].as_str().unwrap()).unwrap(),
+        util::base64_decode(context["crt"].as_str().unwrap()).unwrap(),
         "cert-pem"
     );
     assert_eq!(
-        shared::util::base64_decode(context["key"].as_str().unwrap()).unwrap(),
+        util::base64_decode(context["key"].as_str().unwrap()).unwrap(),
         "key-pem"
     );
 }
@@ -315,7 +315,7 @@ fn cluster_credentials_004_kubeconfig_uses_the_cluster_endpoint_and_admin_creden
     );
     let user = &document["users"][0]["user"];
     assert_eq!(
-        shared::util::base64_decode(user["client-certificate-data"].as_str().unwrap()).unwrap(),
+        util::base64_decode(user["client-certificate-data"].as_str().unwrap()).unwrap(),
         "cert-pem"
     );
 }
@@ -326,7 +326,7 @@ fn cluster_cilium_005_cilium_control_planes_drop_flannel_and_kube_proxy() {
     let mut expected: Vec<String> = CONTROL_PLANE_KINDS
         .iter()
         .filter(|kind| **kind != "KubeFlannelCNIConfig")
-        .map(std::string::ToString::to_string)
+        .map(ToString::to_string)
         .collect();
     expected.push("KubeCoreDNSConfig".to_owned());
     assert_eq!(kinds(&documents), expected);
@@ -521,7 +521,7 @@ fn machine_config_009_keycloak_and_vault_leave_flannel_clusters_without_extra_ma
         kinds(&documents),
         CONTROL_PLANE_KINDS
             .iter()
-            .map(std::string::ToString::to_string)
+            .map(ToString::to_string)
             .chain(["KubeCoreDNSConfig".to_owned()])
             .collect::<Vec<String>>()
     );
@@ -554,5 +554,5 @@ fn cluster_credentials_005_keycloak_clusters_get_an_oidc_login_context() {
         .iter()
         .find_map(|arg| arg.strip_prefix("--certificate-authority-data="))
         .unwrap();
-    assert_eq!(shared::util::base64_decode(ca).unwrap(), LAB_CA);
+    assert_eq!(util::base64_decode(ca).unwrap(), LAB_CA);
 }

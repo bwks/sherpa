@@ -10,6 +10,7 @@ use jiff::Timestamp;
 use rand::Rng;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde_json::Value as JsonValue;
 use turso::{Row, Value};
 
 use shared::data::{
@@ -214,7 +215,7 @@ impl<'a> Cells<'a> {
 }
 
 fn decode_enum<T: DeserializeOwned>(text: String, field: &str) -> Result<T> {
-    serde_json::from_value(serde_json::Value::String(text))
+    serde_json::from_value(JsonValue::String(text))
         .with_context(|| format!("Failed to decode database field {field}"))
 }
 
@@ -223,7 +224,7 @@ pub(crate) fn enum_text<T: Serialize>(value: &T, field: &str) -> Result<String> 
     match serde_json::to_value(value)
         .with_context(|| format!("Failed to encode database field {field}"))?
     {
-        serde_json::Value::String(text) => Ok(text),
+        JsonValue::String(text) => Ok(text),
         other => bail!("Database field {field} does not encode as text: {other}"),
     }
 }

@@ -644,6 +644,7 @@ fn node_management_addresses(
 mod tests {
     use super::*;
     use crate::api::request_parse::InvalidRequest;
+    use db::DefaultRequest;
     use shared::data::{ModelKind, ReadyCheck};
 
     use shared::data::{NodeModel, NodeState};
@@ -1043,9 +1044,9 @@ workers = ["w1"]
                 ..model_kind.node_config()
             };
             let request = if default {
-                db::DefaultRequest::Make
+                DefaultRequest::Make
             } else {
-                db::DefaultRequest::Keep
+                DefaultRequest::Keep
             };
             db::upsert_node_image(&database, image, request)
                 .await

@@ -15,11 +15,13 @@
 #[cfg(feature = "record")]
 pub mod record_lock;
 
+use std::env;
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::process;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
@@ -70,7 +72,7 @@ pub struct JsonLines {
 ///
 /// Fails when neither `XDG_STATE_HOME` nor `HOME` is an absolute path.
 pub fn standard_state_dir() -> Result<PathBuf> {
-    state_dir(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"))
+    state_dir(env::var_os("XDG_STATE_HOME"), env::var_os("HOME"))
 }
 
 /// The directory for the bus's state: `$XDG_STATE_HOME/agent-bus`, or
@@ -125,7 +127,7 @@ pub fn millis(duration: Duration) -> u64 {
 #[instrument(level = "debug", skip_all, fields(path = %path.display(), mode = format_args!("{mode:o}")))]
 pub fn write_atomic(path: &Path, text: &str, mode: u32) -> Result<()> {
     let mut temporary = path.as_os_str().to_owned();
-    temporary.push(format!(".{}.tmp", std::process::id()));
+    temporary.push(format!(".{}.tmp", process::id()));
     let temporary = PathBuf::from(temporary);
     let mut file = OpenOptions::new()
         .write(true)
@@ -267,7 +269,7 @@ pub fn lock_exclusive(path: &Path) -> Result<FileLock> {
 fn held(lock: Flock<File>, path: &Path) -> Result<FileLock> {
     let mut file: &File = &lock;
     file.set_len(0)
-        .and_then(|()| file.write_all(format!("{}\n", std::process::id()).as_bytes()))
+        .and_then(|()| file.write_all(format!("{}\n", process::id()).as_bytes()))
         .with_context(|| format!("Unable to write the holder into {}", path.display()))?;
     Ok(FileLock { _lock: lock })
 }
@@ -295,8 +297,7 @@ mod tests {
     const DAY: u64 = 24 * 60 * 60 * 1000;
 
     pub(super) fn scratch(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("agent-bus-files-{name}-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("agent-bus-files-{name}-{}", process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }

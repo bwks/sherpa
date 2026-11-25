@@ -13,7 +13,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Error, Result};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -143,7 +143,7 @@ impl StateFile {
     #[instrument(level = "debug", skip_all, fields(path = %self.path.display()))]
     pub(super) fn load(&self, now_ms: u64) -> Saved {
         let parsed = match fs::read_to_string(&self.path) {
-            Ok(text) => toml::from_str::<Saved>(&text).map_err(anyhow::Error::from),
+            Ok(text) => toml::from_str::<Saved>(&text).map_err(Error::from),
             Err(error) if error.kind() == ErrorKind::NotFound => return Saved::default(),
             Err(error) => Err(error.into()),
         };
@@ -232,6 +232,7 @@ mod tests {
 
     use std::env;
     use std::os::unix::fs::PermissionsExt;
+    use std::process;
 
     use crate::files::DIR_MODE;
     use crate::guest::base::Inputs;
@@ -240,7 +241,7 @@ mod tests {
     const DAY: u64 = 24 * 60 * 60 * 1000;
 
     fn dir(label: &str) -> PathBuf {
-        let dir = env::temp_dir().join(format!("agent-bus-state-{label}-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("agent-bus-state-{label}-{}", process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }

@@ -66,6 +66,8 @@ pub(crate) fn cluster_credential_files(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     use crate::lab_files::write_lab_file;
@@ -89,11 +91,11 @@ mod tests {
             write_lab_file(&folder, &cluster.talosconfig).unwrap();
         }
         assert_eq!(
-            std::fs::read_to_string(dir.path().join(".sherpa/k8s/kubeconfig-edge")).unwrap(),
+            fs::read_to_string(dir.path().join(".sherpa/k8s/kubeconfig-edge")).unwrap(),
             "kube-edge"
         );
         assert_eq!(
-            std::fs::read_to_string(dir.path().join(".sherpa/talos/talosconfig-k8s")).unwrap(),
+            fs::read_to_string(dir.path().join(".sherpa/talos/talosconfig-k8s")).unwrap(),
             "talos-k8s"
         );
         assert_eq!(

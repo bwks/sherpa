@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 
 use shared::data::ModelKind;
+use topology::NodeExpanded;
 use topology::validate::{
     check_lab_name, check_node_file_settings, check_nonzero_node_settings, check_ready_timeout,
     check_text_file_modes, validate_environment_variables, validate_provisioners,
@@ -20,7 +21,7 @@ pub fn process_manifest_nodes(
     // check_device_count caps a lab far below u16::MAX nodes.
     (1..=u16::MAX)
         .zip(manifest_nodes)
-        .map(|(index, node)| topology::NodeExpanded::new(index, node))
+        .map(|(index, node)| NodeExpanded::new(index, node))
         .collect()
 }
 

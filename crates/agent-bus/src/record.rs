@@ -545,7 +545,7 @@ mod tests {
             .await
             .unwrap();
         let release = tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            sleep(Duration::from_millis(200)).await;
             drop(held);
         });
         let lock = lock_within(&paths.lock, Duration::from_secs(5)).await;

@@ -378,6 +378,8 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::{PermissionsExt, symlink};
 
+    use jato::SshConfig;
+
     use super::*;
 
     const LAB_INFO: &str = r#"id = "fecb1a12"
@@ -503,7 +505,7 @@ users = []
 
         migrate_lab_folder(lab.path(), &ssh_dir).unwrap();
 
-        let target = jato::SshConfig::load_file(folder.ssh_config())
+        let target = SshConfig::load_file(folder.ssh_config())
             .unwrap()
             .route("dev.fecb1a12")
             .unwrap()

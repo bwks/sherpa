@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use schemars::schema_for;
 use serde::Serialize;
-use serde_json::json;
+use serde_json::{Map, Value, json};
 
 use crate::data::{
     AddSshKeyRequest, BackupResponse, CancelLabResponse, ChangePasswordRequest,
@@ -901,8 +901,8 @@ fn build_schemas() -> BTreeMap<String, serde_json::Value> {
 /// to `OpenAPI` 3.1 format (`#/components/schemas/Foo`).
 fn rewrite_refs(value: &mut serde_json::Value) {
     match value {
-        serde_json::Value::Object(map) => {
-            if let Some(serde_json::Value::String(ref_str)) = map.get_mut("$ref")
+        Value::Object(map) => {
+            if let Some(Value::String(ref_str)) = map.get_mut("$ref")
                 && let Some(name) = ref_str.strip_prefix("#/$defs/")
             {
                 *ref_str = format!("#/components/schemas/{name}");
@@ -911,7 +911,7 @@ fn rewrite_refs(value: &mut serde_json::Value) {
                 rewrite_refs(v);
             }
         }
-        serde_json::Value::Array(arr) => {
+        Value::Array(arr) => {
             for v in arr {
                 rewrite_refs(v);
             }
@@ -926,8 +926,8 @@ fn extract_definitions(schemas: &mut BTreeMap<String, serde_json::Value>) {
     let mut hoisted = BTreeMap::new();
 
     for schema in schemas.values_mut() {
-        if let serde_json::Value::Object(map) = schema
-            && let Some(serde_json::Value::Object(defs)) = map.remove("$defs")
+        if let Value::Object(map) = schema
+            && let Some(Value::Object(defs)) = map.remove("$defs")
         {
             for (name, def) in defs {
                 hoisted.insert(name, def);
@@ -977,7 +977,7 @@ fn openapi_operation(op: &OperationDef, rest: &RestBinding) -> serde_json::Value
         json!({ "description": op.description })
     };
 
-    let mut responses = serde_json::Map::new();
+    let mut responses = Map::new();
     responses.insert("200".to_owned(), success_response);
     responses.insert("400".to_owned(), json!({ "description": "Bad request" }));
     responses.insert(
@@ -997,12 +997,12 @@ fn openapi_operation(op: &OperationDef, rest: &RestBinding) -> serde_json::Value
         );
     }
 
-    let mut operation = serde_json::Map::new();
+    let mut operation = Map::new();
     operation.insert("operationId".to_owned(), json!(op.name));
     operation.insert("summary".to_owned(), json!(op.description));
     operation.insert("tags".to_owned(), json!([op.category]));
     operation.insert("security".to_owned(), security);
-    operation.insert("responses".to_owned(), serde_json::Value::Object(responses));
+    operation.insert("responses".to_owned(), Value::Object(responses));
     // A GET request has no body.
     if rest.method != HttpMethod::Get
         && let Some(schema_name) = op.request_schema
@@ -1022,7 +1022,7 @@ fn openapi_operation(op: &OperationDef, rest: &RestBinding) -> serde_json::Value
     if matches!(op.auth, AuthRequirement::Admin) {
         operation.insert("x-admin-required".to_owned(), json!(true));
     }
-    serde_json::Value::Object(operation)
+    Value::Object(operation)
 }
 
 /// The `OpenAPI` path parameters for `names`, each a required string.
@@ -1155,17 +1155,17 @@ mod tests {
     /// Every `$ref` string anywhere in `value`.
     fn collect_refs(value: &serde_json::Value, refs: &mut Vec<String>) {
         match value {
-            serde_json::Value::Object(map) => {
+            Value::Object(map) => {
                 for (key, child) in map {
                     match child {
-                        serde_json::Value::String(reference) if key == "$ref" => {
+                        Value::String(reference) if key == "$ref" => {
                             refs.push(reference.clone());
                         }
                         _ => collect_refs(child, refs),
                     }
                 }
             }
-            serde_json::Value::Array(items) => {
+            Value::Array(items) => {
                 for item in items {
                     collect_refs(item, refs);
                 }

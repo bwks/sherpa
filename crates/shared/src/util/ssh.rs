@@ -6,7 +6,7 @@ use tempfile::NamedTempFile;
 use tracing::instrument;
 
 use std::collections::{BTreeSet, HashSet};
-use std::fs::{File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, ErrorKind, Write};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -237,7 +237,7 @@ fn has_include(content: &str, path: &str) -> bool {
 /// mode, then rename it over the old one, so a crash or a full disk never leaves it cut short.
 /// A symlinked file (a dotfiles manager's) is followed, so the link stays in place.
 fn replace_file(path: &Path, contents: &str) -> Result<()> {
-    let target = match std::fs::canonicalize(path) {
+    let target = match fs::canonicalize(path) {
         Ok(real) => real,
         Err(error) if error.kind() == ErrorKind::NotFound => path.to_path_buf(),
         Err(error) => {
@@ -249,7 +249,7 @@ fn replace_file(path: &Path, contents: &str) -> Result<()> {
         .with_context(|| format!("{} has no parent folder", target.display()))?;
     let mut temporary = NamedTempFile::new_in(folder)
         .with_context(|| format!("Failed to create a file in {}", folder.display()))?;
-    if let Ok(metadata) = std::fs::metadata(&target) {
+    if let Ok(metadata) = fs::metadata(&target) {
         temporary
             .as_file()
             .set_permissions(metadata.permissions())
@@ -283,11 +283,11 @@ fn lock_ssh_dir(ssh_dir: &Path) -> Result<File> {
 /// Create the SSH folder, owner only, if it does not exist.
 fn create_ssh_dir(ssh_dir: &Path) -> Result<()> {
     if !ssh_dir.exists() {
-        std::fs::create_dir_all(ssh_dir)
+        fs::create_dir_all(ssh_dir)
             .with_context(|| format!("Failed to create {}", ssh_dir.display()))?;
         #[cfg(unix)]
         {
-            std::fs::set_permissions(ssh_dir, PermissionsExt::from_mode(0o700))
+            fs::set_permissions(ssh_dir, PermissionsExt::from_mode(0o700))
                 .with_context(|| format!("Failed to set permissions on {}", ssh_dir.display()))?;
         }
     }
@@ -297,7 +297,7 @@ fn create_ssh_dir(ssh_dir: &Path) -> Result<()> {
 fn read_lab_info_for_include(lab_folder: &LabFolder) -> Result<LabInfo> {
     let lab_info_path = lab_folder.lab_info();
 
-    let content = std::fs::read_to_string(&lab_info_path)
+    let content = fs::read_to_string(&lab_info_path)
         .with_context(|| format!("Missing or unreadable {}", lab_info_path.display()))?;
 
     LabInfo::from_str(&content).with_context(|| format!("Invalid {}", lab_info_path.display()))
@@ -395,7 +395,7 @@ fn inspect_lab_ssh_includes_at(
         });
     }
 
-    let content = std::fs::read_to_string(&index_path)
+    let content = fs::read_to_string(&index_path)
         .with_context(|| format!("Failed to read {}", index_path.display()))?;
     let mut seen_include_paths = HashSet::new();
     let mut entries = Vec::new();
@@ -463,7 +463,7 @@ fn clean_stale_lab_ssh_includes_at(
         .map(|entry| entry.line_number)
         .collect();
 
-    let content = std::fs::read_to_string(&inspection.index_path)
+    let content = fs::read_to_string(&inspection.index_path)
         .with_context(|| format!("Failed to read {}", inspection.index_path.display()))?;
     let new_content = content
         .lines()
@@ -522,7 +522,7 @@ fn ensure_sherpa_include_in_ssh_config_at(ssh_dir: &Path) -> Result<PathBuf> {
 
     // Read existing config or start fresh
     let existing = if ssh_config_path.exists() {
-        std::fs::read_to_string(&ssh_config_path)
+        fs::read_to_string(&ssh_config_path)
             .with_context(|| format!("Failed to read {}", ssh_config_path.display()))?
     } else {
         String::new()
@@ -547,7 +547,7 @@ fn add_lab_ssh_include_at(ssh_dir: &Path, lab_ssh_config_path: &str) -> Result<(
     let _lock = lock_ssh_dir(ssh_dir)?;
     let sherpa_configs_path = ensure_sherpa_include_in_ssh_config_at(ssh_dir)?;
 
-    let existing = std::fs::read_to_string(&sherpa_configs_path)
+    let existing = fs::read_to_string(&sherpa_configs_path)
         .with_context(|| format!("Failed to read {}", sherpa_configs_path.display()))?;
 
     // Already present — idempotent
@@ -573,7 +573,7 @@ pub fn remove_lab_ssh_include_at(ssh_dir: &Path, lab_ssh_config_path: &str) -> R
     }
 
     let _lock = lock_ssh_dir(ssh_dir)?;
-    let content = std::fs::read_to_string(&sherpa_configs_path)
+    let content = fs::read_to_string(&sherpa_configs_path)
         .with_context(|| format!("Failed to read {}", sherpa_configs_path.display()))?;
 
     if !has_include(&content, lab_ssh_config_path) {
@@ -608,7 +608,7 @@ pub fn replace_lab_ssh_include(ssh_dir: &Path, old_path: &str, new_path: &str) -
     }
     let include_line = include_directive(new_path)?;
     let _lock = lock_ssh_dir(ssh_dir)?;
-    let content = std::fs::read_to_string(&index_path)
+    let content = fs::read_to_string(&index_path)
         .with_context(|| format!("Failed to read {}", index_path.display()))?;
     if !has_include(&content, old_path) {
         return Ok(false);
@@ -674,6 +674,7 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
     use std::path::Path;
+    use std::thread;
 
     use tempfile::TempDir;
 
@@ -684,7 +685,7 @@ mod tests {
     // ========================================================================
 
     fn read_file(path: &Path) -> String {
-        std::fs::read_to_string(path).unwrap_or_default()
+        fs::read_to_string(path).unwrap_or_default()
     }
 
     #[test]
@@ -707,11 +708,11 @@ mod tests {
     fn ssh_config_include_003_the_include_goes_above_the_user_s_hosts() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
-        std::fs::create_dir_all(&ssh_dir).unwrap();
+        fs::create_dir_all(&ssh_dir).unwrap();
 
         // Pre-populate ~/.ssh/config with existing content
         let ssh_config = ssh_dir.join("config");
-        std::fs::write(&ssh_config, "Host myserver\n    HostName 1.2.3.4\n").unwrap();
+        fs::write(&ssh_config, "Host myserver\n    HostName 1.2.3.4\n").unwrap();
 
         add_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/.sherpa/ssh/config").unwrap();
 
@@ -725,7 +726,7 @@ mod tests {
     fn ssh_config_include_004_a_lab_listed_twice_is_in_the_file_once() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
-        std::fs::create_dir_all(&ssh_dir).unwrap();
+        fs::create_dir_all(&ssh_dir).unwrap();
 
         add_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/.sherpa/ssh/config").unwrap();
         add_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/.sherpa/ssh/config").unwrap();
@@ -773,7 +774,7 @@ mod tests {
     fn ssh_config_include_010_removing_a_lab_that_is_not_listed_changes_nothing() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
-        std::fs::create_dir_all(&ssh_dir).unwrap();
+        fs::create_dir_all(&ssh_dir).unwrap();
 
         remove_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/.sherpa/ssh/config").unwrap();
         assert!(!ssh_dir.join(SHERPA_SSH_INDEX_FILE).exists());
@@ -798,10 +799,10 @@ ipv4_router = "172.31.1.254"
 
     fn create_lab_files(base: &Path, lab_dir_name: &str, lab_id: &str) -> String {
         let lab_folder = LabFolder::new(&base.join(lab_dir_name));
-        std::fs::create_dir_all(lab_folder.ssh_dir()).unwrap();
+        fs::create_dir_all(lab_folder.ssh_dir()).unwrap();
         let ssh_config_path = lab_folder.ssh_config();
-        std::fs::write(&ssh_config_path, "Host test\n").unwrap();
-        std::fs::write(lab_folder.lab_info(), valid_lab_info_toml(lab_id)).unwrap();
+        fs::write(&ssh_config_path, "Host test\n").unwrap();
+        fs::write(lab_folder.lab_info(), valid_lab_info_toml(lab_id)).unwrap();
         ssh_config_path.to_string_lossy().to_string()
     }
 
@@ -842,22 +843,22 @@ ipv4_router = "172.31.1.254"
     fn ssh_config_include_007_a_symlinked_ssh_config_keeps_its_link_and_mode() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
-        std::fs::create_dir_all(&ssh_dir).unwrap();
+        fs::create_dir_all(&ssh_dir).unwrap();
         let dotfiles = tmp.path().join("dotfiles_ssh_config");
-        std::fs::write(&dotfiles, "Host myserver\n").unwrap();
-        std::fs::set_permissions(&dotfiles, Permissions::from_mode(0o600)).unwrap();
+        fs::write(&dotfiles, "Host myserver\n").unwrap();
+        fs::set_permissions(&dotfiles, Permissions::from_mode(0o600)).unwrap();
         symlink(&dotfiles, ssh_dir.join("config")).unwrap();
 
         add_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/.sherpa/ssh/config").unwrap();
 
         assert!(
-            std::fs::symlink_metadata(ssh_dir.join("config"))
+            fs::symlink_metadata(ssh_dir.join("config"))
                 .unwrap()
                 .file_type()
                 .is_symlink()
         );
         assert!(read_file(&dotfiles).contains("Include "));
-        let mode = std::fs::metadata(&dotfiles).unwrap().permissions().mode() & 0o777;
+        let mode = fs::metadata(&dotfiles).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
     }
 
@@ -865,7 +866,7 @@ ipv4_router = "172.31.1.254"
     fn ssh_config_include_008_labs_listed_at_the_same_moment_are_all_listed() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
-        std::thread::scope(|scope| {
+        thread::scope(|scope| {
             for lab in 0..16 {
                 let ssh_dir = &ssh_dir;
                 scope.spawn(move || {
@@ -893,7 +894,7 @@ ipv4_router = "172.31.1.254"
     fn stale_includes_002_a_line_whose_lab_the_server_lists_is_valid() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
-        std::fs::create_dir_all(&ssh_dir).unwrap();
+        fs::create_dir_all(&ssh_dir).unwrap();
         let include_path = create_lab_files(tmp.path(), "lab1", "lab-active");
         add_lab_ssh_include_at(&ssh_dir, &include_path).unwrap();
 
@@ -910,7 +911,7 @@ ipv4_router = "172.31.1.254"
     fn stale_includes_003_a_line_whose_lab_the_server_does_not_list_is_stale() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
-        std::fs::create_dir_all(&ssh_dir).unwrap();
+        fs::create_dir_all(&ssh_dir).unwrap();
         let include_path = create_lab_files(tmp.path(), "lab1", "deleted-lab");
         add_lab_ssh_include_at(&ssh_dir, &include_path).unwrap();
 
@@ -926,7 +927,7 @@ ipv4_router = "172.31.1.254"
     fn stale_includes_004_a_line_whose_ssh_config_is_gone_is_stale() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
-        std::fs::create_dir_all(&ssh_dir).unwrap();
+        fs::create_dir_all(&ssh_dir).unwrap();
         add_lab_ssh_include_at(&ssh_dir, "/tmp/missing/.sherpa/ssh/config").unwrap();
 
         let report = inspect_lab_ssh_includes_at(&ssh_dir, None, None).unwrap();
@@ -940,10 +941,10 @@ ipv4_router = "172.31.1.254"
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
         let lab_dir = tmp.path().join("lab1");
-        std::fs::create_dir_all(lab_dir.join(".sherpa/ssh")).unwrap();
-        std::fs::create_dir_all(lab_dir.join("other/ssh")).unwrap();
-        std::fs::write(lab_dir.join("lab-info.toml"), valid_lab_info_toml("old")).unwrap();
-        std::fs::write(
+        fs::create_dir_all(lab_dir.join(".sherpa/ssh")).unwrap();
+        fs::create_dir_all(lab_dir.join("other/ssh")).unwrap();
+        fs::write(lab_dir.join("lab-info.toml"), valid_lab_info_toml("old")).unwrap();
+        fs::write(
             lab_dir.join(".sherpa/lab-info.toml"),
             valid_lab_info_toml("old"),
         )
@@ -956,7 +957,7 @@ ipv4_router = "172.31.1.254"
         ]
         .map(|other| lab_dir.join(other));
         for other in &others {
-            std::fs::write(other, "Host test\n").unwrap();
+            fs::write(other, "Host test\n").unwrap();
             add_lab_ssh_include_at(&ssh_dir, &other.to_string_lossy()).unwrap();
         }
 
@@ -1005,12 +1006,12 @@ ipv4_router = "172.31.1.254"
     fn stale_includes_005_a_line_whose_lab_info_cannot_be_read_is_broken() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
-        std::fs::create_dir_all(&ssh_dir).unwrap();
+        fs::create_dir_all(&ssh_dir).unwrap();
         let lab_folder = LabFolder::new(&tmp.path().join("lab1"));
-        std::fs::create_dir_all(lab_folder.ssh_dir()).unwrap();
+        fs::create_dir_all(lab_folder.ssh_dir()).unwrap();
         let ssh_config_path = lab_folder.ssh_config();
-        std::fs::write(&ssh_config_path, "Host test\n").unwrap();
-        std::fs::write(lab_folder.lab_info(), "not = valid = toml").unwrap();
+        fs::write(&ssh_config_path, "Host test\n").unwrap();
+        fs::write(lab_folder.lab_info(), "not = valid = toml").unwrap();
         add_lab_ssh_include_at(&ssh_dir, &ssh_config_path.to_string_lossy()).unwrap();
 
         let report = inspect_lab_ssh_includes_at(&ssh_dir, None, None).unwrap();
@@ -1023,7 +1024,7 @@ ipv4_router = "172.31.1.254"
     fn stale_includes_008_clean_removes_a_stale_line_and_keeps_a_valid_one() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
-        std::fs::create_dir_all(&ssh_dir).unwrap();
+        fs::create_dir_all(&ssh_dir).unwrap();
         let valid_include = create_lab_files(tmp.path(), "lab1", "active-lab");
         let stale_include = create_lab_files(tmp.path(), "lab2", "deleted-lab");
         add_lab_ssh_include_at(&ssh_dir, &valid_include).unwrap();
@@ -1045,10 +1046,10 @@ ipv4_router = "172.31.1.254"
     fn stale_includes_007_a_second_line_for_the_same_file_is_stale_and_clean_keeps_one() {
         let tmp = TempDir::new().unwrap();
         let ssh_dir = tmp.path().join(".ssh");
-        std::fs::create_dir_all(&ssh_dir).unwrap();
+        fs::create_dir_all(&ssh_dir).unwrap();
         let include_path = create_lab_files(tmp.path(), "lab1", "active-lab");
         ensure_sherpa_include_in_ssh_config_at(&ssh_dir).unwrap();
-        std::fs::write(
+        fs::write(
             ssh_dir.join(SHERPA_SSH_INDEX_FILE),
             format!("{SHERPA_SSH_INDEX_HEADER}\nInclude {include_path}\nInclude {include_path}\n"),
         )

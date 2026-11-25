@@ -6,6 +6,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use bollard::Docker;
 use libvirt::Qemu;
+use tokio::task;
 use tracing::instrument;
 
 use super::veths::ContainerVeth;
@@ -159,7 +160,7 @@ impl LinkHost for KernelHost<'_> {
             EndDevice::Tap { domain, tap } => {
                 let qemu = Arc::clone(self.qemu);
                 let (domain, tap) = (domain.clone(), tap.clone());
-                tokio::task::spawn_blocking(move || {
+                task::spawn_blocking(move || {
                     let conn = qemu.connect()?;
                     libvirt::interface_link_up(&conn, &domain, &tap)
                 })
@@ -176,7 +177,7 @@ impl LinkHost for KernelHost<'_> {
             EndDevice::Tap { domain, tap } => {
                 let qemu = Arc::clone(self.qemu);
                 let (domain, tap) = (domain.clone(), tap.clone());
-                tokio::task::spawn_blocking(move || {
+                task::spawn_blocking(move || {
                     let conn = qemu.connect()?;
                     libvirt::set_interface_link(&conn, &domain, &tap, up)
                 })

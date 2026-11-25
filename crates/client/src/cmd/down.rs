@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use serde_json::Value;
 use std::io::{self, Write};
 use std::time::Duration;
 
@@ -48,7 +49,7 @@ pub async fn down(
         "token": token,
     });
     if let Some(name) = node_name {
-        params["node_name"] = serde_json::Value::String(name.to_string());
+        params["node_name"] = Value::String(name.to_string());
     }
 
     let request = RpcRequest::new("down", params);

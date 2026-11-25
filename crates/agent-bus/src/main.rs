@@ -457,7 +457,7 @@ fn find_server(flag: Option<String>) -> Result<Endpoint> {
     Ok(Endpoint {
         url: state::find_server(
             flag,
-            std::env::var(state::SERVER_ENV).ok(),
+            env::var(state::SERVER_ENV).ok(),
             &Bus::standard_record_path()?,
         )?,
         ca: tls::client_ca()?,
@@ -641,7 +641,8 @@ mod tests {
     use tokio::time::{Instant, sleep, timeout};
     use tracing::field::{Field, Visit};
     use tracing::span::{Attributes, Id, Record};
-    use tracing::{Event, Metadata, Subscriber};
+    use tracing::{Event, Metadata, Subscriber, subscriber};
+    use uuid::Uuid;
 
     #[cfg(feature = "record")]
     use crate::record::{BusAccess, LOCK_WAIT, Paths, Record as HostRecord};
@@ -888,7 +889,7 @@ mod tests {
     #[tokio::test]
     async fn a_seed_never_appears_in_a_span() {
         let capture = Capture::default();
-        let _guard = tracing::subscriber::set_default(capture.clone());
+        let _guard = subscriber::set_default(capture.clone());
         let seed = keys::generate().unwrap().seed;
         let missing = Path::new("/nonexistent/agent-bus-test");
         let server = Endpoint {
@@ -1210,7 +1211,7 @@ role = "guest"
     async fn a_guest_agents_secrets_are_out_of_reach_of_its_tasks() {
         let _ = aws_lc_rs::default_provider().install_default();
         let (host, guest) = (keys::generate().unwrap(), keys::generate().unwrap());
-        let claude_token = format!("sk-ant-oat01-{}", uuid::Uuid::new_v4().simple());
+        let claude_token = format!("sk-ant-oat01-{}", Uuid::new_v4().simple());
         let dir = secrets_test_dir(&host, &guest);
         let port = TcpListener::bind("127.0.0.1:0")
             .unwrap()

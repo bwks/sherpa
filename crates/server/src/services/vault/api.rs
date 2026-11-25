@@ -9,6 +9,7 @@ use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use reqwest::{Certificate, Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -111,15 +112,15 @@ pub fn vault_address(node_address: Ipv4Addr) -> String {
 /// A Vault node's API, reached over TLS trusting only the lab CA.
 #[derive(Debug)]
 pub struct VaultClient {
-    client: reqwest::Client,
+    client: Client,
     address: String,
     init_timeout: Duration,
 }
 
 impl VaultClient {
     pub fn new(node_address: Ipv4Addr, lab_ca_pem: &str) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .tls_certs_only([reqwest::Certificate::from_pem(lab_ca_pem.as_bytes())
+        let client = Client::builder()
+            .tls_certs_only([Certificate::from_pem(lab_ca_pem.as_bytes())
                 .context("Failed to load the lab CA certificate")?])
             .timeout(REQUEST_TIMEOUT)
             .build()
@@ -210,7 +211,7 @@ impl VaultClient {
             .send()
             .await
             .with_context(|| format!("Vault API at {} did not answer", self.address))?;
-        Ok(response.status() == reqwest::StatusCode::OK)
+        Ok(response.status() == StatusCode::OK)
     }
 
     pub async fn unseal(&self, key: &str) -> Result<SealStatus> {

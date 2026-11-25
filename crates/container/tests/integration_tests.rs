@@ -13,7 +13,11 @@
 use anyhow::{Result, ensure};
 use bollard::Docker;
 use bollard::query_parameters::InspectContainerOptions;
+use std::env;
+use std::fs;
+use std::process::{self, Command};
 use std::time::Duration;
+use tokio::time;
 
 use container::{
     BridgeSubnet, ContainerError, ContainerMemory, ContainerSpec, create_docker_bridge_network,
@@ -293,7 +297,7 @@ async fn image_import_014_a_container_archive_that_cannot_be_read_through_is_a_f
 -> Result<()> {
     let docker = docker_connection()?;
     // A directory opens, but reading it fails.
-    let directory = std::env::temp_dir();
+    let directory = env::temp_dir();
     let error = load_image(&docker, directory.to_str().unwrap(), |_| {})
         .await
         .unwrap_err();
@@ -431,14 +435,14 @@ async fn iol_image(docker: &Docker) -> Result<Option<String>> {
 /// Whether `address` answers a ping from the host within `attempts` seconds or so.
 async fn answers_ping(address: &str, attempts: u32) -> bool {
     for _ in 0..attempts {
-        let answered = std::process::Command::new("ping")
+        let answered = Command::new("ping")
             .args(["-c", "1", "-W", "1", address])
             .output()
             .is_ok_and(|output| output.status.success());
         if answered {
             return true;
         }
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        time::sleep(Duration::from_secs(1)).await;
     }
     false
 }
@@ -460,9 +464,9 @@ async fn container_run_013_a_cisco_iol_container_runs_unprivileged_holds_its_add
     create_test_network(&docker, &net).await?;
     create_test_network(&docker, &data_net).await?;
 
-    let config_dir = std::env::temp_dir().join(format!("sherpa-test-iol-{}", std::process::id()));
-    std::fs::create_dir_all(&config_dir)?;
-    std::fs::write(
+    let config_dir = env::temp_dir().join(format!("sherpa-test-iol-{}", process::id()));
+    fs::create_dir_all(&config_dir)?;
+    fs::write(
         config_dir.join("ios_config.txt"),
         "hostname iol-test\n\
          ip domain name test.local\n\
@@ -540,6 +544,6 @@ async fn container_run_013_a_cisco_iol_container_runs_unprivileged_holds_its_add
     .await;
     cleanup(&docker, name, &net.name).await;
     let _ = delete_network(&docker, &data_net.name).await;
-    let _ = std::fs::remove_dir_all(&config_dir);
+    let _ = fs::remove_dir_all(&config_dir);
     checks
 }

@@ -1,6 +1,6 @@
 use std::fmt::{self, Write as _};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Error, Result};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use shared::error::RpcErrorCode;
@@ -89,7 +89,7 @@ impl RpcError {
         if self.code == RpcErrorCode::AuthRequired {
             text.push_str("\n  Your login has expired or is invalid; run: sherpa login");
         }
-        anyhow::Error::new(RpcFailure {
+        Error::new(RpcFailure {
             code: self.code,
             text,
         })

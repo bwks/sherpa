@@ -131,11 +131,12 @@ fn refuse_newer_version(version: usize) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use anyhow::Error;
+    use serde_json::Value as JsonValue;
     use shared::data::{
         BiosTypes, BootDiskSettings, CdromSettings, ContainerSettings, CpuArchitecture, CpuModels,
         DbCpuPins, DbLab, DiskBuses, InterfaceDeviceSettings, InterfaceType, KindSettings,
         LabPhase, MachineSettings, MachineType, ModelKind, NodeConfig, NodeCpuPins, NodeKind,
-        NodeModel, NodeState, OsVariant, ReadyCheck, RecordId, UnikernelBootMode,
+        NodeModel, NodeResources, NodeState, OsVariant, ReadyCheck, RecordId, UnikernelBootMode,
         UnikernelCpuSettings, UnikernelMachineSettings, UnikernelSettings, VmCpuSettings,
         VmSettings, Ztp, ZtpSettings,
     };
@@ -526,8 +527,7 @@ mod tests {
             // The four models with mounted configs are the only ones whose default is not off.
             return image.ztp();
         }
-        let stored: Option<Ztp> =
-            serde_json::from_value(serde_json::Value::String(method.to_owned())).ok();
+        let stored: Option<Ztp> = serde_json::from_value(JsonValue::String(method.to_owned())).ok();
         match stored {
             Some(ztp) if ModelKind::default_for(model).ztp_methods().contains(&ztp) => ztp,
             // `volume` on a VM, `none` and `ipxe`: their arms generated nothing.
@@ -1598,7 +1598,7 @@ mod tests {
             .unwrap();
         assert_eq!(nodes.len(), 2);
         // A node's resources are written without the column.
-        let resources = shared::data::NodeResources {
+        let resources = NodeResources {
             cpu_count: Some(2),
             memory: Some(1024),
         };

@@ -149,7 +149,10 @@ mod tests {
     use crate::log_capture::capture_log;
     use crate::services::lab_operations::begin;
     use crate::services::node_lifecycle::tests::lab_of;
+    use db::LabDetails;
     use shared::data::LabRefused;
+    use tokio::runtime::Builder;
+    use tokio::time;
 
     async fn phase(db: &db::Database, lab_id: &str) -> Option<LabPhase> {
         db::find_lab(db, lab_id).await.unwrap().map(|lab| lab.phase)
@@ -242,7 +245,7 @@ mod tests {
                 gateway_ipv6: None,
                 router_ipv6: None,
             },
-            &db::LabDetails::default(),
+            &LabDetails::default(),
         )
         .await
         .unwrap();
@@ -279,10 +282,7 @@ mod tests {
     #[test]
     fn lab_phase_015_a_lab_that_cannot_be_marked_at_startup_is_counted_and_logged() {
         // One thread, so the log of the spawned recovery is captured.
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
         let ((recovery, phases), log) = capture_log(|| {
             runtime.block_on(async {
                 let (db, _, _) = lab_of("ll-mrk01", 0).await;
@@ -294,9 +294,9 @@ mod tests {
                     let db = db.clone();
                     async move { recover(&db).await.unwrap() }
                 });
-                tokio::time::timeout(Duration::from_mins(1), async {
+                time::timeout(Duration::from_mins(1), async {
                     while phase(&db, "ll-mrk01").await != Some(LabPhase::Interrupted) {
-                        tokio::time::sleep(Duration::from_millis(10)).await;
+                        time::sleep(Duration::from_millis(10)).await;
                     }
                 })
                 .await
@@ -352,7 +352,7 @@ mod tests {
                 gateway_ipv6: None,
                 router_ipv6: None,
             },
-            &db::LabDetails::default(),
+            &LabDetails::default(),
         )
         .await
         .unwrap()

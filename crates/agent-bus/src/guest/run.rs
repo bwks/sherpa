@@ -1092,12 +1092,13 @@ impl<'a> Engine<'a> {
 mod tests {
     use super::*;
 
-    use std::fs;
+    use std::fs::{self, Permissions};
     use std::os::unix::fs::PermissionsExt;
+    use std::process::{self, Command};
     use std::time::Instant;
 
     use tokio::sync::oneshot;
-    use tokio::time::timeout;
+    use tokio::time::{sleep, timeout};
 
     use crate::error::AgentBusError;
     use crate::guest::github::{REDACTED, WriteToken};
@@ -1300,16 +1301,15 @@ esac
 
         /// A guest agent started with `write_token`.
         fn start_with(label: &str, write_token: Option<&str>) -> Self {
-            let dir =
-                env::temp_dir().join(format!("agent-bus-cancel-{label}-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
+            let dir = env::temp_dir().join(format!("agent-bus-cancel-{label}-{}", process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
             let program = dir.join("fake-claude");
-            std::fs::write(&program, FAKE_CLAUDE).unwrap();
-            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+            fs::write(&program, FAKE_CLAUDE).unwrap();
+            fs::set_permissions(&program, Permissions::from_mode(0o755)).unwrap();
             let gh = dir.join("fake-gh");
-            std::fs::write(&gh, FAKE_GH).unwrap();
-            std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
+            fs::write(&gh, FAKE_GH).unwrap();
+            fs::set_permissions(&gh, Permissions::from_mode(0o755)).unwrap();
             let Spawned {
                 input,
                 output,
@@ -1380,7 +1380,7 @@ esac
 
         /// Make the checkout a git repository on `branch`.
         fn checkout(&self, branch: &str) {
-            let status = std::process::Command::new("git")
+            let status = Command::new("git")
                 .args(["init", "-q", "-b", branch])
                 .current_dir(&self.dir)
                 .status()
@@ -1404,7 +1404,7 @@ esac
                 {
                     return;
                 }
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                sleep(Duration::from_millis(50)).await;
             }
             panic!("the session of {task} was never saved");
         }
@@ -1460,14 +1460,14 @@ esac
         async fn pids(&self, prompt: &str) -> (i32, i32) {
             for _ in 0..100 {
                 let read = |suffix: &str| {
-                    std::fs::read_to_string(self.dir.join(format!("{prompt}.{suffix}")))
+                    fs::read_to_string(self.dir.join(format!("{prompt}.{suffix}")))
                         .ok()
                         .and_then(|text| text.trim().parse::<i32>().ok())
                 };
                 if let (Some(claude), Some(sleep)) = (read("claude"), read("sleep")) {
                     return (claude, sleep);
                 }
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                sleep(Duration::from_millis(50)).await;
             }
             panic!("{prompt} never started");
         }
@@ -1475,14 +1475,14 @@ esac
 
     impl Drop for Harness {
         fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.dir);
+            let _ = fs::remove_dir_all(&self.dir);
         }
     }
 
     /// Whether the process is gone (a zombie waiting for its parent counts as gone).
     async fn gone(pid: i32) -> bool {
         for _ in 0..60 {
-            let state = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok();
+            let state = fs::read_to_string(format!("/proc/{pid}/stat")).ok();
             let dead = state.is_none_or(|stat| {
                 stat.rsplit(')')
                     .next()
@@ -1491,7 +1491,7 @@ esac
             if dead {
                 return true;
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            sleep(Duration::from_millis(50)).await;
         }
         false
     }
@@ -1530,7 +1530,7 @@ esac
         assert_eq!((reply.kind, reply.task.as_str()), (Kind::Completed, "t1"));
 
         // Each result event is recorded with its task and run: t1's answer is its second run.
-        let record = std::fs::read_to_string(harness.dir.join("results.jsonl")).unwrap();
+        let record = fs::read_to_string(harness.dir.join("results.jsonl")).unwrap();
         let lines: Vec<&str> = record.lines().collect();
         assert_eq!(lines.len(), 4, "{record}");
         // The first two are the priming runs, which t1 triggered: run 0.
@@ -1644,7 +1644,7 @@ esac
 
     /// The arguments each fake claude run was started with, one line per run.
     fn started_with(harness: &Harness) -> Vec<String> {
-        std::fs::read_to_string(harness.dir.join("args.log"))
+        fs::read_to_string(harness.dir.join("args.log"))
             .unwrap()
             .lines()
             .map(str::to_owned)
@@ -1776,7 +1776,7 @@ esac
     #[ignore = "starts real processes and signals them; run with -- --ignored"]
     async fn stopping_while_priming_keeps_the_task_queued() {
         let mut harness = Harness::start("primestop");
-        std::fs::write(harness.dir.join("hang-prime"), "").unwrap();
+        fs::write(harness.dir.join("hang-prime"), "").unwrap();
         harness.send(Kind::Task, "t1", "plain-p");
         let (claude, sleep) = harness.pids("prime").await;
         harness.stop.send_replace(true);
@@ -1796,7 +1796,7 @@ esac
         let queued: Vec<&str> = saved.queue.iter().map(|q| q.task.as_str()).collect();
         assert_eq!(queued, ["t1"]);
 
-        std::fs::remove_file(harness.dir.join("hang-prime")).unwrap();
+        fs::remove_file(harness.dir.join("hang-prime")).unwrap();
         harness.restart();
         let reply = harness.outcome().await;
         assert_eq!((reply.kind, reply.task.as_str()), (Kind::Completed, "t1"));
@@ -1809,7 +1809,7 @@ esac
         harness.send(Kind::Task, "t1", "bg-a");
         let reply = harness.outcome().await;
         assert_eq!((reply.kind, reply.task.as_str()), (Kind::Completed, "t1"));
-        let pid: i32 = std::fs::read_to_string(harness.dir.join("bg-a.sleep"))
+        let pid: i32 = fs::read_to_string(harness.dir.join("bg-a.sleep"))
             .unwrap()
             .trim()
             .parse()
@@ -2068,7 +2068,7 @@ esac
 
     #[tokio::test]
     async fn the_lock_is_checked_before_the_bus_is_reached() {
-        let dir = env::temp_dir().join(format!("agent-bus-lock-first-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("agent-bus-lock-first-{}", process::id()));
         let _ = fs::remove_dir_all(&dir);
         let state = dir.join("state").join("guest-dev.toml");
         let secrets = secrets(None);

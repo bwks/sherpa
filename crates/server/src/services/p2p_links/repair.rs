@@ -339,6 +339,7 @@ mod tests {
     use std::env;
     use std::fs;
     use std::path::Path;
+    use std::process::Command;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
@@ -350,6 +351,8 @@ mod tests {
     use bollard::secret::{ContainerCreateBody, HostConfig};
     use container::exec_container;
     use libvirt::Qemu;
+    use tokio::runtime::Builder;
+    use tokio::time;
     use virt::connect::Connect;
     use virt::domain::Domain;
 
@@ -688,10 +691,7 @@ mod tests {
             .insert(("ctr1-lab".to_string(), "eth1".to_string()));
         let unreadable = UnreadableEnds::default();
         let all = running(&["ctr1"]);
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
         let (broken, log) = capture_log(|| {
             (0..3)
                 .map(|_| {
@@ -804,10 +804,7 @@ mod tests {
         let (mut host, lab) = wired_lab();
         let ends = UnreadableEnds::default();
         let nodes = running(&["vm1", "vm2", "ctr1"]);
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
         host.failing_filter_reads.insert("tpb0".to_string());
         let (reasons, unreadable_log) = capture_log(|| {
             (0..3)
@@ -1235,7 +1232,7 @@ mod tests {
     async fn private_bridge_012_a_bridge_of_containers_on_no_link_carries_traffic_between_them() {
         let pair = BridgedPair::up().await;
         let shown = String::from_utf8(
-            std::process::Command::new("ip")
+            Command::new("ip")
                 .args(["link", "show", BRIDGE])
                 .output()
                 .unwrap()
@@ -1525,7 +1522,7 @@ chmod +x /var/lib/cloud/scripts/per-boot/carrier.sh
                 if self.guest_carrier() == Some(up) {
                     return;
                 }
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                time::sleep(Duration::from_secs(1)).await;
             }
             panic!(
                 "the guest's eth0 carrier is not {up}: it last printed {:?}",
@@ -1545,7 +1542,7 @@ chmod +x /var/lib/cloud/scripts/per-boot/carrier.sh
                 {
                     return;
                 }
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                time::sleep(Duration::from_secs(1)).await;
             }
             panic!("the container's eth1 carrier is not {up}");
         }
@@ -1656,7 +1653,7 @@ chmod +x /var/lib/cloud/scripts/per-boot/carrier.sh
         );
         // The guest prints its carrier once a second.
         while pair.guest_carrier() != Some(true) && started.elapsed() < Duration::from_secs(10) {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            time::sleep(Duration::from_millis(100)).await;
         }
         let elapsed = started.elapsed();
         println!("resume to guest carrier: {elapsed:?}");

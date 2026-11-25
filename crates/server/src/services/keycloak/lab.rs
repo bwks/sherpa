@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use tokio::time;
 use tracing::instrument;
 
 use shared::data::{AdminCredential, KeycloakInfo, KeycloakUser, StatusKind};
@@ -255,7 +256,7 @@ async fn wait_until_ready(
             Ok(()) => return Ok(()),
             Err(error) if started.elapsed() < timeout => {
                 tracing::debug!(%node_name, error = %format!("{error:#}"), "Keycloak not ready yet");
-                tokio::time::sleep(Duration::from_secs(READINESS_SLEEP)).await;
+                time::sleep(Duration::from_secs(READINESS_SLEEP)).await;
             }
             Err(error) => {
                 return Err(error.context(format!(

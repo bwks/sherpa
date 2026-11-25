@@ -9,7 +9,7 @@ use shared::data::{ClientConfig, NodeInfo, StatusMessage, UpResponse};
 use shared::util::{
     Emoji, LabFolder, base64_encode, get_cwd, load_file, term_msg_surround, term_msg_underline,
 };
-use topology::{StartupScript, SystemdUnit, SystemdUnitData};
+use topology::{Manifest, StartupScript, SystemdUnit, SystemdUnitData};
 
 use super::manifest_processing::check_manifest;
 use super::progress::status_emoji;
@@ -61,7 +61,7 @@ pub async fn up(
     // Load and parse manifest
     println!("\nLoading manifest from: {}\n", manifest_path);
 
-    let mut manifest = topology::Manifest::load_file(manifest_path)
+    let mut manifest = Manifest::load_file(manifest_path)
         .with_context(|| format!("Failed to parse manifest: {manifest_path}"))?;
     check_manifest(&manifest)?;
     check_lab_description(manifest.description.as_deref())
@@ -554,7 +554,7 @@ mod tests {
     fn custom_config_002_the_cli_reads_ztp_config_relative_to_the_manifest() {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let config_path = dir.path().join("my_config.txt");
-        std::fs::write(&config_path, "interface eth0").expect("write config");
+        fs::write(&config_path, "interface eth0").expect("write config");
 
         let manifest_path = dir.path().join("manifest.toml");
 
@@ -734,7 +734,7 @@ mod tests {
     fn client_content_002_a_text_file_is_sent_with_its_contents_destination_owner_group_and_mode() {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let file_path = dir.path().join("config.json");
-        std::fs::write(&file_path, r#"{"key": "value"}"#).expect("write file");
+        fs::write(&file_path, r#"{"key": "value"}"#).expect("write file");
 
         let manifest_path = dir.path().join("manifest.toml");
 

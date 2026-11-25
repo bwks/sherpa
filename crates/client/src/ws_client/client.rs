@@ -4,6 +4,7 @@ use rustls::ClientConfig;
 use shared::data::{ConnectedMsg, ServerConnection};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::time;
 use tokio_tungstenite::tungstenite::ClientRequestBuilder;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::http::Uri;
@@ -46,7 +47,7 @@ impl WebSocketClient {
     ) -> Result<WsStream> {
         let connector = Connector::Rustls(config);
         let connect_future = connect_async_tls_with_config(request, None, false, Some(connector));
-        let (ws_stream, _) = tokio::time::timeout(self.timeout, connect_future)
+        let (ws_stream, _) = time::timeout(self.timeout, connect_future)
             .await
             .context("Connection timeout")?
             .context("Failed to connect to secure WebSocket")?;
@@ -73,7 +74,7 @@ impl WebSocketClient {
             tracing::debug!("Using plain WebSocket connection (ws://)");
             tracing::warn!("Connection is NOT encrypted - data transmitted in plaintext");
             let connect_future = connect_async(request);
-            let (ws_stream, _) = tokio::time::timeout(self.timeout, connect_future)
+            let (ws_stream, _) = time::timeout(self.timeout, connect_future)
                 .await
                 .context("Connection timeout")?
                 .context("Failed to connect to WebSocket")?;
@@ -120,7 +121,7 @@ impl WebSocketClient {
         let (write, mut read) = ws_stream.split();
 
         // Read the initial "connected" message from server
-        if let Some(msg) = tokio::time::timeout(Duration::from_secs(5), read.next()).await? {
+        if let Some(msg) = time::timeout(Duration::from_secs(5), read.next()).await? {
             let msg = msg.context("Failed to read initial message")?;
             if let Message::Text(text) = msg {
                 tracing::debug!("Received initial message: {}", text);
@@ -163,7 +164,7 @@ impl RpcClient {
     /// messages the server sends meanwhile are only logged.
     pub async fn call(&mut self, request: RpcRequest) -> Result<RpcResponse> {
         let method = request.method.clone();
-        tokio::time::timeout(
+        time::timeout(
             RPC_RESPONSE_TIMEOUT,
             self.call_streaming(request, log_other_message),
         )

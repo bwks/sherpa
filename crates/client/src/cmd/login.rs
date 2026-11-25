@@ -1,6 +1,7 @@
 //! Login command - authenticate user and save JWT token.
 
 use anyhow::{Context, Result, bail};
+use jiff::Timestamp;
 use shared::data::{ClientConfig, LoginRequest, LoginResponse, LogoutResponse, ValidateResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_USER_NAME_ENV, SHERPA_USER_PASSWORD_ENV};
@@ -128,10 +129,7 @@ pub async fn login(server_url: &str, config: &ClientConfig) -> Result<()> {
 
     println!(
         "   {}",
-        TokenExpiry::at(
-            login_response.expires_at,
-            jiff::Timestamp::now().as_second()
-        )
+        TokenExpiry::at(login_response.expires_at, Timestamp::now().as_second())
     );
 
     // Close the WebSocket connection gracefully
@@ -267,7 +265,7 @@ pub async fn whoami(server_url: &str, config: &ClientConfig) -> Result<()> {
     if let Some(expires_at) = validate_response.expires_at {
         println!(
             "   {}",
-            TokenExpiry::at(expires_at, jiff::Timestamp::now().as_second())
+            TokenExpiry::at(expires_at, Timestamp::now().as_second())
         );
     }
 

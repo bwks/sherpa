@@ -9,6 +9,7 @@ use shared::konst::ADMIN_USERNAME;
 use shared::util::normalize_username;
 use shared::validators::validate_username;
 use tracing::instrument;
+use turso::Error as TursoError;
 
 use crate::Database;
 use crate::persistence::{new_key, user_from_row, user_values};
@@ -103,10 +104,10 @@ async fn insert_user(
         user_from_row,
     )
     .await
-    .map_err(|error| match error.downcast_ref::<turso::Error>() {
+    .map_err(|error| match error.downcast_ref::<TursoError>() {
         // The username is checked and the password hashed before the insert, and the username
         // is the table's only unique column, so a refused constraint is a taken username.
-        Some(turso::Error::Constraint(_)) => UsernameTaken {
+        Some(TursoError::Constraint(_)) => UsernameTaken {
             username: username.clone(),
         }
         .into(),

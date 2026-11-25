@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Subcommand;
+use tracing::Level;
 
 use shared::data::ClientConfig;
 
@@ -53,7 +54,7 @@ pub async fn run_server(
     // Setup logging based on verbose flag
     if verbose {
         tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
+            .with_max_level(Level::DEBUG)
             .init();
     }
 

@@ -11,9 +11,11 @@ use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 use std::path::Path;
 use std::time::{Duration, Instant};
+use tokio::task;
 use topology::Manifest;
 
 use tracing::instrument;
+use virt::domain::Domain;
 
 use super::admission::{self, Admission};
 use super::console;
@@ -726,10 +728,10 @@ async fn start_vm(device_name: &str, sockets: ConsoleSockets, state: &AppState) 
     let qemu = state.qemu.clone();
     let device_name = device_name.to_string();
 
-    match tokio::task::spawn_blocking(move || -> Result<StartOutcome> {
+    match task::spawn_blocking(move || -> Result<StartOutcome> {
         let conn = qemu.connect().context("Failed to connect to libvirt")?;
         // A domain libvirt cannot find has no runtime object.
-        let Ok(domain) = virt::domain::Domain::lookup_by_name(&conn, &device_name) else {
+        let Ok(domain) = Domain::lookup_by_name(&conn, &device_name) else {
             return Ok(StartOutcome::Failed(
                 start_step(Runtime::Absent, "domain")
                     .err()

@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::ErrorKind;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::Arc;
@@ -119,7 +120,7 @@ fn remove_empty_sidecars(path: &Path) -> Result<()> {
             Ok(metadata) => {
                 tracing::warn!(file = %file, size = metadata.len(), "Backup left a non-empty file; kept");
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(error) if error.kind() == ErrorKind::NotFound => {
                 tracing::debug!(file = %file, "No backup sidecar file");
             }
             Err(error) => {
@@ -137,7 +138,7 @@ fn restrict_permissions(path: &Path) -> Result<()> {
         match fs::metadata(&file) {
             Ok(_) => fs::set_permissions(&file, fs::Permissions::from_mode(SHERPA_DB_FILE_MODE))
                 .context(format!("Failed to restrict the permissions of {file}"))?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(error) if error.kind() == ErrorKind::NotFound => {
                 tracing::debug!(file = %file, "No database file to restrict");
             }
             Err(error) => {
@@ -259,9 +260,9 @@ mod tests {
         let db = open(&dir.path().join("sherpa.sqlite")).await.unwrap();
         apply_schema(&db).await.unwrap();
         let copy_path = dir.path().join("backup.sqlite");
-        std::fs::write(&copy_path, b"keep me").unwrap();
+        fs::write(&copy_path, b"keep me").unwrap();
 
         assert!(db.backup(&copy_path).await.is_err());
-        assert_eq!(std::fs::read(&copy_path).unwrap(), b"keep me");
+        assert_eq!(fs::read(&copy_path).unwrap(), b"keep me");
     }
 }
