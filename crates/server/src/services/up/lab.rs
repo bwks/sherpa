@@ -281,8 +281,7 @@ fn check_up_request(
     client_host: Option<&str>,
     client_folder: Option<&str>,
 ) -> Result<CheckedManifest> {
-    let manifest = lab_definition::parse_manifest(manifest, file_contents)
-        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    let manifest = lab_definition::parse_manifest(manifest, file_contents)?;
     check_lab_name(&manifest.name)
         .context("Manifest validation failed: lab name")
         .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
@@ -299,8 +298,7 @@ fn check_up_request(
     reject_provisioners(&manifest)
         .context("Manifest validation failed: provisioners")
         .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
-    let as_written = lab_definition::parse_as_written(as_written)
-        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    let as_written = lab_definition::parse_as_written(as_written)?;
     let definition = lab_definition::definition(&manifest, as_written.as_ref())
         .context("Manifest validation failed: the manifest as written")
         .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
@@ -985,6 +983,7 @@ async fn roll_back_failed_up(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::request_parse::InvalidRequest;
 
     #[test]
     fn api_errors_014_an_up_whose_manifest_does_not_parse_names_the_path_never_the_value() {
@@ -999,8 +998,13 @@ mod tests {
             panic!("parsed");
         };
         assert_eq!(
-            format!("{error:#}"),
-            "Failed to deserialize manifest: the request is not valid at nodes[0].model"
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::RequestUnreadable {
+                what: "manifest",
+                refusal: InvalidRequest::Invalid {
+                    path: Some("nodes[0].model".to_owned())
+                },
+            })
         );
     }
 }

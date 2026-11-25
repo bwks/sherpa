@@ -6,6 +6,7 @@
 //! error with no `ServiceError` in its chain is [`Unexpected`]: the caller is told only a
 //! reference, and the server logs the reference with the error's chain.
 
+use std::error;
 use std::fmt;
 use std::path::PathBuf;
 use std::process::ExitStatus;
@@ -18,6 +19,7 @@ use shared::konst::{ADMIN_USERNAME, SHERPA_USERNAME};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::api::request_parse::InvalidRequest;
 use crate::auth::jwt;
 use crate::daemon::pidfile::SHERPAD_LOG_FILE_PATH;
 use crate::konst::SHERPA_ADMIN_PASSWORD_ENV;
@@ -333,6 +335,13 @@ pub enum ServiceError {
         message: String,
         conflict: CpuPinConflict,
     },
+
+    #[error("Failed to deserialize {what}")]
+    RequestUnreadable {
+        what: &'static str,
+        #[source]
+        refusal: InvalidRequest,
+    },
 }
 
 /// The kind of refusal a transport answers a [`ServiceError`] with.
@@ -406,7 +415,7 @@ impl fmt::Display for Unexpected {
 /// as.
 pub fn caller_message(error: &anyhow::Error, failure: &str) -> String {
     match ServiceError::find(error) {
-        Some(refusal) => refusal.to_string(),
+        Some(refusal) => refusal.message(),
         None => Unexpected::log(error, failure).to_string(),
     }
 }
@@ -418,6 +427,20 @@ impl ServiceError {
         error
             .downcast_ref::<ServiceError>()
             .filter(|refusal| refusal.category().is_some())
+    }
+
+    /// What a caller is told of this refusal: its message, then the message of each error it
+    /// carries as its source, separated by `: `.
+    #[must_use]
+    pub fn message(&self) -> String {
+        let mut message = self.to_string();
+        let mut source = error::Error::source(self);
+        while let Some(cause) = source {
+            message.push_str(": ");
+            message.push_str(&cause.to_string());
+            source = cause.source();
+        }
+        message
     }
 
     /// The kind of refusal this is, or `None` for a failure the caller is not told of.
@@ -463,7 +486,8 @@ impl ServiceError {
             | Self::ScanModelNotContainer { .. }
             | Self::ScanRepoInvalid { .. }
             | Self::ImageFormFieldNotTaken { .. }
-            | Self::ImageFormFieldMissing { .. } => Some(ServiceCategory::Invalid),
+            | Self::ImageFormFieldMissing { .. }
+            | Self::RequestUnreadable { .. } => Some(ServiceCategory::Invalid),
             Self::OvercommitPercentTooLow { .. }
             | Self::NotServiceAccount { .. }
             | Self::TailscaleImageInvalid

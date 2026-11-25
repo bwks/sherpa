@@ -1253,7 +1253,12 @@ mod tests {
             .await
             .err()
             .expect("version was accepted");
-        assert_eq!(rejection.message, "the request is not valid at version");
+        assert_eq!(
+            rejection,
+            InvalidRequest::Invalid {
+                path: Some("version".to_owned())
+            }
+        );
     }
 
     #[test]

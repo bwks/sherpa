@@ -205,12 +205,12 @@ impl From<&ServiceError> for ApiError {
                 conflict: conflict.clone(),
             },
             refusal => match refusal.category() {
-                Some(ServiceCategory::Denied) => ApiError::forbidden(refusal.to_string()),
+                Some(ServiceCategory::Denied) => ApiError::forbidden(refusal.message()),
                 Some(ServiceCategory::NotFound) => {
-                    ApiError::not_found("Resource", refusal.to_string())
+                    ApiError::not_found("Resource", refusal.message())
                 }
-                Some(ServiceCategory::Conflict) => ApiError::conflict(refusal.to_string()),
-                Some(ServiceCategory::Invalid) => ApiError::bad_request(refusal.to_string()),
+                Some(ServiceCategory::Conflict) => ApiError::conflict(refusal.message()),
+                Some(ServiceCategory::Invalid) => ApiError::bad_request(refusal.message()),
                 None => ApiError::internal(refusal.clone(), "API request failed"),
             },
         }

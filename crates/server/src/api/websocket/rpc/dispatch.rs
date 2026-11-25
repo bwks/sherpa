@@ -351,7 +351,7 @@ pub(super) fn parse<T: DeserializeOwned>(params: &Value, message: &str) -> Resul
     parse_value(params).map_err(|error| RpcError {
         code: RpcErrorCode::InvalidParams,
         message: message.to_string(),
-        context: Some(error.message),
+        context: Some(error.to_string()),
         data: None,
     })
 }
@@ -390,16 +390,12 @@ pub(super) fn service_error(error: &anyhow::Error, failure: &str) -> RpcError {
             serde_json::to_value(conflict).ok(),
         ),
         Some(refusal) => match refusal.category() {
-            Some(ServiceCategory::Denied) => {
-                (RpcErrorCode::AccessDenied, refusal.to_string(), None)
-            }
-            Some(ServiceCategory::NotFound) => (RpcErrorCode::NotFound, refusal.to_string(), None),
+            Some(ServiceCategory::Denied) => (RpcErrorCode::AccessDenied, refusal.message(), None),
+            Some(ServiceCategory::NotFound) => (RpcErrorCode::NotFound, refusal.message(), None),
             // JSON-RPC has no conflict code; the message tells the caller what to change.
-            Some(ServiceCategory::Conflict) => {
-                (RpcErrorCode::ServerError, refusal.to_string(), None)
-            }
+            Some(ServiceCategory::Conflict) => (RpcErrorCode::ServerError, refusal.message(), None),
             Some(ServiceCategory::Invalid) => {
-                (RpcErrorCode::InvalidParams, refusal.to_string(), None)
+                (RpcErrorCode::InvalidParams, refusal.message(), None)
             }
             None => (
                 RpcErrorCode::ServerError,
