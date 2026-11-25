@@ -463,11 +463,14 @@ mod tests {
     use container::{
         ContainerSpec, docker_connection, kill_container, remove_container, run_container,
     };
+    use db::LabDetails;
     use libvirt::Qemu;
     use shared::data::{
-        ContainerNetworkAttachment, ModelKind, NodeCpu, NodeModel, NodeNuma, NumaMemoryMode,
+        ContainerNetworkAttachment, LabPhase, ModelKind, NodeCpu, NodeModel, NodeNuma,
+        NumaMemoryMode,
     };
     use shared::error::CpuPinRole;
+    use tokio::{task, time};
 
     fn running(name: &str, mib: u64, numa_node: Option<u32>) -> DomainMemory {
         DomainMemory {
@@ -526,7 +529,7 @@ mod tests {
                 lab_id,
                 &user,
                 &networks,
-                &db::LabDetails::default(),
+                &LabDetails::default(),
             )
             .await
             .unwrap();
@@ -965,7 +968,7 @@ mod tests {
             "{still:#}"
         );
         assert!(
-            db::delete_lab_from(&db, "pintest1", shared::data::LabPhase::Creating)
+            db::delete_lab_from(&db, "pintest1", LabPhase::Creating)
                 .await
                 .unwrap()
         );
@@ -1217,8 +1220,8 @@ mod tests {
                 result.ok()
             }));
             // Let each request reach the queue before the next one.
-            tokio::task::yield_now().await;
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            task::yield_now().await;
+            time::sleep(Duration::from_millis(20)).await;
         }
         drop(held);
         let mut admissions = Vec::new();

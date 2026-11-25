@@ -6,7 +6,7 @@ use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use reqwest::StatusCode;
+use reqwest::{Certificate, Client, StatusCode};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -40,14 +40,14 @@ pub fn keycloak_address(node_address: Ipv4Addr) -> String {
 /// A Keycloak node's API, reached over TLS trusting only the lab CA.
 #[derive(Debug)]
 pub struct KeycloakClient {
-    client: reqwest::Client,
+    client: Client,
     address: String,
 }
 
 impl KeycloakClient {
     pub fn new(node_address: Ipv4Addr, lab_ca_pem: &str) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .tls_certs_only([reqwest::Certificate::from_pem(lab_ca_pem.as_bytes())
+        let client = Client::builder()
+            .tls_certs_only([Certificate::from_pem(lab_ca_pem.as_bytes())
                 .context("Failed to load the lab CA certificate")?])
             .timeout(REQUEST_TIMEOUT)
             .build()

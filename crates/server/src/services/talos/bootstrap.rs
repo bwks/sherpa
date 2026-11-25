@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use axum::http::Response;
 use http_body_util::BodyExt;
+use reqwest::{Certificate, Client, Identity};
 use serde_json::Value;
 use tracing::instrument;
 
@@ -219,14 +220,14 @@ fn ready_node_count(nodes: &Value) -> usize {
 }
 
 /// An HTTPS client that trusts only `ca_cert` and presents `identity`.
-fn api_client(ca_cert: &str, identity: &PemPair, http2: bool) -> Result<reqwest::Client> {
+fn api_client(ca_cert: &str, identity: &PemPair, http2: bool) -> Result<Client> {
     let mut identity_pem = identity.cert.clone().into_bytes();
     identity_pem.extend_from_slice(identity.key.as_bytes());
-    let builder = reqwest::Client::builder()
-        .tls_certs_only([reqwest::Certificate::from_pem(ca_cert.as_bytes())
+    let builder = Client::builder()
+        .tls_certs_only([Certificate::from_pem(ca_cert.as_bytes())
             .context("Failed to load cluster CA certificate")?])
         .identity(
-            reqwest::Identity::from_pem(&identity_pem)
+            Identity::from_pem(&identity_pem)
                 .context("Failed to load cluster client certificate")?,
         )
         .timeout(REQUEST_TIMEOUT);

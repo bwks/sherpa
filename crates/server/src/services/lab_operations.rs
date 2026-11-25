@@ -40,6 +40,7 @@ use anyhow::{Result, bail};
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
+use tokio::time;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
@@ -200,7 +201,7 @@ impl LabOperation {
     /// Sleep between polls, ending early with an error if this operation must stop.
     pub async fn sleep(&self, duration: Duration) -> Result<()> {
         tokio::select! {
-            () = tokio::time::sleep(duration) => Ok(()),
+            () = time::sleep(duration) => Ok(()),
             () = self.cancel.token.cancelled() => self.ensure_active(),
         }
     }
@@ -386,6 +387,8 @@ pub async fn request_stop(lab_id: &str) -> bool {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use tokio::task;
+
     use super::*;
 
     const WAIT: Duration = Duration::from_secs(5);
@@ -395,7 +398,7 @@ mod tests {
         let operation = begin("lab-ops-stop", Operation::Up).await;
         let stopping = tokio::spawn(stop("lab-ops-stop"));
         // The sleep ends early once the destroy has cancelled the operation.
-        let error = tokio::time::timeout(WAIT, operation.sleep(Duration::from_secs(3600)))
+        let error = time::timeout(WAIT, operation.sleep(Duration::from_secs(3600)))
             .await
             .unwrap()
             .unwrap_err();
@@ -408,7 +411,7 @@ mod tests {
         assert_eq!(operation.stop_reason(), Some(StopReason::Destroy));
         assert!(!stopping.is_finished());
         drop(operation);
-        let (was_running, _stopped) = tokio::time::timeout(WAIT, stopping).await.unwrap().unwrap();
+        let (was_running, _stopped) = time::timeout(WAIT, stopping).await.unwrap().unwrap();
         assert!(was_running);
     }
 
@@ -417,28 +420,20 @@ mod tests {
         let lab = "lab-ops-queued";
         let running = begin(lab, Operation::Up).await;
         let requested = tokio::spawn(request_stop(lab));
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        time::sleep(Duration::from_millis(50)).await;
         // Queued behind the requested stop, then a destroy queues behind both.
         let queued = tokio::spawn(begin(lab, Operation::Resume));
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        time::sleep(Duration::from_millis(50)).await;
         let destroying = tokio::spawn(stop(lab));
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        time::sleep(Duration::from_millis(50)).await;
 
         drop(running);
-        assert!(
-            tokio::time::timeout(WAIT, requested)
-                .await
-                .unwrap()
-                .unwrap()
-        );
-        let queued = tokio::time::timeout(WAIT, queued).await.unwrap().unwrap();
+        assert!(time::timeout(WAIT, requested).await.unwrap().unwrap());
+        let queued = time::timeout(WAIT, queued).await.unwrap().unwrap();
 
         assert_eq!(queued.stop_reason(), Some(StopReason::Destroy));
         drop(queued);
-        let (_, destroyed) = tokio::time::timeout(WAIT, destroying)
-            .await
-            .unwrap()
-            .unwrap();
+        let (_, destroyed) = time::timeout(WAIT, destroying).await.unwrap().unwrap();
         drop(destroyed);
         // Once the destroy is done, new operations run again.
         assert_eq!(begin(lab, Operation::Up).await.stop_reason(), None);
@@ -446,9 +441,7 @@ mod tests {
 
     #[tokio::test]
     async fn lab_concurrency_006_a_destroy_with_nothing_running_does_not_wait() {
-        let (was_running, _stopped) = tokio::time::timeout(WAIT, stop("lab-ops-idle"))
-            .await
-            .unwrap();
+        let (was_running, _stopped) = time::timeout(WAIT, stop("lab-ops-idle")).await.unwrap();
         assert!(!was_running);
     }
 
@@ -459,18 +452,16 @@ mod tests {
             let operation = begin("lab-ops-after", Operation::Up).await;
             operation.ensure_active().is_ok()
         });
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        time::sleep(Duration::from_millis(50)).await;
         assert!(!starting.is_finished());
         drop(stopped);
-        assert!(tokio::time::timeout(WAIT, starting).await.unwrap().unwrap());
+        assert!(time::timeout(WAIT, starting).await.unwrap().unwrap());
     }
 
     #[tokio::test]
     async fn lab_concurrency_008_stopping_one_labs_operations_leaves_another_running() {
         let other = begin("lab-ops-other", Operation::Up).await;
-        let (_, _stopped) = tokio::time::timeout(WAIT, stop("lab-ops-mine"))
-            .await
-            .unwrap();
+        let (_, _stopped) = time::timeout(WAIT, stop("lab-ops-mine")).await.unwrap();
         assert!(other.ensure_active().is_ok());
     }
 
@@ -479,7 +470,7 @@ mod tests {
         let operation = begin("lab-ops-request", Operation::Up).await;
         assert_eq!(operation.stop_reason(), None);
         let stopping = tokio::spawn(request_stop("lab-ops-request"));
-        let error = tokio::time::timeout(WAIT, operation.sleep(Duration::from_secs(3600)))
+        let error = time::timeout(WAIT, operation.sleep(Duration::from_secs(3600)))
             .await
             .unwrap()
             .unwrap_err();
@@ -491,7 +482,7 @@ mod tests {
         );
         assert_eq!(operation.stop_reason(), Some(StopReason::Request));
         drop(operation);
-        assert!(tokio::time::timeout(WAIT, stopping).await.unwrap().unwrap());
+        assert!(time::timeout(WAIT, stopping).await.unwrap().unwrap());
         // Operations started after a requested stop run normally.
         assert!(
             begin("lab-ops-request", Operation::Up)
@@ -505,7 +496,7 @@ mod tests {
     async fn lab_cancel_012_a_cancel_during_a_down_answers_stopped_false_at_once_and_the_down_runs_on()
      {
         let down = begin("lab-ops-down", Operation::Down).await;
-        let stopped = tokio::time::timeout(WAIT, request_stop("lab-ops-down"))
+        let stopped = time::timeout(WAIT, request_stop("lab-ops-down"))
             .await
             .unwrap();
         assert!(!stopped);
@@ -516,7 +507,7 @@ mod tests {
     #[tokio::test]
     async fn lab_cancel_013_a_cancel_during_a_scan_of_an_idle_lab_answers_stopped_false() {
         let observed = try_observe("lab-ops-scan").unwrap();
-        let stopped = tokio::time::timeout(WAIT, request_stop("lab-ops-scan"))
+        let stopped = time::timeout(WAIT, request_stop("lab-ops-scan"))
             .await
             .unwrap();
         assert!(!stopped);
@@ -536,39 +527,35 @@ mod tests {
         let lab = "lab-ops-up-behind-scan";
         let observed = try_observe(lab).unwrap();
         let up = tokio::spawn(async move { begin(lab, Operation::Up).await.ensure_active() });
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        time::sleep(Duration::from_millis(50)).await;
         let stopping = tokio::spawn(request_stop(lab));
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        time::sleep(Duration::from_millis(50)).await;
         assert!(!stopping.is_finished());
         drop(observed);
-        let error = tokio::time::timeout(WAIT, up)
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap_err();
+        let error = time::timeout(WAIT, up).await.unwrap().unwrap().unwrap_err();
         assert_eq!(
             error.downcast_ref::<ServiceError>(),
             Some(&ServiceError::OperationStoppedOnRequest {
                 lab_id: lab.to_owned()
             })
         );
-        assert!(tokio::time::timeout(WAIT, stopping).await.unwrap().unwrap());
+        assert!(time::timeout(WAIT, stopping).await.unwrap().unwrap());
     }
 
     #[tokio::test]
     async fn lab_concurrency_010_a_destroy_after_a_requested_stop_keeps_the_first_reason() {
         let operation = begin("lab-ops-first", Operation::Up).await;
         let request = tokio::spawn(request_stop("lab-ops-first"));
-        tokio::time::timeout(WAIT, operation.sleep(Duration::from_secs(3600)))
+        time::timeout(WAIT, operation.sleep(Duration::from_secs(3600)))
             .await
             .unwrap()
             .unwrap_err();
         let destroy = tokio::spawn(stop("lab-ops-first"));
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        time::sleep(Duration::from_millis(50)).await;
         assert_eq!(operation.stop_reason(), Some(StopReason::Request));
         drop(operation);
-        let _ = tokio::time::timeout(WAIT, request).await.unwrap().unwrap();
-        let _ = tokio::time::timeout(WAIT, destroy).await.unwrap().unwrap();
+        let _ = time::timeout(WAIT, request).await.unwrap().unwrap();
+        let _ = time::timeout(WAIT, destroy).await.unwrap().unwrap();
     }
 
     #[tokio::test]
@@ -578,15 +565,10 @@ mod tests {
             let operation = begin("lab-ops-observe-wait", Operation::Up).await;
             operation.ensure_active().is_ok()
         });
-        tokio::task::yield_now().await;
+        task::yield_now().await;
         assert!(!operation.is_finished());
         drop(observed);
-        assert!(
-            tokio::time::timeout(WAIT, operation)
-                .await
-                .unwrap()
-                .unwrap()
-        );
+        assert!(time::timeout(WAIT, operation).await.unwrap().unwrap());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -598,7 +580,7 @@ mod tests {
         async fn exclusive(round: usize) {
             assert_eq!(READERS.load(Ordering::SeqCst), 0, "round {round}");
             assert_eq!(WRITERS.fetch_add(1, Ordering::SeqCst), 0, "round {round}");
-            tokio::task::yield_now().await;
+            task::yield_now().await;
             WRITERS.fetch_sub(1, Ordering::SeqCst);
         }
 
@@ -609,7 +591,7 @@ mod tests {
                     let operation = begin(LAB, Operation::Up).await;
                     assert_eq!(WRITERS.load(Ordering::SeqCst), 0);
                     READERS.fetch_add(1, Ordering::SeqCst);
-                    tokio::task::yield_now().await;
+                    task::yield_now().await;
                     READERS.fetch_sub(1, Ordering::SeqCst);
                     drop(operation);
                 }
@@ -634,7 +616,7 @@ mod tests {
             }));
         }
         for task in tasks {
-            tokio::time::timeout(WAIT * 6, task).await.unwrap().unwrap();
+            time::timeout(WAIT * 6, task).await.unwrap().unwrap();
         }
         assert!(!leases().contains_key(LAB));
     }

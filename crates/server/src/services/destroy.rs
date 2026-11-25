@@ -1,6 +1,7 @@
 use std::fs;
 use std::future::Future;
 use std::path::Path;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use opentelemetry::KeyValue;
@@ -59,7 +60,7 @@ pub async fn destroy_lab(
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<DestroyResponse> {
-    let start_time = std::time::Instant::now();
+    let start_time = Instant::now();
 
     let lab = require_lab_access(ctx, &state.db, lab_id).await?;
 
@@ -240,7 +241,7 @@ async fn destroy_compute(
     progress: Option<&ProgressSender>,
 ) {
     // 1. Destroy containers
-    let containers_timer = std::time::Instant::now();
+    let containers_timer = Instant::now();
     tracing::info!(lab_id = %lab_id, "Destroying containers");
     send_progress(progress, "Destroying containers...", StatusKind::Progress);
     destroy_containers(
@@ -267,7 +268,7 @@ async fn destroy_compute(
     );
 
     // 2. Destroy VMs and disks
-    let vms_timer = std::time::Instant::now();
+    let vms_timer = Instant::now();
     tracing::info!(lab_id = %lab_id, "Destroying VMs and disks");
     send_progress(
         progress,
@@ -304,7 +305,7 @@ async fn destroy_networking(
     progress: Option<&ProgressSender>,
 ) {
     // 3. Destroy Docker networks
-    let docker_net_timer = std::time::Instant::now();
+    let docker_net_timer = Instant::now();
     tracing::info!(lab_id = %lab_id, "Destroying Docker networks");
     send_progress(
         progress,
@@ -330,7 +331,7 @@ async fn destroy_networking(
     );
 
     // 4. Destroy libvirt networks
-    let libvirt_net_timer = std::time::Instant::now();
+    let libvirt_net_timer = Instant::now();
     tracing::info!(lab_id = %lab_id, "Destroying libvirt networks");
     send_progress(
         progress,
@@ -356,7 +357,7 @@ async fn destroy_networking(
     );
 
     // 5. Delete network interfaces
-    let interfaces_timer = std::time::Instant::now();
+    let interfaces_timer = Instant::now();
     tracing::info!(lab_id = %lab_id, "Deleting network interfaces");
     send_progress(
         progress,

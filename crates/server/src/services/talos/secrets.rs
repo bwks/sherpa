@@ -199,6 +199,7 @@ mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
+    use x509_parser::pem;
 
     #[test]
     fn cluster_secrets_001_secrets_have_the_key_types_and_formats_talos_accepts() {
@@ -240,9 +241,9 @@ mod tests {
                 "O=system:masters, CN=sherpa-admin",
             ),
         ] {
-            let (_, client_pem) = x509_parser::pem::parse_x509_pem(pair.cert.as_bytes()).unwrap();
+            let (_, client_pem) = pem::parse_x509_pem(pair.cert.as_bytes()).unwrap();
             let client = client_pem.parse_x509().unwrap();
-            let (_, ca_pem) = x509_parser::pem::parse_x509_pem(ca.as_bytes()).unwrap();
+            let (_, ca_pem) = pem::parse_x509_pem(ca.as_bytes()).unwrap();
             let ca = ca_pem.parse_x509().unwrap();
             assert_eq!(client.subject().to_string(), subject);
             client.verify_signature(Some(ca.public_key())).unwrap();

@@ -1,6 +1,7 @@
 //! Expanding manifest nodes and finding their images.
 
 use anyhow::Result;
+use topology::NodeExpanded;
 use tracing::instrument;
 
 use crate::services::error::ServiceError;
@@ -14,12 +15,12 @@ use shared::data;
 #[instrument(level = "debug", skip(manifest_nodes))]
 pub(crate) fn process_manifest_nodes(
     manifest_nodes: &[topology::Node],
-) -> Result<Vec<topology::NodeExpanded>> {
+) -> Result<Vec<NodeExpanded>> {
     // check_device_count caps a lab far below u16::MAX nodes.
     (1..=u16::MAX)
         .zip(manifest_nodes)
         .map(|(index, node)| {
-            let mut expanded = topology::NodeExpanded::new(index, node)?;
+            let mut expanded = NodeExpanded::new(index, node)?;
             expanded.boot_disk.size = node
                 .boot_disk
                 .size

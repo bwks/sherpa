@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use anyhow::{Result, bail};
-use tokio::task::JoinHandle;
+use tokio::task::{self, JoinHandle};
 use tracing::instrument;
 
 use super::context::LabBuild;
@@ -32,7 +32,7 @@ pub(super) async fn create_vms(
         .map(|domain| {
             let conn = Arc::clone(build.qemu_conn);
             let progress = progress.clone();
-            tokio::task::spawn(async move { node_ops::create_vm(conn, domain, &progress).await })
+            task::spawn(async move { node_ops::create_vm(conn, domain, &progress).await })
         })
         .collect();
     join_all_tasks(tasks, "VM creation").await?;
@@ -59,9 +59,7 @@ pub(super) async fn create_unikernels(
         .map(|domain| {
             let conn = Arc::clone(build.qemu_conn);
             let progress = progress.clone();
-            tokio::task::spawn(
-                async move { node_ops::create_unikernel(conn, domain, &progress).await },
-            )
+            task::spawn(async move { node_ops::create_unikernel(conn, domain, &progress).await })
         })
         .collect();
     join_all_tasks(tasks, "Unikernel creation").await?;
@@ -97,6 +95,7 @@ mod tests {
     use anyhow::anyhow;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
+    use tokio::time;
 
     #[tokio::test]
     async fn a_failed_task_is_reported_only_after_every_task_ended() {
@@ -105,7 +104,7 @@ mod tests {
         let tasks = vec![
             tokio::spawn(async { Err(anyhow!("domain r1 failed")) }),
             tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(200)).await;
+                time::sleep(Duration::from_millis(200)).await;
                 flag.store(true, Ordering::SeqCst);
                 Ok(())
             }),

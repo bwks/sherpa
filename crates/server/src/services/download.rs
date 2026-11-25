@@ -2,6 +2,7 @@ use std::io::ErrorKind;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use tokio::fs;
 use tracing::instrument;
 
 use db::Database;
@@ -48,7 +49,7 @@ pub async fn download_lab_files(
 
     // Labs created before the lab CA have no CA certificate.
     let lab_ca_path = lab_dir.join(LAB_CERTS_DIR).join(LAB_CA_CERT_FILE);
-    let lab_ca = match tokio::fs::read_to_string(&lab_ca_path).await {
+    let lab_ca = match fs::read_to_string(&lab_ca_path).await {
         Ok(lab_ca) => lab_ca,
         Err(error) if error.kind() == ErrorKind::NotFound => {
             tracing::debug!(path = %lab_ca_path.display(), "Lab has no CA certificate");
