@@ -25,7 +25,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 009 | Links carry traffic across a restart of sherpad, with nothing attached again | e2e |
 | 010 | sherpad keeps no open file descriptor for a link it attached | integration |
 | 011 | Attaching a link that is attached leaves one redirect on each end | integration |
-| 012 | A link whose host end does not exist is not attached, and the error names the interface | integration |
+| 012 | A link whose host end does not exist is not attached, and the error carries the interface | integration |
 | 013 | A container interface with the name of an interface on the server, such as `eth1`, is still made | integration |
 | 014 | A container interface whose host end's name is held by an interface that is not a removed container's is refused, and that interface is left | integration |
 | 015 | A container interface asked for a container that is gone fails, and leaves no host end behind | integration |
