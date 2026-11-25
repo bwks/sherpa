@@ -4,7 +4,8 @@ use tracing::instrument;
 use shared::data::ModelKind;
 use topology::NodeExpanded;
 use topology::validate::{
-    check_lab_name, check_node_file_settings, check_nonzero_node_settings, check_ready_timeout,
+    check_bridges, check_duplicate_device, check_lab_name, check_links_to_itself,
+    check_node_file_settings, check_nonzero_node_settings, check_ready_timeout,
     check_text_file_modes, validate_environment_variables, validate_provisioners,
 };
 
@@ -43,21 +44,65 @@ pub fn check_file_settings(nodes: &[topology::Node]) -> Result<()> {
 }
 
 /// Run the manifest checks `up` and `redeploy` share before any file is read or the server is
-/// called: the lab name, `ready_timeout`, zero node settings, provisioners, text file modes,
-/// environment variable keys and each node's file settings.
+/// called: the lab name, duplicate node names, `ready_timeout`, zero node settings, a link to
+/// itself, the bridges' names and links, provisioners, text file modes, environment variable
+/// keys and each node's file settings.
 ///
 /// # Errors
 ///
 /// Fails on the first check the manifest does not pass, saying which.
 pub fn check_manifest(manifest: &topology::Manifest) -> Result<()> {
     check_lab_name(&manifest.name).context("Manifest validation failed: lab name")?;
+    check_duplicate_device(&manifest.nodes)
+        .context("Manifest validation failed: duplicate nodes")?;
     check_ready_timeout(manifest.ready_timeout)
         .context("Manifest validation failed: ready timeout")?;
     check_nonzero_node_settings(&manifest.nodes)
         .context("Manifest validation failed: node settings")?;
+    check_links_to_itself(manifest.links.as_deref().unwrap_or_default())
+        .context("Manifest validation failed: links")?;
+    check_bridges(manifest.bridges.as_deref().unwrap_or_default())
+        .context("Manifest validation failed: bridges")?;
     validate_provisioners(manifest).context("Manifest validation failed: provisioners")?;
     check_text_file_modes(&manifest.nodes).context("Manifest validation failed: text files")?;
     validate_environment_variables(&manifest.nodes)
         .context("Manifest validation failed: environment variables")?;
     check_file_settings(&manifest.nodes).context("Manifest validation failed: node settings")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use topology::{Bridge, Manifest, TopologyError};
+
+    fn node(name: &str) -> topology::Node {
+        topology::Node {
+            name: name.to_owned(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn manifest_links_020_the_cli_refuses_a_bridge_with_one_link_at_up_and_redeploy() {
+        let manifest = Manifest {
+            name: "lab1".to_owned(),
+            nodes: vec![node("r1")],
+            bridges: Some(vec![Bridge {
+                name: "br1".to_owned(),
+                links: vec!["r1::eth1".to_owned()],
+            }]),
+            ..Default::default()
+        };
+
+        let error = check_manifest(&manifest).unwrap_err();
+
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::BridgeTooFewLinks {
+                bridge: "br1".to_owned(),
+                links: 1,
+            }),
+            "{error:#}"
+        );
+    }
 }

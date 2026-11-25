@@ -23,7 +23,8 @@ A manifest is checked in five places, and they do not run the same checks. `sher
 | Parsing: unknown keys, types, required keys | yes | yes | yes | yes | yes |
 | `[tailscale]` `auth_key_env`, and a container node with the gateway's name | yes | yes | | yes | |
 | The lab's `name`, `ready_timeout` and node settings that cannot be 0 | yes | yes | yes | yes | yes |
-| Node names, duplicate names, node count | yes | | | yes | |
+| Node names, node count | yes | | | yes | |
+| Duplicate node names, in any case | yes | yes | yes | yes | yes |
 | A node's `kind` against its model | yes | | | yes | yes |
 | Settings against the node's kind | yes | | | yes | yes |
 | `interfaces.data_count`, VM tuning, `container.platform` | yes, against the model's built-in settings | | | yes, against the node's image | yes, against the node's image |
@@ -32,6 +33,7 @@ A manifest is checked in five places, and they do not run the same checks. `sher
 | Pinned CPUs shared inside the manifest | yes | | | yes | |
 | Link ends, interface bounds, `p2p`, impairments | yes, against the model's built-in settings | | | yes, against the node's image | |
 | An interface used twice | yes | | | yes | |
+| A link to itself; a bridge's name, its links and a bridge name used twice | yes | yes | yes | yes | yes |
 | Talos clusters | yes | | | yes | the node's cluster and role, against the lab's stored definition |
 | Provisioners | yes | yes | yes | yes, on the manifest as written | yes, on the manifest as written |
 | `description` | yes | yes | | yes | |
@@ -41,7 +43,7 @@ A manifest is checked in five places, and they do not run the same checks. `sher
 | `text_files`, `startup_scripts`, `systemd_units` against the node's model, kind and ZTP | yes, against the model's built-in settings | yes, against the model's built-in settings | yes, against the model's built-in settings | yes, against the node's image | yes, against the node's image |
 | Images and versions, host access, files the client read, memory, CPUs held | | | | yes | yes |
 
-A redeploy reads one node of the manifest it is sent. The lab's description, links, bridges, clusters and `[tailscale]` in it are not checked and not stored; `ready_timeout` and `provision_concurrency` are stored. The node's cluster and role in it must be those of the lab's stored definition, and the node is rebuilt with the stored ones: `cluster_redeploy_009` and `010` in [talos.md](talos.md).
+A redeploy reads one node of the manifest it is sent. Its node names are checked for duplicates, and its links and bridges for a link to itself and for the bridges' names and links; the lab's description, the rest of its links and bridges, its clusters and `[tailscale]` are not checked, and none of them are stored; `ready_timeout` and `provision_concurrency` are stored. The node's cluster and role in it must be those of the lab's stored definition, and the node is rebuilt with the stored ones: `cluster_redeploy_009` and `010` in [talos.md](talos.md).
 
 ## `manifest_file`: a lab is read from `manifest.toml` in the current folder, strictly
 
@@ -82,7 +84,7 @@ What `sherpa validate` does not check, because only the server knows it: whether
 
 ## `node_naming`: a node's name is a plain name, used once
 
-**Statement:** a node's name is 1 to 63 ASCII letters, digits, `-` or `_`, starting with a letter or digit, no two nodes of a lab share one, a lab has at most 234 nodes, no node's name contains the reserved word `supervisor` in any case, which the SONiC image reads as a chassis supervisor card, and in a lab with `[tailscale]` enabled no container node is named `sherpa-tailnet`, which would give it the gateway's container name.
+**Statement:** a node's name is 1 to 63 ASCII letters, digits, `-` or `_`, starting with a letter or digit, no two nodes of a lab share one in any case, a lab has at most 234 nodes, no node's name contains the reserved word `supervisor` in any case, which the SONiC image reads as a chassis supervisor card, and in a lab with `[tailscale]` enabled no container node is named `sherpa-tailnet`, which would give it the gateway's container name.
 **Relied on by:** the host names, container and domain names, file names in the lab folder, DNS names and web pages a node's name is put in; the lab's address block, which has 234 node addresses. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -93,6 +95,8 @@ What `sherpa validate` does not check, because only the server knows it: whether
 | 004 | A manifest with 235 nodes is refused, and the error carries the count and the most a lab takes, 234 | unit |
 | 005 | With `[tailscale]` enabled, a container node named `sherpa-tailnet`, by its own `kind` or its model's default, is refused, and the error carries the node; a container node named `sherpa-tailnet-app`, a virtual machine named `sherpa-tailnet` and a container node of that name in a lab with `[tailscale]` not enabled are taken | unit |
 | 006 | A name containing `supervisor` in any case is refused for every model and kind as reserved, and the error carries the name and the word; a name with only part of it is taken | unit |
+| 007 | Two names that differ only in case are refused, and the error carries both | unit |
+| 008 | A redeploy whose manifest has two node names that differ only in case is refused before any node is torn down, carrying both | unit |
 
 The server runs these at up before anything is created (`lab_preflight_002`). The lab's own `name` follows the same rule: `lab_settings_006` and `007`.
 
@@ -202,7 +206,7 @@ A node with its own `ztp.config` takes none of the three: its config replaces th
 
 ## `manifest_links`: each end of a link or a bridge is a free data interface of a defined node
 
-**Statement:** each end of a link, and each link of a bridge, is written `node::interface` and names a node of the manifest and one of that node's data interfaces, which no other link or bridge uses; an end on the management interface, on a reserved interface or past the node's data interface count is refused, and so is a link's impairment that netem cannot apply.
+**Statement:** each end of a link, and each link of a bridge, is written `node::interface` and names a node of the manifest and one of that node's data interfaces, which no other link or bridge uses; an end on the management interface, on a reserved interface or past the node's data interface count is refused, and so are a link's impairment that netem cannot apply, a link with both ends on one node, a bridge with fewer than two links, two bridges with one name, and a bridge name the node name rule (`node_naming`) refuses.
 **Relied on by:** the user; the link and bridge build, which is given node and interface indexes; `sherpa link impair` and the API, which name a link by its place in `links`. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -221,6 +225,14 @@ A node with its own `ztp.config` takes none of the three: its config replaces th
 | 012 | Retired: a link's `p2p` key is removed and refused as an unknown key; see `manifest_file` 004 | — |
 | 013 | A link impairment with a delay or jitter over 274877 ms, or a percentage outside 0 to 100, is refused for each field, and the error carries the link; one within is taken | unit |
 | 014 | At up the server refuses a manifest of bridges alone that puts one interface on two bridges, carrying the bridge, the node and the interface's index | unit |
+| 015 | A link with both ends on one node is refused, on two interfaces or on one, and the error carries the link's two ends and the node; a link between two nodes is taken | unit |
+| 016 | A bridge with no link or one link is refused, and the error carries the bridge and its count; one with two links is taken | unit |
+| 017 | Two bridges with one name are refused, and the error carries the name | unit |
+| 018 | A bridge name the node name rule refuses is refused, and the error carries the name; a plain name is taken | unit |
+| 019 | `sherpa validate` refuses a bridge name the node name rule refuses, carrying the name | unit |
+| 020 | The CLI refuses a bridge with one link at up and redeploy before the server is called, carrying the bridge and its count | unit |
+| 021 | At up the server refuses a link with both ends on one node before it connects to libvirt or Docker, carrying the link and the node | unit |
+| 022 | A redeploy whose manifest has two bridges with one name is refused before any node is torn down, carrying the name | unit |
 
 The count that bounds case 008 is the node's `interfaces.data_count`, or else its image's (`node_settings_010`, `node_interfaces_008`).
 

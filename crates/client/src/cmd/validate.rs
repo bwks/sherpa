@@ -5,12 +5,13 @@ use shared::data::NodeCpuPins;
 use shared::util;
 use shared::validators::{effective_data_interface_count, effective_ztp};
 use topology::validate::{
-    check_cpu_pin_overlap, check_device_count, check_duplicate_device,
+    check_bridges, check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_lab_description, check_lab_name,
-    check_link_impairments, check_node_kind_settings, check_node_model_kind, check_node_names,
-    check_node_ztp, check_node_ztp_config, check_nonzero_node_settings, check_ptx_platform,
-    check_ready_timeout, check_text_file_modes, check_vm_tuning, validate_environment_variables,
-    validate_provisioners, validate_tailscale, validate_talos_clusters,
+    check_link_impairments, check_links_to_itself, check_node_kind_settings, check_node_model_kind,
+    check_node_names, check_node_ztp, check_node_ztp_config, check_nonzero_node_settings,
+    check_ptx_platform, check_ready_timeout, check_text_file_modes, check_vm_tuning,
+    validate_environment_variables, validate_provisioners, validate_tailscale,
+    validate_talos_clusters,
 };
 use topology::{Manifest, process_manifest_bridges, process_manifest_links};
 
@@ -84,6 +85,8 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     let links = manifest.links.as_deref().unwrap_or_default();
     let bridges = manifest.bridges.as_deref().unwrap_or_default();
     check_link_impairments(links)?;
+    check_links_to_itself(links)?;
+    check_bridges(bridges)?;
     let links_detailed = process_manifest_links(links, &nodes_expanded)?;
     let bridges_detailed = process_manifest_bridges(bridges, &nodes_expanded, "validate")?;
     println!("  ✓ All linked and bridged nodes exist");
@@ -230,6 +233,36 @@ nodes = [
                 Some(TopologyError::ZtpConfigNotUsed { node, ztp: Ztp::CloudInit })
                     if node == "dev01"
             ),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn manifest_links_019_sherpa_validate_refuses_a_bridge_name_the_node_name_rule_refuses() {
+        let path = write_temp_manifest(
+            "bridge-name",
+            r#"
+name = "bridge-lab"
+
+nodes = [
+  { name = "dev01", model = "ubuntu_linux" },
+  { name = "dev02", model = "ubuntu_linux" },
+]
+
+bridges = [
+  { name = "br/1", links = ["dev01::eth1", "dev02::eth1"] },
+]
+"#,
+        );
+        let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
+        fs::remove_file(path).ok();
+
+        let error = result.unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::BridgeNameNotAllowed {
+                bridge: "br/1".to_owned(),
+            }),
             "{error:#}"
         );
     }

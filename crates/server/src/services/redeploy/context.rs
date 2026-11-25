@@ -37,7 +37,8 @@ use shared::konst::{READINESS_TIMEOUT, SHERPA_LABS_PATH};
 use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::validate::{
-    check_client_read_files, check_lab_name, check_node_file_settings, check_node_kind_settings,
+    check_bridges, check_client_read_files, check_duplicate_device, check_lab_name,
+    check_links_to_itself, check_node_file_settings, check_node_kind_settings,
     check_nonzero_node_settings, check_ptx_platform, check_ready_timeout, check_text_file_modes,
     check_vm_tuning, check_windows_startup_script_names, validate_environment_variables,
 };
@@ -225,8 +226,8 @@ pub(super) async fn load_redeploy<'a>(
 }
 
 /// The request's manifest, with the checks a redeploy shares with `sherpa up`: the lab name,
-/// host access, the ready timeout, the node settings that cannot be 0, environment variable
-/// keys, text file modes, Windows startup script names, the files the client read,
+/// host access, duplicate node names, the ready timeout, the node settings that cannot be 0, a
+/// link to itself, the bridges' names and links, environment variable keys, text file modes, Windows startup script names, the files the client read,
 /// provisioners, and the node's secret files. With the parts as written the client sent beside
 /// it, the node's definition is built and its provisioners checked.
 fn check_manifest(ctx: &AuthContext, request: &RedeployRequest) -> Result<RedeployDefinition> {
@@ -235,10 +236,16 @@ fn check_manifest(ctx: &AuthContext, request: &RedeployRequest) -> Result<Redepl
         lab_definition::parse_manifest(&request.manifest, request.file_contents.as_ref())?;
     check_lab_name(&manifest.name).map_err(|error| manifest_refusal("lab name", error))?;
     require_host_access(ctx, &manifest.nodes)?;
+    check_duplicate_device(&manifest.nodes)
+        .map_err(|error| manifest_refusal("duplicate nodes", error))?;
     check_ready_timeout(manifest.ready_timeout)
         .map_err(|error| manifest_refusal("ready timeout", error))?;
     check_nonzero_node_settings(&manifest.nodes)
         .map_err(|error| manifest_refusal("node settings", error))?;
+    check_links_to_itself(manifest.links.as_deref().unwrap_or_default())
+        .map_err(|error| manifest_refusal("links", error))?;
+    check_bridges(manifest.bridges.as_deref().unwrap_or_default())
+        .map_err(|error| manifest_refusal("bridges", error))?;
     validate_environment_variables(&manifest.nodes)
         .map_err(|error| manifest_refusal("environment variables", error))?;
     check_text_file_modes(&manifest.nodes)
@@ -805,6 +812,46 @@ mod tests {
                     if key == "1BAD KEY" && node == "r1"
             ),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn manifest_links_022_a_redeploy_is_refused_before_teardown_for_two_bridges_with_one_name() {
+        let error = redeploy_refusal(&serde_json::json!({
+            "name": "core",
+            "nodes": [
+                { "name": "r1", "model": "ubuntu_linux" },
+                { "name": "r2", "model": "ubuntu_linux" },
+            ],
+            "bridges": [
+                { "name": "br1", "links": ["r1::eth1", "r2::eth1"] },
+                { "name": "br1", "links": ["r1::eth2", "r2::eth2"] },
+            ],
+        }));
+        assert_eq!(
+            error,
+            TopologyError::DuplicateBridge {
+                bridge: "br1".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn node_naming_008_a_redeploy_is_refused_before_teardown_for_node_names_that_differ_only_in_case()
+     {
+        let error = redeploy_refusal(&serde_json::json!({
+            "name": "core",
+            "nodes": [
+                { "name": "r1", "model": "ubuntu_linux" },
+                { "name": "R1", "model": "ubuntu_linux" },
+            ],
+        }));
+        assert_eq!(
+            error,
+            TopologyError::NodeNamesDifferInCase {
+                node: "R1".to_owned(),
+                other: "r1".to_owned(),
+            }
         );
     }
 
