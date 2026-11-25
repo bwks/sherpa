@@ -1,5 +1,6 @@
 use std::io;
 
+use bollard::errors::Error as DockerError;
 use thiserror::Error;
 
 use crate::network::NetworkDifference;
@@ -29,6 +30,17 @@ pub enum ContainerError {
         enrollment: anyhow::Error,
         rollback: anyhow::Error,
     },
+
+    #[error("Cannot read the node VM's {0}")]
+    NodeVmCertificate(&'static str),
+
+    #[error("Cannot make a Docker client for a node VM")]
+    NodeVmClient(#[source] DockerError),
+
+    #[error(
+        "Cannot copy '{0}' into a node VM's container: the path must be absolute, without '..', and fit a tar header"
+    )]
+    NodeVmFilePath(String),
 
     #[error(
         "Docker network '{name}' already exists and is not the lab's: {}. It was left in place; \

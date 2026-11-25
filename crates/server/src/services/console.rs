@@ -173,7 +173,14 @@ pub async fn console_target(
         .await
         .context("Failed to read the node's image")?
         .ok_or_else(|| anyhow!("Node '{node_name}' has no image"))?;
-    match (image.kind(), kind) {
+    match (image.runtime_kind(), kind) {
+        (NodeKind::VirtualMachine, ConsoleKind::Vnc) if image.kind() == NodeKind::Container => {
+            return Err(ServiceError::Invalid(format!(
+                "{node_name} runs in a node VM, which has a serial console only. Use 'sherpa \
+                 console {node_name}' instead."
+            ))
+            .into());
+        }
         (NodeKind::Container, _) => {
             return Err(ServiceError::Invalid(format!(
                 "{node_name} is a container, and containers have no {kind}. Connect with \

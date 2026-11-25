@@ -5,7 +5,9 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
+use bollard::Docker;
 use bollard::secret::ContainerStateStatusEnum;
+use tokio::task::{self, JoinHandle};
 use tracing::instrument;
 
 use super::context::LabBuild;
@@ -17,6 +19,7 @@ use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::node_secrets::write_node_secrets;
+use crate::services::node_vm::{self, NodeContainerStart};
 use crate::services::p2p_links::{KernelHost, LinkHost, make_veth};
 use crate::services::talos;
 
@@ -48,6 +51,7 @@ pub(super) struct ReadinessInputs<'a> {
     pub(super) links_detailed: &'a [topology::LinkDetailed],
     pub(super) node_secrets: &'a BTreeMap<String, Vec<data::SecretFile>>,
     pub(super) talos_clusters: &'a [topology::TalosCluster],
+    pub(super) mgmt_net: &'a data::SherpaNetwork,
     pub(super) timeout: Duration,
 }
 
@@ -103,6 +107,8 @@ pub(super) async fn wait_for_nodes(
         waiting_for_port: HashSet::new(),
         nodes: Vec::new(),
         errors: Vec::new(),
+        node_vm_starts: HashMap::new(),
+        node_vm_dockers: HashMap::new(),
     };
     readiness.skip_unpolled_nodes(&all_nodes).await?;
     tracing::info!(
@@ -146,6 +152,10 @@ pub(super) async fn wait_for_nodes(
         }
     }
 
+    for (name, start) in readiness.node_vm_starts.drain() {
+        tracing::warn!(container_name = %name, "Node VM container still starting when polling ended");
+        start.abort();
+    }
     readiness.recheck_containers().await?;
     for link in inputs.p2p_links {
         if !readiness.p2p.attached.contains(&link.index) {
@@ -205,9 +215,78 @@ struct Readiness<'a, 'b> {
     waiting_for_port: HashSet<String>,
     nodes: Vec<data::NodeInfo>,
     errors: Vec<data::UpError>,
+    node_vm_starts: HashMap<String, JoinHandle<Result<bool>>>,
+    node_vm_dockers: HashMap<String, Docker>,
 }
 
 impl Readiness<'_, '_> {
+    /// The Docker that runs the container `container_name`: its node VM's, or the server's.
+    fn docker_for(&self, container_name: &str) -> &Docker {
+        self.node_vm_dockers
+            .get(container_name)
+            .unwrap_or(self.build.docker_conn)
+    }
+
+    /// Start the container of a node that runs in a node VM, in the background, as its VM's
+    /// Docker may take minutes to answer and to load the image. Returns whether it runs once
+    /// the start has finished, or `None` while it goes on.
+    async fn start_in_node_vm(
+        &mut self,
+        container: &topology::NodeExpanded,
+        spec: ContainerSpec,
+    ) -> Result<Option<bool>> {
+        let container_name = spec.name.clone();
+        if let Some(start) = self.node_vm_starts.get(&container_name) {
+            if !start.is_finished() {
+                return Ok(None);
+            }
+            let start = self
+                .node_vm_starts
+                .remove(&container_name)
+                .context("A finished node VM start is gone")?;
+            let running = start
+                .await
+                .context("The node VM container start panicked")??;
+            let docker = node_vm::node_vm_docker(
+                self.build.qemu,
+                self.build.lab_dir,
+                &container.name,
+                self.build.lab_id,
+            )
+            .await?;
+            self.node_vm_dockers.insert(container_name, docker);
+            return Ok(Some(running));
+        }
+        let host = Docker::clone(self.build.docker_conn);
+        let qemu = self.build.qemu.clone();
+        let lab_id = self.build.lab_id.to_owned();
+        let lab_dir = self.build.lab_dir.to_owned();
+        let node_name = container.name.clone();
+        let mgmt_net = self.inputs.mgmt_net.clone();
+        let _ = self.build.progress.send_status(
+            format!("Node {} - Starting its container in its VM", container.name),
+            StatusKind::Progress,
+        );
+        self.node_vm_starts.insert(
+            container_name,
+            task::spawn(async move {
+                node_vm::start_node_container(
+                    &host,
+                    &qemu,
+                    NodeContainerStart {
+                        lab_id: &lab_id,
+                        lab_dir: &lab_dir,
+                        node_name: &node_name,
+                        mgmt_net: &mgmt_net,
+                        spec,
+                    },
+                )
+                .await
+            }),
+        );
+        Ok(None)
+    }
+
     /// Mark the nodes that are not polled as done: VMs and unikernels with `ready_check.skip`,
     /// and Talos cluster workers, which are checked as Kubernetes nodes once their cluster is
     /// bootstrapped. Skipped containers are handled when they start.
@@ -304,13 +383,10 @@ impl Readiness<'_, '_> {
         Ok(state)
     }
 
-    /// Start a container, then create its P2p interfaces in its network namespace and attach
-    /// the links that now have both ends. It is then waited for in `check_container`, unless
-    /// its check is skipped.
-    async fn start_container(&mut self, container: &topology::NodeExpanded) -> Result<()> {
+    /// What container `container` is created from: its image, its generated and secret
+    /// mounts, its management and data networks, its model's settings and its recorded limits.
+    fn container_spec(&self, container: &topology::NodeExpanded) -> Result<ContainerSpec> {
         let lab_id = self.build.lab_id;
-        let mgmt_ipv4 = container.ipv4_address.map(|ip| ip.to_string());
-        let container_name = format!("{}-{lab_id}", container.name);
         let image_name = container
             .image
             .as_ref()
@@ -330,8 +406,13 @@ impl Readiness<'_, '_> {
         }
         let management_network = data::ContainerNetworkAttachment {
             name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
-            ipv4_address: mgmt_ipv4.clone(),
-            ipv6_address: None,
+            ipv4_address: container.ipv4_address.map(|ip| ip.to_string()),
+            // A node VM's Docker knows none of the lab's other addresses, so its container
+            // takes the one recorded for it rather than one Docker picks.
+            ipv6_address: container
+                .ipv6_address
+                .filter(|_| container.model_kind.runs_in_node_vm())
+                .map(|ip| ip.to_string()),
             linux_interface_name: None,
             admin_down: false,
         };
@@ -345,30 +426,48 @@ impl Readiness<'_, '_> {
         // Its limits are the resources recorded for it.
         let record = &self.node_data(&container.name)?.record;
 
-        let is_running = node_ops::start_container_node(
-            self.build.docker_conn,
-            self.build.qemu,
-            ContainerSpec {
-                name: container_name.clone(),
-                // The node name, as its own config names it; Docker's default is the ID.
-                hostname: Some(container.name.clone()),
-                image: container::image_reference(image_name, version),
-                env_vars: container.environment_variables.clone().unwrap_or_default(),
-                volumes,
-                capabilities: node_ops::model_capabilities(container.model_kind),
-                management_network,
-                additional_networks: data_networks,
-                commands: settings.commands.unwrap_or_default(),
-                privileged: settings.privileged.unwrap_or(false),
-                shm_size: settings.shm_size,
-                user: settings.user,
-                memory_mib: record.memory.map(u64::from),
-                cpu_count: record.cpu_count,
-            },
-            container.model_kind,
-            self.build.progress,
-        )
-        .await?;
+        Ok(ContainerSpec {
+            name: format!("{}-{lab_id}", container.name),
+            // The node name, as its own config names it; Docker's default is the ID.
+            hostname: Some(container.name.clone()),
+            image: container::image_reference(image_name, version),
+            env_vars: container.environment_variables.clone().unwrap_or_default(),
+            volumes,
+            capabilities: node_ops::model_capabilities(container.model_kind),
+            management_network,
+            additional_networks: data_networks,
+            commands: settings.commands.unwrap_or_default(),
+            privileged: settings.privileged.unwrap_or(false),
+            shm_size: settings.shm_size,
+            user: settings.user,
+            memory_mib: record.memory.map(u64::from),
+            cpu_count: record.cpu_count,
+        })
+    }
+
+    /// Start a container, then create its P2p interfaces in its network namespace and attach
+    /// the links that now have both ends. It is then waited for in `check_container`, unless
+    /// its check is skipped.
+    async fn start_container(&mut self, container: &topology::NodeExpanded) -> Result<()> {
+        let mgmt_ipv4 = container.ipv4_address.map(|ip| ip.to_string());
+        let container_name = format!("{}-{}", container.name, self.build.lab_id);
+        let spec = self.container_spec(container)?;
+        let in_node_vm = container.model_kind.runs_in_node_vm();
+        let is_running = if in_node_vm {
+            match self.start_in_node_vm(container, spec).await? {
+                Some(running) => running,
+                None => return Ok(()),
+            }
+        } else {
+            node_ops::start_container_node(
+                self.build.docker_conn,
+                self.build.qemu,
+                spec,
+                container.model_kind,
+                self.build.progress,
+            )
+            .await?
+        };
 
         if !is_running {
             tracing::warn!(node_name = %container.name, "Container exited right after starting");
@@ -381,7 +480,10 @@ impl Readiness<'_, '_> {
             return Ok(());
         }
 
-        if let Err(error) = self.create_p2p_interfaces(container, &container_name).await {
+        // A node VM's link ends are taps, attached when its domain was created.
+        if !in_node_vm
+            && let Err(error) = self.create_p2p_interfaces(container, &container_name).await
+        {
             // Its namespace goes with its process, so a container that exited meanwhile fails
             // here; that is the container's failure, not the lab's.
             if self.is_running(&container_name).await {
@@ -431,7 +533,11 @@ impl Readiness<'_, '_> {
         let ready_port =
             node_ops::container_ready_port(container.model_kind, &container.ready_check);
         let ready_label = ready_port.map(node_ops::ready_port_label);
-        let status = match container::container_state(self.build.docker_conn, &container_name).await
+        let status = match container::container_state(
+            self.docker_for(&container_name),
+            &container_name,
+        )
+        .await
         {
             Ok(state) => state.and_then(|state| state.status),
             Err(error) => {
@@ -504,7 +610,7 @@ impl Readiness<'_, '_> {
     /// inspect is not.
     async fn is_running(&self, container_name: &str) -> bool {
         matches!(
-            container::container_status(self.build.docker_conn, container_name).await,
+            container::container_status(self.docker_for(container_name), container_name).await,
             Ok(Some(ContainerStateStatusEnum::RUNNING))
         )
     }
@@ -521,7 +627,7 @@ impl Readiness<'_, '_> {
                 self.p2p.ready_ends.remove(&veth.veth.host_veth);
             }
         }
-        let docker = self.build.docker_conn;
+        let docker = self.docker_for(container_name);
         let exit_code = match container::container_state(docker, container_name).await {
             Ok(state) => state.and_then(|state| state.exit_code),
             Err(error) => {
@@ -762,7 +868,9 @@ impl Readiness<'_, '_> {
                 continue;
             }
             let container_name = format!("{}-{}", container.name, self.build.lab_id);
-            match container::container_status(self.build.docker_conn, &container_name).await {
+            match container::container_status(self.docker_for(&container_name), &container_name)
+                .await
+            {
                 Ok(Some(ContainerStateStatusEnum::RUNNING)) => {
                     tracing::debug!(node_name = %container.name, "Container still running");
                 }

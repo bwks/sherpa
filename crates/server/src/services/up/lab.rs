@@ -21,7 +21,7 @@ use super::networks::{
 use super::plan::{CheckedNodes, LabPlan, check_node_images, plan_lab};
 use super::readiness::{NodesReady, ReadinessInputs, wait_for_nodes};
 use super::records::{NodeRecords, create_node_records, store_ssh_usernames};
-use super::runtime::{create_unikernels, create_vms};
+use super::runtime::{create_node_vms, create_unikernels, create_vms};
 use super::services::{LabServices, ServiceInputs, record_ready_workers, start_lab_services};
 use super::ztp::{ConfigInputs, NodeConfigs, configure_nodes, start_boot_container};
 use crate::auth::context::AuthContext;
@@ -35,6 +35,7 @@ use crate::services::lab_definition;
 use crate::services::lab_lifecycle;
 use crate::services::lab_operations::{self, LabHold, LabOperation, Operation, StopReason};
 use crate::services::node_ops;
+use crate::services::node_vm;
 use crate::services::progress::ProgressSender;
 use crate::services::ssh_config::{self, LabSshFiles};
 use crate::services::surreal_db;
@@ -406,6 +407,12 @@ async fn plan_and_check(
     subnets: &LabSubnets,
 ) -> Result<LabPlan> {
     let plan = plan_lab(build, requester, manifest, owner_account, checked).await?;
+    let model_kinds = plan
+        .selected_images
+        .iter()
+        .map(data::NodeConfig::model_kind)
+        .collect::<Result<Vec<_>>>()?;
+    node_vm::require_base_image(&build.config.images_dir, &model_kinds)?;
     ensure_no_earlier_attempt(build.qemu_conn, build.lab_id, &plan.selected_images)?;
     check_existing_docker_management_network(build.docker_conn, build.lab_id, subnets).await?;
     Ok(plan)
@@ -421,7 +428,7 @@ fn ensure_no_earlier_attempt(
 ) -> Result<()> {
     if selected_images
         .iter()
-        .all(|image| image.kind() == data::NodeKind::Container)
+        .all(|image| image.runtime_kind() == data::NodeKind::Container)
     {
         return Ok(());
     }
@@ -706,6 +713,13 @@ impl LabUp<'_> {
 
         self.start_phase(data::UpPhase::VmCreation, "Creating VMs".to_string())?;
         create_vms(&self.build, domains).await?;
+        create_node_vms(
+            &self.build,
+            &records.container_nodes,
+            &records.lab_node_data,
+            &links.p2p_container_veths,
+        )
+        .await?;
         self.phase_done("VmCreation");
         create_unikernels(&self.build, unikernel_domains).await?;
         // Every disk and domain exists; stop holding the disk images.
@@ -789,6 +803,7 @@ impl LabUp<'_> {
                 links_detailed: &self.plan.links_detailed,
                 node_secrets: self.node_secrets,
                 talos_clusters,
+                mgmt_net: &network.mgmt_net,
                 timeout: Duration::from_secs(ready_timeout_secs),
             },
             &mut built.p2p,

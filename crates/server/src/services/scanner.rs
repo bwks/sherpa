@@ -526,7 +526,7 @@ async fn scanned_nodes<'a>(
                 .find(|img| img.id.as_ref() == Some(&node.image));
             ScannedNode {
                 node,
-                kind: image.map_or(NodeKind::VirtualMachine, NodeConfig::kind),
+                kind: image.map_or(NodeKind::VirtualMachine, NodeConfig::runtime_kind),
                 model: image.map(|img| img.model),
                 runtime_name: format!("{}-{}", node.name, lab.lab_id),
             }

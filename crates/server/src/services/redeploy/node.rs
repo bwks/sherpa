@@ -11,7 +11,7 @@ use opentelemetry::KeyValue;
 use tokio::sync::Mutex;
 use tracing::instrument;
 
-use super::container::redeploy_container;
+use super::container::{redeploy_container, redeploy_node_vm};
 use super::context::{Redeploy, load_redeploy};
 use super::teardown::{destroy_node, recreate_vm_networks};
 use super::vm::redeploy_vm;
@@ -299,6 +299,9 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
     )?;
 
     match redeploy.node_image.kind() {
+        data::NodeKind::Container if redeploy.target_node.model_kind.runs_in_node_vm() => {
+            redeploy_node_vm(redeploy, &cert_paths).await
+        }
         data::NodeKind::Container => redeploy_container(redeploy, &cert_paths).await,
         data::NodeKind::VirtualMachine => redeploy_vm(redeploy, &cert_paths).await,
         data::NodeKind::Unikernel => Err(ServiceError::Invalid(

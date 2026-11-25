@@ -943,6 +943,71 @@ verify_update() {
 }
 
 ################################################################################
+# Node VM Image
+################################################################################
+# This section is the same in sherpa_install.sh and sherpa_update.sh, between the BEGIN and END
+# lines.
+# BEGIN node VM image
+
+# The Flatcar Container Linux release node VMs boot, its OpenStack image (Ignition reads its
+# config from a config drive) and the SHA-512 Flatcar publishes for the compressed image. The
+# version matches FLATCAR_NODE_VM_VERSION in sherpad.
+NODE_VM_FLATCAR_VERSION="4757.2.4"
+NODE_VM_FLATCAR_URL="https://stable.release.flatcar-linux.net/amd64-usr/${NODE_VM_FLATCAR_VERSION}/flatcar_production_openstack_image.img.bz2"
+NODE_VM_FLATCAR_SHA512="372d6fd9511e2227e9947d7f514b04b1f0cd6fdb4513aeecc709251ceb936284faf41476acfb09172fdb1ea16c0788bc1348b7e7d5afc721acfdb85ee61c46b3"
+NODE_VM_IMAGE_DIR="${SHERPA_IMAGES_DIR}/node_vm"
+NODE_VM_IMAGE="${NODE_VM_IMAGE_DIR}/flatcar-${NODE_VM_FLATCAR_VERSION}.qcow2"
+# Docker in a node VM is reached over vsock; QEMU needs the host's vhost-vsock device.
+NODE_VM_MODULES_FILE="/etc/modules-load.d/sherpa-node-vm.conf"
+
+# Download the node VM base image when it is missing, check it against its SHA-512, and
+# unpack it as sherpa. An image already there is never changed: node VM disks are overlays on it.
+ensure_node_vm_image() {
+    print_info "Setting up the node VM base image (Flatcar ${NODE_VM_FLATCAR_VERSION})..."
+
+    if [ ! -f "${NODE_VM_MODULES_FILE}" ]; then
+        echo "vhost_vsock" > "${NODE_VM_MODULES_FILE}" || return 1
+    fi
+    modprobe vhost_vsock || return 1
+
+    if [ -e "${NODE_VM_IMAGE}" ]; then
+        print_info "Node VM base image exists; left as it is"
+        return 0
+    fi
+    if ! command -v bunzip2 >/dev/null 2>&1; then
+        print_error "The node VM base image needs bunzip2, which is not installed"
+        echo "  Install it with: sudo apt-get install bzip2"
+        return 1
+    fi
+    if [ ! -d "${NODE_VM_IMAGE_DIR}" ]; then
+        as_sherpa mkdir -m 755 "${NODE_VM_IMAGE_DIR}" || return 1
+    fi
+
+    local tmp
+    tmp="$(as_sherpa mktemp -d "${NODE_VM_IMAGE_DIR}/.download.XXXXXX")" || return 1
+    if ! as_sherpa curl -fsSL -o "${tmp}/image.bz2" "${NODE_VM_FLATCAR_URL}"; then
+        print_error "Could not download the node VM base image from ${NODE_VM_FLATCAR_URL}"
+        as_sherpa rm -rf "${tmp}"
+        return 1
+    fi
+    if [ "$(sha512sum "${tmp}/image.bz2" | awk '{ print $1 }')" != "${NODE_VM_FLATCAR_SHA512}" ]; then
+        print_error "The node VM base image does not match its SHA-512; not installed"
+        as_sherpa rm -rf "${tmp}"
+        return 1
+    fi
+    if ! as_sherpa sh -c 'bunzip2 -c "$1" > "$2" && chmod 644 "$2"' sh "${tmp}/image.bz2" "${tmp}/image.qcow2" \
+        || ! as_sherpa mv -n "${tmp}/image.qcow2" "${NODE_VM_IMAGE}"; then
+        print_error "Could not unpack the node VM base image"
+        as_sherpa rm -rf "${tmp}"
+        return 1
+    fi
+    as_sherpa rm -rf "${tmp}"
+    print_success "Node VM base image ready: ${NODE_VM_IMAGE}"
+}
+
+# END node VM image
+
+################################################################################
 # Router Image
 ################################################################################
 # This section is the same in sherpa_install.sh and sherpa_update.sh, between the BEGIN and END
@@ -1050,6 +1115,7 @@ main() {
     if [ "$needs_update" = false ]; then
         install_blank_disk_tools
         ensure_blank_disks
+        ensure_node_vm_image
         pull_sherpa_router_image
         ensure_symlinks
         secure_config_files
@@ -1062,6 +1128,7 @@ main() {
     # here leaves the server as it was.
     install_blank_disk_tools
     ensure_blank_disks
+    ensure_node_vm_image
     pull_sherpa_router_image
 
     # From here, a failure puts back what was replaced and starts the release that was installed.

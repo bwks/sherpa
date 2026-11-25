@@ -242,7 +242,7 @@ fn shutdown_method(
         }
     }
     let role = membership.as_ref().map(|(_, role, _)| *role);
-    let route = shutdown_route(node_image.kind(), node_image.model, role);
+    let route = shutdown_route(node_image.runtime_kind(), node_image.model, role);
     let method = match (route, membership, lookup_error) {
         (_, _, Some(error)) => {
             ShutdownMethod::Unavailable(format!("could not load the node's Talos cluster: {error}"))

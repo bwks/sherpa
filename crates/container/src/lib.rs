@@ -8,6 +8,7 @@ mod image;
 #[cfg(test)]
 mod mock_docker;
 mod network;
+mod node_vm;
 mod status;
 
 // Re-export connection utilities
@@ -34,6 +35,12 @@ pub use network::{
 pub use image::{
     get_local_images, image_exists, image_reference, load_image, pull_image, remove_image,
     running_containers_of_image,
+};
+
+// Re-export node VM operations
+pub use node_vm::{
+    NodeVmFile, NodeVmTls, copy_image_to_node_vm, ensure_node_vm_management_network,
+    node_vm_docker, run_node_vm_container,
 };
 
 // Re-export Docker type for convenience

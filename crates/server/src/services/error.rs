@@ -238,6 +238,9 @@ pub enum ServiceError {
     )]
     NodeImageNotFound { node: String, model_kind: ModelKind },
 
+    #[error("Node VM base image {path} is missing; the install and update scripts download it")]
+    NodeVmBaseImageMissing { path: String },
+
     #[error(
         "{prefix}: Version validation failed for node: {node} (model: {model}): {}",
         version_refusal(*model_kind, version, available),
@@ -713,6 +716,7 @@ impl ServiceError {
         match self {
             Self::NotFound(_)
             | Self::NodeImageNotFound { .. }
+            | Self::NodeVmBaseImageMissing { .. }
             | Self::VersionNotFound { .. }
             | Self::DiskImageNotFound { .. }
             | Self::ImageVersionNotFound { .. }

@@ -56,6 +56,43 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 012 | A container that cannot be attached to one of its networks is removed, and the error is reported | integration |
 | 013 | A `cisco_iol` container runs unprivileged, holds its management address and relays its interfaces | integration |
 
+## `node_vm`: a privileged network OS container runs in a VM of its own
+
+**Statement:** an `arista_eos`, `nokia_srlinux` or `sonic_linux` container node runs privileged on the Docker of a Flatcar VM of its own, which sherpad alone can drive, with its links, management address, console, saved config and lifecycle as a node's.
+**Relied on by:** the server's owner (a node's privileges reach its VM, not the server), the user. **Priority:** P0.
+
+| Case | What it shows | Level |
+|---|---|---|
+| 001 | The node VM boots its overlay disk, with its Ignition config drive read-only | unit |
+| 002 | Each data interface is a tap named like its link end, down when the interface is disabled, and the management NIC is on the lab's management network | unit |
+| 003 | The node VM has a vsock device and its serial console on the node's console socket | unit |
+| 004 | The vsock ID is read from the running domain's XML, and a domain without one has none | unit |
+| 005 | Values in the domain XML are escaped | unit |
+| 006 | A node file is archived at its path in the container, padded to whole blocks, with a valid header | unit |
+| 007 | A long path goes into the header's prefix, and a relative or climbing path is refused | unit |
+| 008 | Updates, update reboots, SSH and console logins are off in the node VM | unit |
+| 009 | The VM's Docker listens on loopback only, requires a client certificate of the VM's CA, and is reached through vsock | unit |
+| 010 | The data NICs are named by their lowercase MAC, and the management NIC is renamed and kept up without an address | unit |
+| 011 | The serial console runs the network OS CLI | unit |
+| 012 | Volume files land at their destination in the container, a folder's files recursively | unit |
+| 013 | The console runs each model's CLI | unit |
+| 014 | Each node VM has a CA of its own, which signs both ends | unit |
+| 015 | The model's start step is installed for the NIC mover to run after each start | unit |
+| 016 | A node VM gets its container's memory, the manifest's or the image's, with 1024 MB on top, and its vCPUs | unit |
+| 017 | libvirt runs the containers of the three models, as VMs; other containers stay Docker's | unit |
+| 018 | A lab with a node VM is refused before anything is created when the base image is missing | unit |
+| 019 | A node VM boots, its Docker answers sherpad over vsock and refuses a client of another CA, and removing it leaves no domain, volume or certificate | integration |
+| 020 | The three models come up in node VMs and answer SSH with the owner's keys (no test yet) | e2e |
+| 021 | A P2p link between two node VMs, and between a node VM and a VM, passes traffic both ways (no test yet) | e2e |
+| 022 | An impairment set on a node VM's link applies, and clearing it removes it (no test yet) | e2e |
+| 023 | `sherpa console` reaches each model's CLI (no test yet) | e2e |
+| 024 | A config saved on the node survives down and resume, and its links are re-attached (no test yet) | e2e |
+| 025 | A redeploy gives the node a new disk with its generated config only, and re-attaches its links (no test yet) | e2e |
+| 026 | Destroy leaves no domain, volume, tap, eBPF filter, process or folder of the node VMs (no test yet) | e2e |
+| 027 | An up that fails while creating node VMs removes what it created (no test yet) | e2e |
+| 028 | A restart of sherpad leaves the node VMs running (no test yet) | e2e |
+| 029 | SR Linux's management address answers once after every start of its container (no test yet) | e2e |
+
 ## `node_ready`: a node is running only once its ready check passes
 
 **Statement:** a node is reported `running` only once its ready check passes.

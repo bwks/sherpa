@@ -5,7 +5,8 @@ use anyhow::{Context, Result};
 use bollard::Docker;
 use bollard::models::{
     ContainerCreateBody, ContainerCreateResponse, ContainerStateStatusEnum, EndpointIpamConfig,
-    EndpointSettings, HostConfig, NetworkConnectRequest, NetworkingConfig,
+    EndpointSettings, HostConfig, NetworkConnectRequest, NetworkingConfig, RestartPolicy,
+    RestartPolicyNameEnum,
 };
 use bollard::query_parameters::{
     CreateContainerOptions, InspectContainerOptions, StartContainerOptions,
@@ -90,7 +91,7 @@ pub async fn run_container(docker: &Docker, spec: ContainerSpec) -> Result<bool>
 
 /// Start the container `id`, attach its data networks in order and set their interfaces up,
 /// then report whether it is running.
-async fn start_and_attach(
+pub(crate) async fn start_and_attach(
     docker: &Docker,
     id: &str,
     name: &str,
@@ -207,6 +208,32 @@ fn create_body(spec: ContainerSpec) -> Result<ContainerCreateBody> {
         user,
         ..Default::default()
     })
+}
+
+/// The body a node VM's container is created from: as `run_container` creates it, without bind
+/// mounts, since its files are copied into it, with Docker restarting it whenever its VM's
+/// Docker starts unless it was stopped, and with `mac_address` on its management interface.
+pub(crate) fn node_vm_create_body(
+    spec: ContainerSpec,
+    mac_address: &str,
+) -> Result<ContainerCreateBody> {
+    let mut body = create_body(spec)?;
+    if let Some(host_config) = body.host_config.as_mut() {
+        host_config.binds = None;
+        host_config.restart_policy = Some(RestartPolicy {
+            name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
+            maximum_retry_count: None,
+        });
+    }
+    for endpoint in body
+        .networking_config
+        .iter_mut()
+        .filter_map(|config| config.endpoints_config.as_mut())
+        .flat_map(HashMap::values_mut)
+    {
+        endpoint.mac_address = Some(mac_address.to_owned());
+    }
+    Ok(body)
 }
 
 /// The host config of a container's limits: `memory_mib` as a hard limit in bytes, with the

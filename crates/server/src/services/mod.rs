@@ -29,6 +29,7 @@ pub mod node_lifecycle;
 pub mod node_ops;
 pub mod node_resources;
 pub mod node_secrets;
+pub(crate) mod node_vm;
 pub(crate) mod p2p_links;
 pub mod progress;
 pub mod redeploy;

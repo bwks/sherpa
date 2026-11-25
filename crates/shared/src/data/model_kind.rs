@@ -321,6 +321,17 @@ impl ModelKind {
         self.model == NodeModel::JuniperEvolved && self.kind == NodeKind::Container
     }
 
+    /// Whether a container of this model runs in a Flatcar VM of its own, on that VM's Docker,
+    /// instead of on the server's: the built-in models that need root-like privileges to boot.
+    #[must_use]
+    pub fn runs_in_node_vm(self) -> bool {
+        self.kind == NodeKind::Container
+            && matches!(
+                self.model,
+                NodeModel::AristaEos | NodeModel::NokiaSrlinux | NodeModel::SonicLinux
+            )
+    }
+
     /// Whether the host must finish the checksums of packets it sends to a container of this
     /// model, so transmit checksum offload goes off on the host end of its veths. IOL reads its
     /// interfaces through packet sockets, which hand it a packet whose checksum a veth left for
@@ -332,9 +343,10 @@ impl ModelKind {
 
     /// The TCP port that shows a node of this model and kind is ready, when the manifest sets
     /// none: SSH for a virtual machine, or the Talos API for Talos Linux, which has no SSH.
-    /// The `sonic_linux` container has SSH too: Sherpa's start script starts its SSH server last, once
-    /// the switch is up and its config loaded. `None` for any other container or a unikernel,
-    /// which is ready once it runs.
+    /// A container that runs in a node VM waits for SSH too: its VM runs long before its network
+    /// OS answers, and the `sonic_linux` start script starts its SSH server last, once the switch
+    /// is up and its config loaded. `None` for any other container or a unikernel, which is
+    /// ready once it runs.
     #[must_use]
     pub fn ready_port(self) -> Option<u16> {
         match self.kind {
@@ -342,7 +354,7 @@ impl ModelKind {
                 NodeModel::TalosLinux => TALOS_API_PORT,
                 _ => SSH_PORT,
             }),
-            NodeKind::Container if self.model == NodeModel::SonicLinux => Some(SSH_PORT),
+            NodeKind::Container if self.runs_in_node_vm() => Some(SSH_PORT),
             NodeKind::Container | NodeKind::Unikernel => None,
         }
     }

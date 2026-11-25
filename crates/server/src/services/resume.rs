@@ -148,7 +148,7 @@ pub async fn start_lab_nodes(
     for node in &target_nodes {
         let device_name = format!("{}-{}", node.name, lab_id);
         let (kind, model) = match startable_image(node, &node_images) {
-            Ok(image) => (image.kind(), image.model),
+            Ok(image) => (image.runtime_kind(), image.model),
             Err(refused) => {
                 immediate_results.push(refused);
                 continue;

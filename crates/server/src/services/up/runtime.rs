@@ -1,16 +1,19 @@
-//! Phases 10 and 11: creating the lab's VM and unikernel domains.
+//! Phases 10 and 11: creating the lab's VM, node VM and unikernel domains.
 
 use std::sync::Arc;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
+use futures::future::join_all;
 use tokio::task::{self, JoinHandle};
 use tracing::instrument;
 
 use super::context::LabBuild;
+use super::links::P2pContainerVeth;
 use crate::services::error::ServiceError;
 use crate::services::node_ops;
+use crate::services::node_vm::{self, NodeVmCreate};
 
-use shared::data::StatusKind;
+use shared::data::{self as data, StatusKind};
 
 /// Create every VM domain at once, and wait for all of them (phase 11).
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
@@ -37,6 +40,71 @@ pub(super) async fn create_vms(
         .collect();
     join_all_tasks(tasks, "VM creation").await?;
     let _ = progress.send_status("All VMs created successfully".to_string(), StatusKind::Done);
+    Ok(())
+}
+
+/// Create the VM of every container node that runs in one, all at once, and wait for all of
+/// them. Each VM has its node's link ends as taps, so its links are attached with the VMs'
+/// (phase 11).
+#[instrument(skip_all, fields(lab_id = %build.lab_id))]
+pub(super) async fn create_node_vms(
+    build: &LabBuild<'_>,
+    container_nodes: &[topology::NodeExpanded],
+    lab_node_data: &[data::LabNodeData],
+    veths: &[P2pContainerVeth],
+) -> Result<()> {
+    let nodes: Vec<&data::LabNodeData> = lab_node_data
+        .iter()
+        .filter(|node| node.model_kind.runs_in_node_vm())
+        .filter(|node| container_nodes.iter().any(|c| c.name == node.name))
+        .collect();
+    if nodes.is_empty() {
+        return Ok(());
+    }
+    let _ = build.progress.send_status(
+        format!("Creating {} node VMs in parallel", nodes.len()),
+        StatusKind::Progress,
+    );
+    let creates = nodes
+        .iter()
+        .map(|node| -> Result<NodeVmCreate<'_>> {
+            Ok(NodeVmCreate {
+                lab_id: build.lab_id,
+                lab_dir: build.lab_dir,
+                images_dir: &build.config.images_dir,
+                node_name: &node.name,
+                node_index: node.index,
+                model_kind: node.model_kind,
+                memory_mib: node
+                    .record
+                    .memory
+                    .map(u64::from)
+                    .with_context(|| format!("Node '{}' has no memory recorded", node.name))?,
+                vcpus: node
+                    .record
+                    .cpu_count
+                    .with_context(|| format!("Node '{}' has no vCPUs recorded", node.name))?,
+                veths: veths
+                    .iter()
+                    .filter(|veth| veth.node_name == node.name)
+                    .map(|veth| &veth.veth)
+                    .collect(),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let results = join_all(
+        creates
+            .iter()
+            .map(|create| node_vm::create_node_vm(build.qemu, create)),
+    )
+    .await;
+    for (create, result) in creates.iter().zip(results) {
+        result.with_context(|| format!("Failed to create the VM of node {}", create.node_name))?;
+        let _ = build.progress.send_status(
+            format!("Created node VM: {}", create.node_name),
+            StatusKind::Done,
+        );
+    }
     Ok(())
 }
 
