@@ -126,7 +126,7 @@ fn generated_config_024_sonic_config_db() {
     expected["MGMT_INTERFACE"] = json!({ "eth0|172.20.0.10/24": { "gwaddr": "172.20.0.1" } });
     expected["MGMT_PORT"] = json!({ "eth0": { "admin_status": "up", "alias": "eth0" } });
     let output = sonic_ztp(Some(Ipv4Addr::new(172, 20, 0, 10))).config();
-    assert_eq!(parsed(&output), expected);
+    assert_eq!(output, expected.to_string());
 }
 
 #[test]

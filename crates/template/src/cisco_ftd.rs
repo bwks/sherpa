@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use serde::{Serialize as SerializeTrait, Serializer};
 use serde_derive::Serialize;
@@ -59,8 +59,26 @@ pub struct CiscoFtdZtpTemplate {
     pub ipv4_gw: Option<Ipv4Addr>,
     #[serde(rename = "IPv4Mask", skip_serializing_if = "Option::is_none")]
     pub ipv4_mask: Option<Ipv4Addr>,
+    #[serde(rename = "IPv6Mode", skip_serializing_if = "Option::is_none")]
+    pub ipv6_mode: Option<CiscoFxosIpMode>,
+    #[serde(rename = "IPv6Addr", skip_serializing_if = "Option::is_none")]
+    pub ipv6_addr: Option<Ipv6Addr>,
+    #[serde(rename = "IPv6Gw", skip_serializing_if = "Option::is_none")]
+    pub ipv6_gw: Option<Ipv6Addr>,
+    #[serde(rename = "IPv6Mask", skip_serializing_if = "Option::is_none")]
+    pub ipv6_mask: Option<PrefixLength>,
     #[serde(rename = "ManageLocally")]
     pub manage_locally: YesNo,
+}
+
+/// An IPv6 prefix length, which the `FTDv` day-0 configuration takes as a string.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PrefixLength(pub u8);
+
+impl SerializeTrait for PrefixLength {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(&self.0)
+    }
 }
 
 /// A boolean the `FTDv` day-0 configuration spells `Yes` or `No`.

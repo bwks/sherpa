@@ -208,6 +208,10 @@ Cases 001 to 024 are each the whole config of one model, for a lab with IPv4 onl
 | 012 | A SONiC container's config has no management port or address: Docker gives the container its address | unit |
 | 013 | An OpenBSD node's `network-config` has no IPv6 address in a lab with IPv6 (no test yet) | unit |
 | 014 | A VM answers on the management address Sherpa recorded for it once it has booted (no test yet) | e2e |
+| 015 | Cisco FTDv in a lab with IPv6 has its IPv6 address, prefix length and gateway, set manually | unit |
+| 016 | Cisco FTDv in a lab without IPv6 has its IPv4 address, mask and gateway, and no IPv6 setting | unit |
+| 017 | A SONiC VM in a lab with IPv6 has its IPv4 and IPv6 management addresses, each with its gateway | unit |
+| 018 | A SONiC VM in a lab without IPv6 has its IPv4 management address alone | unit |
 
 ## `config_name_server`: a generated device config names the lab's boot server as its name server
 

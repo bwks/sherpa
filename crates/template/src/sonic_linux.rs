@@ -102,8 +102,8 @@ impl SonicLinuxZtp {
         sonic_ztp_template.to_string()
     }
     /// The node's `config_db.json`, which ZTP loads on top of the generated configuration: the
-    /// hostname, local login, every front-panel port admin up, and the management address when
-    /// the node has a static one.
+    /// hostname, local login, every front-panel port admin up, and the management addresses when
+    /// the node has static ones.
     #[must_use]
     pub fn config(&self) -> String {
         let ports: Map<String, Value> = (0..u16::from(SONIC_PORT_COUNT))
@@ -142,6 +142,14 @@ impl SonicLinuxZtp {
                     "gwaddr": format!("{}", self.mgmt_ipv4.first)
                 }
             });
+
+            if let (Some(mgmt_ipv6_address), Some(mgmt_ipv6)) =
+                (self.mgmt_ipv6_address, &self.mgmt_ipv6)
+            {
+                template["MGMT_INTERFACE"]
+                    [format!("eth0|{mgmt_ipv6_address}/{}", mgmt_ipv6.prefix_length)] =
+                    json!({ "gwaddr": mgmt_ipv6.first.to_string() });
+            }
         }
 
         template.to_string()
