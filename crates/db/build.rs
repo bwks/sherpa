@@ -25,6 +25,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use tokio::runtime;
 use turso::{Builder, Connection};
 
 #[path = "build/placeholders.rs"]
@@ -57,7 +58,7 @@ fn main() -> Result<()> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = runtime::Builder::new_current_thread()
         .build()
         .context("Failed to start a runtime for checking SQL")?;
     let (queries, migrations) = runtime.block_on(check_sql(&manifest_dir))?;

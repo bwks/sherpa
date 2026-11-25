@@ -3,6 +3,7 @@ use std::ops::Deref;
 use anyhow::{Context, Result};
 use tracing::instrument;
 use virt::connect::Connect;
+use virt::error;
 
 use shared::konst::QEMU_URI;
 
@@ -30,7 +31,7 @@ impl Qemu {
     pub fn connect(&self) -> Result<QemuConnection> {
         // Suppress libvirt's default error handler which prints to stderr.
         // Errors are still returned via the Rust API.
-        virt::error::clear_error_callback();
+        error::clear_error_callback();
 
         let conn = Connect::open(Some(self.uri.as_str()))
             .with_context(|| format!("Failed to connect to libvirt at {}", self.uri))?;

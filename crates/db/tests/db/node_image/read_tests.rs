@@ -4,6 +4,7 @@ use db::{
     DefaultRequest, count_node_images, find_node_image_by_id, get_node_image_versions,
     upsert_node_image,
 };
+use serde_json::Value;
 use shared::data::{ModelKind, NodeModel};
 
 use crate::{create_test_config, setup_db};
@@ -70,8 +71,8 @@ async fn image_settings_012_every_models_built_in_settings_are_recorded_and_read
 
         let mut read_json = serde_json::to_value(&read)?;
         let mut written_json = serde_json::to_value(&written)?;
-        read_json["id"] = serde_json::Value::Null;
-        written_json["id"] = serde_json::Value::Null;
+        read_json["id"] = Value::Null;
+        written_json["id"] = Value::Null;
         assert_eq!(read_json, written_json, "{model}");
     }
 
