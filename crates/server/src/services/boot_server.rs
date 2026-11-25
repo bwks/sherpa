@@ -22,7 +22,7 @@ use askama::Template;
 use bollard::Docker;
 use tracing::instrument;
 
-use container::ContainerSpec;
+use container::{ContainerIsolation, ContainerSpec};
 use db::Database;
 use shared::data::{
     self, ContainerNetworkAttachment, DbNode, NodeConfig, NodeKind, RecordId, Ztp, ZtpRecord,
@@ -289,6 +289,7 @@ fn boot_container_spec(
         user: None,
         memory_mib: None,
         cpu_count: None,
+        isolation: ContainerIsolation::Host,
     }
 }
 

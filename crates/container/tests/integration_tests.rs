@@ -20,10 +20,10 @@ use std::time::Duration;
 use tokio::time;
 
 use container::{
-    BridgeSubnet, ContainerError, ContainerMemory, ContainerSpec, create_docker_bridge_network,
-    delete_network, docker_connection, exec_container_with_retry, get_local_images, kill_container,
-    list_container_memory, list_containers, list_networks, load_image, remove_container,
-    run_container,
+    BridgeSubnet, ContainerError, ContainerIsolation, ContainerMemory, ContainerSpec,
+    create_docker_bridge_network, delete_network, docker_connection, exec_container_with_retry,
+    get_container_pid, get_local_images, kill_container, list_container_memory, list_containers,
+    list_networks, load_image, remove_container, run_container, start_netns_holder,
 };
 use shared::data::ContainerNetworkAttachment;
 
@@ -109,6 +109,7 @@ async fn create_test_container(docker: &Docker, name: &str, net: &TestNet) -> Re
             user: None,
             memory_mib: None,
             cpu_count: None,
+            isolation: ContainerIsolation::Host,
         },
     )
     .await?;
@@ -166,6 +167,7 @@ async fn container_run_002_the_manifests_environment_variables_are_set_in_the_co
                 user: None,
                 memory_mib: None,
                 cpu_count: None,
+                isolation: ContainerIsolation::Host,
             },
         )
         .await?;
@@ -202,7 +204,7 @@ async fn container_run_004_a_privileged_container_runs_privileged() -> Result<()
         run_container(
             &docker,
             ContainerSpec { name: name.to_string(), hostname: None, image: TEST_IMAGE.to_string(), env_vars: vec![], volumes: vec![], capabilities: vec![], management_network: test_network(&net.name), additional_networks: vec![], commands: vec!["sleep".to_string(), "3600".to_string()], privileged: true, shm_size: // privileged
-            None, user: None, memory_mib: None, cpu_count: None },
+            None, user: None, memory_mib: None, cpu_count: None, isolation: ContainerIsolation::Host },
         )
         .await?;
 
@@ -334,6 +336,7 @@ async fn container_run_008_memory_and_cpu_count_are_a_hard_limit_without_swap_an
                 user: None,
                 memory_mib: Some(256),
                 cpu_count: Some(1),
+                isolation: ContainerIsolation::Host,
             },
         )
         .await?;
@@ -400,6 +403,7 @@ async fn container_run_012_a_container_that_cannot_join_one_of_its_networks_is_r
             user: None,
             memory_mib: None,
             cpu_count: None,
+            isolation: ContainerIsolation::Host,
         },
     )
     .await;
@@ -502,6 +506,7 @@ async fn container_run_013_a_cisco_iol_container_runs_unprivileged_holds_its_add
                 user: None,
                 memory_mib: Some(768 + 128),
                 cpu_count: Some(1),
+                isolation: ContainerIsolation::Host,
             },
         )
         .await?;
@@ -540,4 +545,161 @@ async fn container_run_013_a_cisco_iol_container_runs_unprivileged_holds_its_add
     let _ = delete_network(&docker, &data_net.name).await;
     let _ = fs::remove_dir_all(&config_dir);
     checks
+}
+
+// ============================================================================
+// Containers run in their own VM
+// ============================================================================
+
+/// A VM-run alpine container sleeping on `net`, joined to the holder `holder`.
+fn vm_test_spec(name: &str, holder: &str, net: &TestNet) -> ContainerSpec {
+    ContainerSpec {
+        name: name.to_string(),
+        hostname: Some(name.to_string()),
+        image: TEST_IMAGE.to_string(),
+        env_vars: vec![],
+        volumes: vec![],
+        capabilities: vec![],
+        management_network: test_network(&net.name),
+        additional_networks: vec![],
+        commands: vec!["sleep".to_string(), "3600".to_string()],
+        privileged: true,
+        shm_size: None,
+        user: None,
+        memory_mib: Some(512),
+        cpu_count: Some(1),
+        isolation: ContainerIsolation::Vm {
+            netns_holder: holder.to_string(),
+        },
+    }
+}
+
+/// The standard output of `cmd` run in container `name` with `docker exec`.
+fn docker_exec(name: &str, cmd: &[&str]) -> Result<String> {
+    let output = Command::new("docker")
+        .arg("exec")
+        .arg(name)
+        .args(cmd)
+        .output()?;
+    ensure!(
+        output.status.success(),
+        "{cmd:?} failed in {name}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Remove a VM-run test container, its holder and its network.
+async fn cleanup_vm(docker: &Docker, name: &str, holder: &str, net_name: &str) {
+    let _ = remove_container(docker, name).await;
+    cleanup(docker, holder, net_name).await;
+}
+
+#[tokio::test]
+#[ignore = "requires a Docker daemon with the sherpa-kata runtime"]
+async fn container_vm_004_a_vm_run_container_has_its_own_kernel_and_none_of_the_hosts_disks()
+-> Result<()> {
+    let docker = docker_connection()?;
+    let name = "sherpa-test-vm-kernel";
+    let holder = "sherpa-test-vm-kernel-netns";
+    let net = TestNet::new("vm-kernel", 40);
+    cleanup_vm(&docker, name, holder, &net.name).await;
+
+    let result: Result<()> = async {
+        create_test_network(&docker, &net).await?;
+        let spec = vm_test_spec(name, holder, &net);
+        start_netns_holder(&docker, &spec).await?;
+        ensure!(run_container(&docker, spec).await?, "{name} is not running");
+
+        let host_boot_id = fs::read_to_string("/proc/sys/kernel/random/boot_id")?;
+        let boot_id = docker_exec(name, &["cat", "/proc/sys/kernel/random/boot_id"])?;
+        ensure!(boot_id != host_boot_id, "{name} runs on the host's kernel");
+
+        let host_pattern = fs::read_to_string("/proc/sys/kernel/core_pattern")?;
+        docker_exec(
+            name,
+            &[
+                "sh",
+                "-c",
+                "echo /tmp/sherpa-test-core > /proc/sys/kernel/core_pattern",
+            ],
+        )?;
+        ensure!(
+            fs::read_to_string("/proc/sys/kernel/core_pattern")? == host_pattern,
+            "a kernel setting written in {name} reached the host"
+        );
+
+        let partitions = docker_exec(name, &["cat", "/proc/partitions"])?;
+        for disk in fs::read_to_string("/proc/partitions")?
+            .lines()
+            .skip(2)
+            .filter_map(|line| line.split_whitespace().nth(3))
+            .filter(|disk| !disk.starts_with("loop"))
+        {
+            let host_size = fs::read_to_string(format!("/sys/class/block/{disk}/size"))?;
+            let seen = partitions.lines().any(|line| {
+                let fields: Vec<&str> = line.split_whitespace().collect();
+                fields.get(3) == Some(&disk)
+                    && fields.get(2).and_then(|blocks| blocks.parse::<u64>().ok())
+                        == host_size
+                            .trim()
+                            .parse::<u64>()
+                            .ok()
+                            .map(|sectors| sectors / 2)
+            });
+            ensure!(!seen, "{name} sees the host's disk {disk}");
+        }
+        Ok(())
+    }
+    .await;
+
+    cleanup_vm(&docker, name, holder, &net.name).await;
+    result
+}
+
+#[tokio::test]
+#[ignore = "requires root and a Docker daemon with the sherpa-kata runtime"]
+async fn container_vm_005_an_interface_made_in_the_holder_before_start_is_in_the_vm() -> Result<()>
+{
+    let docker = docker_connection()?;
+    let name = "sherpa-test-vm-iface";
+    let holder = "sherpa-test-vm-iface-netns";
+    let host_end = "sherpa-tvm0";
+    let net = TestNet::new("vm-iface", 41);
+    cleanup_vm(&docker, name, holder, &net.name).await;
+    let _ = Command::new("ip").args(["link", "del", host_end]).status();
+
+    let result: Result<()> = async {
+        create_test_network(&docker, &net).await?;
+        let spec = vm_test_spec(name, holder, &net);
+        start_netns_holder(&docker, &spec).await?;
+        let pid = get_container_pid(&docker, holder).await?.to_string();
+        let made = Command::new("ip")
+            .args([
+                "link", "add", host_end, "type", "veth", "peer", "name", "eth1", "netns",
+            ])
+            .arg(&pid)
+            .status()?;
+        ensure!(made.success(), "the veth could not be made in {holder}");
+        let up = Command::new("nsenter")
+            .args(["-t", &pid, "-n", "ip", "link", "set", "eth1", "up"])
+            .status()?;
+        ensure!(up.success(), "the veth could not be set up in {holder}");
+        let host_up = Command::new("ip")
+            .args(["link", "set", host_end, "up"])
+            .status()?;
+        ensure!(
+            host_up.success(),
+            "the host end of the veth could not be set up"
+        );
+        ensure!(run_container(&docker, spec).await?, "{name} is not running");
+
+        docker_exec(name, &["ip", "link", "show", "eth1"])?;
+        Ok(())
+    }
+    .await;
+
+    cleanup_vm(&docker, name, holder, &net.name).await;
+    let _ = Command::new("ip").args(["link", "del", host_end]).status();
+    result
 }

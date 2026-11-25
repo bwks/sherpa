@@ -35,7 +35,7 @@ use crate::services::talos::secrets::CLUSTERS_DIR;
 use crate::services::vault::lab::VAULT_DIR;
 use crate::tls::lab_ca::NodeCertPaths;
 
-use container::ContainerSpec;
+use container::{ContainerIsolation, ContainerSpec};
 use db::DevicePassword;
 use iso::create_iso;
 use libvirt::{ConsoleSockets, Qemu};
@@ -43,10 +43,10 @@ use network::NetnsVethState;
 use shared::data;
 use shared::data::StatusKind;
 use shared::konst::{
-    CONTAINER_DISK_NAME, KVM_OUI, NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR, NODE_USER_ENV_FILE,
-    SHERPA_DOMAIN_NAME, SHERPA_SSHD_READY_MARKER, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
-    SHERPA_USERNAME, SSH_PORT, TALOS_API_PORT, TFTP_DIR, UNIKERNEL_DISK_FILENAME,
-    UNIKERNEL_KERNEL_FILENAME, VM_DISK_FILENAME, ZTP_DIR,
+    CONTAINER_DISK_NAME, CONTAINER_NETNS_HOLDER_INFIX, KVM_OUI, NODE_CLOUD_INIT_SUDO_RULE,
+    NODE_CONFIGS_DIR, NODE_USER_ENV_FILE, SHERPA_DOMAIN_NAME, SHERPA_SSHD_READY_MARKER,
+    SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TALOS_API_PORT,
+    TFTP_DIR, UNIKERNEL_DISK_FILENAME, UNIKERNEL_KERNEL_FILENAME, VM_DISK_FILENAME, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::{effective_data_interface_count, effective_ztp, mode_from_octal_digits};
@@ -126,7 +126,41 @@ const SSH_READY_HANDSHAKE_TIMEOUT: u64 = 5;
 const SSH_IDENTIFICATION_MAX_BYTES: u64 = 8192;
 const CONTAINER_NOKIA_SRLINUX_ENV_VARS: &[&str] = &["SRLINUX=1"];
 const CONTAINER_NOKIA_SRLINUX_USER: &str = "0:0";
-const CONTAINER_NOKIA_SRLINUX_COMMANDS: &[&str] = &["bash", "/opt/srlinux/bin/sr_linux"];
+/// Runs its arguments chrooted in an overlay of the root filesystem whose writes land on the
+/// VM's tmpfs, with every other mount bound in again except binds of the root filesystem itself,
+/// which would put it back over the overlay. A VM's root filesystem is shared from the
+/// host, which creates a file as its caller's user and keeps no POSIX ACLs; in the overlay the
+/// guest kernel checks every permission itself, as the host's kernel does for a runc container.
+const GUEST_OVERLAY_SCRIPT: &str = r#"set -e
+o=/tmp/.guest-overlay
+mkdir -p $o && mount -t tmpfs -o mode=755 tmpfs $o
+mkdir -p $o/upper $o/work $o/root
+mount -t overlay overlay -o lowerdir=/,upperdir=$o/upper,workdir=$o/work $o/root
+r=$(awk '$5 == "/" {print $3}' /proc/self/mountinfo)
+awk '{print $3, $5}' /proc/self/mountinfo | while read -r d m; do
+  case "$m" in /|$o|$o/*) continue ;; esac
+  [ "$d" = "$r" ] && continue
+  [ -e "$o/root$m" ] || { [ -d "$m" ] && mkdir -p "$o/root$m" || touch "$o/root$m"; }
+  mount --bind "$m" "$o/root$m"
+done
+exec chroot $o/root "$@""#;
+/// SR Linux's start: its image's entrypoint and start script again, in the guest overlay. Its
+/// apps run as the `srlinux` user and reach their directories through the ACLs its boot script
+/// sets, which only the overlay keeps.
+const CONTAINER_NOKIA_SRLINUX_COMMANDS: &[&str] = &[
+    "sh",
+    "-c",
+    GUEST_OVERLAY_SCRIPT,
+    "sh",
+    "/entrypoint.sh",
+    "bash",
+    "/opt/srlinux/bin/sr_linux",
+];
+/// Makes `/sys` and the cgroup tree writable for cEOS's systemd, and makes `/dev/net/tun` for
+/// its forwarding agent: a container that is not `--privileged` gets the first two read-only and
+/// no tun device.
+const ARISTA_CEOS_VM_SETUP: &str = "mount -o remount,rw /sys; mount -o remount,rw /sys/fs/cgroup; \
+     mkdir -p /dev/net; [ -c /dev/net/tun ] || mknod -m 666 /dev/net/tun c 10 200;";
 /// Docker's default capabilities run the IOL launcher; the entrypoint also removes Docker's
 /// address from `eth0`, which IOL owns.
 const CONTAINER_CISCO_IOL_CAPABILITIES: &[&str] = &["NET_ADMIN"];
@@ -1462,8 +1496,8 @@ fn ceos_startup_commands() -> Vec<String> {
         "sh".to_string(),
         "-c".to_string(),
         format!(
-            "[ -f {ARISTA_CEOS_STARTUP_CONFIG} ] || cp {ARISTA_CEOS_ZTP_VOLUME_MOUNT} \
-             {ARISTA_CEOS_STARTUP_CONFIG}; exec {init}"
+            "{ARISTA_CEOS_VM_SETUP} [ -f {ARISTA_CEOS_STARTUP_CONFIG} ] || \
+             cp {ARISTA_CEOS_ZTP_VOLUME_MOUNT} {ARISTA_CEOS_STARTUP_CONFIG}; exec {init}"
         ),
     ]
 }
@@ -4056,6 +4090,29 @@ pub async fn start_container_node(
     Ok(true)
 }
 
+/// The name of the runc container that holds the network namespace of node `node_name`'s
+/// VM-run container in lab `lab_id`. It ends in the lab ID, so a lab's destroy removes it with
+/// the lab's other containers.
+pub(crate) fn netns_holder_name(node_name: &str, lab_id: &str) -> String {
+    format!("{node_name}-{CONTAINER_NETNS_HOLDER_INFIX}-{lab_id}")
+}
+
+/// Where the container of node `node_name`, of `model_kind`, in lab `lab_id` runs: in its own
+/// VM, joined to a holder's network namespace, when its model needs root-like privileges.
+pub(crate) fn container_isolation(
+    model_kind: data::ModelKind,
+    node_name: &str,
+    lab_id: &str,
+) -> ContainerIsolation {
+    if model_kind.runs_in_vm() {
+        ContainerIsolation::Vm {
+            netns_holder: netns_holder_name(node_name, lab_id),
+        }
+    } else {
+        ContainerIsolation::Host
+    }
+}
+
 /// Turn transmit checksum offload off on the host end of a running container's management
 /// veth, when it is on, for a model whose container needs finished checksums. Docker makes the
 /// veth again, with offload on, at every start of the container, so this follows every start:
@@ -4601,7 +4658,8 @@ pub async fn destroy_vm_node(
     Ok(())
 }
 
-/// Destroy a single container node: kill, remove, and delete its Docker data networks.
+/// Destroy a single container node: kill and remove it and its network namespace holder, and
+/// delete its Docker data networks.
 ///
 /// # Errors
 ///
@@ -4621,6 +4679,11 @@ pub async fn destroy_container_node(
     container::remove_container(docker, &container_name)
         .await
         .with_context(|| format!("Failed to remove container {container_name}"))?;
+    // A holder goes after the container in its namespace; removing a missing one succeeds.
+    let holder = netns_holder_name(node_name, lab_id);
+    container::remove_container(docker, &holder)
+        .await
+        .with_context(|| format!("Failed to remove container {holder}"))?;
 
     let networks = container::list_networks(docker)
         .await

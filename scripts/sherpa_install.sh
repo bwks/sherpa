@@ -36,6 +36,15 @@ DOCKER_APT_KEYRING="/etc/apt/keyrings/docker.asc"
 DOCKER_APT_SOURCES="/etc/apt/sources.list.d/docker.sources"
 DOCKER_PACKAGES=(docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin)
 OS_RELEASE_FILE="/etc/os-release"
+KATA_VERSION="4.4.0"
+KATA_SHA256="ccbc0cbc591089d0c57012b78da64b23ef43e0bac0f869dc7bfebe8588c33986"
+KATA_URL="https://github.com/kata-containers/kata-containers/releases/download/${KATA_VERSION}/kata-static-${KATA_VERSION}-amd64.tar.zst"
+KATA_DIR="/opt/kata"
+KATA_DEFAULT_CONFIG="${KATA_DIR}/share/defaults/kata-containers/runtime-rs/configuration-clh-runtime-rs.toml"
+KATA_SHERPA_CONFIG="/etc/kata-containers/sherpa-clh.toml"
+KATA_SHIM="${KATA_DIR}/runtime-rs/bin/containerd-shim-kata-v2"
+KATA_DOCKER_RUNTIME="sherpa-kata"
+DOCKER_DAEMON_CONFIG="/etc/docker/daemon.json"
 SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
 SHERPA_DB_FILE="${SHERPA_DB_DIR}/sherpa.sqlite"
@@ -346,6 +355,71 @@ install_docker() {
     systemctl start docker
 
     print_success "Docker is running"
+}
+
+# Install Kata Containers with Cloud Hypervisor, and register it with Docker as the runtime
+# Sherpa runs privileged network-OS containers in, each in its own VM.
+install_kata() {
+    print_header "Installing Kata Containers ${KATA_VERSION}"
+
+    if [[ "$(cat "${KATA_DIR}/VERSION" 2>/dev/null)" == "${KATA_VERSION}" ]]; then
+        print_info "Kata Containers ${KATA_VERSION} is already installed — skipping"
+    else
+        local archive
+        archive="$(mktemp)"
+        print_info "Downloading Kata Containers ${KATA_VERSION}..."
+        curl -fsSL -o "${archive}" "${KATA_URL}"
+        if ! echo "${KATA_SHA256}  ${archive}" | sha256sum -c --status; then
+            rm -f "${archive}"
+            print_error "The Kata Containers archive does not match its pinned SHA-256"
+            exit 1
+        fi
+        rm -rf "${KATA_DIR}"
+        tar --zstd -xf "${archive}" -C /
+        rm -f "${archive}"
+        print_success "Kata Containers installed in ${KATA_DIR}"
+    fi
+
+    # virtiofsd passes extended attributes, so file capabilities in an image survive.
+    mkdir -p "$(dirname "${KATA_SHERPA_CONFIG}")"
+    sed -e 's/^virtio_fs_extra_args = \["-o", "announce_submounts"\]/virtio_fs_extra_args = ["-o", "announce_submounts", "--xattr"]/' \
+        -e 's/^default_vcpus = 1$/default_vcpus = 2/' \
+        "${KATA_DEFAULT_CONFIG}" > "${KATA_SHERPA_CONFIG}"
+    if ! grep -q '"--xattr"' "${KATA_SHERPA_CONFIG}"; then
+        print_error "Could not enable extended attributes in ${KATA_SHERPA_CONFIG}"
+        exit 1
+    fi
+    chmod 644 "${KATA_SHERPA_CONFIG}"
+
+    local changed
+    changed="$(python3 -I - "${DOCKER_DAEMON_CONFIG}" "${KATA_DOCKER_RUNTIME}" "${KATA_SHIM}" "${KATA_SHERPA_CONFIG}" <<'PY'
+import json, os, sys
+path, name, shim, config = sys.argv[1:]
+daemon = {}
+if os.path.exists(path):
+    with open(path) as f:
+        daemon = json.load(f)
+runtime = {"runtimeType": shim, "options": {"TypeUrl": "io.containerd.kata.v2.options", "ConfigPath": config}}
+if daemon.get("runtimes", {}).get(name) == runtime:
+    print("no")
+else:
+    daemon.setdefault("runtimes", {})[name] = runtime
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(daemon, f, indent=2)
+        f.write("\n")
+    print("yes")
+PY
+)"
+    if [[ "${changed}" == "yes" ]]; then
+        print_info "Registered the ${KATA_DOCKER_RUNTIME} runtime in ${DOCKER_DAEMON_CONFIG}; restarting Docker..."
+        systemctl restart docker
+    fi
+    if ! docker info --format '{{json .Runtimes}}' | grep -q "\"${KATA_DOCKER_RUNTIME}\""; then
+        print_error "Docker does not list the ${KATA_DOCKER_RUNTIME} runtime"
+        exit 1
+    fi
+    print_success "Docker runs privileged network-OS containers in Kata VMs"
 }
 
 ################################################################################
@@ -1270,6 +1344,7 @@ main() {
     enable_libvirtd
     configure_transparent_hugepages
     install_docker
+    install_kata
     setup_sherpa_user
     setup_directories
     ensure_blank_disks

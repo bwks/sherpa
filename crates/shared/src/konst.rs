@@ -237,6 +237,11 @@ pub const SSH_PROMPT_AUTH_TIMEOUT: u64 = 300;
 /// Default mode of container secret files, as octal digits: readable by any user in the
 /// container, which may not run as root.
 pub const CONTAINER_SECRET_DEFAULT_MODE: u32 = 444;
+/// The Docker runtime, registered by the installer, that runs a container in its own Kata
+/// Containers VM on Cloud Hypervisor.
+pub const CONTAINER_VM_RUNTIME: &str = "sherpa-kata";
+/// The infix of the runc container whose network namespace a VM-run container joins.
+pub const CONTAINER_NETNS_HOLDER_INFIX: &str = "netns";
 /// Docker endpoint driver option naming a network's interface in the container.
 pub const DOCKER_ENDPOINT_IFNAME_OPT: &str = "com.docker.network.endpoint.ifname";
 /// Directory in a container where its secret files are mounted, read-only.

@@ -2120,6 +2120,7 @@ async fn block_a_lab_network(docker: &Docker, lab_id: &str) -> Result<String> {
             user: None,
             memory_mib: None,
             cpu_count: None,
+            isolation: container::ContainerIsolation::Host,
         },
     )
     .await?;

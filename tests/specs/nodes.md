@@ -56,6 +56,22 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 012 | A container that cannot be attached to one of its networks is removed, and the error is reported | integration |
 | 013 | A `cisco_iol` container runs unprivileged, holds its management address and relays its interfaces | integration |
 
+## `container_vm`: a network OS that needs root-like privileges runs in its own VM
+
+**Statement:** an `arista_ceos` or `nokia_srlinux` container runs in its own Kata Containers VM, with what `--privileged` gives it reaching only that VM's kernel, and keeps its management address, links and lifecycle.
+**Relied on by:** the admin, every user of the server. **Priority:** P0.
+
+| Case | What it shows | Level |
+|---|---|---|
+| 001 | Only the `arista_ceos` and `nokia_srlinux` containers run in a VM; their VM and every other model run as before | unit |
+| 002 | A VM-run container is created on the Kata runtime, unprivileged, with every capability, unconfined, in its holder's network namespace | unit |
+| 003 | A VM-run container is refused an enabled Docker data network before Docker is asked to create it | unit |
+| 004 | A VM-run container sees none of the host's block devices, and a kernel setting it writes stays in its VM | integration |
+| 005 | An interface made in the holder's namespace before the VM starts is an interface in the VM | integration |
+| 006 | A redeploy or destroy removes a VM-run node's holder with its container, and leaves no VM, tap or Kata process on the host (no test at this level yet) | e2e |
+| 007 | A P2p link between two VM-run nodes carries traffic, and an impairment on it applies (no test at this level yet) | e2e |
+| 008 | A VM-run container on no link starts without its disabled interfaces, which Docker would give it as data networks | unit |
+
 ## `node_ready`: a node is running only once its ready check passes
 
 **Statement:** a node is reported `running` only once its ready check passes.

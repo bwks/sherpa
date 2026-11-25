@@ -26,7 +26,7 @@ use crate::services::talos;
 use crate::services::vault;
 use crate::tls::lab_ca::NodeCertPaths;
 
-use container::ContainerSpec;
+use container::{ContainerIsolation, ContainerSpec};
 use shared::data;
 use shared::data::{LinkReport, OperationEvent, RecordId, StatusKind};
 use shared::konst::{CONTAINER_SECRETS_DIR, SHERPA_LABS_PATH};
@@ -71,48 +71,29 @@ pub(super) async fn redeploy_container(
     } = plan_data_interfaces(redeploy).await?;
     let db = &redeploy.state.db;
 
-    let mgmt_attachment = data::ContainerNetworkAttachment {
-        name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
-        ipv4_address: Some(redeploy.ipv4.to_string()),
-        ipv6_address: None,
-        linux_interface_name: None,
-        admin_down: false,
-    };
-
-    // Secret files are replaced, removed or kept, and mounted from RAM.
-    let mut volumes = ztp_result.volumes;
-    if let Some(dir) = secrets_for_redeploy(
-        Path::new(SHERPA_SECRETS_DIR),
-        lab_id,
-        node_name,
-        redeploy.secrets.as_deref(),
-    )
-    .with_context(|| format!("Cannot write secret files for node '{node_name}'"))?
-    {
-        volumes.push(format!("{}:{CONTAINER_SECRETS_DIR}:ro", dir.display()));
-    }
-
     let has_disabled = additional_networks.iter().any(|n| n.admin_down);
+    let spec = container_spec(redeploy, ztp_result, &container_name, additional_networks)?;
+    let has_veths = !p2p_veths.is_empty();
+    // A VM reads its interfaces once, as it boots, so its links are made in the holder first.
+    let holder_reports = match &spec.isolation {
+        ContainerIsolation::Vm { netns_holder } => {
+            container::start_netns_holder(&redeploy.state.docker, &spec).await?;
+            Some(
+                attach_links(
+                    redeploy,
+                    &lab_links,
+                    netns_holder.clone(),
+                    p2p_veths.clone(),
+                )
+                .await,
+            )
+        }
+        ContainerIsolation::Host => None,
+    };
     let is_running = node_ops::start_container_node(
         &redeploy.state.docker,
         &redeploy.state.qemu,
-        ContainerSpec {
-            name: container_name.clone(),
-            // The node name, as its own config names it; Docker's default is the ID.
-            hostname: Some(node_name.to_owned()),
-            image: container::image_reference(&ztp_result.image, &redeploy.node_image.version),
-            env_vars: ztp_result.env_vars,
-            volumes,
-            capabilities: ztp_result.capabilities,
-            management_network: mgmt_attachment,
-            additional_networks,
-            commands: ztp_result.commands,
-            privileged: ztp_result.privileged,
-            shm_size: ztp_result.shm_size,
-            user: ztp_result.user,
-            memory_mib: redeploy.db_node.memory.map(u64::from),
-            cpu_count: redeploy.db_node.cpu_count,
-        },
+        spec,
         redeploy.target_node.model_kind,
         redeploy.progress,
     )
@@ -136,7 +117,13 @@ pub(super) async fn redeploy_container(
         network::set_link_state(&isolated.bridge_name, false).await?;
     }
 
-    let link_reports = attach_links(redeploy, &lab_links, container_name, p2p_veths).await;
+    let link_reports = match holder_reports {
+        Some(reports) => reports,
+        None => attach_links(redeploy, &lab_links, container_name, p2p_veths).await,
+    };
+    if has_veths {
+        follow_links(redeploy, &lab_links).await;
+    }
 
     match ready_wait(&redeploy.db_node.ready_check) {
         ReadyWait::Port(_) => {
@@ -156,7 +143,63 @@ pub(super) async fn redeploy_container(
     Ok(link_reports)
 }
 
-/// Make the redeployed container's veths, attach its links, and report each link's state.
+/// The spec the redeployed container is created from, named `container_name`, from its ZTP
+/// result and its data networks; its secret files are written for it.
+fn container_spec(
+    redeploy: &Redeploy<'_>,
+    ztp_result: ContainerZtpResult,
+    container_name: &str,
+    additional_networks: Vec<data::ContainerNetworkAttachment>,
+) -> Result<ContainerSpec> {
+    let lab_id = redeploy.lab_id.as_str();
+    let node_name = redeploy.node_name.as_str();
+    let mgmt_attachment = data::ContainerNetworkAttachment {
+        name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
+        ipv4_address: Some(redeploy.ipv4.to_string()),
+        ipv6_address: None,
+        linux_interface_name: None,
+        admin_down: false,
+    };
+
+    // Secret files are replaced, removed or kept, and mounted from RAM.
+    let mut volumes = ztp_result.volumes;
+    if let Some(dir) = secrets_for_redeploy(
+        Path::new(SHERPA_SECRETS_DIR),
+        lab_id,
+        node_name,
+        redeploy.secrets.as_deref(),
+    )
+    .with_context(|| format!("Cannot write secret files for node '{node_name}'"))?
+    {
+        volumes.push(format!("{}:{CONTAINER_SECRETS_DIR}:ro", dir.display()));
+    }
+
+    Ok(ContainerSpec {
+        name: container_name.to_string(),
+        // The node name, as its own config names it; Docker's default is the ID.
+        hostname: Some(node_name.to_owned()),
+        image: container::image_reference(&ztp_result.image, &redeploy.node_image.version),
+        env_vars: ztp_result.env_vars,
+        volumes,
+        capabilities: ztp_result.capabilities,
+        management_network: mgmt_attachment,
+        additional_networks,
+        commands: ztp_result.commands,
+        privileged: ztp_result.privileged,
+        shm_size: ztp_result.shm_size,
+        user: ztp_result.user,
+        memory_mib: redeploy.db_node.memory.map(u64::from),
+        cpu_count: redeploy.db_node.cpu_count,
+        isolation: node_ops::container_isolation(
+            redeploy.target_node.model_kind,
+            node_name,
+            lab_id,
+        ),
+    })
+}
+
+/// Make the redeployed container's veths in the network namespace of `container`, attach its
+/// links, and report each link's state.
 async fn attach_links(
     redeploy: &Redeploy<'_>,
     lab_links: &LabLinks,
@@ -177,7 +220,7 @@ async fn attach_links(
         },
     )
     .await;
-    let reports = report_links(
+    report_links(
         &host,
         lab_links,
         &redeploy.node_record_id,
@@ -185,8 +228,13 @@ async fn attach_links(
         &redeploy.state.link_states,
         outcomes,
     )
-    .await;
-    // Re-attach takes a paused peer as up; decide the links as the next scan would.
+    .await
+}
+
+/// Decide the started container's links as the next scan would: re-attach takes a paused peer
+/// as up.
+async fn follow_links(redeploy: &Redeploy<'_>, lab_links: &LabLinks) {
+    let host = KernelHost::new(&redeploy.state.docker, &redeploy.state.qemu);
     follow_started_links(
         &host,
         lab_links,
@@ -196,7 +244,6 @@ async fn attach_links(
         &redeploy.state.unreadable_ends,
     )
     .await;
-    reports
 }
 
 /// Plan a container's data interfaces: Docker networks, or veths when it is on a link or bridge.

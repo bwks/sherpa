@@ -20,7 +20,7 @@ use crate::services::node_secrets::write_node_secrets;
 use crate::services::p2p_links::{KernelHost, LinkHost, make_veth};
 use crate::services::talos;
 
-use container::ContainerSpec;
+use container::{ContainerIsolation, ContainerSpec};
 use shared::data;
 use shared::data::{Halt, NodeState, OperationEvent, Runtime, StatusKind};
 use shared::konst::{CONTAINER_SECRETS_DIR, SSH_PORT};
@@ -304,13 +304,15 @@ impl Readiness<'_, '_> {
         Ok(state)
     }
 
-    /// Start a container, then create its P2p interfaces in its network namespace and attach
-    /// the links that now have both ends. It is then waited for in `check_container`, unless
-    /// its check is skipped.
-    async fn start_container(&mut self, container: &topology::NodeExpanded) -> Result<()> {
+    /// The spec `container` is created from, named `container_name`, with its management
+    /// address `mgmt_ipv4`.
+    fn container_spec(
+        &self,
+        container: &topology::NodeExpanded,
+        container_name: &str,
+        mgmt_ipv4: Option<String>,
+    ) -> Result<ContainerSpec> {
         let lab_id = self.build.lab_id;
-        let mgmt_ipv4 = container.ipv4_address.map(|ip| ip.to_string());
-        let container_name = format!("{}-{lab_id}", container.name);
         let image_name = container
             .image
             .as_ref()
@@ -330,7 +332,7 @@ impl Readiness<'_, '_> {
         }
         let management_network = data::ContainerNetworkAttachment {
             name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
-            ipv4_address: mgmt_ipv4.clone(),
+            ipv4_address: mgmt_ipv4,
             ipv6_address: None,
             linux_interface_name: None,
             admin_down: false,
@@ -345,26 +347,47 @@ impl Readiness<'_, '_> {
         // Its limits are the resources recorded for it.
         let record = &self.node_data(&container.name)?.record;
 
+        Ok(ContainerSpec {
+            name: container_name.to_string(),
+            // The node name, as its own config names it; Docker's default is the ID.
+            hostname: Some(container.name.clone()),
+            image: container::image_reference(image_name, version),
+            env_vars: container.environment_variables.clone().unwrap_or_default(),
+            volumes,
+            capabilities: node_ops::model_capabilities(container.model_kind),
+            management_network,
+            additional_networks: data_networks,
+            commands: settings.commands.unwrap_or_default(),
+            privileged: settings.privileged.unwrap_or(false),
+            shm_size: settings.shm_size,
+            user: settings.user,
+            memory_mib: record.memory.map(u64::from),
+            cpu_count: record.cpu_count,
+            isolation: node_ops::container_isolation(container.model_kind, &container.name, lab_id),
+        })
+    }
+
+    /// Start a container, then create its P2p interfaces in its network namespace and attach
+    /// the links that now have both ends. It is then waited for in `check_container`, unless
+    /// its check is skipped.
+    async fn start_container(&mut self, container: &topology::NodeExpanded) -> Result<()> {
+        let lab_id = self.build.lab_id;
+        let mgmt_ipv4 = container.ipv4_address.map(|ip| ip.to_string());
+        let container_name = format!("{}-{lab_id}", container.name);
+        let spec = self.container_spec(container, &container_name, mgmt_ipv4.clone())?;
+        // A VM reads its interfaces once, as it boots, so they are made in the holder first.
+        let netns_holder = match &spec.isolation {
+            ContainerIsolation::Vm { netns_holder } => {
+                container::start_netns_holder(self.build.docker_conn, &spec).await?;
+                self.create_p2p_interfaces(container, netns_holder).await?;
+                Some(netns_holder.clone())
+            }
+            ContainerIsolation::Host => None,
+        };
         let is_running = node_ops::start_container_node(
             self.build.docker_conn,
             self.build.qemu,
-            ContainerSpec {
-                name: container_name.clone(),
-                // The node name, as its own config names it; Docker's default is the ID.
-                hostname: Some(container.name.clone()),
-                image: container::image_reference(image_name, version),
-                env_vars: container.environment_variables.clone().unwrap_or_default(),
-                volumes,
-                capabilities: node_ops::model_capabilities(container.model_kind),
-                management_network,
-                additional_networks: data_networks,
-                commands: settings.commands.unwrap_or_default(),
-                privileged: settings.privileged.unwrap_or(false),
-                shm_size: settings.shm_size,
-                user: settings.user,
-                memory_mib: record.memory.map(u64::from),
-                cpu_count: record.cpu_count,
-            },
+            spec,
             container.model_kind,
             self.build.progress,
         )
@@ -381,7 +404,9 @@ impl Readiness<'_, '_> {
             return Ok(());
         }
 
-        if let Err(error) = self.create_p2p_interfaces(container, &container_name).await {
+        if netns_holder.is_none()
+            && let Err(error) = self.create_p2p_interfaces(container, &container_name).await
+        {
             // Its namespace goes with its process, so a container that exited meanwhile fails
             // here; that is the container's failure, not the lab's.
             if self.is_running(&container_name).await {

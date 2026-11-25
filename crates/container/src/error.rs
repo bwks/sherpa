@@ -14,6 +14,12 @@ pub enum ContainerError {
         source: io::Error,
     },
 
+    #[error("Container {name} runs in a VM, which takes no Docker data networks")]
+    VmDataNetworks { name: String },
+
+    #[error("Container {name} does not run in a VM, so it has no network namespace holder")]
+    NotVmRun { name: String },
+
     #[error("Refusing to remove an unowned Tailscale gateway")]
     UnownedGateway,
 

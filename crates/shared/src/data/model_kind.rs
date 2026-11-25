@@ -321,6 +321,15 @@ impl ModelKind {
         self.model == NodeModel::JuniperEvolved && self.kind == NodeKind::Container
     }
 
+    /// Whether a container of this model and kind runs in its own lightweight VM, the Kata
+    /// runtime, so the root-like privileges its network OS needs reach that VM's kernel and not
+    /// the host's.
+    #[must_use]
+    pub fn runs_in_vm(self) -> bool {
+        self.kind == NodeKind::Container
+            && matches!(self.model, NodeModel::AristaEos | NodeModel::NokiaSrlinux)
+    }
+
     /// Whether the host must finish the checksums of packets it sends to a container of this
     /// model, so transmit checksum offload goes off on the host end of its veths. IOL reads its
     /// interfaces through packet sockets, which hand it a packet whose checksum a veth left for
@@ -413,6 +422,15 @@ mod tests {
         let json = serde_json::json!({"model": "cisco_asa", "kind": "container"});
         let error = serde_json::from_value::<ModelKind>(json).unwrap_err();
         assert_eq!(error.classify(), Category::Data);
+    }
+
+    #[test]
+    fn container_vm_001_only_the_ceos_and_srlinux_containers_run_in_a_vm() {
+        let in_vm: Vec<String> = ModelKind::all()
+            .filter(|model_kind| model_kind.runs_in_vm())
+            .map(|model_kind| model_kind.to_string())
+            .collect();
+        assert_eq!(in_vm, ["arista_eos, container", "nokia_srlinux"]);
     }
 
     #[test]

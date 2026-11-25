@@ -461,7 +461,8 @@ mod tests {
     use crate::services::error::ServiceError;
     use crate::validate::MemoryShortage;
     use container::{
-        ContainerSpec, docker_connection, kill_container, remove_container, run_container,
+        ContainerIsolation, ContainerSpec, docker_connection, kill_container, remove_container,
+        run_container,
     };
     use db::LabDetails;
     use libvirt::Qemu;
@@ -1082,6 +1083,7 @@ mod tests {
                 user: None,
                 memory_mib: Some(size),
                 cpu_count: None,
+                isolation: ContainerIsolation::Host,
             },
         )
         .await

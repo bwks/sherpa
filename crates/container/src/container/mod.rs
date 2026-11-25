@@ -8,7 +8,7 @@ mod memory;
 mod start;
 mod stop;
 
-pub use create::{ContainerSpec, run_container};
+pub use create::{ContainerIsolation, ContainerSpec, run_container, start_netns_holder};
 pub use delete::{kill_container, remove_container};
 pub use exec::{exec_container, exec_container_detached, exec_container_with_retry};
 pub use inspect::{
