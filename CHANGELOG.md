@@ -2,6 +2,49 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.4] - 2026-11-25
+
+### Upgrade notes
+
+No database migration. Error messages are unchanged word for word. Every crate now raises typed errors, and the tests check those types rather than the text.
+
+- **Node secrets:** a duplicate file name or a value that isn't valid base64 in `write_node_secrets` is now refused, and the caller sees the refusal. Before, it was logged and the write went on.
+- **CPU pins:** a CPU another node holds is now detected by a query before the insert, not from the database trigger's message. The refusal is the same.
+- **Web UI labs list:** a failure loading the labs grid shows the error the server classified, such as an unknown user. Before, every failure showed a generic "Failed to load labs".
+- **Logs:** a redeploy refused by a manifest check prints its cause once, not twice.
+
+### Bug Fixes
+
+- Refuse a held CPU pin from a query, not the trigger's text by @bwks ([542c9ce](https://github.com/bwks/sherpa/commit/542c9ceb0c59c64ac3a125907f4a35c7ecd6ca0c))
+- Classify a labs grid failure by its type by @bwks ([4eeaa29](https://github.com/bwks/sherpa/commit/4eeaa297037a1fb1eb3a08c8712249885fc3f475))
+
+### Refactor
+
+- Inline six single-use closures by @bwks ([9c98a1f](https://github.com/bwks/sherpa/commit/9c98a1fc72887a437935a70c03a0452229e8bcc3))
+
+### Testing
+
+- Check serde and toml errors by type, not wording by @bwks ([193c618](https://github.com/bwks/sherpa/commit/193c618a6864906e7f86a9638308652fbfa22c05))
+- Check placeholder refusals by type, not wording by @bwks ([ef0165e](https://github.com/bwks/sherpa/commit/ef0165efd2eccddc2ca0af1935a5adad06485c01))
+- Import ClientError only for the unix tests that use it by @bwks ([4ad8eb0](https://github.com/bwks/sherpa/commit/4ad8eb08cabceecb4829f26bb50d2106c9401328))
+- Check topology errors and the migration warning by type by @bwks ([f44eda3](https://github.com/bwks/sherpa/commit/f44eda3c93c637ab4785a5c64cbfa78e59763ac8))
+- Check errors by type, not wording by @bwks ([3313fbf](https://github.com/bwks/sherpa/commit/3313fbfcca7bc0d1d9472538e07d797105c4284c))
+- Carry impairment and manifest check refusals by type by @bwks ([1a5f283](https://github.com/bwks/sherpa/commit/1a5f2834c039395c8da2513b57480f274a92dc22))
+- Check request parse refusals by type, not wording by @bwks ([8a104aa](https://github.com/bwks/sherpa/commit/8a104aa10934f26d96607e3f48a851c88bbb7062))
+- Check service errors by type, not wording by @bwks ([27d5344](https://github.com/bwks/sherpa/commit/27d5344fba1d4a26151b28cd2c2271a816193418))
+- Check validator and daemon errors by type, not wording by @bwks ([3511ac3](https://github.com/bwks/sherpa/commit/3511ac396779a2530ed8f117e53749361c1882f3))
+- Check errors by type, not wording by @bwks ([e81c8b8](https://github.com/bwks/sherpa/commit/e81c8b81f721e22bd26fa49c75dd0fe146cb1ed1))
+- Leave migration 0008 as it was by @bwks ([071ce39](https://github.com/bwks/sherpa/commit/071ce390cf2d71d9bae2ac5a9cc0f2273d99ed9d))
+- Check the shared validators' refusals by type by @bwks ([48098eb](https://github.com/bwks/sherpa/commit/48098ebc86489024bae78fb282093ec7bbbd7164))
+- Check errors by type, not wording by @bwks ([8190670](https://github.com/bwks/sherpa/commit/8190670859547a3d0b89dc63d1dff0c548ddd3cf))
+- Check errors by type, not wording by @bwks ([7be57b4](https://github.com/bwks/sherpa/commit/7be57b4b204ce2d9f2b98d6003f09a0855eef0ff))
+- Check errors by type, not wording by @bwks ([2feb0e4](https://github.com/bwks/sherpa/commit/2feb0e4d9f3dcb20e7f5972e54754054f8ae93f2))
+- Check errors by type, not wording by @bwks ([0f74f47](https://github.com/bwks/sherpa/commit/0f74f479116406aac894cc6b6ca9e15c71e34cd9))
+- Check errors by type, not wording by @bwks ([e6f4d5c](https://github.com/bwks/sherpa/commit/e6f4d5cff9358075714e76ff4948a1be68fa602c))
+- Check errors by type, not wording by @bwks ([d4757e9](https://github.com/bwks/sherpa/commit/d4757e91bb6a0e5206570c065ebdd38914593bef))
+- Check failed-rollback and network errors by their fields by @bwks ([5ac357b](https://github.com/bwks/sherpa/commit/5ac357bb19dc5cbb459d8f4aaff0ea16122d5831))
+- Check errors by type, not wording by @bwks ([816f09a](https://github.com/bwks/sherpa/commit/816f09a494707053a04efabaaaccf8ea9914ba5b))
+
 ## [0.9.3] - 2026-11-24
 
 ### Upgrade notes
