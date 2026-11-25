@@ -111,7 +111,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | After an install on a bare host, `/opt/sherpa/microvm` holds `cloud-hypervisor` `755 root:root`, `vmlinuz` and `initramfs.img` `644 root:root`, and `images`, all `sherpa`'s folders `755`; the binary reports the pinned version (no test yet) | e2e (fresh VM) |
+| 001 | After an install on a bare host, `/opt/sherpa/microvm` holds `cloud-hypervisor` `755 root:root`, `vmlinuz` and `initramfs.img` `644 root:root`, and `images`, all `sherpa`'s folders `755`; the binary reports the pinned version | e2e (fresh VM) |
 | 002 | Cloud Hypervisor is installed `755`, root's, from the pinned URL when its SHA-256 is the pinned one | unit (bats) |
 | 003 | A download whose SHA-256 is not the pinned one stops the script and installs nothing | unit (bats) |
 | 004 | The folder and the images folder are made `755` and `sherpa`'s, an existing one gets the same, and a symlink at or above the folder stops the script with the link named | unit (bats) |

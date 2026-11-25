@@ -506,13 +506,16 @@ class Guest:
         of install_host and blank_disks it shows."""
         self.command(self.installer(selection), timeout=self.timeouts["install"], env=self.environment(selection))
         if fresh:
-            check_cases([("install_host_001", lambda: self.verify_binaries(selection)),
-                         ("install_host_002", self.verify_accounts),
-                         ("install_host_003", self.verify_service),
-                         ("install_host_004", lambda: self.verify_environment(selection)),
-                         ("install_host_005", self.verify_router_image),
-                         ("install_host_006", self.verify_hugepages),
-                         ("blank_disks_001", self.verify_blank_disks)])
+            cases = [("install_host_001", lambda: self.verify_binaries(selection)),
+                     ("install_host_002", self.verify_accounts),
+                     ("install_host_003", self.verify_service),
+                     ("install_host_004", lambda: self.verify_environment(selection)),
+                     ("install_host_005", self.verify_router_image),
+                     ("install_host_006", self.verify_hugepages),
+                     ("blank_disks_001", self.verify_blank_disks)]
+            if self.pinned_cloud_hypervisor():
+                cases.append(("microvm_host_tools_001", self.verify_microvm_host_tools))
+            check_cases(cases)
         else:
             self.verify_installation(selection)
 
@@ -545,7 +548,29 @@ class Guest:
         require(Path("/etc/logrotate.d/sherpad").is_file(), "Missing logrotate configuration")
         if selection == "candidate":
             self.verify_hugepages()
+            if self.pinned_cloud_hypervisor():
+                self.verify_microvm_host_tools()
         self.verify_router_image()
+
+    def pinned_cloud_hypervisor(self):
+        """The Cloud Hypervisor version the candidate's installer pins, or None for a release
+        that installs none."""
+        pinned = re.search(r'^CLOUD_HYPERVISOR_VERSION="([^"]+)"$',
+                           (self.workspace / "sherpa_install.sh").read_text(), re.MULTILINE)
+        return pinned[1] if pinned else None
+
+    def verify_microvm_host_tools(self):
+        """The microVM folder holds Cloud Hypervisor at the version the installer pins, the guest
+        kernel and initramfs, and the images folder, with their modes and owners."""
+        folder = self.base / "microvm"
+        for path, mode, owner in (("", 0o755, "sherpa"), ("images", 0o755, "sherpa"),
+                                  ("cloud-hypervisor", 0o755, "root"), ("vmlinuz", 0o644, "root"),
+                                  ("initramfs.img", 0o644, "root")):
+            check_mode(folder / path, mode, owner, owner)
+        pinned = self.pinned_cloud_hypervisor()
+        _, output = self.command([str(folder / "cloud-hypervisor"), "--version"])
+        require(output.split() == ["cloud-hypervisor", pinned],
+                f"Cloud Hypervisor reports {output.strip()!r}, not {pinned}")
 
     def verify_binaries(self, selection):
         for binary in ("sherpa", "sherpad"):

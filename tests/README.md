@@ -390,9 +390,11 @@ the binaries. To test locally built archives, which always need `--version`:
 The directory holds `sherpad-x86_64-unknown-linux-gnu.tar.gz` and
 `sherpa-x86_64-unknown-linux-gnu.tar.gz`, each with its binary at the archive's root. The
 installer reads them from `SHERPA_ARTIFACT_DIR` instead of downloading them, and the runner
-checks the installed bytes against the archives and the installed version. Each run records
-the checkout's commit and whether it is dirty, the script, archive and binary hashes, the base
-image's checksum and the VM's identity. `--result-file <path>` also writes a nonsecret TOML
+checks the installed bytes against the archives and the installed version. With local archives
+the installer also takes the microVM guest build files from `microvm/` beside them, so the
+runner stages the checkout's `scripts/microvm` files there (a baseline's from its tag). Each run
+records the checkout's commit and whether it is dirty, the script, archive and binary hashes,
+the base image's checksum and the VM's identity. `--result-file <path>` also writes a nonsecret TOML
 reference to the run's receipt, naming that run when the output directory holds earlier ones.
 
 ### Scenarios

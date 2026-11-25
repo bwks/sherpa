@@ -38,6 +38,9 @@ from vm_release_guest import release_numbers, validate_upgrade_evidence
 HARNESS = Path(__file__).resolve().parent
 ROOT = HARNESS.parent.parent
 RUNNER_SOURCE = Path(__file__).read_bytes()
+# The files of scripts/microvm the installer builds the microVM guest from; with local artifacts
+# it takes them from `microvm` in the artifact folder.
+MICROVM_GUEST_FILES = ("build-guest.sh", "init", "modules.list")
 STEPS = ("baseline", "preflight", "install", "initialize", "authenticate",
          "reboot", "authenticate", "reinstall", "authenticate", "running-lab",
          "keep-data", "restore", "authenticate", "remove-data",
@@ -552,6 +555,9 @@ class Runner:
             path.write_bytes(RUNNER_SOURCE if name == "vm_release_test.py" else (HARNESS / name).read_bytes())
             self.report["scripts"][name.replace(".", "_")] = sha256(path)
         self.report["artifacts"] = self.prepare_artifacts(candidate, self.directory)
+        if candidate["artifact_directory"]:
+            self.report["scripts"].update(self.stage_microvm_guest_files(
+                ROOT / candidate["scripts_directory"] / "microvm", self.directory / "microvm"))
         if self.report["run"]["scenario"] == "code":
             self.report["source"] = self.prepare_source(self.source_archive)
         if self.report["run"]["scenario"] == "upgrade":
@@ -565,12 +571,34 @@ class Runner:
                 "baseline-installer",
                 ["git", "-C", str(ROOT), "show", f"{baseline['version']}:scripts/sherpa_install.sh"],
                 self.config["timeouts"]["command"])[1])
+            # A baseline release whose installer builds the microVM guest takes its files from
+            # its own tag, as a local artifact folder holds no scripts.
+            if "MICROVM_GUEST_FILES" in baseline_installer.read_text() and baseline["artifact_directory"]:
+                guest = baseline_directory / "microvm"
+                guest.mkdir(mode=0o700)
+                for name in MICROVM_GUEST_FILES:
+                    (guest / name).write_text(self.command(
+                        f"baseline-microvm-{name}",
+                        ["git", "-C", str(ROOT), "show", f"{baseline['version']}:scripts/microvm/{name}"],
+                        self.config["timeouts"]["command"])[1])
             self.report["baseline"] = {**baseline,
                 "installer_sha256": sha256(baseline_installer),
                 "installer_source": f"release-tag {baseline['version']}",
                 **self.prepare_artifacts(baseline, baseline_directory)}
             validate_upgrade_artifacts(self.report["baseline"], self.report["artifacts"])
         self.save()
+
+    @staticmethod
+    def stage_microvm_guest_files(source, destination):
+        """Copy the microVM guest build files to `destination`, where the installer takes them
+        from with local artifacts, and return their hashes for the report."""
+        destination.mkdir(mode=0o700)
+        hashes = {}
+        for name in MICROVM_GUEST_FILES:
+            path = destination / name
+            path.write_bytes((source / name).read_bytes())
+            hashes[f"microvm_{name.replace('.', '_')}"] = sha256(path)
+        return hashes
 
     def prepare_source(self, archive):
         if not archive or not archive.is_file():
@@ -793,6 +821,7 @@ class Runner:
                  str(self.directory / "sherpa_uninstall.sh")]
         if self.config["candidate"]["artifact_directory"]:
             files.extend(str(path) for path in self.directory.glob("*.tar.gz"))
+            files.append(str(self.directory / "microvm"))
         if "baseline" in payload:
             files.append(str(self.directory / "baseline"))
         if "tests" in payload:
@@ -1309,6 +1338,18 @@ sys.exit(runner.run('preflight'))
             key.write_text("disposable credentials")
             result = subprocess.run(["git", "-C", directory, "check-ignore", "-q", str(key)])
             self.assertEqual(result.returncode, 0)
+
+    def test_the_microvm_guest_files_are_staged_where_the_installer_takes_local_ones(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = ROOT / "scripts/microvm"
+            staged = Path(directory) / "microvm"
+            hashes = Runner.stage_microvm_guest_files(source, staged)
+            for name in MICROVM_GUEST_FILES:
+                self.assertEqual((staged / name).read_bytes(), (source / name).read_bytes())
+                self.assertEqual(hashes[f"microvm_{name.replace('.', '_')}"], sha256(staged / name))
+            installer = (ROOT / "scripts/sherpa_install.sh").read_text()
+            self.assertIn(f"MICROVM_GUEST_FILES=({' '.join(MICROVM_GUEST_FILES)})", installer)
+            self.assertIn('"${SHERPA_ARTIFACT_DIR}/microvm/${file}"', installer)
 
     def test_uninstall_script_008_a_link_is_removed_only_when_it_points_at_sherpas_binary(self):
         source = (ROOT / "scripts/sherpa_uninstall.sh").read_text().removesuffix('main "$@"\n')
