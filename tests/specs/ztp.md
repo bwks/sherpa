@@ -4,7 +4,7 @@ How Sherpa gives each node its first configuration at boot: the ZTP setting an i
 
 What the owner's account is on every node, whatever its model (which keys, which name, the form of the password, its rights on each operating system), is `owner_login` in [accounts-and-auth.md](accounts-and-auth.md); here is only how each model's config writes it. That up refuses an unsupported setting is `lab_preflight_004` in [lab-lifecycle.md](lab-lifecycle.md), a container's start settings are `container_run` in [nodes.md](nodes.md), and which addresses a lab's nodes get is `lab_addressing`. The machine config of a Talos cluster member is made from the cluster's secrets and belongs to the Talos spec; how any `nocloud` config reaches its node is here. A manifest's text files, scripts and environment variables, which cloud-init and Ignition also carry, belong to Provisioning. Reading `ztp` out of a manifest belongs to Manifests.
 
-Each behaviour lists its cases. A case is one test, whose name is its ID: `<behaviour>_<NNN>_<description>`, such as `ztp_setting_004_a_method_the_model_does_not_take_is_refused_naming_what_it_takes`. The level is the highest that can show the case: e2e through the `sherpa` CLI, integration against real libvirt, Docker and the database, unit only for logic with too many branches to cover above.
+Each behaviour lists its cases. A case is one test, whose name is its ID: `<behaviour>_<NNN>_<description>`, such as `ztp_setting_004_a_method_the_model_does_not_take_is_refused_with_what_it_takes`. The level is the highest that can show the case: e2e through the `sherpa` CLI, integration against real libvirt, Docker and the database, unit only for logic with too many branches to cover above.
 
 A config template is tested one case per model, not one table-driven case for all: each model has a template and a syntax of its own, so the expected text is the model's, and a failure names the model.
 
@@ -18,7 +18,7 @@ A config template is tested one case per model, not one table-driven case for al
 | 001 | `sherpa validate` refuses a `ztp.method` the node's model does not take, naming the node and the settings its model takes, and accepts the manifest without it | e2e |
 | 002 | A node is built with its manifest's method, and with its image's when the manifest sets none | unit |
 | 003 | `disabled` is taken for every model and kind | unit |
-| 004 | A method the model and kind do not take is refused, naming the model, the method and every setting the model takes, which for a model with no method is `disabled` alone | unit |
+| 004 | A method the model and kind do not take is refused, and the error carries the model, the method and every setting the model takes, which for a model with no method is `disabled` alone | unit |
 | 005 | Up and redeploy check the setting the node will be built with, so an image stored with a method its model does not take is refused as a manifest's is, naming the node | unit |
 | 006 | A redeploy whose manifest sets a method the node's model does not take is refused, naming what the model takes, and the node stays as it was | integration |
 | 007 | The database refuses an image whose setting its model does not take, when it is recorded and when it is edited, and what was stored is unchanged | integration |

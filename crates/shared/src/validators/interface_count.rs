@@ -1,6 +1,7 @@
-use anyhow::{Result, anyhow, bail};
+use anyhow::Result;
 use tracing::instrument;
 
+use crate::SharedError;
 use crate::data::NodeConfig;
 use crate::util;
 
@@ -37,16 +38,14 @@ pub fn validate_data_interface_count_override(
     node_image: &NodeConfig,
 ) -> Result<()> {
     let requested_max_idx = node_image
-        .interfaces.reserved_count
+        .interfaces
+        .reserved_count
         .checked_add(requested_count)
-        .ok_or_else(|| {
-            anyhow!(
-                "Node '{}' (model: {}) requested data_interface_count {} but reserved interface count {} causes interface index overflow",
-                node_name,
-                node_image.model,
-                requested_count,
-                node_image.interfaces.reserved_count
-            )
+        .ok_or_else(|| SharedError::DataInterfaceIndexOverflow {
+            node: node_name.to_owned(),
+            model: node_image.model,
+            requested: requested_count,
+            reserved: node_image.interfaces.reserved_count,
         })?;
 
     let model_kind = node_image.model_kind()?;
@@ -59,15 +58,15 @@ pub fn validate_data_interface_count_override(
         let max_allowed_count =
             max_supported_idx.saturating_sub(node_image.interfaces.reserved_count);
 
-        bail!(
-            "Node '{}' (model: {}) requested data_interface_count {} but only 0..={} data interfaces are supported (reserved: {}, max interface index: {})",
-            node_name,
-            node_image.model,
-            requested_count,
-            max_allowed_count,
-            node_image.interfaces.reserved_count,
-            max_supported_idx
-        );
+        return Err(SharedError::DataInterfaceCountUnsupported {
+            node: node_name.to_owned(),
+            model: node_image.model,
+            requested: requested_count,
+            max_allowed: max_allowed_count,
+            reserved: node_image.interfaces.reserved_count,
+            max_index: max_supported_idx,
+        }
+        .into());
     }
 
     Ok(())
@@ -76,28 +75,37 @@ pub fn validate_data_interface_count_override(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::{ModelKind, NodeConfig};
+    use crate::data::{ModelKind, NodeConfig, NodeModel};
 
     #[test]
-    fn node_settings_010_a_data_count_past_the_models_interfaces_is_refused_naming_the_most() {
+    fn node_settings_010_a_data_count_past_the_models_interfaces_is_refused_with_the_most() {
         let node_image = NodeConfig::ubuntu_linux();
-        let error = effective_data_interface_count("dev01", Some(53), &node_image)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("Node 'dev01'"), "{error}");
-        assert!(error.contains("model: ubuntu_linux"), "{error}");
-        assert!(error.contains("data_interface_count 53"), "{error}");
-        assert!(error.contains("only 0..=52 data interfaces"), "{error}");
+        let error = effective_data_interface_count("dev01", Some(53), &node_image).unwrap_err();
+        let Some(SharedError::DataInterfaceCountUnsupported {
+            node,
+            model,
+            requested,
+            max_allowed,
+            ..
+        }) = error.downcast_ref::<SharedError>()
+        else {
+            panic!("not an unsupported data interface count: {error:#}");
+        };
+        assert_eq!(node, "dev01");
+        assert_eq!(*model, NodeModel::UbuntuLinux);
+        assert_eq!(*requested, 53);
+        assert_eq!(*max_allowed, 52);
     }
 
     #[test]
     fn node_settings_011_a_data_count_past_the_last_index_with_reserved_ones_is_an_overflow() {
         let mut node_image = NodeConfig::ubuntu_linux();
         node_image.interfaces.reserved_count = 250;
-        let error = effective_data_interface_count("dev01", Some(10), &node_image)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("overflow"), "{error}");
+        let error = effective_data_interface_count("dev01", Some(10), &node_image).unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<SharedError>(),
+            Some(SharedError::DataInterfaceIndexOverflow { .. })
+        ));
     }
 
     #[test]

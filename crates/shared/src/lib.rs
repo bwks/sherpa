@@ -9,3 +9,5 @@ pub mod konst;
 pub mod tls;
 pub mod util;
 pub mod validators;
+
+pub use error::SharedError;

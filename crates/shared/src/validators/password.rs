@@ -1,7 +1,31 @@
-use anyhow::{Result, anyhow};
+use std::fmt;
+
+use anyhow::Result;
+
+use crate::SharedError;
 
 /// The special characters a password can use to meet the special character rule.
 const PASSWORD_SPECIAL_CHARACTERS: &str = "!@#$%^&*_+-=";
+
+/// A part of a strong password.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PasswordRequirement {
+    MinimumLength,
+    Uppercase,
+    Lowercase,
+    SpecialCharacter,
+}
+
+impl fmt::Display for PasswordRequirement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MinimumLength => write!(f, "Minimum 8 characters"),
+            Self::Uppercase => write!(f, "At least one uppercase letter (A-Z)"),
+            Self::Lowercase => write!(f, "At least one lowercase letter (a-z)"),
+            Self::SpecialCharacter => write!(f, "At least one special character (!@#$%^&*_+-=)"),
+        }
+    }
+}
 
 /// Validates password strength requirements.
 ///
@@ -13,40 +37,27 @@ const PASSWORD_SPECIAL_CHARACTERS: &str = "!@#$%^&*_+-=";
 ///
 /// # Errors
 ///
-/// Returns an error with a descriptive message if the password does not meet requirements.
+/// `SharedError::WeakPassword`, carrying every requirement the password lacks.
 pub fn validate_password_strength(password: &str) -> Result<()> {
-    let mut errors = Vec::new();
-
-    // Check minimum length
+    let mut lacking = Vec::new();
     if password.len() < 8 {
-        errors.push("• Minimum 8 characters");
+        lacking.push(PasswordRequirement::MinimumLength);
     }
-
-    // Check for uppercase letter
     if !password.chars().any(|c| c.is_ascii_uppercase()) {
-        errors.push("• At least one uppercase letter (A-Z)");
+        lacking.push(PasswordRequirement::Uppercase);
     }
-
-    // Check for lowercase letter
     if !password.chars().any(|c| c.is_ascii_lowercase()) {
-        errors.push("• At least one lowercase letter (a-z)");
+        lacking.push(PasswordRequirement::Lowercase);
     }
-
-    // Check for special character (restricted safe set)
     if !password
         .chars()
         .any(|c| PASSWORD_SPECIAL_CHARACTERS.contains(c))
     {
-        errors.push("• At least one special character (!@#$%^&*_+-=)");
+        lacking.push(PasswordRequirement::SpecialCharacter);
     }
-
-    if !errors.is_empty() {
-        return Err(anyhow!(
-            "Password does not meet security requirements:\n{}",
-            errors.join("\n")
-        ));
+    if !lacking.is_empty() {
+        return Err(SharedError::WeakPassword { lacking }.into());
     }
-
     Ok(())
 }
 
@@ -57,7 +68,7 @@ mod tests {
     use crate::auth::password::hash_password;
 
     #[test]
-    fn user_passwords_008_a_password_needs_the_four_parts_and_a_refusal_lists_what_is_lacking() {
+    fn user_passwords_008_a_password_needs_the_four_parts_and_a_refusal_carries_what_is_lacking() {
         let valid_passwords = vec![
             "Password123!",
             "SecureP@ss1",
@@ -76,13 +87,17 @@ mod tests {
         assert!(validate_password_strength("PASSWORD123!").is_err());
         assert!(validate_password_strength("Password123").is_err());
 
-        // "a" fails: too short, no uppercase, no special
-        let err = validate_password_strength("a").unwrap_err().to_string();
-        assert!(err.contains("Minimum 8 characters"));
-        assert!(err.contains("uppercase"));
-        assert!(err.contains("special character"));
-        // Should NOT complain about lowercase since "a" has lowercase
-        assert!(!err.contains("lowercase"));
+        let error = validate_password_strength("a").unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<SharedError>(),
+            Some(&SharedError::WeakPassword {
+                lacking: vec![
+                    PasswordRequirement::MinimumLength,
+                    PasswordRequirement::Uppercase,
+                    PasswordRequirement::SpecialCharacter,
+                ],
+            })
+        );
 
         // Exactly 8 characters with all requirements met
         assert!(validate_password_strength("Abcdef1!").is_ok());

@@ -5,7 +5,7 @@ use std::str::FromStr;
 use anyhow::{Result, bail};
 use clap::ValueEnum;
 use clap::builder::{PossibleValue, TypedValueParser, ValueParserFactory};
-use clap::error::ErrorKind;
+use clap::error::{ContextKind, ContextValue, ErrorKind};
 use schemars::JsonSchema;
 use serde::de::{self, Deserializer};
 use serde_derive::{Deserialize, Serialize};
@@ -16,6 +16,7 @@ use strum_macros::{Display, EnumIter, IntoStaticStr};
 use super::cpu::CpuModels;
 use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
+use crate::SharedError;
 use crate::konst::{
     CONTAINER_ARISTA_EOS_REPO, CONTAINER_CISCO_IOL_REPO, CONTAINER_CISCO_IOLL2_REPO,
     CONTAINER_FORGEJO_REPO, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO,
@@ -222,7 +223,7 @@ impl fmt::Display for NodeModel {
     }
 }
 impl FromStr for NodeModel {
-    type Err = String;
+    type Err = SharedError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -325,7 +326,7 @@ impl FromStr for NodeModel {
             "unikraft_unikernel" => Ok(NodeModel::UnikraftUnikernel),
             "nanos_unikernel" => Ok(NodeModel::NanosUnikernel),
 
-            _ => Err(format!("Unknown node model: {s}")),
+            _ => Err(SharedError::UnknownNodeModel { name: s.to_owned() }),
         }
     }
 }
@@ -353,11 +354,16 @@ impl TypedValueParser for NodeModelParser {
         let name = value.to_string_lossy();
         NodeModel::from_str(&name).map_err(|message| {
             let argument = arg.map_or_else(String::new, |arg| format!(" for '{arg}'"));
-            clap::Error::raw(
+            let mut error = clap::Error::raw(
                 ErrorKind::InvalidValue,
                 format!("invalid value '{name}'{argument}: {message}\n"),
             )
-            .with_cmd(cmd)
+            .with_cmd(cmd);
+            error.insert(
+                ContextKind::InvalidValue,
+                ContextValue::String(name.into_owned()),
+            );
+            error
         })
     }
 
@@ -2346,9 +2352,14 @@ mod tests {
     }
 
     #[test]
-    fn node_kind_008_an_unknown_model_name_is_refused_naming_it() {
+    fn node_kind_008_an_unknown_model_name_is_refused_with_it() {
+        assert_eq!(
+            "nosuch_model".parse::<NodeModel>().unwrap_err(),
+            SharedError::UnknownNodeModel {
+                name: "nosuch_model".to_owned()
+            }
+        );
         let expected = "Unknown node model: nosuch_model";
-        assert_eq!("nosuch_model".parse::<NodeModel>().unwrap_err(), expected);
         let error = from_manifest("nosuch_model").unwrap_err();
         assert!(error.contains(expected), "{error}");
         let error = serde_json::from_value::<NodeModel>(serde_json::json!("nosuch_model"))
@@ -2357,9 +2368,12 @@ mod tests {
         assert_eq!(error, expected);
         let error = model_option()
             .try_get_matches_from(["test", "--model", "nosuch_model"])
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains(expected), "{error}");
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidValue);
+        assert_eq!(
+            error.get(ContextKind::InvalidValue),
+            Some(&ContextValue::String("nosuch_model".to_owned()))
+        );
     }
 
     #[test]
