@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use anyhow::{Result, bail};
 use serde_derive::{Deserialize, Serialize};
 
+use crate::TopologyError;
 use crate::manifest::Manifest;
 use crate::provisioner::Provisioner;
 
@@ -76,7 +77,7 @@ impl Manifest {
                 .keys()
                 .find(|name| !self.nodes.iter().any(|node| node.name == **name))
         }) {
-            bail!("The manifest as written names node '{name}', which is not in the manifest");
+            bail!(TopologyError::AsWrittenUnknownNode { node: name.clone() });
         }
         let mut definition = self.clone();
         definition.provision_concurrency =
@@ -203,6 +204,11 @@ model = "ubuntu_linux"
             .nodes
             .insert("ghost".to_owned(), NodeAsWritten::default());
         let error = manifest.definition(Some(&parts)).unwrap_err();
-        assert!(error.to_string().contains("ghost"), "{error}");
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::AsWrittenUnknownNode {
+                node: "ghost".to_owned(),
+            })
+        );
     }
 }

@@ -4,6 +4,8 @@ use serde_derive::{Deserialize, Serialize};
 use shared::data::ModelKind;
 use shared::util::split_node_int;
 
+use crate::TopologyError;
+
 /// Bridge connection in manifest format
 /// Expected format: "`node_name::interface_name`"
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -43,11 +45,9 @@ impl Bridge {
             .links
             .iter()
             .map(|conn| {
-                BridgeLink::parse(conn).with_context(|| {
-                    format!(
-                        "Manifest bridge - '{}': link '{conn}' must be written node::interface",
-                        self.name
-                    )
+                BridgeLink::parse(conn).with_context(|| TopologyError::BridgeLinkNotNodeInterface {
+                    bridge: self.name.clone(),
+                    link: conn.clone(),
                 })
             })
             .collect::<Result<Vec<BridgeLink>>>()?;

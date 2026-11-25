@@ -51,7 +51,7 @@ A redeploy reads one node of the manifest it is sent. The lab's description, lin
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | `sherpa validate` in a folder with no `manifest.toml` exits 1 and says the file was not found | e2e |
-| 002 | A file that is not TOML is refused, naming the file | unit |
+| 002 | A file that is not TOML is refused, and the error carries the file's path | unit |
 | 003 | A manifest without `name`, or without `nodes`, is refused, naming the missing key | unit |
 | 004 | An unknown key is refused in every table of a manifest, naming the key: the top level, a node, each group of a node, a link, an impairment, a bridge, a text file, a systemd unit, a volume, a Talos cluster, `[tailscale]`, a provisioner and a provisioner's file | unit |
 | 005 | Every key a manifest takes is read as the setting it names: the lab's own, a virtual machine with every shared group and `vm`, a container with `container`, a unikernel with `unikernel`, text files, links and bridges | unit |
@@ -88,11 +88,11 @@ What `sherpa validate` does not check, because only the server knows it: whether
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | A plain name is taken: letters of either case, digits, `-` and `_` after the first character, and 63 characters | unit |
-| 002 | An empty name, one that starts with `-` or `_`, one with a path separator, a dot, a space, a quote, markup or a non-ASCII letter, and one of 64 characters, are refused, naming the name and the rule | unit |
-| 003 | Two nodes with one name are refused, naming it | unit |
-| 004 | A manifest with 235 nodes is refused, saying a lab takes at most 234 | unit |
-| 005 | With `[tailscale]` enabled, a container node named `sherpa-tailnet`, by its own `kind` or its model's default, is refused, naming the node; a container node named `sherpa-tailnet-app`, a virtual machine named `sherpa-tailnet` and a container node of that name in a lab with `[tailscale]` not enabled are taken | unit |
-| 006 | A name containing `supervisor` in any case is refused for every model and kind, saying the word is reserved and why; a name with only part of it is taken | unit |
+| 002 | An empty name, one that starts with `-` or `_`, one with a path separator, a dot, a space, a quote, markup or a non-ASCII letter, and one of 64 characters, are refused, and the error carries the name | unit |
+| 003 | Two nodes with one name are refused, and the error carries the name | unit |
+| 004 | A manifest with 235 nodes is refused, and the error carries the count and the most a lab takes, 234 | unit |
+| 005 | With `[tailscale]` enabled, a container node named `sherpa-tailnet`, by its own `kind` or its model's default, is refused, and the error carries the node; a container node named `sherpa-tailnet-app`, a virtual machine named `sherpa-tailnet` and a container node of that name in a lab with `[tailscale]` not enabled are taken | unit |
+| 006 | A name containing `supervisor` in any case is refused for every model and kind as reserved, and the error carries the name and the word; a name with only part of it is taken | unit |
 
 The server runs these at up before anything is created (`lab_preflight_002`). The lab's own `name` follows the same rule: `lab_settings_006` and `007`.
 
@@ -106,8 +106,8 @@ The server runs these at up before anything is created (`lab_preflight_002`). Th
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | A node without `kind` is its model's default kind: a virtual machine for `arista_eos`, `juniper_evolved` and `sonic_linux` | unit |
-| 002 | A `generic` node without `kind` is refused, naming the node and the three kinds, and with each kind is a node of that kind | unit |
-| 003 | A `kind` the model does not take is refused, naming the node, the kind, the model and the kinds it comes as | unit |
+| 002 | A `generic` node without `kind` is refused, and the error carries the node, the model and its three kinds; with each kind it is a node of that kind | unit |
+| 003 | A `kind` the model does not take is refused, and the error carries the node, the kind, the model and the kinds it comes as | unit |
 | 004 | A model and kind read from JSON, as a stored record or a request holds them, are refused when the model does not take the kind | unit |
 | 005 | Every model and kind has built-in settings, and they are of that model and kind | unit |
 | 006 | A message names a model with its kind only when the model takes several: `cisco_asa`, but `arista_eos, container` | unit |
@@ -143,12 +143,12 @@ A node with its own `ztp.config` takes none of the three: its config replaces th
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | A `container` group on a virtual machine is refused, naming the node, the key, the kind and the model | unit |
-| 002 | On a model that takes several kinds the refusal names the kind that takes the setting | unit |
+| 001 | A `container` group on a virtual machine is refused, and the error carries the node, the key, the kind and the model | unit |
+| 002 | On a model that takes several kinds the refusal carries the kind that takes the setting | unit |
 | 003 | Each setting is taken by the kinds the table above gives it and refused on a node of any other kind (no test yet) | unit |
 | 004 | The first setting a node's kind does not take is the one named, and a setting left unset is never refused | unit |
 | 005 | Retired: file and script settings were taken on every virtual machine and container; see 016 to 021 | — |
-| 006 | `container.platform` on a node that is not a `juniper_evolved` container, another model's or the model's virtual machine, is refused, naming the model and kind | unit |
+| 006 | `container.platform` on a node that is not a `juniper_evolved` container, another model's or the model's virtual machine, is refused, and the error carries the model and kind | unit |
 | 007 | A `juniper_evolved` container takes as many data interfaces as its platform has: 12 on `bt`, which it is without `platform`, and 36 on `bx` | unit |
 | 008 | A `juniper_evolved` container with fewer vCPUs or less memory than its image is refused, and one with more is taken | unit |
 | 009 | A `juniper_evolved` container's memory may be at most 63487 MB, which leaves room for the container's own 2048 MB | unit |
@@ -156,12 +156,12 @@ A node with its own `ztp.config` takes none of the three: its config replaces th
 | 011 | A count that, with the image's reserved interfaces, is past the last interface index is refused as an overflow | unit |
 | 012 | Every model's built-in data interface count fits the interfaces the model has | unit |
 | 013 | A redeploy whose manifest gives the node a setting its kind does not take is refused, and the node stays as it was (no test yet) | integration |
-| 014 | A `memory`, `cpu.count`, `boot_disk.size`, `interfaces.data_count` or `ready_check.port` of 0 is refused, naming the node and the field, and 1 is taken | unit |
+| 014 | A `memory`, `cpu.count`, `boot_disk.size`, `interfaces.data_count` or `ready_check.port` of 0 is refused, and the error carries the node and the field; 1 is taken | unit |
 | 015 | A redeploy whose manifest sets one of those to 0 is refused before any node is torn down, naming the node and the field | unit |
-| 016 | `text_files`, `startup_scripts` and `systemd_units` on a container are each refused, naming the node, the setting, the model and, for a model of several kinds, the kind | unit |
+| 016 | `text_files`, `startup_scripts` and `systemd_units` on a container are each refused, and the error carries the node, the setting, the model and the kind | unit |
 | 017 | Each of them on a network-device virtual machine, such as `arista_eos` or `juniper_srxv3`, is refused | unit |
-| 018 | Each of them on a node whose model takes it but whose ZTP is off is refused, saying ZTP is disabled | unit |
-| 019 | Each of them on a node with its own `ztp.config` is refused, saying so | unit |
+| 018 | Each of them on a node whose model takes it but whose ZTP is off is refused as unused with ZTP disabled | unit |
+| 019 | Each of them on a node with its own `ztp.config` is refused as unused with its own config | unit |
 | 020 | `text_files` and `startup_scripts` are taken on cloud-init Linux, BSD and Windows virtual machines, and `text_files` and `systemd_units` on Flatcar | unit |
 | 021 | `startup_scripts` on Flatcar, and `systemd_units` on a cloud-init or Windows virtual machine, are refused | unit |
 
@@ -173,19 +173,19 @@ A node with its own `ztp.config` takes none of the three: its config replaces th
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | A virtual machine with every tuning setting, each fitting the others, is taken | unit |
-| 002 | `cpu.pinning` without `cpu.count` is refused, saying to set it; `cpu.topology` and `interfaces.queues` need it too | unit |
-| 003 | A `cpu.topology` whose sockets, cores and threads do not multiply to `cpu.count` is refused, giving both numbers | unit |
+| 002 | `cpu.pinning` without `cpu.count` is refused as needing it; `cpu.topology` and `interfaces.queues` need it too | unit |
+| 003 | A `cpu.topology` whose sockets, cores and threads do not multiply to `cpu.count` is refused, and the error carries both numbers | unit |
 | 004 | A `cpu.pinning` that does not list one host CPU for each vCPU is refused | unit |
-| 005 | A `cpu.pinning` that lists a host CPU twice is refused, naming the CPU | unit |
-| 006 | `cpu.emulator_pinning` or `boot_disk.io_thread_cpus` on a host CPU pinned to one of the node's own vCPUs is refused, naming the CPU | unit |
+| 005 | A `cpu.pinning` that lists a host CPU twice is refused, and the error carries the CPU | unit |
+| 006 | `cpu.emulator_pinning` or `boot_disk.io_thread_cpus` on a host CPU pinned to one of the node's own vCPUs is refused, and the error carries the setting and the CPU | unit |
 | 007 | An empty `cpu.emulator_pinning` or `boot_disk.io_thread_cpus` is refused | unit |
 | 008 | `numa.memory_mode` without `numa.node` is refused | unit |
 | 009 | `boot_disk.io = "native"` without `boot_disk.cache = "none"` is refused | unit |
-| 010 | `boot_disk.io_thread_cpus` on a node whose image does not have virtio disks is refused, naming the model and its disk bus | unit |
-| 011 | `interfaces.queues` of more than `cpu.count` is refused, giving the range | unit |
-| 012 | `interfaces.queues` on a node whose image does not have virtio interfaces is refused, naming the model and its interface type | unit |
-| 013 | Two nodes of a manifest that pin a vCPU to the same host CPU are refused, naming the CPU and both nodes | unit |
-| 014 | A node's QEMU or I/O threads on a host CPU pinned to another node's vCPU are refused, naming the CPU and both nodes | unit |
+| 010 | `boot_disk.io_thread_cpus` on a node whose image does not have virtio disks is refused, and the error carries the model and its disk bus | unit |
+| 011 | `interfaces.queues` of more than `cpu.count` is refused, and the error carries `cpu.count`, the top of the range | unit |
+| 012 | `interfaces.queues` on a node whose image does not have virtio interfaces is refused, and the error carries the model and its interface type | unit |
+| 013 | Two nodes of a manifest that pin a vCPU to the same host CPU are refused, and the error carries the CPU and both nodes | unit |
+| 014 | A node's QEMU or I/O threads on a host CPU pinned to another node's vCPU are refused, and the error carries the CPU and both nodes | unit |
 | 015 | The QEMU and I/O threads of two nodes may share host CPUs | unit |
 | 016 | `interfaces.queues = 0` is refused | unit |
 | 017 | A domain defined with no tuning has no pinning, NUMA, I/O thread, topology, queue, cache or I/O element | unit |
@@ -209,17 +209,17 @@ A node with its own `ztp.config` takes none of the three: its config replaces th
 |---|---|---|
 | 001 | A link's two ends resolve to their nodes, the nodes' places in the manifest, and the interfaces' indexes | unit |
 | 002 | Links are numbered from 0 in the order the manifest lists them | unit |
-| 003 | An end that names a node the manifest does not define is refused, naming it, at either end | unit |
-| 004 | An end that is not written `node::interface` is refused, naming the link or the bridge and the end | unit |
-| 005 | An interface name the node's model does not have is refused, naming the link or the bridge, the node, its model and the interface, in a link and in a bridge | unit |
-| 006 | The management interface is refused in a link and in a bridge, saying so | unit |
+| 003 | An end that names a node the manifest does not define is refused at either end, and the error carries the node | unit |
+| 004 | An end that is not written `node::interface` is refused, and the error carries the link's two ends, or the bridge and its link | unit |
+| 005 | An interface name the node's model does not have is refused in a link and in a bridge, and the error carries the link or the bridge, the node, its model and the interface | unit |
+| 006 | The management interface is refused in a link and in a bridge as the management interface | unit |
 | 007 | An interface a model reserves is refused, and the first interface after the reserved ones is taken | unit |
-| 008 | An interface past the node's last data interface is refused, naming the highest index the node takes, in a link and in a bridge, and the last data interface is taken | unit |
-| 009 | An interface used twice is refused, naming the node and the interface's index: by two links, by a link and a bridge, and by two bridges | unit |
+| 008 | An interface past the node's last data interface is refused in a link and in a bridge, and the error carries the highest index the node takes; the last data interface is taken | unit |
+| 009 | An interface used twice is refused, and the error carries the node and the interface's index: by two links, by a link and a bridge, and by two bridges | unit |
 | 010 | A bridge's links resolve as a link's ends do, and the bridge is named on the host by its place in `bridges` and the lab's ID | unit |
-| 011 | A bridge link that names a node the manifest does not define is refused, naming it | unit |
+| 011 | A bridge link that names a node the manifest does not define is refused, and the error carries the node | unit |
 | 012 | Retired: a link's `p2p` key is removed and refused as an unknown key; see `manifest_file` 004 | — |
-| 013 | A link impairment with a delay or jitter over 274877 ms, or a percentage outside 0 to 100, is refused, naming the link and the field, and one within is taken | unit |
+| 013 | A link impairment with a delay or jitter over 274877 ms, or a percentage outside 0 to 100, is refused for each field, and the error carries the link; one within is taken | unit |
 | 014 | At up the server refuses a manifest of bridges alone that puts one interface on two bridges, naming the node and the interface's index | unit |
 
 The count that bounds case 008 is the node's `interfaces.data_count`, or else its image's (`node_settings_010`, `node_interfaces_008`).
@@ -233,14 +233,14 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 |---|---|---|
 | 001 | `sherpa validate` refuses a manifest whose cluster has two controllers, exits 1 and says a cluster needs 1 or 3 | e2e |
 | 002 | A cluster name that is empty, has an uppercase letter or `_`, or starts or ends with `-`, is refused | unit |
-| 003 | Two clusters with one name are refused, naming it | unit |
-| 004 | A cluster with no, two or four controllers is refused, naming the cluster and its count, and one with three is taken | unit |
-| 005 | A member that is not a node of the manifest is refused, naming the cluster and the node | unit |
-| 006 | A member that is not a `talos_linux` node is refused, naming its model | unit |
-| 007 | A node listed twice, as a worker twice, as a controller and a worker, or in two clusters, is refused, naming it | unit |
+| 003 | Two clusters with one name are refused, and the error carries the name | unit |
+| 004 | A cluster with no, two or four controllers is refused, and the error carries the cluster and its count; one with three is taken | unit |
+| 005 | A member that is not a node of the manifest is refused, and the error carries the cluster and the node | unit |
+| 006 | A member that is not a `talos_linux` node is refused, and the error carries its model | unit |
+| 007 | A node listed twice, as a worker twice, as a controller and a worker, or in two clusters, is refused, and the error carries the node | unit |
 | 008 | A third cluster with three controllers is refused: a lab has two shared cluster addresses | unit |
 | 009 | Two Cilium clusters are taken and a third is refused: a lab has load balancer addresses for two | unit |
-| 010 | `oidc` and `vault` that name a `keycloak_server` and a `hashicorp_vault` node are taken; one that names no node, or a node of another model, is refused, naming the model it must be | unit |
+| 010 | `oidc` and `vault` that name a `keycloak_server` and a `hashicorp_vault` node are taken; one that names no node, or a node of another model, is refused, and the error carries the model it must be | unit |
 | 011 | A node's cluster and role are those of the list it is in, the members of a cluster are its controllers in the order written, then its workers, and a node in no list is in no cluster | unit |
 | 012 | Retired: a redeploy no longer takes the node's cluster and role from the manifest it is sent; see `cluster_redeploy_009` and `010` | — |
 
@@ -251,17 +251,17 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | A `container` provisioner on a virtual machine is refused, naming the node | unit |
+| 001 | A `container` provisioner on a virtual machine is refused, and the error carries the node | unit |
 | 002 | A provisioner with nothing to do is refused: an `ssh` one with no files, env files or scripts, and a `container` one with no files | unit |
-| 003 | Two secret files of a node with one `name` are refused, naming the name and the path both would be mounted at | unit |
+| 003 | Two secret files of a node with one `name` are refused, and the error carries the node and the name | unit |
 | 004 | An empty `src`, of a provisioner file or a secret file, and an empty script path are refused | unit |
 | 005 | An `ssh` provisioner with files, env files and scripts is taken on Linux and BSD virtual machines: Ubuntu, Alpine, Flatcar, FreeBSD and OpenBSD | unit |
-| 006 | An `ssh` provisioner on a network device virtual machine, a container, a Windows node or a unikernel is refused, naming the node | unit |
+| 006 | An `ssh` provisioner on a network device virtual machine, a container, a Windows node or a unikernel is refused, and the error carries the node | unit |
 | 007 | An `ssh` provisioner is taken on a `talos_linux` node and the other Linux virtual machines it cannot run on (#782) (no test yet) | unit |
 | 008 | A file `dst` is refused unless it is absolute or starts with `~/`, names a file, and has only parts of letters, digits and `. _ - + @`: no empty, `.` or `..` part, no space, quote, `$` or `;` | unit |
 | 009 | A mode is refused unless it is octal digits up to 777, and the error carries the mode | unit |
-| 010 | A provisioner file's `mode` that is not such digits is refused, naming the file's `dst` | unit |
-| 011 | An env file must name a file with a plain name, and two env files of a node with one file name are refused, naming it | unit |
+| 010 | A provisioner file's `mode` that is not such digits is refused, and the error carries the file's `dst` and the mode | unit |
+| 011 | An env file must name a file with a plain name, and two env files of a node with one file name are refused, and the error carries the name | unit |
 
 `sherpa validate`, up, redeploy and `sherpa provision` run these on the manifest; the server runs them on the manifest as written before it stores it. What a request's secret files must be is `container_secrets_010`, `012` and `013`.
 
@@ -272,9 +272,9 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | A text file whose `permissions` are not octal digits up to 777 is refused, naming the node and the file's `dst`, in the files as written and in the contents the CLI read | unit |
+| 001 | A text file whose `permissions` are not octal digits up to 777 is refused, and the error carries the node, the file's `dst` and the mode, in the files as written and in the contents the CLI read | unit |
 | 002 | An entry with a name as its key is taken: a literal value, a `$VAR`, an empty value and a value with `=` in it | unit |
-| 003 | An entry with no `=`, an empty key, a key that starts with a digit or a key with another character is refused, naming the entry or the key and the node | unit |
+| 003 | An entry with no `=`, an empty key, a key that starts with a digit or a key with another character is refused, and the error carries the entry or the key and the node | unit |
 | 004 | Retired: `sherpa validate` now refuses an entry whose key is not a name; see 008 | — |
 | 005 | Retired: a redeploy now runs both checks; see 006 and 007 | — |
 | 006 | A redeploy whose manifest has an `environment_variables` key that is not a name is refused before any node is torn down, naming the key and the node | unit |
@@ -289,16 +289,16 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | A description that is left out, empty, or 1000 characters of several lines with tabs and non-ASCII letters is taken | unit |
-| 002 | A description of 1001 characters is refused, giving its length | unit |
+| 002 | A description of 1001 characters is refused, and the error carries its length | unit |
 | 003 | A description with a control character other than a line break or a tab, such as an escape or a NUL, is refused | unit |
 | 004 | With `[tailscale]` enabled, an `auth_key_env` that is left out, empty, starts with a digit, or is a key, a `$NAME` or a `NAME=value`, is refused; a name of letters, digits and `_` is taken | unit |
 | 005 | A `provision_concurrency` of 0 is refused and 1 is taken | unit |
 | 006 | A plain lab name is taken: letters of either case, digits, `-` and `_` after the first character, and 63 characters | unit |
-| 007 | An empty lab name, one that is path-like or shell-like, one with a dot, a space, a quote, markup, a line break or a non-ASCII letter, and one of 64 characters, are refused, naming the name and the rule | unit |
+| 007 | An empty lab name, one that is path-like or shell-like, one with a dot, a space, a quote, markup, a line break or a non-ASCII letter, and one of 64 characters, are refused, and the error carries the name | unit |
 | 008 | A `ready_timeout` of 0 is refused and 1 is taken | unit |
 | 009 | A redeploy whose manifest has a lab name the rule refuses is refused before any node is torn down, naming the name | unit |
 | 010 | A redeploy whose manifest has a `ready_timeout` of 0 is refused before any node is torn down | unit |
-| 011 | A `ready_timeout` over 9223372036854775807 is refused, giving the most it takes, and 9223372036854775807 is taken | unit |
+| 011 | A `ready_timeout` over 9223372036854775807 is refused, and the error carries the value; 9223372036854775807 is taken | unit |
 | 012 | A redeploy whose manifest has a `ready_timeout` over 9223372036854775807 is refused before any node is torn down | unit |
 
 The CLI checks the lab's name, `ready_timeout` and the node settings that cannot be 0 at `sherpa validate`, up and redeploy, and the server at up before anything is created and at redeploy before the node is torn down; a lab stored before the rule is refused at its next up or redeploy like any other manifest.

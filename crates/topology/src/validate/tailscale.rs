@@ -3,7 +3,7 @@ use shared::data::NodeKind;
 use shared::konst::TAILSCALE_GATEWAY_NAME;
 use tracing::instrument;
 
-use crate::Manifest;
+use crate::{Manifest, TopologyError};
 
 /// Validate configuration without resolving secrets or contacting Tailscale.
 ///
@@ -20,18 +20,14 @@ pub fn validate_tailscale(manifest: &Manifest) -> Result<()> {
         return Ok(());
     }
     let name = config.auth_key_env.as_deref().unwrap_or_default();
-    ensure!(
-        valid_env_name(name),
-        "tailscale.auth_key_env must name an environment variable (letters, digits, underscores; not starting with a digit)"
-    );
+    ensure!(valid_env_name(name), TopologyError::InvalidAuthKeyEnv);
     for node in &manifest.nodes {
         if node.name == TAILSCALE_GATEWAY_NAME
             && node.kind.or(node.model.default_kind()) == Some(NodeKind::Container)
         {
-            bail!(
-                "Manifest - node: '{}' is a container node with the Tailscale gateway's name; rename it, or disable [tailscale]",
-                node.name
-            );
+            bail!(TopologyError::TailnetGatewayName {
+                node: node.name.clone(),
+            });
         }
     }
     Ok(())
@@ -73,10 +69,11 @@ mod tests {
             Some("KEY=value"),
         ];
         for name in refused {
-            let error = validate_tailscale(&enabled(name)).unwrap_err().to_string();
-            assert!(
-                error.contains("tailscale.auth_key_env must name an environment variable"),
-                "{name:?}: {error}"
+            let error = validate_tailscale(&enabled(name)).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<TopologyError>(),
+                Some(&TopologyError::InvalidAuthKeyEnv),
+                "{name:?}"
             );
         }
         validate_tailscale(&enabled(Some("SHERPA_TAILSCALE_KEY"))).unwrap();
@@ -107,12 +104,12 @@ mod tests {
             ),
         ];
         for clash in clashing {
-            let error = validate_tailscale(&lab(vec![clash], true))
-                .unwrap_err()
-                .to_string();
-            assert!(
-                error.contains("'sherpa-tailnet'") && error.contains("gateway"),
-                "{error}"
+            let error = validate_tailscale(&lab(vec![clash], true)).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<TopologyError>(),
+                Some(&TopologyError::TailnetGatewayName {
+                    node: "sherpa-tailnet".to_owned(),
+                })
             );
         }
         let taken = [

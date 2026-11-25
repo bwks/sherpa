@@ -26,12 +26,12 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 008 | An `environment_variables` value that is `$NAME` is sent as the value `NAME` has where `sherpa` runs, and any other value as written | unit |
 | 009 | A `$NAME` that is not set where `sherpa` runs is refused, naming the variable and the node | unit |
 | 010 | An `environment_variables` entry that is not `KEY=VALUE` is refused, naming the node | unit |
-| 011 | An up whose manifest lists files with no contents, as one sent to the REST API is, is refused naming the node and the setting, and says to use `sherpa up` (no test at this level yet) | integration |
+| 011 | An up whose manifest lists files with no contents, as one sent to the REST API is, is refused, and the error carries the node and the setting (no test at this level yet) | integration |
 | 012 | A systemd unit sent under a name that is not a plain file name, a path, `.`, `..` or one starting with `-`, is refused | unit |
 | 013 | After a file a manifest names is changed, `sherpa redeploy` rebuilds the node with the new contents (no test yet) | e2e |
 | 014 | A startup script sent under a name that is not a plain file name, a path, `.`, `..` or one starting with `-`, is refused at up and at redeploy, as one sent to the REST API may be | unit |
 | 015 | The contents the CLI read are sent beside the manifest, by node name, never as manifest keys, and the server puts each node's into it | unit |
-| 016 | Contents sent for a node the manifest does not have are refused, naming the node | unit |
+| 016 | Contents sent for a node the manifest does not have are refused, and the error carries the node | unit |
 
 A node's `ztp.config` is read the same way: `custom_config_002` to `004` in [ztp.md](ztp.md).
 
@@ -70,7 +70,7 @@ A node's `ztp.config` is read the same way: `custom_config_002` to `004` in [ztp
 | 003 | Retired: user scripts are no longer a setting; an ssh provisioner's `scripts` run as the owner | — |
 | 004 | The steps of a first boot are in this order: files moved into place, the environment loader, startup scripts (no test yet) | unit |
 | 005 | A Windows node's startup scripts are written under `C:\sherpa\startup_scripts` and run with PowerShell (no test yet) | unit |
-| 006 | At up and at redeploy, the CLI and the server refuse a Windows node's startup script whose file name has `"` or `%`, naming the node and the script, and take one without | unit |
+| 006 | At up and at redeploy, the CLI and the server refuse a Windows node's startup script whose file name has `"` or `%`, and the error carries the node and the script; they take one without | unit |
 
 That a Windows node disables every other account before its startup scripts run is `owner_login_024`.
 

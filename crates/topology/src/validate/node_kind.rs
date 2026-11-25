@@ -1,11 +1,10 @@
 use anyhow::{Result, bail};
 
-use crate::{Node, NodeExpanded};
+use crate::{Node, NodeExpanded, TopologyError};
 use shared::data::kind_settings::{
     self, ALL, CONTAINER, CONTAINER_GROUP, KindSetting, UNIKERNEL, UNIKERNEL_GROUP, VM,
     VM_AND_CONTAINER, VM_AND_UNIKERNEL, VM_GROUP,
 };
-use shared::data::model_kinds_list;
 use shared::data::{NodeConfig, Ztp};
 use shared::validators::effective_ztp;
 
@@ -26,22 +25,21 @@ const SYSTEMD_UNITS_ZTP: &[Ztp] = &[Ztp::Ignition];
 /// default kind, naming the kinds the model takes.
 pub fn check_node_model_kind(node: &Node) -> Result<()> {
     if node.kind.is_none() && node.model.default_kind().is_none() {
-        bail!(
-            "Manifest - node: '{}' sets no `kind`, which '{}' needs; set it to one of: {}",
-            node.name,
-            node.model,
-            model_kinds_list(node.model)
-        );
+        bail!(TopologyError::KindMissing {
+            node: node.name.clone(),
+            model: node.model,
+            kinds: node.model.kinds().to_vec(),
+        });
     }
     if let Some(kind) = node.kind
         && !node.model.kinds().contains(&kind)
     {
-        bail!(
-            r#"Manifest - node: '{}' sets `kind = "{kind}"`, but '{}' comes only as: {}"#,
-            node.name,
-            node.model,
-            model_kinds_list(node.model)
-        );
+        bail!(TopologyError::KindNotTaken {
+            node: node.name.clone(),
+            kind,
+            model: node.model,
+            kinds: node.model.kinds().to_vec(),
+        });
     }
     Ok(())
 }
@@ -98,16 +96,17 @@ pub fn check_node_kind_settings(node: &NodeExpanded) -> Result<()> {
     if let Some((key, _, kinds)) = kind_settings::first_not_taken(kind, &settings) {
         let model = node.model_kind.model();
         // A kind of the same model that takes the setting, which the node could set instead.
-        match kinds.iter().find(|other| model.kinds().contains(other)) {
-            Some(other) => bail!(
-                r#"Manifest - node: '{}' sets `{key}`, which does not apply to {kind} nodes; '{model}' is a {kind} unless the node sets `kind = "{other}"`"#,
-                node.name,
-            ),
-            None => bail!(
-                "Manifest - node: '{}' sets `{key}`, which does not apply to {kind} nodes; '{model}' is a {kind}",
-                node.name,
-            ),
-        }
+        let other = kinds
+            .iter()
+            .find(|other| model.kinds().contains(other))
+            .copied();
+        bail!(TopologyError::SettingNotForKind {
+            node: node.name.clone(),
+            key: (*key).to_owned(),
+            kind,
+            model,
+            other,
+        });
     }
     Ok(())
 }
@@ -147,16 +146,17 @@ pub fn check_node_file_settings(node: &Node, image: &NodeConfig) -> Result<()> {
     else {
         return Ok(());
     };
-    let name = &node.name;
+    let node_name = node.name.clone();
+    let key = *key;
     let model = image.model;
     let kind = image.kind();
-    let uses = if model.kinds().len() > 1 {
-        format!("{model} does not use as a {kind}")
-    } else {
-        format!("{model} does not use")
-    };
     if own_config {
-        bail!("Manifest - node: '{name}' sets {key}, which {uses} with its own `ztp.config`");
+        bail!(TopologyError::FileSettingWithOwnConfig {
+            node: node_name,
+            key,
+            model,
+            kind,
+        });
     }
     let model_takes_it = image
         .model_kind()?
@@ -164,9 +164,19 @@ pub fn check_node_file_settings(node: &Node, image: &NodeConfig) -> Result<()> {
         .iter()
         .any(|method| takes.contains(method));
     if ztp == Ztp::Disabled && model_takes_it {
-        bail!("Manifest - node: '{name}' sets {key}, which {uses} with ZTP disabled");
+        bail!(TopologyError::FileSettingWithZtpDisabled {
+            node: node_name,
+            key,
+            model,
+            kind,
+        });
     }
-    bail!("Manifest - node: '{name}' sets {key}, which {uses}");
+    bail!(TopologyError::FileSettingNotUsed {
+        node: node_name,
+        key,
+        model,
+        kind,
+    });
 }
 
 #[cfg(test)]
@@ -211,7 +221,11 @@ enabled = true"#,
     /// The refusal of `check_node_file_settings` for a node of `model` and `kind` with `lines`
     /// and the `setting` in it, or `None` when it is taken, checked against the model and
     /// kind's built-in image.
-    fn file_setting_error(model_kind: ModelKind, lines: &str, setting: &str) -> Option<String> {
+    fn file_setting_error(
+        model_kind: ModelKind,
+        lines: &str,
+        setting: &str,
+    ) -> Option<TopologyError> {
         let node = manifest_node(&format!(
             r#"name = "n1"
 model = "{}"
@@ -223,7 +237,17 @@ kind = "{}"
         ));
         check_node_file_settings(&node, &model_kind.node_config())
             .err()
-            .map(|error| error.to_string())
+            .map(|error| error.downcast::<TopologyError>().expect("a topology error"))
+    }
+
+    /// The refusal of a file setting `key` that `model` as `kind` does not use.
+    fn not_used(key: &'static str, model: NodeModel, kind: NodeKind) -> TopologyError {
+        TopologyError::FileSettingNotUsed {
+            node: "n1".to_owned(),
+            key,
+            model,
+            kind,
+        }
     }
 
     fn node(model: NodeModel) -> NodeExpanded {
@@ -234,8 +258,11 @@ kind = "{}"
         }
     }
 
-    fn error(node: &NodeExpanded) -> String {
-        check_node_kind_settings(node).unwrap_err().to_string()
+    fn error(node: &NodeExpanded) -> TopologyError {
+        check_node_kind_settings(node)
+            .unwrap_err()
+            .downcast::<TopologyError>()
+            .expect("a topology error")
     }
 
     #[test]
@@ -244,8 +271,13 @@ kind = "{}"
         vm.container = Some(NodeContainer::default());
         assert_eq!(
             error(&vm),
-            "Manifest - node: 'node1' sets `container`, which does not apply to virtual_machine \
-             nodes; 'ubuntu_linux' is a virtual_machine"
+            TopologyError::SettingNotForKind {
+                node: "node1".to_owned(),
+                key: "container".to_owned(),
+                kind: NodeKind::VirtualMachine,
+                model: NodeModel::UbuntuLinux,
+                other: None,
+            }
         );
     }
 
@@ -256,12 +288,23 @@ kind = "{}"
 model = "cisco_asa"
 kind = "container""#,
         );
+        let error = check_node_model_kind(&node).unwrap_err();
         assert_eq!(
-            check_node_model_kind(&node).unwrap_err().to_string(),
-            r#"Manifest - node: 'fw1' sets `kind = "container"`, but 'cisco_asa' comes only as: virtual_machine"#
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::KindNotTaken {
+                node: "fw1".to_owned(),
+                kind: NodeKind::Container,
+                model: NodeModel::CiscoAsa,
+                kinds: vec![NodeKind::VirtualMachine],
+            })
         );
         let error = NodeExpanded::new(1, &node).unwrap_err();
-        assert!(format!("{error:#}").contains("'fw1'"), "{error:#}");
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::NodeModelKind {
+                node: "fw1".to_owned(),
+            })
+        );
     }
 
     #[test]
@@ -275,7 +318,13 @@ privileged = true"#,
         let expanded = NodeExpanded::new(1, &node).unwrap();
         assert_eq!(
             error(&expanded),
-            r#"Manifest - node: 'r1' sets `container`, which does not apply to virtual_machine nodes; 'arista_eos' is a virtual_machine unless the node sets `kind = "container"`"#
+            TopologyError::SettingNotForKind {
+                node: "r1".to_owned(),
+                key: "container".to_owned(),
+                kind: NodeKind::VirtualMachine,
+                model: NodeModel::AristaEos,
+                other: Some(NodeKind::Container),
+            }
         );
     }
 
@@ -301,10 +350,18 @@ model = "{model}""#
             r#"name = "g1"
 model = "generic""#,
         );
+        let error = check_node_model_kind(&node).unwrap_err();
         assert_eq!(
-            check_node_model_kind(&node).unwrap_err().to_string(),
-            "Manifest - node: 'g1' sets no `kind`, which 'generic' needs; set it to one of: \
-             virtual_machine, container, unikernel"
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::KindMissing {
+                node: "g1".to_owned(),
+                model: NodeModel::Generic,
+                kinds: vec![
+                    NodeKind::VirtualMachine,
+                    NodeKind::Container,
+                    NodeKind::Unikernel,
+                ],
+            })
         );
         assert!(NodeExpanded::new(1, &node).is_err());
         for kind in NodeKind::to_vec() {
@@ -324,8 +381,8 @@ kind = "{kind}""#
         let container = ModelKind::new(NodeModel::Generic, Some(NodeKind::Container)).unwrap();
         for (key, setting) in FILE_SETTINGS {
             assert_eq!(
-                file_setting_error(container, "", setting).as_deref(),
-                Some(format!("Manifest - node: 'n1' sets {key}, which generic does not use as a container").as_str()),
+                file_setting_error(container, "", setting),
+                Some(not_used(key, NodeModel::Generic, NodeKind::Container)),
             );
         }
     }
@@ -335,15 +392,22 @@ kind = "{kind}""#
         let veos = ModelKind::default_for(NodeModel::AristaEos);
         for (key, setting) in FILE_SETTINGS {
             assert_eq!(
-                file_setting_error(veos, "", setting).as_deref(),
-                Some(format!("Manifest - node: 'n1' sets {key}, which arista_eos does not use as a virtual_machine").as_str()),
+                file_setting_error(veos, "", setting),
+                Some(not_used(
+                    key,
+                    NodeModel::AristaEos,
+                    NodeKind::VirtualMachine
+                )),
             );
         }
         let srx = ModelKind::default_for(NodeModel::JuniperSrxv3);
-        let error = file_setting_error(srx, "", FILE_SETTINGS[0].1);
         assert_eq!(
-            error.as_deref(),
-            Some("Manifest - node: 'n1' sets text_files, which juniper_srxv3 does not use"),
+            file_setting_error(srx, "", FILE_SETTINGS[0].1),
+            Some(not_used(
+                "text_files",
+                NodeModel::JuniperSrxv3,
+                NodeKind::VirtualMachine
+            )),
         );
     }
 
@@ -358,13 +422,13 @@ kind = "{kind}""#
         ];
         for (model, (key, setting)) in used_with_ztp_on {
             assert_eq!(
-                file_setting_error(ModelKind::default_for(model), off, setting).as_deref(),
-                Some(
-                    format!(
-                        "Manifest - node: 'n1' sets {key}, which {model} does not use with ZTP disabled"
-                    )
-                    .as_str()
-                ),
+                file_setting_error(ModelKind::default_for(model), off, setting),
+                Some(TopologyError::FileSettingWithZtpDisabled {
+                    node: "n1".to_owned(),
+                    key,
+                    model,
+                    kind: NodeKind::VirtualMachine,
+                }),
             );
         }
     }
@@ -380,13 +444,13 @@ kind = "{kind}""#
         ];
         for (model, (key, setting)) in used_without_it {
             assert_eq!(
-                file_setting_error(ModelKind::default_for(model), own, setting).as_deref(),
-                Some(
-                    format!(
-                        "Manifest - node: 'n1' sets {key}, which {model} does not use with its own `ztp.config`"
-                    )
-                    .as_str()
-                ),
+                file_setting_error(ModelKind::default_for(model), own, setting),
+                Some(TopologyError::FileSettingWithOwnConfig {
+                    node: "n1".to_owned(),
+                    key,
+                    model,
+                    kind: NodeKind::VirtualMachine,
+                }),
             );
         }
     }
@@ -424,17 +488,17 @@ kind = "{kind}""#
                 ModelKind::default_for(NodeModel::FlatcarLinux),
                 "",
                 startup_scripts
-            )
-            .as_deref(),
-            Some("Manifest - node: 'n1' sets startup_scripts, which flatcar_linux does not use"),
+            ),
+            Some(not_used(
+                "startup_scripts",
+                NodeModel::FlatcarLinux,
+                NodeKind::VirtualMachine
+            )),
         );
         for model in [NodeModel::UbuntuLinux, NodeModel::WindowsServer] {
             assert_eq!(
-                file_setting_error(ModelKind::default_for(model), "", systemd_units).as_deref(),
-                Some(
-                    format!("Manifest - node: 'n1' sets systemd_units, which {model} does not use")
-                        .as_str()
-                ),
+                file_setting_error(ModelKind::default_for(model), "", systemd_units),
+                Some(not_used("systemd_units", model, NodeKind::VirtualMachine)),
             );
         }
     }

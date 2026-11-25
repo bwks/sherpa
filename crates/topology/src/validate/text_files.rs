@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use crate::Node;
+use crate::{Node, TopologyError};
 use shared::validators::mode_from_octal_digits;
 
 /// Check every node's text file modes are octal digits up to 777, as manifests write modes.
@@ -24,10 +24,10 @@ pub fn check_text_file_modes(nodes: &[Node]) -> Result<()> {
             .map(|file| (file.dst.as_str(), file.permissions));
         for (dst, permissions) in files.chain(read) {
             mode_from_octal_digits(permissions).with_context(|| {
-                format!(
-                    "Manifest - node: '{}' text file '{dst}' permissions are invalid",
-                    node.name
-                )
+                TopologyError::TextFilePermissions {
+                    node: node.name.clone(),
+                    dst: dst.to_owned(),
+                }
             })?;
         }
     }
@@ -37,8 +37,16 @@ pub fn check_text_file_modes(nodes: &[Node]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use crate::{TextFile, TextFileData};
+    use shared::SharedError;
 
     use super::*;
+
+    fn refused(dst: &str) -> TopologyError {
+        TopologyError::TextFilePermissions {
+            node: "dev01".to_owned(),
+            dst: dst.to_owned(),
+        }
+    }
 
     fn node(text_file: Option<u32>, read_file: Option<u32>) -> Node {
         Node {
@@ -63,13 +71,16 @@ mod tests {
 
     #[test]
     fn boot_settings_001_a_text_file_whose_permissions_are_not_octal_digits_is_refused() {
-        let error = check_text_file_modes(&[node(Some(999), None)])
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("'dev01' text file '/etc/motd'"), "{error}");
-        let error = check_text_file_modes(&[node(None, Some(1000))])
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("'dev01' text file '/etc/issue'"), "{error}");
+        for (node, dst, digits) in [
+            (node(Some(999), None), "/etc/motd", 999),
+            (node(None, Some(1000)), "/etc/issue", 1000),
+        ] {
+            let error = check_text_file_modes(&[node]).unwrap_err();
+            assert_eq!(error.downcast_ref::<TopologyError>(), Some(&refused(dst)));
+            assert_eq!(
+                error.root_cause().downcast_ref::<SharedError>(),
+                Some(&SharedError::ModeNotOctal { digits })
+            );
+        }
     }
 }

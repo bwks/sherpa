@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 
-use crate::Node;
+use crate::{Node, TopologyError};
 
 /// Check every node's `environment_variables` entries are `KEY=VALUE`, where KEY is a name of
 /// ASCII letters, digits and `_` that does not start with a digit. The node's first-boot config
@@ -16,27 +16,31 @@ pub fn validate_environment_variables(nodes: &[Node]) -> Result<()> {
         let node_name = &node.name;
         for entry in node.environment_variables.iter().flatten() {
             let Some((key, _value)) = entry.split_once('=') else {
-                bail!(
-                    "Invalid environment variable '{entry}' for node '{node_name}': must be KEY=VALUE format"
-                );
+                bail!(TopologyError::EnvironmentVariableNotKeyValue {
+                    entry: entry.clone(),
+                    node: node_name.clone(),
+                });
             };
 
             if key.is_empty() {
-                bail!(
-                    "Invalid environment variable '{entry}' for node '{node_name}': KEY must not be empty"
-                );
+                bail!(TopologyError::EnvironmentVariableEmptyKey {
+                    entry: entry.clone(),
+                    node: node_name.clone(),
+                });
             }
 
             if key.starts_with(|c: char| c.is_ascii_digit()) {
-                bail!(
-                    "Invalid environment variable key '{key}' for node '{node_name}': KEY must not start with a digit"
-                );
+                bail!(TopologyError::EnvironmentVariableKeyStartsWithDigit {
+                    key: key.to_owned(),
+                    node: node_name.clone(),
+                });
             }
 
             if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-                bail!(
-                    "Invalid environment variable key '{key}' for node '{node_name}': KEY must contain only alphanumeric characters and underscores"
-                );
+                bail!(TopologyError::EnvironmentVariableKeyNotAName {
+                    key: key.to_owned(),
+                    node: node_name.clone(),
+                });
             }
         }
     }
@@ -70,19 +74,39 @@ mod tests {
 
     #[test]
     fn boot_settings_003_an_entry_with_no_equals_an_empty_key_or_a_key_not_a_name_is_refused() {
-        for (entry, named) in [
-            ("NO_EQUALS", "variable 'NO_EQUALS'"),
-            ("=value", "variable '=value'"),
-            ("1BAD_KEY=value", "key '1BAD_KEY'"),
-            ("BAD-KEY=value", "key 'BAD-KEY'"),
+        let node1 = || "node1".to_owned();
+        for (entry, refusal) in [
+            (
+                "NO_EQUALS",
+                TopologyError::EnvironmentVariableNotKeyValue {
+                    entry: "NO_EQUALS".to_owned(),
+                    node: node1(),
+                },
+            ),
+            (
+                "=value",
+                TopologyError::EnvironmentVariableEmptyKey {
+                    entry: "=value".to_owned(),
+                    node: node1(),
+                },
+            ),
+            (
+                "1BAD_KEY=value",
+                TopologyError::EnvironmentVariableKeyStartsWithDigit {
+                    key: "1BAD_KEY".to_owned(),
+                    node: node1(),
+                },
+            ),
+            (
+                "BAD-KEY=value",
+                TopologyError::EnvironmentVariableKeyNotAName {
+                    key: "BAD-KEY".to_owned(),
+                    node: node1(),
+                },
+            ),
         ] {
-            let message = validate_environment_variables(&[node(&[entry])])
-                .unwrap_err()
-                .to_string();
-            assert!(
-                message.contains(&format!("{named} for node 'node1'")),
-                "{message}"
-            );
+            let error = validate_environment_variables(&[node(&[entry])]).unwrap_err();
+            assert_eq!(error.downcast_ref::<TopologyError>(), Some(&refusal));
         }
     }
 }

@@ -5,10 +5,9 @@ use anyhow::{Context, Result, ensure};
 use tracing::instrument;
 
 use shared::data::{ModelKind, NodeKind, OsVariant};
-use shared::konst::{CONTAINER_SECRETS_DIR, NODE_USER_ENV_DIR};
 use shared::validators::{mode_from_octal_digits, validate_secret_file};
 
-use crate::{ContainerProvisioner, Manifest, Provisioner, SshProvisioner};
+use crate::{ContainerProvisioner, Manifest, Provisioner, SshProvisioner, TopologyError};
 
 /// Check node provisioners: ssh provisioners run only on Linux and BSD VMs and container
 /// provisioners only on containers, and their paths, names and modes must be usable. At least
@@ -21,7 +20,7 @@ use crate::{ContainerProvisioner, Manifest, Provisioner, SshProvisioner};
 pub fn validate_provisioners(manifest: &Manifest) -> Result<()> {
     ensure!(
         manifest.provision_concurrency != Some(0),
-        "provision_concurrency must be at least 1"
+        TopologyError::ProvisionConcurrencyZero
     );
     for node in &manifest.nodes {
         let provisioners = node.provisioners.as_deref().unwrap_or_default();
@@ -40,16 +39,18 @@ pub fn validate_provisioners(manifest: &Manifest) -> Result<()> {
                             vm.os_variant,
                             OsVariant::Linux | OsVariant::Bsd
                         )),
-                        "Node '{}' has an ssh provisioner, which runs only on Linux and BSD VMs",
-                        node.name
+                        TopologyError::SshProvisionerNotSupported {
+                            node: node.name.clone(),
+                        }
                     );
                     validate_ssh(&node.name, ssh, &mut env_names)?;
                 }
                 Provisioner::Container(container) => {
                     ensure!(
                         config.kind() == NodeKind::Container,
-                        "Node '{}' has a container provisioner, which runs only on containers",
-                        node.name
+                        TopologyError::ContainerProvisionerNotSupported {
+                            node: node.name.clone(),
+                        }
                     );
                     validate_container(&node.name, container, &mut secret_names)?;
                 }
@@ -66,20 +67,24 @@ fn validate_container(
 ) -> Result<()> {
     ensure!(
         !container.files.is_empty(),
-        "Node '{node}': a container provisioner has nothing to do; add files"
+        TopologyError::ContainerProvisionerEmpty {
+            node: node.to_owned(),
+        }
     );
     for file in &container.files {
         ensure!(
             !file.src.trim().is_empty(),
-            "Node '{node}': a container secret file has an empty src"
+            TopologyError::SecretFileEmptySrc {
+                node: node.to_owned(),
+            }
         );
         validate_secret_file(&file.name, file.mode).with_context(|| format!("Node '{node}'"))?;
         ensure!(
             secret_names.insert(file.name.clone()),
-            "Node '{node}': two secret files are named '{}', and both would be mounted at \
-             {CONTAINER_SECRETS_DIR}/{}",
-            file.name,
-            file.name
+            TopologyError::DuplicateSecretFile {
+                node: node.to_owned(),
+                name: file.name.clone(),
+            }
         );
     }
     Ok(())
@@ -88,41 +93,48 @@ fn validate_container(
 fn validate_ssh(node: &str, ssh: &SshProvisioner, env_names: &mut HashSet<String>) -> Result<()> {
     ensure!(
         !(ssh.files.is_empty() && ssh.env_files.is_empty() && ssh.scripts.is_empty()),
-        "Node '{node}': an ssh provisioner has nothing to do; add files, env_files or scripts"
+        TopologyError::SshProvisionerEmpty {
+            node: node.to_owned(),
+        }
     );
     for file in &ssh.files {
         ensure!(
             !file.src.trim().is_empty(),
-            "Node '{node}': a provisioner file has an empty src"
+            TopologyError::ProvisionerFileEmptySrc {
+                node: node.to_owned(),
+            }
         );
         ensure!(
             valid_destination(&file.dst),
-            "Node '{node}': provisioner file dst '{}' must be an absolute path or start with ~/, \
-             name a file, use only letters, digits and . _ - + @, and not contain empty, . or .. \
-             parts",
-            file.dst
+            TopologyError::InvalidProvisionerDestination {
+                node: node.to_owned(),
+                dst: file.dst.clone(),
+            }
         );
-        mode_from_octal_digits(file.mode).with_context(|| {
-            format!(
-                "Node '{node}': provisioner file '{}' mode is invalid",
-                file.dst
-            )
+        mode_from_octal_digits(file.mode).with_context(|| TopologyError::ProvisionerFileMode {
+            node: node.to_owned(),
+            dst: file.dst.clone(),
         })?;
     }
     for env_file in &ssh.env_files {
-        let name = env_file_name(env_file).with_context(|| {
-            format!("Node '{node}': env file '{env_file}' does not name a file")
+        let name = env_file_name(env_file).ok_or_else(|| TopologyError::EnvFileNotAFile {
+            node: node.to_owned(),
+            env_file: env_file.clone(),
         })?;
         ensure!(
             env_names.insert(name.to_owned()),
-            "Node '{node}': two env files are named '{name}', and both would be copied to \
-             ~/{NODE_USER_ENV_DIR}/{name}"
+            TopologyError::DuplicateEnvFile {
+                node: node.to_owned(),
+                name: name.to_owned(),
+            }
         );
     }
     for script in &ssh.scripts {
         ensure!(
             !script.trim().is_empty(),
-            "Node '{node}': a provisioner script path is empty"
+            TopologyError::EmptyScriptPath {
+                node: node.to_owned(),
+            }
         );
     }
     Ok(())
@@ -167,6 +179,8 @@ fn env_file_name(env_file: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
+    use shared::SharedError;
+
     use super::*;
 
     fn manifest(model: &str, provisioner: &str) -> Manifest {
@@ -186,11 +200,15 @@ mod tests {
         .unwrap()
     }
 
-    fn rejection(model: &str, provisioner: &str) -> String {
-        format!(
-            "{:#}",
-            validate_provisioners(&manifest(model, provisioner)).unwrap_err()
-        )
+    fn refusal(manifest: &Manifest) -> TopologyError {
+        validate_provisioners(manifest)
+            .unwrap_err()
+            .downcast::<TopologyError>()
+            .expect("a topology error")
+    }
+
+    fn rejection(model: &str, provisioner: &str) -> TopologyError {
+        refusal(&manifest(model, provisioner))
     }
 
     fn container(model: &str, files: &str) -> Manifest {
@@ -224,13 +242,12 @@ mod tests {
     #[test]
     fn manifest_provisioners_001_a_container_provisioner_on_a_virtual_machine_is_refused() {
         for model in ["ubuntu_linux", "free_bsd", "cisco_ios"] {
-            let error = format!(
-                "{:#}",
-                validate_provisioners(&container(model, &secret("token", 444))).unwrap_err()
-            );
-            assert!(
-                error.contains("db01") && error.contains("containers"),
-                "{error}"
+            assert_eq!(
+                refusal(&container(model, &secret("token", 444))),
+                TopologyError::ContainerProvisionerNotSupported {
+                    node: "db01".to_owned(),
+                },
+                "{model}"
             );
         }
     }
@@ -238,12 +255,13 @@ mod tests {
     #[test]
     fn manifest_provisioners_003_two_secret_files_with_one_name_are_refused_naming_it() {
         let files = format!("{}{}", secret("token", 444), secret("token", 400));
-        let error = format!(
-            "{:#}",
-            validate_provisioners(&container("mongo_db", &files)).unwrap_err()
+        assert_eq!(
+            refusal(&container("mongo_db", &files)),
+            TopologyError::DuplicateSecretFile {
+                node: "db01".to_owned(),
+                name: "token".to_owned(),
+            }
         );
-        assert!(error.contains("two secret files"), "{error}");
-        assert!(error.contains("/run/secrets/token"), "{error}");
     }
 
     fn file(dst: &str, mode: u32) -> String {
@@ -287,21 +305,30 @@ mod tests {
             "windows_server",
             "nanos_unikernel",
         ] {
-            let error = rejection(model, r#"scripts = ["./setup.sh"]"#);
-            assert!(error.contains("dev01"), "{error}");
-            assert!(error.contains("Linux and BSD VMs"), "{error}");
+            assert_eq!(
+                rejection(model, r#"scripts = ["./setup.sh"]"#),
+                TopologyError::SshProvisionerNotSupported {
+                    node: "dev01".to_owned(),
+                },
+                "{model}"
+            );
         }
     }
 
     #[test]
     fn manifest_provisioners_002_a_provisioner_with_nothing_to_do_is_refused() {
-        let error = rejection("ubuntu_linux", "");
-        assert!(error.contains("nothing to do"), "{error}");
-        let error = format!(
-            "{:#}",
-            validate_provisioners(&container("mongo_db", "")).unwrap_err()
+        assert_eq!(
+            rejection("ubuntu_linux", ""),
+            TopologyError::SshProvisionerEmpty {
+                node: "dev01".to_owned(),
+            }
         );
-        assert!(error.contains("nothing to do"), "{error}");
+        assert_eq!(
+            refusal(&container("mongo_db", "")),
+            TopologyError::ContainerProvisionerEmpty {
+                node: "db01".to_owned(),
+            }
+        );
     }
 
     #[test]
@@ -320,18 +347,31 @@ mod tests {
             "/tmp/a;b",
             "~/it's",
         ] {
-            let error = rejection("ubuntu_linux", &file(dst, 600));
-            assert!(error.contains("dst"), "{dst}: {error}");
+            assert_eq!(
+                rejection("ubuntu_linux", &file(dst, 600)),
+                TopologyError::InvalidProvisionerDestination {
+                    node: "dev01".to_owned(),
+                    dst: dst.to_owned(),
+                }
+            );
         }
     }
 
     #[test]
     fn manifest_provisioners_010_a_provisioner_file_mode_that_is_not_octal_digits_is_refused() {
         for mode in [800, 1777, 609] {
-            let error = rejection("ubuntu_linux", &file("~/token", mode));
-            assert!(
-                error.contains("provisioner file '~/token' mode is invalid"),
-                "{mode}: {error}"
+            let error = validate_provisioners(&manifest("ubuntu_linux", &file("~/token", mode)))
+                .unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<TopologyError>(),
+                Some(&TopologyError::ProvisionerFileMode {
+                    node: "dev01".to_owned(),
+                    dst: "~/token".to_owned(),
+                })
+            );
+            assert_eq!(
+                error.root_cause().downcast_ref::<SharedError>(),
+                Some(&SharedError::ModeNotOctal { digits: mode })
             );
         }
     }
@@ -346,34 +386,54 @@ mod tests {
             dst = "~/token"
             "#,
         );
-        assert!(error.contains("src"), "{error}");
-        let error = format!(
-            "{:#}",
-            validate_provisioners(&container(
-                "mongo_db",
-                r#"
-                [[nodes.provisioners.files]]
-                src = " "
-                name = "token"
-                "#,
-            ))
-            .unwrap_err()
+        assert_eq!(
+            error,
+            TopologyError::ProvisionerFileEmptySrc {
+                node: "dev01".to_owned(),
+            }
         );
-        assert!(error.contains("empty src"), "{error}");
-        let error = rejection("ubuntu_linux", r#"scripts = [" "]"#);
-        assert!(error.contains("script"), "{error}");
+        let error = refusal(&container(
+            "mongo_db",
+            r#"
+            [[nodes.provisioners.files]]
+            src = " "
+            name = "token"
+            "#,
+        ));
+        assert_eq!(
+            error,
+            TopologyError::SecretFileEmptySrc {
+                node: "db01".to_owned(),
+            }
+        );
+        assert_eq!(
+            rejection("ubuntu_linux", r#"scripts = [" "]"#),
+            TopologyError::EmptyScriptPath {
+                node: "dev01".to_owned(),
+            }
+        );
     }
 
     #[test]
     fn manifest_provisioners_011_an_env_file_needs_a_plain_name_of_its_own_on_the_node() {
-        let error = rejection(
-            "ubuntu_linux",
-            r#"env_files = ["~/one/dev.env", "~/two/dev.env"]"#,
+        assert_eq!(
+            rejection(
+                "ubuntu_linux",
+                r#"env_files = ["~/one/dev.env", "~/two/dev.env"]"#,
+            ),
+            TopologyError::DuplicateEnvFile {
+                node: "dev01".to_owned(),
+                name: "dev.env".to_owned(),
+            }
         );
-        assert!(error.contains("dev.env"), "{error}");
         for env_file in ["~/", "~/my dev.env", "~/dev$1.env"] {
-            let error = rejection("ubuntu_linux", &format!(r#"env_files = ["{env_file}"]"#));
-            assert!(error.contains("env file"), "{env_file}: {error}");
+            assert_eq!(
+                rejection("ubuntu_linux", &format!(r#"env_files = ["{env_file}"]"#)),
+                TopologyError::EnvFileNotAFile {
+                    node: "dev01".to_owned(),
+                    env_file: env_file.to_owned(),
+                }
+            );
         }
     }
 
@@ -383,7 +443,6 @@ mod tests {
         manifest.provision_concurrency = Some(1);
         validate_provisioners(&manifest).unwrap();
         manifest.provision_concurrency = Some(0);
-        let error = format!("{:#}", validate_provisioners(&manifest).unwrap_err());
-        assert!(error.contains("provision_concurrency"), "{error}");
+        assert_eq!(refusal(&manifest), TopologyError::ProvisionConcurrencyZero);
     }
 }

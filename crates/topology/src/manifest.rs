@@ -7,6 +7,7 @@ use super::bridge::Bridge;
 use super::link::Link2;
 use super::node::Node;
 use super::talos_cluster::TalosCluster;
+use crate::TopologyError;
 use shared::data::NodeModel;
 use shared::util::{generate_lab_name, load_file as load_file_util};
 
@@ -96,8 +97,9 @@ impl Manifest {
     /// Fails when the file cannot be read or is not a valid manifest.
     pub fn load_file(file_path: &str) -> Result<Manifest> {
         let file_contents = load_file_util(file_path)?;
-        toml::from_str(&file_contents)
-            .with_context(|| format!("Failed to parse manifest {file_path}"))
+        toml::from_str(&file_contents).with_context(|| TopologyError::ManifestUnparsable {
+            path: file_path.to_owned(),
+        })
     }
 }
 
@@ -112,9 +114,20 @@ mod tests {
         let path = env::temp_dir().join(format!("sherpa-bad-manifest-{}.toml", process::id()));
         fs::write(&path, "name = 'lab'\nnodes = [\n").unwrap();
         let path = path.to_str().unwrap();
-        let error = format!("{:#}", Manifest::load_file(path).unwrap_err());
+        let error = Manifest::load_file(path).unwrap_err();
         fs::remove_file(path).unwrap();
-        assert!(error.contains(path), "{error}");
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::ManifestUnparsable {
+                path: path.to_owned(),
+            })
+        );
+        assert!(
+            error
+                .root_cause()
+                .downcast_ref::<toml::de::Error>()
+                .is_some()
+        );
     }
 
     #[test]

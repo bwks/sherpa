@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, bail};
 
-use crate::{Manifest, Node};
+use crate::{Manifest, Node, TopologyError};
 use shared::data::{ClusterCni, NodeModel};
 use shared::konst::{
     TALOS_LOAD_BALANCER_BLOCK_SIZE, TALOS_LOAD_BALANCER_HOST_OFFSETS, TALOS_VIP_HOST_OFFSETS,
@@ -42,17 +42,16 @@ pub fn validate_talos_clusters(manifest: &Manifest) -> Result<()> {
     for cluster in clusters {
         validate_cluster_name(&cluster.name)?;
         if !names.insert(cluster.name.as_str()) {
-            bail!(
-                "Manifest - talos cluster '{}' is defined more than once",
-                cluster.name
-            );
+            bail!(TopologyError::DuplicateCluster {
+                cluster: cluster.name.clone(),
+            });
         }
         let controllers = cluster.controllers.len();
         if !ALLOWED_CONTROLLER_COUNTS.contains(&controllers) {
-            bail!(
-                "Manifest - talos cluster '{}' has {controllers} controllers; a cluster needs 1 or 3, because etcd needs a majority of controllers to stay up",
-                cluster.name
-            );
+            bail!(TopologyError::ControllerCount {
+                cluster: cluster.name.clone(),
+                controllers,
+            });
         }
         if controllers > 1 {
             ha_clusters += 1;
@@ -62,28 +61,28 @@ pub fn validate_talos_clusters(manifest: &Manifest) -> Result<()> {
         }
         for (member, _) in cluster.members() {
             let Some(node) = nodes.get(member) else {
-                bail!(
-                    "Manifest - talos cluster '{}' lists node '{member}', which is not defined in nodes",
-                    cluster.name
-                );
+                bail!(TopologyError::UnknownClusterMember {
+                    cluster: cluster.name.clone(),
+                    node: member.to_owned(),
+                });
             };
             if node.model != NodeModel::TalosLinux {
-                bail!(
-                    "Manifest - talos cluster '{}' lists node '{member}', a {} node; only talos_linux nodes can join a cluster",
-                    cluster.name,
-                    node.model
-                );
+                bail!(TopologyError::ClusterMemberNotTalos {
+                    cluster: cluster.name.clone(),
+                    node: member.to_owned(),
+                    model: node.model,
+                });
             }
             if node.ztp.config.is_some() {
-                bail!(
-                    "Manifest - node '{member}' sets ztp.config but joins talos cluster '{}'; Sherpa generates the machine configs of cluster nodes",
-                    cluster.name
-                );
+                bail!(TopologyError::ClusterMemberOwnZtpConfig {
+                    node: member.to_owned(),
+                    cluster: cluster.name.clone(),
+                });
             }
             if !members.insert(member) {
-                bail!(
-                    "Manifest - node '{member}' is listed more than once in talos_clusters; a node joins one cluster, as a controller or a worker"
-                );
+                bail!(TopologyError::ClusterMemberRepeated {
+                    node: member.to_owned(),
+                });
             }
         }
         if let Some(oidc) = &cluster.oidc {
@@ -104,25 +103,27 @@ pub fn validate_talos_clusters(manifest: &Manifest) -> Result<()> {
                 NodeModel::HashicorpVault,
             )?;
             if node.ztp.config.is_some() {
-                bail!(
-                    "Manifest - talos cluster '{}' sets vault = '{vault}', but that node sets ztp.config; Sherpa configures only the Vault it initialises with its own config",
-                    cluster.name
-                );
+                bail!(TopologyError::ClusterVaultOwnZtpConfig {
+                    cluster: cluster.name.clone(),
+                    vault: vault.clone(),
+                });
             }
         }
     }
     let vip_count = TALOS_VIP_HOST_OFFSETS.clone().count();
     if ha_clusters > vip_count {
-        bail!(
-            "Manifest - {ha_clusters} talos clusters have 3 controllers, but a lab has only {vip_count} shared cluster addresses"
-        );
+        bail!(TopologyError::TooManyHaClusters {
+            clusters: ha_clusters,
+            addresses: vip_count,
+        });
     }
     let load_balancer_blocks =
         TALOS_LOAD_BALANCER_HOST_OFFSETS.clone().count() / TALOS_LOAD_BALANCER_BLOCK_SIZE as usize;
     if cilium_clusters > load_balancer_blocks {
-        bail!(
-            "Manifest - {cilium_clusters} talos clusters use cilium, but a lab has load balancer addresses for only {load_balancer_blocks}"
-        );
+        bail!(TopologyError::TooManyCiliumClusters {
+            clusters: cilium_clusters,
+            blocks: load_balancer_blocks,
+        });
     }
     Ok(())
 }
@@ -131,20 +132,25 @@ pub fn validate_talos_clusters(manifest: &Manifest) -> Result<()> {
 fn validate_cluster_service<'a>(
     nodes: &HashMap<&str, &'a Node>,
     cluster_name: &str,
-    field: &str,
+    field: &'static str,
     node_name: &str,
     model: NodeModel,
 ) -> Result<&'a Node> {
     let Some(node) = nodes.get(node_name) else {
-        bail!(
-            "Manifest - talos cluster '{cluster_name}' sets {field} = '{node_name}', which is not defined in nodes"
-        );
+        bail!(TopologyError::UnknownClusterService {
+            cluster: cluster_name.to_owned(),
+            field,
+            node: node_name.to_owned(),
+        });
     };
     if node.model != model {
-        bail!(
-            "Manifest - talos cluster '{cluster_name}' sets {field} = '{node_name}', a {} node; it must be a {model} node",
-            node.model
-        );
+        bail!(TopologyError::ClusterServiceModel {
+            cluster: cluster_name.to_owned(),
+            field,
+            node: node_name.to_owned(),
+            model: node.model,
+            expected: model,
+        });
     }
     Ok(node)
 }
@@ -189,10 +195,11 @@ nodes = [
         toml::from_str(toml).unwrap()
     }
 
-    fn error(toml: &str) -> String {
+    fn error(toml: &str) -> TopologyError {
         validate_talos_clusters(&manifest(toml))
             .unwrap_err()
-            .to_string()
+            .downcast::<TopologyError>()
+            .expect("a topology error")
     }
 
     /// `VALID` with its cluster definition replaced.
@@ -216,37 +223,59 @@ nodes = [
         let toml = with_cluster(
             r#"{ name = "k8s", controllers = ["cp1"] }, { name = "k8s", controllers = ["cp2"] }"#,
         );
-        let message = error(&toml);
-        assert!(message.contains("'k8s'"), "{message}");
-        assert!(message.contains("defined more than once"), "{message}");
+        assert_eq!(
+            error(&toml),
+            TopologyError::DuplicateCluster {
+                cluster: "k8s".to_owned(),
+            }
+        );
     }
 
     #[test]
     fn manifest_clusters_004_a_cluster_with_other_than_one_or_three_controllers_is_refused() {
         let toml = with_cluster(r#"{ name = "k8s", controllers = ["cp1", "cp2", "cp3"] }"#);
         validate_talos_clusters(&manifest(&toml)).unwrap();
-        for controllers in ["[]", r#"["cp1", "cp2"]"#, r#"["cp1", "cp2", "cp3", "cp4"]"#] {
+        for (controllers, count) in [
+            ("[]", 0),
+            (r#"["cp1", "cp2"]"#, 2),
+            (r#"["cp1", "cp2", "cp3", "cp4"]"#, 4),
+        ] {
             let toml = with_cluster(&format!(
                 r#"{{ name = "k8s", controllers = {controllers} }}"#
             ));
-            let message = error(&toml);
-            assert!(message.contains("'k8s' has"), "{message}");
-            assert!(message.contains("needs 1 or 3"), "{message}");
+            assert_eq!(
+                error(&toml),
+                TopologyError::ControllerCount {
+                    cluster: "k8s".to_owned(),
+                    controllers: count,
+                }
+            );
         }
     }
 
     #[test]
     fn manifest_clusters_005_a_member_that_is_not_a_node_of_the_manifest_is_refused() {
         let toml = with_cluster(r#"{ name = "k8s", controllers = ["cp1"], workers = ["ghost"] }"#);
-        assert!(error(&toml).contains("cluster 'k8s' lists node 'ghost', which is not defined"));
+        assert_eq!(
+            error(&toml),
+            TopologyError::UnknownClusterMember {
+                cluster: "k8s".to_owned(),
+                node: "ghost".to_owned(),
+            }
+        );
     }
 
     #[test]
     fn manifest_clusters_006_a_member_that_is_not_a_talos_linux_node_is_refused() {
         let toml = with_cluster(r#"{ name = "k8s", controllers = ["cp1"], workers = ["dev"] }"#);
-        let message = error(&toml);
-        assert!(message.contains("'dev', a ubuntu_linux node"), "{message}");
-        assert!(message.contains("only talos_linux nodes"), "{message}");
+        assert_eq!(
+            error(&toml),
+            TopologyError::ClusterMemberNotTalos {
+                cluster: "k8s".to_owned(),
+                node: "dev".to_owned(),
+                model: NodeModel::UbuntuLinux,
+            }
+        );
     }
 
     #[test]
@@ -255,9 +284,13 @@ nodes = [
             r#"{ name = "w1", model = "talos_linux" }"#,
             r#"{ name = "w1", model = "talos_linux", ztp = { config = "w1.yaml" } }"#,
         );
-        let message = error(&toml);
-        assert!(message.contains("sets ztp.config"), "{message}");
-        assert!(message.contains("talos cluster 'k8s'"), "{message}");
+        assert_eq!(
+            error(&toml),
+            TopologyError::ClusterMemberOwnZtpConfig {
+                node: "w1".to_owned(),
+                cluster: "k8s".to_owned(),
+            }
+        );
     }
 
     #[test]
@@ -276,10 +309,11 @@ nodes = [
                 "cp1",
             ),
         ] {
-            let message = error(&with_cluster(cluster));
-            assert!(
-                message.contains(&format!("node '{node}' is listed more than once")),
-                "{message}"
+            assert_eq!(
+                error(&with_cluster(cluster)),
+                TopologyError::ClusterMemberRepeated {
+                    node: node.to_owned(),
+                }
             );
         }
     }
@@ -311,7 +345,13 @@ nodes = [
             clusters.join(", "),
             nodes.join(", ")
         );
-        assert!(error(&toml).contains("shared cluster addresses"));
+        assert_eq!(
+            error(&toml),
+            TopologyError::TooManyHaClusters {
+                clusters: count + 1,
+                addresses: count,
+            }
+        );
     }
 
     /// A manifest with `count` single-controller Cilium clusters.
@@ -342,7 +382,13 @@ nodes = [
         let blocks = TALOS_LOAD_BALANCER_HOST_OFFSETS.clone().count()
             / TALOS_LOAD_BALANCER_BLOCK_SIZE as usize;
         validate_talos_clusters(&manifest(&cilium_clusters(blocks))).unwrap();
-        assert!(error(&cilium_clusters(blocks + 1)).contains("use cilium"));
+        assert_eq!(
+            error(&cilium_clusters(blocks + 1)),
+            TopologyError::TooManyCiliumClusters {
+                clusters: blocks + 1,
+                blocks,
+            }
+        );
     }
 
     #[test]
@@ -353,13 +399,38 @@ nodes = [
         validate_talos_clusters(&manifest(&toml)).unwrap();
 
         let missing = with_cluster(r#"{ name = "k8s", controllers = ["cp1"], oidc = "kc02" }"#);
-        assert!(error(&missing).contains("oidc = 'kc02', which is not defined"));
+        assert_eq!(
+            error(&missing),
+            TopologyError::UnknownClusterService {
+                cluster: "k8s".to_owned(),
+                field: "oidc",
+                node: "kc02".to_owned(),
+            }
+        );
         let wrong_model =
             with_cluster(r#"{ name = "k8s", controllers = ["cp1"], oidc = "vault01" }"#);
-        assert!(error(&wrong_model).contains("it must be a keycloak_server node"));
+        assert_eq!(
+            error(&wrong_model),
+            TopologyError::ClusterServiceModel {
+                cluster: "k8s".to_owned(),
+                field: "oidc",
+                node: "vault01".to_owned(),
+                model: NodeModel::HashicorpVault,
+                expected: NodeModel::KeycloakServer,
+            }
+        );
         let wrong_model =
             with_cluster(r#"{ name = "k8s", controllers = ["cp1"], vault = "kc01" }"#);
-        assert!(error(&wrong_model).contains("it must be a hashicorp_vault node"));
+        assert_eq!(
+            error(&wrong_model),
+            TopologyError::ClusterServiceModel {
+                cluster: "k8s".to_owned(),
+                field: "vault",
+                node: "kc01".to_owned(),
+                model: NodeModel::KeycloakServer,
+                expected: NodeModel::HashicorpVault,
+            }
+        );
     }
 
     #[test]
@@ -369,6 +440,12 @@ nodes = [
                 r#"{ name = "vault01", model = "hashicorp_vault" }"#,
                 r#"{ name = "vault01", model = "hashicorp_vault", ztp = { config = "dWk=" } }"#,
             );
-        assert!(error(&toml).contains("sets ztp.config"));
+        assert_eq!(
+            error(&toml),
+            TopologyError::ClusterVaultOwnZtpConfig {
+                cluster: "k8s".to_owned(),
+                vault: "vault01".to_owned(),
+            }
+        );
     }
 }
