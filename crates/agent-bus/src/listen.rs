@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use crate::channel::{Channel, Endpoint};
+use crate::error::AgentBusError;
 use crate::files::{JsonLines, millis, now_ms, standard_state_dir};
 use crate::message::{Message, check_agent_name};
 
@@ -64,12 +65,11 @@ impl Journal {
             message: message.clone(),
         })
         .context("Unable to render the journal entry")?;
-        self.lines.append(&line, now_ms).with_context(|| {
-            format!(
-                "Unable to keep the message in the journal {}: not printing or acknowledging it",
-                self.lines.path().display()
-            )
-        })
+        self.lines
+            .append(&line, now_ms)
+            .with_context(|| AgentBusError::NotJournaled {
+                path: self.lines.path().to_owned(),
+            })
     }
 
     /// Drop the entries older than `FILE_RETENTION`; how many were dropped.
@@ -215,7 +215,7 @@ fn print(out: &mut impl Write, message: &Message) -> Result<()> {
     let line = serde_json::to_string(message).context("Unable to render the message")?;
     writeln!(out, "{line}")
         .and_then(|()| out.flush())
-        .context("Unable to print the message")
+        .context(AgentBusError::NotPrinted)
 }
 
 #[cfg(test)]
@@ -306,7 +306,13 @@ mod tests {
         let mut journal = Journal::new(dir.join("state").join("listen-host.jsonl"));
         let mut out = Vec::new();
         let error = relay(&mut journal, &message("done"), &mut out, NOW).unwrap_err();
-        assert!(format!("{error:#}").contains("not printing"), "{error:#}");
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::NotJournaled { path }) if *path == dir.join("state").join("listen-host.jsonl")
+            ),
+            "{error:#}"
+        );
         assert_eq!(out, Vec::<u8>::new());
         fs::remove_dir_all(&dir).unwrap();
     }

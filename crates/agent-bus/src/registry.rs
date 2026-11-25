@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use crate::agents::{Agent, Agents, Role, check_entries, parse_error};
+use crate::error::AgentBusError;
 use crate::files::{PRIVATE_FILE_MODE, private_dir, write_atomic};
 
 /// The first line of the file.
@@ -144,8 +145,7 @@ pub fn merge(fixed: Agents, registry: &Registry) -> Result<Merged> {
         host: fixed.host,
         guests,
     };
-    check_entries(agents.all())
-        .context("The agents file and the registry of enrolled guests clash")?;
+    check_entries(agents.all()).context(AgentBusError::RegistryClash)?;
     Ok(Merged {
         agents,
         shadowed: shadowed
@@ -294,8 +294,21 @@ key = "{seed}"
 role = "guest"
 "#
         );
-        let error = format!("{:#}", Registry::parse(&leaked).unwrap_err());
-        assert!(!error.contains(&seed));
+        let error = Registry::parse(&leaked).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::AgentKeyInvalid { agent }) if agent == "a"
+            ),
+            "{error:#}"
+        );
+        assert!(
+            matches!(
+                error.root_cause().downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::PublicKeyInvalid)
+            ),
+            "{error:#}"
+        );
     }
 
     #[test]
@@ -339,11 +352,20 @@ role = "guest"
         let shared = key();
         let mut registry = Registry::default();
         registry.enroll("agent-2", &shared);
-        let error = format!(
-            "{:#}",
-            merge(fixed(&[("dev", &shared)]), &registry).unwrap_err()
+        let error = merge(fixed(&[("dev", &shared)]), &registry).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::RegistryClash)
+            ),
+            "{error:#}"
         );
-        assert!(error.contains("clash"), "{error}");
-        assert!(!error.contains(&shared));
+        assert!(
+            matches!(
+                error.root_cause().downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::KeyShared { agent }) if agent == "agent-2"
+            ),
+            "{error:#}"
+        );
     }
 }

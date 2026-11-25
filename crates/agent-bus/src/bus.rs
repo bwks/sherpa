@@ -35,6 +35,7 @@ use tracing::instrument;
 use crate::agents::Agents;
 use crate::channel::{Channel, Endpoint, RECORDER, STREAM};
 use crate::config;
+use crate::error::AgentBusError;
 use crate::files::{lock_exclusive, standard_state_dir};
 use crate::keys::{self, public_key_of};
 use crate::message::check_agent_name;
@@ -108,10 +109,7 @@ impl Bus {
         let path = state_dir.join(RECORD_FILE);
         match Self::find_record(container, volume, state_dir)? {
             Some(found) => Ok(found),
-            None => bail!(
-                "No bus recorded in {}: run `agent-bus bus start` first",
-                path.display()
-            ),
+            None => bail!(AgentBusError::NoBusRecorded { path }),
         }
     }
 
@@ -324,18 +322,17 @@ pub async fn enroll(bus: &Bus, agents_path: &Path, name: &str, host_seed: &str) 
     if let Err(error) = enrolled {
         let restored = apply(bus, &docker, fixed, agents_path, &before, true).await;
         return Err(match restored {
-            Ok(()) => error.context(format!(
-                "Unable to enroll '{name}'. The previous registry and config are back and the bus \
-                 has reloaded them, so its previous key, if any, still works. Fix the cause and \
-                 enroll it again"
-            )),
-            Err(restore) => error.context(format!(
-                "Unable to enroll '{name}', and putting the previous registry and config back \
-                 failed too ({restore:#}). Fix the cause, then enroll it again, which replaces \
-                 the key, or run `agent-bus bus start` to render and load the config from the \
-                 registry"
-            )),
-        });
+            Ok(()) => AgentBusError::EnrollmentRolledBack {
+                name: name.to_owned(),
+                enrollment: error,
+            },
+            Err(restore) => AgentBusError::EnrollmentNotRestored {
+                name: name.to_owned(),
+                enrollment: error,
+                restore,
+            },
+        }
+        .into());
     }
     if previous.is_some() {
         eprintln!("Enrolled '{name}' with a new key; its previous key is refused");
@@ -844,7 +841,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let state_dir = dir.join("agent-bus");
         let error = Bus::from_record("c", "v", state_dir.clone()).err().unwrap();
-        assert!(format!("{error:#}").contains("bus start"), "{error:#}");
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::NoBusRecorded { path }) if *path == state_dir.join(RECORD_FILE)
+            ),
+            "{error:#}"
+        );
         let mut record = BusRecord {
             url: "nats://192.0.2.1:4300".to_owned(),
             agents: PathBuf::from("/home/u/agents.toml"),
@@ -1735,7 +1738,13 @@ role = "guest"
             .await
             .err()
             .context("enrolled with a config that cannot be written")?;
-        ensure!(format!("{error:#}").contains("bus start"), "{error:#}");
+        ensure!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::EnrollmentNotRestored { name, .. }) if name == "worker-b"
+            ),
+            "{error:#}"
+        );
         ensure!(
             std::fs::read_to_string(bus.registry_path())? == before,
             "the failed enrollment changed the registry"
@@ -2221,9 +2230,10 @@ role = "host"
         .context("the listener went on with nowhere to print")?;
         let delivered_at = Instant::now();
         ensure!(
-            failed
-                .as_ref()
-                .is_err_and(|error| format!("{error:#}").contains("Unable to print")),
+            failed.as_ref().is_err_and(|error| matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::NotPrinted)
+            )),
             "the listener did not fail to print: {failed:?}"
         );
         ensure!(

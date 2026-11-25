@@ -9,6 +9,8 @@ use std::fmt;
 use anyhow::{Result, anyhow, ensure};
 use nkeys::{KeyPair, KeyPairType};
 
+use crate::error::AgentBusError;
+
 /// The environment variable that holds the agent's seed.
 pub const SEED_VARIABLE: &str = "AGENT_BUS_SEED";
 
@@ -44,8 +46,7 @@ pub fn generate() -> Result<NewKey> {
 ///
 /// Fails when `key` is not a valid user public key.
 pub fn check_public_key(key: &str) -> Result<()> {
-    let pair = KeyPair::from_public_key(key)
-        .map_err(|_| anyhow!("The value is not a valid NKey public key"))?;
+    let pair = KeyPair::from_public_key(key).map_err(|_| AgentBusError::PublicKeyInvalid)?;
     ensure!(
         pair.key_pair_type() == KeyPairType::User,
         "The value is not a user public key (it must start with U)"
@@ -59,11 +60,10 @@ pub fn check_public_key(key: &str) -> Result<()> {
 ///
 /// Fails when `seed` is not a user seed.
 pub fn public_key_of(seed: &str) -> Result<String> {
-    let pair = KeyPair::from_seed(seed.trim())
-        .map_err(|_| anyhow!("AGENT_BUS_SEED is not a valid NKey seed"))?;
+    let pair = KeyPair::from_seed(seed.trim()).map_err(|_| AgentBusError::SeedInvalid)?;
     ensure!(
         pair.key_pair_type() == KeyPairType::User,
-        "AGENT_BUS_SEED is not a user seed (it must start with SU)"
+        AgentBusError::SeedNotUser
     );
     Ok(pair.public_key())
 }
@@ -81,9 +81,7 @@ fn checked_seed(value: Option<String>) -> Result<String> {
     let seed = value
         .map(|seed| seed.trim().to_owned())
         .filter(|seed| !seed.is_empty())
-        .ok_or_else(|| {
-            anyhow!("Set {SEED_VARIABLE} to this agent's NKey seed (see `agent-bus enroll` for a guest, `agent-bus key new` for the host)")
-        })?;
+        .ok_or(AgentBusError::SeedUnset)?;
     public_key_of(&seed)?;
     Ok(seed)
 }
@@ -102,12 +100,11 @@ impl Seed {
     /// Fails when `text` is empty or not a user seed.
     pub fn parse(text: &str) -> Result<Self> {
         let text = text.trim();
-        ensure!(!text.is_empty(), "The bus seed is empty");
-        let pair = KeyPair::from_seed(text)
-            .map_err(|_| anyhow!("The bus seed is not a valid NKey seed"))?;
+        ensure!(!text.is_empty(), AgentBusError::BusSeedEmpty);
+        let pair = KeyPair::from_seed(text).map_err(|_| AgentBusError::BusSeedInvalid)?;
         ensure!(
             pair.key_pair_type() == KeyPairType::User,
-            "The bus seed is not a user seed (it must start with SU)"
+            AgentBusError::BusSeedNotUser
         );
         Ok(Self(text.to_owned()))
     }
@@ -125,13 +122,23 @@ mod tests {
     #[test]
     fn a_missing_or_invalid_seed_names_the_variable_and_never_echoes_it() {
         for value in [None, Some("  ".to_owned())] {
-            let error = checked_seed(value).unwrap_err().to_string();
-            assert!(error.contains("AGENT_BUS_SEED"));
+            let error = checked_seed(value).unwrap_err();
+            assert!(
+                matches!(
+                    error.downcast_ref::<AgentBusError>(),
+                    Some(AgentBusError::SeedUnset)
+                ),
+                "{error:#}"
+            );
         }
-        let bad = "SUNOTAREALSEED".to_owned();
-        let error = checked_seed(Some(bad.clone())).unwrap_err().to_string();
-        assert!(error.contains("AGENT_BUS_SEED"));
-        assert!(!error.contains(&bad));
+        let error = checked_seed(Some("SUNOTAREALSEED".to_owned())).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::SeedInvalid)
+            ),
+            "{error:#}"
+        );
         let good = generate().unwrap().seed;
         assert_eq!(checked_seed(Some(format!(" {good}\n"))).unwrap(), good);
     }
@@ -155,11 +162,23 @@ mod tests {
     #[test]
     fn errors_never_repeat_a_seed() {
         let seed = generate().unwrap().seed;
-        let error = check_public_key(&seed).unwrap_err().to_string();
-        assert!(!error.contains(&seed));
+        let error = check_public_key(&seed).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::PublicKeyInvalid)
+            ),
+            "{error:#}"
+        );
         let wrong = KeyPair::new_account().seed().unwrap();
-        let error = public_key_of(&wrong).unwrap_err().to_string();
-        assert!(!error.contains(&wrong));
+        let error = public_key_of(&wrong).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::SeedNotUser)
+            ),
+            "{error:#}"
+        );
     }
 
     #[test]
@@ -175,12 +194,31 @@ mod tests {
     #[test]
     fn a_bad_seed_is_refused_without_showing_it() {
         let account = KeyPair::new_account().seed().unwrap();
-        for bad in ["", "  ", "SUNOTAREALSEED", account.as_str()] {
-            let error = format!("{:#}", Seed::parse(bad).unwrap_err());
-            assert!(error.contains("bus seed"), "{error}");
-            if !bad.trim().is_empty() {
-                assert!(!error.contains(bad), "{error}");
-            }
+        for empty in ["", "  "] {
+            let error = Seed::parse(empty).unwrap_err();
+            assert!(
+                matches!(
+                    error.downcast_ref::<AgentBusError>(),
+                    Some(AgentBusError::BusSeedEmpty)
+                ),
+                "{error:#}"
+            );
         }
+        let error = Seed::parse("SUNOTAREALSEED").unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::BusSeedInvalid)
+            ),
+            "{error:#}"
+        );
+        let error = Seed::parse(&account).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::BusSeedNotUser)
+            ),
+            "{error:#}"
+        );
     }
 }

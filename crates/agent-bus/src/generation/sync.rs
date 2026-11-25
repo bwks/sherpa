@@ -32,6 +32,7 @@ use jiff::Timestamp;
 use serde::Deserialize;
 use tracing::instrument;
 
+use crate::error::AgentBusError;
 use crate::files::millis;
 use crate::generation::section::{Rows, hand_written, read, section_of, update_body};
 use crate::gh::{GH, GH_TOKEN_VARIABLE, gh_command, run, stderr};
@@ -147,7 +148,7 @@ impl Synced {
 ///
 /// # Errors
 ///
-/// Fails when the record is busy for longer than `wait` (`Busy`) or cannot be read, or `--pr`
+/// Fails when the record is busy for longer than `wait` (`AgentBusError::RecordBusy`) or cannot be read, or `--pr`
 /// names a pull request no item has. A pull request that cannot be written is an outcome, not
 /// an error.
 #[instrument(skip_all, fields(scope = ?request.scope, force = request.force))]
@@ -171,10 +172,10 @@ pub async fn sync(
     if let Scope::One { repo, number } = &request.scope
         && looked_at.is_empty()
     {
-        bail!(
-            "No work item has pull request {repo}#{number}: link a task to it with `link <task> \
-             --pr {number}`"
-        );
+        bail!(AgentBusError::NoWorkItem {
+            repo: repo.clone(),
+            number: *number,
+        });
     }
     let mut synced = Synced::default();
     let mut due = Vec::new();
@@ -450,7 +451,7 @@ mod tests {
         Ended, Kind, Message, ModelUsage, PullRequestRef, RefKind, TaskUsage, Usage, Work, WorkRef,
     };
     use crate::price::Tokens;
-    use crate::record::{Busy, LOCK_WAIT};
+    use crate::record::LOCK_WAIT;
     use crate::store::host::{Focus, add_focus, attribute, keep_prompt, keep_response};
     use crate::store::{Recorded, Ref, link, record, ref_item};
 
@@ -1021,7 +1022,13 @@ duration_api_ms = 0
         let error = sync(&bench.paths, &request, &bench.github, LOCK_WAIT, later)
             .await
             .unwrap_err();
-        assert!(error.to_string().contains("o/r#8"), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::NoWorkItem { repo, number: 8 }) if repo == REPO
+            ),
+            "{error:#}"
+        );
         // New activity on an item makes its pull request due.
         bench.message(&task("t2"), later + MINUTE).await;
         bench.outcome("t2", 1, 0.25, later + MINUTE, &[7]).await;
@@ -1051,7 +1058,13 @@ duration_api_ms = 0
         .await
         .err()
         .unwrap();
-        assert!(error.downcast_ref::<Busy>().is_some(), "{error:#}");
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::RecordBusy { .. })
+            ),
+            "{error:#}"
+        );
         drop(held);
         assert_eq!(bench.calls(), Vec::<String>::new());
     }

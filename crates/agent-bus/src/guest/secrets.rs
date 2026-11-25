@@ -20,6 +20,7 @@ use anyhow::{Context, Result, bail};
 use tracing::instrument;
 
 use super::github::{REDACTED, WriteToken};
+use crate::error::AgentBusError;
 use crate::keys::{SEED_VARIABLE, Seed};
 
 /// The variable Claude Code takes the subscription token from.
@@ -58,15 +59,13 @@ impl ClaudeToken {
     pub fn parse(line: &str) -> Result<Self> {
         let line = line.trim_end_matches(['\n', '\r']);
         if line.is_empty() {
-            bail!("The Claude subscription token is empty");
+            bail!(AgentBusError::ClaudeTokenEmpty);
         }
         if line.starts_with("SU") || line.starts_with("github_pat_") || line.starts_with("gh") {
-            bail!(
-                "The Claude subscription token line holds another secret: start the agent with a start-guest.sh of this version"
-            );
+            bail!(AgentBusError::ClaudeTokenHoldsAnotherSecret);
         }
         if !line.bytes().all(|byte| byte.is_ascii_graphic()) {
-            bail!("The Claude subscription token has spaces or control characters");
+            bail!(AgentBusError::ClaudeTokenNotPrintable);
         }
         Ok(Self(line.to_owned()))
     }
@@ -127,12 +126,11 @@ impl Secrets {
 /// Fails when the input cannot be read, or a line is missing, too long or not what it should be.
 #[instrument(level = "debug", skip_all)]
 pub fn read_secrets(mut input: impl BufRead) -> Result<Secrets> {
-    let claude = ClaudeToken::parse(&read_line(&mut input)?)
-        .context("The first line on stdin must be the Claude subscription token")?;
-    let write_token = WriteToken::parse(&read_line(&mut input)?)
-        .context("The second line on stdin must be the GitHub write token, or empty for none")?;
-    let seed = Seed::parse(&read_line(&mut input)?)
-        .context("The third line on stdin must be the agent's bus seed")?;
+    let claude =
+        ClaudeToken::parse(&read_line(&mut input)?).context(AgentBusError::ClaudeTokenLine)?;
+    let write_token =
+        WriteToken::parse(&read_line(&mut input)?).context(AgentBusError::WriteTokenLine)?;
+    let seed = Seed::parse(&read_line(&mut input)?).context(AgentBusError::SeedLine)?;
     Ok(Secrets::new(claude, write_token, seed))
 }
 
@@ -162,10 +160,7 @@ pub(super) fn refuse_in_environment(seed: Option<&OsStr>, claude: Option<&OsStr>
         .filter_map(|(name, value)| value.map(|_| name))
         .collect();
     if !set.is_empty() {
-        bail!(
-            "{} must not be in the guest agent's environment, where every task could read it: the agent reads its secrets from stdin. Start it with dev/agent-bus/start-guest.sh",
-            set.join(" and ")
-        );
+        bail!(AgentBusError::SecretsInEnvironment { variables: set });
     }
     Ok(())
 }
@@ -175,6 +170,7 @@ mod tests {
     use super::*;
 
     use std::io::Cursor;
+    use std::mem::discriminant;
 
     use crate::keys::generate;
 
@@ -210,21 +206,63 @@ mod tests {
     #[test]
     fn missing_or_misordered_lines_are_refused_without_showing_a_secret() {
         let seed = generate().unwrap().seed;
-        for (text, expected) in [
-            (String::new(), "first line"),
-            (format!("{CLAUDE}\n"), "third line"),
-            (format!("{CLAUDE}\n{WRITE}\n"), "third line"),
-            (format!("{CLAUDE}\n{seed}\n"), "second line"),
-            (format!("{seed}\n{WRITE}\n{seed}\n"), "first line"),
-            (format!("{WRITE}\n\n{seed}\n"), "first line"),
-            (format!("{CLAUDE}\n{WRITE}\n{CLAUDE}\n"), "third line"),
-            (format!("{CLAUDE} x\n\n{seed}\n"), "first line"),
+        for (text, line, cause) in [
+            (
+                String::new(),
+                AgentBusError::ClaudeTokenLine,
+                AgentBusError::ClaudeTokenEmpty,
+            ),
+            (
+                format!("{CLAUDE}\n"),
+                AgentBusError::SeedLine,
+                AgentBusError::BusSeedEmpty,
+            ),
+            (
+                format!("{CLAUDE}\n{WRITE}\n"),
+                AgentBusError::SeedLine,
+                AgentBusError::BusSeedEmpty,
+            ),
+            (
+                format!("{CLAUDE}\n{seed}\n"),
+                AgentBusError::WriteTokenLine,
+                AgentBusError::WriteTokenInvalid,
+            ),
+            (
+                format!("{seed}\n{WRITE}\n{seed}\n"),
+                AgentBusError::ClaudeTokenLine,
+                AgentBusError::ClaudeTokenHoldsAnotherSecret,
+            ),
+            (
+                format!("{WRITE}\n\n{seed}\n"),
+                AgentBusError::ClaudeTokenLine,
+                AgentBusError::ClaudeTokenHoldsAnotherSecret,
+            ),
+            (
+                format!("{CLAUDE}\n{WRITE}\n{CLAUDE}\n"),
+                AgentBusError::SeedLine,
+                AgentBusError::BusSeedInvalid,
+            ),
+            (
+                format!("{CLAUDE} x\n\n{seed}\n"),
+                AgentBusError::ClaudeTokenLine,
+                AgentBusError::ClaudeTokenNotPrintable,
+            ),
         ] {
-            let error = format!("{:#}", read_secrets(Cursor::new(text)).unwrap_err());
-            assert!(error.contains(expected), "{error}");
-            for secret in [CLAUDE, WRITE, seed.as_str()] {
-                assert!(!error.contains(secret), "{error}");
-            }
+            let error = read_secrets(Cursor::new(text)).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<AgentBusError>().map(discriminant),
+                Some(discriminant(&line)),
+                "{error:#}"
+            );
+            assert_eq!(
+                error
+                    .root_cause()
+                    .downcast_ref::<AgentBusError>()
+                    .map(discriminant),
+                Some(discriminant(&cause)),
+                "{error:#}"
+            );
+            assert_eq!(error.chain().count(), 2, "{error:#}");
         }
     }
 
@@ -276,14 +314,15 @@ mod tests {
             ),
             (Some(""), None, vec![SEED_VARIABLE]),
         ] {
-            let error = refuse_in_environment(seed.map(OsStr::new), claude.map(OsStr::new))
-                .unwrap_err()
-                .to_string();
-            for name in names {
-                assert!(error.contains(name), "{error}");
-            }
-            assert!(!error.contains("SUSECRET"), "{error}");
-            assert!(!error.contains("sk-secret"), "{error}");
+            let error =
+                refuse_in_environment(seed.map(OsStr::new), claude.map(OsStr::new)).unwrap_err();
+            assert!(
+                matches!(
+                    error.downcast_ref::<AgentBusError>(),
+                    Some(AgentBusError::SecretsInEnvironment { variables }) if *variables == names
+                ),
+                "{error:#}"
+            );
         }
     }
 }

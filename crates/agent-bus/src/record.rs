@@ -18,8 +18,6 @@
 //! it within `LOCK_WAIT` fails naming that PID. When the bus cannot be reached, or the host's
 //! seed is missing, the command answers from what is recorded and says it did not catch up.
 
-use std::error;
-use std::fmt;
 use std::io::{Stderr, stderr};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -30,6 +28,7 @@ use tracing::{debug, instrument};
 use turso::Connection;
 
 use crate::channel::{Channel, Delivery, DropReason, Endpoint, Inbox, Position, Received};
+use crate::error::AgentBusError;
 use crate::files::FileLock;
 use crate::files::record_lock::{lock_holder, try_lock_exclusive};
 use crate::store::{self, Recorded, Store, record};
@@ -60,10 +59,6 @@ pub struct Paths {
     pub lock: PathBuf,
     pub host_status: PathBuf,
 }
-
-/// The record is held by another process for longer than a command waits.
-#[derive(Debug)]
-pub struct Busy(String);
 
 /// What catching up from the bus needs: where it is, and the host's seed.
 pub struct BusAccess {
@@ -108,14 +103,6 @@ impl Paths {
     }
 }
 
-impl fmt::Display for Busy {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
-
-impl error::Error for Busy {}
-
 impl Record {
     /// Open the record at `paths` for one command, caught up from the bus through `access`, with
     /// `home_repo` the host's repository for the branch of an outcome's parsed Generation line,
@@ -125,7 +112,7 @@ impl Record {
     ///
     /// # Errors
     ///
-    /// Fails with `Busy` when another process holds the record for longer than `wait`, or when
+    /// Fails with `AgentBusError::RecordBusy` when another process holds the record for longer than `wait`, or when
     /// the record cannot be opened.
     #[instrument(skip_all, fields(record = %paths.record.display()))]
     pub async fn open(
@@ -166,7 +153,7 @@ impl Record {
     ///
     /// # Errors
     ///
-    /// Fails with `Busy` when another process holds the record for longer than `wait`, or when
+    /// Fails with `AgentBusError::RecordBusy` when another process holds the record for longer than `wait`, or when
     /// the record cannot be opened.
     #[instrument(skip_all, fields(record = %paths.record.display()))]
     pub async fn open_recorded(paths: &Paths, wait: Duration) -> Result<Self> {
@@ -222,16 +209,11 @@ async fn lock_within(path: &Path, wait: Duration) -> Result<FileLock> {
             return Ok(lock);
         }
         if Instant::now() >= deadline {
-            let holder = lock_holder(path).map_or_else(
-                || "another process".to_owned(),
-                |pid| format!("process {pid}"),
-            );
-            return Err(Busy(format!(
-                "The record is busy: {holder} has held {} for more than {}s. A command holds \
-                 it only while it catches up and reads; if that process is stuck, stop it",
-                path.display(),
-                wait.as_secs_f32()
-            ))
+            return Err(AgentBusError::RecordBusy {
+                holder: lock_holder(path),
+                path: path.to_owned(),
+                wait,
+            }
             .into());
         }
         sleep(LOCK_RETRY).await;
@@ -399,7 +381,9 @@ mod tests {
     }
 
     fn no_bus() -> Result<BusAccess> {
-        bail!("no bus in this test")
+        bail!(AgentBusError::NoServer {
+            record: PathBuf::from("bus.toml")
+        })
     }
 
     async fn record_one(path: &Path, task: &str) {
@@ -447,13 +431,19 @@ mod tests {
             .unwrap();
         assert_eq!(tasks(&record).await, ["t1"]);
         assert!(
-            matches!(record.catch_up(), CatchUp::Failed(error) if error.to_string().contains("no bus")),
+            matches!(
+                record.catch_up(),
+                CatchUp::Failed(error) if matches!(
+                    error.downcast_ref::<AgentBusError>(),
+                    Some(AgentBusError::NoServer { .. })
+                )
+            ),
             "{:?}",
             record.catch_up()
         );
         let warning = record.behind().unwrap();
         assert!(warning.contains("not caught up"), "{warning}");
-        assert!(warning.contains("no bus"), "{warning}");
+        assert!(warning.contains("No bus"), "{warning}");
 
         // An unreachable bus is the same: its CA is missing, so it is not even dialled.
         let unreachable = BusAccess {
@@ -504,12 +494,17 @@ mod tests {
         let elapsed = started.elapsed();
         assert!(elapsed >= wait, "gave up after {elapsed:?}");
         assert!(elapsed < wait * 5, "waited {elapsed:?}");
-        let error = format!("{error:#}");
-        assert!(
-            error.contains(&format!("process {}", process::id())),
-            "{error}"
-        );
-        assert!(error.contains("record.lock"), "{error}");
+        let Some(AgentBusError::RecordBusy {
+            holder,
+            path,
+            wait: waited,
+        }) = error.downcast_ref::<AgentBusError>()
+        else {
+            panic!("not a busy record: {error:#}");
+        };
+        assert_eq!(*holder, Some(process::id()));
+        assert_eq!(path, &paths.lock);
+        assert_eq!(*waited, wait);
         drop(held);
         fs::remove_dir_all(&dir).unwrap();
     }

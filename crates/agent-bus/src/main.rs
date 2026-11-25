@@ -18,6 +18,7 @@ mod agents;
 mod bus;
 mod channel;
 mod config;
+mod error;
 mod files;
 #[cfg(feature = "record")]
 mod generation;
@@ -60,6 +61,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use agents::Role;
 use bus::Bus;
 use channel::{Channel, Endpoint, RECORDER};
+use error::AgentBusError;
 use files::now_ms;
 use keys::seed_from_environment;
 use message::{Kind, Message, RefKind, Work, WorkRef, check_agent_name, check_repo, new_task_id};
@@ -495,9 +497,7 @@ fn work_tags(
         return Ok(None);
     }
     let Some(repo) = repo else {
-        bail!(
-            "Give the repository of --issue and --pr with --repo or {REPO_ENV}, such as bwks/sherpa"
-        );
+        bail!(AgentBusError::RepoUnset);
     };
     check_repo(repo)?;
     let tag = |kind: RefKind, number: &u64| WorkRef {
@@ -634,7 +634,7 @@ mod tests {
 
     use anyhow::{Context, ensure};
     use bollard::query_parameters::RemoveVolumeOptions;
-    use clap::error::ErrorKind;
+    use clap::error::{ContextKind, ContextValue, ErrorKind};
     use container::{docker_connection, remove_container};
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
@@ -716,18 +716,28 @@ mod tests {
     fn an_answer_refuses_a_model() {
         let error = send(&["--answer", "t1", "--model", "opus"]).err().unwrap();
         assert_eq!(error.kind(), ErrorKind::ArgumentConflict);
-        let text = error.to_string();
-        assert!(text.contains("--answer"), "{text}");
-        assert!(text.contains("--model"), "{text}");
+        assert_eq!(
+            error.get(ContextKind::InvalidArg),
+            Some(&ContextValue::String("--answer <ANSWER>".to_owned()))
+        );
+        assert_eq!(
+            error.get(ContextKind::PriorArg),
+            Some(&ContextValue::String("--model <MODEL>".to_owned()))
+        );
     }
 
     #[test]
     fn an_answer_refuses_github() {
         let error = send(&["--answer", "t1", "--github"]).err().unwrap();
         assert_eq!(error.kind(), ErrorKind::ArgumentConflict);
-        let text = error.to_string();
-        assert!(text.contains("--answer"), "{text}");
-        assert!(text.contains("--github"), "{text}");
+        assert_eq!(
+            error.get(ContextKind::InvalidArg),
+            Some(&ContextValue::String("--answer <ANSWER>".to_owned()))
+        );
+        assert_eq!(
+            error.get(ContextKind::PriorArg),
+            Some(&ContextValue::String("--github".to_owned()))
+        );
     }
 
     #[test]
@@ -775,7 +785,13 @@ mod tests {
             None
         );
         let error = work_tags(&[580], &[], None, None).unwrap_err();
-        assert!(error.to_string().contains(REPO_ENV), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::RepoUnset)
+            ),
+            "{error:#}"
+        );
         assert!(work_tags(&[580], &[], Some("not a repo"), None).is_err());
         let work = work_tags(&[580], &[612], Some("o/r"), Some("sess".to_owned()))
             .unwrap()

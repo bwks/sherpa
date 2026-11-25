@@ -14,11 +14,12 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use nix::errno::Errno;
 use nix::fcntl::{Flock, FlockArg};
 use tracing::instrument;
 
+use crate::error::AgentBusError;
 use crate::files::{PRIVATE_FILE_MODE, private_dir};
 
 /// The held lock. Dropping it releases it.
@@ -51,14 +52,12 @@ impl InstanceLock {
         let mut lock = match Flock::lock(file, FlockArg::LockExclusiveNonblock) {
             Ok(lock) => lock,
             Err((_, Errno::EWOULDBLOCK)) => {
-                let holder = fs::read_to_string(path)
-                    .ok()
-                    .and_then(|text| text.trim().parse::<u32>().ok())
-                    .map_or_else(|| "another process".to_owned(), |pid| format!("PID {pid}"));
-                return Err(anyhow!(
-                    "Another guest agent of this name is running ({holder} holds {}): stop it first",
-                    path.display()
-                ));
+                bail!(AgentBusError::GuestRunning {
+                    holder: fs::read_to_string(path)
+                        .ok()
+                        .and_then(|text| text.trim().parse::<u32>().ok()),
+                    path: path.to_owned(),
+                });
             }
             Err((_, errno)) => {
                 return Err(anyhow!(errno).context(format!("Unable to lock {}", path.display())));
@@ -106,9 +105,15 @@ mod tests {
             format!("{}\n", process::id())
         );
         // flock is per open file, so a second open in this process conflicts too.
-        let error = InstanceLock::acquire(&path).unwrap_err().to_string();
-        assert!(error.contains(&format!("PID {}", process::id())), "{error}");
-        assert!(error.contains("guest-dev.lock"), "{error}");
+        let error = InstanceLock::acquire(&path).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::GuestRunning { holder, path: held })
+                    if *holder == Some(process::id()) && *held == path
+            ),
+            "{error:#}"
+        );
         drop(lock);
         let again = InstanceLock::acquire(&path).unwrap();
         drop(again);
@@ -139,8 +144,15 @@ mod tests {
             thread::sleep(Duration::from_millis(50));
         }
         assert!(held.exists(), "the shell never took the lock");
-        let error = InstanceLock::acquire(&path).unwrap_err().to_string();
-        assert!(error.contains(&format!("PID {}", holder.id())), "{error}");
+        let error = InstanceLock::acquire(&path).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::GuestRunning { holder: pid, path: held })
+                    if *pid == Some(holder.id()) && *held == path
+            ),
+            "{error:#}"
+        );
         // SIGKILL: no clean-up runs and the file stays, but the kernel drops the lock.
         holder.kill().unwrap();
         holder.wait().unwrap();

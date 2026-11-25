@@ -10,10 +10,11 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result, anyhow, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
+use crate::error::AgentBusError;
 use crate::keys::check_public_key;
 use crate::message::check_agent_name;
 
@@ -71,10 +72,12 @@ pub fn parse_error(what: &str, text: &str, error: &toml::de::Error) -> anyhow::E
             }
         })
         .collect::<Vec<_>>();
-    anyhow!(
-        "Unable to parse {what} at line {line}: {}",
-        message.join(" ")
-    )
+    AgentBusError::Unparsable {
+        what: what.to_owned(),
+        line,
+        message: message.join(" "),
+    }
+    .into()
 }
 
 /// Check every entry's name and key, and that no name or key is used twice. Every agent has its
@@ -89,8 +92,9 @@ pub fn check_entries<'a>(agents: impl IntoIterator<Item = &'a Agent>) -> Result<
     let mut keys = HashSet::new();
     for agent in agents {
         check_agent_name(&agent.name)?;
-        check_public_key(&agent.key)
-            .with_context(|| format!("The key of agent '{}' is not valid", agent.name))?;
+        check_public_key(&agent.key).with_context(|| AgentBusError::AgentKeyInvalid {
+            agent: agent.name.clone(),
+        })?;
         ensure!(
             names.insert(agent.name.as_str()),
             "Agent '{}' is listed twice",
@@ -98,8 +102,9 @@ pub fn check_entries<'a>(agents: impl IntoIterator<Item = &'a Agent>) -> Result<
         );
         ensure!(
             keys.insert(agent.key.as_str()),
-            "Agent '{}' uses the key of another agent; every agent needs its own key",
-            agent.name
+            AgentBusError::KeyShared {
+                agent: agent.name.clone()
+            }
         );
     }
     Ok(())
@@ -222,22 +227,27 @@ role = "{role}"
             entry("host", &shared, "host"),
         ]
         .concat();
-        let error = format!("{:#}", Agents::parse(&with_host).unwrap_err());
+        let error = Agents::parse(&with_host).unwrap_err();
         assert!(
-            error.contains("'host' uses the key of another agent"),
-            "{error}"
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::KeyShared { agent }) if agent == "host"
+            ),
+            "{error:#}"
         );
-        assert!(!error.contains(&shared));
         let guests = [
             entry("host", &key(), "host"),
             entry("dev", &shared, "guest"),
             entry("agent-2", &shared, "guest"),
         ]
         .concat();
-        let error = format!("{:#}", Agents::parse(&guests).unwrap_err());
+        let error = Agents::parse(&guests).unwrap_err();
         assert!(
-            error.contains("'agent-2' uses the key of another agent"),
-            "{error}"
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::KeyShared { agent }) if agent == "agent-2"
+            ),
+            "{error:#}"
         );
     }
 
@@ -251,14 +261,36 @@ role = "{role}"
     fn a_seed_in_the_file_is_refused_and_never_repeated() {
         let seed = generate().unwrap().seed;
         let in_key = [entry("host", &key(), "host"), entry("dev", &seed, "guest")].concat();
-        let error = format!("{:#}", Agents::parse(&in_key).unwrap_err());
-        assert!(!error.contains(&seed));
+        let error = Agents::parse(&in_key).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::AgentKeyInvalid { agent }) if agent == "dev"
+            ),
+            "{error:#}"
+        );
+        assert!(
+            matches!(
+                error.root_cause().downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::PublicKeyInvalid)
+            ),
+            "{error:#}"
+        );
         let extra = format!(
             r#"{}seed = "{seed}"
 "#,
             entry("host", &key(), "host")
         );
-        let error = format!("{:#}", Agents::parse(&extra).unwrap_err());
-        assert!(!error.contains(&seed));
+        let error = Agents::parse(&extra).unwrap_err();
+        let Some(AgentBusError::Unparsable {
+            what,
+            line,
+            message,
+        }) = error.downcast_ref::<AgentBusError>()
+        else {
+            panic!("not a parse error: {error:#}");
+        };
+        assert_eq!((what.as_str(), *line), ("the agents file", 5));
+        assert!(!message.contains(&seed), "{message}");
     }
 }

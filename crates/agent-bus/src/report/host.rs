@@ -16,11 +16,12 @@ use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 use shared::util::{TableLayout, render_table};
 
+use crate::error::AgentBusError;
 use crate::files::{PRIVATE_FILE_MODE, now_ms, standard_state_dir, write_atomic};
 use crate::generation::sync::{Request as SyncRequest, Scope};
 use crate::host::hook::{Exit, project, read_input};
 use crate::host::import::{Imported, Options, import};
-use crate::record::{BusAccess, Busy, HOOK_LOCK_WAIT, LOCK_WAIT, Paths, Record};
+use crate::record::{BusAccess, HOOK_LOCK_WAIT, LOCK_WAIT, Paths, Record};
 use crate::report::generation::sync_now;
 use crate::report::history::utc_minute;
 use crate::store::host::{Totals, TranscriptRow, totals, transcripts};
@@ -213,7 +214,14 @@ pub async fn hook(
     };
     let mut record = match Record::open(paths, access, home_repo, HOOK_LOCK_WAIT).await {
         Ok(record) => record,
-        Err(error) if error.downcast_ref::<Busy>().is_some() => return Exit::Done,
+        Err(error)
+            if matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::RecordBusy { .. })
+            ) =>
+        {
+            return Exit::Done;
+        }
         Err(error) => return fail(error),
     };
     if let Some(warning) = record.behind() {
