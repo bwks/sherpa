@@ -12,7 +12,7 @@ use std::fmt;
 
 use anyhow::{Result, bail};
 
-use crate::gh::GH_TOKEN_VARIABLE;
+use crate::error::AgentBusError;
 
 /// What the write token is replaced with in text the agent sends or records.
 pub(super) const REDACTED: &str = "[GitHub write token]";
@@ -53,7 +53,7 @@ impl WriteToken {
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
         {
-            bail!("The GitHub write token is not a GitHub token (github_pat_..., ghp_...)");
+            bail!(AgentBusError::WriteTokenInvalid);
         }
         Ok(Some(Self(line.to_owned())))
     }
@@ -84,9 +84,7 @@ pub(super) fn check_environment(
     if let (Some(environment), Some(token)) = (environment, token)
         && environment == OsStr::new(token.expose())
     {
-        bail!(
-            "{GH_TOKEN_VARIABLE} in the guest agent's environment is the GitHub write token, so every task would have it: give the guest the read-only token in ~/.env.d/github.env"
-        );
+        bail!(AgentBusError::WriteTokenInEnvironment);
     }
     Ok(())
 }
@@ -110,8 +108,14 @@ mod tests {
             "ghp_semi;colon",
             "-----BEGIN CERTIFICATE-----",
         ] {
-            let error = format!("{:#}", WriteToken::parse(line).unwrap_err());
-            assert!(!error.contains(line), "{error}");
+            let error = WriteToken::parse(line).unwrap_err();
+            assert!(
+                matches!(
+                    error.downcast_ref::<AgentBusError>(),
+                    Some(AgentBusError::WriteTokenInvalid)
+                ),
+                "{error:#}"
+            );
         }
     }
 
@@ -132,9 +136,13 @@ mod tests {
     fn the_write_token_must_not_be_the_agents_own_gh_token() {
         let token = token();
         let error = check_environment(Some(OsStr::new(TOKEN)), Some(&token)).unwrap_err();
-        let error = format!("{error:#}");
-        assert!(error.contains("read-only token"), "{error}");
-        assert!(!error.contains(TOKEN), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::WriteTokenInEnvironment)
+            ),
+            "{error:#}"
+        );
         check_environment(Some(OsStr::new("github_pat_readonly")), Some(&token)).unwrap();
         check_environment(None, Some(&token)).unwrap();
         check_environment(Some(OsStr::new(TOKEN)), None).unwrap();

@@ -7,9 +7,10 @@ use anyhow::Result;
 use clap::Subcommand;
 use tracing::instrument;
 
+use crate::error::AgentBusError;
 use crate::files::{now_ms, standard_state_dir};
 use crate::generation::sync::{Github, Outcome, Request, Scope, Synced, sync};
-use crate::record::{Busy, HOOK_LOCK_WAIT, Paths};
+use crate::record::{HOOK_LOCK_WAIT, Paths};
 use crate::repo_or_environment;
 
 /// What `generation` does.
@@ -70,7 +71,12 @@ pub async fn sync_now(
             }
             Ok(())
         }
-        Err(error) if error.downcast_ref::<Busy>().is_some() => {
+        Err(error)
+            if matches!(
+                error.downcast_ref::<AgentBusError>(),
+                Some(AgentBusError::RecordBusy { .. })
+            ) =>
+        {
             eprintln!("Generation sections not synced: {error:#}");
             Ok(())
         }
