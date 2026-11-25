@@ -138,14 +138,8 @@ pub(crate) fn resume_credential<'a>(
             ServiceError::Invalid("Tailscale enrollment requires server TLS".to_owned()).into(),
         );
     }
-    let key = key.ok_or_else(|| {
-        let variable = auth_key_env.map_or_else(
-            || "the variable named by tailscale.auth_key_env".to_owned(),
-            |name| format!("'{name}'"),
-        );
-        ServiceError::Invalid(format!(
-            "The lab's Tailscale gateway is not connected, so resuming it needs an auth key; run sherpa resume in the lab folder with {variable} set"
-        ))
+    let key = key.ok_or_else(|| ServiceError::ResumeNeedsAuthKey {
+        auth_key_env: auth_key_env.map(str::to_owned),
     })?;
     validate_tailscale_key(key.expose())
         .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
@@ -211,11 +205,14 @@ mod tests {
             TailnetState::NeedsAuthentication,
             TailnetState::Unavailable,
         ] {
-            let refused = resume_credential(Some(&state), Some("LAB_KEY"), true, None, true)
-                .unwrap_err()
-                .to_string();
-            assert!(refused.contains("'LAB_KEY'"), "{refused}");
-            assert!(refused.contains("sherpa resume"), "{refused}");
+            let refused =
+                resume_credential(Some(&state), Some("LAB_KEY"), true, None, true).unwrap_err();
+            assert_eq!(
+                refused.downcast_ref::<ServiceError>(),
+                Some(&ServiceError::ResumeNeedsAuthKey {
+                    auth_key_env: Some("LAB_KEY".to_owned())
+                })
+            );
             assert!(resume_credential(Some(&state), None, true, Some(&key), false).is_err());
             assert!(resume_credential(Some(&state), None, true, Some(&invalid), true).is_err());
             assert!(

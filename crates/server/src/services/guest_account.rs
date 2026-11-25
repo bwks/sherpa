@@ -6,6 +6,7 @@
 //! takes the keys only: it has no hashed form, and its config is served over TFTP, so its
 //! template locks the owner and `admin` instead.
 use std::collections::HashSet;
+use std::fmt;
 
 use anyhow::{Context, Result, bail};
 use ssh_key::{Algorithm, PublicKey};
@@ -13,9 +14,7 @@ use tracing::instrument;
 
 use db::DevicePassword;
 use shared::data::{DbUser, NodeConfig, NodeKind, NodeModel, OwnerSshKey, OwnerUser, Ztp};
-use shared::konst::{
-    DEVICE_PASSWORD_DOCS_URL, NODE_CLOUD_INIT_SUDO_RULE, RESERVED_USERNAMES, SSH_KEYS_DOCS_URL,
-};
+use shared::konst::{NODE_CLOUD_INIT_SUDO_RULE, RESERVED_USERNAMES};
 use shared::util::{
     base64_encode, base64_encode_bytes, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
 };
@@ -56,7 +55,7 @@ pub(crate) struct NodeAccount {
 
 /// The SSH key types a lab node can take for a login.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum KeyType {
+pub enum KeyType {
     Ed25519,
     Ecdsa,
     Rsa,
@@ -185,21 +184,24 @@ fn key_type(algorithm: &Algorithm) -> Option<KeyType> {
     }
 }
 
-/// The `ssh-keygen` command that makes a key of `key_type`.
-fn keygen_command(key_type: KeyType) -> &'static str {
-    match key_type {
-        KeyType::Ed25519 => "ssh-keygen -t ed25519",
-        KeyType::Ecdsa => "ssh-keygen -t ecdsa -b 256",
-        KeyType::Rsa => "ssh-keygen -t rsa -b 4096",
+impl KeyType {
+    /// The `ssh-keygen` command that makes a key of this type.
+    pub fn keygen_command(self) -> &'static str {
+        match self {
+            Self::Ed25519 => "ssh-keygen -t ed25519",
+            Self::Ecdsa => "ssh-keygen -t ecdsa -b 256",
+            Self::Rsa => "ssh-keygen -t rsa -b 4096",
+        }
     }
 }
 
-/// The name of `key_type` in messages.
-fn key_type_name(key_type: KeyType) -> &'static str {
-    match key_type {
-        KeyType::Ed25519 => "Ed25519",
-        KeyType::Ecdsa => "ECDSA",
-        KeyType::Rsa => "RSA",
+impl fmt::Display for KeyType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Ed25519 => "Ed25519",
+            Self::Ecdsa => "ECDSA",
+            Self::Rsa => "RSA",
+        })
     }
 }
 
@@ -251,20 +253,17 @@ pub(crate) fn node_account(
     if let AcceptedKeys::Only(types) = accepted
         && ssh_keys.is_empty()
     {
-        let names: Vec<&str> = types.iter().copied().map(key_type_name).collect();
         let Some(preferred) = types.first() else {
             bail!("Model '{}' accepts no SSH key types", image.model);
         };
-        let size_limit = max_rsa_bits.map_or_default(|max| format!(", of {max} bits or less"));
-        return Err(ServiceError::Conflict(format!(
-            "Node '{node_name}' ({model_kind}) takes {} SSH keys only{size_limit}, and none of \
-             the keys registered for '{}' is one. Make one with '{}', then add the public key on the \
-             web UI Profile page or with 'sherpa server user ssh-key add'. See {SSH_KEYS_DOCS_URL}",
-            names.join(" or "),
-            account.username,
-            keygen_command(*preferred)
-        ))
-        .into());
+        bail!(ServiceError::NoAcceptedSshKey {
+            node: node_name.to_owned(),
+            model_kind,
+            accepted: types,
+            preferred: *preferred,
+            max_rsa_bits,
+            username: account.username.clone(),
+        });
     }
 
     Ok(NodeAccount {
@@ -391,12 +390,9 @@ fn junos_key_kind(algorithm: &Algorithm) -> Result<&'static str> {
 #[instrument(level = "debug", skip(user), fields(username = %user.username))]
 pub(crate) fn require_ssh_key(user: &DbUser) -> Result<()> {
     if user.ssh_keys.is_empty() {
-        return Err(ServiceError::Conflict(format!(
-            "User '{}' has no SSH public key registered, and labs need one. Add a key on the web UI \
-             Profile page or with 'sherpa server user ssh-key add'. See {SSH_KEYS_DOCS_URL}",
-            user.username
-        ))
-        .into());
+        bail!(ServiceError::NoSshKey {
+            username: user.username.clone(),
+        });
     }
     Ok(())
 }
@@ -419,12 +415,9 @@ pub(crate) async fn require_device_password(
         .await
         .context("Failed to read the device password")?
         .ok_or_else(|| {
-            ServiceError::Conflict(format!(
-                "User '{}' has no device password, and labs need one: it is the password of your \
-                 login on lab nodes. Set it with 'sherpa server user device-password' or on the \
-                 web UI Profile page. See {DEVICE_PASSWORD_DOCS_URL}",
-                user.username
-            ))
+            ServiceError::NoDevicePassword {
+                username: user.username.clone(),
+            }
             .into()
         })
 }
@@ -440,15 +433,12 @@ pub(crate) async fn require_device_password(
 ///
 #[instrument(level = "debug", skip(user, device_password), fields(username = %user.username))]
 pub(crate) fn from_user(user: &DbUser, device_password: DevicePassword) -> Result<GuestAccount> {
-    validate_guest_username(&user.username, RESERVED_USERNAMES)
-        .with_context(|| {
-            format!(
-                "User '{}' cannot start labs: the name cannot be a login on lab nodes. Start the lab \
-                 from another account",
-                user.username
-            )
-        })
-        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    validate_guest_username(&user.username, RESERVED_USERNAMES).map_err(|error| {
+        ServiceError::OwnerNameNotLogin {
+            username: user.username.clone(),
+            reason: format!("{error:#}"),
+        }
+    })?;
     require_ssh_key(user)?;
     let mut seen = HashSet::new();
     let mut ssh_keys = Vec::new();
@@ -741,15 +731,14 @@ pub(crate) mod tests {
             "Alice",
             "alice@example.com",
         ] {
-            let error = format!(
-                "{:#}",
-                account_of(&owner(name, vec![KEY.to_owned()])).unwrap_err()
-            );
+            let error = account_of(&owner(name, vec![KEY.to_owned()])).unwrap_err();
             assert!(
-                error.contains(&format!("User '{name}' cannot start labs")),
-                "{error}"
+                matches!(
+                    error.downcast_ref::<ServiceError>(),
+                    Some(ServiceError::OwnerNameNotLogin { username, .. }) if username == name
+                ),
+                "{error:#}"
             );
-            assert!(error.contains("cannot be a login on lab nodes"), "{error}");
         }
 
         for name in ["alice", "_a", "user-12", "a_b", &"a".repeat(32)] {
@@ -788,11 +777,13 @@ pub(crate) mod tests {
 
     #[test]
     fn starting_labs_requires_a_registered_ssh_key() {
-        let error = require_ssh_key(&owner("alice", vec![]))
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("no SSH public key"), "{error}");
-        assert!(error.contains(SSH_KEYS_DOCS_URL), "{error}");
+        let error = require_ssh_key(&owner("alice", vec![])).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::NoSshKey {
+                username: "alice".to_owned()
+            })
+        );
         assert!(require_ssh_key(&owner("alice", vec![KEY.to_owned()])).is_ok());
     }
 
@@ -807,19 +798,13 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let error = require_device_password(&db, &user)
-            .await
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.starts_with(
-                "User 'alice' has no device password, and labs need one: it is the password of \
-                 your login on lab nodes. Set it with 'sherpa server user device-password' or on \
-                 the web UI Profile page."
-            ),
-            "{error}"
+        let error = require_device_password(&db, &user).await.unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::NoDevicePassword {
+                username: "alice".to_owned()
+            })
         );
-        assert!(error.contains(DEVICE_PASSWORD_DOCS_URL), "{error}");
 
         db::set_device_password(&db, user.id.as_ref().unwrap(), DEVICE_PASSWORD)
             .await
@@ -1230,15 +1215,18 @@ pub(crate) mod tests {
     #[test]
     fn owner_login_014_a_device_without_an_accepted_key_fails_with_how_to_make_one() {
         let image = ModelKind::default_for(NodeModel::CiscoIos).node_config();
-        let error = node_account(&account(&[KEY, ECDSA_KEY]), "r1", &image)
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.contains("Node 'r1' (cisco_ios) takes RSA SSH keys only"),
-            "{error}"
+        let error = node_account(&account(&[KEY, ECDSA_KEY]), "r1", &image).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::NoAcceptedSshKey {
+                node: "r1".to_owned(),
+                model_kind: ModelKind::default_for(NodeModel::CiscoIos),
+                accepted: &[KeyType::Rsa],
+                preferred: KeyType::Rsa,
+                max_rsa_bits: Some(4096),
+                username: "alice".to_owned(),
+            })
         );
-        assert!(error.contains("'ssh-keygen -t rsa -b 4096'"), "{error}");
-        assert!(error.contains(SSH_KEYS_DOCS_URL), "{error}");
     }
 
     #[test]
@@ -1262,16 +1250,20 @@ pub(crate) mod tests {
                 "{model}"
             );
 
-            let error = node_account(&account(&[RSA_8192_KEY, KEY]), "r1", &image)
-                .unwrap_err()
-                .to_string();
+            let error = node_account(&account(&[RSA_8192_KEY, KEY]), "r1", &image).unwrap_err();
             assert!(
-                error.contains(&format!(
-                    "Node 'r1' ({model}) takes RSA SSH keys only, of 4096 bits or less, and none"
-                )),
-                "{error}"
+                matches!(
+                    error.downcast_ref::<ServiceError>(),
+                    Some(ServiceError::NoAcceptedSshKey {
+                        node,
+                        accepted: [KeyType::Rsa],
+                        preferred: KeyType::Rsa,
+                        max_rsa_bits: Some(4096),
+                        ..
+                    }) if node == "r1"
+                ),
+                "{model}: {error}"
             );
-            assert!(error.contains("'ssh-keygen -t rsa -b 4096'"), "{error}");
         }
 
         let image = ModelKind::default_for(NodeModel::CiscoIosxr9000).node_config();

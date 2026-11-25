@@ -39,7 +39,8 @@ impl BackedVolumes for Qemu {
 ///
 /// # Errors
 ///
-/// Fails with [`ServiceError::Conflict`] when a disk is built on the image, naming the disk, and
+/// Fails with [`ServiceError::ImageHasOverlay`] when a disk is built on the image, carrying the
+/// disk, and
 /// otherwise when the pool's disks or their bases cannot be read.
 #[instrument(level = "debug", skip(pool))]
 pub(crate) fn ensure_image_has_no_overlays(
@@ -48,11 +49,10 @@ pub(crate) fn ensure_image_has_no_overlays(
 ) -> Result<()> {
     let volumes = pool.backed_volumes()?;
     match libvirt::overlay_on_image(&volumes, version_dir)? {
-        Some(volume) => Err(ServiceError::Conflict(format!(
-            "Disk {} is built on the image at {}; destroy or redeploy its node first",
-            volume.name,
-            version_dir.display()
-        ))
+        Some(volume) => Err(ServiceError::ImageHasOverlay {
+            disk: volume.name.clone(),
+            image_dir: version_dir.to_owned(),
+        }
         .into()),
         None => Ok(()),
     }
@@ -302,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn image_delete_006_an_image_with_a_lab_disk_built_on_it_is_not_deleted_and_the_refusal_names_the_disk()
+    fn image_delete_006_an_image_with_a_lab_disk_built_on_it_is_not_deleted_and_the_refusal_carries_the_disk()
      {
         let root = tempdir().unwrap();
         let (version, other) = two_versions(root.path());
@@ -311,14 +311,12 @@ mod tests {
             backed("vm1-lab-hdd.qcow2", &version.join(VM_DISK_FILENAME)),
         ]));
         let error = ensure_image_has_no_overlays(&pool, &version).unwrap_err();
-        assert!(
-            matches!(ServiceError::find(&error), Some(ServiceError::Conflict(_))),
-            "{error:#}"
-        );
-        let message = error.to_string();
-        assert!(
-            message.contains("Disk vm1-lab-hdd.qcow2 is built on the image"),
-            "{message}"
+        assert_eq!(
+            ServiceError::find(&error),
+            Some(&ServiceError::ImageHasOverlay {
+                disk: "vm1-lab-hdd.qcow2".to_owned(),
+                image_dir: version.clone(),
+            })
         );
     }
 

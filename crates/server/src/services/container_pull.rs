@@ -125,11 +125,9 @@ fn pull_repo(model_kind: ModelKind, requested: Option<&str>) -> Result<String> {
         .node_config()
         .container_repo(None)
         .ok_or_else(|| {
-            ServiceError::Invalid(format!(
-                "'{}' has no built-in repo: pass --repo with the image reference and its tag \
-             (e.g. nats:2.11 or registry.io/account/image:version)",
-                model_kind.model()
-            ))
+            ServiceError::PullRepoMissing {
+                model: model_kind.model(),
+            }
             .into()
         })
 }
@@ -188,18 +186,14 @@ mod tests {
     }
 
     #[test]
-    fn image_pull_010_without_a_repo_a_model_with_no_built_in_repo_is_refused_naming_it() {
+    fn image_pull_010_without_a_repo_a_model_with_no_built_in_repo_is_refused_carrying_it() {
         let error = pull_repo(container(NodeModel::Generic), None).unwrap_err();
 
-        assert!(
-            matches!(
-                error.downcast_ref::<ServiceError>(),
-                Some(ServiceError::Invalid(_))
-            ),
-            "{error:#}"
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::PullRepoMissing {
+                model: NodeModel::Generic
+            })
         );
-        let message = error.to_string();
-        assert!(message.contains("'generic'"), "{message}");
-        assert!(message.contains("--repo"), "{message}");
     }
 }

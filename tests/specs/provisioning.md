@@ -202,7 +202,7 @@ A file removed from the manifest stays on the node. That is documented; no case 
 | 005 | Writing a node's files again replaces each one, a read-only one included, removes the ones no longer sent, and leaves no temporary file | unit |
 | 006 | A set with a bad file in it, a name that is a path, a mode that is not one, contents that are not base64, or two files of one name, changes nothing on the server | unit |
 | 007 | A redeploy that sends files replaces the node's, one that sends an empty list removes them and mounts nothing, and one that sends none, as from the web UI, keeps the files the node has | unit |
-| 008 | `sherpa provision` rewrites a container's files only when it mounts them from its own folder: a container created without secret files is refused, saying to redeploy it, and one that mounts something else there is refused | unit |
+| 008 | `sherpa provision` rewrites a container's files only when it mounts them from its own folder: a container created without secret files is refused, carrying the node, and one that mounts something else there is refused, carrying what it mounts | unit |
 | 009 | Removing a lab's secret files removes that lab's alone, and removing them when there are none is not an error | unit |
 | 010 | Secret files sent for a node that is not in the manifest, or that is not a container, are refused, carrying the node | unit |
 | 011 | At up and at redeploy a bad file is refused, carrying the node, over the file check's own error for the fault, and a set of good files is taken | unit |

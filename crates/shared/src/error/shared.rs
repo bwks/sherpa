@@ -3,7 +3,7 @@ use thiserror::Error;
 
 use crate::data::{NodeKind, NodeModel, Ztp, model_kinds_list};
 use crate::konst::{USERNAME_MAX_LENGTH, USERNAME_MIN_LENGTH};
-use crate::validators::PasswordRequirement;
+use crate::validators::{MAX_IMPAIRMENT_DELAY_MS, PasswordRequirement};
 
 /// The SSH key types the validator accepts, for its error message.
 const SUPPORTED_SSH_KEY_ALGORITHMS: &str = "ssh-ed25519, ssh-rsa, ecdsa-sha2-nistp256, \
@@ -11,10 +11,19 @@ const SUPPORTED_SSH_KEY_ALGORITHMS: &str = "ssh-ed25519, ssh-rsa, ecdsa-sha2-nis
      sk-ecdsa-sha2-nistp256@openssh.com";
 
 /// A shared check's failure that a caller tells apart from the others.
-#[derive(Debug, Clone, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Error, PartialEq)]
 pub enum SharedError {
     #[error("Unknown node model: {name}")]
     UnknownNodeModel { name: String },
+
+    #[error(
+        "Impairment {field} of {value} ms is longer than the {max} ms netem can hold",
+        max = MAX_IMPAIRMENT_DELAY_MS
+    )]
+    ImpairmentDelayTooLong { field: &'static str, value: u32 },
+
+    #[error("Impairment {field} must be between 0 and 100, not {value}")]
+    ImpairmentPercentOutOfRange { field: &'static str, value: f64 },
 
     #[error(
         "Model '{model}' has no default kind; set its kind to one of: {}",

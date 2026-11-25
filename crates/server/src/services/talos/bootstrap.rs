@@ -12,6 +12,7 @@ use shared::konst::TALOS_API_PORT;
 use template::TalosClusterSecrets;
 
 use crate::konst::READINESS_SLEEP;
+use crate::services::error::ServiceError;
 use crate::services::lab_operations::LabOperation;
 use crate::services::progress::ProgressSender;
 use crate::tls::generator::PemPair;
@@ -118,7 +119,10 @@ async fn machine_service_call(
 fn accepted(status: Option<&str>, message: Option<&str>) -> Result<()> {
     match status {
         Some(GRPC_OK) => Ok(()),
-        Some(code) => bail!("gRPC status {code}: {}", message.unwrap_or("no message")),
+        Some(code) => bail!(ServiceError::GrpcStatus {
+            code: code.to_owned(),
+            message: message.map(str::to_owned),
+        }),
         None => bail!("response had no gRPC status"),
     }
 }
@@ -128,7 +132,10 @@ fn bootstrap_outcome(status: Option<&str>, message: Option<&str>) -> Result<Boot
     match status {
         Some(GRPC_OK) => Ok(BootstrapOutcome::Bootstrapped),
         Some(GRPC_ALREADY_EXISTS) => Ok(BootstrapOutcome::AlreadyBootstrapped),
-        Some(code) => bail!("gRPC status {code}: {}", message.unwrap_or("no message")),
+        Some(code) => bail!(ServiceError::GrpcStatus {
+            code: code.to_owned(),
+            message: message.map(str::to_owned),
+        }),
         None => bail!("response had no gRPC status"),
     }
 }
@@ -255,10 +262,14 @@ mod tests {
             bootstrap_outcome(Some("6"), Some("etcd data directory is not empty")).unwrap(),
             BootstrapOutcome::AlreadyBootstrapped
         );
-        let error = bootstrap_outcome(Some("14"), Some("unavailable"))
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("14") && error.contains("unavailable"));
+        let error = bootstrap_outcome(Some("14"), Some("unavailable")).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::GrpcStatus {
+                code: "14".to_owned(),
+                message: Some("unavailable".to_owned()),
+            })
+        );
         assert!(bootstrap_outcome(None, None).is_err());
     }
 
@@ -266,10 +277,12 @@ mod tests {
     fn cluster_shutdown_005_a_shutdown_is_accepted_only_with_an_ok_status() {
         accepted(Some("0"), None).unwrap();
         let refused = accepted(Some("7"), Some("permission denied")).unwrap_err();
-        assert!(
-            refused
-                .to_string()
-                .contains("gRPC status 7: permission denied")
+        assert_eq!(
+            refused.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::GrpcStatus {
+                code: "7".to_owned(),
+                message: Some("permission denied".to_owned()),
+            })
         );
         assert!(accepted(None, None).is_err());
     }

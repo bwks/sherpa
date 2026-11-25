@@ -87,7 +87,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 003 | A gateway that was stopped reports stopped, and enrolled again reports connected (real tailnet) | integration |
 | 004 | Retired: a failed logout is now a failure of down; see 016 | — |
 | 005 | A gateway that is already stopped is neither logged out nor stopped again (mock Docker) | unit |
-| 006 | The server refuses a whole-lab resume of a lab whose gateway is not connected that has no key, naming the variable `auth_key_env` names and saying to run `sherpa resume` in the lab folder, a malformed key, or TLS off | unit |
+| 006 | The server refuses a whole-lab resume of a lab whose gateway is not connected that has no key, carrying the variable `auth_key_env` names, a malformed key, or TLS off | unit |
 | 007 | The server refuses a key sent for a lab with no gateway, and one sent with a single-node resume; without a key both go on | unit |
 | 008 | A whole-lab `sherpa resume` in a folder whose manifest enables `[tailscale]` sends the key when the variable is set, checked as up checks it: a malformed key, a server that is not `wss://` and an `insecure` connection are refused; with the variable unset it sends no key and the server decides | unit |
 | 009 | A single-node resume, and a resume in a folder with no manifest, send no key over any connection | unit |

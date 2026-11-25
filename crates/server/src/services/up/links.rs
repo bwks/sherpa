@@ -7,6 +7,7 @@ use tracing::instrument;
 
 use super::context::LabBuild;
 use crate::konst::{CONTAINER_HOST_VETH_PREFIX, TAP_PREFIX};
+use crate::services::error::ServiceError;
 use crate::services::p2p_links::{ContainerVeth, KernelHost, LinkHost, LinkWiring, attach_link};
 
 use shared::data;
@@ -141,11 +142,10 @@ pub(super) fn exited_owners<'a>(
     let mut exited = BTreeSet::new();
     for owner in owners {
         if running.contains(owner.node) {
-            bail!(
-                "P2p link end {} of node {} is gone from the host while its container runs",
-                owner.end,
-                owner.node
-            );
+            bail!(ServiceError::LinkEndGone {
+                end: owner.end.to_owned(),
+                node: owner.node.to_owned(),
+            });
         }
         exited.insert(owner.node);
     }
@@ -702,7 +702,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn p2p_link_019_an_end_gone_while_its_container_runs_fails_up_naming_the_end_and_its_node()
+    async fn p2p_link_019_an_end_gone_while_its_container_runs_fails_up_carrying_the_end_and_its_node()
      {
         let (host, links, veths) = three_containers();
         host.remove(&["tpa0"]);
@@ -723,8 +723,12 @@ mod tests {
         let error = exited_owners(&owners, &HashSet::from(["c1", "c2"]))
             .expect_err("an end gone from a running container fails up");
 
-        let message = error.to_string();
-        assert!(message.contains("tpa0"), "names the end: {message}");
-        assert!(message.contains("node c1"), "names its node: {message}");
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::LinkEndGone {
+                end: "tpa0".to_owned(),
+                node: "c1".to_owned(),
+            })
+        );
     }
 }

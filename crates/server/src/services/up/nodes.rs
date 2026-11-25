@@ -49,25 +49,24 @@ pub(super) fn get_node_image(
             .find(|x| x.version == v)
             .cloned()
             .ok_or_else(|| {
-                ServiceError::NotFound(format!(
-                    "Node image not found for model: {model} kind: {kind} version: {v}"
-                ))
+                ServiceError::ImageVersionNotFound {
+                    model_kind,
+                    version: v.to_owned(),
+                }
                 .into()
             })
     } else {
-        of_model_kind.find(|x| x.default).cloned().ok_or_else(|| {
-            ServiceError::NotFound(format!(
-                "Default node image not found for model: {model} kind: {kind}"
-            ))
-            .into()
-        })
+        of_model_kind
+            .find(|x| x.default)
+            .cloned()
+            .ok_or_else(|| ServiceError::DefaultImageNotFound { model_kind }.into())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::error::caller_message;
+    use crate::services::error::ServiceCategory;
     use crate::validate::validate_and_resolve_node_versions;
     use anyhow::Context;
 
@@ -191,10 +190,14 @@ mod tests {
             get_node_image(ceos, Some("10.4"), &images).unwrap().version,
             "10.4"
         );
-        let error = get_node_image(ceos, Some("9.9"), &images)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("kind: container"), "{error}");
+        let error = get_node_image(ceos, Some("9.9"), &images).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::ImageVersionNotFound {
+                model_kind: ceos,
+                version: "9.9".to_owned(),
+            })
+        );
 
         // Up's check of the manifest takes the same image, and refuses the other kind's version.
         let node = |version: Option<&str>| topology::Node {
@@ -209,7 +212,11 @@ mod tests {
         let error =
             validate_and_resolve_node_versions(&[node(Some("9.9"))], &images, "/tmp").unwrap_err();
         assert!(
-            format!("{error:#}").contains("kind: container"),
+            matches!(
+                error.downcast_ref::<ServiceError>(),
+                Some(ServiceError::VersionNotFound { model_kind, version, .. })
+                    if *model_kind == ceos && version == "9.9"
+            ),
             "{error:#}"
         );
     }
@@ -224,27 +231,29 @@ mod tests {
             default: false,
             ..ceos.node_config()
         }];
-        let (model, kind) = (ceos.model(), ceos.kind());
         let cases = [
             (
                 Some("9.9"),
-                format!("Node image not found for model: {model} kind: {kind} version: 9.9"),
+                ServiceError::ImageVersionNotFound {
+                    model_kind: ceos,
+                    version: "9.9".to_owned(),
+                },
             ),
             (
                 None,
-                format!("Default node image not found for model: {model} kind: {kind}"),
+                ServiceError::DefaultImageNotFound { model_kind: ceos },
             ),
         ];
-        for (version, message) in cases {
+        for (version, refusal) in cases {
             let error = get_node_image(ceos, version, &images)
                 .context("Failed to plan the lab")
                 .unwrap_err();
+            assert_eq!(ServiceError::find(&error), Some(&refusal), "{version:?}");
             assert_eq!(
-                ServiceError::find(&error),
-                Some(&ServiceError::NotFound(message.clone())),
+                refusal.category(),
+                Some(ServiceCategory::NotFound),
                 "{version:?}"
             );
-            assert_eq!(caller_message(&error, "Failed to plan the lab"), message);
         }
     }
 }

@@ -2,13 +2,14 @@ use std::fmt;
 
 use thiserror::Error;
 
+use shared::SharedError;
 use shared::data::{DiskBuses, InterfaceType, ModelKind, NodeKind, NodeModel, PtxPlatform, Ztp};
 use shared::konst::{
     CONTAINER_SECRETS_DIR, JUNIPER_EVOLVED_CONTAINER_OVERHEAD_MIB, NODE_USER_ENV_DIR,
 };
 
 /// A manifest check's failure that a caller tells apart from the others.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Error, PartialEq)]
 pub enum TopologyError {
     #[error("Failed to parse manifest {path}")]
     ManifestUnparsable { path: String },
@@ -199,7 +200,12 @@ pub enum TopologyError {
     TailnetGatewayName { node: String },
 
     #[error("Manifest - node: '{node}' text file '{dst}' permissions are invalid")]
-    TextFilePermissions { node: String, dst: String },
+    TextFilePermissions {
+        node: String,
+        dst: String,
+        #[source]
+        mode: SharedError,
+    },
 
     #[error(
         r#"Manifest - node: '{node}' startup script '{script}' contains '"' or '%', which cannot be used in a script name on a Windows node"#
