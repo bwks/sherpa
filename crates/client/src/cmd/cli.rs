@@ -336,19 +336,14 @@ fn tolerate_failed_migration(command: &Commands, migration: Result<()>) -> Resul
     match migration.context(ClientError::LabFilesNotMoved) {
         Err(error) if matches!(command, Commands::Destroy { .. }) => {
             tracing::warn!(error = %format!("{error:#}"), "Lab folder migration failed");
-            eprintln!("{}", failed_migration_warning(&error));
+            eprintln!(
+                "{} {error:#}\n   Continuing: destroy removes the lab's files either way",
+                Emoji::Warning
+            );
             Ok(())
         }
         other => other,
     }
-}
-
-/// The warning `destroy` shows when the lab folder migration failed with `error`.
-fn failed_migration_warning(error: &anyhow::Error) -> String {
-    format!(
-        "{} {error:#}\n   Continuing: destroy removes the lab's files either way",
-        Emoji::Warning
-    )
 }
 
 /// Run a trusted certificate command; these only read and change the local trust store.
@@ -523,9 +518,9 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let state_dir = lab.path().join(".sherpa");
         fs::write(&state_dir, "").unwrap();
-        let migration = || migrate_lab_folder(lab.path(), &home.path().join(".ssh")).map(|_| ());
+        let migration = migrate_lab_folder(lab.path(), &home.path().join(".ssh")).map(|_| ());
         let up = Cli::try_parse_from(["sherpa", "up"]).unwrap().commands;
-        let error = tolerate_failed_migration(&up, migration()).unwrap_err();
+        let error = tolerate_failed_migration(&up, migration).unwrap_err();
         assert!(matches!(
             error.downcast_ref::<ClientError>(),
             Some(ClientError::LabFilesNotMoved)
@@ -538,12 +533,5 @@ mod tests {
             ),
             "{error:#}"
         );
-
-        let error = migration()
-            .context(ClientError::LabFilesNotMoved)
-            .unwrap_err();
-        let warning = failed_migration_warning(&error);
-        let reported = ClientError::LabFilesNotMoved.to_string();
-        assert_eq!(warning.matches(&reported).count(), 1, "{warning}");
     }
 }

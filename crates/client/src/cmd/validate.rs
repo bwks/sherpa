@@ -141,8 +141,10 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::Ztp;
     use std::fs;
     use std::path::PathBuf;
+    use topology::TopologyError;
 
     fn write_temp_manifest(name: &str, contents: &str) -> PathBuf {
         let mut path = std::env::temp_dir();
@@ -193,10 +195,14 @@ nodes = [
         let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
         fs::remove_file(path).ok();
 
-        let message = format!("{:#}", result.unwrap_err());
+        let error = result.unwrap_err();
         assert!(
-            message.contains("key 'BAD-KEY' for node 'dev01'"),
-            "{message}"
+            matches!(
+                error.downcast_ref::<TopologyError>(),
+                Some(TopologyError::EnvironmentVariableKeyNotAName { key, node })
+                    if key == "BAD-KEY" && node == "dev01"
+            ),
+            "{error:#}"
         );
     }
 
@@ -215,12 +221,14 @@ nodes = [
         let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
         fs::remove_file(path).ok();
 
-        let message = format!("{:#}", result.unwrap_err());
+        let error = result.unwrap_err();
         assert!(
-            message.contains(
-                "node: 'dev01' sets `ztp.config`, which ZTP method 'cloud-init' does not use"
+            matches!(
+                error.downcast_ref::<TopologyError>(),
+                Some(TopologyError::ZtpConfigNotUsed { node, ztp: Ztp::CloudInit })
+                    if node == "dev01"
             ),
-            "{message}"
+            "{error:#}"
         );
     }
 }
