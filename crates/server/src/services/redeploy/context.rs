@@ -227,9 +227,10 @@ pub(super) async fn load_redeploy<'a>(
 
 /// The request's manifest, with the checks a redeploy shares with `sherpa up`: the lab name,
 /// host access, duplicate node names, the ready timeout, the node settings that cannot be 0, a
-/// link to itself, the bridges' names and links, environment variable keys, text file modes, Windows startup script names, the files the client read,
-/// provisioners, and the node's secret files. With the parts as written the client sent beside
-/// it, the node's definition is built and its provisioners checked.
+/// link to itself, the bridges' names and links, environment variable keys, text file modes,
+/// Windows startup script names, the files the client read, provisioners, and the node's secret
+/// files. With the parts as written the client sent beside it, the node's definition is built
+/// and its provisioners checked.
 fn check_manifest(ctx: &AuthContext, request: &RedeployRequest) -> Result<RedeployDefinition> {
     let node_name = request.node_name.as_str();
     let manifest =
@@ -832,6 +833,32 @@ mod tests {
             error,
             TopologyError::DuplicateBridge {
                 bridge: "br1".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn manifest_links_023_a_redeploy_is_refused_before_teardown_for_a_bridge_name_the_rule_refuses()
+    {
+        let error = redeploy_refusal(&serde_json::json!({
+            "name": "core",
+            "nodes": [
+                { "name": "r1", "model": "ubuntu_linux" },
+                { "name": "r2", "model": "ubuntu_linux" },
+            ],
+            "bridges": [
+                { "name": "br/1", "links": ["r1::eth1", "r2::eth1"] },
+            ],
+        }));
+        assert_eq!(
+            error,
+            TopologyError::BridgeNameNotAllowed {
+                bridge: "br/1".to_owned(),
+                reason: Box::new(TopologyError::NameNotPlain {
+                    what: "node",
+                    name: "br/1".to_owned(),
+                    max_len: 63,
+                }),
             }
         );
     }

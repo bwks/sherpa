@@ -262,6 +262,11 @@ bridges = [
             error.downcast_ref::<TopologyError>(),
             Some(&TopologyError::BridgeNameNotAllowed {
                 bridge: "br/1".to_owned(),
+                reason: Box::new(TopologyError::NameNotPlain {
+                    what: "node",
+                    name: "br/1".to_owned(),
+                    max_len: 63,
+                }),
             }),
             "{error:#}"
         );

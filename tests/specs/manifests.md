@@ -228,11 +228,12 @@ A node with its own `ztp.config` takes none of the three: its config replaces th
 | 015 | A link with both ends on one node is refused, on two interfaces or on one, and the error carries the link's two ends and the node; a link between two nodes is taken | unit |
 | 016 | A bridge with no link or one link is refused, and the error carries the bridge and its count; one with two links is taken | unit |
 | 017 | Two bridges with one name are refused, and the error carries the name | unit |
-| 018 | A bridge name the node name rule refuses is refused, and the error carries the name; a plain name is taken | unit |
-| 019 | `sherpa validate` refuses a bridge name the node name rule refuses, carrying the name | unit |
+| 018 | A bridge name the node name rule refuses is refused, and the error carries the name and the node name refusal it broke; a plain name is taken | unit |
+| 019 | `sherpa validate` refuses a bridge name the node name rule refuses, carrying the name and the node name refusal it broke | unit |
 | 020 | The CLI refuses a bridge with one link at up and redeploy before the server is called, carrying the bridge and its count | unit |
 | 021 | At up the server refuses a link with both ends on one node before it connects to libvirt or Docker, carrying the link and the node | unit |
 | 022 | A redeploy whose manifest has two bridges with one name is refused before any node is torn down, carrying the name | unit |
+| 023 | A redeploy whose manifest has a bridge name the node name rule refuses is refused before any node is torn down, carrying the name and the node name refusal it broke | unit |
 
 The count that bounds case 008 is the node's `interfaces.data_count`, or else its image's (`node_settings_010`, `node_interfaces_008`).
 

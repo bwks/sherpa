@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 
 use super::names::check_node_name;
 use crate::{Bridge, TopologyError};
@@ -18,8 +18,9 @@ const BRIDGE_MIN_LINKS: usize = 2;
 pub fn check_bridges(bridges: &[Bridge]) -> Result<()> {
     let mut names = HashSet::new();
     for bridge in bridges {
-        check_node_name(&bridge.name).with_context(|| TopologyError::BridgeNameNotAllowed {
+        check_node_name(&bridge.name).map_err(|reason| TopologyError::BridgeNameNotAllowed {
             bridge: bridge.name.clone(),
+            reason: Box::new(reason),
         })?;
         if bridge.links.len() < BRIDGE_MIN_LINKS {
             bail!(TopologyError::BridgeTooFewLinks {
@@ -88,23 +89,29 @@ mod tests {
     #[test]
     fn manifest_links_018_a_bridge_name_the_node_name_rule_refuses_is_refused_naming_it() {
         let too_long = "b".repeat(64);
-        for name in [
-            "",
-            "-br1",
-            "br 1",
-            "br/1",
-            "br.1",
-            "'br1'",
-            "Supervisor-br",
-            &too_long,
-        ] {
+        for name in ["", "-br1", "br 1", "br/1", "br.1", "'br1'", &too_long] {
             assert_eq!(
                 refusal(&[bridge(name, &["r1::eth1", "r2::eth1"])]),
                 TopologyError::BridgeNameNotAllowed {
                     bridge: name.to_owned(),
+                    reason: Box::new(TopologyError::NameNotPlain {
+                        what: "node",
+                        name: name.to_owned(),
+                        max_len: 63,
+                    }),
                 }
             );
         }
+        assert_eq!(
+            refusal(&[bridge("Supervisor-br", &["r1::eth1", "r2::eth1"])]),
+            TopologyError::BridgeNameNotAllowed {
+                bridge: "Supervisor-br".to_owned(),
+                reason: Box::new(TopologyError::ReservedNodeName {
+                    name: "Supervisor-br".to_owned(),
+                    word: "supervisor",
+                }),
+            }
+        );
         assert!(check_bridges(&[bridge("Core_br-1", &["r1::eth1", "r2::eth1"])]).is_ok());
     }
 }

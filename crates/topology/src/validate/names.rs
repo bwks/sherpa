@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 
 use crate::{Node, TopologyError};
 
@@ -11,7 +11,7 @@ const RESERVED_NODE_NAME_WORD: &str = "supervisor";
 
 /// Check `name`, the name of a `what`, is a plain name: 1 to 63 ASCII letters, digits, `-` or
 /// `_`, starting with a letter or digit.
-fn check_plain_name(what: &'static str, name: &str) -> Result<()> {
+fn check_plain_name(what: &'static str, name: &str) -> Result<(), TopologyError> {
     let starts_well = name
         .chars()
         .next()
@@ -20,7 +20,7 @@ fn check_plain_name(what: &'static str, name: &str) -> Result<()> {
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
     if !starts_well || !plain || name.len() > NAME_MAX_LEN {
-        bail!(TopologyError::NameNotPlain {
+        return Err(TopologyError::NameNotPlain {
             what,
             name: name.to_owned(),
             max_len: NAME_MAX_LEN,
@@ -47,10 +47,10 @@ pub fn check_node_names(devices: &[Node]) -> Result<()> {
 
 /// Check `name` by the node name rule: a plain name without the reserved word `supervisor` in
 /// any case.
-pub(super) fn check_node_name(name: &str) -> Result<()> {
+pub(super) fn check_node_name(name: &str) -> Result<(), TopologyError> {
     check_plain_name("node", name)?;
     if name.to_ascii_lowercase().contains(RESERVED_NODE_NAME_WORD) {
-        bail!(TopologyError::ReservedNodeName {
+        return Err(TopologyError::ReservedNodeName {
             name: name.to_owned(),
             word: RESERVED_NODE_NAME_WORD,
         });
@@ -67,7 +67,7 @@ pub(super) fn check_node_name(name: &str) -> Result<()> {
 ///
 /// Fails when the name breaks the rule.
 pub fn check_lab_name(name: &str) -> Result<()> {
-    check_plain_name("lab", name)
+    Ok(check_plain_name("lab", name)?)
 }
 
 #[cfg(test)]

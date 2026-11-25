@@ -469,7 +469,11 @@ pub enum TopologyError {
     #[error(
         "Manifest bridge - name '{bridge}' is not allowed: a bridge name follows the node name rules"
     )]
-    BridgeNameNotAllowed { bridge: String },
+    BridgeNameNotAllowed {
+        bridge: String,
+        #[source]
+        reason: Box<TopologyError>,
+    },
 
     #[error("{at}: node '{node}' ({model_kind}) has no interface '{interface}'")]
     NoSuchInterface {
