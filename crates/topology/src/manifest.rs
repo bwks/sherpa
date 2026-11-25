@@ -107,6 +107,8 @@ impl Manifest {
 mod tests {
     use std::{env, process};
 
+    use toml::de;
+
     use super::*;
 
     #[test]
@@ -122,12 +124,7 @@ mod tests {
                 path: path.to_owned(),
             })
         );
-        assert!(
-            error
-                .root_cause()
-                .downcast_ref::<toml::de::Error>()
-                .is_some()
-        );
+        assert!(error.root_cause().downcast_ref::<de::Error>().is_some());
     }
 
     #[test]

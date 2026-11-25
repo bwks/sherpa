@@ -9,6 +9,7 @@
 
 use std::fs;
 use std::net::Ipv4Addr;
+use std::ops::RangeInclusive;
 use std::process::{Command, Output};
 
 use virt::connect::Connect;
@@ -26,7 +27,7 @@ const OTHER_ACCOUNT: &str = "sherpa-t674-other";
 /// The loopback block the telnet consoles listened in, `127.127.0.0/16`.
 const CONSOLE_LOOPBACK: [u8; 2] = [127, 127];
 /// The ports VNC consoles listened on, before they moved to sockets.
-const VNC_PORTS: std::ops::RangeInclusive<u16> = 5900..=6999;
+const VNC_PORTS: RangeInclusive<u16> = 5900..=6999;
 /// The state `/proc/net/tcp` gives a listening socket.
 const TCP_LISTEN: &str = "0A";
 /// Connects to the UNIX socket named by its first argument; fails with the error if it cannot.

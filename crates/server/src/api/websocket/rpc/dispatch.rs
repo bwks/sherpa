@@ -423,6 +423,10 @@ mod tests {
     use crate::log_capture::capture_log;
     use anyhow::Error;
     use shared::api_spec::{AuthRequirement, build_spec};
+    use shared::data::{
+        ChangePasswordRequest, CreateUserRequest, ImportRequest, LoginRequest, NodeSecretsRequest,
+        SetDevicePasswordRequest,
+    };
     use shared::error::{CpuPinConflict, CpuPinRole};
     use std::collections::HashSet;
 
@@ -483,7 +487,7 @@ mod tests {
         let cases: [(&str, Result<(), RpcError>); 4] = [
             (
                 "the request is not valid at password",
-                parse::<shared::data::LoginRequest>(
+                parse::<LoginRequest>(
                     &serde_json::json!({ "username": "dev", "password": SENT }),
                     "bad login",
                 )
@@ -491,7 +495,7 @@ mod tests {
             ),
             (
                 "the request is not valid at password",
-                parse::<shared::data::CreateUserRequest>(
+                parse::<CreateUserRequest>(
                     &serde_json::json!({
                         "username": "dev", "password": SENT, "is_admin": false, "token": "t",
                     }),
@@ -501,7 +505,7 @@ mod tests {
             ),
             (
                 "the request is not valid at new_password",
-                parse::<shared::data::ChangePasswordRequest>(
+                parse::<ChangePasswordRequest>(
                     &serde_json::json!({ "username": "dev", "new_password": SENT, "token": "t" }),
                     "bad passwd",
                 )
@@ -509,7 +513,7 @@ mod tests {
             ),
             (
                 "the request is not valid",
-                parse::<shared::data::SetDevicePasswordRequest>(
+                parse::<SetDevicePasswordRequest>(
                     &serde_json::json!({
                         "username": "dev", "login_password": SENT.to_string(), "token": "t",
                     }),
@@ -528,7 +532,7 @@ mod tests {
             );
         }
 
-        let error = parse::<shared::data::NodeSecretsRequest>(
+        let error = parse::<NodeSecretsRequest>(
             &serde_json::json!({
                 "lab_id": "abc12345", "node_name": "r1",
                 "files": [{ "name": "token", "mode": SENT.to_string(), "content": "x" }],
@@ -541,7 +545,7 @@ mod tests {
             Some("the request is not valid at files[0].mode")
         );
 
-        let error = parse::<shared::data::NodeSecretsRequest>(
+        let error = parse::<NodeSecretsRequest>(
             &serde_json::json!({
                 "lab_id": "abc12345", "node_name": "r1",
                 "files": [{ "name": "token", "content": SENT.to_string() }],
@@ -559,7 +563,7 @@ mod tests {
                 "model": "cisco_ios", "version": "1", "src": "/tmp/i.qcow2",
             });
             params[extra] = serde_json::json!(SENT);
-            parse::<shared::data::ImportRequest>(&params, "bad import").expect_err("parsed")
+            parse::<ImportRequest>(&params, "bad import").expect_err("parsed")
         };
         assert_eq!(
             import("ztp_password").context.as_deref(),
@@ -582,7 +586,7 @@ mod tests {
             // serde quotes a string found where a number belongs.
             "files": [{ "name": "token", "mode": "s3cret-value", "content": "x" }],
         });
-        let error = parse::<shared::data::NodeSecretsRequest>(&params, "bad").expect_err("parsed");
+        let error = parse::<NodeSecretsRequest>(&params, "bad").expect_err("parsed");
         assert!(!format!("{error:?}").contains("s3cret-value"), "{error:?}");
     }
 

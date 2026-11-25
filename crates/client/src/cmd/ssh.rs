@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::fmt;
 use std::fs;
 use std::io::ErrorKind;
@@ -63,7 +64,7 @@ impl fmt::Display for ShellExit {
     }
 }
 
-impl std::error::Error for ShellExit {}
+impl Error for ShellExit {}
 
 /// Open an interactive shell on a lab node, as the lab's SSH configuration says: directly, or
 /// through the Sherpa server when `ssh_jump` is set. Only the lab's owner may: anyone else is

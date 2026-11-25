@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::fmt;
 use std::str::FromStr;
@@ -332,7 +333,7 @@ impl FromStr for NodeModel {
 }
 impl<'de> serde::Deserialize<'de> for NodeModel {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let name = <std::borrow::Cow<'de, str>>::deserialize(deserializer)?;
+        let name = <Cow<'de, str>>::deserialize(deserializer)?;
         NodeModel::from_str(&name).map_err(de::Error::custom)
     }
 }
@@ -689,7 +690,7 @@ impl fmt::Display for UnikernelBootMode {
         }
     }
 }
-impl std::str::FromStr for UnikernelBootMode {
+impl FromStr for UnikernelBootMode {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -773,7 +774,7 @@ impl fmt::Display for NodeKind {
         }
     }
 }
-impl std::str::FromStr for NodeKind {
+impl FromStr for NodeKind {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -831,7 +832,7 @@ impl fmt::Display for NodeState {
     }
 }
 
-impl std::str::FromStr for NodeState {
+impl FromStr for NodeState {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -2297,6 +2298,7 @@ fn cisco_iol_interfaces() -> InterfaceSettings {
 mod tests {
     use clap::{Arg, Command};
     use serde_json::error::Category;
+    use toml::de::Error as TomlError;
 
     use super::*;
 
@@ -2327,7 +2329,7 @@ mod tests {
         )
     }
 
-    fn from_manifest(manifest: &str) -> Result<NodeModel, toml::de::Error> {
+    fn from_manifest(manifest: &str) -> Result<NodeModel, TomlError> {
         toml::from_str::<ManifestNode>(manifest).map(|node| node.model)
     }
 

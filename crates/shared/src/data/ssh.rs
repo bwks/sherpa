@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::fmt;
 use std::str::FromStr;
 
@@ -41,7 +42,7 @@ impl fmt::Display for SshKeyAlgorithmsError {
     }
 }
 
-impl std::error::Error for SshKeyAlgorithmsError {}
+impl Error for SshKeyAlgorithmsError {}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SshPublicKey {

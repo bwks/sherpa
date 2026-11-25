@@ -1,3 +1,4 @@
+use std::error;
 use std::fmt::{self, Write as _};
 
 use anyhow::{Context, Error, Result};
@@ -45,7 +46,7 @@ impl fmt::Display for RpcFailure {
     }
 }
 
-impl std::error::Error for RpcFailure {}
+impl error::Error for RpcFailure {}
 
 impl RpcRequest {
     /// Create a new RPC request with a generated UUID

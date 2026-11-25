@@ -1064,7 +1064,7 @@ mod tests {
             &mut errors,
         )
         .await;
-        assert_eq!(summary.containers_destroyed, [] as [std::string::String; 0]);
+        assert_eq!(summary.containers_destroyed, [] as [String; 0]);
         assert!(errors.is_empty());
         assert!(
             mock.requests

@@ -7,6 +7,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use tokio::signal::ctrl_c;
 use tokio::task;
 
 use shared::data::{CancelLabResponse, ServerConnection};
@@ -76,7 +77,7 @@ where
 {
     tokio::select! {
         response = rpc_client.call_streaming(request, on_message) => Ok(Waited::Response(response?)),
-        signal = tokio::signal::ctrl_c() => {
+        signal = ctrl_c() => {
             signal.context("Failed to listen for Ctrl-C")?;
             handle_interrupt(target).await?;
             Ok(Waited::Interrupted)

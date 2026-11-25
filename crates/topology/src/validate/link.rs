@@ -229,6 +229,7 @@ fn check_interface_index(
 mod tests {
     use super::*;
     use crate::BridgeLinkDetailed;
+    use crate::link::ManifestImpairment;
     use shared::data::ModelKind;
 
     /// Helper to create a test link
@@ -398,7 +399,7 @@ mod tests {
         }
     }
 
-    fn impaired_link(impairment: crate::link::ManifestImpairment) -> Link2 {
+    fn impaired_link(impairment: ManifestImpairment) -> Link2 {
         Link2 {
             src: "dev01::eth1".to_string(),
             dst: "dev02::eth1".to_string(),
@@ -409,7 +410,7 @@ mod tests {
     #[test]
     fn manifest_links_013_an_impairment_netem_cannot_apply_is_refused_naming_the_link_and_field() {
         let percent = |field: &str, value: f64| {
-            let mut impairment = crate::link::ManifestImpairment::default();
+            let mut impairment = ManifestImpairment::default();
             match field {
                 "loss_percent" => impairment.loss_percent = Some(value),
                 "reorder_percent" => impairment.reorder_percent = Some(value),
@@ -420,14 +421,14 @@ mod tests {
         let mut refused = vec![
             (
                 "delay",
-                crate::link::ManifestImpairment {
+                ManifestImpairment {
                     delay: Some(274_878),
                     ..Default::default()
                 },
             ),
             (
                 "jitter",
-                crate::link::ManifestImpairment {
+                ManifestImpairment {
                     jitter: Some(274_878),
                     ..Default::default()
                 },
@@ -448,7 +449,7 @@ mod tests {
                 "{field}"
             );
         }
-        check_link_impairments(&[impaired_link(crate::link::ManifestImpairment {
+        check_link_impairments(&[impaired_link(ManifestImpairment {
             delay: Some(274_877),
             jitter: Some(274_877),
             loss_percent: Some(100.0),

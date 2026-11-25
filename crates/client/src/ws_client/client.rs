@@ -1,9 +1,11 @@
 use anyhow::{Context, Result, bail};
+use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use rustls::ClientConfig;
 use shared::data::{ConnectedMsg, ServerConnection};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::net::TcpStream;
 use tokio::time;
 use tokio_tungstenite::tungstenite::ClientRequestBuilder;
 use tokio_tungstenite::tungstenite::Message;
@@ -16,7 +18,7 @@ use super::messages::{RpcRequest, RpcResponse};
 use shared::tls::TlsConfigBuilder;
 
 /// A WebSocket to the server, over TLS or not.
-pub type WsStream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 /// How long `RpcClient::call` waits for its response once the request is sent, so a server
 /// that stops answering does not hang the command.
@@ -155,8 +157,8 @@ fn log_other_message(text: &str) {
 
 /// RPC client for making RPC calls over WebSocket
 pub struct RpcClient {
-    write: futures_util::stream::SplitSink<WsStream, Message>,
-    read: futures_util::stream::SplitStream<WsStream>,
+    write: SplitSink<WsStream, Message>,
+    read: SplitStream<WsStream>,
 }
 
 impl RpcClient {

@@ -55,12 +55,13 @@ pub async fn seed_admin_user(db: &Database, password: &str) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::apply_schema;
     use crate::user::{create_user, get_user, list_users};
 
     #[tokio::test]
     async fn builtin_admin_009_the_built_in_account_is_sherpa_admin() -> Result<()> {
         let db = crate::open_in_memory().await?;
-        crate::schema::apply_schema(&db).await?;
+        apply_schema(&db).await?;
 
         let created = seed_admin_user(&db, "AdminPass123!").await?;
         assert!(created, "Should create admin user when database is empty");
@@ -75,7 +76,7 @@ mod tests {
     #[tokio::test]
     async fn the_admin_account_is_seeded_even_when_another_admin_exists() -> Result<()> {
         let db = crate::open_in_memory().await?;
-        crate::schema::apply_schema(&db).await?;
+        apply_schema(&db).await?;
         create_user(&db, "alice".to_string(), "AlicePass123!", true, vec![]).await?;
 
         assert!(seed_admin_user(&db, "AdminPass123!").await?);
@@ -100,7 +101,7 @@ mod tests {
     #[tokio::test]
     async fn builtin_admin_003_a_weak_admin_password_creates_no_admin() -> Result<()> {
         let db = crate::open_in_memory().await?;
-        crate::schema::apply_schema(&db).await?;
+        apply_schema(&db).await?;
 
         // Try with invalid password
         let result = seed_admin_user(&db, "weak").await;
@@ -119,7 +120,7 @@ mod tests {
     #[tokio::test]
     async fn test_seed_admin_user_idempotent() -> Result<()> {
         let db = crate::open_in_memory().await?;
-        crate::schema::apply_schema(&db).await?;
+        apply_schema(&db).await?;
 
         // First call should create
         let created1 = seed_admin_user(&db, "AdminPass123!").await?;

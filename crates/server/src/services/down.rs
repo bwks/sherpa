@@ -11,6 +11,7 @@ use futures::future::join_all;
 use opentelemetry::KeyValue;
 use tokio::task;
 use tracing::instrument;
+use virt::connect::Connect;
 use virt::domain::Domain;
 
 use shared::data::{
@@ -357,7 +358,7 @@ fn wait_for_shutdown(domain: &Domain) -> Result<VmStop> {
 }
 
 /// Look up a domain: running, or a finished node result when there is nothing to stop.
-fn check_domain(conn: &virt::connect::Connect, device_name: &str, node_name: &str) -> DomainCheck {
+fn check_domain(conn: &Connect, device_name: &str, node_name: &str) -> DomainCheck {
     let domain = match Domain::lookup_by_name(conn, device_name) {
         Ok(domain) => domain,
         Err(e) => {

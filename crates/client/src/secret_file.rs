@@ -10,6 +10,9 @@ use crate::error::ClientError;
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
+#[cfg(windows)]
+use crate::windows_acl::restrict_file_to_current_user;
+
 /// Write a file holding a secret, such as an auth token or a kubeconfig, readable only by
 /// the current user. The contents go to a new private file beside `path` that then replaces
 /// it, so they are never readable by others, and a symlink at `path` is replaced rather than
@@ -60,7 +63,7 @@ fn write_private_file(path: &Path, contents: &str) -> io::Result<()> {
     let mut file = options.open(path)?;
 
     #[cfg(windows)]
-    crate::windows_acl::restrict_file_to_current_user(path).map_err(io::Error::other)?;
+    restrict_file_to_current_user(path).map_err(io::Error::other)?;
     #[cfg(not(any(unix, windows)))]
     return Err(io::Error::other(
         "secret files are unsupported on this platform",
@@ -88,7 +91,7 @@ pub(crate) fn restrict_secret_permissions(path: &Path, what: &str) -> Result<()>
 
     #[cfg(windows)]
     {
-        crate::windows_acl::restrict_file_to_current_user(path).with_context(|| {
+        restrict_file_to_current_user(path).with_context(|| {
             format!("Failed to restrict {what} permissions: {}", path.display())
         })?;
     }

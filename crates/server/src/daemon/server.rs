@@ -10,6 +10,7 @@ use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use opentelemetry_sdk::trace::{Sampler, SdkTracerProvider};
 use std::env;
+use std::fmt::Result as FmtResult;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::Path;
 use std::sync::Arc;
@@ -56,7 +57,7 @@ const SESSION_SWEEP_INTERVAL_SECS: u64 = 3600;
 struct MillisecondTime;
 
 impl FormatTime for MillisecondTime {
-    fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
+    fn format_time(&self, w: &mut Writer<'_>) -> FmtResult {
         let now = Zoned::now();
         // Format with millisecond precision (3 decimal places)
         // Format: YYYY-MM-DDTHH:MM:SS.sssZ

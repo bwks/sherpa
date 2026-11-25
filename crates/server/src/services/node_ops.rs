@@ -4817,7 +4817,7 @@ pub(crate) mod tests {
 
     /// A fake passwd file listing the current user with `home`, so generated commands can run
     /// without touching the real home directory.
-    fn fake_passwd(root: &std::path::Path, home: &std::path::Path) -> (String, String) {
+    fn fake_passwd(root: &Path, home: &Path) -> (String, String) {
         let output = Command::new("id").arg("-un").output().unwrap();
         let user = String::from_utf8(output.stdout).unwrap().trim().to_string();
         let passwd = root.join("passwd");
@@ -4954,7 +4954,7 @@ echo "$*" >> '{}'
     fn boot_files_007_a_node_with_no_text_files_or_variables_gets_no_file_or_command() {
         let (writes, runcmd) = stage_cloud_init_files(&[], "/opt/sherpa/staging", "/etc/passwd");
         assert!(writes.is_empty());
-        assert_eq!(runcmd, [] as [std::string::String; 0]);
+        assert_eq!(runcmd, [] as [String; 0]);
     }
 
     /// Runs the generated commands under `sh` to check quoting, home lookup, parent directories,
@@ -5682,7 +5682,7 @@ echo "$*" >> '{}'
 
     /// A listener that answers every connection with `reply` and hangs up, such as a web
     /// server or a port forward with nothing behind it.
-    async fn listener_replying(reply: &'static [u8]) -> (u16, tokio::task::JoinHandle<()>) {
+    async fn listener_replying(reply: &'static [u8]) -> (u16, task::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let task = tokio::spawn(async move {
@@ -5698,7 +5698,7 @@ echo "$*" >> '{}'
     /// runs with Sherpa's config and before. Needs `/usr/sbin/sshd` and `ssh-keygen`.
     pub(crate) struct TestSshd {
         pub(crate) port: u16,
-        child: std::process::Child,
+        child: process::Child,
         _dir: tempfile::TempDir,
     }
 

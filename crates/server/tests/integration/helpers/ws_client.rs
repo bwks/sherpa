@@ -1,8 +1,10 @@
 use anyhow::{Context, Result, bail};
+use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use shared::konst::ADMIN_USERNAME;
 use std::time::Duration;
+use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
@@ -15,16 +17,12 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// WebSocket RPC test client
 pub struct TestWsClient {
-    sender: futures_util::stream::SplitSink<
-        tokio_tungstenite::WebSocketStream<
-            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-        >,
+    sender: SplitSink<
+        tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>,
         Message,
     >,
-    receiver: futures_util::stream::SplitStream<
-        tokio_tungstenite::WebSocketStream<
-            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-        >,
+    receiver: SplitStream<
+        tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>,
     >,
     pub connection_id: String,
     next_id: u64,

@@ -1098,6 +1098,7 @@ mod tests {
     use std::time::Instant;
 
     use tokio::sync::oneshot;
+    use tokio::task::JoinHandle;
     use tokio::time::{sleep, timeout};
 
     use crate::error::AgentBusError;
@@ -1280,16 +1281,16 @@ esac
         input: UnboundedSender<Message>,
         output: UnboundedReceiver<Message>,
         stop: watch::Sender<bool>,
-        done: tokio::task::JoinHandle<Result<()>>,
+        done: JoinHandle<Result<()>>,
         status: oneshot::Receiver<watch::Receiver<Status>>,
     }
 
     struct Harness {
-        dir: std::path::PathBuf,
+        dir: PathBuf,
         input: Option<UnboundedSender<Message>>,
         output: UnboundedReceiver<Message>,
         stop: watch::Sender<bool>,
-        done: tokio::task::JoinHandle<Result<()>>,
+        done: JoinHandle<Result<()>>,
         status: oneshot::Receiver<watch::Receiver<Status>>,
         write_token: Option<String>,
     }

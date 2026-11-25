@@ -3,6 +3,7 @@
 //! The mappers read and write columns in the order of each table's `CREATE TABLE` in `sql/schema/`,
 //! which is the order the statements in `sql/queries/` list them. Record ids are stored as their
 //! key; the table is implied by the column.
+use std::error::Error;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use anyhow::{Context, Result, bail};
@@ -104,7 +105,7 @@ impl<'a> Cells<'a> {
     pub(crate) fn integer<T>(&mut self, field: &str) -> Result<T>
     where
         T: TryFrom<i64>,
-        T::Error: std::error::Error + Send + Sync + 'static,
+        T::Error: Error + Send + Sync + 'static,
     {
         match self.next(field)? {
             Value::Integer(value) => T::try_from(value)
@@ -116,7 +117,7 @@ impl<'a> Cells<'a> {
     pub(crate) fn optional_integer<T>(&mut self, field: &str) -> Result<Option<T>>
     where
         T: TryFrom<i64>,
-        T::Error: std::error::Error + Send + Sync + 'static,
+        T::Error: Error + Send + Sync + 'static,
     {
         match self.next(field)? {
             Value::Null => Ok(None),

@@ -97,6 +97,7 @@ mod tests {
     use std::env;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
     use std::process;
 
     use crate::files::{DIR_MODE, PRIVATE_FILE_MODE, now_ms};
@@ -141,8 +142,7 @@ mod tests {
         // The event is kept as the exact text Claude Code printed.
         assert_eq!(lines[0]["raw"], RESULT);
 
-        let mode =
-            |path: &std::path::Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(path), PRIVATE_FILE_MODE);
         assert_eq!(mode(path.parent().unwrap()), DIR_MODE);
         fs::remove_dir_all(&dir).unwrap();

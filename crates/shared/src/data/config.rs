@@ -10,8 +10,9 @@ use super::provider::VmProviders;
 
 use crate::konst::{
     HOST_MEMORY_DEFAULT_OVERCOMMIT_PERCENT, HOST_MEMORY_DEFAULT_RESERVE_MIB, OTEL_DEFAULT_ENDPOINT,
-    OTEL_DEFAULT_SAMPLE_RATIO, OTEL_DEFAULT_SERVICE_NAME, SHERPA_MANAGEMENT_NETWORK_IPV4,
-    SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_WS_PORT,
+    OTEL_DEFAULT_SAMPLE_RATIO, OTEL_DEFAULT_SERVICE_NAME, SHERPA_BINS_DIR, SHERPA_CONFIG_DIR,
+    SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR, SHERPA_IMAGES_DIR, SHERPA_MANAGEMENT_NETWORK_IPV4,
+    SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_WS_PORT, SHERPA_SSH_DIR,
 };
 use crate::util::path_to_string;
 
@@ -261,13 +262,13 @@ impl Sherpa {
     #[must_use]
     pub fn from_base_dir(base_dir: String) -> Self {
         let base = Path::new(&base_dir);
-        let config_dir = base.join(crate::konst::SHERPA_CONFIG_DIR);
+        let config_dir = base.join(SHERPA_CONFIG_DIR);
         Self {
-            config_file_path: path_to_string(&config_dir.join(crate::konst::SHERPA_CONFIG_FILE)),
-            ssh_dir: path_to_string(&base.join(crate::konst::SHERPA_SSH_DIR)),
-            images_dir: path_to_string(&base.join(crate::konst::SHERPA_IMAGES_DIR)),
-            containers_dir: path_to_string(&base.join(crate::konst::SHERPA_CONTAINERS_DIR)),
-            bins_dir: path_to_string(&base.join(crate::konst::SHERPA_BINS_DIR)),
+            config_file_path: path_to_string(&config_dir.join(SHERPA_CONFIG_FILE)),
+            ssh_dir: path_to_string(&base.join(SHERPA_SSH_DIR)),
+            images_dir: path_to_string(&base.join(SHERPA_IMAGES_DIR)),
+            containers_dir: path_to_string(&base.join(SHERPA_CONTAINERS_DIR)),
+            bins_dir: path_to_string(&base.join(SHERPA_BINS_DIR)),
             config_dir: path_to_string(&config_dir),
             base_dir,
         }

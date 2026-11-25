@@ -172,10 +172,7 @@ async fn container_run_002_the_manifests_environment_variables_are_set_in_the_co
 
         // exec_container doesn't return output, so verify the env vars via inspect.
         let info = docker
-            .inspect_container(
-                name,
-                None::<bollard::query_parameters::InspectContainerOptions>,
-            )
+            .inspect_container(name, None::<InspectContainerOptions>)
             .await?;
         let env = info
             .config
@@ -210,10 +207,7 @@ async fn container_run_004_a_privileged_container_runs_privileged() -> Result<()
         .await?;
 
         let info = docker
-            .inspect_container(
-                name,
-                None::<bollard::query_parameters::InspectContainerOptions>,
-            )
+            .inspect_container(name, None::<InspectContainerOptions>)
             .await?;
         let privileged = info
             .host_config
