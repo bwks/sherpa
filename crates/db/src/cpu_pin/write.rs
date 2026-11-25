@@ -447,17 +447,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_cpu_pin_row_written_by_hand_is_never_changed() {
+    async fn lab_preflight_009_a_cpu_pin_row_written_by_hand_is_never_changed() {
         let (db, first, _) = two_labs().await;
         claim_cpu_pins(&db, &first, &[pins("n1", &[2], &[8])])
             .await
             .unwrap();
         let writer = db.writer().await.unwrap();
-        let error = writer
+        let updated = writer
             .conn
             .execute("UPDATE cpu_pin SET host_cpu = 3 WHERE node_name = 'n1'", ())
-            .await
-            .unwrap_err();
-        assert!(error.to_string().contains("never changed"), "{error}");
+            .await;
+        drop(writer);
+        assert!(updated.is_err());
+        assert_eq!(held(&db, &first, "n1").await, Some(pins("n1", &[2], &[8])));
     }
 }

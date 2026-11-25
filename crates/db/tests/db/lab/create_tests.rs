@@ -1,7 +1,8 @@
 use anyhow::Result;
 use db::{
-    LabDetails, LabNetworks, create_lab, create_user, get_lab, get_used_ipv6_management_networks,
-    get_used_management_networks, list_labs, update_lab_phase_from,
+    DbError, LabDetails, LabNetworks, create_lab, create_user, get_lab,
+    get_used_ipv6_management_networks, get_used_management_networks, list_labs,
+    update_lab_phase_from,
 };
 use shared::data::LabPhase;
 
@@ -91,12 +92,13 @@ async fn test_create_lab_duplicate_lab_id_fails() -> Result<()> {
     )
     .await;
 
-    assert!(result.is_err(), "Should fail on duplicate lab_id");
-    let error_msg = result.unwrap_err().to_string();
-    println!("Duplicate lab_id error: {error_msg}");
-    assert!(
-        error_msg.contains("Failed to create lab") && error_msg.contains("Lab Two"),
-        "Error should mention the failed lab creation, got: {error_msg}"
+    let error = result.expect_err("a duplicate lab_id is refused");
+    assert_eq!(
+        error.downcast_ref::<DbError>(),
+        Some(&DbError::LabNotCreated {
+            name: "Lab Two".to_owned()
+        }),
+        "{error:#}"
     );
 
     Ok(())
@@ -134,11 +136,13 @@ async fn test_create_lab_duplicate_name_per_user_fails() -> Result<()> {
         result.is_err(),
         "Should fail on duplicate (name, user) combination"
     );
-    let error_msg = result.unwrap_err().to_string();
-    println!("Duplicate name+user error: {error_msg}");
-    assert!(
-        error_msg.contains("Failed to create lab") && error_msg.contains("My Lab"),
-        "Error should mention the failed lab creation, got: {error_msg}"
+    let error = result.unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<DbError>(),
+        Some(&DbError::LabNotCreated {
+            name: "My Lab".to_owned()
+        }),
+        "{error:#}"
     );
 
     Ok(())
@@ -195,11 +199,11 @@ async fn test_create_lab_invalid_lab_id_too_short() -> Result<()> {
     )
     .await;
 
-    assert!(result.is_err(), "Should fail on invalid lab_id length");
-    let error_msg = result.unwrap_err().to_string();
-    assert!(
-        error_msg.contains("exactly 8 characters"),
-        "Error should mention length requirement, got: {error_msg}"
+    let error = result.expect_err("a lab_id of 6 characters is refused");
+    assert_eq!(
+        error.downcast_ref::<DbError>(),
+        Some(&DbError::LabIdLength { length: 6 }),
+        "{error:#}"
     );
 
     Ok(())

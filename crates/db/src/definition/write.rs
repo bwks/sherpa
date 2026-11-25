@@ -9,19 +9,16 @@ use turso::{Connection, Value};
 use shared::data::RecordId;
 use topology::{Manifest, Node, Provisioner};
 
-use crate::Database;
 use crate::persistence::{LAB_TABLE, NODE_TABLE, enum_text, key_of, node_from_row};
 use crate::queries::{definition, node as node_queries};
 use crate::sql::{execute, query_all};
+use crate::{Database, DbError};
 
 /// Refuse a `manifest` that holds the contents of its files, which a definition never stores.
 /// It must be a manifest as written ([`Manifest::definition`]).
 fn refuse_file_contents(manifest: &Manifest) -> Result<()> {
     if manifest.has_file_contents() {
-        bail!(
-            "Refusing to store the contents of files as a lab definition: store the manifest as \
-             written"
-        );
+        bail!(DbError::DefinitionWithFileContents);
     }
     Ok(())
 }
@@ -88,7 +85,10 @@ pub async fn store_lab_definition(
             .find(|record| record.name == node.name)
             .and_then(|record| record.id.as_ref())
         else {
-            bail!("Node '{}' has no record in lab {lab_id}", node.name);
+            bail!(DbError::NodeWithoutRecord {
+                node: node.name.clone(),
+                lab_id: lab_id.clone(),
+            });
         };
         write_node(&tx, &key_of(id, NODE_TABLE)?, node).await?;
     }

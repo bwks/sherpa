@@ -1,7 +1,7 @@
 use anyhow::Result;
 use db::{
-    DefaultRequest, LabDetails, create_lab, create_node, create_user, get_node, list_nodes_by_lab,
-    update_node_ready_check, upsert_node_image,
+    DbError, DefaultRequest, LabDetails, create_lab, create_node, create_user, get_node,
+    list_nodes_by_lab, update_node_ready_check, upsert_node_image,
 };
 use shared::data::{DbNode, ModelKind, NodeKind, NodeModel, ReadyCheck, RecordId};
 
@@ -80,9 +80,13 @@ async fn the_ready_check_of_a_node_that_does_not_exist_is_an_error() -> Result<(
     let db = setup_db().await?;
     lab_with_node(&db).await?;
     let missing = RecordId::new("node", "nope");
-    let error = update_node_ready_check(&db, missing, &ReadyCheck::default())
+    let error = update_node_ready_check(&db, missing.clone(), &ReadyCheck::default())
         .await
         .unwrap_err();
-    assert!(error.to_string().contains("not found"), "{error}");
+    assert_eq!(
+        error.downcast_ref::<DbError>(),
+        Some(&DbError::NodeNotFound { id: missing }),
+        "{error:#}"
+    );
     Ok(())
 }

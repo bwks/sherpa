@@ -14,8 +14,9 @@ use super::*;
 use crate::persistence::{LAB_TABLE, key_of};
 use crate::sql::{Query, query_count};
 use crate::{
-    Database, DefaultRequest, LabDetails, LabNetworks, apply_schema, create_lab, create_node,
-    create_user, delete_lab_from, get_node_by_name_and_lab, open_in_memory, upsert_node_image,
+    Database, DbError, DefaultRequest, LabDetails, LabNetworks, apply_schema, create_lab,
+    create_node, create_user, delete_lab_from, get_node_by_name_and_lab, open_in_memory,
+    upsert_node_image,
 };
 
 /// Every table the definition writes rows to, other than `lab` and `node`.
@@ -511,7 +512,14 @@ async fn a_manifest_node_without_a_record_is_refused_and_nothing_is_stored() {
     let error = store_lab_definition(&db, &lab_id(&lab), &manifest)
         .await
         .unwrap_err();
-    assert!(format!("{error:#}").contains("ghost"), "{error:#}");
+    assert_eq!(
+        error.downcast_ref::<DbError>(),
+        Some(&DbError::NodeWithoutRecord {
+            node: "ghost".to_owned(),
+            lab_id: lab_id(&lab),
+        }),
+        "{error:#}"
+    );
     assert_eq!(read_lab_definition(&db, &lab_id(&lab)).await.unwrap(), None);
     for (table, rows) in child_rows(&db, &lab_key(&lab)).await {
         assert_eq!(rows, 0, "{table}");
@@ -565,7 +573,11 @@ async fn a_manifest_holding_file_contents_is_refused() {
     let error = store_lab_definition(&db, &lab_id(&lab), &resolved)
         .await
         .unwrap_err();
-    assert!(error.to_string().contains("contents of files"), "{error}");
+    assert_eq!(
+        error.downcast_ref::<DbError>(),
+        Some(&DbError::DefinitionWithFileContents),
+        "{error:#}"
+    );
     let node_id = get_node_by_name_and_lab(&db, "dev01", lab_id(&lab))
         .await
         .unwrap()

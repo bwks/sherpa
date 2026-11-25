@@ -3,11 +3,11 @@ use shared::data::{DbLab, DbUser, LabPhase};
 use tracing::instrument;
 use turso::Connection;
 
-use crate::Database;
 use crate::helpers::get_user_id;
 use crate::persistence::{lab_from_row, lab_values, new_key};
 use crate::queries;
 use crate::sql::query_optional;
+use crate::{Database, DbError};
 
 /// The subnets and addresses allocated to one lab.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,10 +51,10 @@ pub struct LabDetails {
 pub fn validate_lab_id(lab_id: &str) -> Result<()> {
     // Check length
     if lab_id.len() != 8 {
-        return Err(anyhow!(
-            "lab_id must be exactly 8 characters long, got {} characters",
-            lab_id.len()
-        ));
+        return Err(DbError::LabIdLength {
+            length: lab_id.len(),
+        }
+        .into());
     }
 
     // Check for valid characters (alphanumeric + hyphen)
@@ -62,9 +62,7 @@ pub fn validate_lab_id(lab_id: &str) -> Result<()> {
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '-')
     {
-        return Err(anyhow!(
-            "lab_id must contain only alphanumeric characters and hyphens"
-        ));
+        return Err(DbError::LabIdCharacters.into());
     }
 
     Ok(())
@@ -116,7 +114,9 @@ pub async fn create_lab(
     let writer = db.writer().await?;
     let created = insert_lab(&writer.conn, &lab)
         .await
-        .context(format!("Failed to create lab: '{name}'"))?;
+        .context(DbError::LabNotCreated {
+            name: name.to_owned(),
+        })?;
 
     created.ok_or_else(|| anyhow!("Lab was not created: '{name}'"))
 }
@@ -145,25 +145,19 @@ mod tests {
 
     #[test]
     fn test_validate_lab_id_too_long() {
-        let result = validate_lab_id("lab-00001");
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("exactly 8 characters")
+        let error = validate_lab_id("lab-00001").unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<DbError>(),
+            Some(&DbError::LabIdLength { length: 9 })
         );
     }
 
     #[test]
     fn test_validate_lab_id_invalid_chars() {
-        let result = validate_lab_id("lab_0001");
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("alphanumeric characters and hyphens")
+        let error = validate_lab_id("lab_0001").unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<DbError>(),
+            Some(&DbError::LabIdCharacters)
         );
     }
 }

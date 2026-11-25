@@ -4,13 +4,14 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 use tracing::instrument;
 use turso::{Builder, Connection};
 
 use shared::konst::{SHERPA_DB_BUSY_TIMEOUT_SECS, SHERPA_DB_FILE_MODE, SHERPA_DB_MEMORY};
 
+use crate::DbError;
 use crate::secret::SecretKey;
 use crate::sql::sql_text;
 
@@ -46,9 +47,9 @@ impl Database {
 
     /// The key that seals the database's secret values.
     pub(crate) fn secret_key(&self) -> Result<&SecretKey> {
-        self.secret_key.as_deref().ok_or_else(|| {
-            anyhow!("The database key is not loaded, so secret values cannot be sealed or opened")
-        })
+        self.secret_key
+            .as_deref()
+            .ok_or_else(|| DbError::SecretKeyNotLoaded.into())
     }
 
     /// A connection for reads. Reads take no lock.

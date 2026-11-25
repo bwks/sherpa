@@ -1,7 +1,7 @@
 use anyhow::Result;
 use db::{
-    DefaultRequest, LabDetails, count_nodes_by_lab, create_lab, create_node, create_user, get_node,
-    get_node_by_name_and_lab, upsert_node_image,
+    DbError, DefaultRequest, LabDetails, count_nodes_by_lab, create_lab, create_node, create_user,
+    get_node, get_node_by_name_and_lab, upsert_node_image,
 };
 use shared::data::{ModelKind, NodeModel, RecordId};
 
@@ -12,13 +12,12 @@ async fn test_get_node_not_found() -> Result<()> {
     let db = setup_db().await?;
 
     let fake_id = RecordId::new("node", "nonexistent");
-    let result = get_node(&db, fake_id).await;
+    let error = get_node(&db, fake_id.clone()).await.unwrap_err();
 
-    assert!(result.is_err(), "Should fail when node not found");
-    let error_msg = result.unwrap_err().to_string();
-    assert!(
-        error_msg.contains("not found"),
-        "Error should mention node not found, got: {error_msg}"
+    assert_eq!(
+        error.downcast_ref::<DbError>(),
+        Some(&DbError::NodeNotFound { id: fake_id }),
+        "{error:#}"
     );
 
     Ok(())
@@ -78,13 +77,18 @@ async fn test_get_node_by_name_and_lab_not_found() -> Result<()> {
     )
     .await?;
 
-    let result = get_node_by_name_and_lab(&db, "nonexistent", lab.id.unwrap()).await;
+    let lab_id = lab.id.unwrap();
+    let error = get_node_by_name_and_lab(&db, "nonexistent", lab_id.clone())
+        .await
+        .unwrap_err();
 
-    assert!(result.is_err(), "Should fail when node not found");
-    let error_msg = result.unwrap_err().to_string();
-    assert!(
-        error_msg.contains("not found") && error_msg.contains("nonexistent"),
-        "Error should mention node not found, got: {error_msg}"
+    assert_eq!(
+        error.downcast_ref::<DbError>(),
+        Some(&DbError::NodeNotFoundInLab {
+            name: "nonexistent".to_owned(),
+            lab: lab_id,
+        }),
+        "{error:#}"
     );
 
     Ok(())

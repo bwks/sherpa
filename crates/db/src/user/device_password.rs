@@ -130,7 +130,7 @@ pub async fn open_device_password(db: &Database, id: &RecordId) -> Result<Option
 mod tests {
     use super::*;
     use crate::secret::{SEALED_TEXT_PREFIX, SecretKey, open, seal, seal_text};
-    use crate::{apply_schema, create_user, open_in_memory};
+    use crate::{DbError, apply_schema, create_user, find_user, open_in_memory};
     use shared::data::SetDevicePasswordRequest;
     use turso::Value;
 
@@ -229,9 +229,12 @@ mod tests {
             assert_eq!(open(&key, &sealed, place).unwrap(), b"hunter2");
             assert!(open(&key, &sealed, "user.device_password:xyz").is_err());
             let error = open(&SecretKey::generate(), &sealed, place).unwrap_err();
-            assert!(
-                error.to_string().contains("different database key"),
-                "{error}"
+            assert_eq!(
+                error.downcast_ref::<DbError>(),
+                Some(&DbError::SealedWithAnotherKey {
+                    context: place.to_owned()
+                }),
+                "{error:#}"
             );
 
             let sealed = seal_text(&key, "cisco", place).unwrap();
@@ -247,7 +250,13 @@ mod tests {
                 assert!(open_text(&key, stored, "place").is_err(), "{stored}");
             }
             let error = open_text(&key, "cisco", "place").unwrap_err();
-            assert!(error.to_string().contains("not sealed"), "{error}");
+            assert_eq!(
+                error.downcast_ref::<DbError>(),
+                Some(&DbError::NotSealed {
+                    context: "place".to_owned()
+                }),
+                "{error:#}"
+            );
             assert!(open_text(&key, &text, "user.device_password:other").is_err());
         }
 
@@ -258,21 +267,15 @@ mod tests {
             "sealed:short",
             &format!("sealed:{}", "G".repeat(64)),
         ] {
-            let error = writer
+            let updated = writer
                 .conn
                 .execute(
                     "UPDATE user SET device_password = ?2 WHERE id = ?1",
                     [key.as_str(), plain],
                 )
-                .await
-                .unwrap_err();
-            assert!(
-                error
-                    .to_string()
-                    .contains("user.device_password must be sealed"),
-                "{plain}: {error}"
-            );
-            let error = writer
+                .await;
+            assert!(updated.is_err(), "{plain}");
+            let inserted = writer
                 .conn
                 .execute(
                     "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys, \
@@ -280,15 +283,13 @@ mod tests {
                      '[]', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', ?1)",
                     [plain],
                 )
-                .await
-                .unwrap_err();
-            assert!(
-                error
-                    .to_string()
-                    .contains("user.device_password must be sealed"),
-                "{plain}: {error}"
-            );
+                .await;
+            assert!(inserted.is_err(), "{plain}");
         }
+        drop(writer);
+        let opened = open_device_password(&db, alice).await.unwrap().unwrap();
+        assert_eq!(opened.expose(), DEVICE_PASSWORD);
+        assert!(find_user(&db, "raw").await.unwrap().is_none());
     }
 
     #[tokio::test]

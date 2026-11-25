@@ -12,6 +12,7 @@ use anyhow::{Result, bail};
 use tracing::instrument;
 use turso::{Connection, Row, Value};
 
+use crate::DbError;
 use crate::sql::{Query, query_all, query_count};
 
 /// Whether the `lab` table still has its `ssh_key` column.
@@ -65,18 +66,9 @@ pub(crate) fn refuse_server_key_labs(labs: &[ServerKeyLab]) -> Result<()> {
     if labs.is_empty() {
         return Ok(());
     }
-    let names: Vec<String> = labs
-        .iter()
-        .map(|lab| format!("  {} ({}, owned by {})", lab.lab_id, lab.name, lab.owner))
-        .collect();
-    bail!(
-        "{count} lab(s) still log in to their nodes with the server's shared SSH key, which this \
-         release removes; their nodes would lose SSH access:\n{names}\n\
-         Destroy them with the Sherpa release this server ran before ('sherpa destroy' in the \
-         lab's folder, or the web UI), then start this release again. The database is unchanged.",
-        count = labs.len(),
-        names = names.join("\n"),
-    )
+    bail!(DbError::ServerKeyLabs {
+        labs: labs.to_vec(),
+    })
 }
 
 #[cfg(test)]
@@ -98,15 +90,14 @@ mod tests {
             lab("efgh5678", "edge", "bob"),
         ];
 
-        let error = refuse_server_key_labs(&labs).unwrap_err().to_string();
+        let error = refuse_server_key_labs(&labs).unwrap_err();
 
-        assert!(error.starts_with("2 lab(s) still log in"), "{error}");
-        assert!(
-            error.contains("  abcd1234 (core, owned by alice)"),
-            "{error}"
+        assert_eq!(
+            error.downcast_ref::<DbError>(),
+            Some(&DbError::ServerKeyLabs {
+                labs: labs.to_vec()
+            }),
+            "{error:#}"
         );
-        assert!(error.contains("  efgh5678 (edge, owned by bob)"), "{error}");
-        assert!(error.contains("Destroy them"), "{error}");
-        assert!(error.contains("The database is unchanged"), "{error}");
     }
 }

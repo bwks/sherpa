@@ -3,6 +3,8 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 use turso::{Connection, Row, Value};
 
+use crate::DbError;
+
 /// A statement that binds `N` parameters, `?1` to `?N`.
 ///
 /// `build.rs` generates one per query file, with the count it read from the file, as
@@ -71,12 +73,9 @@ pub(crate) async fn query_optional<T>(
         .await
         .with_context(|| format!("Query failed: {}", statement(sql)))?;
     match rows.next().await.context("Failed to read query result")? {
-        Some(row) => Ok(Some(map(&row).with_context(|| {
-            format!(
-                "Failed to read row {} of: {}",
-                row_name(&row),
-                statement(sql)
-            )
+        Some(row) => Ok(Some(map(&row).with_context(|| DbError::RowUnreadable {
+            row: row_name(&row),
+            statement: statement(sql),
         })?)),
         None => Ok(None),
     }
@@ -96,12 +95,9 @@ pub(crate) async fn query_all<T>(
         .with_context(|| format!("Query failed: {}", statement(sql)))?;
     let mut mapped = Vec::new();
     while let Some(row) = rows.next().await.context("Failed to read query result")? {
-        mapped.push(map(&row).with_context(|| {
-            format!(
-                "Failed to read row {} of: {}",
-                row_name(&row),
-                statement(sql)
-            )
+        mapped.push(map(&row).with_context(|| DbError::RowUnreadable {
+            row: row_name(&row),
+            statement: statement(sql),
         })?);
     }
     Ok(mapped)

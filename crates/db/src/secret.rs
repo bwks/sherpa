@@ -22,9 +22,9 @@ use rand::RngCore;
 use tracing::instrument;
 use turso::{Row, Value};
 
-use crate::Database;
 use crate::queries;
 use crate::sql::{execute, query_optional};
+use crate::{Database, DbError};
 
 /// The format of a sealed value, its first byte.
 const SEALED_VERSION: u8 = 1;
@@ -153,10 +153,10 @@ pub(crate) fn open(key: &SecretKey, sealed: &[u8], context: &str) -> Result<Vec<
             },
         )
         .map_err(|_| {
-            anyhow!(
-                "Failed to open {context}: it was sealed with a different database key, or has \
-                 been changed"
-            )
+            DbError::SealedWithAnotherKey {
+                context: context.to_owned(),
+            }
+            .into()
         })
 }
 
@@ -174,7 +174,9 @@ pub(crate) fn seal_text(key: &SecretKey, plaintext: &str, context: &str) -> Resu
 /// Fails when `stored` is not a sealed text, as plain text is not, and as `open` does.
 pub(crate) fn open_text(key: &SecretKey, stored: &str, context: &str) -> Result<String> {
     let Some(hex) = stored.strip_prefix(SEALED_TEXT_PREFIX) else {
-        bail!("{context} is not sealed");
+        bail!(DbError::NotSealed {
+            context: context.to_owned(),
+        });
     };
     let sealed = hex::decode(hex).with_context(|| format!("{context} is not a sealed value"))?;
     String::from_utf8(open(key, &sealed, context)?)
@@ -226,12 +228,7 @@ pub async fn verify_secret_key(db: &Database) -> Result<()> {
     .await
     .context("Failed to read the database key check")?;
     if let Some(sealed) = sealed {
-        let opened = open(key, &sealed, CHECK_CONTEXT).map_err(|_| {
-            anyhow!(
-                "The database key does not match the key this database's secret values are \
-                 sealed with. Restore the key file that was backed up with this database"
-            )
-        })?;
+        let opened = open(key, &sealed, CHECK_CONTEXT).map_err(|_| DbError::SecretKeyMismatch)?;
         if opened != CHECK_PLAINTEXT {
             bail!("The database key check holds an unexpected value");
         }
@@ -290,9 +287,17 @@ mod tests {
 
         let other = db.clone().with_secret_key(SecretKey::generate());
         let error = verify_secret_key(&other).await.unwrap_err();
-        assert!(error.to_string().contains("does not match"), "{error}");
+        assert_eq!(
+            error.downcast_ref::<DbError>(),
+            Some(&DbError::SecretKeyMismatch),
+            "{error:#}"
+        );
 
         let error = verify_secret_key(&db).await.unwrap_err();
-        assert!(error.to_string().contains("not loaded"), "{error}");
+        assert_eq!(
+            error.downcast_ref::<DbError>(),
+            Some(&DbError::SecretKeyNotLoaded),
+            "{error:#}"
+        );
     }
 }

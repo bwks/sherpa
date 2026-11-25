@@ -1,12 +1,12 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use shared::data::{DbNode, NodeState, RecordId};
 use tracing::instrument;
 use turso::Connection;
 
-use crate::Database;
 use crate::persistence::{Cells, LAB_TABLE, NODE_TABLE, USER_TABLE, key_of, node_from_row};
 use crate::queries;
 use crate::sql::{query_all, query_count, query_optional};
+use crate::{Database, DbError};
 
 /// Get a node by name and lab (unique constraint)
 ///
@@ -32,7 +32,7 @@ async fn select_node(conn: &Connection, id: &RecordId) -> Result<DbNode> {
     )
     .await
     .context(format!("Failed to get node by id: {id:?}"))?
-    .ok_or_else(|| anyhow!("Node not found with id: {id:?}"))
+    .ok_or_else(|| DbError::NodeNotFound { id: id.clone() }.into())
 }
 
 /// Get a node by its `RecordId` (surrogate key)
@@ -68,7 +68,13 @@ pub async fn get_node_by_name_and_lab(db: &Database, name: &str, lab: RecordId) 
     )
     .await
     .context(format!("Failed to query node by name and lab: {name}"))?
-    .ok_or_else(|| anyhow!("Node not found with name '{name}' in lab: {lab:?}"))
+    .ok_or_else(|| {
+        DbError::NodeNotFoundInLab {
+            name: name.to_owned(),
+            lab,
+        }
+        .into()
+    })
 }
 
 /// List all nodes in a specific lab
