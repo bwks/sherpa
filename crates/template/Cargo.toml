@@ -6,18 +6,15 @@ edition = "2024"
 [dependencies]
 shared = { path = "../shared" }
 
-# Templates
 anyhow = { workspace = true }
 askama = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
 
-# Password hashes
 rand = { workspace = true }
 sha-crypt = { workspace = true }
 
-# IP Addressing
 ipnet = { workspace = true }
 
 [dev-dependencies]

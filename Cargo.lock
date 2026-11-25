@@ -5101,7 +5101,6 @@ dependencies = [
  "rand 0.8.5",
  "rpassword",
  "rustls",
- "rustls-native-certs",
  "serde",
  "serde_derive",
  "serde_json",

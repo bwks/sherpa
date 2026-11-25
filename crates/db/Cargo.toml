@@ -7,28 +7,22 @@ edition = "2024"
 shared = { path = "../shared" }
 topology = { path = "../topology" }
 
-# Sealing secret values
 aes-gcm = { workspace = true }
 
-# Errors
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
-# Sealed text columns hold the sealed bytes in hex
 hex = { workspace = true }
 
-# Networking
 ipnet = { workspace = true }
 jiff = { workspace = true }
 
-# Logging
 tracing = { workspace = true }
 
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 rand = { workspace = true }
 
-# Database. The workspace pins it exactly, without default features (see the root Cargo.toml).
 turso = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 

@@ -7,62 +7,44 @@ edition = "2024"
 shared = { path = "../shared", features = ["table"] }
 topology = { path = "../topology" }
 
-# Errors
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
-# CLI
 clap = { workspace = true, features = ["env"] }
 
-# Serialization/Deserialization
 serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 
-# Random number generator
 rand = { workspace = true }
 
-# Async
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time", "signal", "sync"] }
 futures = { workspace = true }
 futures-util = { workspace = true }
 
-# URL parsing
 url = { workspace = true }
 
-# WebSocket client with TLS support
 tokio-tungstenite = { workspace = true, features = ["rustls-tls-webpki-roots"] }
 
-# UUID for RPC request IDs
 uuid = { workspace = true }
 
-# Logging
 tracing = { workspace = true }
 
-# Password input
 rpassword = { workspace = true }
 
-# Base64 decoding (for JWT)
 base64 = { workspace = true }
 
-# Logging (subscriber for verbose mode)
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
-# Time/date handling
 jiff = { workspace = true }
 
-# TLS support
 rustls = { workspace = true }
-rustls-native-certs = "0.8"
 
-# Home directory detection
 dirs = { workspace = true }
 
-# SSH client and local terminal for `sherpa ssh`
 jato = { workspace = true }
 
-# The machine name recorded with a lab by `sherpa up`
 gethostname = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]

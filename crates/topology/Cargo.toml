@@ -6,14 +6,11 @@ edition = "2024"
 [dependencies]
 shared = { path = "../shared" }
 
-# Errors
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
-# Logging
 tracing = { workspace = true }
 
-# Se/Deserialzation
 serde = { workspace = true }
 serde_derive = { workspace = true }
 toml = { workspace = true }

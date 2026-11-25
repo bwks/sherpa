@@ -19,21 +19,16 @@ network = { path = "../network" }
 db = { path = "../db" }
 iso = { path = "../iso" }
 
-# Errors
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 jato = { workspace = true }
 
-# Process/Signal management
 nix = { workspace = true, features = ["signal", "process", "user", "fs", "dir"] }
 
-# CLI
 clap = { workspace = true, features = ["env"] }
 
-# IP networks
 ipnet = { workspace = true }
 
-# Serialization/Deserialization
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_path_to_error = "0.1.20"
@@ -42,72 +37,53 @@ form_urlencoded = "1.2.2"
 mime = "0.3.17"
 toml = { workspace = true }
 
-# Enum utilities
 strum = { workspace = true }
 
-# De/Compression
 zip = { version = "4", default-features = false, features = ["deflate"] }
 
-# Random number generator
 rand = { workspace = true }
 
-# Authentication
 jsonwebtoken = { version = "10.3", default-features = false, features = ["aws_lc_rs"] }
 
-# Templates
 askama = { workspace = true }
 askama_web = { version = "0.14.7", features = ["axum-0.8", "tracing-0.1"] }
 
 
-# Async / Cancellation
 tokio-util = { workspace = true, features = ["rt"] }
 futures = { workspace = true }
 futures-util = { workspace = true }
 async-stream = "0.3"
 
-# HTTP tracing
 tower-http = { version = "0.6", features = ["trace"] }
 
-# Embed static assets
 rust-embed = "8"
 
-# UUID for connection IDs
 uuid = { workspace = true, features = ["v7"] }
 
-# Concurrent collections
 dashmap = "6.1"
 
-# Timestamps for messages
 jiff = { workspace = true }
 
-# Image download checksums
 sha2 = { workspace = true }
 hex = { workspace = true }
 
-# http client
 reqwest = { workspace = true, features = ["stream", "http2", "form"] }
 http-body-util = "0.1.3"
 
-# Libvirt
 virt = { workspace = true }
 
-# Docker
 bollard = { workspace = true }
 
-# Generate SSH keys
 ssh-key = { workspace = true }
 
-# Password input
 rpassword = { workspace = true }
 
-# TLS support
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 # aws-lc-rs, the crypto provider of the rest of the workspace; the default would build ring
 rcgen = { version = "0.13", default-features = false, features = ["aws_lc_rs", "pem"] }
 
-# OpenTelemetry
 opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-otlp = { workspace = true }
