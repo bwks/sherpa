@@ -183,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn lab_phase_001_a_lab_moves_only_as_allowed_and_a_refusal_names_the_move_and_phase() {
+    fn lab_phase_001_a_lab_moves_only_as_allowed_and_a_refusal_carries_the_move_and_phase() {
         assert_eq!(Creating.on_event(LabEvent::Built), Ok(To(Ready)));
         assert_eq!(Creating.on_event(LabEvent::Released), Ok(Removed));
         for phase in LabPhase::iter() {
@@ -209,10 +209,6 @@ mod tests {
         ] {
             assert_eq!(Ready.on_event(event), refused(Ready, event), "{event:?}");
         }
-        assert_eq!(
-            refused(Ready, LabEvent::Built).unwrap_err().to_string(),
-            "cannot finish building a lab that is ready"
-        );
     }
 
     #[test]
@@ -224,26 +220,9 @@ mod tests {
     }
 
     #[test]
-    fn lab_phase_003_the_refusal_of_each_phase_says_what_to_do() {
-        for (phase, refusal) in [
-            (
-                Creating,
-                "the lab is being created; wait for `up` to finish, or destroy it",
-            ),
-            (
-                DestroyFailed,
-                "destroying the lab left resources behind; destroy it again",
-            ),
-            (
-                Interrupted,
-                "the server stopped while the lab was being created; destroy it and start it again",
-            ),
-            (
-                Unknown,
-                "the lab is in a phase this server does not know; destroy it",
-            ),
-        ] {
-            assert_eq!(phase.ensure_ready().unwrap_err().to_string(), refusal);
+    fn lab_phase_003_the_refusal_of_each_phase_carries_the_phase() {
+        for phase in [Creating, Destroying, DestroyFailed, Interrupted, Unknown] {
+            assert_eq!(phase.ensure_ready(), Err(LabNotReady { phase }));
         }
     }
 

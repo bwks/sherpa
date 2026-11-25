@@ -112,7 +112,7 @@ The server runs these at up before anything is created (`lab_preflight_002`). Th
 | 005 | Every model and kind has built-in settings, and they are of that model and kind | unit |
 | 006 | A message names a model with its kind only when the model takes several: `cisco_asa`, but `arista_eos, container` | unit |
 | 007 | Every model is taken by the name it is shown as, from a manifest, from JSON and on the command line | unit |
-| 008 | A model name Sherpa does not know is refused, naming it, from a manifest, from JSON and on the command line | unit |
+| 008 | A model name Sherpa does not know is refused from a manifest, from JSON and on the command line, and the error carries the name | unit |
 | 009 | A `--model` option lists every model name as a possible value | unit |
 
 ## `node_settings`: a node sets only what its kind and its model take
@@ -152,7 +152,7 @@ A node with its own `ztp.config` takes none of the three: its config replaces th
 | 007 | A `juniper_evolved` container takes as many data interfaces as its platform has: 12 on `bt`, which it is without `platform`, and 36 on `bx` | unit |
 | 008 | A `juniper_evolved` container with fewer vCPUs or less memory than its image is refused, and one with more is taken | unit |
 | 009 | A `juniper_evolved` container's memory may be at most 63487 MB, which leaves room for the container's own 2048 MB | unit |
-| 010 | An `interfaces.data_count` of more data interfaces than the model has is refused, naming the node, the model, the count and the most it takes | unit |
+| 010 | An `interfaces.data_count` of more data interfaces than the model has is refused, and the error carries the node, the model, the count and the most it takes | unit |
 | 011 | A count that, with the image's reserved interfaces, is past the last interface index is refused as an overflow | unit |
 | 012 | Every model's built-in data interface count fits the interfaces the model has | unit |
 | 013 | A redeploy whose manifest gives the node a setting its kind does not take is refused, and the node stays as it was (no test yet) | integration |
@@ -259,7 +259,7 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 | 006 | An `ssh` provisioner on a network device virtual machine, a container, a Windows node or a unikernel is refused, naming the node | unit |
 | 007 | An `ssh` provisioner is taken on a `talos_linux` node and the other Linux virtual machines it cannot run on (#782) (no test yet) | unit |
 | 008 | A file `dst` is refused unless it is absolute or starts with `~/`, names a file, and has only parts of letters, digits and `. _ - + @`: no empty, `.` or `..` part, no space, quote, `$` or `;` | unit |
-| 009 | A mode is refused unless it is octal digits up to 777, with a message giving the mode | unit |
+| 009 | A mode is refused unless it is octal digits up to 777, and the error carries the mode | unit |
 | 010 | A provisioner file's `mode` that is not such digits is refused, naming the file's `dst` | unit |
 | 011 | An env file must name a file with a plain name, and two env files of a node with one file name are refused, naming it | unit |
 

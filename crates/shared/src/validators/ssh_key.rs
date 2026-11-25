@@ -2,10 +2,7 @@
 use anyhow::{Context, Result, bail};
 use ssh_key::{Algorithm, PublicKey};
 
-/// The key types the validator accepts, for its error message.
-const SUPPORTED_ALGORITHMS: &str = "ssh-ed25519, ssh-rsa, ecdsa-sha2-nistp256, \
-     ecdsa-sha2-nistp384, ecdsa-sha2-nistp521, sk-ssh-ed25519@openssh.com, \
-     sk-ecdsa-sha2-nistp256@openssh.com";
+use crate::SharedError;
 
 /// Validates an SSH public key in the OpenSSH one-line format, `algorithm key_data [comment]`.
 ///
@@ -35,9 +32,7 @@ pub fn validate_ssh_key(key: &str) -> Result<()> {
         | Algorithm::Ecdsa { .. }
         | Algorithm::SkEd25519
         | Algorithm::SkEcdsaSha2NistP256 => Ok(()),
-        algorithm => bail!(
-            "SSH key algorithm '{algorithm}' is not supported. Supported algorithms: {SUPPORTED_ALGORITHMS}"
-        ),
+        algorithm => Err(SharedError::UnsupportedSshKeyAlgorithm { algorithm }.into()),
     }
 }
 
@@ -91,6 +86,11 @@ mod tests {
 
         let key = "ssh-dss AAAAB3NzaC1kc3MAAACBAP1/U4EddRIpUt9KnC7s5Of2EbdSPO9EAMMeP4C2USZpRV1AIlH7WT2NWPq/xfW6MPbLm1Vs14E7gB00b/JmYLdrmVClpJ+f6AR7ECLCT7up1/63xhv4O1fnxqimFQ8E+4P208UewwI1VBNaFpEy9nXzrith1yrv8iIDGZ3RSAHHAAAAFQCXYFCPFSMLzLKSuYKi64QL8Fgc9QAAAIEA9+GghdabPd7LvKtcNrhXuXmUr7v6OuqC+VdMCz0HgmdRWVeOutRZT+ZxBxCBgLRJFnEj6EwoFhO3zwkyjMim4TwWeotUfI0o4KOuHiuzpnWRbqN/C/ohNWLx+2J6ASQ7zKTxvqhRkImog9/hWuWfBpKLZl6Ae1UlZAFMO/7PSSoAAACBAKKSU2PFl/qOLxIwmBZPPIcJshVe7bVUpFvyl3BbJDow8rXfskl8wO63OzP/qLmcJM0+JbcRU/53JjTuyk31drV2qxhIOsLDC9dGCWj47Y7TyhPdXh/0dthTRBy6bqGtRPxGa7gJov1xm/UuYYXPIUR/3x9MAZvZ5xvE0kYXO+rx user@host";
         let error = validate_ssh_key(key).unwrap_err();
-        assert!(error.to_string().contains("ssh-dss"), "{error:#}");
+        assert_eq!(
+            error.downcast_ref::<SharedError>(),
+            Some(&SharedError::UnsupportedSshKeyAlgorithm {
+                algorithm: Algorithm::Dsa
+            })
+        );
     }
 }

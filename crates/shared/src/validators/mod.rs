@@ -17,7 +17,7 @@ mod ztp;
 pub use file_mode::mode_from_octal_digits;
 pub use impairment::validate_link_impairment;
 pub use interface_count::{effective_data_interface_count, validate_data_interface_count_override};
-pub use password::validate_password_strength;
+pub use password::{PasswordRequirement, validate_password_strength};
 pub use secret_file::validate_secret_file;
 pub use ssh_key::validate_ssh_key;
 pub use tailscale_key::validate_tailscale_key;
