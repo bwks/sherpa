@@ -429,6 +429,7 @@ mod tests {
     use std::slice;
 
     use super::*;
+    use db::LabDetails;
     use shared::data::{ModelKind, NodeCpu};
 
     fn node(cpu_count: Option<u8>, memory: Option<u16>) -> topology::NodeExpanded {
@@ -559,16 +560,9 @@ mod tests {
             gateway_ipv6: None,
             router_ipv6: None,
         };
-        db::create_lab(
-            db,
-            name,
-            lab_id,
-            user,
-            &networks,
-            &db::LabDetails::default(),
-        )
-        .await
-        .unwrap();
+        db::create_lab(db, name, lab_id, user, &networks, &LabDetails::default())
+            .await
+            .unwrap();
     }
 
     fn lab_record(lab: &shared::data::DbLab) -> RecordId {

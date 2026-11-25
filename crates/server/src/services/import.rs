@@ -2,12 +2,15 @@ use anyhow::{Context, Result, bail};
 use db::{Database, DefaultRequest};
 use futures_util::{Stream, StreamExt};
 use opentelemetry::KeyValue;
+use reqwest::Client;
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use tokio::task;
 
 use shared::data::{
     DownloadImageRequest, ImageSummary, ImportRequest, ImportResponse, KindSettings,
@@ -216,7 +219,7 @@ async fn import_disk_image(
     let version_dir = paths.version_dir(request.model, &request.version);
     let version_disk = version_dir.join(filename);
 
-    let source_len = tokio::fs::metadata(&request.src)
+    let source_len = fs::metadata(&request.src)
         .await
         .with_context(|| format!("Failed to read source file {}", request.src))?
         .len();
@@ -304,7 +307,7 @@ fn ensure_disk_replaceable(
 
 /// Read a file's length, or `None` when there is no file.
 async fn file_len(path: &Path) -> Result<Option<u64>> {
-    match tokio::fs::metadata(path).await {
+    match fs::metadata(path).await {
         Ok(metadata) => Ok(Some(metadata.len())),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error).with_context(|| format!("Failed to read {}", path.display())),
@@ -318,7 +321,7 @@ async fn copy_disk_into_place(
     version_disk: &Path,
     progress: &ProgressSender,
 ) -> Result<PlacedDisk> {
-    tokio::fs::create_dir_all(version_dir)
+    fs::create_dir_all(version_dir)
         .await
         .with_context(|| format!("Failed to create {}", version_dir.display()))?;
     let _ = progress.send_status(
@@ -330,7 +333,7 @@ async fn copy_disk_into_place(
     let source = PathBuf::from(&request.src);
     // The blocking task owns the stage, so a cancelled request still removes the partial file
     // once the copy stops.
-    let placed = tokio::task::spawn_blocking(move || {
+    let placed = task::spawn_blocking(move || {
         staged.copy_from(&source)?;
         staged.place()
     })
@@ -495,7 +498,7 @@ async fn scan_disk_images(
     let images_dir = SHERPA_IMAGES_PATH.to_owned();
 
     // Read model directories from the images dir
-    let mut model_entries = tokio::fs::read_dir(&images_dir)
+    let mut model_entries = fs::read_dir(&images_dir)
         .await
         .context(format!("Failed to read images directory: {images_dir}"))?;
 
@@ -546,7 +549,7 @@ async fn scan_version_dirs(
     dry_run: bool,
     tally: &mut ScanTally,
 ) -> Result<()> {
-    let mut version_entries = match tokio::fs::read_dir(model_dir).await {
+    let mut version_entries = match fs::read_dir(model_dir).await {
         Ok(entries) => entries,
         Err(e) => {
             tracing::warn!("Failed to read model directory {}: {}", model_dir, e);
@@ -569,7 +572,7 @@ async fn scan_version_dirs(
         }
 
         // Also check via symlink_metadata to catch symlinked directories
-        let Ok(symlink_meta) = tokio::fs::symlink_metadata(version_entry.path()).await else {
+        let Ok(symlink_meta) = fs::symlink_metadata(version_entry.path()).await else {
             continue;
         };
         if symlink_meta.file_type().is_symlink() {
@@ -669,7 +672,7 @@ async fn scan_version(
 ) -> Result<()> {
     let _image_guard = lock_image(scan.model_kind, &version).await;
     if let Some(disk) = &disk
-        && !tokio::fs::try_exists(disk).await.unwrap_or(false)
+        && !fs::try_exists(disk).await.unwrap_or(false)
     {
         tracing::debug!(model = %scan.model_kind.model(), %version, "Image removed while the scan waited");
         return Ok(());
@@ -892,7 +895,7 @@ async fn compare_existing_download(
         return Ok(existing);
     }
     let path = version_disk.to_owned();
-    let actual = tokio::task::spawn_blocking(move || sha256_file(&path))
+    let actual = task::spawn_blocking(move || sha256_file(&path))
         .await
         .context("The image checksum task failed")??;
     Ok(if actual == expected {
@@ -909,7 +912,7 @@ async fn compare_existing_download(
 #[instrument(level = "debug")]
 async fn talos_vanilla_schematic_id() -> Result<String> {
     let url = format!("{TALOS_IMAGE_FACTORY_URL}/schematics");
-    let response = reqwest::Client::new()
+    let response = Client::new()
         .post(&url)
         .body(TALOS_VANILLA_SCHEMATIC_YAML)
         .send()
@@ -969,7 +972,7 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     let staged = StagedDisk::new(dest);
-    let mut file = tokio::fs::File::create(staged.partial_path())
+    let mut file = fs::File::create(staged.partial_path())
         .await
         .with_context(|| format!("Failed to create file {}", staged.partial_path().display()))?;
     let mut hasher = Sha256::new();
@@ -1012,7 +1015,7 @@ where
             });
         }
     }
-    let placed = tokio::task::spawn_blocking(move || staged.place())
+    let placed = task::spawn_blocking(move || staged.place())
         .await
         .context("The image rename task failed")??;
     Ok((placed, downloaded))
@@ -1099,7 +1102,7 @@ async fn download_disk_image(
         .with_context(|| format!("{} is a container image, which has no disk", request.model))?;
     let version_dir = paths.version_dir(request.model, &request.version);
     let version_disk = version_dir.join(filename);
-    tokio::fs::create_dir_all(&version_dir)
+    fs::create_dir_all(&version_dir)
         .await
         .with_context(|| format!("Failed to create {}", version_dir.display()))?;
 
@@ -1195,6 +1198,7 @@ mod tests {
     use libvirt::BackedVolume;
     use std::fs;
     use std::io;
+    use tokio::net::TcpListener;
     use tokio::sync::mpsc;
 
     use crate::api::errors::ApiError;
@@ -1227,8 +1231,8 @@ mod tests {
 
         assert_eq!(size, 6);
         assert_eq!(placed.path(), dest);
-        assert_eq!(std::fs::read(&dest).unwrap(), b"abcdef");
-        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        assert_eq!(fs::read(&dest).unwrap(), b"abcdef");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     #[tokio::test]
@@ -1247,7 +1251,7 @@ mod tests {
         );
 
         assert!(!dest.exists());
-        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
     #[tokio::test]
@@ -1426,18 +1430,15 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let paths = test_paths(root.path());
         let source = root.path().join("source.qcow2");
-        std::fs::write(&source, b"whole image").unwrap();
+        fs::write(&source, b"whole image").unwrap();
         let database = schema_db().await;
 
         import_disk(&database, &paths, &source, "1").await.unwrap();
 
-        assert_eq!(
-            std::fs::read(disk_path(&paths, "1")).unwrap(),
-            b"whole image"
-        );
+        assert_eq!(fs::read(disk_path(&paths, "1")).unwrap(), b"whole image");
         assert!(recorded(&database, "1").await.is_some());
         let version_dir = paths.version_dir(NodeModel::UbuntuLinux, "1");
-        assert_eq!(std::fs::read_dir(version_dir).unwrap().count(), 1);
+        assert_eq!(fs::read_dir(version_dir).unwrap().count(), 1);
     }
 
     #[tokio::test]
@@ -1445,14 +1446,14 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let paths = test_paths(root.path());
         let source = root.path().join("source.qcow2");
-        std::fs::write(&source, b"whole image").unwrap();
+        fs::write(&source, b"whole image").unwrap();
         // No schema: the row write fails.
         let database = db::open_in_memory().await.unwrap();
 
         assert!(import_disk(&database, &paths, &source, "1").await.is_err());
 
         let version_dir = paths.version_dir(NodeModel::UbuntuLinux, "1");
-        assert_eq!(std::fs::read_dir(version_dir).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(version_dir).unwrap().count(), 0);
     }
 
     #[tokio::test]
@@ -1467,7 +1468,7 @@ mod tests {
 
         assert!(recorded(&database, "1").await.is_none());
         let version_dir = paths.version_dir(NodeModel::UbuntuLinux, "1");
-        let files = std::fs::read_dir(version_dir).map_or(0, Iterator::count);
+        let files = fs::read_dir(version_dir).map_or(0, Iterator::count);
         assert_eq!(files, 0, "the import left a file or a partial file");
     }
 
@@ -1476,15 +1477,15 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let paths = test_paths(root.path());
         let source = root.path().join("source.qcow2");
-        std::fs::write(&source, b"whole image").unwrap();
+        fs::write(&source, b"whole image").unwrap();
         let disk = disk_path(&paths, "1");
-        std::fs::create_dir_all(disk.parent().unwrap()).unwrap();
-        std::fs::write(&disk, b"whole").unwrap();
+        fs::create_dir_all(disk.parent().unwrap()).unwrap();
+        fs::write(&disk, b"whole").unwrap();
         let database = schema_db().await;
 
         import_disk(&database, &paths, &source, "1").await.unwrap();
 
-        assert_eq!(std::fs::read(&disk).unwrap(), b"whole image");
+        assert_eq!(fs::read(&disk).unwrap(), b"whole image");
     }
 
     #[tokio::test]
@@ -1492,15 +1493,15 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let paths = test_paths(root.path());
         let source = root.path().join("source.qcow2");
-        std::fs::write(&source, b"new image").unwrap();
+        fs::write(&source, b"new image").unwrap();
         let disk = disk_path(&paths, "1");
-        std::fs::create_dir_all(disk.parent().unwrap()).unwrap();
-        std::fs::write(&disk, b"old image").unwrap();
+        fs::create_dir_all(disk.parent().unwrap()).unwrap();
+        fs::write(&disk, b"old image").unwrap();
         let database = schema_db().await;
 
         import_disk(&database, &paths, &source, "1").await.unwrap();
 
-        assert_eq!(std::fs::read(&disk).unwrap(), b"old image");
+        assert_eq!(fs::read(&disk).unwrap(), b"old image");
         assert!(recorded(&database, "1").await.is_some());
     }
 
@@ -1510,11 +1511,11 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let paths = test_paths(root.path());
         let source = root.path().join("source.qcow2");
-        std::fs::write(&source, b"another image").unwrap();
+        fs::write(&source, b"another image").unwrap();
         let disk = disk_path(&paths, "1");
-        std::fs::create_dir_all(disk.parent().unwrap()).unwrap();
+        fs::create_dir_all(disk.parent().unwrap()).unwrap();
         let base = b"base".to_vec();
-        std::fs::write(&disk, &base).unwrap();
+        fs::write(&disk, &base).unwrap();
         let pool = TestPool(vec![BackedVolume {
             name: "node-lab-hdd.qcow2".to_owned(),
             backing_file: disk.clone(),
@@ -1533,7 +1534,7 @@ mod tests {
                 image_dir: disk.parent().unwrap().to_owned(),
             })
         );
-        assert_eq!(std::fs::read(&disk).unwrap(), base);
+        assert_eq!(fs::read(&disk).unwrap(), base);
         assert!(recorded(&database, "1").await.is_none());
     }
 
@@ -1578,7 +1579,7 @@ mod tests {
 
     /// Serve `router` on a local port and return its base URL.
     async fn serve(router: Router) -> String {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(listener, router).await });
         format!("http://{address}")
@@ -1630,8 +1631,8 @@ mod tests {
     /// Put `contents` at version `1`'s image path, as a file an earlier run left.
     fn existing_disk(paths: &ImagePaths, contents: &[u8]) -> PathBuf {
         let disk = disk_path(paths, "1");
-        std::fs::create_dir_all(disk.parent().unwrap()).unwrap();
-        std::fs::write(&disk, contents).unwrap();
+        fs::create_dir_all(disk.parent().unwrap()).unwrap();
+        fs::write(&disk, contents).unwrap();
         disk
     }
 
@@ -1648,7 +1649,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(std::fs::read(&disk).unwrap(), b"old image");
+        assert_eq!(fs::read(&disk).unwrap(), b"old image");
         assert!(recorded(&database, "1").await.is_some());
     }
 
@@ -1662,7 +1663,7 @@ mod tests {
 
         download_disk(&database, &paths, url, None).await.unwrap();
 
-        assert_eq!(std::fs::read(&disk).unwrap(), b"whole image");
+        assert_eq!(fs::read(&disk).unwrap(), b"whole image");
         assert!(recorded(&database, "1").await.is_some());
     }
 
@@ -1679,7 +1680,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(std::fs::read(&disk).unwrap(), b"new image");
+        assert_eq!(fs::read(&disk).unwrap(), b"new image");
     }
 
     #[tokio::test]
@@ -1692,7 +1693,7 @@ mod tests {
 
         download_disk(&database, &paths, url, None).await.unwrap();
 
-        assert_eq!(std::fs::read(&disk).unwrap(), b"new image");
+        assert_eq!(fs::read(&disk).unwrap(), b"new image");
     }
 
     #[tokio::test]
@@ -1717,7 +1718,7 @@ mod tests {
             "{error:#}"
         );
         let version_dir = paths.version_dir(NodeModel::UbuntuLinux, "1");
-        assert_eq!(std::fs::read_dir(version_dir).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(version_dir).unwrap().count(), 0);
         assert!(recorded(&database, "1").await.is_none());
     }
 
@@ -1767,7 +1768,7 @@ mod tests {
             ),
             "{error:#}"
         );
-        assert_eq!(std::fs::read(&disk).unwrap(), b"base");
+        assert_eq!(fs::read(&disk).unwrap(), b"base");
         assert!(recorded(&database, "1").await.is_none());
     }
 
@@ -1776,8 +1777,8 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let paths = test_paths(root.path());
         let disk = disk_path(&paths, "scan-race");
-        std::fs::create_dir_all(disk.parent().unwrap()).unwrap();
-        std::fs::write(&disk, b"image").unwrap();
+        fs::create_dir_all(disk.parent().unwrap()).unwrap();
+        fs::write(&disk, b"image").unwrap();
         let database = schema_db().await;
         let mut scan = ModelScan::new(
             &database,
@@ -1799,8 +1800,8 @@ mod tests {
             &mut tally,
         );
         let deleting = async {
-            tokio::task::yield_now().await;
-            std::fs::remove_file(&disk).unwrap();
+            task::yield_now().await;
+            fs::remove_file(&disk).unwrap();
             drop(delete);
         };
         let (scanned, ()) = tokio::join!(scanning, deleting);

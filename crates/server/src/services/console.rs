@@ -21,6 +21,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
+use tokio::task;
 use tracing::instrument;
 
 use libvirt::{
@@ -211,7 +212,7 @@ pub async fn console_socket(
 ) -> Result<String> {
     let qemu = state.qemu.clone();
     let domain = target.domain.clone();
-    let reached = tokio::task::spawn_blocking(move || -> Result<Option<Reached>> {
+    let reached = task::spawn_blocking(move || -> Result<Option<Reached>> {
         let conn = qemu.connect().context("Failed to connect to libvirt")?;
         Ok(match kind {
             ConsoleKind::Serial => serial_console(&conn, &domain)?.map(Reached::from),
@@ -355,7 +356,7 @@ pub async fn move_stopped_consoles(state: &AppState) -> Result<()> {
         }
     }
     let qemu = state.qemu.clone();
-    tokio::task::spawn_blocking(move || -> Result<()> {
+    task::spawn_blocking(move || -> Result<()> {
         let conn = qemu.connect().context("Failed to connect to libvirt")?;
         let mut moved = 0usize;
         let mut running_on_tcp = 0usize;
@@ -404,6 +405,7 @@ mod tests {
 
     use crate::services::node_lifecycle::tests::lab_of;
     use db::{DefaultRequest, upsert_node_image};
+    use nix::unistd::{self, Group};
     use shared::data::{ModelKind, NodeModel};
 
     #[test]
@@ -423,9 +425,7 @@ mod tests {
         // The mode and group `create_console_dir` gives, as `restrict_dir` sets them.
         let root = tempfile::tempdir().unwrap();
         let dir = console_dir(root.path(), "abcd1234");
-        let group = nix::unistd::Group::from_gid(nix::unistd::getgid())
-            .unwrap()
-            .unwrap();
+        let group = Group::from_gid(unistd::getgid()).unwrap().unwrap();
         restrict_dir(&dir, CONSOLE_LAB_DIR_MODE, Some(&group.name)).unwrap();
         let metadata = fs::metadata(&dir).unwrap();
         assert_eq!(metadata.permissions().mode() & 0o7777, 0o2770);

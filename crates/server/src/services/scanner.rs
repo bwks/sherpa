@@ -9,6 +9,7 @@ use shared::data::{
     Observation, Probe, RecordId, Runtime,
 };
 use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
+use tokio::time;
 use tokio_util::sync::CancellationToken;
 use topology::Manifest;
 use tracing::instrument;
@@ -74,7 +75,7 @@ pub async fn run_scanner(state: AppState, cancel: CancellationToken) {
     let interval_secs = state.config.scanner.interval_secs;
     tracing::info!(interval_secs = interval_secs, "Scanner service started");
 
-    let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+    let mut interval = time::interval(Duration::from_secs(interval_secs));
     // The first tick completes immediately; skip it so we don't scan at startup
     // before everything is fully initialized.
     interval.tick().await;
@@ -592,6 +593,7 @@ mod tests {
     use super::*;
     use bollard::secret::ContainerStateStatusEnum;
     use shared::data::{NodeModel, ReadyCheck};
+    use tempfile::TempDir;
 
     use crate::services::node_ops::tests::TestSshd;
     use crate::services::p2p_links::fake::FakeHost;
@@ -998,7 +1000,7 @@ config = "vault.hcl"
         unseal_vaults(&seals, "lab", &nodes, &running, &[]).await;
         assert_eq!(seals.of_lab("lab").len(), 1);
         let stopped = container_runtimes(&[], &["vault01-lab"]);
-        let dir = tempfile::TempDir::new().unwrap();
+        let dir = TempDir::new().unwrap();
         let checked = VaultCheck {
             node_name: "vault01".to_string(),
             client: absent_vault(),

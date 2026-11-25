@@ -5,6 +5,8 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result, anyhow, bail};
+use container::{ContainerError, ExistingBridgeNetwork};
+use db::LabDetails;
 use tracing::instrument;
 
 use super::context::LabBuild;
@@ -99,15 +101,15 @@ pub(super) async fn check_existing_docker_management_network(
     )
     .await?
     {
-        container::ExistingBridgeNetwork::Differs(differences) => Err(ServiceError::Conflict(
-            container::ContainerError::NetworkDiffers { name, differences }.to_string(),
+        ExistingBridgeNetwork::Differs(differences) => Err(ServiceError::Conflict(
+            ContainerError::NetworkDiffers { name, differences }.to_string(),
         )
         .into()),
-        container::ExistingBridgeNetwork::Matches => {
+        ExistingBridgeNetwork::Matches => {
             tracing::info!(network = %name, "Reusing the Docker management network already there");
             Ok(())
         }
-        container::ExistingBridgeNetwork::Absent => Ok(()),
+        ExistingBridgeNetwork::Absent => Ok(()),
     }
 }
 
@@ -249,7 +251,7 @@ pub(super) async fn reserve_lab(
     lab_name: &str,
     lab_id: &str,
     user: &data::DbUser,
-    details: &db::LabDetails,
+    details: &LabDetails,
 ) -> Result<ReservedLab> {
     for attempt in 1..=LAB_SUBNET_ALLOCATION_ATTEMPTS {
         let networks = allocate_lab_networks(db, config).await?;
@@ -623,7 +625,7 @@ mod tests {
         // The record is the reservation, taken before anything is created, so a second `up`
         // cannot fail later and have its rollback remove the first `up`'s lab.
         let (db, alice) = database_with("alice").await;
-        let details = db::LabDetails::default();
+        let details = LabDetails::default();
         let first = reserve_lab(&db, &config(), "core", "ab12cd34", &alice, &details)
             .await
             .unwrap();

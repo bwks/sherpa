@@ -13,6 +13,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use askama::Template;
 use jato::{Auth, ConnectOptions, Hop, HostKeyPolicy, Node, Session};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::{net, task, time};
 use tracing::instrument;
 
 use crate::konst::{
@@ -49,10 +50,17 @@ use shared::konst::{
 };
 use shared::util;
 use shared::validators::{effective_data_interface_count, effective_ztp, mode_from_octal_digits};
-use template::CryptHash;
+use template::{
+    CiscoFxosFirewallMode, CloudInitNetwork, CloudInitResolvConf, CloudbaseInitNetwork, CryptHash,
+    DomainTuning, FileMode, IgnitionConfig, IgnitionFile, IgnitionFileContents, IgnitionFileSystem,
+    IgnitionUnit, MikrotikRouterosZtpTemplate, SonicLinuxZtp,
+};
 use topology::{NodeReadyCheck, SystemdUnitData};
+use virt::domain::Domain;
 use virt::error::ErrorNumber;
-use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
+use virt::network::Network;
+use virt::storage_pool::StoragePool;
+use virt::sys::{VIR_DOMAIN_RUNNING, VIR_DOMAIN_UNDEFINE_NVRAM};
 
 const SHERPA_BLANK_DISK_FAT32: &str = "fat32.img";
 const SHERPA_BLANK_DISK_IOSV: &str = "iosv.img";
@@ -391,7 +399,7 @@ pub(crate) fn write_nocloud_files(
         NODE_CONFIG_FILE_MODE,
     )?;
 
-    let network_config = template::CloudInitNetwork::ztp_interface(
+    let network_config = CloudInitNetwork::ztp_interface(
         node_ipv4_address,
         mac_address.to_owned(),
         &mgmt_net.v4,
@@ -415,7 +423,7 @@ pub(crate) fn write_nocloud_files(
         }
         None => match fs::remove_file(&user_data_path) {
             Ok(()) => tracing::debug!(path = %user_data_path, "Removed stale user-data"),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(error) if error.kind() == ErrorKind::NotFound => {
                 tracing::debug!(path = %user_data_path, "No user-data to remove");
             }
             Err(error) => {
@@ -522,11 +530,11 @@ pub fn model_capabilities(model_kind: data::ModelKind) -> Vec<String> {
     match model_kind.model() {
         data::NodeModel::HashicorpVault => CONTAINER_HASHICORP_VAULT_CAPABILITIES
             .iter()
-            .map(std::string::ToString::to_string)
+            .map(ToString::to_string)
             .collect(),
         data::NodeModel::CiscoIol | data::NodeModel::CiscoIoll2 => CONTAINER_CISCO_IOL_CAPABILITIES
             .iter()
-            .map(std::string::ToString::to_string)
+            .map(ToString::to_string)
             .collect(),
         _ => Vec::new(),
     }
@@ -737,11 +745,11 @@ fn arista_eos_container_start(node: &mut topology::NodeExpanded, setup: &mut Con
     setup.privileged = true;
     setup.env_vars = CONTAINER_ARISTA_CEOS_ENV_VARS
         .iter()
-        .map(std::string::ToString::to_string)
+        .map(ToString::to_string)
         .collect();
     setup.commands = CONTAINER_ARISTA_CEOS_COMMANDS
         .iter()
-        .map(std::string::ToString::to_string)
+        .map(ToString::to_string)
         .collect();
 
     // Update node fields for consistency
@@ -809,11 +817,11 @@ fn srlinux_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) 
     setup.user = Some(CONTAINER_NOKIA_SRLINUX_USER.to_string());
     setup.env_vars = CONTAINER_NOKIA_SRLINUX_ENV_VARS
         .iter()
-        .map(std::string::ToString::to_string)
+        .map(ToString::to_string)
         .collect();
     setup.commands = CONTAINER_NOKIA_SRLINUX_COMMANDS
         .iter()
-        .map(std::string::ToString::to_string)
+        .map(ToString::to_string)
         .collect();
 
     // Update node fields
@@ -1055,7 +1063,7 @@ fn frr_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) {
     setup.privileged = true;
     setup.env_vars = CONTAINER_FRR_ENV_VARS
         .iter()
-        .map(std::string::ToString::to_string)
+        .map(ToString::to_string)
         .collect();
 
     node.container.get_or_insert_default().privileged = Some(setup.privileged);
@@ -1181,7 +1189,7 @@ fn sonic_container_start(
     ]);
     setup.commands = CONTAINER_SONIC_COMMANDS
         .iter()
-        .map(std::string::ToString::to_string)
+        .map(ToString::to_string)
         .collect();
 
     let container = node.container.get_or_insert_default();
@@ -1209,7 +1217,7 @@ fn sonic_container_volume_ztp(
     // Docker addresses `eth0`, so the config has no management entries.
     let config_db = match custom_ztp {
         Some(config) => config.to_owned(),
-        None => template::SonicLinuxZtp {
+        None => SonicLinuxZtp {
             hostname: node.name.clone(),
             mgmt_ipv4: mgmt_net.v4.clone(),
             mgmt_ipv4_address: None,
@@ -1289,10 +1297,7 @@ fn write_sonic_container_init(
 
 /// An application container: its model's command.
 fn app_container(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup, commands: &[&str]) {
-    setup.commands = commands
-        .iter()
-        .map(std::string::ToString::to_string)
-        .collect();
+    setup.commands = commands.iter().map(ToString::to_string).collect();
     node.container.get_or_insert_default().commands = Some(setup.commands.clone());
 }
 
@@ -1337,7 +1342,7 @@ fn vault_container(
     setup.env_vars = if custom_ztp.is_some() {
         CONTAINER_HASHICORP_VAULT_ENV_VARS
             .iter()
-            .map(std::string::ToString::to_string)
+            .map(ToString::to_string)
             .collect()
     } else {
         // The generated config serves the API over TLS with the lab certificate.
@@ -1352,7 +1357,7 @@ fn vault_container(
     setup.volumes = vec![format!("{}:{}", config_volume.src, config_volume.dst)];
     setup.commands = CONTAINER_HASHICORP_VAULT_COMMANDS
         .iter()
-        .map(std::string::ToString::to_string)
+        .map(ToString::to_string)
         .collect();
     setup.capabilities = model_capabilities(node.model_kind);
 
@@ -1388,7 +1393,7 @@ fn keycloak_container(
     );
     setup.commands = CONTAINER_KEYCLOAK_COMMANDS
         .iter()
-        .map(std::string::ToString::to_string)
+        .map(ToString::to_string)
         .collect();
 
     node.environment_variables = Some(setup.env_vars.clone());
@@ -1493,10 +1498,7 @@ pub(crate) fn generate_vm_ztp(
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
 
     // Reuse existing MAC address if provided, otherwise generate a new one
-    let mac_address = mgmt_mac.map_or_else(
-        || util::random_mac(KVM_OUI),
-        std::string::ToString::to_string,
-    );
+    let mac_address = mgmt_mac.map_or_else(|| util::random_mac(KVM_OUI), ToString::to_string);
 
     let boot_dir = vm_boot_dir(lab_dir, &node.name);
     let ztp = NodeZtp {
@@ -1792,7 +1794,7 @@ fn cloud_init_ca_certs(
     let Some(certs) = cert_paths else {
         return Ok(None);
     };
-    let ca_cert = std::fs::read_to_string(&certs.ca_cert)
+    let ca_cert = fs::read_to_string(&certs.ca_cert)
         .with_context(|| format!("Failed to read CA cert: {}", certs.ca_cert))?;
     Ok(Some(template::CloudInitCaCerts {
         trusted: vec![ca_cert],
@@ -1804,11 +1806,11 @@ fn build_cloud_init_cert_files(
     cert_paths: &NodeCertPaths,
     target_dir: &str,
 ) -> Result<Vec<template::CloudInitWriteFile>> {
-    let ca_cert_content = std::fs::read_to_string(&cert_paths.ca_cert)
+    let ca_cert_content = fs::read_to_string(&cert_paths.ca_cert)
         .with_context(|| format!("Failed to read CA cert: {}", cert_paths.ca_cert))?;
-    let node_cert_content = std::fs::read_to_string(&cert_paths.node_cert)
+    let node_cert_content = fs::read_to_string(&cert_paths.node_cert)
         .with_context(|| format!("Failed to read node cert: {}", cert_paths.node_cert))?;
-    let node_key_content = std::fs::read_to_string(&cert_paths.node_key)
+    let node_key_content = fs::read_to_string(&cert_paths.node_key)
         .with_context(|| format!("Failed to read node key: {}", cert_paths.node_key))?;
 
     Ok(vec![
@@ -1841,11 +1843,11 @@ fn build_cloudbase_cert_files(
     cert_paths: &NodeCertPaths,
     target_dir: &str,
 ) -> Result<Vec<template::CloudbaseWriteFile>> {
-    let ca_cert_content = std::fs::read_to_string(&cert_paths.ca_cert)
+    let ca_cert_content = fs::read_to_string(&cert_paths.ca_cert)
         .with_context(|| format!("Failed to read CA cert: {}", cert_paths.ca_cert))?;
-    let node_cert_content = std::fs::read_to_string(&cert_paths.node_cert)
+    let node_cert_content = fs::read_to_string(&cert_paths.node_cert)
         .with_context(|| format!("Failed to read node cert: {}", cert_paths.node_cert))?;
-    let node_key_content = std::fs::read_to_string(&cert_paths.node_key)
+    let node_key_content = fs::read_to_string(&cert_paths.node_key)
         .with_context(|| format!("Failed to read node key: {}", cert_paths.node_key))?;
 
     Ok(vec![
@@ -1902,12 +1904,12 @@ fn build_cloudbase_text_files(
 fn build_ignition_cert_files(
     cert_paths: &NodeCertPaths,
     target_dir: &str,
-) -> Result<Vec<template::IgnitionFile>> {
-    let ca_cert_content = std::fs::read_to_string(&cert_paths.ca_cert)
+) -> Result<Vec<IgnitionFile>> {
+    let ca_cert_content = fs::read_to_string(&cert_paths.ca_cert)
         .with_context(|| format!("Failed to read CA cert: {}", cert_paths.ca_cert))?;
-    let node_cert_content = std::fs::read_to_string(&cert_paths.node_cert)
+    let node_cert_content = fs::read_to_string(&cert_paths.node_cert)
         .with_context(|| format!("Failed to read node cert: {}", cert_paths.node_cert))?;
-    let node_key_content = std::fs::read_to_string(&cert_paths.node_key)
+    let node_key_content = fs::read_to_string(&cert_paths.node_key)
         .with_context(|| format!("Failed to read node key: {}", cert_paths.node_key))?;
 
     let ca_b64 = util::base64_encode(&ca_cert_content);
@@ -1915,26 +1917,24 @@ fn build_ignition_cert_files(
     let key_b64 = util::base64_encode(&node_key_content);
 
     Ok(vec![
-        template::IgnitionFile {
+        IgnitionFile {
             path: format!("{target_dir}/ca.crt"),
-            mode: template::FileMode::new(0o644),
-            contents: Some(template::IgnitionFileContents::new(&format!(
-                "data:;base64,{ca_b64}"
-            ))),
+            mode: FileMode::new(0o644),
+            contents: Some(IgnitionFileContents::new(&format!("data:;base64,{ca_b64}"))),
             ..Default::default()
         },
-        template::IgnitionFile {
+        IgnitionFile {
             path: format!("{target_dir}/node.crt"),
-            mode: template::FileMode::new(0o644),
-            contents: Some(template::IgnitionFileContents::new(&format!(
+            mode: FileMode::new(0o644),
+            contents: Some(IgnitionFileContents::new(&format!(
                 "data:;base64,{cert_b64}"
             ))),
             ..Default::default()
         },
-        template::IgnitionFile {
+        IgnitionFile {
             path: format!("{target_dir}/node.key"),
-            mode: template::FileMode::new(0o600),
-            contents: Some(template::IgnitionFileContents::new(&format!(
+            mode: FileMode::new(0o600),
+            contents: Some(IgnitionFileContents::new(&format!(
                 "data:;base64,{key_b64}"
             ))),
             ..Default::default()
@@ -2107,7 +2107,7 @@ fn build_ignition_home_directories(
             }
             directories.push(template::IgnitionDirectory {
                 path,
-                mode: template::FileMode::new(0o755),
+                mode: FileMode::new(0o755),
                 overwrite: false,
                 user: Some(template::IgnitionFileParams {
                     name: file.user.clone(),
@@ -2123,16 +2123,16 @@ fn build_ignition_home_directories(
 
 /// Build Ignition files for the guest login's private environment file, and append its
 /// loader to `~/.bash_profile`, which Flatcar copies from the skeleton for every user.
-fn build_ignition_user_env(env_vars: &[String], username: &str) -> Vec<template::IgnitionFile> {
+fn build_ignition_user_env(env_vars: &[String], username: &str) -> Vec<IgnitionFile> {
     let home = format!("/home/{username}");
     let env_b64 = util::base64_encode(&build_env_profile_script(env_vars));
     let loader_b64 = util::base64_encode(&format!("\n{}\n", user_env_loader()));
     vec![
-        template::IgnitionFile {
+        IgnitionFile {
             path: format!("{home}/{NODE_USER_ENV_FILE}"),
-            mode: template::FileMode::new(0o600),
+            mode: FileMode::new(0o600),
             overwrite: Some(true),
-            contents: Some(template::IgnitionFileContents::new(&format!(
+            contents: Some(IgnitionFileContents::new(&format!(
                 "data:;base64,{env_b64}"
             ))),
             user: Some(template::IgnitionFileParams {
@@ -2143,10 +2143,10 @@ fn build_ignition_user_env(env_vars: &[String], username: &str) -> Vec<template:
             }),
             ..Default::default()
         },
-        template::IgnitionFile {
+        IgnitionFile {
             path: format!("{home}/.bash_profile"),
-            mode: template::FileMode::new(0o644),
-            append: vec![template::IgnitionFileContents::new(&format!(
+            mode: FileMode::new(0o644),
+            append: vec![IgnitionFileContents::new(&format!(
                 "data:;base64,{loader_b64}"
             ))],
             user: Some(template::IgnitionFileParams {
@@ -2445,7 +2445,7 @@ fn linux_cloud_init(
         instance_id: format!("iid-{}", node.name),
         local_hostname: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
     };
-    let network_config = template::CloudInitNetwork::ztp_interface(
+    let network_config = CloudInitNetwork::ztp_interface(
         node_ipv4_address,
         mac_address.to_string(),
         &mgmt_net.v4,
@@ -2575,7 +2575,7 @@ fn windows_cloudbase_init(
         instance_id: format!("iid-{}", node.name),
         local_hostname: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
     };
-    let network_config = template::CloudbaseInitNetwork::ztp_interface(
+    let network_config = CloudbaseInitNetwork::ztp_interface(
         node_ipv4_address,
         mac_address.to_string(),
         &mgmt_net.v4,
@@ -2618,9 +2618,7 @@ fn alpine_cloud_init(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>, dir: &str
         ssh_pwauth: cloud_init_ssh_pwauth(node.model_kind),
         // Alpine's network renderer leaves DNS to a resolvconf tool the image lacks.
         manage_resolv_conf: Some(true),
-        resolv_conf: Some(template::CloudInitResolvConf::lab_dns(
-            mgmt_net.v4.boot_server,
-        )),
+        resolv_conf: Some(CloudInitResolvConf::lab_dns(mgmt_net.v4.boot_server)),
         packages: None,
         users,
         write_files: (!write_files.is_empty()).then_some(write_files),
@@ -2630,7 +2628,7 @@ fn alpine_cloud_init(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>, dir: &str
         instance_id: format!("iid-{}", node.name),
         local_hostname: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
     };
-    let network_config = template::CloudInitNetwork::ztp_interface(
+    let network_config = CloudInitNetwork::ztp_interface(
         node_ipv4_address,
         mac_address.to_string(),
         &mgmt_net.v4,
@@ -2931,7 +2929,7 @@ fn ftdv_config(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>) -> Result<Strin
         eula: "accept".to_string(),
         hostname: node.name.clone(),
         admin_password: guest_account::device_password(device_password, PasswordForm::Plain)?,
-        firewall_mode: template::CiscoFxosFirewallMode::Routed,
+        firewall_mode: CiscoFxosFirewallMode::Routed,
         dns: mgmt_net.v4.boot_server,
         manage_locally: true,
         mgmt_ipv4: mgmt_net.v4.clone(),
@@ -3202,20 +3200,18 @@ fn mikrotik_config_disk(
             guest_account::owner_user(guest_account, KeyFormat::OpenSsh, PasswordForm::Plain)?;
         let mut owner_key_paths = Vec::new();
         for (index, key) in owner.ssh_keys.iter().enumerate() {
-            let filename = template::MikrotikRouterosZtpTemplate::owner_key_filename(
-                &owner.username,
-                index + 1,
-            );
+            let filename =
+                MikrotikRouterosZtpTemplate::owner_key_filename(&owner.username, index + 1);
             owner_key_files.push((
                 format!("{dir}/{filename}"),
                 format!("{} {}\n", key.kind, key.value),
             ));
-            owner_key_paths.push(template::MikrotikRouterosZtpTemplate::owner_key_path(
+            owner_key_paths.push(MikrotikRouterosZtpTemplate::owner_key_path(
                 &owner.username,
                 index + 1,
             ));
         }
-        template::MikrotikRouterosZtpTemplate {
+        MikrotikRouterosZtpTemplate {
             hostname: node.name.clone(),
             owner,
             owner_key_files: owner_key_paths,
@@ -3384,12 +3380,11 @@ fn generate_http_ztp(
 
     match node_image.model {
         data::NodeModel::SonicLinux => {
-            let sonic_ztp_file_map =
-                template::SonicLinuxZtp::file_map(&node.name, &mgmt_net.v4.boot_server);
+            let sonic_ztp_file_map = SonicLinuxZtp::file_map(&node.name, &mgmt_net.v4.boot_server);
 
             let [ztp_init, ztp_config, ztp_user_script] =
                 http_ztp_files(&node.name).map(|file| format!("{dir}/{file}"));
-            let sonic_ztp = template::SonicLinuxZtp {
+            let sonic_ztp = SonicLinuxZtp {
                 hostname: node.name.clone(),
                 mgmt_ipv4: mgmt_net.v4.clone(),
                 mgmt_ipv4_address: Some(node_ipv4_address),
@@ -3435,7 +3430,7 @@ fn http_ztp_files(node_name: &str) -> [String; 3] {
     [
         format!("{node_name}.conf"),
         format!("{node_name}_config_db.json"),
-        template::SonicLinuxZtp::user_script_filename(node_name),
+        SonicLinuxZtp::user_script_filename(node_name),
     ]
 }
 
@@ -3478,13 +3473,13 @@ pub(crate) fn remove_stale_network_boot_files(
 }
 
 /// Ignition units for the systemd unit files the client read.
-fn ignition_units(units: &[SystemdUnitData]) -> Result<Vec<template::IgnitionUnit>> {
+fn ignition_units(units: &[SystemdUnitData]) -> Result<Vec<IgnitionUnit>> {
     units
         .iter()
         .map(|unit| {
             let contents = util::base64_decode(&unit.content)
                 .with_context(|| format!("systemd unit '{}' contents", unit.name))?;
-            Ok(template::IgnitionUnit {
+            Ok(IgnitionUnit {
                 name: unit.name.clone(),
                 enabled: Some(unit.enabled),
                 contents: Some(contents),
@@ -3528,32 +3523,30 @@ fn generate_ignition_ztp(
 }
 
 /// The files every Ignition node gets: its hostname, and updates off.
-fn ignition_base_files(node_name: &str) -> Vec<template::IgnitionFile> {
-    let hostname_file = template::IgnitionFile {
+fn ignition_base_files(node_name: &str) -> Vec<IgnitionFile> {
+    let hostname_file = IgnitionFile {
         path: "/etc/hostname".to_owned(),
-        mode: template::FileMode::new(0o644),
-        contents: Some(template::IgnitionFileContents::new(&format!(
-            "data:,{node_name}"
-        ))),
+        mode: FileMode::new(0o644),
+        contents: Some(IgnitionFileContents::new(&format!("data:,{node_name}"))),
         ..Default::default()
     };
-    vec![hostname_file, template::IgnitionFile::disable_updates()]
+    vec![hostname_file, IgnitionFile::disable_updates()]
 }
 
 /// The manifest's text files as Ignition files, with their modes and owners.
-fn ignition_text_files(node: &topology::NodeExpanded) -> Result<Vec<template::IgnitionFile>> {
+fn ignition_text_files(node: &topology::NodeExpanded) -> Result<Vec<IgnitionFile>> {
     node.text_files
         .iter()
         .flatten()
-        .map(|file| -> Result<template::IgnitionFile> {
-            Ok(template::IgnitionFile {
+        .map(|file| -> Result<IgnitionFile> {
+            Ok(IgnitionFile {
                 path: file.dst.clone(),
-                mode: template::FileMode::new(
+                mode: FileMode::new(
                     mode_from_octal_digits(file.permissions)
                         .with_context(|| format!("Text file {} mode is invalid", file.dst))?,
                 ),
                 overwrite: None,
-                contents: Some(template::IgnitionFileContents::new(&format!(
+                contents: Some(IgnitionFileContents::new(&format!(
                     "data:;base64,{}",
                     file.content
                 ))),
@@ -3575,8 +3568,8 @@ fn flatcar_ignition(
     node: &topology::NodeExpanded,
     ztp: &NodeZtp<'_>,
     ignition_user: template::IgnitionUser,
-    mut files: Vec<template::IgnitionFile>,
-    manifest_systemd_units: Vec<template::IgnitionUnit>,
+    mut files: Vec<IgnitionFile>,
+    manifest_systemd_units: Vec<IgnitionUnit>,
 ) -> Result<(String, String, String, String)> {
     let NodeZtp {
         images_dir,
@@ -3587,10 +3580,10 @@ fn flatcar_ignition(
         ..
     } = *ztp;
     let dir = ztp.boot_dir.to_owned();
-    let mut units = vec![template::IgnitionUnit::mount_container_disk()];
+    let mut units = vec![IgnitionUnit::mount_container_disk()];
     units.extend(manifest_systemd_units);
 
-    files.push(template::IgnitionFile::ztp_interface(
+    files.push(IgnitionFile::ztp_interface(
         node_ipv4_address,
         &mgmt_net.v4,
         node.ipv6_address,
@@ -3609,13 +3602,13 @@ fn flatcar_ignition(
         files.extend(build_ignition_user_env(env_vars, &ignition_user.name));
     }
 
-    let mut ignition_config = template::IgnitionConfig::new(
+    let mut ignition_config = IgnitionConfig::new(
         vec![ignition_user],
         files,
         vec![],
         units,
         vec![],
-        vec![template::IgnitionFileSystem::default()],
+        vec![IgnitionFileSystem::default()],
     );
     ignition_config
         .storage
@@ -3697,7 +3690,7 @@ pub fn build_domain_template(
         disks: parts.disks,
         interfaces: parts.interfaces,
         interface_type: vm.interfaces.kind.clone(),
-        tuning: template::DomainTuning::from_node_settings(
+        tuning: DomainTuning::from_node_settings(
             &node.cpu,
             &node.numa,
             &node.boot_disk,
@@ -3839,7 +3832,7 @@ pub async fn clone_node_disks(
     let tasks: Vec<_> = clone_disks
         .into_iter()
         .map(|disk| {
-            tokio::task::spawn(provision_disk(
+            task::spawn(provision_disk(
                 Arc::clone(&qemu_conn),
                 disk,
                 progress.clone(),
@@ -3888,8 +3881,7 @@ fn check_clone_destinations(clone_disks: &[data::CloneDisk]) -> Result<()> {
             disk.dst
         );
         anyhow::ensure!(
-            fs::symlink_metadata(&disk.dst)
-                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound),
+            fs::symlink_metadata(&disk.dst).is_err_and(|error| error.kind() == ErrorKind::NotFound),
             "Disk destination exists or cannot be inspected: {}",
             disk.dst
         );
@@ -3924,7 +3916,7 @@ async fn provision_disk(
         StatusKind::Progress,
     );
 
-    tokio::task::spawn_blocking(move || -> Result<()> {
+    task::spawn_blocking(move || -> Result<()> {
         let _leases = leases;
         create_disk(&conn, &disk)
     })
@@ -3971,7 +3963,7 @@ async fn remove_created_disks(
     conn: Arc<libvirt::QemuConnection>,
     created: Vec<String>,
 ) -> Result<Vec<String>> {
-    tokio::task::spawn_blocking(move || {
+    task::spawn_blocking(move || {
         let mut errors = Vec::new();
         for path in created {
             if let Some(name) = Path::new(&path).file_name().and_then(|name| name.to_str())
@@ -4010,7 +4002,7 @@ pub async fn create_vm(
     let conn_for_blocking = qemu_conn.clone();
     let vm_name_for_blocking = vm_name.clone();
 
-    tokio::task::spawn_blocking(move || -> Result<()> {
+    task::spawn_blocking(move || -> Result<()> {
         libvirt::create_vm(&conn_for_blocking, &rendered_xml)
             .with_context(|| format!("Failed to create VM: {vm_name_for_blocking}"))?;
         Ok(())
@@ -4150,7 +4142,7 @@ pub async fn check_vm_ready(ip: &str, port: u16, sshd_marker: bool) -> Result<Vm
 #[instrument(level = "debug")]
 pub async fn ssh_identification(ip: &str, port: u16) -> Result<Option<String>> {
     let address: SocketAddr = format!("{ip}:{port}").parse()?;
-    match tokio::time::timeout(
+    match time::timeout(
         Duration::from_secs(SSH_READY_HANDSHAKE_TIMEOUT),
         read_ssh_identification(address),
     )
@@ -4171,7 +4163,7 @@ pub async fn ssh_identification(ip: &str, port: u16) -> Result<Option<String>> {
 /// Read lines from the SSH server at `address` until its identification line, the first that
 /// starts with `SSH-`.
 async fn read_ssh_identification(address: SocketAddr) -> io::Result<Option<String>> {
-    let stream = tokio::net::TcpStream::connect(address).await?;
+    let stream = net::TcpStream::connect(address).await?;
     let mut lines = BufReader::new(stream.take(SSH_IDENTIFICATION_MAX_BYTES)).lines();
     while let Some(line) = lines.next_line().await? {
         if line.starts_with("SSH-") {
@@ -4463,7 +4455,7 @@ pub async fn create_unikernel(
     let conn_for_blocking = qemu_conn.clone();
     let uk_name_for_blocking = uk_name.clone();
 
-    tokio::task::spawn_blocking(move || -> Result<()> {
+    task::spawn_blocking(move || -> Result<()> {
         libvirt::create_vm(&conn_for_blocking, &rendered_xml)
             .with_context(|| format!("Failed to create unikernel: {uk_name_for_blocking}"))?;
         Ok(())
@@ -4485,12 +4477,12 @@ pub fn check_unikernel_ready(
     mgmt_ip: Option<&str>,
 ) -> Result<bool> {
     // Check if domain is running via libvirt
-    let Ok(domain) = virt::domain::Domain::lookup_by_name(qemu_conn, domain_name) else {
+    let Ok(domain) = Domain::lookup_by_name(qemu_conn, domain_name) else {
         return Ok(false);
     };
 
     let (state, _) = domain.get_state()?;
-    if state != virt::sys::VIR_DOMAIN_RUNNING {
+    if state != VIR_DOMAIN_RUNNING {
         return Ok(false);
     }
 
@@ -4522,8 +4514,8 @@ pub async fn destroy_vm_node(
     // Destroy and undefine VM domain
     let conn = qemu_conn.clone();
     let vm_name = node_name_with_lab.clone();
-    tokio::task::spawn_blocking(move || -> Result<()> {
-        match virt::domain::Domain::lookup_by_name(&conn, &vm_name) {
+    task::spawn_blocking(move || -> Result<()> {
+        match Domain::lookup_by_name(&conn, &vm_name) {
             Ok(domain) => {
                 if domain.is_active()? {
                     domain.destroy()?;
@@ -4545,8 +4537,8 @@ pub async fn destroy_vm_node(
     // Delete VM disks from storage pool
     let conn = qemu_conn.clone();
     let disk_prefix = node_name_with_lab;
-    tokio::task::spawn_blocking(move || -> Result<()> {
-        let pool = virt::storage_pool::StoragePool::lookup_by_name(&conn, SHERPA_STORAGE_POOL)
+    task::spawn_blocking(move || -> Result<()> {
+        let pool = StoragePool::lookup_by_name(&conn, SHERPA_STORAGE_POOL)
             .context("Cannot find storage pool during node cleanup")?;
         libvirt::refresh_pool(&pool).context("Cannot refresh storage pool during node cleanup")?;
         for vol in pool
@@ -4574,8 +4566,8 @@ pub async fn destroy_vm_node(
     let isolated = node_isolated_network_data(node_name, node_idx, lab_id);
     let conn = qemu_conn.clone();
     let iso_net_name = isolated.network_name.clone();
-    tokio::task::spawn_blocking(move || -> Result<()> {
-        if let Ok(net) = virt::network::Network::lookup_by_name(&conn, &iso_net_name) {
+    task::spawn_blocking(move || -> Result<()> {
+        if let Ok(net) = Network::lookup_by_name(&conn, &iso_net_name) {
             if net.is_active()? {
                 net.destroy()?;
             }
@@ -4592,8 +4584,8 @@ pub async fn destroy_vm_node(
         let reserved = node_reserved_network_data(node_name, node_idx, lab_id);
         let conn = qemu_conn.clone();
         let res_net_name = reserved.network_name.clone();
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            if let Ok(net) = virt::network::Network::lookup_by_name(&conn, &res_net_name) {
+        task::spawn_blocking(move || -> Result<()> {
+            if let Ok(net) = Network::lookup_by_name(&conn, &res_net_name) {
                 if net.is_active()? {
                     net.destroy()?;
                 }
@@ -4656,10 +4648,13 @@ pub(crate) mod tests {
     use serde_json::{Value, from_str, json};
     use shared::data::{ModelKind, Ztp};
     use std::env;
+    use std::net::TcpListener as StdTcpListener;
     use std::os::unix::fs::PermissionsExt;
-    use std::process::Command;
+    use std::process::{self, Command};
+    use std::{slice, str, thread};
     use tempfile::tempdir;
     use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpListener;
     use tokio::sync::mpsc;
 
     #[test]
@@ -4785,7 +4780,7 @@ pub(crate) mod tests {
         let script = build_env_profile_script(&env_vars);
         let home = tempdir().unwrap();
         let file = home.path().join("env.sh");
-        std::fs::write(&file, script).unwrap();
+        fs::write(&file, script).unwrap();
         let output = Command::new("sh")
             .arg("-c")
             .arg(r#". "$1"; sh -c 'printf "%s|%s" "$EDITOR" "$MSG"'"#)
@@ -4813,7 +4808,7 @@ pub(crate) mod tests {
         assert_eq!(file.permissions, "600");
         assert_eq!(file.encoding, None);
         let home = tempdir().unwrap();
-        std::fs::write(home.path().join(".sherpa_env"), &file.content).unwrap();
+        fs::write(home.path().join(".sherpa_env"), &file.content).unwrap();
         assert_eq!(
             login_shell_var(home.path(), r#". "$HOME/.sherpa_env""#, "GH_TOKEN"),
             "abc123"
@@ -4823,13 +4818,10 @@ pub(crate) mod tests {
     /// A fake passwd file listing the current user with `home`, so generated commands can run
     /// without touching the real home directory.
     fn fake_passwd(root: &std::path::Path, home: &std::path::Path) -> (String, String) {
-        let output = std::process::Command::new("id")
-            .arg("-un")
-            .output()
-            .unwrap();
+        let output = Command::new("id").arg("-un").output().unwrap();
         let user = String::from_utf8(output.stdout).unwrap().trim().to_string();
         let passwd = root.join("passwd");
-        std::fs::write(
+        fs::write(
             &passwd,
             format!("{user}:x:1000:1000::{}:/bin/sh\n", home.display()),
         )
@@ -4838,7 +4830,7 @@ pub(crate) mod tests {
     }
 
     fn run_sh(commands: &[String]) -> bool {
-        std::process::Command::new("sh")
+        Command::new("sh")
             .arg("-c")
             .arg(commands.join("\n"))
             .status()
@@ -4865,10 +4857,10 @@ printf %s "${var}""#
     fn chown_calls(root: &Path, commands: &[String]) -> String {
         let bin = root.join("bin");
         let log = root.join("chown.log");
-        std::fs::create_dir_all(&bin).unwrap();
-        std::fs::write(&log, "").unwrap();
+        fs::create_dir_all(&bin).unwrap();
+        fs::write(&log, "").unwrap();
         let chown = bin.join("chown");
-        std::fs::write(
+        fs::write(
             &chown,
             format!(
                 r#"#!/bin/sh
@@ -4878,7 +4870,7 @@ echo "$*" >> '{}'
             ),
         )
         .unwrap();
-        std::fs::set_permissions(&chown, std::fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&chown, fs::Permissions::from_mode(0o755)).unwrap();
         let path = format!("{}:{}", bin.display(), env::var("PATH").unwrap());
         Command::new("sh")
             .arg("-c")
@@ -4886,17 +4878,17 @@ echo "$*" >> '{}'
             .env("PATH", path)
             .status()
             .unwrap();
-        std::fs::read_to_string(&log).unwrap()
+        fs::read_to_string(&log).unwrap()
     }
 
     #[test]
     fn login_environment_004_the_loader_hooks_the_login_file_bash_reads_in_the_passwd_home() {
         let root = tempdir().unwrap();
         let home = root.path().join("usr/home/alice");
-        std::fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&home).unwrap();
         let (user, passwd) = fake_passwd(root.path(), &home);
 
-        std::fs::write(home.join(".sherpa_env"), "export GH_TOKEN='abc123'\n").unwrap();
+        fs::write(home.join(".sherpa_env"), "export GH_TOKEN='abc123'\n").unwrap();
 
         assert!(run_sh(&[user_env_loader_runcmd(&user, &passwd)]));
         assert_eq!(
@@ -4904,7 +4896,7 @@ echo "$*" >> '{}'
             "abc123"
         );
 
-        std::fs::write(home.join(".bash_profile"), "").unwrap();
+        fs::write(home.join(".bash_profile"), "").unwrap();
         assert!(run_sh(&[user_env_loader_runcmd(&user, &passwd)]));
         assert_eq!(
             login_shell_var(&home, r#". "$HOME/.bash_profile""#, "GH_TOKEN"),
@@ -4916,7 +4908,7 @@ echo "$*" >> '{}'
     fn login_environment_005_an_unknown_user_gets_no_login_file() {
         let root = tempdir().unwrap();
         let home = root.path().join("home");
-        std::fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&home).unwrap();
         let (_, passwd) = fake_passwd(root.path(), &home);
         let calls = chown_calls(
             root.path(),
@@ -4972,8 +4964,8 @@ echo "$*" >> '{}'
         let root = tempdir().unwrap();
         let staging = root.path().join("staging");
         let home = root.path().join("usr/home/alice");
-        std::fs::create_dir_all(&staging).unwrap();
-        std::fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&staging).unwrap();
+        fs::create_dir_all(&home).unwrap();
         let (user, passwd) = fake_passwd(root.path(), &home);
 
         let nested = home.join("it's dir/.claude/.credentials.json");
@@ -4985,18 +4977,18 @@ echo "$*" >> '{}'
         ];
         let (writes, runcmd) = stage_cloud_init_files(&files, staging.to_str().unwrap(), &passwd);
         for write in &writes {
-            std::fs::write(&write.path, &write.content).unwrap();
+            fs::write(&write.path, &write.content).unwrap();
         }
 
         assert!(run_sh(&runcmd));
-        assert_eq!(std::fs::read_to_string(&nested).unwrap(), "secret123");
+        assert_eq!(fs::read_to_string(&nested).unwrap(), "secret123");
         assert_eq!(
-            std::fs::read_to_string(home.join(".sherpa_env")).unwrap(),
+            fs::read_to_string(home.join(".sherpa_env")).unwrap(),
             "secret123",
             "~/ resolves to the passwd home"
         );
-        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "secret123");
-        let mode = std::fs::metadata(&nested).unwrap().permissions().mode();
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "secret123");
+        let mode = fs::metadata(&nested).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
         assert!(!staging.exists(), "staging directory is removed");
     }
@@ -5006,8 +4998,8 @@ echo "$*" >> '{}'
         let root = tempdir().unwrap();
         let staging = root.path().join("staging");
         let home = root.path().join("home/alice");
-        std::fs::create_dir_all(&staging).unwrap();
-        std::fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&staging).unwrap();
+        fs::create_dir_all(&home).unwrap();
         let (user, passwd) = fake_passwd(root.path(), &home);
         let inside = home.join(".config/app/app.toml");
         let outside = root.path().join("opt/app/config.toml");
@@ -5017,7 +5009,7 @@ echo "$*" >> '{}'
         ];
         let (writes, runcmd) = stage_cloud_init_files(&files, staging.to_str().unwrap(), &passwd);
         for write in &writes {
-            std::fs::write(&write.path, &write.content).unwrap();
+            fs::write(&write.path, &write.content).unwrap();
         }
 
         let calls = chown_calls(root.path(), &runcmd);
@@ -5034,13 +5026,13 @@ echo "$*" >> '{}'
     fn boot_files_006_a_file_for_a_user_the_node_lacks_is_not_written() {
         let root = tempdir().unwrap();
         let staging = root.path().join("staging");
-        std::fs::create_dir_all(&staging).unwrap();
+        fs::create_dir_all(&staging).unwrap();
         let (_, passwd) = fake_passwd(root.path(), root.path());
         let dst = root.path().join("opt/app/config.toml");
         let files = vec![staged(dst.to_str().unwrap(), "nosuchuser", None)];
         let (writes, runcmd) = stage_cloud_init_files(&files, staging.to_str().unwrap(), &passwd);
         for write in &writes {
-            std::fs::write(&write.path, &write.content).unwrap();
+            fs::write(&write.path, &write.content).unwrap();
         }
 
         let calls = chown_calls(root.path(), &runcmd);
@@ -5056,13 +5048,13 @@ echo "$*" >> '{}'
 
         let env_file = &files[0];
         assert_eq!(env_file.path, "/home/alice/.sherpa_env");
-        assert_eq!(env_file.mode, template::FileMode::new(0o600));
+        assert_eq!(env_file.mode, FileMode::new(0o600));
         assert_eq!(env_file.user.as_ref().unwrap().name, "alice");
         assert_eq!(env_file.group.as_ref().unwrap().name, "alice");
         let source = &env_file.contents.as_ref().unwrap().source;
         let encoded = source.strip_prefix("data:;base64,").unwrap();
         let home = tempdir().unwrap();
-        std::fs::write(
+        fs::write(
             home.path().join(".sherpa_env"),
             util::base64_decode(encoded).unwrap(),
         )
@@ -5089,7 +5081,7 @@ echo "$*" >> '{}'
         let mut paths = Vec::new();
         for name in ["ca.crt", "node.crt", "node.key"] {
             let file = dir.path().join(name);
-            std::fs::write(&file, "pem").unwrap();
+            fs::write(&file, "pem").unwrap();
             paths.push(file.to_string_lossy().into_owned());
         }
         let certs = NodeCertPaths {
@@ -5154,7 +5146,7 @@ echo "$*" >> '{}'
         for dir in &dirs {
             assert_eq!(dir.user.as_ref().unwrap().name, "alice");
             assert_eq!(dir.group.as_ref().unwrap().name, "alice");
-            assert_eq!(dir.mode, template::FileMode::new(0o755));
+            assert_eq!(dir.mode, FileMode::new(0o755));
             paths.push(dir.path.as_str());
         }
         assert_eq!(
@@ -5691,7 +5683,7 @@ echo "$*" >> '{}'
     /// A listener that answers every connection with `reply` and hangs up, such as a web
     /// server or a port forward with nothing behind it.
     async fn listener_replying(reply: &'static [u8]) -> (u16, tokio::task::JoinHandle<()>) {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let task = tokio::spawn(async move {
             while let Ok((mut stream, _)) = listener.accept().await {
@@ -5720,7 +5712,7 @@ echo "$*" >> '{}'
                 .status()
                 .unwrap();
             assert!(status.success());
-            let port = std::net::TcpListener::bind("127.0.0.1:0")
+            let port = StdTcpListener::bind("127.0.0.1:0")
                 .unwrap()
                 .local_addr()
                 .unwrap()
@@ -5747,7 +5739,7 @@ echo "$*" >> '{}'
                 if TcpStream::connect_timeout(&address, Duration::from_millis(100)).is_ok() {
                     break;
                 }
-                std::thread::sleep(Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(100));
             }
             Self {
                 port,
@@ -6151,7 +6143,7 @@ echo "$*" >> '{}'
     /// The volume label of an ISO image, from its primary volume descriptor.
     fn iso_volume_label(image: &[u8]) -> &str {
         let descriptor = &image[16 * ISO_SECTOR..17 * ISO_SECTOR];
-        std::str::from_utf8(&descriptor[40..72]).unwrap().trim_end()
+        str::from_utf8(&descriptor[40..72]).unwrap().trim_end()
     }
 
     /// The contents of the file at `path` in an ISO image's primary tree, `None` when there is
@@ -7141,7 +7133,7 @@ echo "$*" >> '{}'
         let conn = Arc::new(Qemu::default().connect().unwrap());
         let dst = format!(
             "{SHERPA_STORAGE_POOL_PATH}/vm1-boot-test{}.iso",
-            std::process::id()
+            process::id()
         );
         let (lab, boot_dir, disk) = vm_boot_files(&dst);
         let (tx, _rx) = mpsc::unbounded_channel();
@@ -7152,7 +7144,7 @@ echo "$*" >> '{}'
             "boot-test",
             &ProgressSender::new(tx),
             Vec::new(),
-            std::slice::from_ref(&boot_dir),
+            slice::from_ref(&boot_dir),
         )
         .await;
         let in_pool = Path::new(&dst).exists();
@@ -7183,7 +7175,7 @@ echo "$*" >> '{}'
             "boot-test",
             &ProgressSender::new(tx),
             Vec::new(),
-            std::slice::from_ref(&boot_dir),
+            slice::from_ref(&boot_dir),
         )
         .await;
 

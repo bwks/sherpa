@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use anyhow::Result;
 use opentelemetry::KeyValue;
 
@@ -50,7 +52,7 @@ pub(crate) async fn clean_lab_resources(
     // Resources are matched by lab ID and the lab folder is built from it, so an empty or
     // path-like ID would reach other labs' resources.
     db::validate_lab_id(lab_id).map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
-    let start_time = std::time::Instant::now();
+    let start_time = Instant::now();
 
     tracing::info!(lab_id = %lab_id, "Starting admin clean operation");
 

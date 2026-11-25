@@ -25,6 +25,7 @@ use libvirt::Qemu;
 use shared::data::{
     DbNode, Halt, NodeKind, NodeState, Observation, OperationEvent, RecordId, Runtime,
 };
+use tokio::task;
 use tracing::instrument;
 use virt::sys::{
     VIR_DOMAIN_BLOCKED, VIR_DOMAIN_CRASHED, VIR_DOMAIN_NOSTATE, VIR_DOMAIN_PAUSED,
@@ -149,7 +150,7 @@ pub(crate) async fn query_runtimes(docker: &Docker, qemu: &Arc<Qemu>) -> Runtime
 /// Query libvirt for all domain states. Must run in `spawn_blocking` since
 /// libvirt calls are blocking FFI.
 async fn query_libvirt_states(qemu: Arc<Qemu>) -> Result<HashMap<String, u32>> {
-    tokio::task::spawn_blocking(move || -> Result<HashMap<String, u32>> {
+    task::spawn_blocking(move || -> Result<HashMap<String, u32>> {
         let conn = qemu.connect().context("Failed to connect to libvirt")?;
         let domains = conn
             .list_all_domains(0)

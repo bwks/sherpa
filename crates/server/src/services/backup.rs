@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -29,7 +30,7 @@ pub async fn backup_database(auth_ctx: &AuthContext, state: &AppState) -> Result
     )?;
     let path = backup_path(Timestamp::now());
     state.db.backup(&path).await?;
-    let size_bytes = std::fs::metadata(&path)
+    let size_bytes = fs::metadata(&path)
         .context(format!("Failed to read the backup file {}", path.display()))?
         .len();
     tracing::info!(path = %path.display(), size_bytes, "Database backed up");

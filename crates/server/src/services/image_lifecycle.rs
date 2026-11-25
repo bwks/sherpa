@@ -177,6 +177,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Mutex;
     use tempfile::tempdir;
+    use tokio::task;
 
     #[tokio::test]
     async fn image_delete_017_operations_on_one_image_version_run_one_at_a_time_and_another_version_is_not_held_up()
@@ -195,7 +196,7 @@ mod tests {
             "lock-test-two",
         )
         .await;
-        tokio::task::yield_now().await;
+        task::yield_now().await;
         assert!(!waiting.is_finished());
         drop(held);
         let acquired = waiting.await.unwrap();
@@ -386,7 +387,7 @@ mod tests {
         ));
         drop(first);
         drop(second);
-        tokio::task::yield_now().await;
+        task::yield_now().await;
         assert!(!deletion.is_finished());
         drop(blocking_task_lease);
         let deleted = deletion.await.unwrap();
@@ -412,7 +413,7 @@ mod tests {
             .await;
             ensure_image_has_no_overlays(scan_pool.as_ref(), &scan_version)
         });
-        tokio::task::yield_now().await;
+        task::yield_now().await;
         assert!(!deletion.is_finished());
         pool.0
             .lock()
