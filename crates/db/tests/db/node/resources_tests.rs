@@ -4,11 +4,11 @@ use db::{
     update_node_host_key, update_node_mgmt_ipv4, update_node_mgmt_ipv6, update_node_mgmt_mac,
     update_node_resources, update_node_state_from, upsert_node_image,
 };
-use shared::data::{ModelKind, NodeModel, NodeResources, NodeState};
+use shared::data::{DbNode, ModelKind, NodeModel, NodeResources, NodeState};
 
 use crate::helper::{ipv4_lab_networks, setup_db};
 
-async fn lab_with_nodes(db: &db::Database, count: u16) -> Result<Vec<shared::data::DbNode>> {
+async fn lab_with_nodes(db: &db::Database, count: u16) -> Result<Vec<DbNode>> {
     let user = create_user(db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
         db,

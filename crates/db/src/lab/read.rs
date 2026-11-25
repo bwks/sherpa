@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::str::FromStr;
 
 use anyhow::{Context, Result, anyhow};
@@ -171,7 +172,7 @@ pub async fn get_used_ipv6_loopback_networks(db: &Database) -> Result<Vec<Ipv6Ne
 async fn used_networks<T>(db: &Database, query: Query<0>, column: &str) -> Result<Vec<T>>
 where
     T: FromStr,
-    T::Err: std::error::Error + Send + Sync + 'static,
+    T::Err: Error + Send + Sync + 'static,
 {
     let conn = db.reader().await?;
     let rows = query_all(&conn, query.bind([]), lab_network_from_row)
