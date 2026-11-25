@@ -6,11 +6,9 @@ description = "Development tool: a NATS message channel between the host agent a
 publish = false
 
 [dependencies]
-# Errors
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
-# Message bus
 # Only what the bus uses: JetStream with its key-value store, nkey auth, and TLS on aws-lc-rs,
 # the crypto provider the rest of the workspace uses. The defaults would also build ring. The
 # server_2_* features keep the JetStream config fields of the NATS server releases the bus runs.
@@ -28,41 +26,30 @@ async-nats = { workspace = true, features = [
 futures-util = { workspace = true }
 nkeys = { workspace = true }
 
-# The bus container
 bollard = { workspace = true }
 container = { path = "../container" }
 
-# The .sherpa/lab-info.toml a lab writes, and where its lab folder keeps it
 shared = { path = "../shared", features = ["table"] }
 
-# CLI
 clap = { workspace = true, features = ["env"] }
 
-# Async runtime
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process", "io-util", "signal", "sync", "time"] }
 
-# Signals to Claude Code's process group, and the guest agent's single-instance lock
 nix = { workspace = true, features = ["signal", "process", "fs"] }
 
-# Serialization
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 toml = { workspace = true }
 
-# The bus's private CA and server certificate. rcgen takes time::OffsetDateTime; every other
-# time is jiff's
 rcgen = { version = "0.13", default-features = false, features = ["aws_lc_rs", "pem"] }
 time = "0.3"
 jiff = { workspace = true }
 
-# Spans on I/O functions, printed to stderr when RUST_LOG is set
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
-# Task IDs
 uuid = { workspace = true }
 
-# The host's record of every message (see src/store), behind the `record` feature
 turso = { workspace = true, optional = true }
 
 [features]

@@ -6,20 +6,15 @@ edition = "2024"
 [dependencies]
 shared = { path = "../shared" }
 
-# Errors
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
-# Templates
 askama = { workspace = true }
 
-# Logging
 tracing = { workspace = true }
 
-# Libvirt
 virt = { workspace = true }
 
-# XML
 quick-xml = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 

@@ -6,18 +6,13 @@ edition = "2024"
 [dependencies]
 shared = { path = "../shared" }
 
-# Errors
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
-# Logging
 tracing = { workspace = true }
 
-# Containers
-# oci-client = "0.15"
 bollard = { workspace = true }
 
-# Async
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "fs", "io-util"] }
 tokio-util = { workspace = true, features = ["codec"] }
 futures-util = { workspace = true }

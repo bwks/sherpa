@@ -4,13 +4,10 @@ version.workspace = true
 edition = "2024"
 
 [dependencies]
-# Errors
 thiserror = { workspace = true }
 
-# Logging
 tracing = { workspace = true }
 
-# Time
 jiff = { workspace = true }
 
 [dev-dependencies]
