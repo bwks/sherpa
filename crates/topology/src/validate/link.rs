@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result, bail};
 
-use crate::{BridgeDetailed, Link2, LinkDetailed};
+use crate::{BridgeDetailed, Connection, Link2, LinkDetailed, TopologyError};
 use shared::data::NodeModel;
 use shared::validators::validate_link_impairment;
 
@@ -39,17 +39,30 @@ pub fn check_duplicate_interface_link(
     let mut device_int_map: HashMap<String, Vec<u8>> = HashMap::new();
 
     for link in links {
-        check_device_interface(&link.node_a, link.int_a_idx, &mut device_int_map, "link")?;
-        check_device_interface(&link.node_b, link.int_b_idx, &mut device_int_map, "link")?;
+        check_device_interface(
+            &link.node_a,
+            link.int_a_idx,
+            &mut device_int_map,
+            &Connection::Link,
+        )?;
+        check_device_interface(
+            &link.node_b,
+            link.int_b_idx,
+            &mut device_int_map,
+            &Connection::Link,
+        )?;
     }
 
     for bridge in bridges {
+        let connection = Connection::Bridge {
+            name: bridge.manifest_name.clone(),
+        };
         for bridge_link in &bridge.links {
             check_device_interface(
                 &bridge_link.node_name,
                 bridge_link.interface_index,
                 &mut device_int_map,
-                &format!("bridge '{}'", bridge.manifest_name),
+                &connection,
             )?;
         }
     }
@@ -62,13 +75,15 @@ fn check_device_interface(
     device: &str,
     interface: u8,
     device_int_map: &mut HashMap<String, Vec<u8>>,
-    connection_type: &str,
+    connection: &Connection,
 ) -> Result<()> {
     let interfaces = device_int_map.entry(device.to_string()).or_default();
     if interfaces.contains(&interface) {
-        bail!(
-            "Manifest {connection_type} - node '{device}' interface index '{interface}' is already in use"
-        );
+        bail!(TopologyError::InterfaceInUse {
+            connection: connection.clone(),
+            node: device.to_owned(),
+            index: interface,
+        });
     }
     interfaces.push(interface);
     Ok(())
@@ -92,7 +107,10 @@ pub fn check_link_impairments(links: &[Link2]) -> Result<()> {
             impairment.reorder_percent.unwrap_or(0.0),
             impairment.corrupt_percent.unwrap_or(0.0),
         )
-        .with_context(|| format!("Manifest link - {} <-> {}", link.src, link.dst))?;
+        .with_context(|| TopologyError::LinkImpairment {
+            src: link.src.clone(),
+            dst: link.dst.clone(),
+        })?;
     }
     Ok(())
 }
@@ -142,24 +160,26 @@ pub fn check_interface_bounds(
             continue;
         };
         check_interface_index(
-            &format!("Manifest link - node '{device_name}' interface '{interface_name}'"),
-            "links",
+            &Connection::Link,
+            device_name,
+            interface_name,
             interface_idx,
             &bounds,
         )?;
     }
 
     for bridge in bridges {
+        let connection = Connection::Bridge {
+            name: bridge.manifest_name.clone(),
+        };
         for bridge_link in &bridge.links {
             if bridge_link.node_name != device_name {
                 continue;
             }
             check_interface_index(
-                &format!(
-                    "Manifest bridge '{}' - node '{device_name}' interface '{}'",
-                    bridge.manifest_name, bridge_link.interface_name
-                ),
-                "bridges",
+                &connection,
+                device_name,
+                &bridge_link.interface_name,
                 bridge_link.interface_index,
                 &bounds,
             )?;
@@ -169,29 +189,38 @@ pub fn check_interface_bounds(
     Ok(())
 }
 
-/// Check that `interface_idx` is a data interface. `connection` names the interface and what
-/// uses it, and `used_in` the kind of connection, for the error.
+/// Check that `interface_idx`, the interface `interface` of `node` in `connection`, is a data
+/// interface.
 fn check_interface_index(
-    connection: &str,
-    used_in: &str,
+    connection: &Connection,
+    node: &str,
+    interface: &str,
     interface_idx: u8,
     bounds: &InterfaceBounds,
 ) -> Result<()> {
     if interface_idx == 0 {
-        bail!("{connection} is the management interface and cannot be used in {used_in}");
+        bail!(TopologyError::ManagementInterface {
+            connection: connection.clone(),
+            node: node.to_owned(),
+            interface: interface.to_owned(),
+        });
     } else if interface_idx < bounds.first_data_interface_idx {
-        bail!(
-            "{connection} is a reserved interface (reserved_count: {}) and cannot be used in {used_in}",
-            bounds.reserved_interface_count
-        );
+        bail!(TopologyError::ReservedInterface {
+            connection: connection.clone(),
+            node: node.to_owned(),
+            interface: interface.to_owned(),
+            reserved: bounds.reserved_interface_count,
+        });
     } else if interface_idx > bounds.max_interface_idx {
-        bail!(
-            "{connection} exceeds the maximum interface index '{}' for node model '{}' (data_interface_count: {}, reserved: {})",
-            bounds.max_interface_idx,
-            bounds.device_model,
-            bounds.data_interface_count,
-            bounds.reserved_interface_count
-        );
+        bail!(TopologyError::InterfacePastLast {
+            connection: connection.clone(),
+            node: node.to_owned(),
+            interface: interface.to_owned(),
+            max_index: bounds.max_interface_idx,
+            model: *bounds.device_model,
+            data_interface_count: bounds.data_interface_count,
+            reserved: bounds.reserved_interface_count,
+        });
     }
     Ok(())
 }
@@ -223,23 +252,27 @@ mod tests {
     #[test]
     fn manifest_links_006_the_management_interface_is_refused_in_a_link_and_in_a_bridge() {
         let links = vec![create_link("rocky1", 0, "rocky2", 1)];
-        let err_msg = check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &[])
-            .unwrap_err()
-            .to_string();
-        assert!(
-            err_msg.contains("is the management interface and cannot be used in links"),
-            "{err_msg}"
+        let error = check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &[])
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::ManagementInterface {
+                connection: Connection::Link,
+                node: "rocky1".to_owned(),
+                interface: "test".to_owned(),
+            })
         );
 
         let bridges = vec![create_bridge("br1", vec![("rocky1", 0), ("rocky2", 5)])];
-        let err_msg =
-            check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &[], &bridges)
-                .unwrap_err()
-                .to_string();
-        assert!(err_msg.contains("bridge 'br1'"), "{err_msg}");
-        assert!(
-            err_msg.contains("is the management interface and cannot be used in bridges"),
-            "{err_msg}"
+        let error = check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &[], &bridges)
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::ManagementInterface {
+                connection: bridge_br1(),
+                node: "rocky1".to_owned(),
+                interface: "eth0".to_owned(),
+            })
         );
     }
 
@@ -247,10 +280,17 @@ mod tests {
     fn manifest_links_007_a_reserved_interface_is_refused_and_the_first_after_them_is_taken() {
         // Cisco IOS XRv9000 reserves indices 1 and 2; 3 is its first data interface.
         let links = vec![create_link("xr1", 2, "xr2", 3)];
-        let err_msg = check_interface_bounds("xr1", &NodeModel::CiscoIosxr9000, 31, 2, &links, &[])
-            .unwrap_err()
-            .to_string();
-        assert!(err_msg.contains("reserved interface"), "{err_msg}");
+        let error = check_interface_bounds("xr1", &NodeModel::CiscoIosxr9000, 31, 2, &links, &[])
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::ReservedInterface {
+                connection: Connection::Link,
+                node: "xr1".to_owned(),
+                interface: "test".to_owned(),
+                reserved: 2,
+            })
+        );
 
         let links = vec![create_link("xr1", 3, "xr2", 3)];
         check_interface_bounds("xr1", &NodeModel::CiscoIosxr9000, 31, 2, &links, &[]).unwrap();
@@ -258,24 +298,30 @@ mod tests {
 
     #[test]
     fn manifest_links_008_an_interface_past_the_last_data_interface_is_refused() {
+        let past_last =
+            |connection: Connection, interface: &str| TopologyError::InterfacePastLast {
+                connection,
+                node: "rocky1".to_owned(),
+                interface: interface.to_owned(),
+                max_index: 52,
+                model: NodeModel::RockyLinux,
+                data_interface_count: 52,
+                reserved: 0,
+            };
         let links = vec![create_link("rocky1", 53, "rocky2", 1)];
-        let err_msg = check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &[])
-            .unwrap_err()
-            .to_string();
-        assert!(
-            err_msg.contains("exceeds the maximum interface index '52'"),
-            "{err_msg}"
+        let error = check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &links, &[])
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&past_last(Connection::Link, "test"))
         );
 
         let bridges = vec![create_bridge("br1", vec![("rocky1", 100)])];
-        let err_msg =
-            check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &[], &bridges)
-                .unwrap_err()
-                .to_string();
-        assert!(err_msg.contains("bridge 'br1'"), "{err_msg}");
-        assert!(
-            err_msg.contains("exceeds the maximum interface index '52'"),
-            "{err_msg}"
+        let error = check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &[], &bridges)
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&past_last(bridge_br1(), "eth100"))
         );
 
         // Cisco IOS XRv9000: the last data interface is 3 + 31 - 1 = 33.
@@ -283,6 +329,12 @@ mod tests {
         check_interface_bounds("xr1", &NodeModel::CiscoIosxr9000, 31, 2, &links, &[]).unwrap();
         let bridges = vec![create_bridge("br1", vec![("rocky1", 52)])];
         check_interface_bounds("rocky1", &NodeModel::RockyLinux, 52, 0, &[], &bridges).unwrap();
+    }
+
+    fn bridge_br1() -> Connection {
+        Connection::Bridge {
+            name: "br1".to_owned(),
+        }
     }
 
     /// Helper to create a test bridge with connections
@@ -306,18 +358,20 @@ mod tests {
 
     #[test]
     fn manifest_links_009_an_interface_used_twice_is_refused_naming_the_node_and_the_index() {
-        for (links, bridges, index) in [
+        for (links, bridges, connection, index) in [
             (
                 vec![
                     create_link("rocky1", 7, "rocky2", 1),
                     create_link("rocky1", 7, "rocky3", 1),
                 ],
                 vec![],
+                Connection::Link,
                 7,
             ),
             (
                 vec![create_link("rocky1", 5, "rocky2", 10)],
                 vec![create_bridge("br1", vec![("rocky1", 5), ("rocky3", 15)])],
+                bridge_br1(),
                 5,
             ),
             (
@@ -326,17 +380,20 @@ mod tests {
                     create_bridge("br1", vec![("rocky1", 10), ("rocky2", 15)]),
                     create_bridge("br2", vec![("rocky1", 10), ("rocky3", 20)]),
                 ],
+                Connection::Bridge {
+                    name: "br2".to_owned(),
+                },
                 10,
             ),
         ] {
-            let err_msg = check_duplicate_interface_link(&links, &bridges)
-                .unwrap_err()
-                .to_string();
-            assert!(
-                err_msg.contains(&format!(
-                    "node 'rocky1' interface index '{index}' is already in use"
-                )),
-                "{err_msg}"
+            let error = check_duplicate_interface_link(&links, &bridges).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<TopologyError>(),
+                Some(&TopologyError::InterfaceInUse {
+                    connection,
+                    node: "rocky1".to_owned(),
+                    index,
+                })
             );
         }
     }
@@ -381,12 +438,15 @@ mod tests {
             refused.push((field, percent(field, -1.0)));
         }
         for (field, impairment) in refused {
-            let error = format!(
-                "{:#}",
-                check_link_impairments(&[impaired_link(impairment)]).unwrap_err()
+            let error = check_link_impairments(&[impaired_link(impairment)]).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<TopologyError>(),
+                Some(&TopologyError::LinkImpairment {
+                    src: "dev01::eth1".to_owned(),
+                    dst: "dev02::eth1".to_owned(),
+                }),
+                "{field}"
             );
-            assert!(error.contains("dev01::eth1 <-> dev02::eth1"), "{error}");
-            assert!(error.contains(&format!("Impairment {field} ")), "{error}");
         }
         check_link_impairments(&[impaired_link(crate::link::ManifestImpairment {
             delay: Some(274_877),

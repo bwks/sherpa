@@ -72,7 +72,7 @@ A worker's machine config carrying no private key is `machine_config_002`.
 | 004 | Controllers of a cluster with workers are tainted against workloads, and those of a cluster with none are not | unit |
 | 005 | A Flannel cluster's controllers keep Flannel and kube-proxy and carry no manifest of Sherpa's | unit |
 | 006 | A member on a Talos image that is not 1.14.x is refused, naming the node and its version and pointing to the node's own `ztp.config`; 1.14 with or without a leading `v` is taken | unit |
-| 007 | A cluster member that sets its own `ztp.config` is refused, naming the cluster | unit |
+| 007 | A cluster member that sets its own `ztp.config` is refused, and the error carries the node and the cluster | unit |
 | 008 | A cluster whose `vault` node sets its own `ztp.config` is refused | unit |
 | 009 | Keycloak and Vault add no document to a controller's config, and nothing to the manifests Talos fetches by URL | unit |
 

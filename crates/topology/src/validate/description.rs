@@ -1,5 +1,7 @@
 use anyhow::{Result, bail};
 
+use crate::TopologyError;
+
 /// The longest lab description accepted, in characters.
 const MAX_DESCRIPTION_CHARS: usize = 1000;
 
@@ -15,17 +17,16 @@ pub fn check_lab_description(description: Option<&str>) -> Result<()> {
     };
     let length = description.chars().count();
     if length > MAX_DESCRIPTION_CHARS {
-        bail!(
-            "Manifest - `description` is {length} characters long; the limit is {MAX_DESCRIPTION_CHARS}"
-        );
+        bail!(TopologyError::DescriptionTooLong {
+            length,
+            limit: MAX_DESCRIPTION_CHARS,
+        });
     }
     if let Some(character) = description
         .chars()
         .find(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
     {
-        bail!(
-            "Manifest - `description` holds the control character {character:?}; only line breaks and tabs are allowed"
-        );
+        bail!(TopologyError::DescriptionControlCharacter { character });
     }
     Ok(())
 }
@@ -44,19 +45,29 @@ mod tests {
 
     #[test]
     fn lab_settings_002_a_description_of_1001_characters_is_refused_giving_its_length() {
-        let error = check_lab_description(Some(&"a".repeat(MAX_DESCRIPTION_CHARS + 1)))
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("1001 characters"), "{error}");
+        let error =
+            check_lab_description(Some(&"a".repeat(MAX_DESCRIPTION_CHARS + 1))).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::DescriptionTooLong {
+                length: 1001,
+                limit: MAX_DESCRIPTION_CHARS,
+            })
+        );
     }
 
     #[test]
     fn lab_settings_003_a_control_character_other_than_a_line_break_or_tab_is_refused() {
-        for description in ["bell\u{7}", "escape\u{1b}[31m", "nul\u{0}"] {
-            let error = check_lab_description(Some(description))
-                .unwrap_err()
-                .to_string();
-            assert!(error.contains("control character"), "{error}");
+        for (description, character) in [
+            ("bell\u{7}", '\u{7}'),
+            ("escape\u{1b}[31m", '\u{1b}'),
+            ("nul\u{0}", '\u{0}'),
+        ] {
+            let error = check_lab_description(Some(description)).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<TopologyError>(),
+                Some(&TopologyError::DescriptionControlCharacter { character })
+            );
         }
     }
 }

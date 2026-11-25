@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use anyhow::{Result, bail};
 
-use crate::Node;
+use crate::{Node, TopologyError};
 use shared::konst::MANAGEMENT_NODE_HOST_OFFSETS;
 
 /// Check no two nodes share a name.
@@ -14,7 +14,9 @@ pub fn check_duplicate_device(devices: &[Node]) -> Result<()> {
     let mut names = HashSet::new();
     for device in devices {
         if !names.insert(device.name.as_str()) {
-            bail!("Manifest - node: '{}' defined more than once", device.name);
+            bail!(TopologyError::DuplicateNode {
+                node: device.name.clone(),
+            });
         }
     }
     Ok(())
@@ -28,10 +30,10 @@ pub fn check_duplicate_device(devices: &[Node]) -> Result<()> {
 pub fn check_device_count(devices: &[Node]) -> Result<()> {
     let max = MANAGEMENT_NODE_HOST_OFFSETS.clone().count();
     if devices.len() > max {
-        bail!(
-            "Manifest - {} nodes defined, but a lab supports at most {max} nodes",
-            devices.len()
-        );
+        bail!(TopologyError::TooManyNodes {
+            count: devices.len(),
+            max,
+        });
     }
     Ok(())
 }
@@ -52,21 +54,25 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let result = check_duplicate_device(&devices);
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Manifest - node: 'router1' defined more than once")
+        let error = check_duplicate_device(&devices).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::DuplicateNode {
+                node: "router1".to_owned(),
+            })
         );
     }
 
     #[test]
     fn node_naming_004_a_manifest_with_235_nodes_is_refused() {
         let devices = vec![Node::default(); 235];
-        let error = check_device_count(&devices).unwrap_err().to_string();
-        assert!(error.contains("235 nodes defined"));
-        assert!(error.contains("at most 234 nodes"));
+        let error = check_device_count(&devices).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::TooManyNodes {
+                count: 235,
+                max: 234,
+            })
+        );
     }
 }

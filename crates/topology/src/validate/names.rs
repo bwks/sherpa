@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 
-use crate::Node;
+use crate::{Node, TopologyError};
 
 /// The longest node or lab name: one DNS label.
 const NAME_MAX_LEN: usize = 63;
@@ -11,7 +11,7 @@ const RESERVED_NODE_NAME_WORD: &str = "supervisor";
 
 /// Check `name`, the name of a `what`, is a plain name: 1 to 63 ASCII letters, digits, `-` or
 /// `_`, starting with a letter or digit.
-fn check_plain_name(what: &str, name: &str) -> Result<()> {
+fn check_plain_name(what: &'static str, name: &str) -> Result<()> {
     let starts_well = name
         .chars()
         .next()
@@ -20,10 +20,11 @@ fn check_plain_name(what: &str, name: &str) -> Result<()> {
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
     if !starts_well || !plain || name.len() > NAME_MAX_LEN {
-        bail!(
-            "Manifest - {what} name '{name}' is not allowed: use 1 to {NAME_MAX_LEN} letters, \
-             digits, '-' or '_', starting with a letter or digit"
-        );
+        bail!(TopologyError::NameNotPlain {
+            what,
+            name: name.to_owned(),
+            max_len: NAME_MAX_LEN,
+        });
     }
     Ok(())
 }
@@ -45,12 +46,10 @@ pub fn check_node_names(devices: &[Node]) -> Result<()> {
             .to_ascii_lowercase()
             .contains(RESERVED_NODE_NAME_WORD)
         {
-            bail!(
-                "Manifest - node name '{}' is not allowed: '{RESERVED_NODE_NAME_WORD}' is a \
-                 reserved word in node names, because the SONiC image treats a host whose name \
-                 contains it as a chassis supervisor card",
-                device.name
-            );
+            bail!(TopologyError::ReservedNodeName {
+                name: device.name.clone(),
+                word: RESERVED_NODE_NAME_WORD,
+            });
         }
     }
     Ok(())
@@ -85,6 +84,14 @@ mod tests {
         "r\u{e9}1",
     ];
 
+    fn not_plain(what: &'static str, name: &str) -> TopologyError {
+        TopologyError::NameNotPlain {
+            what,
+            name: name.to_owned(),
+            max_len: NAME_MAX_LEN,
+        }
+    }
+
     fn named(name: &str) -> Node {
         Node {
             name: name.to_owned(),
@@ -106,12 +113,10 @@ mod tests {
         for name in REFUSED.into_iter().chain([too_long.as_str()]) {
             let error = check_node_names(&[named("ok1"), named(name)])
                 .expect_err(&format!("'{name}' should be refused"));
-            let error = error.to_string();
-            assert!(
-                error.contains(&format!("node name '{name}' is not allowed")),
-                "{error}"
+            assert_eq!(
+                error.downcast_ref::<TopologyError>(),
+                Some(&not_plain("node", name))
             );
-            assert!(error.contains("letters, digits, '-' or '_'"), "{error}");
         }
     }
 
@@ -124,14 +129,14 @@ mod tests {
             "R1_SUPERVISOR_2",
         ] {
             let error = check_node_names(&[named("ok1"), named(name)])
-                .expect_err(&format!("'{name}' should be refused"))
-                .to_string();
-            assert!(
-                error.contains(&format!("node name '{name}' is not allowed")),
-                "{error}"
+                .expect_err(&format!("'{name}' should be refused"));
+            assert_eq!(
+                error.downcast_ref::<TopologyError>(),
+                Some(&TopologyError::ReservedNodeName {
+                    name: name.to_owned(),
+                    word: "supervisor",
+                })
             );
-            assert!(error.contains("'supervisor' is a reserved word"), "{error}");
-            assert!(error.contains("chassis supervisor card"), "{error}");
         }
         for name in ["super", "visor1", "super-visor"] {
             assert!(check_node_names(&[named(name)]).is_ok(), "{name}");
@@ -153,14 +158,11 @@ mod tests {
             .into_iter()
             .chain(["../../x y;$(id)", "lab\nx", too_long.as_str()])
         {
-            let error = check_lab_name(name)
-                .expect_err(&format!("'{name}' should be refused"))
-                .to_string();
-            assert!(
-                error.contains(&format!("lab name '{name}' is not allowed")),
-                "{error}"
+            let error = check_lab_name(name).expect_err(&format!("'{name}' should be refused"));
+            assert_eq!(
+                error.downcast_ref::<TopologyError>(),
+                Some(&not_plain("lab", name))
             );
-            assert!(error.contains("letters, digits, '-' or '_'"), "{error}");
         }
     }
 }

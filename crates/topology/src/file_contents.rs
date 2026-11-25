@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use anyhow::{Result, bail};
 use serde_derive::{Deserialize, Serialize};
 
+use crate::TopologyError;
 use crate::manifest::Manifest;
 use crate::node::{StartupScript, SystemdUnitData, TextFileData};
 
@@ -57,7 +58,7 @@ impl Manifest {
             node.startup_scripts_data = files.startup_scripts;
         }
         if let Some(name) = contents.keys().next() {
-            bail!("The file contents name node '{name}', which is not in the manifest");
+            bail!(TopologyError::FileContentsUnknownNode { node: name.clone() });
         }
         Ok(())
     }
@@ -102,10 +103,12 @@ model = "ubuntu_linux"
     fn client_content_016_contents_for_a_node_the_manifest_does_not_have_are_refused() {
         let mut manifest: Manifest = toml::from_str(MANIFEST).unwrap();
         let contents = BTreeMap::from([("dev03".to_owned(), NodeFileContents::default())]);
-        let error = manifest
-            .put_file_contents(contents)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("'dev03'"), "{error}");
+        let error = manifest.put_file_contents(contents).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::FileContentsUnknownNode {
+                node: "dev03".to_owned(),
+            })
+        );
     }
 }

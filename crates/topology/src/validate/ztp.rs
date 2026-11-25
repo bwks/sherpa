@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
 
-use crate::NodeExpanded;
+use crate::{NodeExpanded, TopologyError};
 use shared::data::{NodeModel, Ztp};
 use shared::validators::check_ztp;
 
@@ -35,14 +35,11 @@ pub fn check_node_ztp_config(node: &NodeExpanded, ztp: Ztp) -> Result<()> {
     match ztp {
         Ztp::Tftp | Ztp::Cdrom | Ztp::Disk | Ztp::Usb | Ztp::NoCloud | Ztp::Volume => Ok(()),
         Ztp::Disabled if node.model_kind.model() == NodeModel::HashicorpVault => Ok(()),
-        Ztp::Disabled => bail!(
-            "Manifest - node: '{name}' sets `ztp.config`, but its ZTP is disabled, so the config \
-             would not be used"
-        ),
-        Ztp::CloudInit | Ztp::Ignition | Ztp::Http => bail!(
-            "Manifest - node: '{name}' sets `ztp.config`, which ZTP method '{ztp}' does not use. \
-             Only tftp, cdrom, disk, usb, nocloud and volume take a custom ZTP config"
-        ),
+        Ztp::Disabled => bail!(TopologyError::ZtpConfigWithZtpDisabled { node: name.clone() }),
+        Ztp::CloudInit | Ztp::Ignition | Ztp::Http => bail!(TopologyError::ZtpConfigNotUsed {
+            node: name.clone(),
+            ztp,
+        }),
     }
 }
 
@@ -83,12 +80,14 @@ mod tests {
             (NodeModel::FlatcarLinux, Ztp::Ignition),
             (NodeModel::SonicLinux, Ztp::Http),
         ] {
-            let error = check_node_ztp_config(&node(model, Some("config")), ztp)
-                .unwrap_err()
-                .to_string();
-            assert!(
-                error.contains(&format!("which ZTP method '{ztp}' does not use")),
-                "{model}: {error}"
+            let error = check_node_ztp_config(&node(model, Some("config")), ztp).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<TopologyError>(),
+                Some(&TopologyError::ZtpConfigNotUsed {
+                    node: "node1".to_owned(),
+                    ztp,
+                }),
+                "{model}"
             );
             assert!(
                 check_node_ztp_config(&node(model, None), ztp).is_ok(),
@@ -104,8 +103,14 @@ mod tests {
             if model == NodeModel::HashicorpVault {
                 assert!(result.is_ok());
             } else {
-                let error = result.unwrap_err().to_string();
-                assert!(error.contains("its ZTP is disabled"), "{model}: {error}");
+                let error = result.unwrap_err();
+                assert_eq!(
+                    error.downcast_ref::<TopologyError>(),
+                    Some(&TopologyError::ZtpConfigWithZtpDisabled {
+                        node: "node1".to_owned(),
+                    }),
+                    "{model}"
+                );
             }
         }
     }

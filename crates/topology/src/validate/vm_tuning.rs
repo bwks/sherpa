@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 
-use crate::NodeExpanded;
+use crate::{NodeExpanded, TopologyError};
 use shared::data::{DiskBuses, DiskCache, DiskIo, InterfaceType, NodeConfig, NodeCpuPins};
 
 /// Check a VM's CPU, NUMA, boot disk and interface tuning against its own settings and its
@@ -21,10 +21,7 @@ pub fn check_vm_tuning(node: &NodeExpanded, image: &NodeConfig) -> Result<()> {
         cpu.topology.is_some() || cpu.pinning.is_some() || node.interfaces.queues.is_some();
     let cpu_count = match cpu.count {
         Some(count) => u32::from(count),
-        None if needs_cpu_count => bail!(
-            "Manifest - node: '{name}' sets `cpu.topology`, `cpu.pinning` or \
-             `interfaces.queues`; set `cpu.count` too"
-        ),
+        None if needs_cpu_count => bail!(TopologyError::CpuCountNeeded { node: name.clone() }),
         None => u32::from(image.cpu.count),
     };
 
@@ -32,24 +29,28 @@ pub fn check_vm_tuning(node: &NodeExpanded, image: &NodeConfig) -> Result<()> {
         let vcpus =
             u32::from(topology.sockets) * u32::from(topology.cores) * u32::from(topology.threads);
         if vcpus != cpu_count {
-            bail!(
-                "Manifest - node: '{name}' `cpu.topology` gives {vcpus} vCPUs, but `cpu.count` \
-                 is {cpu_count}"
-            );
+            bail!(TopologyError::TopologyMismatch {
+                node: name.clone(),
+                vcpus,
+                cpu_count,
+            });
         }
     }
 
     let vcpu_cpus = cpu.pinning.as_deref().unwrap_or_default();
     if let Some(pinning) = &cpu.pinning {
         if u32::try_from(pinning.len()).ok() != Some(cpu_count) {
-            bail!(
-                "Manifest - node: '{name}' `cpu.pinning` lists {} host CPUs, one is needed for \
-                 each of its {cpu_count} vCPUs",
-                pinning.len()
-            );
+            bail!(TopologyError::PinningCount {
+                node: name.clone(),
+                listed: pinning.len(),
+                cpu_count,
+            });
         }
-        if let Some(repeat) = first_repeat(pinning) {
-            bail!("Manifest - node: '{name}' `cpu.pinning` lists host CPU {repeat} more than once");
+        if let Some(cpu) = first_repeat(pinning) {
+            bail!(TopologyError::PinningRepeat {
+                node: name.clone(),
+                cpu,
+            });
         }
     }
 
@@ -61,52 +62,49 @@ pub fn check_vm_tuning(node: &NodeExpanded, image: &NodeConfig) -> Result<()> {
             continue;
         };
         if cpus.is_empty() {
-            bail!("Manifest - node: '{name}' `{setting}` is empty; list host CPUs or remove it");
+            bail!(TopologyError::EmptyCpuList {
+                node: name.clone(),
+                setting,
+            });
         }
-        if let Some(shared) = cpus.iter().find(|host_cpu| vcpu_cpus.contains(host_cpu)) {
-            bail!(
-                "Manifest - node: '{name}' `{setting}` uses host CPU {shared}, which is pinned to \
-                 one of its vCPUs"
-            );
+        if let Some(cpu) = cpus.iter().find(|host_cpu| vcpu_cpus.contains(host_cpu)) {
+            bail!(TopologyError::CpuPinnedToVcpu {
+                node: name.clone(),
+                setting,
+                cpu: *cpu,
+            });
         }
     }
 
     if node.numa.memory_mode.is_some() && node.numa.node.is_none() {
-        bail!(
-            "Manifest - node: '{name}' sets `numa.memory_mode` without `numa.node`; set the \
-             host NUMA node its memory is placed on, or remove `numa.memory_mode`"
-        );
+        bail!(TopologyError::NumaModeWithoutNode { node: name.clone() });
     }
 
     if disk.io == Some(DiskIo::Native) && disk.cache != Some(DiskCache::None) {
-        bail!(
-            r#"Manifest - node: '{name}' sets `boot_disk.io = "native"`, which needs `boot_disk.cache = "none"`"#
-        );
+        bail!(TopologyError::NativeIoWithoutNoCache { node: name.clone() });
     }
 
     if disk.io_thread_cpus.is_some() && vm.boot_disk.bus != DiskBuses::Virtio {
-        bail!(
-            "Manifest - node: '{name}' sets `boot_disk.io_thread_cpus`, which needs virtio \
-             disks; '{}' uses {}",
-            image.model,
-            vm.boot_disk.bus
-        );
+        bail!(TopologyError::IoThreadsNeedVirtio {
+            node: name.clone(),
+            model: image.model,
+            bus: vm.boot_disk.bus.clone(),
+        });
     }
 
     if let Some(queues) = node.interfaces.queues {
         if queues == 0 || u32::from(queues) > cpu_count {
-            bail!(
-                "Manifest - node: '{name}' `interfaces.queues` must be between 1 and \
-                 {cpu_count}, its `cpu.count`"
-            );
+            bail!(TopologyError::QueuesOutOfRange {
+                node: name.clone(),
+                cpu_count,
+            });
         }
         if vm.interfaces.kind != InterfaceType::Virtio {
-            bail!(
-                "Manifest - node: '{name}' sets `interfaces.queues`, which needs virtio \
-                 interfaces; '{}' uses {:?}",
-                image.model,
-                vm.interfaces.kind
-            );
+            bail!(TopologyError::QueuesNeedVirtio {
+                node: name.clone(),
+                model: image.model,
+                interfaces: vm.interfaces.kind.clone(),
+            });
         }
     }
 
@@ -127,11 +125,11 @@ pub fn check_cpu_pin_overlap(nodes: &[NodeCpuPins]) -> Result<()> {
                 .iter()
                 .find(|cpu| other.vcpu_cpus.contains(cpu))
             {
-                bail!(
-                    "Host CPU {cpu} is pinned to vCPUs of both node '{}' and node '{}'",
-                    node.node_name,
-                    other.node_name
-                );
+                bail!(TopologyError::VcpuPinShared {
+                    cpu: *cpu,
+                    node: node.node_name.clone(),
+                    other: other.node_name.clone(),
+                });
             }
         }
         for other in nodes {
@@ -140,12 +138,11 @@ pub fn check_cpu_pin_overlap(nodes: &[NodeCpuPins]) -> Result<()> {
                 .iter()
                 .find(|cpu| other.vcpu_cpus.contains(cpu))
             {
-                bail!(
-                    "Host CPU {cpu} runs QEMU threads of node '{}' but is pinned to vCPUs of \
-                     node '{}'",
-                    node.node_name,
-                    other.node_name
-                );
+                bail!(TopologyError::QemuThreadsOnVcpu {
+                    cpu: *cpu,
+                    node: node.node_name.clone(),
+                    other: other.node_name.clone(),
+                });
             }
         }
     }
@@ -181,11 +178,15 @@ mod tests {
         ModelKind::default_for(NodeModel::UbuntuLinux).node_config()
     }
 
-    fn error(node: &NodeExpanded, image: &NodeConfig) -> String {
-        format!(
-            "{:#}",
-            check_vm_tuning(node, image).expect_err("tuning is rejected")
-        )
+    fn error(node: &NodeExpanded, image: &NodeConfig) -> TopologyError {
+        check_vm_tuning(node, image)
+            .expect_err("tuning is rejected")
+            .downcast::<TopologyError>()
+            .expect("a topology error")
+    }
+
+    fn dev() -> String {
+        "dev".to_owned()
     }
 
     fn pins(name: &str, vcpus: &[u16], qemu: &[u16]) -> NodeCpuPins {
@@ -229,8 +230,10 @@ mod tests {
         let mut queues = node(None);
         queues.interfaces.queues = Some(1);
         for vm in [pinning, with_topology, queues] {
-            let message = error(&vm, &ubuntu());
-            assert!(message.contains("set `cpu.count`"), "{message}");
+            assert_eq!(
+                error(&vm, &ubuntu()),
+                TopologyError::CpuCountNeeded { node: dev() }
+            );
         }
     }
 
@@ -242,10 +245,13 @@ mod tests {
             cores: 3,
             threads: 2,
         });
-        let message = error(&vm, &ubuntu());
-        assert!(
-            message.contains("gives 6 vCPUs, but `cpu.count` is 4"),
-            "{message}"
+        assert_eq!(
+            error(&vm, &ubuntu()),
+            TopologyError::TopologyMismatch {
+                node: dev(),
+                vcpus: 6,
+                cpu_count: 4,
+            }
         );
     }
 
@@ -253,16 +259,27 @@ mod tests {
     fn vm_tuning_004_a_pinning_without_one_host_cpu_per_vcpu_is_refused() {
         let mut short = node(Some(4));
         short.cpu.pinning = Some(vec![1, 2]);
-        let message = error(&short, &ubuntu());
-        assert!(message.contains("4 vCPUs"), "{message}");
+        assert_eq!(
+            error(&short, &ubuntu()),
+            TopologyError::PinningCount {
+                node: dev(),
+                listed: 2,
+                cpu_count: 4,
+            }
+        );
     }
 
     #[test]
     fn vm_tuning_005_a_pinning_that_lists_a_host_cpu_twice_is_refused_naming_it() {
         let mut repeated = node(Some(4));
         repeated.cpu.pinning = Some(vec![1, 2, 2, 3]);
-        let message = error(&repeated, &ubuntu());
-        assert!(message.contains("host CPU 2 more than once"), "{message}");
+        assert_eq!(
+            error(&repeated, &ubuntu()),
+            TopologyError::PinningRepeat {
+                node: dev(),
+                cpu: 2
+            }
+        );
     }
 
     #[test]
@@ -270,19 +287,25 @@ mod tests {
         let mut emulator = node(Some(2));
         emulator.cpu.pinning = Some(vec![1, 2]);
         emulator.cpu.emulator_pinning = Some(vec![1]);
-        let message = error(&emulator, &ubuntu());
-        assert!(
-            message.contains("`cpu.emulator_pinning` uses host CPU 1"),
-            "{message}"
+        assert_eq!(
+            error(&emulator, &ubuntu()),
+            TopologyError::CpuPinnedToVcpu {
+                node: dev(),
+                setting: "cpu.emulator_pinning",
+                cpu: 1,
+            }
         );
 
         let mut io_thread = node(Some(2));
         io_thread.cpu.pinning = Some(vec![1, 2]);
         io_thread.boot_disk.io_thread_cpus = Some(vec![2]);
-        let message = error(&io_thread, &ubuntu());
-        assert!(
-            message.contains("`boot_disk.io_thread_cpus` uses host CPU 2"),
-            "{message}"
+        assert_eq!(
+            error(&io_thread, &ubuntu()),
+            TopologyError::CpuPinnedToVcpu {
+                node: dev(),
+                setting: "boot_disk.io_thread_cpus",
+                cpu: 2,
+            }
         );
     }
 
@@ -290,18 +313,22 @@ mod tests {
     fn vm_tuning_007_an_empty_emulator_pinning_or_io_thread_cpus_is_refused() {
         let mut emulator = node(None);
         emulator.cpu.emulator_pinning = Some(vec![]);
-        let message = error(&emulator, &ubuntu());
-        assert!(
-            message.contains("`cpu.emulator_pinning` is empty"),
-            "{message}"
+        assert_eq!(
+            error(&emulator, &ubuntu()),
+            TopologyError::EmptyCpuList {
+                node: dev(),
+                setting: "cpu.emulator_pinning",
+            }
         );
 
         let mut io_thread = node(None);
         io_thread.boot_disk.io_thread_cpus = Some(vec![]);
-        let message = error(&io_thread, &ubuntu());
-        assert!(
-            message.contains("`boot_disk.io_thread_cpus` is empty"),
-            "{message}"
+        assert_eq!(
+            error(&io_thread, &ubuntu()),
+            TopologyError::EmptyCpuList {
+                node: dev(),
+                setting: "boot_disk.io_thread_cpus",
+            }
         );
     }
 
@@ -309,10 +336,9 @@ mod tests {
     fn vm_tuning_008_numa_memory_mode_without_numa_node_is_refused() {
         let mut vm = node(None);
         vm.numa.memory_mode = Some(NumaMemoryMode::Preferred);
-        let message = error(&vm, &ubuntu());
-        assert!(
-            message.contains("sets `numa.memory_mode` without `numa.node`"),
-            "{message}"
+        assert_eq!(
+            error(&vm, &ubuntu()),
+            TopologyError::NumaModeWithoutNode { node: dev() }
         );
     }
 
@@ -321,10 +347,9 @@ mod tests {
         let mut vm = node(None);
         vm.boot_disk.io = Some(DiskIo::Native);
         vm.boot_disk.cache = Some(DiskCache::Writeback);
-        let message = error(&vm, &ubuntu());
-        assert!(
-            message.contains(r#"`boot_disk.cache = "none"`"#),
-            "{message}"
+        assert_eq!(
+            error(&vm, &ubuntu()),
+            TopologyError::NativeIoWithoutNoCache { node: dev() }
         );
     }
 
@@ -337,11 +362,13 @@ mod tests {
         settings.boot_disk.bus = DiskBuses::Sata;
         let mut vm = node(None);
         vm.boot_disk.io_thread_cpus = Some(vec![8]);
-        let message = error(&vm, &image);
-        assert!(message.contains("virtio disks"), "{message}");
-        assert!(
-            message.contains(&format!("'ubuntu_linux' uses {}", DiskBuses::Sata)),
-            "{message}"
+        assert_eq!(
+            error(&vm, &image),
+            TopologyError::IoThreadsNeedVirtio {
+                node: dev(),
+                model: NodeModel::UbuntuLinux,
+                bus: DiskBuses::Sata,
+            }
         );
     }
 
@@ -349,8 +376,13 @@ mod tests {
     fn vm_tuning_011_interface_queues_over_cpu_count_are_refused_giving_the_range() {
         let mut vm = node(Some(4));
         vm.interfaces.queues = Some(8);
-        let message = error(&vm, &ubuntu());
-        assert!(message.contains("between 1 and 4"), "{message}");
+        assert_eq!(
+            error(&vm, &ubuntu()),
+            TopologyError::QueuesOutOfRange {
+                node: dev(),
+                cpu_count: 4,
+            }
+        );
     }
 
     #[test]
@@ -362,33 +394,41 @@ mod tests {
         settings.interfaces.kind = InterfaceType::E1000;
         let mut vm = node(Some(8));
         vm.interfaces.queues = Some(8);
-        let message = error(&vm, &image);
-        assert!(message.contains("virtio interfaces"), "{message}");
-        assert!(message.contains("'ubuntu_linux' uses E1000"), "{message}");
+        assert_eq!(
+            error(&vm, &image),
+            TopologyError::QueuesNeedVirtio {
+                node: dev(),
+                model: NodeModel::UbuntuLinux,
+                interfaces: InterfaceType::E1000,
+            }
+        );
     }
 
     #[test]
     fn vm_tuning_013_two_nodes_pinning_a_vcpu_to_one_host_cpu_are_refused() {
-        let message = format!(
-            "{:#}",
-            check_cpu_pin_overlap(&[pins("a", &[1, 2], &[]), pins("b", &[2, 3], &[])])
-                .expect_err("overlap")
-        );
-        assert!(message.contains("Host CPU 2"), "{message}");
-        assert!(
-            message.contains("'a'") && message.contains("'b'"),
-            "{message}"
+        let error = check_cpu_pin_overlap(&[pins("a", &[1, 2], &[]), pins("b", &[2, 3], &[])])
+            .expect_err("overlap");
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::VcpuPinShared {
+                cpu: 2,
+                node: "a".to_owned(),
+                other: "b".to_owned(),
+            })
         );
     }
 
     #[test]
     fn vm_tuning_014_qemu_threads_on_another_nodes_vcpu_cpu_are_refused() {
-        let message = check_cpu_pin_overlap(&[pins("a", &[1, 2], &[]), pins("b", &[3], &[2])])
-            .unwrap_err()
-            .to_string();
+        let error =
+            check_cpu_pin_overlap(&[pins("a", &[1, 2], &[]), pins("b", &[3], &[2])]).unwrap_err();
         assert_eq!(
-            message,
-            "Host CPU 2 runs QEMU threads of node 'b' but is pinned to vCPUs of node 'a'"
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::QemuThreadsOnVcpu {
+                cpu: 2,
+                node: "b".to_owned(),
+                other: "a".to_owned(),
+            })
         );
     }
 
@@ -401,7 +441,12 @@ mod tests {
     fn vm_tuning_016_interface_queues_of_0_are_refused() {
         let mut vm = node(Some(4));
         vm.interfaces.queues = Some(0);
-        let message = error(&vm, &ubuntu());
-        assert!(message.contains("between 1 and 4"), "{message}");
+        assert_eq!(
+            error(&vm, &ubuntu()),
+            TopologyError::QueuesOutOfRange {
+                node: dev(),
+                cpu_count: 4,
+            }
+        );
     }
 }

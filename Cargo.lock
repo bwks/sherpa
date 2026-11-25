@@ -5902,6 +5902,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "shared",
+ "thiserror 2.0.18",
  "toml",
  "tracing",
 ]
