@@ -13,7 +13,7 @@ DROP TRIGGER IF EXISTS link_rules_update;
 
 -- The built-in admin account cannot be deleted, renamed or lose its administrator flag, and no
 -- admin row can exist without the flag. These were also recreated on every start; they are fixed
--- text, so they belong here. The message is ADMIN_PROTECTED_MESSAGE.
+-- text, so they belong here.
 DROP TRIGGER IF EXISTS user_protect_admin_insert;
 CREATE TRIGGER user_protect_admin_insert BEFORE INSERT ON user
     WHEN NEW.username = 'admin' AND NEW.is_admin != 1

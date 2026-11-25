@@ -1,6 +1,7 @@
 /// CREATE operation tests for user
 use anyhow::Result;
 use db::{UsernameTaken, create_user, get_user, list_users};
+use shared::SharedError;
 
 use crate::setup_db;
 
@@ -30,13 +31,14 @@ async fn test_create_user_duplicate_username_fails() -> Result<()> {
 async fn test_create_user_username_too_short() -> Result<()> {
     let db = setup_db().await?;
 
-    let result = create_user(&db, "ab".to_string(), "TestPass123!", false, vec![]).await;
+    let error = create_user(&db, "ab".to_string(), "TestPass123!", false, vec![])
+        .await
+        .unwrap_err();
 
-    assert!(result.is_err(), "Should fail on username too short");
-    let error_msg = result.unwrap_err().to_string();
-    assert!(
-        error_msg.contains("3–32"),
-        "Error should mention the length range: {error_msg}"
+    assert_eq!(
+        error.downcast_ref::<SharedError>(),
+        Some(&SharedError::InvalidUsername),
+        "{error:#}"
     );
 
     Ok(())
@@ -84,9 +86,14 @@ async fn test_create_user_rejects_reserved_usernames() -> Result<()> {
     ] {
         let error = create_user(&db, username.to_string(), "TestPass123!", false, vec![])
             .await
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("reserved"), "'{username}': {error}");
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<SharedError>(),
+            Some(&SharedError::ReservedUsername {
+                username: username.to_lowercase()
+            }),
+            "'{username}': {error:#}"
+        );
     }
     assert!(list_users(&db).await?.is_empty());
 

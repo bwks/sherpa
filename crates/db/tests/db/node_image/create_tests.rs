@@ -3,6 +3,7 @@ use anyhow::Result;
 use db::{
     DefaultRequest, find_node_image_by_id, list_node_images, update_node_image, upsert_node_image,
 };
+use shared::SharedError;
 use shared::data::{NodeModel, Ztp};
 
 use crate::{create_test_config, set_ztp, setup_db};
@@ -17,8 +18,13 @@ async fn ztp_setting_007_the_database_refuses_a_method_the_model_does_not_take()
         .await
         .expect_err("the image is refused");
 
-    assert!(
-        format!("{error:#}").contains("allows: disabled, volume"),
+    assert_eq!(
+        error.downcast_ref::<SharedError>(),
+        Some(&SharedError::UnsupportedZtp {
+            ztp: Ztp::Cdrom,
+            model: NodeModel::FrrLinux,
+            allowed: vec![Ztp::Disabled, Ztp::Volume],
+        }),
         "{error:#}"
     );
     assert!(
@@ -41,8 +47,13 @@ async fn ztp_setting_007_the_database_refuses_a_method_the_model_does_not_take()
         .await
         .expect_err("the edit is refused");
 
-    assert!(
-        format!("{error:#}").contains("allows: disabled, tftp"),
+    assert_eq!(
+        error.downcast_ref::<SharedError>(),
+        Some(&SharedError::UnsupportedZtp {
+            ztp: Ztp::Volume,
+            model: NodeModel::AristaEos,
+            allowed: vec![Ztp::Disabled, Ztp::Tftp],
+        }),
         "{error:#}"
     );
     let stored = find_node_image_by_id(&db, id)
