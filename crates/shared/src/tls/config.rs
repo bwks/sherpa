@@ -3,7 +3,7 @@ use rustls::client::WebPkiServerVerifier;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::aws_lc_rs;
 use rustls::crypto::{WebPkiSupportedAlgorithms, verify_tls12_signature, verify_tls13_signature};
-use rustls::pki_types::{CertificateDer, ServerName};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{CertificateError, ClientConfig, Error, KeyLogFile, RootCertStore};
 use std::fs;
 use std::io::{self, IsTerminal};
@@ -242,7 +242,7 @@ impl ServerCertVerifier for PinnedKeyVerifier {
         intermediates: &[CertificateDer<'_>],
         server_name: &ServerName<'_>,
         ocsp_response: &[u8],
-        now: rustls::pki_types::UnixTime,
+        now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
         if compute_key_pin(end_entity).is_ok_and(|pin| pin == self.key_pin) {
             return Ok(ServerCertVerified::assertion());
@@ -320,7 +320,7 @@ impl ServerCertVerifier for PublicCaVerifier {
         intermediates: &[CertificateDer<'_>],
         server_name: &ServerName<'_>,
         ocsp_response: &[u8],
-        now: rustls::pki_types::UnixTime,
+        now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
         let verified = self.webpki.verify_server_cert(
             end_entity,
@@ -369,7 +369,7 @@ impl ServerCertVerifier for NoCertificateVerification {
         _intermediates: &[CertificateDer<'_>],
         _server_name: &ServerName<'_>,
         _ocsp_response: &[u8],
-        _now: rustls::pki_types::UnixTime,
+        _now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
         // Accept any certificate without validation
         Ok(ServerCertVerified::assertion())
@@ -444,7 +444,6 @@ fn is_interactive() -> bool {
 #[cfg(test)]
 mod tests {
     use rustls::SignatureScheme;
-    use rustls::pki_types::UnixTime;
     use tempfile::NamedTempFile;
 
     use super::*;

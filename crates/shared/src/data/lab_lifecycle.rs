@@ -11,6 +11,7 @@
 //! The server writes each move with a compare-and-set on the phase it read, while it holds the
 //! lab's operation lease.
 
+use std::error::Error;
 use std::fmt;
 
 use schemars::JsonSchema;
@@ -141,7 +142,7 @@ impl fmt::Display for LabRefused {
     }
 }
 
-impl std::error::Error for LabRefused {}
+impl Error for LabRefused {}
 
 impl fmt::Display for LabNotReady {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -168,7 +169,7 @@ impl fmt::Display for LabNotReady {
     }
 }
 
-impl std::error::Error for LabNotReady {}
+impl Error for LabNotReady {}
 
 #[cfg(test)]
 mod tests {

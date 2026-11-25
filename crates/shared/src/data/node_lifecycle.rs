@@ -12,6 +12,7 @@
 //! The server writes the result with a compare-and-set on the state it read, so a writer that
 //! raced another does not overwrite it.
 
+use std::error::Error;
 use std::fmt;
 
 use super::NodeState;
@@ -91,7 +92,7 @@ impl fmt::Display for Refused {
     }
 }
 
-impl std::error::Error for Refused {}
+impl Error for Refused {}
 
 impl NodeState {
     /// The state an operation event moves this one to, or why it may not.

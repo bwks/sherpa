@@ -6,6 +6,7 @@ use tempfile::NamedTempFile;
 use tracing::instrument;
 
 use std::collections::{BTreeSet, HashSet};
+use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, ErrorKind, Write};
 #[cfg(unix)]
@@ -26,8 +27,8 @@ pub enum SshConfigEntryStatus {
     Unknown,
 }
 
-impl std::fmt::Display for SshConfigEntryStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for SshConfigEntryStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Valid => write!(f, "valid"),
             Self::Stale => write!(f, "stale"),
