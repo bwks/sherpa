@@ -197,6 +197,7 @@ mod tests {
     use std::fs;
 
     use base64::{Engine as _, engine::general_purpose};
+    use toml::de;
 
     use super::*;
 
@@ -346,7 +347,7 @@ mod tests {
         let manifest = dir.path().join(SHERPA_MANIFEST_FILE);
         fs::write(&manifest, BROKEN_MANIFEST).unwrap();
         let error = resolve_lab_identity(dir.path()).unwrap_err();
-        assert!(error.root_cause().is::<toml::de::Error>(), "{error:#}");
+        assert!(error.root_cause().is::<de::Error>(), "{error:#}");
     }
 
     #[test]
