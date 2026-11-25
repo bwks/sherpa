@@ -9,6 +9,7 @@ use tracing::instrument;
 use shared::util::normalize_username;
 
 use crate::daemon::pidfile::running_server_pid;
+use crate::services::error::ServiceError;
 use crate::validate::validate_service_account;
 
 /// The subcommand named when `user unlock` runs as the wrong account.
@@ -30,10 +31,7 @@ const UNLOCK_COMMAND: &str = "user unlock";
 pub async fn unlock(account: &str, username: &str, db_path: &Path, pid_path: &str) -> Result<()> {
     validate_service_account(account, UNLOCK_COMMAND)?;
     if let Some(pid) = running_server_pid(pid_path)? {
-        bail!(
-            "sherpad is running (pid: {pid}) and holds the database. Nothing was changed. Stop \
-             it first with: sudo systemctl stop sherpad, then start it again after the unlock"
-        );
+        bail!(ServiceError::ServerHoldsDatabase { pid });
     }
     if !db_path.exists() {
         bail!("No database at {}. Nothing was changed", db_path.display());
@@ -44,7 +42,7 @@ pub async fn unlock(account: &str, username: &str, db_path: &Path, pid_path: &st
         .context("Failed to open the database")?;
     let was_locked = db::list_locked_usernames(&db).await?.contains(&username);
     if !db::unlock_user(&db, &username).await? {
-        bail!("User not found: {username}. Nothing was changed");
+        bail!(ServiceError::UnlockUserNotFound { username });
     }
     tracing::info!(
         event = "user.unlocked",
@@ -135,13 +133,19 @@ mod tests {
 
         let error = unlock("sherpa", "sherpa-admin", &db_path, &pid_path)
             .await
-            .unwrap_err()
-            .to_string();
+            .unwrap_err();
+        let pid = server.id();
         server.kill().unwrap();
         server.wait().unwrap();
 
-        assert!(error.contains("sherpad is running"), "{error}");
-        assert!(error.contains("sudo systemctl stop sherpad"), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<ServiceError>(),
+                Some(ServiceError::ServerHoldsDatabase { pid: running })
+                    if u32::try_from(running.as_raw()) == Ok(pid)
+            ),
+            "{error}"
+        );
         assert_eq!(fs::read(&db_path).unwrap(), before);
         assert_eq!(locked_usernames(&db_path).await, ["bob", "sherpa-admin"]);
     }
@@ -152,10 +156,14 @@ mod tests {
 
         let error = unlock("sherpa", "nobody", &db_path, &pid_path)
             .await
-            .unwrap_err()
-            .to_string();
+            .unwrap_err();
 
-        assert!(error.contains("User not found: nobody"), "{error}");
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::UnlockUserNotFound {
+                username: "nobody".to_owned()
+            })
+        );
         assert_eq!(locked_usernames(&db_path).await, ["bob", "sherpa-admin"]);
     }
 
@@ -168,11 +176,13 @@ mod tests {
         for account in ["root", "bradmin"] {
             let error = unlock(account, "sherpa-admin", &db_path, &pid_path)
                 .await
-                .unwrap_err()
-                .to_string();
-            assert!(
-                error.contains("sudo -u sherpa -H sherpad user unlock"),
-                "{error}"
+                .unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<ServiceError>(),
+                Some(&ServiceError::NotServiceAccount {
+                    command: UNLOCK_COMMAND.to_owned(),
+                    account: account.to_owned(),
+                })
             );
         }
         assert_eq!(fs::read(&db_path).unwrap(), before);

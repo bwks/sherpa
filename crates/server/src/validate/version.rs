@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -6,9 +6,7 @@ use shared::data::{KindSettings, ModelKind, NodeConfig, NodeKind, NodeModel};
 use shared::util::image_filename;
 use topology::Node;
 
-use crate::services::error::ServiceError;
-
-const VERSION_CHECK_FAILED: &str = "Manifest validation failed: version/image validation";
+use crate::services::error::{ServiceError, VERSION_CHECK_FAILED};
 
 /// Validate and resolve node versions and images
 ///
@@ -65,12 +63,13 @@ pub fn validate_and_resolve_node_versions(
             .with_context(|| format!("Manifest - node: '{}'", node.name))
             .map_err(|error| ServiceError::Invalid(format!("{VERSION_CHECK_FAILED}: {error:#}")))?;
         let kind = model_kind.kind();
-        let node_image = config_map.get(&(node.model, kind)).ok_or_else(|| {
-            ServiceError::NotFound(format!(
-                "{VERSION_CHECK_FAILED}: Node config not found for model: {} kind: {kind} (node: {})",
-                node.model, node.name
-            ))
-        })?;
+        let node_image =
+            config_map
+                .get(&(node.model, kind))
+                .ok_or_else(|| ServiceError::NodeImageNotFound {
+                    node: node.name.clone(),
+                    model_kind,
+                })?;
 
         // Step 2: Resolve version (use node_image version if not set in manifest)
         let resolved_version = if let Some(v) = &node.version {
@@ -86,12 +85,7 @@ pub fn validate_and_resolve_node_versions(
         };
 
         // Step 3: Validate resolved version exists in database for this model
-        validate_version_in_db(model_kind, &resolved_version, node_images).map_err(|error| {
-            ServiceError::NotFound(format!(
-                "{VERSION_CHECK_FAILED}: Version validation failed for node: {} (model: {}): {error}",
-                node.name, node.model
-            ))
-        })?;
+        validate_version_in_db(&node.name, model_kind, &resolved_version, node_images)?;
 
         // Step 4: Check image/disk existence based on node kind
         match node_image.kind() {
@@ -128,41 +122,27 @@ pub fn validate_and_resolve_node_versions(
     Ok(validated_nodes)
 }
 
-/// Validate that a version exists in `node_image` for the given model and kind
+/// Validate that node `node_name`'s `version` exists in `node_image` for its model and kind.
 fn validate_version_in_db(
+    node_name: &str,
     model_kind: ModelKind,
     version: &str,
     node_images: &[NodeConfig],
 ) -> Result<()> {
-    let model = model_kind.model();
-    let kind = model_kind.kind();
-    let of_model_kind = |c: &&NodeConfig| c.model == model && c.kind() == kind;
-    let matching_config = node_images
+    let available: Vec<String> = node_images
         .iter()
-        .filter(of_model_kind)
-        .find(|c| c.version == version);
-
-    if matching_config.is_some() {
-        Ok(())
-    } else {
-        // Build helpful error with available versions
-        let available_versions: Vec<&str> = node_images
-            .iter()
-            .filter(of_model_kind)
-            .map(|c| c.version.as_str())
-            .collect();
-
-        if available_versions.is_empty() {
-            anyhow::bail!("No configurations found in database for model: {model} kind: {kind}");
-        }
-        anyhow::bail!(
-            "Version '{}' not found in database for model: {} kind: {}. Available versions: {}",
-            version,
-            model,
-            kind,
-            available_versions.join(", ")
-        );
+        .filter(|c| c.model == model_kind.model() && c.kind() == model_kind.kind())
+        .map(|c| c.version.clone())
+        .collect();
+    if available.iter().any(|v| v == version) {
+        return Ok(());
     }
+    bail!(ServiceError::VersionNotFound {
+        node: node_name.to_owned(),
+        model_kind,
+        version: version.to_owned(),
+        available,
+    })
 }
 
 /// The image repo container node `node_name` runs at `version`, as resolved by
@@ -174,11 +154,11 @@ pub fn validate_container_repo(
     repo: Option<String>,
 ) -> Result<String> {
     repo.ok_or_else(|| {
-        ServiceError::Conflict(format!(
-            "Container node '{node_name}' (model: {model}) has no image repo configured: set \
-             `image` on the node in the manifest, or pull the image with `sherpa server image \
-             pull --model {model} --kind container --repo <image>:{version}`"
-        ))
+        ServiceError::ContainerRepoMissing {
+            node: node_name.to_owned(),
+            model,
+            version: version.to_owned(),
+        }
         .into()
     })
 }
@@ -205,12 +185,12 @@ fn validate_disk_image(
         );
         Ok(())
     } else {
-        Err(ServiceError::NotFound(format!(
-            "{VERSION_CHECK_FAILED}: Disk image not found for node '{node_name}' (model: {model}, version: {version})\n\
-            Expected path: {disk_path}\n\
-            Hint: Ensure the image is installed in the correct directory"
-        ))
-        .into())
+        bail!(ServiceError::DiskImageNotFound {
+            node: node_name.to_owned(),
+            model,
+            version: version.to_owned(),
+            path: disk_path,
+        })
     }
 }
 
@@ -256,10 +236,15 @@ mod tests {
                 .node_config()
                 .settings,
         );
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("Disk image not found"));
-        assert!(error_msg.contains("vm1"));
-        assert!(error_msg.contains("virtioa.qcow2"));
+        assert_eq!(
+            result.unwrap_err().downcast_ref::<ServiceError>(),
+            Some(&ServiceError::DiskImageNotFound {
+                node: "vm1".to_owned(),
+                model: NodeModel::AristaEos,
+                version: "4.28.0F".to_owned(),
+                path: "/tmp/nonexistent_sherpa_images/arista_eos/4.28.0F/virtioa.qcow2".to_owned(),
+            })
+        );
 
         let result = validate_disk_image(
             "vm1",
@@ -270,8 +255,11 @@ mod tests {
                 .node_config()
                 .settings,
         );
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("/opt/images/rocky_linux/9.3/virtioa.qcow2"));
+        assert!(matches!(
+            result.unwrap_err().downcast_ref::<ServiceError>(),
+            Some(ServiceError::DiskImageNotFound { path, .. })
+                if path == "/opt/images/rocky_linux/9.3/virtioa.qcow2"
+        ));
     }
 
     #[test]
@@ -287,8 +275,15 @@ mod tests {
                 "/opt/images",
                 &ModelKind::default_for(model).node_config().settings,
             );
-            let error_msg = result.unwrap_err().to_string();
-            assert!(error_msg.contains(file), "{model}: {error_msg}");
+            let error = result.unwrap_err();
+            assert!(
+                matches!(
+                    error.downcast_ref::<ServiceError>(),
+                    Some(ServiceError::DiskImageNotFound { path, .. })
+                        if *path == format!("/opt/images/{model}/latest/{file}")
+                ),
+                "{model}: {error}"
+            );
         }
     }
 
@@ -362,10 +357,13 @@ mod tests {
 
         let result = validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images");
 
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("Node config not found"));
-        assert!(error_msg.contains("vm1"));
+        assert_eq!(
+            result.unwrap_err().downcast_ref::<ServiceError>(),
+            Some(&ServiceError::NodeImageNotFound {
+                node: "vm1".to_owned(),
+                model_kind: ModelKind::default_for(NodeModel::AristaEos),
+            })
+        );
     }
 
     #[test]
@@ -379,9 +377,16 @@ mod tests {
 
         let result = validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images");
 
-        assert!(result.is_err());
-        let error_msg = format!("{:#}", result.unwrap_err());
-        assert!(error_msg.contains("9.99.0F"));
+        assert_eq!(
+            result.unwrap_err().downcast_ref::<ServiceError>(),
+            Some(&ServiceError::VersionNotFound {
+                node: "ceos1".to_owned(),
+                model_kind: ModelKind::new(NodeModel::AristaEos, Some(NodeKind::Container))
+                    .unwrap(),
+                version: "9.99.0F".to_owned(),
+                available: vec!["4.32.0F".to_owned()],
+            })
+        );
     }
 
     fn generic_image(version: &str, repo: Option<&str>, default: bool) -> NodeConfig {
@@ -438,9 +443,14 @@ mod tests {
         let error =
             validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images").unwrap_err();
 
-        let message = format!("{error:#}");
-        assert!(message.contains("`image`"), "{message}");
-        assert!(message.contains("--repo"), "{message}");
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::ContainerRepoMissing {
+                node: "db1".to_owned(),
+                model: NodeModel::PostgresqlDb,
+                version: "17".to_owned(),
+            })
+        );
     }
 
     /// The image a container node of `model` resolves to when its version was pulled from

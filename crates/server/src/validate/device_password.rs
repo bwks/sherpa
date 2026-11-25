@@ -8,7 +8,11 @@
 //! and no character three times in a row (Firepower Threat Defense). Each part has its own
 //! message, and none repeats the password.
 
+use std::fmt;
+
 use anyhow::{Result, bail};
+
+use crate::services::error::ServiceError;
 
 /// The fewest characters a device password has.
 const MIN_LENGTH: usize = 12;
@@ -19,63 +23,127 @@ const PUNCTUATION: &[char] = &['!', '@', '_', '-', '+', '.'];
 /// A word no device password may contain, in any case: Cisco devices refuse it.
 const FORBIDDEN_WORD: &str = "cisco";
 
+/// The part of the device password rule a password breaks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DevicePasswordRule {
+    Length { length: usize },
+    Characters,
+    FirstCharacter,
+    Lowercase,
+    Uppercase,
+    Digit,
+    Punctuation,
+    Username { username: String },
+    ForbiddenWord,
+    Repeat,
+}
+
+impl fmt::Display for DevicePasswordRule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Length { length } => write!(
+                f,
+                "A device password has {MIN_LENGTH} to {MAX_LENGTH} characters; this one has {length}"
+            ),
+            Self::Characters => write!(
+                f,
+                "A device password has only letters, digits and the punctuation {}: no spaces, \
+                 quotes or other symbols",
+                punctuation_list()
+            ),
+            Self::FirstCharacter => write!(f, "A device password starts with a letter or a digit"),
+            Self::Lowercase => write!(f, "A device password has at least one lowercase letter"),
+            Self::Uppercase => write!(f, "A device password has at least one uppercase letter"),
+            Self::Digit => write!(f, "A device password has at least one digit"),
+            Self::Punctuation => write!(
+                f,
+                "A device password has at least one of the punctuation characters {}",
+                punctuation_list()
+            ),
+            Self::Username { username } => write!(
+                f,
+                "A device password does not contain your username '{username}'"
+            ),
+            Self::ForbiddenWord => write!(
+                f,
+                "A device password does not contain the word '{FORBIDDEN_WORD}', in any case"
+            ),
+            Self::Repeat => write!(f, "A device password has no character three times in a row"),
+        }
+    }
+}
+
 /// Check `password` against the device password rule, for the user `username`.
 ///
 /// # Errors
 ///
-/// Fails with the first part of the rule the password breaks.
+/// `ServiceError::DevicePasswordRefused`, carrying the first part of the rule the password
+/// breaks.
 pub fn validate_device_password(password: &str, username: &str) -> Result<()> {
     let length = password.chars().count();
     if !(MIN_LENGTH..=MAX_LENGTH).contains(&length) {
-        bail!(
-            "A device password has {MIN_LENGTH} to {MAX_LENGTH} characters; this one has {length}"
-        );
+        bail!(ServiceError::DevicePasswordRefused {
+            rule: DevicePasswordRule::Length { length }
+        });
     }
     if !password
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || PUNCTUATION.contains(&c))
     {
-        bail!(
-            "A device password has only letters, digits and the punctuation {}: no spaces, \
-             quotes or other symbols",
-            punctuation_list()
-        );
+        bail!(ServiceError::DevicePasswordRefused {
+            rule: DevicePasswordRule::Characters
+        });
     }
     if !password
         .chars()
         .next()
         .is_some_and(|c| c.is_ascii_alphanumeric())
     {
-        bail!("A device password starts with a letter or a digit");
+        bail!(ServiceError::DevicePasswordRefused {
+            rule: DevicePasswordRule::FirstCharacter
+        });
     }
     if !password.chars().any(|c| c.is_ascii_lowercase()) {
-        bail!("A device password has at least one lowercase letter");
+        bail!(ServiceError::DevicePasswordRefused {
+            rule: DevicePasswordRule::Lowercase
+        });
     }
     if !password.chars().any(|c| c.is_ascii_uppercase()) {
-        bail!("A device password has at least one uppercase letter");
+        bail!(ServiceError::DevicePasswordRefused {
+            rule: DevicePasswordRule::Uppercase
+        });
     }
     if !password.chars().any(|c| c.is_ascii_digit()) {
-        bail!("A device password has at least one digit");
+        bail!(ServiceError::DevicePasswordRefused {
+            rule: DevicePasswordRule::Digit
+        });
     }
     if !password.chars().any(|c| PUNCTUATION.contains(&c)) {
-        bail!(
-            "A device password has at least one of the punctuation characters {}",
-            punctuation_list()
-        );
+        bail!(ServiceError::DevicePasswordRefused {
+            rule: DevicePasswordRule::Punctuation
+        });
     }
     let lowered = password.to_ascii_lowercase();
     if lowered.contains(&username.to_ascii_lowercase()) {
-        bail!("A device password does not contain your username '{username}'");
+        bail!(ServiceError::DevicePasswordRefused {
+            rule: DevicePasswordRule::Username {
+                username: username.to_owned(),
+            }
+        });
     }
     if lowered.contains(FORBIDDEN_WORD) {
-        bail!("A device password does not contain the word '{FORBIDDEN_WORD}', in any case");
+        bail!(ServiceError::DevicePasswordRefused {
+            rule: DevicePasswordRule::ForbiddenWord
+        });
     }
     if password
         .as_bytes()
         .windows(3)
         .any(|run| run[0] == run[1] && run[1] == run[2])
     {
-        bail!("A device password has no character three times in a row");
+        bail!(ServiceError::DevicePasswordRefused {
+            rule: DevicePasswordRule::Repeat
+        });
     }
     Ok(())
 }
@@ -98,14 +166,16 @@ mod tests {
     /// A password that meets every part of the rule.
     const GOOD: &str = "Granite-Owl42";
 
-    /// `password` is refused with a message containing `expected`, and the message does not
-    /// repeat the password.
-    fn refused(password: &str, expected: &str) {
-        let error = validate_device_password(password, USERNAME)
-            .expect_err(password)
-            .to_string();
-        assert!(error.contains(expected), "{password}: {error}");
-        assert!(!error.contains(password), "{password}: {error}");
+    /// `password` is refused for breaking `expected`.
+    fn refused(password: &str, expected: &DevicePasswordRule) {
+        let error = validate_device_password(password, USERNAME).expect_err(password);
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::DevicePasswordRefused {
+                rule: expected.clone()
+            }),
+            "{password}"
+        );
     }
 
     fn accepted(password: &str) {
@@ -132,37 +202,33 @@ mod tests {
             "Granite&Owl42",
             "Granité-Owl42",
         ] {
-            refused(bad, "only letters, digits and the punctuation ! @ _ - + .");
+            refused(bad, &DevicePasswordRule::Characters);
         }
         accepted("9Granite-Owl4");
-        refused("-Granite-Owl4", "starts with a letter or a digit");
+        refused("-Granite-Owl4", &DevicePasswordRule::FirstCharacter);
     }
 
     #[test]
     fn device_password_007_it_has_a_lowercase_an_uppercase_a_digit_and_a_punctuation_character() {
         accepted(GOOD);
-        refused("GRANITE-OWL42", "at least one lowercase letter");
-        refused("granite-owl42", "at least one uppercase letter");
-        refused("Granite-Owlxy", "at least one digit");
-        refused(
-            "GraniteOwl42x",
-            "at least one of the punctuation characters",
-        );
+        refused("GRANITE-OWL42", &DevicePasswordRule::Lowercase);
+        refused("granite-owl42", &DevicePasswordRule::Uppercase);
+        refused("Granite-Owlxy", &DevicePasswordRule::Digit);
+        refused("GraniteOwl42x", &DevicePasswordRule::Punctuation);
     }
 
     #[test]
     fn device_password_008_no_username_no_cisco_and_no_character_three_times_in_a_row() {
         accepted(GOOD);
-        let error = validate_device_password("My-ALICE-pw42", USERNAME)
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.contains("does not contain your username 'alice'"),
-            "{error}"
+        refused(
+            "My-ALICE-pw42",
+            &DevicePasswordRule::Username {
+                username: USERNAME.to_owned(),
+            },
         );
-        refused("My-CiScO-pw42", "does not contain the word 'cisco'");
+        refused("My-CiScO-pw42", &DevicePasswordRule::ForbiddenWord);
         accepted("Graanite-Owl42");
-        refused("Graaanite-Owl4", "no character three times in a row");
-        refused("Granite-Owl444", "no character three times in a row");
+        refused("Graaanite-Owl4", &DevicePasswordRule::Repeat);
+        refused("Granite-Owl444", &DevicePasswordRule::Repeat);
     }
 }

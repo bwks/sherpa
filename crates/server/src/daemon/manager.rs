@@ -14,6 +14,7 @@ use super::pidfile::{
 };
 use super::server::run_server;
 use crate::konst::SHERPA_CONFIG_FILE_PATH;
+use crate::services::error::ServiceError;
 use crate::tls::{CertificateManager, CertificateReport, server_addresses};
 use shared::util::load_config;
 
@@ -81,9 +82,7 @@ fn check_still_running(child: &mut Child) -> Result<()> {
         .try_wait()
         .context("Failed to check the background process")?
     {
-        Some(status) => bail!(
-            "Failed to start sherpad: it exited at once ({status}); see {SHERPAD_LOG_FILE_PATH}"
-        ),
+        Some(status) => bail!(ServiceError::ExitedAtOnce { status }),
         None => Ok(()),
     }
 }
@@ -313,7 +312,13 @@ mod tests {
         let mut exited = spawn_shell("exit 3");
         thread::sleep(Duration::from_millis(300));
         let error = check_still_running(&mut exited).expect_err("an exited child passed");
-        assert!(error.to_string().contains("exit status: 3"), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<ServiceError>(),
+                Some(ServiceError::ExitedAtOnce { status }) if status.code() == Some(3)
+            ),
+            "{error}"
+        );
 
         let mut running = spawn_shell("sleep 5");
         assert!(check_still_running(&mut running).is_ok());

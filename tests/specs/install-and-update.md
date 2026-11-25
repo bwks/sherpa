@@ -111,7 +111,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | After an install, `sherpad init` answered at its prompts (the `admin` password twice, a username, its password twice, administrator, no key) exits 0; sherpad then starts, the first user logs in as an admin, and the user list has them and `admin` | e2e (fresh VM) |
-| 002 | Run as any account but `sherpa`, root included, it is refused naming the account and the command to run, before anything is written | unit |
+| 002 | Run as any account but `sherpa`, root included, it is refused, carrying the account and the command, before anything is written | unit |
 | 003 | The `sherpa.toml` it writes holds the address, ports and management prefixes given, and the defaults for everything else (no test yet) | unit |
 | 004 | An existing `sherpa.toml` is kept, whatever is given on the command line; `--force` writes it again (no test yet) | integration |
 | 005 | With `SHERPA_ADMIN_PASSWORD`, `SHERPA_USER_NAME`, `SHERPA_USER_PASSWORD`, `SHERPA_USER_IS_ADMIN` and `SHERPA_USER_SSH_KEY` set it asks nothing; an empty `SHERPA_USER_PASSWORD` is refused (no test yet) | integration |
@@ -160,8 +160,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | The first start makes the key file, `0600`, and later starts load the same key | unit |
-| 002 | With sealed values in the database and no key file, sherpad is refused, naming the file to restore, and makes no new key | unit |
-| 003 | A key file that is not 32 bytes long is refused as damaged, and left as it is | unit |
+| 002 | With sealed values in the database and no key file, sherpad is refused, carrying the file to restore, and makes no new key | unit |
+| 003 | A key file that is not 32 bytes long is refused as damaged, carrying the file, and left as it is | unit |
 | 004 | The database records the key at its first use: the same key passes from then on, another key is refused as not this database's, and a database opened with no key is refused | integration |
 | 005 | A key prints as `SecretKey(..)`, never its bytes | unit |
 | 006 | The same value sealed twice gives two ciphertexts | unit |
@@ -178,9 +178,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 002 | The certificate names the `san` list of `sherpa.toml`, or without one the server's listen addresses (every interface's when it listens on all), the loopback names and its hostname (no test yet) | unit |
 | 003 | The key pin sherpad logs at start is the one the client shows for that certificate | unit |
 | 004 | Retired: a start with a certificate and key there no longer serves them unchanged; see 009 | — |
-| 005 | With `self_generate_cert` off and the certificate or the key missing, sherpad does not start, and names the missing file | unit |
+| 005 | With `self_generate_cert` off and the certificate or the key missing, sherpad does not start, carrying the missing file | unit |
 | 006 | Every certificate of a file that holds a chain is served | unit |
-| 007 | A certificate file with no certificate in it is refused, naming the file | unit |
+| 007 | A certificate file with no certificate in it is refused, carrying the file | unit |
 | 008 | `GET /cert` on the HTTP port answers with the certificate, without a login (no test yet) | integration |
 | 009 | Each start writes a new certificate with the same key, so its key pin does not change | unit |
 | 010 | A start with no key file makes a new key, and a certificate for it | unit |
@@ -346,7 +346,7 @@ The script finds a lab's resources as sherpad does, without sherpad running: the
 | 008 | `stop` ends the server and removes the PID file; with a PID file whose process is gone it says the server is not running (no test yet) | integration |
 | 009 | Without `sherpa.toml`, or with one that does not parse, sherpad does not start and says which file; started in the background, the error is in `sherpad.log` (no test yet) | integration |
 | 010 | A server that fails is started again by systemd (no test yet) | e2e (fresh VM) |
-| 011 | A server holds an exclusive lock on the PID file while it runs, so a second start fails at the lock, naming the PID; once the lock is let go, a start takes it | unit |
+| 011 | A server holds an exclusive lock on the PID file while it runs, so a second start fails at the lock, carrying the PID; once the lock is let go, a start takes it | unit |
 | 012 | A PID file whose process is not `sherpad`, by the program name it was started as, reads as no server: `stop` signals nothing and removes the stale file; one whose process is `sherpad` reads as running | unit |
 
 ## `server_config`: sherpad reads `sherpa.toml` as `sherpad init` or an older release wrote it

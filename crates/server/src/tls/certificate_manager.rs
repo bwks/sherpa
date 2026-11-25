@@ -14,6 +14,7 @@ use tracing::instrument;
 use super::generator::write_self_signed_certificate;
 use super::loader::{build_rustls_config, load_certificates};
 use crate::konst::SHERPA_SERVER_CERT_PATH;
+use crate::services::error::ServiceError;
 
 const SHERPA_SERVER_KEY_PATH: &str = "/opt/sherpa/.certs/server.key";
 /// An admin's certificate that expires within this many days is warned about.
@@ -125,11 +126,10 @@ impl CertificateManager {
 
         for (kind, path) in [("certificate", &self.cert_path), ("key", &self.key_path)] {
             if !path.exists() {
-                anyhow::bail!(
-                    "The TLS {kind} {} does not exist. With self_generate_cert off, sherpad \
-                     serves the certificate and key the admin puts there, and never writes them",
-                    path.display()
-                );
+                anyhow::bail!(ServiceError::TlsFileMissing {
+                    kind,
+                    path: path.clone(),
+                });
             }
         }
         tracing::info!("Serving the admin's TLS certificate and key");
@@ -358,14 +358,12 @@ mod tests {
 
         let error = manager.prepare(&[], &[SERVER_ADDRESS]).unwrap_err();
 
-        let message = error.to_string();
-        assert!(
-            message.contains(&manager.key_path.display().to_string()),
-            "{message}"
-        );
-        assert!(
-            !message.contains(&manager.cert_path.display().to_string()),
-            "{message}"
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::TlsFileMissing {
+                kind: "key",
+                path: manager.key_path.clone(),
+            })
         );
     }
 

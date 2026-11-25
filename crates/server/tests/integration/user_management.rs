@@ -4,6 +4,7 @@ use serde_json::json;
 use shared::data::LabPhase;
 use shared::error::RpcErrorCode;
 use shared::util::ssh_key_fingerprint;
+use sherpad::ServiceError;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use sherpad::daemon::state::ensure_admin_account;
 
@@ -1040,8 +1041,11 @@ async fn builtin_admin_001_startup_is_refused_with_no_admin_account_and_no_passw
 
     let error = ensure_admin_account(&db, None).await.unwrap_err();
     ensure!(
-        error.to_string().contains("sherpad init"),
-        "missing admin should point to sherpad init: {error}"
+        matches!(
+            error.downcast_ref::<ServiceError>(),
+            Some(ServiceError::AdminAccountMissing)
+        ),
+        "missing admin should be refused: {error}"
     );
     Ok(())
 }

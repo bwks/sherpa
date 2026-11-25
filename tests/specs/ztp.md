@@ -19,16 +19,16 @@ A config template is tested one case per model, not one table-driven case for al
 | 002 | A node is built with its manifest's method, and with its image's when the manifest sets none | unit |
 | 003 | `disabled` is taken for every model and kind | unit |
 | 004 | A method the model and kind do not take is refused, and the error carries the model, the method and every setting the model takes, which for a model with no method is `disabled` alone | unit |
-| 005 | Up and redeploy check the setting the node will be built with, so an image stored with a method its model does not take is refused as a manifest's is, naming the node | unit |
+| 005 | Up and redeploy check the setting the node will be built with, so an image stored with a method its model does not take is refused as a manifest's is, carrying the node | unit |
 | 006 | A redeploy whose manifest sets a method the node's model does not take is refused, naming what the model takes, and the node stays as it was | integration |
 | 007 | The database refuses an image whose setting its model does not take, when it is recorded and when it is edited, and what was stored is unchanged | integration |
 | 008 | The database stores `disabled` and a method the model takes, when an image is recorded and when it is edited | integration |
 | 009 | The image edit page offers `disabled` and the model's methods and nothing else, with the image's own chosen | unit |
 | 010 | The edit form's setting is read by its word, and a word that is not a setting is refused | unit |
 | 011 | A saved edit form carries its setting to the image | unit |
-| 012 | An edit to a method the model does not take is refused, naming what it takes | unit |
+| 012 | An edit to a method the model does not take is refused, carrying what it takes | unit |
 | 013 | The built-in setting of every model and kind is `disabled` or a method it takes | unit |
-| 014 | A member of a Talos cluster with ZTP off is refused, naming the cluster; a Talos node in no cluster may have it off | unit |
+| 014 | A member of a Talos cluster with ZTP off is refused, carrying the cluster; a Talos node in no cluster may have it off | unit |
 | 015 | A VM whose manifest sets no method is given the media of its image's method | unit |
 | 016 | After `ztp.method` is changed in the manifest, `sherpa redeploy` rebuilds the node with the new setting (no test yet) | e2e |
 

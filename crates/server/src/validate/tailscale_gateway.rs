@@ -4,6 +4,8 @@ use anyhow::{Result, ensure};
 use shared::data::TailscaleGatewaySettings;
 use tracing::instrument;
 
+use crate::services::error::ServiceError;
+
 /// Validate server gateway settings before any infrastructure is contacted.
 #[instrument(skip(settings), level = "debug")]
 pub fn validate_tailscale_gateway_settings(settings: &TailscaleGatewaySettings) -> Result<()> {
@@ -11,7 +13,7 @@ pub fn validate_tailscale_gateway_settings(settings: &TailscaleGatewaySettings) 
         !settings.image.is_empty()
             && !settings.image.chars().any(char::is_whitespace)
             && !settings.image.contains('\0'),
-        "tailscale.image must be a nonempty container image reference without whitespace or NULs"
+        ServiceError::TailscaleImageInvalid
     );
     let socket = Path::new(&settings.socket_path);
     ensure!(
@@ -19,7 +21,7 @@ pub fn validate_tailscale_gateway_settings(settings: &TailscaleGatewaySettings) 
             && socket.file_name().is_some()
             && !settings.socket_path.contains('\0')
             && settings.socket_path.len() < 108,
-        "tailscale.socket_path must be an absolute Unix socket filename shorter than 108 bytes without NULs"
+        ServiceError::TailscaleSocketPathInvalid
     );
     for (field, seconds) in [
         ("exec_timeout_secs", settings.exec_timeout_secs),
@@ -31,17 +33,21 @@ pub fn validate_tailscale_gateway_settings(settings: &TailscaleGatewaySettings) 
         ("connection_timeout_secs", settings.connection_timeout_secs),
         ("stop_timeout_secs", settings.stop_timeout_secs),
     ] {
-        ensure!(seconds > 0, "tailscale.{field} must be positive seconds");
+        ensure!(
+            seconds > 0,
+            ServiceError::TailscaleTimeoutNotPositive { field }
+        );
     }
     ensure!(
         i32::try_from(settings.stop_timeout_secs).is_ok(),
-        "tailscale.stop_timeout_secs must fit a signed 32-bit Docker stop timeout"
+        ServiceError::TailscaleStopTimeoutTooLong
     );
     ensure!(
         settings.exec_timeout_secs > settings.enrollment_timeout_secs,
-        "tailscale.exec_timeout_secs ({}) must be longer than tailscale.enrollment_timeout_secs ({}), so the enrollment command ends before the server stops waiting for it",
-        settings.exec_timeout_secs,
-        settings.enrollment_timeout_secs
+        ServiceError::TailscaleExecTimeoutTooShort {
+            exec_timeout_secs: settings.exec_timeout_secs,
+            enrollment_timeout_secs: settings.enrollment_timeout_secs,
+        }
     );
     Ok(())
 }
@@ -51,42 +57,53 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tailnet_settings_003_each_unusable_gateway_setting_is_refused_naming_it() {
+    fn tailnet_settings_003_each_unusable_gateway_setting_is_refused_carrying_it() {
         type SettingsEdit = fn(&mut TailscaleGatewaySettings);
         let defaults = TailscaleGatewaySettings::default();
         assert!(validate_tailscale_gateway_settings(&defaults).is_ok());
-        let cases: &[(&str, SettingsEdit)] = &[
-            ("image", |s| s.image.clear()),
-            ("image", |s| s.image = "image with spaces".into()),
-            ("socket_path", |s| s.socket_path = "relative.sock".into()),
-            ("socket_path", |s| s.socket_path = "/".into()),
-            ("socket_path", |s| {
+        let timeout = |field| ServiceError::TailscaleTimeoutNotPositive { field };
+        let cases: &[(ServiceError, SettingsEdit)] = &[
+            (ServiceError::TailscaleImageInvalid, |s| s.image.clear()),
+            (ServiceError::TailscaleImageInvalid, |s| {
+                s.image = "image with spaces".into();
+            }),
+            (ServiceError::TailscaleSocketPathInvalid, |s| {
+                s.socket_path = "relative.sock".into();
+            }),
+            (ServiceError::TailscaleSocketPathInvalid, |s| {
+                s.socket_path = "/".into();
+            }),
+            (ServiceError::TailscaleSocketPathInvalid, |s| {
                 s.socket_path = "/run/invalid\0.sock".into();
             }),
-            ("socket_path", |s| {
+            (ServiceError::TailscaleSocketPathInvalid, |s| {
                 s.socket_path = format!("/run/{}", "s".repeat(108));
             }),
-            ("exec_timeout_secs", |s| s.exec_timeout_secs = 0),
-            ("daemon_ready_timeout_secs", |s| {
+            (timeout("exec_timeout_secs"), |s| s.exec_timeout_secs = 0),
+            (timeout("daemon_ready_timeout_secs"), |s| {
                 s.daemon_ready_timeout_secs = 0;
             }),
-            ("enrollment_timeout_secs", |s| s.enrollment_timeout_secs = 0),
-            ("connection_timeout_secs", |s| s.connection_timeout_secs = 0),
-            ("stop_timeout_secs", |s| s.stop_timeout_secs = 0),
-            ("stop_timeout_secs", |s| {
+            (timeout("enrollment_timeout_secs"), |s| {
+                s.enrollment_timeout_secs = 0;
+            }),
+            (timeout("connection_timeout_secs"), |s| {
+                s.connection_timeout_secs = 0;
+            }),
+            (timeout("stop_timeout_secs"), |s| s.stop_timeout_secs = 0),
+            (ServiceError::TailscaleStopTimeoutTooLong, |s| {
                 s.stop_timeout_secs = i32::MAX as u32 + 1;
             }),
         ];
-        for (field, edit) in cases {
+        for (expected, edit) in cases {
             let mut settings = defaults.clone();
             edit(&mut settings);
             let error = validate_tailscale_gateway_settings(&settings).unwrap_err();
-            assert!(error.to_string().contains(field), "{error}");
+            assert_eq!(error.downcast_ref::<ServiceError>(), Some(expected));
         }
     }
 
     #[test]
-    fn tailnet_settings_009_a_command_timeout_not_longer_than_the_enrollment_timeout_is_refused_naming_both()
+    fn tailnet_settings_009_a_command_timeout_not_longer_than_the_enrollment_timeout_is_refused_carrying_both()
      {
         for exec_timeout_secs in [60, 30] {
             let settings = TailscaleGatewaySettings {
@@ -94,13 +111,13 @@ mod tests {
                 enrollment_timeout_secs: 60,
                 ..Default::default()
             };
-            let error = validate_tailscale_gateway_settings(&settings)
-                .unwrap_err()
-                .to_string();
-            assert!(error.contains("tailscale.exec_timeout_secs"), "{error}");
-            assert!(
-                error.contains("tailscale.enrollment_timeout_secs"),
-                "{error}"
+            let error = validate_tailscale_gateway_settings(&settings).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<ServiceError>(),
+                Some(&ServiceError::TailscaleExecTimeoutTooShort {
+                    exec_timeout_secs,
+                    enrollment_timeout_secs: 60,
+                })
             );
         }
         let settings = TailscaleGatewaySettings {

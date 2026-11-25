@@ -5168,6 +5168,7 @@ dependencies = [
  "strum 0.27.2",
  "tempfile",
  "template",
+ "thiserror 2.0.18",
  "time",
  "tokio",
  "tokio-tungstenite",

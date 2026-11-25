@@ -12,8 +12,10 @@ use std::fs;
 use std::path::Path;
 use tracing::{debug, info};
 
+use crate::services::error::ServiceError;
+
 /// The length of the JWT secret, in bytes.
-const SECRET_LENGTH: usize = 32;
+pub(crate) const SECRET_LENGTH: usize = 32;
 
 /// Load the JWT secret from `secret_path`, or generate one there if the file does not exist.
 ///
@@ -35,12 +37,10 @@ pub fn load_or_generate_secret(secret_path: &Path) -> Result<Vec<u8>> {
     let secret = fs::read(secret_path)
         .with_context(|| format!("Failed to read the JWT secret {}", secret_path.display()))?;
     if secret.len() != SECRET_LENGTH {
-        bail!(
-            "The JWT secret {} is {} bytes long, not {SECRET_LENGTH}. Restore it from a backup, or \
-             delete it to generate a new one, which logs every user out",
-            secret_path.display(),
-            secret.len()
-        );
+        bail!(ServiceError::JwtSecretWrongLength {
+            path: secret_path.to_owned(),
+            length: secret.len(),
+        });
     }
     info!("Successfully loaded JWT secret");
     Ok(secret)
@@ -133,12 +133,13 @@ mod tests {
 
         let error = load_or_generate_secret(&secret_path).expect_err("short secret accepted");
 
-        let message = format!("{error:#}");
-        assert!(
-            message.contains(&secret_path.display().to_string()),
-            "the error does not name the file: {message}"
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::JwtSecretWrongLength {
+                path: secret_path.clone(),
+                length: 9,
+            })
         );
-        assert!(message.contains("9 bytes"), "{message}");
         assert_eq!(
             fs::read(&secret_path).expect("read secret"),
             b"too short",

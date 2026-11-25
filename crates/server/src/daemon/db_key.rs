@@ -14,6 +14,8 @@ use db::SecretKey;
 use shared::util::write_file_with_permissions;
 use tracing::instrument;
 
+use crate::services::error::ServiceError;
+
 /// The database key's file mode.
 const KEY_FILE_MODE: u32 = 0o600;
 
@@ -31,12 +33,9 @@ pub fn load_or_create_db_key(path: &Path, registered: bool) -> Result<SecretKey>
         Ok(bytes) => bytes,
         Err(error) if error.kind() == ErrorKind::NotFound => {
             if registered {
-                bail!(
-                    "The database key {} is missing, and the database's secret values are \
-                     sealed with it. Restore the key file that was backed up with this database; \
-                     a new key cannot open them",
-                    path.display()
-                );
+                bail!(ServiceError::DbKeyMissing {
+                    path: path.to_owned()
+                });
             }
             let key = SecretKey::generate();
             write_file_with_permissions(path, key.as_bytes(), KEY_FILE_MODE)
@@ -49,8 +48,9 @@ pub fn load_or_create_db_key(path: &Path, registered: bool) -> Result<SecretKey>
                 .with_context(|| format!("Failed to read the database key {}", path.display()));
         }
     };
-    let key = SecretKey::from_bytes(&bytes)
-        .with_context(|| format!("The database key {} is damaged", path.display()))?;
+    let key = SecretKey::from_bytes(&bytes).with_context(|| ServiceError::DbKeyDamaged {
+        path: path.to_owned(),
+    })?;
     tracing::info!("Loaded the database key");
     Ok(key)
 }
@@ -78,9 +78,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("db.key");
         let error = load_or_create_db_key(&path, true).unwrap_err();
-        let message = format!("{error:#}");
-        assert!(message.contains("is missing"), "{message}");
-        assert!(message.contains(&path.display().to_string()), "{message}");
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::DbKeyMissing { path: path.clone() })
+        );
         assert!(!path.exists());
     }
 
@@ -90,8 +91,10 @@ mod tests {
         let path = dir.path().join("db.key");
         fs::write(&path, b"short").unwrap();
         let error = load_or_create_db_key(&path, false).unwrap_err();
-        let message = format!("{error:#}");
-        assert!(message.contains("damaged"), "{message}");
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::DbKeyDamaged { path: path.clone() })
+        );
         assert_eq!(fs::read(&path).unwrap(), b"short");
     }
 }

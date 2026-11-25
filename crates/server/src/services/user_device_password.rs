@@ -55,18 +55,11 @@ pub async fn set_device_password(
         return Err(ServiceError::Denied("the login password is incorrect".to_owned()).into());
     }
 
-    validate_device_password(device_password, &user.username).map_err(|error| {
-        ServiceError::Invalid(format!(
-            "The device password does not meet the requirements: {error}"
-        ))
-    })?;
+    validate_device_password(device_password, &user.username)?;
     let same_as_login = password::verify_password(device_password, &user.password_hash)
         .context("Failed to compare the device password with the login password")?;
     if same_as_login {
-        return Err(ServiceError::Invalid(
-            "The device password must differ from your Sherpa login password".to_owned(),
-        )
-        .into());
+        return Err(ServiceError::DevicePasswordSameAsLogin.into());
     }
 
     db::set_device_password(db, &db::get_user_id(&user)?, device_password)
@@ -115,6 +108,7 @@ pub async fn list_user_info(db: &Database) -> Result<Vec<UserInfo>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::validate::DevicePasswordRule;
 
     const LOGIN_PASSWORD: &str = "Login-Pass-123!";
     const DEVICE_PASSWORD: &str = "Granite-Owl42";
@@ -248,8 +242,10 @@ mod tests {
         )
         .await
         .expect_err("device password equal to the login password");
-        assert!(matches!(refusal(&error), Some(ServiceError::Invalid(_))));
-        assert!(error.to_string().contains("must differ"), "{error}");
+        assert_eq!(
+            refusal(&error),
+            Some(&ServiceError::DevicePasswordSameAsLogin)
+        );
         assert_eq!(stored(&db, "alice").await, None);
     }
 
@@ -257,12 +253,14 @@ mod tests {
     async fn device_password_005_a_device_password_has_12_to_20_characters() {
         let username = "alice";
         for (password, count) in [("Granite-Ow1", 11), ("Granite-Owl42-Lynx9xy", 21)] {
-            let message = validate_device_password(password, username)
-                .expect_err(password)
-                .to_string();
-            let expected = format!("12 to 20 characters; this one has {count}");
-            assert!(message.contains(&expected), "{password}: {message}");
-            assert!(!message.contains(password), "{password}: {message}");
+            let error = validate_device_password(password, username).expect_err(password);
+            assert_eq!(
+                refusal(&error),
+                Some(&ServiceError::DevicePasswordRefused {
+                    rule: DevicePasswordRule::Length { length: count }
+                }),
+                "{password}"
+            );
         }
         validate_device_password("Granite-Ow1x", username).expect("12 characters");
         validate_device_password("Granite-Owl42-Lynx9x", username).expect("20 characters");
@@ -277,7 +275,12 @@ mod tests {
         )
         .await
         .expect_err("weak device password");
-        assert!(matches!(refusal(&error), Some(ServiceError::Invalid(_))));
+        assert_eq!(
+            refusal(&error),
+            Some(&ServiceError::DevicePasswordRefused {
+                rule: DevicePasswordRule::Length { length: 5 }
+            })
+        );
         assert_eq!(stored(&db, "alice").await, None);
     }
 

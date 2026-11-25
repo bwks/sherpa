@@ -1,5 +1,7 @@
 use anyhow::{Result, bail};
 
+use crate::services::error::ServiceError;
+
 /// Refuse a web UI redeploy of `node`, a node of the lab's stored definition, when rebuilding it
 /// needs what the server does not keep. The definition holds the manifest as the user wrote it,
 /// without file contents or resolved values, and only the `sherpa` CLI, in the lab folder, can
@@ -9,7 +11,8 @@ use anyhow::{Result, bail};
 ///
 /// # Errors
 ///
-/// Fails, naming the node and every missing part, when the node has any of them.
+/// `ServiceError::NotWebRedeployable`, carrying the node and every missing part, when the node
+/// has any of them.
 pub fn check_web_redeployable(node: &topology::Node) -> Result<()> {
     let listed = [
         (node.ztp.config.is_some(), "ztp.config"),
@@ -26,17 +29,15 @@ pub fn check_web_redeployable(node: &topology::Node) -> Result<()> {
         ),
         (has_items(node.provisioners.as_ref()), "provisioners"),
     ];
-    let missing: Vec<&str> = listed
+    let missing: Vec<&'static str> = listed
         .into_iter()
         .filter_map(|(needed, part)| needed.then_some(part))
         .collect();
     if !missing.is_empty() {
-        bail!(
-            "Node '{name}' cannot be redeployed from the web UI: it needs {parts}, which the \
-             server does not keep. Run `sherpa redeploy -n {name}` from the lab folder",
-            name = node.name,
-            parts = missing.join(", "),
-        );
+        bail!(ServiceError::NotWebRedeployable {
+            node: node.name.clone(),
+            missing,
+        });
     }
     Ok(())
 }
@@ -63,10 +64,18 @@ model = "ubuntu_linux"
         manifest.nodes[0].clone()
     }
 
-    fn refusal(table: &str) -> String {
+    fn refusal(table: &str) -> ServiceError {
         check_web_redeployable(&node(table))
             .unwrap_err()
-            .to_string()
+            .downcast::<ServiceError>()
+            .expect("a service error")
+    }
+
+    fn missing(parts: &[&'static str]) -> ServiceError {
+        ServiceError::NotWebRedeployable {
+            node: "dev01".to_owned(),
+            missing: parts.to_vec(),
+        }
     }
 
     #[test]
@@ -123,14 +132,7 @@ scripts = ["setup.sh"]
             ),
         ];
         for (table, part) in cases {
-            assert_eq!(
-                refusal(table),
-                format!(
-                    "Node 'dev01' cannot be redeployed from the web UI: it needs {part}, which \
-                     the server does not keep. Run `sherpa redeploy -n dev01` from the lab folder"
-                ),
-                "{table}"
-            );
+            assert_eq!(refusal(table), missing(&[part]), "{table}");
         }
     }
 
@@ -142,9 +144,7 @@ scripts = ["setup.sh"]
 ztp = { config = "configs/dev01.yaml" }
 "#
             ),
-            "Node 'dev01' cannot be redeployed from the web UI: it needs ztp.config, \
-             startup_scripts, which the server does not keep. Run `sherpa redeploy -n dev01` \
-             from the lab folder"
+            missing(&["ztp.config", "startup_scripts"])
         );
     }
 }

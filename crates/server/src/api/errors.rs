@@ -7,7 +7,7 @@ use serde::Serialize;
 use serde_json::Value;
 use shared::error::{CpuPinConflict, MemoryShortfall};
 
-use crate::services::error::{ServiceError, Unexpected, caller_message};
+use crate::services::error::{ServiceCategory, ServiceError, Unexpected, caller_message};
 
 /// Structured API error with consistent JSON format
 #[derive(Debug)]
@@ -196,19 +196,22 @@ pub fn stream_error_event(error: &anyhow::Error) -> Value {
 impl From<&ServiceError> for ApiError {
     fn from(err: &ServiceError) -> Self {
         match err {
-            ServiceError::Denied(_) => ApiError::forbidden(err.to_string()),
-            ServiceError::NotFound(message) => ApiError::not_found("Resource", message.clone()),
-            ServiceError::Conflict(message) => ApiError::conflict(message.clone()),
-            ServiceError::Invalid(message) => ApiError::bad_request(message.clone()),
-            ServiceError::InsufficientMemory { message, shortfall } => {
-                ApiError::InsufficientMemory {
-                    message: message.clone(),
-                    shortfall: *shortfall,
-                }
-            }
+            ServiceError::InsufficientMemory { shortage } => ApiError::InsufficientMemory {
+                message: shortage.to_string(),
+                shortfall: shortage.shortfall(),
+            },
             ServiceError::CpuPinsHeld { message, conflict } => ApiError::CpuPinsHeld {
                 message: message.clone(),
                 conflict: conflict.clone(),
+            },
+            refusal => match refusal.category() {
+                Some(ServiceCategory::Denied) => ApiError::forbidden(refusal.to_string()),
+                Some(ServiceCategory::NotFound) => {
+                    ApiError::not_found("Resource", refusal.to_string())
+                }
+                Some(ServiceCategory::Conflict) => ApiError::conflict(refusal.to_string()),
+                Some(ServiceCategory::Invalid) => ApiError::bad_request(refusal.to_string()),
+                None => ApiError::internal(refusal.clone(), "API request failed"),
             },
         }
     }
@@ -235,7 +238,9 @@ impl From<anyhow::Error> for ApiError {
 mod tests {
     use super::*;
     use axum::response::IntoResponse;
-    use shared::error::{CpuPinConflict, CpuPinRole, MemoryShortfall};
+    use shared::error::{CpuPinConflict, CpuPinRole};
+
+    use crate::validate::MemoryShortage;
 
     /// The reference in `message`, which must be the answer to an unexpected error.
     fn reference_of(message: &str) -> &str {
@@ -322,14 +327,25 @@ mod tests {
         assert_eq!(api_err.into_response().status(), StatusCode::NOT_FOUND);
     }
 
+    fn shortage() -> MemoryShortage {
+        MemoryShortage::NumaNode {
+            numa_node: 1,
+            requested: vec!["r1".to_owned()],
+            needed_mib: 8192,
+            left_mib: 2048,
+            node_mib: 16384,
+            hugepages_mib: 0,
+            reserve_share_mib: 1024,
+            overcommit_percent: 100,
+            limit_mib: 15360,
+            held_mib: 13312,
+            holders: Vec::new(),
+        }
+    }
+
     fn memory_refusal() -> anyhow::Error {
         anyhow::Error::new(ServiceError::InsufficientMemory {
-            message: "Not enough memory on the server".to_owned(),
-            shortfall: MemoryShortfall {
-                requested_mib: 8192,
-                available_mib: 2048,
-                numa_node: Some(1),
-            },
+            shortage: shortage(),
         })
         .context("Memory admission failed")
     }
@@ -344,7 +360,7 @@ mod tests {
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["error"]["code"], "INSUFFICIENT_MEMORY");
-        assert_eq!(json["error"]["message"], "Not enough memory on the server");
+        assert_eq!(json["error"]["message"], shortage().to_string());
         assert_eq!(
             json["error"]["data"],
             serde_json::json!({ "requested_mib": 8192, "available_mib": 2048, "numa_node": 1 })
@@ -356,7 +372,7 @@ mod tests {
         let event = stream_error_event(&memory_refusal());
         assert_eq!(event["code"], "INSUFFICIENT_MEMORY");
         assert_eq!(event["data"]["available_mib"], 2048);
-        assert_eq!(event["error"], "Not enough memory on the server");
+        assert_eq!(event["error"], shortage().to_string());
     }
 
     fn pin_refusal() -> anyhow::Error {

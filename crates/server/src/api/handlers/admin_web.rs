@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use crate::api::request_parse::FormBody;
 use crate::daemon::state::AppState;
-use crate::services::error::ServiceError;
+use crate::services::error::{ServiceCategory, ServiceError};
 use crate::services::{clean, import, user_delete, user_password, user_unlock};
 use crate::templates::{
     AdminNotificationErrorTemplate, AdminPasswordErrorTemplate, AdminPasswordSuccessTemplate,
@@ -320,7 +320,9 @@ pub async fn admin_update_user_password_handler(
     )
     .await
     {
-        if let Some(refusal @ ServiceError::Invalid(_)) = ServiceError::find(&error) {
+        if let Some(refusal) = ServiceError::find(&error)
+            && refusal.category() == Some(ServiceCategory::Invalid)
+        {
             return Ok(AdminPasswordErrorTemplate {
                 error_message: refusal.to_string(),
             }

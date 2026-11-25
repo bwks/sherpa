@@ -21,6 +21,7 @@ use crate::daemon::storage::secure_storage;
 use crate::daemon::unreadable_ends::UnreadableEnds;
 use crate::daemon::vault_seals::VaultSeals;
 use crate::konst::SHERPA_ADMIN_PASSWORD_ENV;
+use crate::services::error::ServiceError;
 use crate::validate::{check_host_memory_settings, validate_tailscale_gateway_settings};
 
 /// The key that seals the database's secret values: 32 bytes, mode 0600, beside the JWT secret
@@ -194,10 +195,7 @@ pub async fn ensure_admin_account(db: &db::Database, admin_password: Option<&str
                 username = ADMIN_USERNAME,
                 "The built-in sherpa-admin account does not exist"
             );
-            bail!(
-                "The built-in '{ADMIN_USERNAME}' account does not exist. Run 'sudo -u sherpa -H \
-                 sherpad init', or set {SHERPA_ADMIN_PASSWORD_ENV} to create it on startup"
-            );
+            bail!(ServiceError::AdminAccountMissing);
         }
         tracing::debug!("Admin account exists");
     }

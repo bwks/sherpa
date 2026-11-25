@@ -1,6 +1,6 @@
 //! Checks on an image scan request.
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use crate::services::error::ServiceError;
 use shared::data::{NodeKind, ScanImagesRequest};
@@ -13,18 +13,13 @@ const IMAGE_REPO_MAX_LEN: usize = 255;
 ///
 /// # Errors
 ///
-/// Fails with `ServiceError::Invalid` naming the rule the request breaks.
+/// Fails with the `ServiceError` of the rule the request breaks.
 pub fn validate_image_scan(request: &ScanImagesRequest) -> Result<()> {
     let (model, repo) = match (request.model, request.repo.as_deref()) {
         (None, None) => return Ok(()),
         (Some(model), Some(repo)) => (model, repo),
         _ => {
-            return Err(ServiceError::Invalid(
-                "--model and --repo are given together: the repo's local tags are recorded as \
-                 versions of the model"
-                    .to_string(),
-            )
-            .into());
+            bail!(ServiceError::ScanModelWithoutRepo);
         }
     };
     if request
@@ -32,16 +27,10 @@ pub fn validate_image_scan(request: &ScanImagesRequest) -> Result<()> {
         .as_ref()
         .is_some_and(|kind| *kind != NodeKind::Container)
     {
-        return Err(ServiceError::Invalid(
-            "--model and --repo only scan containers: give them with --kind container".to_string(),
-        )
-        .into());
+        bail!(ServiceError::ScanKindNotContainer);
     }
     if !model.kinds().contains(&NodeKind::Container) {
-        return Err(ServiceError::Invalid(format!(
-            "'{model}' is not a container model: --model and --repo record local Docker images"
-        ))
-        .into());
+        bail!(ServiceError::ScanModelNotContainer { model });
     }
     validate_image_repo(repo)
 }
@@ -68,11 +57,9 @@ fn validate_image_repo(repo: &str) -> Result<()> {
     if valid {
         return Ok(());
     }
-    Err(ServiceError::Invalid(format!(
-        "'{repo}' is not a valid repo: use an image repository without a tag, such as mysql, \
-         docker.io/library/mysql or ghcr.io/nokia/srlinux"
-    ))
-    .into())
+    bail!(ServiceError::ScanRepoInvalid {
+        repo: repo.to_owned()
+    })
 }
 
 /// Whether the first component of a repo names a registry, as Docker reads it.
@@ -107,6 +94,8 @@ mod tests {
     use super::*;
     use shared::data::NodeModel;
 
+    use crate::services::error::ServiceCategory;
+
     fn request(model: Option<NodeModel>, repo: Option<&str>) -> ScanImagesRequest {
         ScanImagesRequest {
             kind: Some(NodeKind::Container),
@@ -116,16 +105,11 @@ mod tests {
         }
     }
 
-    fn refusal(request: &ScanImagesRequest) -> String {
+    fn refusal(request: &ScanImagesRequest) -> ServiceError {
         let error = validate_image_scan(request).unwrap_err();
-        assert!(
-            matches!(
-                error.downcast_ref::<ServiceError>(),
-                Some(ServiceError::Invalid(_))
-            ),
-            "{error:#}"
-        );
-        error.to_string()
+        let refusal = error.downcast::<ServiceError>().expect("a service error");
+        assert_eq!(refusal.category(), Some(ServiceCategory::Invalid));
+        refusal
     }
 
     #[test]
@@ -159,22 +143,25 @@ mod tests {
             request(Some(NodeModel::MysqlDb), None),
             request(None, Some("mysql")),
         ] {
-            let message = refusal(&request);
-            assert!(message.contains("--model and --repo"), "{message}");
+            assert_eq!(refusal(&request), ServiceError::ScanModelWithoutRepo);
         }
     }
 
     #[test]
     fn image_scan_010_model_and_repo_are_refused_for_a_model_or_kind_that_is_not_a_container() {
-        let message = refusal(&request(Some(NodeModel::UbuntuLinux), Some("ubuntu")));
-        assert!(message.contains("not a container model"), "{message}");
+        assert_eq!(
+            refusal(&request(Some(NodeModel::UbuntuLinux), Some("ubuntu"))),
+            ServiceError::ScanModelNotContainer {
+                model: NodeModel::UbuntuLinux
+            }
+        );
 
         for kind in [NodeKind::VirtualMachine, NodeKind::Unikernel] {
             let request = ScanImagesRequest {
                 kind: Some(kind),
                 ..request(Some(NodeModel::MysqlDb), Some("mysql"))
             };
-            assert!(refusal(&request).contains("only scan containers"));
+            assert_eq!(refusal(&request), ServiceError::ScanKindNotContainer);
         }
 
         let without_kind = ScanImagesRequest {
@@ -202,11 +189,12 @@ mod tests {
             "my$ql",
             too_long.as_str(),
         ] {
-            let message = refusal(&request(Some(NodeModel::Generic), Some(repo)));
-
-            assert!(
-                message.contains("is not a valid repo"),
-                "{repo:?}: {message}"
+            assert_eq!(
+                refusal(&request(Some(NodeModel::Generic), Some(repo))),
+                ServiceError::ScanRepoInvalid {
+                    repo: repo.to_owned()
+                },
+                "{repo:?}"
             );
         }
     }

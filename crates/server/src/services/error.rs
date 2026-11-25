@@ -7,29 +7,355 @@
 //! reference, and the server logs the reference with the error's chain.
 
 use std::fmt;
+use std::path::PathBuf;
+use std::process::ExitStatus;
 
 use db::{CpuPinTaken, UserChanged};
-use shared::error::{CpuPinConflict, MemoryShortfall};
+use nix::unistd::Pid;
+use shared::data::{ModelKind, NodeKind, NodeModel};
+use shared::error::{CpuPinConflict, SharedError};
+use shared::konst::{ADMIN_USERNAME, SHERPA_USERNAME};
+use thiserror::Error;
 use uuid::Uuid;
 
+use crate::auth::jwt;
+use crate::daemon::pidfile::SHERPAD_LOG_FILE_PATH;
+use crate::konst::SHERPA_ADMIN_PASSWORD_ENV;
+use crate::validate::{DevicePasswordRule, MemoryShortage};
+
+/// What a refusal of a node's version or image starts with.
+pub const VERSION_CHECK_FAILED: &str = "Manifest validation failed: version/image validation";
 /// Hex digits of an [`Unexpected`] reference.
 const REFERENCE_LENGTH: usize = 8;
 
-/// A service refused a request for a reason the caller can act on.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A service refused a request for a reason the caller can act on, or failed in a way a caller
+/// tells apart from other failures.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ServiceError {
+    #[error("{0}")]
     NotFound(String),
+
+    #[error("Access denied: {0}")]
     Denied(String),
+
+    #[error("{0}")]
     Conflict(String),
+
+    #[error("{0}")]
     Invalid(String),
-    InsufficientMemory {
-        message: String,
-        shortfall: MemoryShortfall,
+
+    #[error("The device password does not meet the requirements: {rule}")]
+    DevicePasswordRefused { rule: DevicePasswordRule },
+
+    #[error("The device password must differ from your Sherpa login password")]
+    DevicePasswordSameAsLogin,
+
+    #[error(
+        "Node '{node}' ({model_kind}) takes login names of at most {max_length} characters; \
+         '{username}' has {length}. Start this lab from an account with a shorter name."
+    )]
+    LoginNameTooLong {
+        node: String,
+        model_kind: ModelKind,
+        username: String,
+        max_length: usize,
+        length: usize,
     },
+
+    #[error(
+        "Node '{node}' ({model_kind}) takes login names that start with a letter or a digit; \
+         '{username}' does not. Start this lab from an account whose name does."
+    )]
+    LoginNameFirstCharacter {
+        node: String,
+        model_kind: ModelKind,
+        username: String,
+    },
+
+    #[error("{field} must not be empty")]
+    LabOriginEmpty { field: &'static str },
+
+    #[error("{field} must be at most {max_length} characters")]
+    LabOriginTooLong {
+        field: &'static str,
+        max_length: usize,
+    },
+
+    #[error("{field} must not contain control characters")]
+    LabOriginControlCharacters { field: &'static str },
+
+    #[error(
+        "Node '{node}' `{setting}` uses host CPU {cpu}, but the server has CPUs 0 to {}",
+        host_cpus.saturating_sub(1)
+    )]
+    HostCpuMissing {
+        node: String,
+        setting: &'static str,
+        cpu: u16,
+        host_cpus: u32,
+    },
+
+    #[error(
+        "Node '{node}' `numa.node` is NUMA node {numa_node}, but the server has \
+         {host_numa_nodes} NUMA node(s), numbered from 0"
+    )]
+    NumaNodeMissing {
+        node: String,
+        numa_node: u8,
+        host_numa_nodes: u32,
+    },
+
+    #[error(
+        "Node '{node}' `cpu.count` is {cpu_count}, but the server has {host_cpus} CPUs; \
+         a container's CPU quota cannot be more than the server's CPUs"
+    )]
+    ContainerCpusOverHost {
+        node: String,
+        cpu_count: u8,
+        host_cpus: u32,
+    },
+
+    #[error("The server has no NUMA node {numa_node}")]
+    NumaNodeNotOnServer { numa_node: u32 },
+
+    #[error("`host_memory.overcommit_percent` must be at least 1, not {percent}")]
+    OvercommitPercentTooLow { percent: u32 },
+
+    #[error("{shortage}")]
+    InsufficientMemory { shortage: MemoryShortage },
+
+    #[error("ZTP validation failed for node: {node}: {refusal}")]
+    NodeZtpUnsupported { node: String, refusal: SharedError },
+
+    #[error(
+        "Node '{node}' joins talos cluster '{cluster}' but its ZTP is disabled, so the machine \
+         config Sherpa generates for it would not reach it"
+    )]
+    TalosMemberZtpDisabled { node: String, cluster: String },
+
+    #[error("{refusal}")]
+    ImageZtpUnsupported { refusal: SharedError },
+
+    #[error("CPU count must be at least 1")]
+    ImageCpuCountZero,
+
+    #[error("Memory must be at least 64 MB")]
+    ImageMemoryTooLow,
+
+    #[error("Interface MTU must be between 576 and 9600")]
+    ImageMtuOutOfRange,
+
+    #[error(
+        "Node '{node}' has provisioners, which only the sherpa CLI can run: start the lab with \
+         `sherpa up`, or remove them"
+    )]
+    NodeHasProvisioners { node: String },
+
+    #[error(
+        "sherpad {command} must run as the '{user}' service account, not '{account}'. Nothing \
+         was changed. Run it as: sudo -u {user} -H sherpad {command}, with the same options",
+        user = SHERPA_USERNAME
+    )]
+    NotServiceAccount { command: String, account: String },
+
+    #[error("Secret files were sent for node '{node}', which is not in the manifest")]
+    SecretsForUnknownNode { node: String },
+
+    #[error("Secret files were sent for node '{node}', but only containers take them")]
+    SecretsForNonContainer { node: String },
+
+    #[error("Node '{node}'")]
+    NodeSecretFiles { node: String },
+
+    #[error(
+        "tailscale.image must be a nonempty container image reference without whitespace or NULs"
+    )]
+    TailscaleImageInvalid,
+
+    #[error(
+        "tailscale.socket_path must be an absolute Unix socket filename shorter than 108 bytes without NULs"
+    )]
+    TailscaleSocketPathInvalid,
+
+    #[error("tailscale.{field} must be positive seconds")]
+    TailscaleTimeoutNotPositive { field: &'static str },
+
+    #[error("tailscale.stop_timeout_secs must fit a signed 32-bit Docker stop timeout")]
+    TailscaleStopTimeoutTooLong,
+
+    #[error(
+        "tailscale.exec_timeout_secs ({exec_timeout_secs}) must be longer than tailscale.enrollment_timeout_secs ({enrollment_timeout_secs}), so the enrollment command ends before the server stops waiting for it"
+    )]
+    TailscaleExecTimeoutTooShort {
+        exec_timeout_secs: u32,
+        enrollment_timeout_secs: u32,
+    },
+
+    #[error(
+        "Node '{node}' cannot be redeployed from the web UI: it needs {}, which the server does \
+         not keep. Run `sherpa redeploy -n {node}` from the lab folder",
+        missing.join(", ")
+    )]
+    NotWebRedeployable {
+        node: String,
+        missing: Vec<&'static str>,
+    },
+
+    #[error(
+        "--model and --repo are given together: the repo's local tags are recorded as versions \
+         of the model"
+    )]
+    ScanModelWithoutRepo,
+
+    #[error("--model and --repo only scan containers: give them with --kind container")]
+    ScanKindNotContainer,
+
+    #[error("'{model}' is not a container model: --model and --repo record local Docker images")]
+    ScanModelNotContainer { model: NodeModel },
+
+    #[error(
+        "'{repo}' is not a valid repo: use an image repository without a tag, such as mysql, \
+         docker.io/library/mysql or ghcr.io/nokia/srlinux"
+    )]
+    ScanRepoInvalid { repo: String },
+
+    #[error(
+        "{prefix}: Node config not found for model: {model} kind: {kind} (node: {node})",
+        prefix = VERSION_CHECK_FAILED,
+        model = model_kind.model(),
+        kind = model_kind.kind()
+    )]
+    NodeImageNotFound { node: String, model_kind: ModelKind },
+
+    #[error(
+        "{prefix}: Version validation failed for node: {node} (model: {model}): {}",
+        version_refusal(*model_kind, version, available),
+        prefix = VERSION_CHECK_FAILED,
+        model = model_kind.model()
+    )]
+    VersionNotFound {
+        node: String,
+        model_kind: ModelKind,
+        version: String,
+        available: Vec<String>,
+    },
+
+    #[error(
+        "Container node '{node}' (model: {model}) has no image repo configured: set `image` on \
+         the node in the manifest, or pull the image with `sherpa server image pull --model \
+         {model} --kind container --repo <image>:{version}`"
+    )]
+    ContainerRepoMissing {
+        node: String,
+        model: NodeModel,
+        version: String,
+    },
+
+    #[error(
+        "{prefix}: Disk image not found for node '{node}' (model: {model}, version: {version})\nExpected path: {path}\nHint: Ensure the image is installed in the correct directory",
+        prefix = VERSION_CHECK_FAILED
+    )]
+    DiskImageNotFound {
+        node: String,
+        model: NodeModel,
+        version: String,
+        path: String,
+    },
+
+    #[error("The form sets `{field}`, which a {kind} image does not take")]
+    ImageFormFieldNotTaken { field: &'static str, kind: NodeKind },
+
+    #[error("The form has no `{field}`, which a {kind} image needs")]
+    ImageFormFieldMissing { field: &'static str, kind: NodeKind },
+
+    #[error(
+        "The JWT secret {} is {length} bytes long, not {expected}. Restore it from a backup, or \
+         delete it to generate a new one, which logs every user out",
+        path.display(),
+        expected = jwt::SECRET_LENGTH
+    )]
+    JwtSecretWrongLength { path: PathBuf, length: usize },
+
+    #[error(
+        "The database key {} is missing, and the database's secret values are sealed with it. \
+         Restore the key file that was backed up with this database; a new key cannot open them",
+        path.display()
+    )]
+    DbKeyMissing { path: PathBuf },
+
+    #[error("The database key {} is damaged", path.display())]
+    DbKeyDamaged { path: PathBuf },
+
+    #[error(
+        "Failed to start sherpad: it exited at once ({status}); see {log}",
+        log = SHERPAD_LOG_FILE_PATH
+    )]
+    ExitedAtOnce { status: ExitStatus },
+
+    #[error("Server is already running (PID: {pid}): {path} is locked")]
+    PidFileLocked { pid: Pid, path: String },
+
+    #[error(
+        "The TLS {kind} {} does not exist. With self_generate_cert off, sherpad serves the \
+         certificate and key the admin puts there, and never writes them",
+        path.display()
+    )]
+    TlsFileMissing { kind: &'static str, path: PathBuf },
+
+    #[error("No certificates found in file: {}", path.display())]
+    NoCertificates { path: PathBuf },
+
+    #[error(
+        "sherpad is running (pid: {pid}) and holds the database. Nothing was changed. Stop it \
+         first with: sudo systemctl stop sherpad, then start it again after the unlock"
+    )]
+    ServerHoldsDatabase { pid: Pid },
+
+    #[error("User not found: {username}. Nothing was changed")]
+    UnlockUserNotFound { username: String },
+
+    #[error(
+        "The built-in '{admin}' account does not exist. Run 'sudo -u sherpa -H sherpad init', or \
+         set {env} to create it on startup",
+        admin = ADMIN_USERNAME,
+        env = SHERPA_ADMIN_PASSWORD_ENV
+    )]
+    AdminAccountMissing,
+
+    #[error("Two secret files are named '{name}'")]
+    SecretFileNameTwice { name: String },
+
+    #[error("Secret file '{name}' is not valid base64")]
+    SecretFileNotBase64 { name: String },
+
+    #[error("{message}")]
     CpuPinsHeld {
         message: String,
         conflict: CpuPinConflict,
     },
+}
+
+/// The kind of refusal a transport answers a [`ServiceError`] with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceCategory {
+    NotFound,
+    Denied,
+    Conflict,
+    Invalid,
+}
+
+/// Why `version` is not an image of `model_kind`: it has none, or the versions it has.
+fn version_refusal(model_kind: ModelKind, version: &str, available: &[String]) -> String {
+    let (model, kind) = (model_kind.model(), model_kind.kind());
+    if available.is_empty() {
+        format!("No configurations found in database for model: {model} kind: {kind}")
+    } else {
+        format!(
+            "Version '{version}' not found in database for model: {model} kind: {kind}. \
+             Available versions: {}",
+            available.join(", ")
+        )
+    }
 }
 
 /// An error of no `ServiceError` kind, as a caller sees it: a reference to the server log line
@@ -38,21 +364,6 @@ pub enum ServiceError {
 pub struct Unexpected {
     reference: String,
 }
-
-impl fmt::Display for ServiceError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::NotFound(message)
-            | Self::Conflict(message)
-            | Self::Invalid(message)
-            | Self::InsufficientMemory { message, .. }
-            | Self::CpuPinsHeld { message, .. } => write!(f, "{message}"),
-            Self::Denied(message) => write!(f, "Access denied: {message}"),
-        }
-    }
-}
-
-impl std::error::Error for ServiceError {}
 
 impl Unexpected {
     /// Log `error`, which `failure` describes, at error level with its chain (its alternate
@@ -101,9 +412,76 @@ pub fn caller_message(error: &anyhow::Error, failure: &str) -> String {
 }
 
 impl ServiceError {
-    /// Find a `ServiceError` anywhere in an error chain.
+    /// Find a `ServiceError` that refuses the request anywhere in an error chain.
+    #[must_use]
     pub fn find(error: &anyhow::Error) -> Option<&ServiceError> {
-        error.downcast_ref::<ServiceError>()
+        error
+            .downcast_ref::<ServiceError>()
+            .filter(|refusal| refusal.category().is_some())
+    }
+
+    /// The kind of refusal this is, or `None` for a failure the caller is not told of.
+    #[must_use]
+    pub fn category(&self) -> Option<ServiceCategory> {
+        match self {
+            Self::NotFound(_)
+            | Self::NodeImageNotFound { .. }
+            | Self::VersionNotFound { .. }
+            | Self::DiskImageNotFound { .. } => Some(ServiceCategory::NotFound),
+            Self::Denied(_) => Some(ServiceCategory::Denied),
+            Self::Conflict(_)
+            | Self::NotWebRedeployable { .. }
+            | Self::ContainerRepoMissing { .. }
+            | Self::InsufficientMemory { .. }
+            | Self::CpuPinsHeld { .. } => Some(ServiceCategory::Conflict),
+            Self::Invalid(_)
+            | Self::DevicePasswordRefused { .. }
+            | Self::DevicePasswordSameAsLogin
+            | Self::LoginNameTooLong { .. }
+            | Self::LoginNameFirstCharacter { .. }
+            | Self::LabOriginEmpty { .. }
+            | Self::LabOriginTooLong { .. }
+            | Self::LabOriginControlCharacters { .. }
+            | Self::HostCpuMissing { .. }
+            | Self::NumaNodeMissing { .. }
+            | Self::ContainerCpusOverHost { .. }
+            | Self::NumaNodeNotOnServer { .. }
+            | Self::NodeZtpUnsupported { .. }
+            | Self::TalosMemberZtpDisabled { .. }
+            | Self::ImageZtpUnsupported { .. }
+            | Self::ImageCpuCountZero
+            | Self::ImageMemoryTooLow
+            | Self::ImageMtuOutOfRange
+            | Self::NodeHasProvisioners { .. }
+            | Self::SecretsForUnknownNode { .. }
+            | Self::SecretsForNonContainer { .. }
+            | Self::NodeSecretFiles { .. }
+            | Self::SecretFileNameTwice { .. }
+            | Self::SecretFileNotBase64 { .. }
+            | Self::ScanModelWithoutRepo
+            | Self::ScanKindNotContainer
+            | Self::ScanModelNotContainer { .. }
+            | Self::ScanRepoInvalid { .. }
+            | Self::ImageFormFieldNotTaken { .. }
+            | Self::ImageFormFieldMissing { .. } => Some(ServiceCategory::Invalid),
+            Self::OvercommitPercentTooLow { .. }
+            | Self::NotServiceAccount { .. }
+            | Self::TailscaleImageInvalid
+            | Self::TailscaleSocketPathInvalid
+            | Self::TailscaleTimeoutNotPositive { .. }
+            | Self::TailscaleStopTimeoutTooLong
+            | Self::TailscaleExecTimeoutTooShort { .. }
+            | Self::JwtSecretWrongLength { .. }
+            | Self::DbKeyMissing { .. }
+            | Self::DbKeyDamaged { .. }
+            | Self::ExitedAtOnce { .. }
+            | Self::PidFileLocked { .. }
+            | Self::TlsFileMissing { .. }
+            | Self::NoCertificates { .. }
+            | Self::ServerHoldsDatabase { .. }
+            | Self::UnlockUserNotFound { .. }
+            | Self::AdminAccountMissing => None,
+        }
     }
 
     /// The error of a failed `db::update_user`: a write refused because the user changed since

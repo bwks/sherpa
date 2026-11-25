@@ -140,13 +140,13 @@ A lab keeping its record after any resource fails to be removed is `lab_destroy_
 |---|---|---|
 | 001 | sherpad starts with a `sherpa.toml` that has no `[tailscale]` table, and a table with one setting changes only that one (no test yet) | integration |
 | 002 | A `[tailscale]` table with a value of the wrong type, an unknown setting or a negative timeout is refused when the file is loaded | unit |
-| 003 | An empty image or one with whitespace, a socket path that is relative, has no file name, has a NUL or is too long, a timeout of zero and a stop timeout Docker cannot take are each refused at start, naming the setting | unit |
+| 003 | An empty image or one with whitespace, a socket path that is relative, has no file name, has a NUL or is too long, a timeout of zero and a stop timeout Docker cannot take are each refused at start with that setting's error | unit |
 | 004 | The image, the socket path and the enrollment timeout that are set are the ones the gateway and its commands get, and a socket path with shell characters is passed as an argument, never as script text | unit |
 | 005 | A gateway command that outlasts the command timeout fails as timed out (mock Docker) | unit |
 | 006 | The stop timeout that is set is the grace period Docker is given when the gateway is stopped (mock Docker) | unit |
 | 007 | A gateway whose socket path is not the default starts, reports its status and stops (no test yet) | integration |
 | 008 | A gateway image the server does not have is pulled when the first gateway is created (no test yet) | integration |
-| 009 | A command timeout not longer than the enrollment timeout is refused at start, naming both settings | unit |
+| 009 | A command timeout not longer than the enrollment timeout is refused at start, carrying both timeouts | unit |
 
 ## Cases that need a real tailnet
 

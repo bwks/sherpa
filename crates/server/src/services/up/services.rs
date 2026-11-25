@@ -7,7 +7,7 @@ use anyhow::{Result, bail};
 use tracing::instrument;
 
 use super::context::LabBuild;
-use crate::services::error::{ServiceError, caller_message};
+use crate::services::error::{ServiceCategory, ServiceError, caller_message};
 use crate::services::keycloak;
 use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle;
@@ -154,7 +154,8 @@ pub(super) async fn record_ready_workers(
         let record_id = db::get_node_id(&record.record)?;
         if let Err(error) =
             node_lifecycle::record(db, operation, &record_id, OperationEvent::Ready).await
-            && !matches!(ServiceError::find(&error), Some(ServiceError::Conflict(_)))
+            && ServiceError::find(&error).and_then(ServiceError::category)
+                != Some(ServiceCategory::Conflict)
         {
             return Err(error);
         }

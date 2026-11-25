@@ -12,8 +12,10 @@ use std::path::Path;
 use std::process;
 use tracing::instrument;
 
+use crate::services::error::ServiceError;
+
 pub const SHERPAD_PID_FILE_PATH: &str = "/opt/sherpa/run/sherpad.pid";
-pub(super) const SHERPAD_LOG_FILE_PATH: &str = "/opt/sherpa/logs/sherpad.log";
+pub(crate) const SHERPAD_LOG_FILE_PATH: &str = "/opt/sherpa/logs/sherpad.log";
 const SHERPA_RUN_PATH: &str = "/opt/sherpa/run";
 const SHERPA_LOG_PATH: &str = "/opt/sherpa/logs";
 /// The log directory: `sherpa` and its group only.
@@ -84,7 +86,10 @@ pub fn lock_pid_file(path: &str) -> Result<Flock<File>> {
     let mut lock = match Flock::lock(file, FlockArg::LockExclusiveNonblock) {
         Ok(lock) => lock,
         Err((_, Errno::EWOULDBLOCK)) => match read_pid(path) {
-            Ok(Some(pid)) => bail!("Server is already running (PID: {pid}): {path} is locked"),
+            Ok(Some(pid)) => bail!(ServiceError::PidFileLocked {
+                pid,
+                path: path.to_owned(),
+            }),
             _ => bail!("Server is already running: {path} is locked"),
         },
         Err((_, errno)) => {
@@ -243,11 +248,12 @@ pub(crate) mod tests {
 
         let first = lock_pid_file(pid_path).unwrap();
         let error = lock_pid_file(pid_path).expect_err("a second lock was taken");
-        assert!(
-            error
-                .to_string()
-                .contains(&format!("already running (PID: {})", Pid::this())),
-            "{error}"
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::PidFileLocked {
+                pid: Pid::this(),
+                path: pid_path.to_owned(),
+            })
         );
         assert_eq!(read_pid(pid_path).unwrap(), Some(Pid::this()));
 

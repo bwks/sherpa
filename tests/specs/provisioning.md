@@ -204,8 +204,8 @@ A file removed from the manifest stays on the node. That is documented; no case 
 | 007 | A redeploy that sends files replaces the node's, one that sends an empty list removes them and mounts nothing, and one that sends none, as from the web UI, keeps the files the node has | unit |
 | 008 | `sherpa provision` rewrites a container's files only when it mounts them from its own folder: a container created without secret files is refused, saying to redeploy it, and one that mounts something else there is refused | unit |
 | 009 | Removing a lab's secret files removes that lab's alone, and removing them when there are none is not an error | unit |
-| 010 | Secret files sent for a node that is not in the manifest, or that is not a container, are refused, naming the node | unit |
-| 011 | At up and at redeploy a bad file is refused, naming the node and the fault, and a set of good files is taken | unit |
+| 010 | Secret files sent for a node that is not in the manifest, or that is not a container, are refused, carrying the node | unit |
+| 011 | At up and at redeploy a bad file is refused, carrying the node, over the file check's own error for the fault, and a set of good files is taken | unit |
 | 012 | A secret file's name is one file name of letters, digits and `. _ - + @`, up to 255 long: a path, `.`, `..`, a space, a newline and a shell expression are refused | unit |
 | 013 | A secret file's mode is octal digits up to `777` | unit |
 | 014 | `sherpa provision` for a node that is not a container writes nothing and is refused as not a container (no test yet) | integration |
@@ -223,7 +223,7 @@ A file removed from the manifest stays on the node. That is documented; no case 
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | The manifest the CLI sends has no provisioners, whatever the manifest on disk has, and the server takes it | unit |
-| 002 | An up or a redeploy whose manifest has provisioners, as one sent to the REST API or pasted in the web UI has, is refused, naming the node and saying to use `sherpa up`, and a manifest without any is taken (no test at this level yet) | integration |
+| 002 | An up or a redeploy whose manifest has provisioners, as one sent to the REST API or pasted in the web UI has, is refused, carrying the node, and a manifest without any is taken (no test at this level yet) | integration |
 | 003 | A secret file's contents are base64 in a request, and are not in the debug output of anything that holds them | unit |
 | 004 | A request carrying secret files that does not parse is answered without any of what was sent | unit |
 | 005 | After an up with an ssh and a container provisioner, the contents of their files are in no file of the lab's folder on the server and nowhere in the database (no test yet) | e2e |

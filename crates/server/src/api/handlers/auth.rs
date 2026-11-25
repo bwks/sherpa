@@ -11,7 +11,7 @@ use std::net::SocketAddr;
 use crate::api::request_parse::{FormBody, JsonBody, QueryParams};
 use crate::auth::{cookies, login, session};
 use crate::daemon::state::AppState;
-use crate::services::error::ServiceError;
+use crate::services::error::{ServiceCategory, ServiceError};
 use crate::services::user_create;
 use crate::templates::{
     LoginError, LoginErrorTemplate, LoginPageTemplate, SignupErrorTemplate, SignupPageTemplate,
@@ -345,13 +345,14 @@ pub async fn signup_form_handler(
         Ok(user) => user,
         Err(e) => {
             let error_msg = match ServiceError::find(&e) {
-                Some(ServiceError::Conflict(_)) => {
+                Some(refusal) if refusal.category() == Some(ServiceCategory::Conflict) => {
                     tracing::debug!("Username already exists: {}", form.username);
                     "Username is unavailable".to_string()
                 }
-                Some(ServiceError::Invalid(message)) => {
+                Some(refusal) if refusal.category() == Some(ServiceCategory::Invalid) => {
+                    let message = refusal.to_string();
                     tracing::debug!("Signup validation failed: {}", message);
-                    message.clone()
+                    message
                 }
                 _ => {
                     tracing::error!("Registration error for user '{}': {:?}", form.username, e);

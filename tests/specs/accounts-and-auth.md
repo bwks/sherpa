@@ -20,7 +20,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 007 | An owner with no SSH keys is refused at redeploy | e2e |
 | 008 | An owner with no device password is refused at up, before anything is created | integration |
 | 009 | An owner with no device password is refused at redeploy, before any of it starts | integration |
-| 010 | A lab with a node whose model cannot take the owner's name, too long or starting with `_`, is refused, naming the node, the model and the limit; every other model takes every Sherpa username | unit |
+| 010 | A lab with a node whose model cannot take the owner's name, too long or starting with `_`, is refused, carrying the node, the model and the name, and for a name too long the limit; every other model takes every Sherpa username | unit |
 | 011 | An owner whose name cannot be a login on a node, a reserved one such as `root` or one that breaks the login name rule, is refused with the reason | unit |
 | 012 | Linux, BSD and Windows nodes take every key on the owner's account, with duplicates of one key dropped | unit |
 | 013 | A network device takes only the key types it accepts and no more keys than it holds, and the keys left out are reported | unit |
@@ -121,7 +121,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | sherpad refuses to start when the `sherpa-admin` account does not exist and it is given no password to create it, naming both ways to create it | integration |
+| 001 | sherpad refuses to start when the `sherpa-admin` account does not exist and it is given no password to create it, with the error that gives both ways to create it | integration |
 | 002 | Given an admin password at startup, sherpad creates `sherpa-admin` when it is missing, even when another admin exists, and leaves an existing `sherpa-admin` and its password alone | integration |
 | 003 | An admin password that breaks the password rule creates no `sherpa-admin` account | integration |
 | 004 | Deleting `sherpa-admin` is refused, over RPC, REST and the web UI | integration |
@@ -171,8 +171,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 028 | An admin's reset of a user's password does not unlock the account | integration |
 | 029 | `sherpad user unlock` unlocks an account, `sherpa-admin` included, while the server is stopped | integration |
 | 030 | `sherpad user unlock` is refused while the server is running, and the database is as it was | integration |
-| 031 | `sherpad user unlock` of an unknown username fails, saying the user is not found, and unlocks no other account | integration |
-| 032 | `sherpad user unlock` run as any account but `sherpa`, root included, is refused with the command to run, and the database is as it was | integration |
+| 031 | `sherpad user unlock` of an unknown username fails, carrying the username, and unlocks no other account | integration |
+| 032 | `sherpad user unlock` run as any account but `sherpa`, root included, is refused, carrying the account and the command, and the database is as it was | integration |
 | 033 | Root unlocks a locked account, `sherpa-admin` included, with `sherpad user unlock` while the server is stopped: refused while it runs, as root and for an unknown username, changing nothing, and after the restart the account logs in and `sherpa-admin` is no longer locked | e2e |
 
 ## `user_sessions`: a token works only while its session lasts
@@ -205,7 +205,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 021 | A refused session cookie is logged with its reason and never with its value | unit |
 | 022 | A job started in the web UI runs as its requester only while their session lasts | integration |
 | 023 | sherpad generates its token secret once, in a file only it can read, and loads the same one on the next start | unit |
-| 024 | sherpad refuses to start on a token secret of the wrong length, names the file and leaves it as it is | unit |
+| 024 | sherpad refuses to start on a token secret of the wrong length, carrying the file and its length, and leaves it as it is | unit |
 | 025 | A page of another origin is never granted cross-origin access to the API | integration |
 
 ## `user_passwords`: a login password is changed by its user, or reset by an admin
@@ -251,7 +251,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 013 | The CLI asks for the login password, then the new one twice, takes no flag for either, and stops when the two differ, one is empty or input cannot be read | unit |
 | 014 | A device password, in a request or opened from the database, shows nothing of itself in debug output | unit |
 
-Each refusal in cases 005 to 008 names the part of the rule that was broken and never repeats the password; their tests check both.
+Each refusal in cases 005 to 008 carries the part of the rule that was broken, and nothing of the password; their tests check the part.
 
 ## `admin_only`: server administration is carried out only for an admin
 

@@ -143,7 +143,7 @@ pub async fn web_redeploy_manifest(
                 "Node '{node_name}' is not in the lab's stored definition"
             ))
         })?;
-    check_web_redeployable(node).map_err(|error| ServiceError::Conflict(error.to_string()))?;
+    check_web_redeployable(node)?;
     definition.nodes.retain(|node| node.name == node_name);
     Ok(definition)
 }
@@ -344,12 +344,10 @@ ztp = { config = "configs/files01.yaml" }
             .unwrap_err();
         assert_eq!(
             ServiceError::find(&refusal),
-            Some(&ServiceError::Conflict(
-                "Node 'files01' cannot be redeployed from the web UI: it needs ztp.config, \
-                 startup_scripts, which the server does not keep. Run `sherpa redeploy -n \
-                 files01` from the lab folder"
-                    .to_owned()
-            ))
+            Some(&ServiceError::NotWebRedeployable {
+                node: "files01".to_owned(),
+                missing: vec!["ztp.config", "startup_scripts"],
+            })
         );
         let absent = web_redeploy_manifest(&db, &lab_id, "ghost")
             .await
