@@ -3,6 +3,8 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use serde::{Serialize as SerializeTrait, Serializer};
 use serde_derive::Serialize;
 
+use shared::data::{NetworkV4, NetworkV6};
+
 /*
 "EULA": "accept",
 "Hostname": "inserthostname-here",
@@ -27,66 +29,95 @@ use serde_derive::Serialize;
 
 #[derive(Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum CiscoFxosIpMode {
+enum CiscoFxosIpMode {
     Manual,
 }
 
-#[derive(Serialize, Default)]
+#[derive(Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CiscoFxosFirewallMode {
-    #[default]
     Routed,
     Transparent,
 }
 
-#[derive(Serialize, Default)]
 pub struct CiscoFtdZtpTemplate {
-    #[serde(rename = "EULA")]
     pub eula: String,
-    #[serde(rename = "Hostname")]
     pub hostname: String,
-    #[serde(rename = "AdminPassword")]
     pub admin_password: String,
-    #[serde(rename = "FirewallMode")]
     pub firewall_mode: CiscoFxosFirewallMode,
-    #[serde(rename = "DNS1", skip_serializing_if = "Option::is_none")]
-    pub dns1: Option<Ipv4Addr>,
-    #[serde(rename = "IPv4Mode", skip_serializing_if = "Option::is_none")]
-    pub ipv4_mode: Option<CiscoFxosIpMode>,
-    #[serde(rename = "IPv4Addr", skip_serializing_if = "Option::is_none")]
-    pub ipv4_addr: Option<Ipv4Addr>,
-    #[serde(rename = "IPv4Gw", skip_serializing_if = "Option::is_none")]
-    pub ipv4_gw: Option<Ipv4Addr>,
-    #[serde(rename = "IPv4Mask", skip_serializing_if = "Option::is_none")]
-    pub ipv4_mask: Option<Ipv4Addr>,
-    #[serde(rename = "IPv6Mode", skip_serializing_if = "Option::is_none")]
-    pub ipv6_mode: Option<CiscoFxosIpMode>,
-    #[serde(rename = "IPv6Addr", skip_serializing_if = "Option::is_none")]
-    pub ipv6_addr: Option<Ipv6Addr>,
-    #[serde(rename = "IPv6Gw", skip_serializing_if = "Option::is_none")]
-    pub ipv6_gw: Option<Ipv6Addr>,
-    #[serde(rename = "IPv6Mask", skip_serializing_if = "Option::is_none")]
-    pub ipv6_mask: Option<PrefixLength>,
+    pub dns: Ipv4Addr,
+    pub manage_locally: bool,
+    pub mgmt_ipv4: NetworkV4,
+    pub mgmt_ipv4_address: Ipv4Addr,
+    pub mgmt_ipv6_address: Option<Ipv6Addr>,
+    pub mgmt_ipv6: Option<NetworkV6>,
+}
+
+#[derive(Serialize)]
+struct Day0Config<'a> {
+    #[serde(rename = "EULA")]
+    eula: &'a str,
+    #[serde(rename = "Hostname")]
+    hostname: &'a str,
+    #[serde(rename = "AdminPassword")]
+    admin_password: &'a str,
+    #[serde(rename = "FirewallMode")]
+    firewall_mode: &'a CiscoFxosFirewallMode,
+    #[serde(rename = "DNS1")]
+    dns1: Ipv4Addr,
+    #[serde(rename = "IPv4Mode")]
+    ipv4_mode: CiscoFxosIpMode,
+    #[serde(rename = "IPv4Addr")]
+    ipv4_addr: Ipv4Addr,
+    #[serde(rename = "IPv4Gw")]
+    ipv4_gw: Ipv4Addr,
+    #[serde(rename = "IPv4Mask")]
+    ipv4_mask: Ipv4Addr,
+    #[serde(flatten)]
+    ipv6: Option<Day0Ipv6>,
     #[serde(rename = "ManageLocally")]
-    pub manage_locally: YesNo,
+    manage_locally: &'static str,
 }
 
-/// An IPv6 prefix length, which the `FTDv` day-0 configuration takes as a string.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PrefixLength(pub u8);
-
-impl SerializeTrait for PrefixLength {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_str(&self.0)
-    }
+#[derive(Serialize)]
+struct Day0Ipv6 {
+    #[serde(rename = "IPv6Mode")]
+    mode: CiscoFxosIpMode,
+    #[serde(rename = "IPv6Addr")]
+    addr: Ipv6Addr,
+    #[serde(rename = "IPv6Gw")]
+    gw: Ipv6Addr,
+    #[serde(rename = "IPv6Mask")]
+    mask: String,
 }
 
-/// A boolean the `FTDv` day-0 configuration spells `Yes` or `No`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct YesNo(pub bool);
-
-impl SerializeTrait for YesNo {
+impl SerializeTrait for CiscoFtdZtpTemplate {
+    /// Serializes the template as `FTDv`'s day-0 JSON: manual IPv4 and, with both an IPv6 address
+    /// and an IPv6 network, manual IPv6, each with the network's first address as the gateway,
+    /// and `ManageLocally` as `Yes` or `No`.
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(if self.0 { "Yes" } else { "No" })
+        let ipv6 = match (self.mgmt_ipv6_address, &self.mgmt_ipv6) {
+            (Some(address), Some(network)) => Some(Day0Ipv6 {
+                mode: CiscoFxosIpMode::Manual,
+                addr: address,
+                gw: network.first,
+                mask: network.prefix_length.to_string(),
+            }),
+            _ => None,
+        };
+        Day0Config {
+            eula: &self.eula,
+            hostname: &self.hostname,
+            admin_password: &self.admin_password,
+            firewall_mode: &self.firewall_mode,
+            dns1: self.dns,
+            ipv4_mode: CiscoFxosIpMode::Manual,
+            ipv4_addr: self.mgmt_ipv4_address,
+            ipv4_gw: self.mgmt_ipv4.first,
+            ipv4_mask: self.mgmt_ipv4.subnet_mask,
+            ipv6,
+            manage_locally: if self.manage_locally { "Yes" } else { "No" },
+        }
+        .serialize(serializer)
     }
 }

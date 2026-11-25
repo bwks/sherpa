@@ -2927,22 +2927,17 @@ fn ftdv_config(node: &topology::NodeExpanded, ztp: &NodeZtp<'_>) -> Result<Strin
         device_password,
         ..
     } = *ztp;
-    let ipv6 = node.ipv6_address.zip(mgmt_net.v6.as_ref());
     Ok(serde_json::to_string(&template::CiscoFtdZtpTemplate {
         eula: "accept".to_string(),
         hostname: node.name.clone(),
         admin_password: guest_account::device_password(device_password, PasswordForm::Plain)?,
-        dns1: Some(mgmt_net.v4.boot_server),
-        ipv4_mode: Some(template::CiscoFxosIpMode::Manual),
-        ipv4_addr: Some(node_ipv4_address),
-        ipv4_gw: Some(mgmt_net.v4.first),
-        ipv4_mask: Some(mgmt_net.v4.subnet_mask),
-        ipv6_mode: ipv6.map(|_| template::CiscoFxosIpMode::Manual),
-        ipv6_addr: ipv6.map(|(address, _)| address),
-        ipv6_gw: ipv6.map(|(_, network)| network.first),
-        ipv6_mask: ipv6.map(|(_, network)| template::PrefixLength(network.prefix_length)),
-        manage_locally: template::YesNo(true),
-        ..Default::default()
+        firewall_mode: template::CiscoFxosFirewallMode::Routed,
+        dns: mgmt_net.v4.boot_server,
+        manage_locally: true,
+        mgmt_ipv4: mgmt_net.v4.clone(),
+        mgmt_ipv4_address: node_ipv4_address,
+        mgmt_ipv6_address: node.ipv6_address,
+        mgmt_ipv6: mgmt_net.v6.clone(),
     })?)
 }
 
