@@ -106,12 +106,14 @@ pub fn default_config() -> Config {
 
 #[cfg(test)]
 mod tests {
+    use toml::Value;
+
     use super::*;
 
     fn load_server_fixture(extra: &str) -> Result<Config> {
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("sherpa.toml");
-        let mut config = toml::Value::try_from(default_config())?;
+        let mut config = Value::try_from(default_config())?;
         config.as_table_mut().unwrap().remove("tailscale");
         fs::write(&path, format!("{}\n{extra}", toml::to_string(&config)?))?;
         load_config(path.to_str().unwrap())

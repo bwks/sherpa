@@ -2,6 +2,7 @@
 use std::net::Ipv4Addr;
 #[cfg(feature = "netinfo")]
 use std::net::Ipv6Addr;
+use std::process::Command;
 
 use anyhow::{Context, Result, anyhow};
 use gethostname::gethostname;
@@ -32,10 +33,7 @@ pub fn get_hostname() -> Result<String> {
 /// Returns `None` if the FQDN cannot be determined or is the same as the short hostname.
 #[must_use]
 pub fn get_fqdn() -> Option<String> {
-    let output = std::process::Command::new("hostname")
-        .arg("--fqdn")
-        .output()
-        .ok()?;
+    let output = Command::new("hostname").arg("--fqdn").output().ok()?;
 
     if !output.status.success() {
         return None;

@@ -1,6 +1,7 @@
 //! Each enum the web UI's forms list by `Display` and read back through serde must give the same
 //! string both ways, or a saved form is refused or stores another value.
 
+use std::any;
 use std::fmt::Display;
 
 use serde::Serialize;
@@ -18,7 +19,7 @@ fn assert_display_is_serde<T: IntoEnumIterator + Display + Serialize>() {
             serde.as_str(),
             Some(variant.to_string().as_str()),
             "{} displays as {variant} but serializes as {serde}",
-            std::any::type_name::<T>()
+            any::type_name::<T>()
         );
     }
 }

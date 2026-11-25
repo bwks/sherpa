@@ -3,9 +3,9 @@ use std::fmt;
 use std::str::FromStr;
 
 use anyhow::{Result, bail};
-use clap::ValueEnum;
 use clap::builder::{PossibleValue, TypedValueParser, ValueParserFactory};
 use clap::error::{ContextKind, ContextValue, ErrorKind};
+use clap::{Error as ClapError, ValueEnum};
 use schemars::JsonSchema;
 use serde::de::{self, Deserializer};
 use serde_derive::{Deserialize, Serialize};
@@ -354,7 +354,7 @@ impl TypedValueParser for NodeModelParser {
         let name = value.to_string_lossy();
         NodeModel::from_str(&name).map_err(|message| {
             let argument = arg.map_or_else(String::new, |arg| format!(" for '{arg}'"));
-            let mut error = clap::Error::raw(
+            let mut error = ClapError::raw(
                 ErrorKind::InvalidValue,
                 format!("invalid value '{name}'{argument}: {message}\n"),
             )
@@ -2295,6 +2295,7 @@ fn cisco_iol_interfaces() -> InterfaceSettings {
 
 #[cfg(test)]
 mod tests {
+    use clap::{Arg, Command};
     use serde_json::error::Category;
 
     use super::*;
@@ -2319,8 +2320,8 @@ mod tests {
     }
 
     fn model_option() -> clap::Command {
-        clap::Command::new("test").arg(
-            clap::Arg::new("model")
+        Command::new("test").arg(
+            Arg::new("model")
                 .long("model")
                 .value_parser(NodeModel::value_parser()),
         )

@@ -4,7 +4,8 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::crypto::aws_lc_rs;
 use rustls::crypto::{WebPkiSupportedAlgorithms, verify_tls12_signature, verify_tls13_signature};
 use rustls::pki_types::{CertificateDer, ServerName};
-use rustls::{CertificateError, ClientConfig, RootCertStore};
+use rustls::{CertificateError, ClientConfig, Error, KeyLogFile, RootCertStore};
+use std::fs;
 use std::io::{self, IsTerminal};
 use std::path::Path;
 use std::sync::Arc;
@@ -183,7 +184,7 @@ impl TlsConfigBuilder {
 
     /// Load a CA certificate from file
     fn load_ca_cert(path: &Path) -> Result<CertificateDer<'static>> {
-        let pem = std::fs::read_to_string(path)
+        let pem = fs::read_to_string(path)
             .with_context(|| format!("Failed to open CA certificate file: {}", path.display()))?;
         parse_certificate_pem(&pem)
             .with_context(|| format!("No certificate in CA file: {}", path.display()))
@@ -197,7 +198,7 @@ impl TlsConfigBuilder {
             .with_no_client_auth();
 
         // Allow using SSLKEYLOGFILE for debugging
-        config.key_log = Arc::new(rustls::KeyLogFile::new());
+        config.key_log = Arc::new(KeyLogFile::new());
 
         config
     }
@@ -254,7 +255,7 @@ impl ServerCertVerifier for PinnedKeyVerifier {
                 ocsp_response,
                 now,
             ),
-            None => Err(rustls::Error::InvalidCertificate(
+            None => Err(Error::InvalidCertificate(
                 CertificateError::ApplicationVerificationFailure,
             )),
         }
@@ -328,7 +329,7 @@ impl ServerCertVerifier for PublicCaVerifier {
             ocsp_response,
             now,
         );
-        if let Err(rustls::Error::InvalidCertificate(CertificateError::UnknownIssuer)) = verified {
+        if let Err(Error::InvalidCertificate(CertificateError::UnknownIssuer)) = verified {
             self.unknown_issuer.store(true, Ordering::Relaxed);
         }
         verified
@@ -442,13 +443,17 @@ fn is_interactive() -> bool {
 
 #[cfg(test)]
 mod tests {
+    use rustls::SignatureScheme;
+    use rustls::pki_types::UnixTime;
+    use tempfile::NamedTempFile;
+
     use super::*;
 
     #[test]
     fn certificate_trust_006_insecure_accepts_each_signature_scheme_the_library_can_check() {
         let schemes = NoCertificateVerification.supported_verify_schemes();
-        assert!(schemes.contains(&rustls::SignatureScheme::RSA_PSS_SHA256));
-        assert!(schemes.contains(&rustls::SignatureScheme::ECDSA_NISTP384_SHA384));
+        assert!(schemes.contains(&SignatureScheme::RSA_PSS_SHA256));
+        assert!(schemes.contains(&SignatureScheme::ECDSA_NISTP384_SHA384));
     }
 
     const SELF_SIGNED: &str = include_str!("testdata/self_signed.crt");
@@ -460,8 +465,7 @@ mod tests {
         let cert = parse_certificate_pem(SELF_SIGNED).unwrap();
         let name = ServerName::try_from("localhost").unwrap();
 
-        let outcome =
-            verifier.verify_server_cert(&cert, &[], &name, &[], rustls::pki_types::UnixTime::now());
+        let outcome = verifier.verify_server_cert(&cert, &[], &name, &[], UnixTime::now());
 
         assert!(outcome.is_err());
         assert!(unknown_issuer.load(Ordering::Relaxed), "{outcome:?}");
@@ -477,7 +481,7 @@ mod tests {
         let cert = parse_certificate_pem(presented).unwrap();
         let name = ServerName::try_from("192.0.2.10").unwrap();
         verifier
-            .verify_server_cert(&cert, &[], &name, &[], rustls::pki_types::UnixTime::now())
+            .verify_server_cert(&cert, &[], &name, &[], UnixTime::now())
             .is_ok()
     }
 
@@ -511,8 +515,8 @@ mod tests {
     async fn certificate_trust_007_a_certificate_from_the_configured_ca_is_trusted_without_a_question()
      {
         aws_lc_rs::default_provider().install_default().ok();
-        let ca = tempfile::NamedTempFile::new().unwrap();
-        std::fs::write(ca.path(), SELF_SIGNED).unwrap();
+        let ca = NamedTempFile::new().unwrap();
+        fs::write(ca.path(), SELF_SIGNED).unwrap();
         let server_conn = ServerConnection {
             ca_cert_path: Some(ca.path().display().to_string()),
             ..ServerConnection::default()

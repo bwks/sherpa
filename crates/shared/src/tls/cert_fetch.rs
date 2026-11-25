@@ -4,6 +4,7 @@
 //! via an insecure HTTP connection before establishing trust.
 
 use anyhow::{Context, Result};
+use reqwest::{Client, StatusCode};
 use std::time::Duration;
 use url::Url;
 
@@ -34,7 +35,7 @@ pub async fn fetch_server_certificate(server_url: &str, http_port: u16) -> Resul
     tracing::debug!("Fetching certificate from: {}", cert_url);
 
     // Create HTTP client with timeout
-    let client = reqwest::Client::builder()
+    let client = Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .context("Failed to create HTTP client")?;
@@ -47,7 +48,7 @@ pub async fn fetch_server_certificate(server_url: &str, http_port: u16) -> Resul
 
     // Check status code
     match response.status() {
-        reqwest::StatusCode::OK => {
+        StatusCode::OK => {
             // Success - read certificate
             let cert_pem = response
                 .text()
@@ -59,7 +60,7 @@ pub async fn fetch_server_certificate(server_url: &str, http_port: u16) -> Resul
             tracing::info!("Successfully fetched certificate from server");
             Ok(cert_pem)
         }
-        reqwest::StatusCode::NOT_FOUND => {
+        StatusCode::NOT_FOUND => {
             anyhow::bail!(
                 "Server doesn't support certificate download.\n\
                  The /cert endpoint is not available. This may not be a Sherpa server,\n\
@@ -67,7 +68,7 @@ pub async fn fetch_server_certificate(server_url: &str, http_port: u16) -> Resul
                  Use --insecure to bypass certificate validation (not recommended)."
             )
         }
-        reqwest::StatusCode::SERVICE_UNAVAILABLE => {
+        StatusCode::SERVICE_UNAVAILABLE => {
             anyhow::bail!(
                 "Server TLS is disabled.\n\
                  The server is not using TLS, so no certificate is available.\n\
@@ -87,6 +88,7 @@ pub async fn fetch_server_certificate(server_url: &str, http_port: u16) -> Resul
 mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::thread;
 
     use super::*;
 
@@ -96,7 +98,7 @@ mod tests {
     fn serve_certificate_once() -> u16 {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
-        std::thread::spawn(move || {
+        thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = [0u8; 1024];
             let _ = stream.read(&mut request).unwrap();
