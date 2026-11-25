@@ -26,7 +26,8 @@ use super::up::up;
 use super::validate::validate_manifest;
 use super::vnc::vnc;
 
-use crate::lab_folder_migration::{MIGRATION_FAILED, migrate_current_lab_folder};
+use crate::error::ClientError;
+use crate::lab_folder_migration::migrate_current_lab_folder;
 
 use shared::data::{ClientConfig, Sherpa};
 use shared::konst::SHERPA_MANIFEST_FILE;
@@ -44,7 +45,9 @@ fn load_client_config_or_default(path: &str) -> Result<ClientConfig> {
         {
             Ok(ClientConfig::default())
         }
-        Err(error) => Err(error.context(format!("Failed to load the client config {path}"))),
+        Err(error) => Err(error.context(ClientError::ClientConfigNotLoaded {
+            path: path.to_owned(),
+        })),
     }
 }
 
@@ -330,7 +333,7 @@ fn uses_lab_folder(command: &Commands) -> bool {
 ///
 /// Fails with the migration's error unless `command` is `destroy`.
 fn tolerate_failed_migration(command: &Commands, migration: Result<()>) -> Result<()> {
-    match migration.context(MIGRATION_FAILED) {
+    match migration.context(ClientError::LabFilesNotMoved) {
         Err(error) if matches!(command, Commands::Destroy { .. }) => {
             tracing::warn!(error = %format!("{error:#}"), "Lab folder migration failed");
             eprintln!("{}", failed_migration_warning(&error));
@@ -460,12 +463,19 @@ mod tests {
     }
 
     #[test]
-    fn client_config_002_a_client_config_that_does_not_parse_is_an_error_naming_the_file() {
+    fn client_config_002_a_client_config_that_does_not_parse_is_an_error_carrying_the_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sherpa.toml");
         fs::write(&path, "server_ipv4 = [").unwrap();
         let error = load_client_config_or_default(path.to_str().unwrap()).unwrap_err();
-        assert!(error.to_string().contains("sherpa.toml"), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::ClientConfigNotLoaded { path: named })
+                    if Path::new(named) == path
+            ),
+            "{error:#}"
+        );
     }
 
     #[test]
@@ -485,14 +495,22 @@ mod tests {
                 .unwrap()
                 .commands
         };
-        let failure = || Err(anyhow::anyhow!("conflict"));
+        let failure = || Err(io::Error::from(ErrorKind::AlreadyExists).into());
 
         assert!(tolerate_failed_migration(&parse(&["destroy", "--yes"]), failure()).is_ok());
         for args in [&["ssh", "dev"][..], &["up"], &["inspect"], &["down"]] {
             let error = tolerate_failed_migration(&parse(args), failure()).unwrap_err();
+            assert!(
+                matches!(
+                    error.downcast_ref::<ClientError>(),
+                    Some(ClientError::LabFilesNotMoved)
+                ),
+                "{args:?}"
+            );
+            let reason = error.root_cause().downcast_ref::<io::Error>();
             assert_eq!(
-                format!("{error:#}"),
-                "Failed to move the lab files into .sherpa: conflict",
+                reason.map(io::Error::kind),
+                Some(ErrorKind::AlreadyExists),
                 "{args:?}"
             );
         }
@@ -507,17 +525,25 @@ mod tests {
         fs::write(&state_dir, "").unwrap();
         let migration = || migrate_lab_folder(lab.path(), &home.path().join(".ssh")).map(|_| ());
         let up = Cli::try_parse_from(["sherpa", "up"]).unwrap().commands;
-        let expected = format!(
-            "Failed to move the lab files into .sherpa: {} is not a folder",
-            state_dir.display()
+        let error = tolerate_failed_migration(&up, migration()).unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<ClientError>(),
+            Some(ClientError::LabFilesNotMoved)
+        ));
+        assert_eq!(error.chain().count(), 2, "{error:#}");
+        assert!(
+            matches!(
+                error.root_cause().downcast_ref::<ClientError>(),
+                Some(ClientError::NotAFolder { path }) if *path == state_dir
+            ),
+            "{error:#}"
         );
 
-        let error = tolerate_failed_migration(&up, migration()).unwrap_err();
-        assert_eq!(format!("{error:#}"), expected);
-
-        let error = migration().context(MIGRATION_FAILED).unwrap_err();
+        let error = migration()
+            .context(ClientError::LabFilesNotMoved)
+            .unwrap_err();
         let warning = failed_migration_warning(&error);
-        assert!(warning.contains(&expected), "{warning}");
-        assert_eq!(warning.matches(MIGRATION_FAILED).count(), 1, "{warning}");
+        let reported = ClientError::LabFilesNotMoved.to_string();
+        assert_eq!(warning.matches(&reported).count(), 1, "{warning}");
     }
 }

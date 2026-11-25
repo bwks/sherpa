@@ -17,6 +17,7 @@ use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
 use crate::cmd::tailscale_key::resolve_tailscale_key;
+use crate::error::ClientError;
 use crate::lab_files::{LabFileSet, LabFiles, register_ssh_config, save_lab_files};
 use crate::provision::{
     client_variable, container_results, container_secrets, provision_lab, resolve_client_path,
@@ -221,19 +222,17 @@ pub(crate) fn resolve_ztp_configs(
         let resolved_path = resolve_client_path(manifest_dir, &ztp_path_str);
 
         let contents = fs::read_to_string(&resolved_path).with_context(|| {
-            format!(
-                "Failed to read ztp.config for node '{}': {}",
-                node.name,
-                resolved_path.display()
-            )
+            ClientError::ZtpConfigUnreadable {
+                node: node.name.clone(),
+                path: resolved_path.clone(),
+            }
         })?;
 
         if contents.is_empty() {
-            bail!(
-                "ztp.config for node '{}' is empty: {}",
-                node.name,
-                resolved_path.display()
-            );
+            bail!(ClientError::EmptyZtpConfig {
+                node: node.name.clone(),
+                path: resolved_path,
+            });
         }
 
         node.ztp.config = Some(base64_encode(&contents));
@@ -274,10 +273,10 @@ fn read_scripts(node: &str, paths: &[String], manifest_dir: &Path) -> Result<Vec
             )
         })?;
         if contents.is_empty() {
-            bail!(
-                "startup_script for node '{node}' is empty: {}",
-                resolved.display()
-            );
+            bail!(ClientError::EmptyStartupScript {
+                node: node.to_owned(),
+                path: resolved,
+            });
         }
         let filename = resolved
             .file_name()
@@ -324,8 +323,11 @@ pub(crate) fn resolve_text_files(
         for file in &text_files {
             let resolved_path = resolve_client_path(manifest_dir, &file.src);
 
-            let contents = load_file(&resolved_path.to_string_lossy())
-                .with_context(|| format!("Failed to read text_file for node '{}'", node.name))?;
+            let contents = load_file(&resolved_path.to_string_lossy()).with_context(|| {
+                ClientError::TextFileUnreadable {
+                    node: node.name.clone(),
+                }
+            })?;
 
             file_data.push(topology::TextFileData {
                 content: base64_encode(&contents),
@@ -398,20 +400,18 @@ pub(crate) fn resolve_environment_variables(
 
         for entry in env_vars.iter_mut() {
             let Some((key, value)) = entry.split_once('=') else {
-                bail!(
-                    "Invalid environment variable '{}' for node '{}': must be KEY=VALUE format",
-                    entry,
-                    node.name
-                );
+                bail!(ClientError::InvalidEnvironmentEntry {
+                    entry: entry.clone(),
+                    node: node.name.clone(),
+                });
             };
 
             if let Some(var_name) = value.strip_prefix('$') {
-                let resolved = lookup(var_name).with_context(|| {
-                    format!(
-                        "Environment variable '{}' referenced in node '{}' is not set",
-                        var_name, node.name
-                    )
-                })?;
+                let resolved =
+                    lookup(var_name).ok_or_else(|| ClientError::UnsetEnvironmentVariable {
+                        variable: var_name.to_owned(),
+                        node: node.name.clone(),
+                    })?;
                 *entry = format!("{key}={resolved}");
             }
         }
@@ -526,7 +526,7 @@ mod tests {
     }
 
     #[test]
-    fn client_content_005_an_empty_script_is_refused_naming_its_node() {
+    fn client_content_005_an_empty_script_is_refused_carrying_its_node() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("empty.sh"), "").unwrap();
         let mut manifest = topology::Manifest {
@@ -541,10 +541,12 @@ mod tests {
 
         let error = resolve_scripts(&mut manifest, manifest_path.to_str().unwrap()).unwrap_err();
         assert!(
-            error
-                .to_string()
-                .starts_with("startup_script for node 'dev01' is empty"),
-            "{error}"
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::EmptyStartupScript { node, path })
+                    if node == "dev01" && *path == dir.path().join("empty.sh")
+            ),
+            "{error:#}"
         );
     }
 
@@ -588,7 +590,7 @@ mod tests {
     }
 
     #[test]
-    fn custom_config_003_an_empty_ztp_config_is_refused_naming_the_node_and_file() {
+    fn custom_config_003_an_empty_ztp_config_is_refused_carrying_the_node_and_file() {
         let config_file = NamedTempFile::new().expect("Failed to create temp file");
         let config_path = config_file.path().to_str().expect("path").to_string();
 
@@ -603,17 +605,18 @@ mod tests {
         }]);
 
         let error = resolve_ztp_configs(&mut manifest, "/tmp/manifest.toml").unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            format!(
-                "ztp.config for node 'dev01' is empty: {}",
-                config_file.path().display()
-            )
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::EmptyZtpConfig { node, path })
+                    if node == "dev01" && path == config_file.path()
+            ),
+            "{error:#}"
         );
     }
 
     #[test]
-    fn custom_config_004_an_unreadable_ztp_config_is_refused_naming_the_node_and_file() {
+    fn custom_config_004_an_unreadable_ztp_config_is_refused_carrying_the_node_and_file() {
         let dir = tempfile::tempdir().unwrap();
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
@@ -628,12 +631,13 @@ mod tests {
         let manifest_path = dir.path().join("manifest.toml");
         let error =
             resolve_ztp_configs(&mut manifest, manifest_path.to_str().unwrap()).unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            format!(
-                "Failed to read ztp.config for node 'dev01': {}",
-                dir.path().join("missing.conf").display()
-            )
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::ZtpConfigUnreadable { node, path })
+                    if node == "dev01" && *path == dir.path().join("missing.conf")
+            ),
+            "{error:#}"
         );
     }
 
@@ -668,7 +672,7 @@ mod tests {
     }
 
     #[test]
-    fn client_content_009_an_unset_name_is_refused_naming_the_variable_and_node() {
+    fn client_content_009_an_unset_name_is_refused_carrying_the_variable_and_node() {
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::UbuntuLinux,
@@ -676,11 +680,15 @@ mod tests {
             ..Default::default()
         }]);
 
-        let result = resolve_environment_variables(&mut manifest, no_variables);
-        assert!(result.is_err());
-        let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("SHERPA_NONEXISTENT_VAR_12345"));
-        assert!(err_msg.contains("dev01"));
+        let error = resolve_environment_variables(&mut manifest, no_variables).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::UnsetEnvironmentVariable { variable, node })
+                    if variable == "SHERPA_NONEXISTENT_VAR_12345" && node == "dev01"
+            ),
+            "{error:#}"
+        );
     }
 
     #[test]
@@ -761,7 +769,7 @@ mod tests {
     }
 
     #[test]
-    fn client_content_003_an_unreadable_text_file_is_refused_naming_the_node() {
+    fn client_content_003_an_unreadable_text_file_is_refused_carrying_the_node() {
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::UbuntuLinux,
@@ -776,14 +784,17 @@ mod tests {
         }]);
 
         let error = resolve_text_files(&mut manifest, "/tmp/manifest.toml").unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "Failed to read text_file for node 'dev01'"
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::TextFileUnreadable { node }) if node == "dev01"
+            ),
+            "{error:#}"
         );
     }
 
     #[test]
-    fn client_content_010_an_entry_that_is_not_key_value_is_refused_naming_the_node() {
+    fn client_content_010_an_entry_that_is_not_key_value_is_refused_carrying_the_node() {
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::UbuntuLinux,
@@ -791,10 +802,14 @@ mod tests {
             ..Default::default()
         }]);
 
-        let result = resolve_environment_variables(&mut manifest, no_variables);
-        assert!(result.is_err());
-        let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("KEY=VALUE"), "{err_msg}");
-        assert!(err_msg.contains("'dev01'"), "{err_msg}");
+        let error = resolve_environment_variables(&mut manifest, no_variables).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::InvalidEnvironmentEntry { entry, node })
+                    if entry == "NO_EQUALS_SIGN" && node == "dev01"
+            ),
+            "{error:#}"
+        );
     }
 }

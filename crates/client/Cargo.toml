@@ -9,6 +9,7 @@ topology = { path = "../topology" }
 
 # Errors
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 # CLI
 clap = { workspace = true, features = ["env"] }

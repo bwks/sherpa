@@ -18,14 +18,14 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 |---|---|---|
 | 001 | A path starting with `~` is under the user's home, a relative path starts at the manifest's folder, and an absolute path is as written | unit |
 | 002 | A text file's contents are sent with its destination, owner, group and mode | unit |
-| 003 | A text file that cannot be read is refused, naming the node | unit |
+| 003 | A text file that cannot be read is refused, and the error carries the node | unit |
 | 004 | Startup scripts are read and sent, each under its file name | unit |
-| 005 | A script that is empty is refused, naming the node | unit |
+| 005 | A script that is empty is refused, and the error carries the node | unit |
 | 006 | A systemd unit is sent with its name, its contents and whether it is enabled | unit |
 | 007 | Retired: binary files are no longer a setting | — |
 | 008 | An `environment_variables` value that is `$NAME` is sent as the value `NAME` has where `sherpa` runs, and any other value as written | unit |
-| 009 | A `$NAME` that is not set where `sherpa` runs is refused, naming the variable and the node | unit |
-| 010 | An `environment_variables` entry that is not `KEY=VALUE` is refused, naming the node | unit |
+| 009 | A `$NAME` that is not set where `sherpa` runs is refused, and the error carries the variable and the node | unit |
+| 010 | An `environment_variables` entry that is not `KEY=VALUE` is refused, and the error carries the node | unit |
 | 011 | An up whose manifest lists files with no contents, as one sent to the REST API is, is refused naming the node and the setting, and says to use `sherpa up` (no test at this level yet) | integration |
 | 012 | A systemd unit sent under a name that is not a plain file name, a path, `.`, `..` or one starting with `-`, is refused | unit |
 | 013 | After a file a manifest names is changed, `sherpa redeploy` rebuilds the node with the new contents (no test yet) | e2e |
@@ -101,7 +101,7 @@ That a Windows node disables every other account before its startup scripts run 
 | 001 | `sherpa provision --node <node>` runs that node's provisioners again, and no other node's (no test yet) | e2e |
 | 002 | `sherpa redeploy` runs the redeployed node's provisioners once it is back, and no other node's (no test yet) | e2e |
 | 003 | The nodes with an ssh provisioner are the ones connected to, in manifest order, or the one named alone; a node with no provisioner, or with a container provisioner only, is not connected to | unit |
-| 004 | A node named that is not in the manifest is refused, naming it | unit |
+| 004 | A node named that is not in the manifest is refused, and the error carries it | unit |
 | 005 | At up, a node that did not come up with SSH is skipped, as not ready when the lab came up, and the others are provisioned; `sherpa provision` skips none | unit |
 | 006 | A lab with no provisioners runs nothing and needs no SSH config in its folder | unit |
 | 007 | A lab folder with no SSH config is refused before any node is connected to, saying to run `sherpa up` or `sherpa download` | unit |
@@ -142,7 +142,7 @@ A node the CLI has no route to fails at once: `ssh_access_006`. A provisioner as
 |---|---|---|
 | 001 | After up, a file with a `~/` destination is in the owner's home on the node with the client file's contents, its mode, and the owner as its owner (no test yet) | e2e |
 | 002 | Every client file of a provisioner is read before anything is done on the node, with where it goes: a file to its destination with its mode, an env file to `~/.env.d/` under its own name with mode `600`, a script as its contents | unit |
-| 003 | A client file that is missing fails the node, naming the file, before the node is changed | unit |
+| 003 | A client file that is missing fails the node, with an error that carries the file, before the node is changed | unit |
 | 004 | The missing folders on the way to a destination are made readable by the owner alone, and the file is not made by that step | unit |
 | 005 | A file already at the destination keeps its contents and its mode until the copy replaces it | unit |
 | 006 | A `~/` destination is under the login user's home, in the command and in the copy, and an absolute one is where it says | unit |
@@ -165,7 +165,7 @@ A file removed from the manifest stays on the node. That is documented; no case 
 | 004 | A variable that is set and empty resolves to an empty value | unit |
 | 005 | Every other line is kept as written: comments, blank lines, plain and quoted values, and a value with a reference inside it, such as `$HOME/bin:$PATH`, which the node's shell expands | unit |
 | 006 | Line endings are kept, `\r\n` and a last line with none included | unit |
-| 007 | A reference to a variable that is not set fails before the node is changed, naming the file, the line and the variable | unit |
+| 007 | A reference to a variable that is not set fails before the node is changed, and the error carries the file, the line and the variable | unit |
 | 008 | An error never shows a value | unit |
 | 009 | The value is read from the environment `sherpa` itself runs in | unit |
 | 010 | The line that loads the env files is added once to the login file bash reads, however many times a node is provisioned | unit |
@@ -197,7 +197,7 @@ A file removed from the manifest stays on the node. That is documented; no case 
 |---|---|---|
 | 001 | A container brought up with a secret file reads it at `/run/secrets/<name>` with its mode, and cannot write it (no test yet) | e2e |
 | 002 | The CLI reads the files of a node's container provisioners on the user's machine, byte for byte, with mode `444` when none is set, and reads nothing for a node with another provisioner or none | unit |
-| 003 | A secret file that is missing on the user's machine is refused, naming it | unit |
+| 003 | A secret file that is missing on the user's machine is refused, and the error carries it | unit |
 | 004 | Files are written with their contents and modes in the node's folder, under a lab folder and a root only the `sherpa` account enters | unit |
 | 005 | Writing a node's files again replaces each one, a read-only one included, removes the ones no longer sent, and leaves no temporary file | unit |
 | 006 | A set with a bad file in it, a name that is a path, a mode that is not one, contents that are not base64, or two files of one name, changes nothing on the server | unit |

@@ -293,6 +293,7 @@ mod tests {
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     use super::*;
+    use crate::error::ClientError;
 
     const LAB_INFO: &str = r#"id = "fecb1a12"
 name = "sherpa-dev"
@@ -417,7 +418,13 @@ ipv4_router = "172.31.3.2"
         let folder = LabFolder::new(dir.path());
         let files = LabFileSet::new(&folder, &lab_files(&lab_info)).unwrap();
         let error = save_lab_files(&folder, &files).unwrap_err();
-        assert!(format!("{error:#}").contains("symlink"), "{error:#}");
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::SymlinkedFolder { path }) if *path == dir.path().join(".sherpa")
+            ),
+            "{error:#}"
+        );
         assert_eq!(fs::read_dir(elsewhere.path()).unwrap().count(), 0);
         assert_eq!(mode(elsewhere.path()), 0o755);
 
@@ -428,7 +435,14 @@ ipv4_router = "172.31.3.2"
         let folder = LabFolder::new(dir.path());
         let files = LabFileSet::new(&folder, &lab_files(&lab_info)).unwrap();
         let error = save_lab_files(&folder, &files).unwrap_err();
-        assert!(format!("{error:#}").contains("symlink"), "{error:#}");
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::SymlinkedFolder { path })
+                    if *path == dir.path().join(".sherpa/ssh")
+            ),
+            "{error:#}"
+        );
         assert_eq!(fs::read_dir(elsewhere.path()).unwrap().count(), 0);
         assert_eq!(mode(elsewhere.path()), 0o755);
     }

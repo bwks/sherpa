@@ -13,6 +13,7 @@ use shared::util::{
 
 use super::outcome::ensure_lab_destroyed;
 use super::progress::print_status;
+use crate::error::ClientError;
 use crate::lab_folder_migration::legacy_lab_files;
 use crate::table::{render_lab_info_table, render_nodes_table};
 use crate::token::load_token;
@@ -231,10 +232,9 @@ fn remove_lab_files(lab_dir: &Path, ssh_dir: &Path) -> Vec<String> {
 fn remove_state_dir(folder: &LabFolder) -> Result<bool> {
     let state_dir = folder.state_dir();
     match fs::symlink_metadata(&state_dir) {
-        Ok(metadata) if metadata.file_type().is_symlink() => bail!(
-            "{} is a symlink, so it was not deleted",
-            state_dir.display()
-        ),
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            bail!(ClientError::SymlinkNotDeleted { path: state_dir })
+        }
         Ok(metadata) if !metadata.is_dir() => {
             bail!(
                 "{} is not a folder, so it was not deleted",
@@ -413,7 +413,13 @@ mod tests {
 
         let error = remove_state_dir(&LabFolder::new(dir.path())).unwrap_err();
 
-        assert!(error.to_string().contains("symlink"), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::SymlinkNotDeleted { path }) if *path == link
+            ),
+            "{error:#}"
+        );
         assert!(elsewhere.path().join("precious").is_file());
         assert!(fs::symlink_metadata(&link).is_ok());
     }

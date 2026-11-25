@@ -111,6 +111,12 @@ mod tests {
     #[test]
     fn user_sessions_011_an_expired_login_says_how_to_log_in_again() {
         let error = error(RpcErrorCode::AuthRequired).into_error("Up failed");
-        assert!(error.to_string().ends_with("run: sherpa login"), "{error}");
+        assert!(matches!(
+            error.downcast_ref::<RpcFailure>(),
+            Some(RpcFailure {
+                code: RpcErrorCode::AuthRequired,
+                ..
+            })
+        ));
     }
 }

@@ -8,6 +8,7 @@ use std::env;
 use anyhow::{Result, bail};
 
 use super::remote::shell_quote;
+use crate::error::ClientError;
 
 /// The keyword a line may start with to export its variable, as in `export KEY=value`.
 const EXPORT: &str = "export";
@@ -39,11 +40,10 @@ pub fn resolve_env_file(text: &str, lookup: fn(&str) -> Option<String>) -> Resul
         match reference(content) {
             Some(reference) => {
                 let Some(value) = lookup(reference.name) else {
-                    bail!(
-                        "line {}: {} is not set in this environment",
-                        index + 1,
-                        reference.name
-                    );
+                    bail!(ClientError::UnsetEnvFileVariable {
+                        line: index + 1,
+                        variable: reference.name.to_owned(),
+                    });
                 };
                 resolved.push_str(reference.assignment);
                 resolved.push_str(&shell_quote(&value));
@@ -167,9 +167,13 @@ mod tests {
 
     #[test]
     fn provisioner_env_008_an_error_never_shows_a_value() {
-        let error = resolve_env_file("A=$GH_TOKEN\nB=$MISSING\n", variables)
-            .unwrap_err()
-            .to_string();
-        assert!(!error.contains("ecret"), "{error}");
+        let error = resolve_env_file("A=$GH_TOKEN\nB=$MISSING\n", variables).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::UnsetEnvFileVariable { line: 2, variable }) if variable == "MISSING"
+            ),
+            "{error:#}"
+        );
     }
 }

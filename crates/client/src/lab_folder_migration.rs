@@ -38,11 +38,10 @@ use shared::util::{
     replace_lab_ssh_include, ssh_config_path, talosconfig_file_name, vault_file_name,
 };
 
+use crate::error::ClientError;
 use crate::lab_files::ensure_lab_subdir;
 use crate::secret_file::restrict_secret_permissions;
 
-/// What a failed migration of a lab folder is reported as.
-pub(crate) const MIGRATION_FAILED: &str = "Failed to move the lab files into .sherpa";
 /// The keys of the `vault-<node>.toml` older clients wrote, to tell it from a user's file.
 const VAULT_FILE_KEYS: &[&str] = &["address", "root_token", "unseal_key"];
 /// The keys of the `keycloak-<node>.toml` older clients wrote.
@@ -109,11 +108,10 @@ pub(crate) fn migrate_lab_folder(lab_dir: &Path, ssh_dir: &Path) -> Result<Migra
     let folder = LabFolder::new(lab_dir);
     let state_dir = folder.state_dir();
     let state_exists = match fs::symlink_metadata(&state_dir) {
-        Ok(metadata) if metadata.file_type().is_symlink() => bail!(
-            "{} is a symlink; Sherpa keeps lab files only in a real folder",
-            state_dir.display()
-        ),
-        Ok(metadata) if !metadata.is_dir() => bail!("{} is not a folder", state_dir.display()),
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            bail!(ClientError::SymlinkedFolder { path: state_dir })
+        }
+        Ok(metadata) if !metadata.is_dir() => bail!(ClientError::NotAFolder { path: state_dir }),
         Ok(_) => true,
         Err(error) if error.kind() == ErrorKind::NotFound => false,
         Err(error) => {
@@ -707,7 +705,13 @@ users = []
 
         let error = migrate_lab_folder(lab.path(), &home.path().join(".ssh")).unwrap_err();
 
-        assert!(error.to_string().contains("symlink"), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::SymlinkedFolder { path }) if *path == lab.path().join(".sherpa")
+            ),
+            "{error:#}"
+        );
         assert_eq!(fs::read_dir(elsewhere.path()).unwrap().count(), 0);
         assert!(lab.path().join("sherpa_known_hosts").is_file());
         assert!(lab.path().join("lab-info.toml").is_file());

@@ -14,7 +14,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use jato::{
     ConnectOptions, Error, HostConfig, Node, PromptCache, Prompter, Route, Secret, Session,
     TerminalPrompter,
@@ -24,6 +24,7 @@ use tokio::time;
 
 use shared::konst::SSH_DIRECT_ROUTE_TIMEOUT;
 
+use crate::error::ClientError;
 use crate::ssh_client::host_keys::HostKeyRefresh;
 
 /// Why a lab node's host key was refused.
@@ -152,10 +153,12 @@ async fn require_direct_route(node: &Node, node_name: &str) -> Result<()> {
         Ok(Err(error)) => error.to_string(),
         Err(_) => format!("no answer within {}s", limit.as_secs()),
     };
-    Err(anyhow!(
-        "{node_name} at {node} is not reachable from this machine ({cause}). Use --ssh-jump to \
-         go through the Sherpa server, or join the lab's tailnet and accept its routes."
-    ))
+    Err(ClientError::NoRouteToNode {
+        node_name: node_name.to_owned(),
+        address: node.to_string(),
+        cause,
+    }
+    .into())
 }
 
 /// Whether `error` refused the host key of `target`, the lab node, rather than of a jump host.

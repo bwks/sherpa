@@ -28,5 +28,6 @@ mod validate;
 mod vnc;
 
 pub use cli::Cli;
+pub use console::Route;
 pub use exit_status::exit_status;
 pub use ssh::ShellExit;

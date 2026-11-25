@@ -277,10 +277,10 @@ fn closed_line(name: &str, peer: SocketAddr, ended: &Ended) -> String {
 mod tests {
     use super::*;
     use crate::cmd::exit_status;
+    use crate::error::ClientError;
     use std::future::pending;
     use std::sync::Mutex;
 
-    use anyhow::anyhow;
     use shared::data::ServerConnection;
     use tokio::sync::oneshot;
     use tokio::task::JoinHandle;
@@ -339,7 +339,7 @@ mod tests {
 
     #[tokio::test]
     async fn vnc_console_003_a_refusal_as_the_command_starts_ends_it_with_the_reason() {
-        for (status, body, message) in [
+        for (status, body, servers_words) in [
             (
                 "403 Forbidden",
                 api_error(
@@ -347,7 +347,7 @@ mod tests {
                     "Access denied: only the owner of lab 'abcd1234' can open its consoles",
                     None,
                 ),
-                "Access denied: only the owner of lab 'abcd1234' can open its consoles",
+                Some("Access denied: only the owner of lab 'abcd1234' can open its consoles"),
             ),
             (
                 "400 Bad Request",
@@ -359,8 +359,10 @@ mod tests {
                          with 'sherpa ssh ctr01' instead.",
                     ),
                 ),
-                "ctr01 is a container, and containers have no VNC console. Connect with 'sherpa \
-                 ssh ctr01' instead.",
+                Some(
+                    "ctr01 is a container, and containers have no VNC console. Connect with \
+                     'sherpa ssh ctr01' instead.",
+                ),
             ),
             (
                 "409 Conflict",
@@ -369,7 +371,7 @@ mod tests {
                     "Node 'ubu01' is not running. Start it with 'sherpa resume'.",
                     None,
                 ),
-                "Node 'ubu01' is not running. Start it with 'sherpa resume'.",
+                Some("Node 'ubu01' is not running. Start it with 'sherpa resume'."),
             ),
             (
                 "409 Conflict",
@@ -380,20 +382,27 @@ mod tests {
                      node, to use its VNC console.",
                     None,
                 ),
-                "Node 'ubu01' was started before its VNC console moved behind Sherpa. Stop and \
-                 resume the lab ('sherpa down', then 'sherpa resume'), or redeploy the node, to \
-                 use its VNC console.",
+                Some(
+                    "Node 'ubu01' was started before its VNC console moved behind Sherpa. Stop \
+                     and resume the lab ('sherpa down', then 'sherpa resume'), or redeploy the \
+                     node, to use its VNC console.",
+                ),
             ),
             (
                 "401 Unauthorized",
                 api_error("UNAUTHORIZED", "Missing or invalid bearer token", None),
-                "Not logged in to the Sherpa server, or the login has expired: run 'sherpa \
-                 login'.",
+                None,
             ),
         ] {
             let (client, server) = answering(status, &body).await;
             let error = check(&client, "the-token", "ubu01").await.unwrap_err();
-            assert_eq!(error.to_string(), message, "{status}");
+            match (error.downcast_ref::<ClientError>(), servers_words) {
+                (Some(ClientError::ConsoleRefused { message }), Some(words)) => {
+                    assert_eq!(message, words, "{status}");
+                }
+                (Some(ClientError::ConsoleLoginRefused), None) => {}
+                _ => panic!("{status}: not the refusal: {error:#}"),
+            }
             assert_eq!(exit_status(&error), FAILED, "{status}");
             let request = server.await.unwrap();
             assert!(
@@ -423,10 +432,10 @@ mod tests {
             ServerConnection::default(),
         );
         let error = check(&client, "t", "ubu01").await.unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "Failed to open the VNC console of ubu01 through the Sherpa server"
-        );
+        assert!(matches!(
+            error.downcast_ref::<ClientError>(),
+            Some(ClientError::ConsoleUnreachable { route: Route::Vnc, node }) if node == "ubu01"
+        ));
         assert_eq!(exit_status(&error), FAILED);
     }
 
@@ -511,7 +520,10 @@ mod tests {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let address = listener.local_addr().unwrap();
         let command = tokio::spawn(serve_until(listener, pending(), |_viewer, _peer| async {
-            Err(anyhow!("Access denied"))
+            Err(ClientError::ConsoleRefused {
+                message: "Access denied".to_owned(),
+            }
+            .into())
         }));
         let _viewer = TcpStream::connect(address).await.unwrap();
         let error = tokio::time::timeout(Duration::from_secs(5), command)
@@ -519,7 +531,10 @@ mod tests {
             .unwrap()
             .unwrap()
             .unwrap_err();
-        assert_eq!(error.to_string(), "Access denied");
+        assert!(matches!(
+            error.downcast_ref::<ClientError>(),
+            Some(ClientError::ConsoleRefused { message }) if message == "Access denied"
+        ));
     }
 
     #[tokio::test]

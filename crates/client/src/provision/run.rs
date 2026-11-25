@@ -16,6 +16,7 @@ use topology::{Manifest, Node, Provisioner};
 use super::output::NodeOutput;
 use super::ssh::{provision, wait_for_node};
 use super::transport::SshTarget;
+use crate::error::ClientError;
 use crate::ssh_client::SshAccess;
 use crate::table::render_provision_table;
 
@@ -59,10 +60,7 @@ pub async fn provision_lab(
         None
     } else {
         if !config_path.is_file() {
-            bail!(
-                "{} not found: run `sherpa up` or `sherpa download` in the lab folder first",
-                config_path.display()
-            );
+            bail!(ClientError::NoLabSshConfig { path: config_path });
         }
         Some(SshConfig::load_file(&config_path).context("Failed to read the lab SSH config")?)
     };
@@ -101,11 +99,10 @@ pub async fn provision_lab(
         }
     }
     if not_provisioned > 0 {
-        bail!(
-            "{not_provisioned} of {} nodes were not provisioned; fix the problem, then run \
-             `sherpa provision`",
-            results.len()
-        );
+        bail!(ClientError::NodesNotProvisioned {
+            failed: not_provisioned,
+            total: results.len(),
+        });
     }
     Ok(results.len())
 }
@@ -197,10 +194,9 @@ fn nodes_to_provision<'a>(
         }
     }
     if !found {
-        bail!(
-            "Node '{}' is not in the manifest",
-            only_node.unwrap_or_default()
-        );
+        bail!(ClientError::UnknownProvisionNode {
+            node: only_node.unwrap_or_default().to_owned()
+        });
     }
     Ok(nodes)
 }
@@ -367,7 +363,16 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(error.to_string().contains("1 of 1"), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::NodesNotProvisioned {
+                    failed: 1,
+                    total: 1
+                })
+            ),
+            "{error:#}"
+        );
     }
 
     #[test]
@@ -386,9 +391,15 @@ mod tests {
     }
 
     #[test]
-    fn provision_run_004_a_named_node_not_in_the_manifest_is_refused_naming_it() {
+    fn provision_run_004_a_named_node_not_in_the_manifest_is_refused_carrying_it() {
         let error = nodes_to_provision(&manifest(), Some("dev09")).unwrap_err();
-        assert!(error.to_string().contains("dev09"), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::UnknownProvisionNode { node }) if node == "dev09"
+            ),
+            "{error:#}"
+        );
     }
 
     fn node_info(name: &str, ssh_port: Option<u16>) -> NodeInfo {
@@ -451,10 +462,13 @@ mod tests {
         )
         .await
         .unwrap_err();
-        let message = error.to_string();
         assert!(
-            message.contains("sherpa up") && message.contains("sherpa download"),
-            "{message}"
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::NoLabSshConfig { path })
+                    if *path == LabFolder::new(folder.path()).ssh_config()
+            ),
+            "{error:#}"
         );
     }
 }
