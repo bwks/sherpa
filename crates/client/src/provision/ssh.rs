@@ -2,6 +2,7 @@
 //! user, over one SSH connection per node.
 use std::ffi::OsStr;
 use std::fs;
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -45,9 +46,9 @@ pub(super) struct ClientFiles {
 }
 
 /// Connect once the node accepts the login user, then wait until cloud-init has finished
-/// first-boot work. sshd can answer before cloud-init has created the user, so failures at the
-/// node are retried until `timeout`; a failure at the Sherpa server, such as a refused login
-/// or host key, is not.
+/// first-boot work, both within `timeout`. sshd can answer before cloud-init has created the
+/// user, so failures at the node are retried until `timeout`; a failure at the Sherpa server,
+/// such as a refused login or host key, is not.
 #[tracing::instrument(level = "debug", skip_all, fields(host = %target.host()))]
 pub async fn wait_for_node(target: &SshTarget, timeout: Duration) -> Result<NodeSession> {
     let deadline = Instant::now() + timeout;
@@ -68,11 +69,39 @@ pub async fn wait_for_node(target: &SshTarget, timeout: Duration) -> Result<Node
             }
         }
     };
-    session
-        .run(&cloud_init_wait_command())
-        .await
-        .with_context(|| format!("Cannot wait for cloud-init on {}", session.host()))?;
-    Ok(session)
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    let waited = within_ready_timeout(
+        session.run(&cloud_init_wait_command()),
+        remaining,
+        session.host(),
+        timeout,
+    )
+    .await;
+    match waited {
+        Ok(()) => Ok(session),
+        Err(error) => {
+            session.close().await;
+            Err(error)
+        }
+    }
+}
+
+/// Wait for cloud-init on `host` with `wait`, giving up once `remaining` of the ready
+/// `timeout` has passed.
+async fn within_ready_timeout(
+    wait: impl Future<Output = Result<()>>,
+    remaining: Duration,
+    host: &str,
+    timeout: Duration,
+) -> Result<()> {
+    match time::timeout(remaining, wait).await {
+        Ok(waited) => waited.with_context(|| format!("Cannot wait for cloud-init on {host}")),
+        Err(_) => Err(ClientError::CloudInitTimeout {
+            host: host.to_owned(),
+            timeout_secs: timeout.as_secs(),
+        }
+        .into()),
+    }
 }
 
 /// Read the client files of every ssh provisioner of a node, in manifest order, so a missing
@@ -204,6 +233,7 @@ async fn copy_file(session: &NodeSession, file: &FileCopy) -> Result<()> {
 mod tests {
     use super::*;
     use std::env;
+    use std::future;
 
     use jato::{PromptCache, SshConfig};
     use shared::data::ClientConfig;
@@ -336,6 +366,35 @@ mod tests {
             ),
             "{error:#}"
         );
+    }
+
+    #[tokio::test]
+    async fn provision_run_015_a_node_whose_cloud_init_has_not_finished_within_the_ready_timeout_fails()
+     {
+        let error = within_ready_timeout(
+            future::pending(),
+            Duration::from_millis(10),
+            "web01.ab12cd34",
+            Duration::from_secs(600),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<ClientError>(),
+                Some(ClientError::CloudInitTimeout { host, timeout_secs: 600 })
+                    if host == "web01.ab12cd34"
+            ),
+            "{error:#}"
+        );
+        within_ready_timeout(
+            async { Ok(()) },
+            Duration::ZERO,
+            "web01.ab12cd34",
+            Duration::from_secs(600),
+        )
+        .await
+        .unwrap();
     }
 
     /// A target for `web01` of lab `ab12cd34`, whose SSH config puts it at `address`, reached

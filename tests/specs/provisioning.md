@@ -93,7 +93,7 @@ That a Windows node disables every other account before its startup scripts run 
 
 ## `provision_run`: provisioners run on the nodes that have them, once each node takes its owner's login
 
-**Statement:** `sherpa up`, `sherpa redeploy` and `sherpa provision` run the ssh provisioners of the nodes that have them, several nodes at once, each once its node accepts its owner's login and has finished its first boot.
+**Statement:** `sherpa up`, `sherpa redeploy` and `sherpa provision` run the ssh provisioners of the nodes that have them, several nodes at once, each once its node accepts its owner's login and has finished its first boot, and fail a node that has not done both within the lab's ready timeout.
 **Relied on by:** the user. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -112,8 +112,9 @@ That a Windows node disables every other account before its startup scripts run 
 | 012 | A provisioner starts on a node only once its cloud-init has finished: a script finds what the node's last first-boot step wrote (no test yet) | e2e |
 | 013 | Up to `provision_concurrency` nodes are provisioned at once, eight when it is not set, and a node that finishes makes room for the next (no test yet) | unit |
 | 014 | A node's provisioners run in the order the manifest lists them, each its files, then its env files, then its scripts (no test yet) | e2e |
+| 015 | A node whose cloud-init has not finished when the ready timeout, counted from the first login attempt, has passed fails, and the error carries the node and the timeout; its place goes to the next node | unit |
 
-A node the CLI has no route to fails at once: `ssh_access_006`. A provisioner asks a node for a key's passphrase and never a password: `ssh_access_008`.
+A script has no time limit. A node the CLI has no route to fails at once: `ssh_access_006`. A provisioner asks a node for a key's passphrase and never a password: `ssh_access_008`.
 
 ## `provision_report`: a provisioning run reports each node's result and fails when a node was not provisioned
 

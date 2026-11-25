@@ -230,6 +230,9 @@ pub enum ClientError {
     )]
     NoLabSshConfig { path: PathBuf },
 
+    #[error("{host} did not finish cloud-init within the ready timeout of {timeout_secs}s")]
+    CloudInitTimeout { host: String, timeout_secs: u64 },
+
     #[error(
         "{failed} of {total} nodes were not provisioned; fix the problem, then run `sherpa \
          provision`"
