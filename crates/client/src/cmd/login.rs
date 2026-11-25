@@ -6,6 +6,7 @@ use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_USER_NAME_ENV, SHERPA_USER_PASSWORD_ENV};
 use shared::util::{Emoji, emoji_success};
 use std::env;
+use std::fmt;
 use std::io::{self, Write};
 use std::time::Duration;
 
@@ -13,12 +14,54 @@ use crate::token;
 use crate::ws_client::messages::RpcResponse;
 use crate::ws_client::{WebSocketClient, messages::RpcRequest};
 
+const SECONDS_PER_MINUTE: i64 = 60;
+const SECONDS_PER_HOUR: i64 = 60 * SECONDS_PER_MINUTE;
+const SECONDS_PER_DAY: i64 = 24 * SECONDS_PER_HOUR;
+
 /// What the server said when asked to end the session.
 #[derive(Debug)]
 enum ServerLogout {
     Ended,
     AlreadyEnded,
     Failed(anyhow::Error),
+}
+
+/// The time a token has left, in the largest unit it has at least one of, and at least a minute.
+#[derive(Debug, PartialEq, Eq)]
+enum TokenExpiry {
+    Days(i64),
+    Hours(i64),
+    Minutes(i64),
+    Expired,
+}
+
+impl TokenExpiry {
+    /// The time left at `now` for a token that expires at `expires_at`, both Unix seconds.
+    fn at(expires_at: i64, now: i64) -> Self {
+        let left = expires_at - now;
+        if left <= 0 {
+            Self::Expired
+        } else if left >= SECONDS_PER_DAY {
+            Self::Days(left / SECONDS_PER_DAY)
+        } else if left >= SECONDS_PER_HOUR {
+            Self::Hours(left / SECONDS_PER_HOUR)
+        } else {
+            Self::Minutes((left / SECONDS_PER_MINUTE).max(1))
+        }
+    }
+}
+
+impl fmt::Display for TokenExpiry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (count, unit) = match self {
+            Self::Days(count) => (count, "day"),
+            Self::Hours(count) => (count, "hour"),
+            Self::Minutes(count) => (count, "minute"),
+            Self::Expired => return write!(f, "Token has expired"),
+        };
+        let plural = if *count == 1 { "" } else { "s" };
+        write!(f, "Token expires in: {count} {unit}{plural}")
+    }
 }
 
 /// Execute the login command
@@ -83,11 +126,13 @@ pub async fn login(server_url: &str, config: &ClientConfig) -> Result<()> {
         if login_response.is_admin { "Yes" } else { "No" }
     );
 
-    // Calculate expiry in human-readable format
-    let now = jiff::Timestamp::now().as_second();
-    let expires_in_seconds = login_response.expires_at - now;
-    let expires_in_days = expires_in_seconds / 86400;
-    println!("   Token expires in: {} days", expires_in_days);
+    println!(
+        "   {}",
+        TokenExpiry::at(
+            login_response.expires_at,
+            jiff::Timestamp::now().as_second()
+        )
+    );
 
     // Close the WebSocket connection gracefully
     rpc_client.close().await.ok();
@@ -220,14 +265,10 @@ pub async fn whoami(server_url: &str, config: &ClientConfig) -> Result<()> {
         println!("   Admin: {}", if is_admin { "Yes" } else { "No" });
     }
     if let Some(expires_at) = validate_response.expires_at {
-        let now = jiff::Timestamp::now().as_second();
-        let expires_in_seconds = expires_at - now;
-        if expires_in_seconds > 0 {
-            let expires_in_days = expires_in_seconds / 86400;
-            println!("   Token expires in: {expires_in_days} days");
-        } else {
-            println!("   Token has expired");
-        }
+        println!(
+            "   {}",
+            TokenExpiry::at(expires_at, jiff::Timestamp::now().as_second())
+        );
     }
 
     // Close the WebSocket connection gracefully
@@ -284,5 +325,20 @@ mod tests {
             "{message}"
         );
         assert!(message.contains("stays valid"), "{message}");
+    }
+
+    #[test]
+    fn user_login_034_a_tokens_time_left_is_in_days_then_hours_under_a_day_then_minutes() {
+        let now = 1_000_000;
+        assert_eq!(TokenExpiry::at(now + 7 * 86_400, now), TokenExpiry::Days(7));
+        assert_eq!(TokenExpiry::at(now + 86_400, now), TokenExpiry::Days(1));
+        assert_eq!(TokenExpiry::at(now + 86_399, now), TokenExpiry::Hours(23));
+        assert_eq!(
+            TokenExpiry::at(now + 5 * 3_600 + 1, now),
+            TokenExpiry::Hours(5)
+        );
+        assert_eq!(TokenExpiry::at(now + 3_599, now), TokenExpiry::Minutes(59));
+        assert_eq!(TokenExpiry::at(now + 1, now), TokenExpiry::Minutes(1));
+        assert_eq!(TokenExpiry::at(now, now), TokenExpiry::Expired);
     }
 }

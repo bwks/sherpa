@@ -40,7 +40,7 @@ impl fmt::Display for PasswordRequirement {
 /// `SharedError::WeakPassword`, carrying every requirement the password lacks.
 pub fn validate_password_strength(password: &str) -> Result<()> {
     let mut lacking = Vec::new();
-    if password.len() < 8 {
+    if password.chars().count() < 8 {
         lacking.push(PasswordRequirement::MinimumLength);
     }
     if !password.chars().any(|c| c.is_ascii_uppercase()) {
@@ -105,5 +105,17 @@ mod tests {
         assert!(validate_password_strength("Abcde1!").is_err());
 
         assert!(hash_password("weak").is_err());
+    }
+
+    #[test]
+    fn user_passwords_014_a_passwords_length_is_counted_in_characters_not_bytes() {
+        let error = validate_password_strength("Ab!éééé").unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<SharedError>(),
+            Some(&SharedError::WeakPassword {
+                lacking: vec![PasswordRequirement::MinimumLength],
+            })
+        );
+        assert!(validate_password_strength("Ab!ééééé").is_ok());
     }
 }

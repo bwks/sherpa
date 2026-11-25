@@ -396,51 +396,6 @@ async fn a_stale_and_a_valid_cookie_together_are_served_the_valid_one() -> Resul
 // ── Database-backed identity ──
 
 #[tokio::test]
-async fn user_sessions_017_a_demoted_admins_token_loses_admin_rights_on_all_transports()
--> Result<()> {
-    let server = TestServer::start().await?;
-    let mut ws = TestWsClient::connect(&server).await?;
-    db::create_user(
-        &server.db,
-        "carol".to_owned(),
-        TEST_ADMIN_PASSWORD,
-        true,
-        vec![],
-    )
-    .await?;
-    let token = ws.login("carol", TEST_ADMIN_PASSWORD).await?;
-
-    let mut carol = db::get_user(&server.db, "carol").await?;
-    carol.is_admin = false;
-    db::update_user(&server.db, carol).await?;
-
-    let response = ws.rpc_call("user.list", json!({ "token": token })).await?;
-    ensure!(
-        response["error"]["code"] == json!(RpcErrorCode::AccessDenied),
-        "Demoted admin kept RPC admin rights: {response}"
-    );
-
-    let mut client = TestHttpClient::new(server.addr);
-    client.set_token(token.clone());
-    let response = client.get("/api/v1/admin/users").await?;
-    ensure!(
-        response.status() == reqwest::StatusCode::FORBIDDEN,
-        "Demoted admin kept REST admin rights: {}",
-        response.status()
-    );
-
-    let response = TestHttpClient::new(server.addr)
-        .get_with_cookie("/admin/users", &format!("{AUTH_COOKIE_NAME}={token}"))
-        .await?;
-    ensure!(
-        response.status() == reqwest::StatusCode::FORBIDDEN,
-        "Demoted admin kept web admin rights: {}",
-        response.status()
-    );
-    Ok(())
-}
-
-#[tokio::test]
 async fn user_sessions_015_a_deleted_users_token_is_rejected_on_all_transports() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;

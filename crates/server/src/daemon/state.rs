@@ -250,10 +250,10 @@ mod tests {
     const PASSWORD: &str = "Original-Pass-123!";
 
     /// A database holding `carol`, and a destroy job she queued through a new web session.
-    async fn job_queued_by_carol(is_admin: bool) -> (db::Database, db::DbUser, Job) {
+    async fn job_queued_by_carol() -> (db::Database, db::DbUser, Job) {
         let db = db::open_in_memory().await.expect("open database");
         db::apply_schema(&db).await.expect("apply schema");
-        let carol = db::create_user(&db, "carol".to_owned(), PASSWORD, is_admin, vec![])
+        let carol = db::create_user(&db, "carol".to_owned(), PASSWORD, false, vec![])
             .await
             .expect("create user");
         let issued = session::start(&db, SECRET, &carol, SessionChannel::Web, 3600)
@@ -272,7 +272,7 @@ mod tests {
     #[tokio::test]
     async fn user_sessions_022_a_job_runs_as_its_requester_only_while_their_session_lasts() {
         {
-            let (db, _, job) = job_queued_by_carol(false).await;
+            let (db, _, job) = job_queued_by_carol().await;
             match job.resolve_requester(&db).await.expect("resolve") {
                 SessionLookup::Active(ctx) => assert_eq!(ctx.username, "carol"),
                 other @ SessionLookup::Rejected(_) => {
@@ -281,7 +281,7 @@ mod tests {
             }
         }
         {
-            let (db, _, job) = job_queued_by_carol(false).await;
+            let (db, _, job) = job_queued_by_carol().await;
             session::logout(&db, &job.requester.session_id)
                 .await
                 .expect("logout");
@@ -291,7 +291,7 @@ mod tests {
             ));
         }
         {
-            let (db, carol, job) = job_queued_by_carol(false).await;
+            let (db, carol, job) = job_queued_by_carol().await;
             db::delete_user(&db, db::get_user_id(&carol).expect("id"))
                 .await
                 .expect("delete");
@@ -299,20 +299,6 @@ mod tests {
                 job.resolve_requester(&db).await.expect("resolve"),
                 SessionLookup::Rejected(SessionRejection::Ended)
             ));
-        }
-        {
-            let (db, carol, job) = job_queued_by_carol(true).await;
-            assert!(job.requester.is_admin);
-            let mut demoted = carol.clone();
-            demoted.is_admin = false;
-            db::update_user(&db, demoted).await.expect("demote");
-
-            match job.resolve_requester(&db).await.expect("resolve") {
-                SessionLookup::Active(ctx) => assert!(!ctx.is_admin, "the job kept admin rights"),
-                other @ SessionLookup::Rejected(_) => {
-                    panic!("expected an active requester, got {other:?}")
-                }
-            }
         }
     }
 

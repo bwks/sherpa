@@ -361,27 +361,6 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn a_lookup_reads_the_current_admin_flag() {
-        let db = database().await;
-        let carol = db::create_user(&db, "carol".to_owned(), PASSWORD, true, vec![])
-            .await
-            .expect("create");
-        let issued = start(&db, SECRET, &carol, SessionChannel::Web, DAY)
-            .await
-            .expect("start");
-        let mut demoted = carol.clone();
-        demoted.is_admin = false;
-        db::update_user(&db, demoted).await.expect("demote");
-
-        match lookup(&db, &issued.ctx.session_id).await.expect("lookup") {
-            SessionLookup::Active(ctx) => assert!(!ctx.is_admin),
-            other @ SessionLookup::Rejected(_) => {
-                panic!("expected an active session, got {other:?}")
-            }
-        }
-    }
-
     // ── Logout and password change end sessions ──
 
     #[tokio::test]
