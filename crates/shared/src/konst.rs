@@ -51,8 +51,6 @@ pub const TAILNET_DOCS_URL: &str = "https://docs.sherpalabs.net/architecture/net
 /// The first user account for unattended `sherpad init`, and the account `sherpa login` uses.
 pub const SHERPA_USER_NAME_ENV: &str = "SHERPA_USER_NAME";
 pub const SHERPA_USER_PASSWORD_ENV: &str = "SHERPA_USER_PASSWORD";
-pub const ADMIN_PROTECTED_MESSAGE: &str =
-    "The built-in sherpa-admin account cannot be deleted, renamed or lose administrator rights";
 pub const USERNAME_MIN_LENGTH: usize = 3;
 pub const USERNAME_MAX_LENGTH: usize = 32;
 /// Names users cannot take: Sherpa's own accounts, privileged and system accounts, and the

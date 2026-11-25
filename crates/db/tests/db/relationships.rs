@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use db::{
-    Database, DefaultRequest, LabDetails, count_nodes_by_lab, create_bridge, create_lab,
+    Database, DbError, DefaultRequest, LabDetails, count_nodes_by_lab, create_bridge, create_lab,
     create_link, create_node, create_user, delete_lab_from, delete_user,
     find_node_image_by_model_kind_version, get_lab, get_user, list_bridges, list_links_by_lab,
     list_nodes_by_lab, upsert_node_image,
@@ -452,9 +452,18 @@ async fn private_bridge_009_an_interface_is_recorded_in_one_link_or_one_bridge_o
 
     let error = create_link(&db, p2p_link(&lab, 5, &n1, "eth1", &n2, "eth1"))
         .await
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("Failed to create link"), "{error}");
+        .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<DbError>(),
+        Some(&DbError::LinkNotCreated {
+            index: 5,
+            node_a: n1.id.clone().expect("node has id"),
+            node_b: n2.id.clone().expect("node has id"),
+            int_a: "eth1".to_owned(),
+            int_b: "eth1".to_owned(),
+        }),
+        "{error:#}"
+    );
     for (index, link) in [
         (1, p2p_link(&lab, 1, &n1, "eth1", &n3, "eth1")),
         (2, p2p_link(&lab, 2, &n3, "eth2", &n2, "eth1")),

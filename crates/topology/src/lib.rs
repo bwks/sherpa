@@ -3,6 +3,7 @@
 
 mod as_written;
 mod bridge;
+mod error;
 mod file_contents;
 mod link;
 mod manifest;
@@ -15,6 +16,7 @@ pub mod validate;
 // re-export
 pub use as_written::{ManifestAsWritten, NodeAsWritten};
 pub use bridge::{Bridge, BridgeDetailed, BridgeExpanded, BridgeLink, BridgeLinkDetailed};
+pub use error::{Connection, LinkPlace, TopologyError};
 pub use file_contents::NodeFileContents;
 pub use link::ManifestImpairment;
 pub use link::{Link2, LinkDetailed, LinkExpanded};

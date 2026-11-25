@@ -6,7 +6,10 @@ use anyhow::{Context, Result};
 use shared::konst::BRIDGE_PREFIX;
 use shared::util::interface_to_idx;
 
-use crate::{Bridge, BridgeDetailed, BridgeLinkDetailed, Link2, LinkDetailed, NodeExpanded};
+use crate::{
+    Bridge, BridgeDetailed, BridgeLinkDetailed, Link2, LinkDetailed, LinkPlace, NodeExpanded,
+    TopologyError,
+};
 
 /// The manifest `links` with both ends resolved against `nodes`, numbered from 0.
 ///
@@ -21,13 +24,17 @@ pub fn process_manifest_links(
 ) -> Result<Vec<LinkDetailed>> {
     let mut detailed = Vec::with_capacity(links.len());
     for (index, manifest_link) in links.iter().enumerate() {
-        let place = format!(
-            "Manifest link - '{}' to '{}'",
-            manifest_link.src, manifest_link.dst
-        );
-        let link = manifest_link
-            .expand()
-            .with_context(|| format!("{place}: each end must be written node::interface"))?;
+        let place = LinkPlace::Link {
+            src: manifest_link.src.clone(),
+            dst: manifest_link.dst.clone(),
+        };
+        let link =
+            manifest_link
+                .expand()
+                .with_context(|| TopologyError::LinkEndNotNodeInterface {
+                    src: manifest_link.src.clone(),
+                    dst: manifest_link.dst.clone(),
+                })?;
         let link_idx = u16::try_from(index).context("A manifest holds too many links")?;
         let node_a = link_node(nodes, &link.node_a)?;
         let node_b = link_node(nodes, &link.node_b)?;
@@ -71,16 +78,15 @@ pub fn process_manifest_bridges(
             let node = nodes
                 .iter()
                 .find(|node| node.name == link.node)
-                .with_context(|| {
-                    format!(
-                        "Manifest bridge - node '{}' defined in bridges, not defined in nodes",
-                        link.node
-                    )
+                .ok_or_else(|| TopologyError::UnknownBridgeNode {
+                    node: link.node.clone(),
                 })?;
             links.push(BridgeLinkDetailed {
                 node_model_kind: node.model_kind,
                 interface_index: node_interface_idx(
-                    &format!("Manifest bridge - '{}'", bridge.name),
+                    &LinkPlace::Bridge {
+                        name: bridge.name.clone(),
+                    },
                     node,
                     &link.interface,
                 )?,
@@ -101,19 +107,21 @@ pub fn process_manifest_bridges(
 
 /// The node of `nodes` named `name` at one end of a link.
 fn link_node<'a>(nodes: &'a [NodeExpanded], name: &str) -> Result<&'a NodeExpanded> {
-    nodes
-        .iter()
-        .find(|node| node.name == name)
-        .with_context(|| format!("Manifest link - '{name}' defined in links, not defined in nodes"))
+    nodes.iter().find(|node| node.name == name).ok_or_else(|| {
+        TopologyError::UnknownLinkNode {
+            node: name.to_owned(),
+        }
+        .into()
+    })
 }
 
 /// The index of `node`'s interface named `interface`, at the link or bridge `place` names.
-fn node_interface_idx(place: &str, node: &NodeExpanded, interface: &str) -> Result<u8> {
-    interface_to_idx(node.model_kind, interface).with_context(|| {
-        format!(
-            "{place}: node '{}' ({}) has no interface '{interface}'",
-            node.name, node.model_kind
-        )
+fn node_interface_idx(place: &LinkPlace, node: &NodeExpanded, interface: &str) -> Result<u8> {
+    interface_to_idx(node.model_kind, interface).with_context(|| TopologyError::NoSuchInterface {
+        at: place.clone(),
+        node: node.name.clone(),
+        model_kind: node.model_kind,
+        interface: interface.to_owned(),
     })
 }
 
@@ -198,8 +206,10 @@ mod tests {
             let error =
                 process_manifest_links(&[link(src, dst)], &nodes(&["dev01", "dev02"])).unwrap_err();
             assert_eq!(
-                error.to_string(),
-                format!("Manifest link - '{unknown}' defined in links, not defined in nodes")
+                error.downcast_ref::<TopologyError>(),
+                Some(&TopologyError::UnknownLinkNode {
+                    node: unknown.to_owned(),
+                })
             );
         }
     }
@@ -212,8 +222,11 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(
-            error.to_string(),
-            "Manifest link - 'dev01:eth1' to 'dev02::eth1': each end must be written node::interface"
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::LinkEndNotNodeInterface {
+                src: "dev01:eth1".to_owned(),
+                dst: "dev02::eth1".to_owned(),
+            })
         );
 
         let error = process_manifest_bridges(
@@ -223,8 +236,11 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(
-            error.to_string(),
-            "Manifest bridge - 'lan': link 'dev02:eth1' must be written node::interface"
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::BridgeLinkNotNodeInterface {
+                bridge: "lan".to_owned(),
+                link: "dev02:eth1".to_owned(),
+            })
         );
     }
 
@@ -236,9 +252,16 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(
-            error.to_string(),
-            "Manifest link - 'dev01::eth1' to 'dev02::gig4': node 'dev02' (ubuntu_linux) has no \
-             interface 'gig4'"
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::NoSuchInterface {
+                at: LinkPlace::Link {
+                    src: "dev01::eth1".to_owned(),
+                    dst: "dev02::gig4".to_owned(),
+                },
+                node: "dev02".to_owned(),
+                model_kind: ModelKind::default_for(NodeModel::UbuntuLinux),
+                interface: "gig4".to_owned(),
+            })
         );
 
         let error = process_manifest_bridges(
@@ -248,8 +271,15 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(
-            error.to_string(),
-            "Manifest bridge - 'lan': node 'dev01' (ubuntu_linux) has no interface 'gig4'"
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::NoSuchInterface {
+                at: LinkPlace::Bridge {
+                    name: "lan".to_owned(),
+                },
+                node: "dev01".to_owned(),
+                model_kind: ModelKind::default_for(NodeModel::UbuntuLinux),
+                interface: "gig4".to_owned(),
+            })
         );
     }
 
@@ -286,8 +316,10 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(
-            error.to_string(),
-            "Manifest bridge - node 'dev0l' defined in bridges, not defined in nodes"
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::UnknownBridgeNode {
+                node: "dev0l".to_owned(),
+            })
         );
     }
 }

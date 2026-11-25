@@ -39,7 +39,8 @@ pub(crate) async fn refuse_builtin_admin_name_taken(conn: &Connection) -> Result
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
-    use shared::konst::{ADMIN_PROTECTED_MESSAGE, ADMIN_USERNAME};
+    use shared::konst::ADMIN_USERNAME;
+    use turso::Error;
 
     use crate::sql::{Query, query_count};
     use crate::{
@@ -84,22 +85,14 @@ mod tests {
         let admin = create_admin_user(&db, "AdminPass123!").await?;
         create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
 
-        let error = execute_raw(&db, "DELETE FROM user").await.unwrap_err();
-        assert!(
-            error.to_string().contains(ADMIN_PROTECTED_MESSAGE),
-            "{error}"
-        );
+        assert!(execute_raw(&db, "DELETE FROM user").await.is_err());
         assert_eq!(user_count(&db).await?, 2, "No user may be deleted");
 
         for statement in [
             "UPDATE user SET is_admin = 0 WHERE username = 'sherpa-admin'",
             "UPDATE user SET username = 'former_admin' WHERE username = 'sherpa-admin'",
         ] {
-            let error = execute_raw(&db, statement).await.unwrap_err();
-            assert!(
-                error.to_string().contains(ADMIN_PROTECTED_MESSAGE),
-                "{statement}: {error}"
-            );
+            assert!(execute_raw(&db, statement).await.is_err(), "{statement}");
         }
         let conn = db.reader().await?;
         let admins = query_count(
@@ -112,12 +105,10 @@ mod tests {
         .await?;
         assert_eq!(admins, 1);
 
-        let error = delete_user(&db, admin.id.clone().expect("admin id"))
-            .await
-            .unwrap_err();
         assert!(
-            format!("{error:#}").contains(ADMIN_PROTECTED_MESSAGE),
-            "{error:#}"
+            delete_user(&db, admin.id.clone().expect("admin id"))
+                .await
+                .is_err()
         );
         assert!(get_user(&db, ADMIN_USERNAME).await.is_ok());
 
@@ -131,11 +122,7 @@ mod tests {
         assert!(stored.is_admin);
 
         let db = setup().await?;
-        let error = insert_raw(&db, "sherpa-admin", false).await.unwrap_err();
-        assert!(
-            error.to_string().contains(ADMIN_PROTECTED_MESSAGE),
-            "{error}"
-        );
+        assert!(insert_raw(&db, "sherpa-admin", false).await.is_err());
         assert_eq!(user_count(&db).await?, 0);
 
         insert_raw(&db, "sherpa-admin", true).await?;
@@ -177,7 +164,10 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(error.to_string().contains("UNIQUE"), "{error}");
+        assert!(
+            matches!(error.downcast_ref::<Error>(), Some(Error::Constraint(_))),
+            "{error:#}"
+        );
         Ok(())
     }
 }

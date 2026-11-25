@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{
-    DefaultRequest, LabDetails, create_lab, create_link, create_node, create_user,
+    DbError, DefaultRequest, LabDetails, create_lab, create_link, create_node, create_user,
     list_links_by_lab, update_link_impairments, upsert_node_image,
 };
 use shared::data::{BridgeKind, DbLink, LinkImpairment, ModelKind, NodeModel, RecordId};
@@ -81,6 +81,10 @@ async fn link_impair_020_recording_impairments_keeps_the_rest_and_refuses_a_gone
     )
     .await
     .unwrap_err();
-    assert!(format!("{error:#}").contains("missing"), "{error:#}");
+    assert_eq!(
+        error.downcast_ref::<DbError>(),
+        Some(&DbError::LinkNotFound { id: missing }),
+        "{error:#}"
+    );
     Ok(())
 }

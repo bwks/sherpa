@@ -8,8 +8,8 @@ use anyhow::{Context, Result, bail};
 use tracing::instrument;
 
 use super::{bridge, lab, link, migrations, node, node_image, server_key, user};
-use crate::Database;
 use crate::sql::{Query, query_count};
+use crate::{Database, DbError};
 
 /// Schema version 1: every table, parents before children.
 const TABLES: &[&str] = &[
@@ -120,16 +120,17 @@ fn version_after(migration: &str) -> Result<usize> {
 /// downgrade of Sherpa.
 fn refuse_newer_version(version: usize) -> Result<()> {
     if version > SCHEMA_VERSION {
-        bail!(
-            "The database has schema version {version}, newer than {SCHEMA_VERSION} that this \
-             Sherpa build supports"
-        );
+        bail!(DbError::SchemaNewer {
+            version,
+            supported: SCHEMA_VERSION,
+        });
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Error;
     use shared::data::{
         BiosTypes, BootDiskSettings, CdromSettings, ContainerSettings, CpuArchitecture, CpuModels,
         DbCpuPins, DbLab, DiskBuses, InterfaceDeviceSettings, InterfaceType, KindSettings,
@@ -146,9 +147,9 @@ mod tests {
     use super::*;
     use crate::persistence::{enum_text, key_of, new_key};
     use crate::{
-        DefaultRequest, LabDetails, LabNetworks, count_nodes_by_ssh_username, create_lab,
-        create_user, device_password_set, find_lab, find_node_image_by_id, find_user, get_user,
-        list_cpu_pins, list_labs_by_user, list_locked_usernames, list_node_images,
+        DefaultRequest, LabDetails, LabNetworks, ServerKeyLab, count_nodes_by_ssh_username,
+        create_lab, create_user, device_password_set, find_lab, find_node_image_by_id, find_user,
+        get_user, list_cpu_pins, list_labs_by_user, list_locked_usernames, list_node_images,
         list_nodes_by_lab, list_users, open_in_memory, read_lab_definition, update_node_image,
         upsert_node_image,
     };
@@ -558,10 +559,15 @@ mod tests {
 
         apply_schema(&db).await.unwrap();
         let error = list_node_images(&db).await.unwrap_err();
-        assert!(
-            format!("{error:#}").contains("Failed to read row"),
-            "{error:#}"
-        );
+        let Some(DbError::RowUnreadable { row, .. }) = error.downcast_ref::<DbError>() else {
+            panic!("not an unreadable row: {error:#}");
+        };
+        let conn = db.reader().await.unwrap();
+        let mut ids = conn.query("SELECT id FROM node_image", ()).await.unwrap();
+        let image = ids.next().await.unwrap().unwrap().get_value(0).unwrap();
+        assert_eq!(image, Value::Text(row.clone()));
+        drop(ids);
+        drop(conn);
         // The row's other columns can still be written.
         let writer = db.writer().await.unwrap();
         writer
@@ -742,6 +748,23 @@ mod tests {
         db
     }
 
+    /// The labs a refusal for labs on the server's key carries.
+    fn server_key_labs(error: &Error) -> Vec<ServerKeyLab> {
+        match error.downcast_ref::<DbError>() {
+            Some(DbError::ServerKeyLabs { labs }) => labs.clone(),
+            _ => panic!("not a refusal for labs on the server's key: {error:#}"),
+        }
+    }
+
+    /// `alice`'s lab `lab-0001`, named `Old`, as a lab on the server's key.
+    fn old_lab() -> ServerKeyLab {
+        ServerKeyLab {
+            lab_id: "lab-0001".to_owned(),
+            name: "Old".to_owned(),
+            owner: "alice".to_owned(),
+        }
+    }
+
     async fn lab_count(db: &Database) -> usize {
         let conn = db.reader().await.unwrap();
         query_count(&conn, Query::new("SELECT count(*) FROM lab").bind([]))
@@ -776,10 +799,9 @@ mod tests {
                 .unwrap();
         }
 
-        let error = format!("{:#}", apply_schema(&db).await.unwrap_err());
+        let error = apply_schema(&db).await.unwrap_err();
 
-        assert!(error.contains("lab-0001 (Old, owned by alice)"), "{error}");
-        assert!(error.contains("server's shared SSH key"), "{error}");
+        assert_eq!(server_key_labs(&error), [old_lab()], "{error:#}");
         // Not one migration of the run is kept.
         assert_eq!(version(&db).await, 10);
         assert_eq!(lab_count(&db).await, 1);
@@ -787,9 +809,9 @@ mod tests {
         // The step that drops the column is next: the steps before it are undone too.
         let db = database_before_lab_keys_only("server").await;
 
-        let error = format!("{:#}", apply_schema(&db).await.unwrap_err());
+        let error = apply_schema(&db).await.unwrap_err();
 
-        assert!(error.contains("lab-0001 (Old, owned by alice)"), "{error}");
+        assert_eq!(server_key_labs(&error), [old_lab()], "{error:#}");
         assert_eq!(version(&db).await, migrations_before_lab_key_drop() + 1);
         assert!(has_ssh_key_column(&db).await);
         assert_eq!(lab_count(&db).await, 1);
@@ -883,9 +905,9 @@ mod tests {
      {
         let db = database_before_lab_keys_only("server").await;
 
-        let error = format!("{:#}", check_schema_upgrade(&db).await.unwrap_err());
+        let error = check_schema_upgrade(&db).await.unwrap_err();
 
-        assert!(error.contains("lab-0001 (Old, owned by alice)"), "{error}");
+        assert_eq!(server_key_labs(&error), [old_lab()], "{error:#}");
         assert_eq!(version(&db).await, migrations_before_lab_key_drop() + 1);
         assert!(has_ssh_key_column(&db).await);
     }
@@ -921,9 +943,16 @@ mod tests {
                 .unwrap();
         }
 
-        let error = format!("{:#}", check_schema_upgrade(&db).await.unwrap_err());
+        let error = check_schema_upgrade(&db).await.unwrap_err();
 
-        assert!(error.contains("newer than"), "{error}");
+        assert_eq!(
+            error.downcast_ref::<DbError>(),
+            Some(&DbError::SchemaNewer {
+                version: SCHEMA_VERSION + 1,
+                supported: SCHEMA_VERSION,
+            }),
+            "{error:#}"
+        );
     }
 
     /// A database at the version before the node lifecycle was explicit, with one lab and a
@@ -1080,7 +1109,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn schema_migration_002_a_newer_schema_is_refused_naming_both_versions_and_left_unchanged()
+    async fn schema_migration_002_a_newer_schema_is_refused_carrying_both_versions_and_left_unchanged()
      {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
@@ -1095,14 +1124,16 @@ mod tests {
             .unwrap();
         drop(writer);
 
-        let error = apply_schema(&db).await.unwrap_err().to_string();
+        let error = apply_schema(&db).await.unwrap_err();
 
-        assert!(error.contains("newer"), "{error}");
-        assert!(
-            error.contains(&format!("version {}", SCHEMA_VERSION + 1)),
-            "{error}"
+        assert_eq!(
+            error.downcast_ref::<DbError>(),
+            Some(&DbError::SchemaNewer {
+                version: SCHEMA_VERSION + 1,
+                supported: SCHEMA_VERSION,
+            }),
+            "{error:#}"
         );
-        assert!(error.contains(&format!("than {SCHEMA_VERSION}")), "{error}");
         assert_eq!(version(&db).await, SCHEMA_VERSION + 1);
         assert!(find_user(&db, "alice").await.unwrap().is_some());
     }

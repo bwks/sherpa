@@ -2,10 +2,10 @@ use anyhow::{Context, Result};
 use shared::data::DbLink;
 use tracing::instrument;
 
-use crate::Database;
 use crate::persistence::{link_from_row, link_values, new_key};
 use crate::queries;
 use crate::sql::query_optional;
+use crate::{Database, DbError};
 
 /// Create `link`, a network link between two nodes of a lab, with its impairments, in one write.
 /// Its `id` is ignored: the new link gets a generated one.
@@ -16,12 +16,6 @@ use crate::sql::query_optional;
 /// database cannot be written.
 #[instrument(skip(db), fields(index = link.index), level = "debug")]
 pub async fn create_link(db: &Database, link: DbLink) -> Result<DbLink> {
-    let described = || {
-        format!(
-            "index={}, node_a={:?}, node_b={:?}, int_a={}, int_b={}",
-            link.index, link.node_a, link.node_b, link.int_a, link.int_b
-        )
-    };
     let writer = db.writer().await?;
     let created = query_optional(
         &writer.conn,
@@ -29,6 +23,17 @@ pub async fn create_link(db: &Database, link: DbLink) -> Result<DbLink> {
         link_from_row,
     )
     .await
-    .with_context(|| format!("Failed to create link: {}", described()))?;
-    created.with_context(|| format!("Link was not created: {}", described()))
+    .with_context(|| DbError::LinkNotCreated {
+        index: link.index,
+        node_a: link.node_a.clone(),
+        node_b: link.node_b.clone(),
+        int_a: link.int_a.clone(),
+        int_b: link.int_b.clone(),
+    })?;
+    created.with_context(|| {
+        format!(
+            "Link was not created: index={}, node_a={:?}, node_b={:?}, int_a={}, int_b={}",
+            link.index, link.node_a, link.node_b, link.int_a, link.int_b
+        )
+    })
 }

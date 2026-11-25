@@ -1375,6 +1375,7 @@ dependencies = [
  "serde_json",
  "shared",
  "tempfile",
+ "thiserror 2.0.18",
  "tokio",
  "topology",
  "tracing",
@@ -5902,6 +5903,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "shared",
+ "thiserror 2.0.18",
  "toml",
  "tracing",
 ]

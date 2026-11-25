@@ -21,6 +21,8 @@ use shared::data::{
 };
 use shared::konst::{SHERPA_DB_KEY_CHARSET, SHERPA_DB_KEY_LENGTH};
 
+use crate::DbError;
+
 pub(crate) const USER_TABLE: &str = "user";
 pub(crate) const LAB_TABLE: &str = "lab";
 pub(crate) const NODE_TABLE: &str = "node";
@@ -131,10 +133,14 @@ impl<'a> Cells<'a> {
     pub(crate) fn percent(&mut self, field: &str) -> Result<f64> {
         match self.next(field)? {
             Value::Real(value) if (0.0..=100.0).contains(&value) => Ok(value),
-            Value::Real(value) => {
-                bail!("Database field {field} is not a percentage between 0 and 100: {value}")
-            }
-            other => bail!("Database field {field} is not a number: {other:?}"),
+            Value::Real(value) => bail!(DbError::FieldNotPercentage {
+                field: field.to_owned(),
+                value,
+            }),
+            other => bail!(DbError::FieldNotNumber {
+                field: field.to_owned(),
+                value: other,
+            }),
         }
     }
 
@@ -160,7 +166,10 @@ impl<'a> Cells<'a> {
         match self.next(field)? {
             Value::Null => Ok(None),
             Value::Real(value) => Ok(Some(value)),
-            other => bail!("Database field {field} is not a number: {other:?}"),
+            other => bail!(DbError::FieldNotNumber {
+                field: field.to_owned(),
+                value: other,
+            }),
         }
     }
 
@@ -714,7 +723,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_corrupt_or_out_of_range_percentage_is_an_error_naming_the_field() {
+    async fn a_corrupt_or_out_of_range_percentage_is_an_error_carrying_the_field() {
         for value in [
             Value::Real(f64::INFINITY),
             Value::Real(f64::NEG_INFINITY),
@@ -725,11 +734,14 @@ mod tests {
             Value::Null,
             Value::Text("12".to_string()),
         ] {
-            let error = read_percent(value.clone()).await.unwrap_err().to_string();
-            assert!(
-                error.contains("a_to_b.loss_percent"),
-                "{value:?} gave: {error}"
-            );
+            let error = read_percent(value.clone()).await.unwrap_err();
+            let Some(
+                DbError::FieldNotPercentage { field, .. } | DbError::FieldNotNumber { field, .. },
+            ) = error.downcast_ref::<DbError>()
+            else {
+                panic!("{value:?} gave: {error:#}");
+            };
+            assert_eq!(field, "a_to_b.loss_percent", "{value:?}");
         }
     }
 }

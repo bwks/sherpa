@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 
-use crate::Node;
+use crate::{Node, TopologyError};
 
 /// Check the client read every file a node lists, and named the files it sent plainly.
 ///
@@ -33,11 +33,12 @@ pub fn check_client_read_files(nodes: &[Node]) -> Result<()> {
         ];
         for (field, listed, read) in lists {
             if listed != read {
-                bail!(
-                    "Manifest - node: '{}' lists {listed} {field} but {read} were read; the Sherpa \
-                     CLI reads these files on the client, so start the lab with `sherpa up`",
-                    node.name
-                );
+                bail!(TopologyError::FilesNotRead {
+                    node: node.name.clone(),
+                    field,
+                    listed,
+                    read,
+                });
             }
         }
         for unit in node.systemd_units_data.iter().flatten() {
@@ -114,12 +115,16 @@ mod tests {
             ),
         ];
         for (field, node) in listed {
-            let error = check_client_read_files(&[node])
-                .expect_err("unread files accepted")
-                .to_string();
-            assert!(error.contains("'fc1'"), "{error}");
-            assert!(error.contains(field), "{error}");
-            assert!(error.contains("sherpa up"), "{error}");
+            let error = check_client_read_files(&[node]).expect_err("unread files accepted");
+            assert_eq!(
+                error.downcast_ref::<TopologyError>(),
+                Some(&TopologyError::FilesNotRead {
+                    node: "fc1".to_owned(),
+                    field,
+                    listed: 1,
+                    read: 0,
+                })
+            );
         }
     }
 

@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 
-use crate::Node;
+use crate::{Node, TopologyError};
 use shared::data::NodeModel;
 
 /// Check that no Windows node has a startup script whose file name contains `"` or `%`. The
@@ -21,11 +21,10 @@ pub fn check_windows_startup_script_names(nodes: &[Node]) -> Result<()> {
         }
         for script in node.startup_scripts_data.iter().flatten() {
             if script.filename.contains(['"', '%']) {
-                bail!(
-                    r#"Manifest - node: '{}' startup script '{}' contains '"' or '%', which cannot be used in a script name on a Windows node"#,
-                    node.name,
-                    script.filename
-                );
+                bail!(TopologyError::WindowsScriptName {
+                    node: node.name.clone(),
+                    script: script.filename.clone(),
+                });
             }
         }
     }
@@ -53,12 +52,13 @@ mod tests {
     #[test]
     fn boot_scripts_006_a_windows_startup_script_name_with_a_quote_or_percent_is_refused() {
         for filename in [r#"a" & calc & ".ps1"#, "%TEMP%.ps1"] {
-            let error = check_windows_startup_script_names(&[windows_node(filename)])
-                .unwrap_err()
-                .to_string();
-            assert!(
-                error.contains(&format!("'win1' startup script '{filename}'")),
-                "{error}"
+            let error = check_windows_startup_script_names(&[windows_node(filename)]).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<TopologyError>(),
+                Some(&TopologyError::WindowsScriptName {
+                    node: "win1".to_owned(),
+                    script: filename.to_owned(),
+                })
             );
         }
         check_windows_startup_script_names(&[windows_node("setup.ps1")]).unwrap();

@@ -8,6 +8,7 @@ use shared::data::{
     WatchdogAction, Ztp,
 };
 
+use crate::TopologyError;
 use crate::provisioner::Provisioner;
 
 /// A node in the manifest: `[[nodes]]`. The settings are grouped; `cpu`, `numa`, `boot_disk`,
@@ -137,8 +138,11 @@ impl NodeExpanded {
     /// Fails when the node sets a `kind` its model does not take, which
     /// `validate::check_node_model_kind` reports first.
     pub fn new(index: u16, node: &Node) -> Result<Self> {
-        let model_kind = ModelKind::new(node.model, node.kind)
-            .with_context(|| format!("Manifest - node: '{}'", node.name))?;
+        let model_kind = ModelKind::new(node.model, node.kind).with_context(|| {
+            TopologyError::NodeModelKind {
+                node: node.name.clone(),
+            }
+        })?;
         Ok(Self {
             index,
             name: node.name.clone(),

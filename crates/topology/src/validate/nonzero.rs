@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 
-use crate::Node;
+use crate::{Node, TopologyError};
 
 /// Check no node sets `memory`, `cpu.count`, `boot_disk.size`, `interfaces.data_count` or
 /// `ready_check.port` to 0. The types bound each from above; none of them takes 0, which Docker
@@ -22,10 +22,10 @@ pub fn check_nonzero_node_settings(nodes: &[Node]) -> Result<()> {
             ("ready_check.port", node.ready_check.port.map(u32::from)),
         ];
         if let Some((field, _)) = settings.iter().find(|(_, value)| *value == Some(0)) {
-            bail!(
-                "Manifest - node: '{}' `{field}` is 0; it must be at least 1",
-                node.name
-            );
+            bail!(TopologyError::ZeroSetting {
+                node: node.name.clone(),
+                field,
+            });
         }
     }
     Ok(())
@@ -38,11 +38,10 @@ pub fn check_nonzero_node_settings(nodes: &[Node]) -> Result<()> {
 /// Fails when it is 0 or larger than `i64::MAX` seconds.
 pub fn check_ready_timeout(ready_timeout: Option<u64>) -> Result<()> {
     match ready_timeout {
-        Some(0) => bail!("Manifest - `ready_timeout` is 0; it must be at least 1 second"),
-        Some(seconds) if i64::try_from(seconds).is_err() => bail!(
-            "Manifest - `ready_timeout` is {seconds}; it must be at most {} seconds",
-            i64::MAX
-        ),
+        Some(0) => bail!(TopologyError::ReadyTimeoutZero),
+        Some(seconds) if i64::try_from(seconds).is_err() => {
+            bail!(TopologyError::ReadyTimeoutTooLong { seconds })
+        }
         _ => Ok(()),
     }
 }
@@ -96,10 +95,14 @@ mod tests {
         ] {
             node.name = "r1".to_owned();
             let error = check_nonzero_node_settings(&[Node::default(), node])
-                .expect_err(&format!("{field} = 0 should be refused"))
-                .to_string();
-            assert!(error.contains("'r1'"), "{error}");
-            assert!(error.contains(&format!("`{field}` is 0")), "{error}");
+                .expect_err(&format!("{field} = 0 should be refused"));
+            assert_eq!(
+                error.downcast_ref::<TopologyError>(),
+                Some(&TopologyError::ZeroSetting {
+                    node: "r1".to_owned(),
+                    field,
+                })
+            );
         }
 
         let one = Node {
@@ -127,8 +130,11 @@ mod tests {
 
     #[test]
     fn lab_settings_008_a_ready_timeout_of_0_is_refused_and_1_is_taken() {
-        let error = check_ready_timeout(Some(0)).unwrap_err().to_string();
-        assert!(error.contains("`ready_timeout` is 0"), "{error}");
+        let error = check_ready_timeout(Some(0)).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::ReadyTimeoutZero)
+        );
         assert!(check_ready_timeout(Some(1)).is_ok());
         assert!(check_ready_timeout(None).is_ok());
     }
@@ -136,12 +142,12 @@ mod tests {
     #[test]
     fn lab_settings_011_a_ready_timeout_over_the_stored_maximum_is_refused_and_the_maximum_is_taken()
      {
-        let error = check_ready_timeout(Some(9_223_372_036_854_775_808))
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.contains("it must be at most 9223372036854775807 seconds"),
-            "{error}"
+        let error = check_ready_timeout(Some(9_223_372_036_854_775_808)).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::ReadyTimeoutTooLong {
+                seconds: 9_223_372_036_854_775_808,
+            })
         );
         assert!(check_ready_timeout(Some(9_223_372_036_854_775_807)).is_ok());
     }

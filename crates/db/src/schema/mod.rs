@@ -31,3 +31,4 @@ mod user;
 
 // Public API - only schema application function is exposed outside the crate
 pub use apply::{SCHEMA_VERSION, apply_schema, check_schema_upgrade};
+pub use server_key::ServerKeyLab;
