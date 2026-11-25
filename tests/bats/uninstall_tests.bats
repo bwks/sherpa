@@ -367,3 +367,32 @@ _plan_and_summary() {
     [[ "$output" == *"${WORK_DIR}/var/backups is a symlink"* ]]
     [ -e "${WORK_DIR}/elsewhere/sherpa/db.key" ]
 }
+
+@test "microvm_host_tools_010_the_microvm_folder_is_removed_and_nothing_through_a_link_to_it" {
+    local work stripped
+    work="$(mktemp -d)"
+    stripped="${work}/uninstall.sh"
+    grep -v '^main "\$@"' "${SCRIPT}" > "${stripped}"
+    mkdir -p "${work}/opt/sherpa/microvm/images" "${work}/elsewhere"
+    touch "${work}/opt/sherpa/microvm/cloud-hypervisor" "${work}/opt/sherpa/microvm/images/base.img" "${work}/elsewhere/keep"
+    run bash -c "
+        source '${stripped}'
+        set +e
+        SHERPA_MICROVM_DIR='${work}/opt/sherpa/microvm'
+        remove_microvm_dir
+    "
+    [ "$status" -eq 0 ]
+    [ ! -e "${work}/opt/sherpa/microvm" ]
+
+    ln -s "${work}/elsewhere" "${work}/opt/sherpa/microvm"
+    run bash -c "
+        source '${stripped}'
+        set +e
+        SHERPA_MICROVM_DIR='${work}/opt/sherpa/microvm'
+        remove_microvm_dir
+    "
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"${work}/opt/sherpa/microvm is a symlink"* ]]
+    [ -e "${work}/elsewhere/keep" ]
+    rm -rf "${work}"
+}

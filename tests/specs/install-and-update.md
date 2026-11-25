@@ -39,6 +39,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | `/opt/sherpa/libvirt/images` | the storage pool: VM disks and ZTP media | `2750 sherpa:kvm` | install, update, sherpad |
 | `/opt/sherpa/images` | the node images | `775 sherpa:sherpa` | install, update |
 | `/opt/sherpa/images/blank_disk` | the blank disk templates, which only sherpad, as `sherpa`, reads, to copy them | folder `775`, files `400`, `sherpa:sherpa` | install, update |
+| `/opt/sherpa/microvm` | Cloud Hypervisor, the host kernel `vmlinuz`, `initramfs.img` and the base disks in `images` | folders `755 sherpa:sherpa`, `cloud-hypervisor` `755 root:root`, `vmlinuz` and `initramfs.img` `644 root:root` | install, update (files), sherpad (base disks) |
 | `/opt/sherpa/containers`, `bins`, `run` | sherpad's container and binary folders, its PID file and the console sockets | `755 sherpa:sherpa` | install, update |
 | `/etc/systemd/system/sherpad.service`, `/etc/logrotate.d/sherpad`, `/etc/tmpfiles.d/sherpa-thp.conf` | the service, log rotation, the transparent hugepages boot rule | `644 root` | install |
 
@@ -102,6 +103,25 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 008 | The update script makes the missing templates before it stops sherpad, and also when there is nothing to update; when one cannot be made, the server is left running the release it had (no test yet: `update_tests.bats` reads the order of the calls in the script's text) | e2e (fresh VM) |
 | 009 | Cases 002 to 006 hold for the copy of the section in each script | unit (bats) |
 | 010 | Every blank disk, and the blank disk folder, is written as `sherpa`, never as root, by both scripts: a link a member of the `sherpa` group puts in the folder gets nothing of root's | unit (bats) |
+
+## `microvm_host_tools`: the scripts put what the microVM nodes run in on the host, and the uninstall script removes it
+
+**Statement:** the install script and every run of the update script install the packages the microVM guest is built from, install the Cloud Hypervisor binary whose SHA-256 the script pins, build the guest initramfs from the running kernel with the files of `scripts/microvm` at the release's tag, install that kernel beside it, and make the folder and the images folder `sherpa` writes; the uninstall script removes the folder in every mode.
+**Relied on by:** nodes of the privileged container models (cEOS, SR Linux); the admin. **Priority:** P1.
+
+| Case | What it shows | Level |
+|---|---|---|
+| 001 | After an install on a bare host, `/opt/sherpa/microvm` holds `cloud-hypervisor` `755 root:root`, `vmlinuz` and `initramfs.img` `644 root:root`, and `images`, all `sherpa`'s folders `755`; the binary reports the pinned version (no test yet) | e2e (fresh VM) |
+| 002 | Cloud Hypervisor is installed `755`, root's, from the pinned URL when its SHA-256 is the pinned one | unit (bats) |
+| 003 | A download whose SHA-256 is not the pinned one stops the script and installs nothing | unit (bats) |
+| 004 | The folder and the images folder are made `755` and `sherpa`'s, an existing one gets the same, and a symlink at or above the folder stops the script with the link named | unit (bats) |
+| 005 | The guest build files come from the repository at the tag of the release, or from `microvm` in `SHERPA_ARTIFACT_DIR` when local artifacts are used; a file that cannot be fetched stops the script | unit (bats) |
+| 006 | `busybox-static`, the running kernel's `linux-modules-extra`, `zstd` and `cpio` are installed | unit (bats) |
+| 007 | `build-guest.sh` writes an `initramfs.img` that holds the init, `modules.list`, busybox, GNU tar and the kernel's modules with their `modules.dep`, installs the kernel as `vmlinuz`, both `644`, and leaves no temporary file | unit (bats) |
+| 008 | The update script does all of it, before it stops sherpad and also when there is nothing to update (no test yet: `update_tests.bats` reads the order of the calls in the script's text) | e2e (fresh VM) |
+| 009 | Cases 002 to 005 hold for the copy of the section in each script | unit (bats) |
+| 010 | The uninstall script removes `/opt/sherpa/microvm` in every mode, and with a symlink at or above it removes nothing through it and names the link | unit (bats) |
+| 011 | The installed unit, and the drop-in the update adds to an older one, make stopping sherpad stop only sherpad (`KillMode=process`), so its microVMs keep running (no test yet) | e2e (fresh VM) |
 
 ## `server_init`: `sherpad init` sets up a new server and keeps an existing one
 

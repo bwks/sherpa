@@ -520,7 +520,8 @@ _run_update_steps() {
     printf '#!/bin/bash\necho "sherpad 0.7.0"\n' > "${WORK_DIR}/bin/sherpad"
     chmod +x "${WORK_DIR}/bin/sherpad"
     sed -e "s|^SHERPA_BASE_DIR=.*|SHERPA_BASE_DIR='${WORK_DIR}'|" \
-        -e 's|^    check_root_privileges$|    :|' "${SCRIPT}" > "${WORK_DIR}/update.sh"
+        -e 's|^    check_root_privileges$|    :|' \
+        -e 's|^    install_microvm_host_tools$|    :|' "${SCRIPT}" > "${WORK_DIR}/update.sh"
     PATH="${MOCK_BIN}:${PATH}" run bash "${WORK_DIR}/update.sh" --version v0.7.1
     [ "$status" -ne 0 ]
     [[ "$output" == *"Failed to download required binary: sherpad-x86_64-unknown-linux-gnu.tar.gz"* ]]

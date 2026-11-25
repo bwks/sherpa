@@ -1,0 +1,97 @@
+#!/bin/busybox sh
+# Sherpa microVM init: build the container root on an overlay and exec the image's entrypoint.
+/bin/busybox --install -s /bin
+export PATH=/bin
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t devtmpfs dev /dev
+log() { echo "sherpa-init: $*" > /dev/ttyS0; }
+fail() { log "FATAL: $*"; sleep 5; poweroff -f; }
+kver=$(uname -r)
+while read -r m; do modprobe $m 2>/dev/null; done < /modules.list
+mode=run
+for a in $(cat /proc/cmdline); do case "$a" in sherpa.mode=*) mode=${a#sherpa.mode=};; esac; done
+
+if [ "$mode" = build ]; then
+  # vda: empty target disk, vdb: image tar exported by Docker.
+  log "formatting base disk"
+  mke2fs -q -F -L sherpa-base /dev/vda || fail "mke2fs"
+  mkdir -p /target && mount -t ext4 /dev/vda /target || fail "mount target"
+  log "unpacking image"
+  /usr/bin/gtar --xattrs --xattrs-include="*" --numeric-owner -xpf /dev/vdb -C /target || fail "tar"
+  umount /target && sync
+  log "BUILD-OK"
+  poweroff -f
+fi
+
+# vda: shared read-only base, vdb: node config ISO, vdc: per-node writable disk.
+mkdir -p /lower /upper /cfg /newroot
+mount -t ext4 -o ro /dev/vda /lower || fail "mount base"
+mount -t iso9660 -o ro /dev/vdb /cfg || fail "mount config"
+if ! mount -t ext4 /dev/vdc /upper 2>/dev/null; then
+  mke2fs -q -F -L sherpa-node /dev/vdc || fail "mke2fs node"
+  mount -t ext4 /dev/vdc /upper || fail "mount node disk"
+fi
+mkdir -p /upper/data /upper/work
+mount -t overlay overlay -o lowerdir=/lower,upperdir=/upper/data,workdir=/upper/work /newroot || fail "overlay"
+
+val() { sed -n "s/^$1 *= *\"\(.*\)\"\$/\1/p" /cfg/node.toml | head -n1; }
+host=$(val hostname)
+addr=$(val mgmt_address)
+gw=$(val mgmt_gateway)
+
+sed -n '/^\[interfaces\]/,/^\[/s/^"\([0-9a-f:]*\)" *= *"\(.*\)"$/\1 \2/p' /cfg/node.toml > /tmp/ifaces
+# Give mapped NICs a temporary name first so a target name held by another NIC is free.
+rename() {
+  while read -r mac name; do
+    for dev in /sys/class/net/*; do
+      [ -f "$dev/address" ] || continue
+      if [ "$(cat "$dev/address")" = "$mac" ]; then ip link set "${dev##*/}" name "$1$name"; fi
+    done
+  done < /tmp/ifaces
+}
+rename sherpa-
+while read -r mac name; do
+  [ -e "/sys/class/net/sherpa-$name" ] && ip link set "sherpa-$name" name "$name"
+done < /tmp/ifaces
+ip link set lo up
+mgmt=$(head -n1 /tmp/ifaces | cut -d' ' -f2)
+if [ -n "$addr" ] && [ -n "$mgmt" ]; then
+  ip link set "$mgmt" up && ip addr add "$addr" dev "$mgmt"
+  [ -n "$gw" ] && ip route add default via "$gw"
+fi
+
+# Copy files one by one: the ISO's read-only directory modes must not replace the image's.
+(cd /cfg/files && find . -type f) | while read -r f; do
+  mkdir -p "/newroot/${f%/*}"
+  cp "/cfg/files/$f" "/newroot/$f"
+done
+mkdir -p "/newroot/lib/modules/$kver" && cp -a "/lib/modules/$kver/." "/newroot/lib/modules/$kver/"
+mkdir -p /newroot/.sherpa /newroot/proc /newroot/sys /newroot/dev /newroot/etc
+cp /bin/busybox /newroot/.sherpa/busybox
+cp /cfg/entrypoint.sh /newroot/.sherpa/entrypoint.sh
+: > /newroot/.dockerenv
+echo "$host" > /newroot/etc/hostname
+hostname "$host"
+printf '127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n%s\t%s\n' "${addr%/*}" "$host" > /newroot/etc/hosts
+[ -n "$gw" ] && echo "nameserver $gw" > /newroot/etc/resolv.conf
+mount -t proc proc /newroot/proc
+mount -t sysfs sys /newroot/sys
+mount -t devtmpfs dev /newroot/dev
+mkdir -p /newroot/dev/pts /newroot/dev/shm /newroot/sys/fs/cgroup
+mount -t devpts -o newinstance,ptmxmode=0666 devpts /newroot/dev/pts
+# The links Docker makes in a container's /dev.
+ln -sf /proc/self/fd /newroot/dev/fd
+ln -sf /proc/self/fd/0 /newroot/dev/stdin
+ln -sf /proc/self/fd/1 /newroot/dev/stdout
+ln -sf /proc/self/fd/2 /newroot/dev/stderr
+ln -sf /proc/kcore /newroot/dev/core
+mount -t tmpfs -o mode=1777 shm /newroot/dev/shm
+mount -t cgroup2 cgroup2 /newroot/sys/fs/cgroup
+# systemd mounts an empty tmpfs on /run unless one is there: keep the image's /run tree.
+mkdir -p /newroot/run
+mount -t tmpfs -o mode=0755,nosuid,nodev run /newroot/run
+cp -a /lower/run/. /newroot/run/ 2>/dev/null
+umount /cfg /lower 2>/dev/null
+log "starting entrypoint"
+exec switch_root /newroot /.sherpa/busybox sh /.sherpa/entrypoint.sh

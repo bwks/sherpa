@@ -11,7 +11,10 @@ use tracing::instrument;
 
 use super::context::LabBuild;
 use super::links::P2pContainerVeth;
-use crate::konst::{SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME};
+use crate::konst::{
+    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_IPV6,
+    SHERPA_MANAGEMENT_NETWORK_NAME,
+};
 use crate::services::container_networks;
 use crate::services::error::ServiceError;
 use crate::services::p2p_links::{ContainerVeth, bridge_member_host_veth};
@@ -21,7 +24,6 @@ use shared::data::{LabSubnets, RecordId, StatusKind};
 use shared::konst::{MANAGEMENT_GATEWAY_HOST_OFFSET, SHERPA_MANAGEMENT_IP_INDEX};
 use shared::util;
 
-const SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX: &str = "brm";
 const SHERPA_LOOPBACK_PREFIX_IPV6: &str = "fd00:1001::/48";
 /// Attempts to reserve lab subnets when concurrent labs take the chosen ones first.
 const LAB_SUBNET_ALLOCATION_ATTEMPTS: u32 = 8;

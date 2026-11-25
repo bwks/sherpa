@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
-use bollard::secret::ContainerStateStatusEnum;
+use bollard::secret::{ContainerState, ContainerStateStatusEnum};
 use tracing::instrument;
 
 use super::context::LabBuild;
@@ -14,6 +14,7 @@ use super::links::{
 };
 use crate::konst::{READINESS_SLEEP, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR};
 use crate::services::lab_operations::LabOperation;
+use crate::services::microvm::{self, MicroVmNode};
 use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::node_secrets::write_node_secrets;
@@ -345,30 +346,24 @@ impl Readiness<'_, '_> {
         // Its limits are the resources recorded for it.
         let record = &self.node_data(&container.name)?.record;
 
-        let is_running = node_ops::start_container_node(
-            self.build.docker_conn,
-            self.build.qemu,
-            ContainerSpec {
-                name: container_name.clone(),
-                // The node name, as its own config names it; Docker's default is the ID.
-                hostname: Some(container.name.clone()),
-                image: container::image_reference(image_name, version),
-                env_vars: container.environment_variables.clone().unwrap_or_default(),
-                volumes,
-                capabilities: node_ops::model_capabilities(container.model_kind),
-                management_network,
-                additional_networks: data_networks,
-                commands: settings.commands.unwrap_or_default(),
-                privileged: settings.privileged.unwrap_or(false),
-                shm_size: settings.shm_size,
-                user: settings.user,
-                memory_mib: record.memory.map(u64::from),
-                cpu_count: record.cpu_count,
-            },
-            container.model_kind,
-            self.build.progress,
-        )
-        .await?;
+        let spec = ContainerSpec {
+            name: container_name.clone(),
+            // The node name, as its own config names it; Docker's default is the ID.
+            hostname: Some(container.name.clone()),
+            image: container::image_reference(image_name, version),
+            env_vars: container.environment_variables.clone().unwrap_or_default(),
+            volumes,
+            capabilities: node_ops::model_capabilities(container.model_kind),
+            management_network,
+            additional_networks: data_networks,
+            commands: settings.commands.unwrap_or_default(),
+            privileged: settings.privileged.unwrap_or(false),
+            shm_size: settings.shm_size,
+            user: settings.user,
+            memory_mib: record.memory.map(u64::from),
+            cpu_count: record.cpu_count,
+        };
+        let is_running = self.start_node(container, spec).await?;
 
         if !is_running {
             tracing::warn!(node_name = %container.name, "Container exited right after starting");
@@ -419,6 +414,45 @@ impl Readiness<'_, '_> {
         Ok(())
     }
 
+    /// Start `container` from `spec`: in its own microVM, with its P2p ends as taps, when its
+    /// model runs in one, and in Docker otherwise. Returns whether it runs.
+    async fn start_node(
+        &self,
+        container: &topology::NodeExpanded,
+        spec: ContainerSpec,
+    ) -> Result<bool> {
+        if !container.model_kind.runs_in_microvm() {
+            return node_ops::start_container_node(
+                self.build.docker_conn,
+                self.build.qemu,
+                spec,
+                container.model_kind,
+                self.build.progress,
+            )
+            .await;
+        }
+        let node = MicroVmNode {
+            lab_id: self.build.lab_id,
+            node_name: &container.name,
+            node_index: container.index,
+            veths: self
+                .inputs
+                .p2p_container_veths
+                .iter()
+                .filter(|veth| veth.node_name == container.name)
+                .map(|veth| &veth.veth)
+                .collect(),
+        };
+        microvm::start_microvm_node(
+            self.build.docker_conn,
+            &spec,
+            container.model_kind,
+            &node,
+            self.build.progress,
+        )
+        .await
+    }
+
     /// Check a container started `started`: ready once it has kept running for
     /// `CONTAINER_SETTLE` and its ready port, when it has one, answers on its management
     /// address; failed when it stopped running before. The port is checked as a VM's is.
@@ -431,8 +465,15 @@ impl Readiness<'_, '_> {
         let ready_port =
             node_ops::container_ready_port(container.model_kind, &container.ready_check);
         let ready_label = ready_port.map(node_ops::ready_port_label);
-        let status = match container::container_state(self.build.docker_conn, &container_name).await
-        {
+        let microvm = microvm::microvm_status(self.build.lab_id, &container_name).await;
+        let docker_state = match microvm {
+            Some(status) => Ok(Some(ContainerState {
+                status: Some(status),
+                ..Default::default()
+            })),
+            None => container::container_state(self.build.docker_conn, &container_name).await,
+        };
+        let status = match docker_state {
             Ok(state) => state.and_then(|state| state.status),
             Err(error) => {
                 // Docker did not answer; the next poll asks again, and the readiness timeout
@@ -503,6 +544,9 @@ impl Readiness<'_, '_> {
     /// Whether Docker reports the container `container_name` running. A container Docker cannot
     /// inspect is not.
     async fn is_running(&self, container_name: &str) -> bool {
+        if let Some(status) = microvm::microvm_status(self.build.lab_id, container_name).await {
+            return status == ContainerStateStatusEnum::RUNNING;
+        }
         matches!(
             container::container_status(self.build.docker_conn, container_name).await,
             Ok(Some(ContainerStateStatusEnum::RUNNING))
@@ -573,12 +617,19 @@ impl Readiness<'_, '_> {
             return Ok(());
         }
         let host = KernelHost::new(self.build.docker_conn, self.build.qemu);
-        let pid = host.container_pid(container_name).await?;
-        for P2pContainerVeth { veth, .. } in veths {
-            make_veth(&host, veth, pid).await.with_context(|| {
-                format!("Failed to create a P2p interface in container {container_name}")
-            })?;
-            self.p2p.ready_ends.insert(veth.host_veth.clone());
+        if container.model_kind.runs_in_microvm() {
+            // Cloud Hypervisor made each end as a tap when the microVM was created.
+            for P2pContainerVeth { veth, .. } in veths {
+                self.p2p.ready_ends.insert(veth.host_veth.clone());
+            }
+        } else {
+            let pid = host.container_pid(container_name).await?;
+            for P2pContainerVeth { veth, .. } in veths {
+                make_veth(&host, veth, pid).await.with_context(|| {
+                    format!("Failed to create a P2p interface in container {container_name}")
+                })?;
+                self.p2p.ready_ends.insert(veth.host_veth.clone());
+            }
         }
         let attached = attach_ready_p2p_links(
             &host,

@@ -330,6 +330,15 @@ impl ModelKind {
         matches!(self.model, NodeModel::CiscoIol | NodeModel::CiscoIoll2)
     }
 
+    /// Whether a container of this model runs inside its own Cloud Hypervisor microVM: the
+    /// network operating systems that need `--privileged`, which is then privileged in the
+    /// microVM's kernel and not the host's.
+    #[must_use]
+    pub fn runs_in_microvm(self) -> bool {
+        self.kind == NodeKind::Container
+            && matches!(self.model, NodeModel::AristaEos | NodeModel::NokiaSrlinux)
+    }
+
     /// The TCP port that shows a node of this model and kind is ready, when the manifest sets
     /// none: SSH for a virtual machine, or the Talos API for Talos Linux, which has no SSH.
     /// The `sonic_linux` container has SSH too: Sherpa's start script starts its SSH server last, once
@@ -452,5 +461,20 @@ mod tests {
             ModelKind::default_for(NodeModel::JuniperEvolved).to_string(),
             "juniper_evolved, virtual_machine"
         );
+    }
+}
+
+#[cfg(test)]
+mod microvm_tests {
+    use super::*;
+
+    #[test]
+    fn privileged_microvm_008_only_the_privileged_nos_containers_run_in_a_microvm() {
+        let kind = |model, kind| ModelKind::new(model, Some(kind)).expect("model and kind");
+        assert!(kind(NodeModel::AristaEos, NodeKind::Container).runs_in_microvm());
+        assert!(kind(NodeModel::NokiaSrlinux, NodeKind::Container).runs_in_microvm());
+        assert!(!kind(NodeModel::AristaEos, NodeKind::VirtualMachine).runs_in_microvm());
+        assert!(!kind(NodeModel::CiscoIol, NodeKind::Container).runs_in_microvm());
+        assert!(!kind(NodeModel::Generic, NodeKind::Container).runs_in_microvm());
     }
 }

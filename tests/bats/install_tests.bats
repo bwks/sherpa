@@ -809,3 +809,168 @@ _stub_docker_with_containers() {
     _blank_disks_case_010 "${SCRIPT}"
     _blank_disks_case_010 "${UPDATE_SCRIPT}"
 }
+
+# The microVM host tools
+
+# Source the given script without its main and run the shell code $2 with the stubs of
+# _stub_root_commands, a curl that records its arguments in WORK_DIR/curl.args and copies
+# WORK_DIR/download to the file it is asked for (exit 22 when there is none), an apt-get that
+# records its arguments, and the microVM folder under WORK_DIR.
+_run_microvm() {
+    local stripped="${WORK_DIR}/script.sh"
+    grep -v '^main "\$@"' "$1" > "${stripped}"
+    _stub_root_commands
+    cat > "${MOCK_BIN}/curl" << STUB
+#!/bin/bash
+echo "\$@" >> '${WORK_DIR}/curl.args'
+[ -e '${WORK_DIR}/download' ] || exit 22
+while [ \$# -gt 1 ]; do
+    [ "\$1" = "-o" ] && cp '${WORK_DIR}/download' "\$2"
+    shift
+done
+STUB
+    printf '#!/bin/bash\necho "$@" >> "%s/apt-get.args"\n' "${WORK_DIR}" > "${MOCK_BIN}/apt-get"
+    chmod +x "${MOCK_BIN}/curl" "${MOCK_BIN}/apt-get"
+    run bash -c "
+        set +e
+        PATH='${MOCK_BIN}:${PATH}'
+        source '${stripped}'
+        MICROVM_DIR='${WORK_DIR}/opt/microvm'
+        MICROVM_IMAGES_DIR=\"\${MICROVM_DIR}/images\"
+        $2
+    "
+}
+
+_microvm_host_tools_case_002() {
+    WORK_DIR="$(mktemp -d)"
+    mkdir -p "${WORK_DIR}/opt/microvm"
+    printf 'cloud hypervisor\n' > "${WORK_DIR}/download"
+    _run_microvm "$1" "CLOUD_HYPERVISOR_SHA256='$(sha256sum "${WORK_DIR}/download" | awk '{ print $1 }')'; install_cloud_hypervisor"
+    echo "${output}"
+    [ "$status" -eq 0 ]
+    cmp "${WORK_DIR}/download" "${WORK_DIR}/opt/microvm/cloud-hypervisor"
+    [ "$(stat -c '%a' "${WORK_DIR}/opt/microvm/cloud-hypervisor")" = "755" ]
+    grep -q "^-o root -g root -m 755 " "${WORK_DIR}/install.args"
+    grep -q "github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v[0-9.]*/cloud-hypervisor-static$" "${WORK_DIR}/curl.args"
+}
+
+_microvm_host_tools_case_003() {
+    WORK_DIR="$(mktemp -d)"
+    mkdir -p "${WORK_DIR}/opt/microvm"
+    printf 'not cloud hypervisor\n' > "${WORK_DIR}/download"
+    _run_microvm "$1" "install_cloud_hypervisor"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"is not the one this script trusts"* ]]
+    [ ! -e "${WORK_DIR}/opt/microvm/cloud-hypervisor" ]
+    [ ! -e "${WORK_DIR}/install.args" ]
+}
+
+_microvm_host_tools_case_004() {
+    WORK_DIR="$(mktemp -d)"
+    _run_microvm "$1" "ensure_microvm_dirs"
+    [ "$status" -eq 0 ]
+    [ "$(stat -c '%a' "${WORK_DIR}/opt/microvm")" = "755" ]
+    [ "$(stat -c '%a' "${WORK_DIR}/opt/microvm/images")" = "755" ]
+    grep -q "^-d -o sherpa -g sherpa -m 755 ${WORK_DIR}/opt/microvm ${WORK_DIR}/opt/microvm/images$" "${WORK_DIR}/install.args"
+
+    chmod 700 "${WORK_DIR}/opt/microvm"
+    _run_microvm "$1" "ensure_microvm_dirs"
+    [ "$status" -eq 0 ]
+    [ "$(stat -c '%a' "${WORK_DIR}/opt/microvm")" = "755" ]
+
+    rm -rf "${WORK_DIR}/opt"
+    mkdir -p "${WORK_DIR}/elsewhere" "${WORK_DIR}/opt"
+    ln -s "${WORK_DIR}/elsewhere" "${WORK_DIR}/opt/microvm"
+    _run_microvm "$1" "ensure_microvm_dirs"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"${WORK_DIR}/opt/microvm is a symlink"* ]]
+    [ -z "$(ls -A "${WORK_DIR}/elsewhere")" ]
+}
+
+_microvm_host_tools_case_005() {
+    WORK_DIR="$(mktemp -d)"
+    mkdir -p "${WORK_DIR}/dest" "${WORK_DIR}/artifacts/microvm"
+    printf 'file\n' > "${WORK_DIR}/download"
+    _run_microvm "$1" "SHERPA_VERSION=v9.9.9; SHERPA_ARTIFACT_DIR=; fetch_microvm_guest_files '${WORK_DIR}/dest'"
+    [ "$status" -eq 0 ]
+    local file
+    for file in build-guest.sh init modules.list; do
+        [ -f "${WORK_DIR}/dest/${file}" ]
+        grep -q "raw.githubusercontent.com/bwks/sherpa/v9.9.9/scripts/microvm/${file}$" "${WORK_DIR}/curl.args"
+    done
+
+    rm -rf "${WORK_DIR}/dest" "${WORK_DIR}/curl.args"
+    mkdir "${WORK_DIR}/dest"
+    for file in build-guest.sh init modules.list; do
+        echo "local ${file}" > "${WORK_DIR}/artifacts/microvm/${file}"
+    done
+    _run_microvm "$1" "SHERPA_VERSION=v9.9.9; SHERPA_ARTIFACT_DIR='${WORK_DIR}/artifacts'; fetch_microvm_guest_files '${WORK_DIR}/dest'"
+    [ "$status" -eq 0 ]
+    [ "$(cat "${WORK_DIR}/dest/init")" = "local init" ]
+    [ ! -e "${WORK_DIR}/curl.args" ]
+
+    rm -f "${WORK_DIR}/download"
+    _run_microvm "$1" "SHERPA_VERSION=v9.9.9; SHERPA_ARTIFACT_DIR=; build_microvm_guest"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Could not fetch the microVM guest build files for v9.9.9"* ]]
+}
+
+_microvm_host_tools_case_006() {
+    WORK_DIR="$(mktemp -d)"
+    _run_microvm "$1" "install_microvm_packages"
+    [ "$status" -eq 0 ]
+    grep -q "^install -y -qq busybox-static linux-modules-extra-$(uname -r) zstd cpio$" "${WORK_DIR}/apt-get.args"
+}
+
+@test "microvm_host_tools_002_cloud_hypervisor_with_the_pinned_sha256_is_installed_755_root_s" {
+    _microvm_host_tools_case_002 "${SCRIPT}"
+}
+
+@test "microvm_host_tools_003_a_download_that_is_not_the_pinned_one_installs_nothing" {
+    _microvm_host_tools_case_003 "${SCRIPT}"
+}
+
+@test "microvm_host_tools_004_the_microvm_folders_are_sherpa_s_755_and_a_symlink_stops_the_script" {
+    _microvm_host_tools_case_004 "${SCRIPT}"
+}
+
+@test "microvm_host_tools_005_the_guest_build_files_come_from_the_release_tag_or_the_local_artifacts" {
+    _microvm_host_tools_case_005 "${SCRIPT}"
+}
+
+@test "microvm_host_tools_006_the_guest_packages_are_installed" {
+    _microvm_host_tools_case_006 "${SCRIPT}"
+}
+
+@test "microvm_host_tools_007_the_guest_build_writes_the_initramfs_and_the_kernel" {
+    local tool kver
+    kver="$(uname -r)"
+    for tool in busybox cpio zstd depmod modprobe ldd gzip; do
+        command -v "${tool}" >/dev/null 2>&1 || skip "${tool} is not installed"
+    done
+    [ -r "/boot/vmlinuz-${kver}" ] || skip "/boot/vmlinuz-${kver} is not readable by this user"
+    [ -d "/lib/modules/${kver}/kernel/net" ] || skip "no modules for ${kver}"
+    WORK_DIR="$(mktemp -d)"
+    mkdir "${WORK_DIR}/tmp"
+    run env TMPDIR="${WORK_DIR}/tmp" sh "${BATS_TEST_DIRNAME}/../../scripts/microvm/build-guest.sh" \
+        "${BATS_TEST_DIRNAME}/../../scripts/microvm" "${WORK_DIR}/out"
+    echo "${output}"
+    [ "$status" -eq 0 ]
+    [ "$(stat -c '%a' "${WORK_DIR}/out/initramfs.img")" = "644" ]
+    [ "$(stat -c '%a' "${WORK_DIR}/out/vmlinuz")" = "644" ]
+    cmp "/boot/vmlinuz-${kver}" "${WORK_DIR}/out/vmlinuz"
+    local listing
+    listing="$(gzip -dc "${WORK_DIR}/out/initramfs.img" | cpio -t --quiet)"
+    for entry in init modules.list bin/busybox usr/bin/gtar "lib/modules/${kver}/modules.dep"; do
+        grep -qx "${entry}" <<< "${listing}"
+    done
+    [ -z "$(ls -A "${WORK_DIR}/tmp")" ]
+}
+
+@test "microvm_host_tools_009_cases_002_to_005_hold_for_the_update_scripts_section_too" {
+    _microvm_host_tools_case_002 "${UPDATE_SCRIPT}"
+    _microvm_host_tools_case_003 "${UPDATE_SCRIPT}"
+    _microvm_host_tools_case_004 "${UPDATE_SCRIPT}"
+    _microvm_host_tools_case_005 "${UPDATE_SCRIPT}"
+    _microvm_host_tools_case_006 "${UPDATE_SCRIPT}"
+}

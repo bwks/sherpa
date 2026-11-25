@@ -30,6 +30,7 @@ CONTAINER_NAME="sherpa-db"
 SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
 SHERPA_LABS_DIR="${SHERPA_BASE_DIR}/labs"
+SHERPA_MICROVM_DIR="${SHERPA_BASE_DIR}/microvm"
 SHERPA_RUN_DIR="/run/sherpa"
 SHERPA_UPDATE_BACKUP_DIR="/var/backups/sherpa"
 SHERPA_ACCOUNT="sherpa"
@@ -508,6 +509,24 @@ remove_thp_boot_rule() {
 # Data Removal
 ################################################################################
 
+# Remove the microVM folder: Cloud Hypervisor, the kernel, the initramfs and the base disks, all
+# built again from the install script and the Docker images.
+remove_microvm_dir() {
+    if ! path_has_no_symlink "${SHERPA_MICROVM_DIR}"; then
+        return 1
+    fi
+    if [ ! -d "${SHERPA_MICROVM_DIR}" ]; then
+        print_info "Directory ${SHERPA_MICROVM_DIR} not found"
+        return 0
+    fi
+    if rm -rf "${SHERPA_MICROVM_DIR:?}"; then
+        print_success "Removed ${SHERPA_MICROVM_DIR}"
+    else
+        print_error "Failed to remove ${SHERPA_MICROVM_DIR}"
+        return 1
+    fi
+}
+
 remove_database_data() {
     if ! path_has_no_symlink "${SHERPA_DB_DIR}"; then
         return 1
@@ -640,6 +659,7 @@ print_removed() {
     echo "Removed, where present:"
     echo "  - The sherpad service, its log rotation rule and the transparent hugepages boot rule"
     echo "  - The sherpad binary and its link in /usr/local/bin"
+    echo "  - The microVM folder ${SHERPA_MICROVM_DIR}: Cloud Hypervisor, the kernel, the initramfs and the base disks"
     echo "  - The ${CONTAINER_NAME} container of a release before 0.5.0, if present"
     if [ "$REMOVE_ALL" = true ]; then
         echo "  - Everything in ${SHERPA_BASE_DIR}: the database and its backups, the database key,"
@@ -782,6 +802,7 @@ main() {
     remove_systemd_service
     remove_sherpad_binary
     remove_thp_boot_rule
+    remove_microvm_dir
     if check_docker_available; then
         stop_container
         remove_container

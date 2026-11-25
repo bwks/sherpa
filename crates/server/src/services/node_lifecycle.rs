@@ -34,6 +34,7 @@ use virt::sys::{
 
 use crate::services::error::ServiceError;
 use crate::services::lab_operations::{LabOperation, ObservedLab};
+use crate::services::microvm;
 
 /// What libvirt and Docker reported in one query. A runtime that did not answer is `None`:
 /// unknown this time, not empty, as empty would make every one of its nodes missing.
@@ -79,8 +80,9 @@ pub fn container_runtime(status: Option<ContainerStateStatusEnum>) -> Runtime {
     }
 }
 
-/// Every container's status, by container name, from one Docker listing. The listing's states
-/// are the inspection's, under another type, so they go through `container_runtime` too.
+/// Every container's status, by container name, from one Docker listing and the microVMs that
+/// run containers. The listing's states are the inspection's, under another type, so they go
+/// through `container_runtime` too.
 ///
 /// # Errors
 /// When Docker cannot list the containers.
@@ -107,6 +109,7 @@ pub async fn container_states(
             states.insert(name, status);
         }
     }
+    states.extend(microvm::microvm_states().await);
     Ok(states)
 }
 

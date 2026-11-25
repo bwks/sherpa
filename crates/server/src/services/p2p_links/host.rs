@@ -10,7 +10,9 @@ use tokio::task;
 use tracing::instrument;
 
 use super::veths::ContainerVeth;
+use crate::services::microvm;
 use crate::services::node_ops;
+use container::microvm::{MicroVmState, microvm_state};
 
 use shared::data::LinkImpairment;
 use shared::util;
@@ -127,6 +129,10 @@ impl LinkHost for KernelHost<'_> {
 
     #[instrument(skip(self), level = "debug")]
     async fn container_has_interface(&self, container: &str, iface: &str) -> Result<bool> {
+        if let Some(dir) = microvm::microvm_dir_of(container) {
+            // A microVM's NICs are fixed at its creation; it has them while it runs.
+            return Ok(microvm_state(&dir).await == MicroVmState::Running);
+        }
         let pid = container::get_container_pid(self.docker, container).await?;
         network::container_has_interface(pid, iface).await
     }

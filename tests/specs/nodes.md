@@ -176,3 +176,29 @@ Cases 001 to 020 are up, 021 to 026 resume, 027 and 028 redeploy, 029 to 035 the
 | 010 | When the server starts, a node an up or a redeploy was building is recorded `failed` | integration |
 
 `lab_up_004`, `lab_up_005` and `lab_redeploy_005` in [lab lifecycle](lab-lifecycle.md) show a failed node through up and redeploy: the exit code and log lines in the error, the rest of the lab kept, the non-zero exit. The cases here are the ways a node comes to be failed and stays so.
+
+## `privileged_microvm`: a privileged network-OS container runs in its own microVM
+
+**Statement:** a container node whose model needs `--privileged` (`arista_eos` and `nokia_srlinux` containers) runs from its image inside its own Cloud Hypervisor microVM, privileged in the guest kernel only, and does everything a container node does: management address, P2p links, impairment, console, SSH, readiness, redeploy, destroy and rollback.
+**Relied on by:** the user, the admin (no lab user gets root on the server). **Priority:** P0.
+
+| Case | What it shows | Level |
+|---|---|---|
+| 001 | The microVM definition carries the base, config and node disks, every NIC and the serial socket | unit |
+| 002 | The guest runs the container's command with only its own environment | unit |
+| 003 | A non-root image or manifest user runs the command as that user | unit |
+| 004 | The guest config names each NIC by its MAC, management first | unit |
+| 005 | A bind volume's file lands at its container path in the config ISO | unit |
+| 006 | A volume without a container path is refused | unit |
+| 007 | A base disk has room for its image archive and is whole MiB | unit |
+| 008 | Only the `arista_eos` and `nokia_srlinux` containers run in a microVM; their VM forms and other containers do not | unit |
+| 009 | Each NIC in a lab gets its own locally administered MAC | unit |
+| 010 | The manifest's environment overrides the image's | unit |
+| 011 | NICs beyond one PCI segment go on further segments, none over its 31 slots | unit |
+| 012 | An environment entry without `=` is left out, as Docker leaves it | unit |
+| 013 | A stopped microVM leaves no process, tap or runtime folder | integration |
+| 014 | Two `arista_eos` containers on a P2p link come up in microVMs, ping across the link, take impairment, answer `sherpa ssh` and `sherpa console`, and survive a redeploy of one (no test yet) | e2e |
+| 015 | Destroying a lab of microVM nodes leaves no Cloud Hypervisor process, tap, runtime or console socket, lab folder or Docker container (no test yet) | e2e |
+| 016 | An up that fails after a microVM started stops it before it returns (no test yet) | e2e |
+| 017 | No Docker container and no privileged process runs on the host for a microVM node (no test yet) | e2e |
+| 018 | Restarting sherpad leaves running microVMs running (no test yet) | e2e |

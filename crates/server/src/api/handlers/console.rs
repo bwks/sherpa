@@ -477,6 +477,7 @@ mod tests {
             lab_id: "abcd1234".to_owned(),
             node_name: node_name.to_owned(),
             domain: format!("{node_name}-abcd1234"),
+            microvm_serial: None,
         }
     }
 

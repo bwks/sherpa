@@ -139,7 +139,7 @@ tests. Run the crates you need:
 
 | Crate | Command | Needs |
 |---|---|---|
-| container | `cargo test -p container -- --ignored --test-threads=1` | Docker, `alpine:latest`; the IOL test also needs a `localrepo/cisco_iol` image built with docker-cisco-iol, and passes without running when there is none |
+| container | `cargo test -p container -- --ignored --test-threads=1` | Docker, `alpine:latest`; the IOL test also needs a `localrepo/cisco_iol` image built with docker-cisco-iol, and passes without running when there is none; `privileged_microvm_013` needs root (it makes a tap) and the microVM host tools the installer puts in `/opt/sherpa/microvm`: run its test binary with `sudo -n <binary> --ignored privileged_microvm_013` |
 | network | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p network -- --ignored --test-threads=1` | root (rtnetlink) |
 | sherpa (client) | `cargo test -p sherpa -- --ignored` | No route to TEST-NET-1 (`192.0.2.0/24`) other than a default route; takes about 10 s |
 | libvirt | `cargo test -p libvirt -- --ignored --test-threads=1` | libvirtd, `sherpa-pool` |

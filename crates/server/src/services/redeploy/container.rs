@@ -14,6 +14,7 @@ use crate::konst::{SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR};
 use crate::services::container_networks;
 use crate::services::keycloak;
 use crate::services::lab_operations::LabOperation;
+use crate::services::microvm::{self, MicroVmNode};
 use crate::services::node_lifecycle::{self, query_runtimes};
 use crate::services::node_ops::{self, ContainerZtpResult, LabZtp};
 use crate::services::node_secrets::secrets_for_redeploy;
@@ -93,30 +94,25 @@ pub(super) async fn redeploy_container(
     }
 
     let has_disabled = additional_networks.iter().any(|n| n.admin_down);
-    let is_running = node_ops::start_container_node(
-        &redeploy.state.docker,
-        &redeploy.state.qemu,
-        ContainerSpec {
-            name: container_name.clone(),
-            // The node name, as its own config names it; Docker's default is the ID.
-            hostname: Some(node_name.to_owned()),
-            image: container::image_reference(&ztp_result.image, &redeploy.node_image.version),
-            env_vars: ztp_result.env_vars,
-            volumes,
-            capabilities: ztp_result.capabilities,
-            management_network: mgmt_attachment,
-            additional_networks,
-            commands: ztp_result.commands,
-            privileged: ztp_result.privileged,
-            shm_size: ztp_result.shm_size,
-            user: ztp_result.user,
-            memory_mib: redeploy.db_node.memory.map(u64::from),
-            cpu_count: redeploy.db_node.cpu_count,
-        },
-        redeploy.target_node.model_kind,
-        redeploy.progress,
-    )
-    .await?;
+    let spec = ContainerSpec {
+        name: container_name.clone(),
+        // The node name, as its own config names it; Docker's default is the ID.
+        hostname: Some(node_name.to_owned()),
+        image: container::image_reference(&ztp_result.image, &redeploy.node_image.version),
+        env_vars: ztp_result.env_vars,
+        volumes,
+        capabilities: ztp_result.capabilities,
+        management_network: mgmt_attachment,
+        additional_networks,
+        commands: ztp_result.commands,
+        privileged: ztp_result.privileged,
+        shm_size: ztp_result.shm_size,
+        user: ztp_result.user,
+        memory_mib: redeploy.db_node.memory.map(u64::from),
+        cpu_count: redeploy.db_node.cpu_count,
+    };
+    let in_microvm = redeploy.target_node.model_kind.runs_in_microvm();
+    let is_running = start_node(redeploy, spec, &p2p_veths).await?;
 
     if !is_running {
         bail!("Container {container_name} is not in running state after redeploy");
@@ -136,7 +132,16 @@ pub(super) async fn redeploy_container(
         network::set_link_state(&isolated.bridge_name, false).await?;
     }
 
-    let link_reports = attach_links(redeploy, &lab_links, container_name, p2p_veths).await;
+    let end = if in_microvm {
+        // Cloud Hypervisor made the link ends as taps, as libvirt does for a domain.
+        RecreatedEnd::Domain
+    } else {
+        RecreatedEnd::Container {
+            container: container_name,
+            veths: p2p_veths,
+        }
+    };
+    let link_reports = attach_links(redeploy, &lab_links, end).await;
 
     match ready_wait(&redeploy.db_node.ready_check) {
         ReadyWait::Port(_) => {
@@ -156,27 +161,58 @@ pub(super) async fn redeploy_container(
     Ok(link_reports)
 }
 
-/// Make the redeployed container's veths, attach its links, and report each link's state.
+/// Start the redeployed container from `spec`: in its own microVM, with `veths` as taps, when
+/// its model runs in one, and in Docker otherwise. Returns whether it runs.
+async fn start_node(
+    redeploy: &Redeploy<'_>,
+    spec: ContainerSpec,
+    veths: &[ContainerVeth],
+) -> Result<bool> {
+    let model_kind = redeploy.target_node.model_kind;
+    if !model_kind.runs_in_microvm() {
+        return node_ops::start_container_node(
+            &redeploy.state.docker,
+            &redeploy.state.qemu,
+            spec,
+            model_kind,
+            redeploy.progress,
+        )
+        .await;
+    }
+    let node = MicroVmNode {
+        lab_id: &redeploy.lab_id,
+        node_name: &redeploy.node_name,
+        node_index: redeploy.db_node.index,
+        veths: veths.iter().collect(),
+    };
+    microvm::start_microvm_node(
+        &redeploy.state.docker,
+        &spec,
+        model_kind,
+        &node,
+        redeploy.progress,
+    )
+    .await
+}
+
+/// Make the redeployed container's link ends as `end` says, attach its links, and report each
+/// link's state.
 async fn attach_links(
     redeploy: &Redeploy<'_>,
     lab_links: &LabLinks,
-    container_name: String,
-    veths: Vec<ContainerVeth>,
+    end: RecreatedEnd,
 ) -> Vec<LinkReport> {
-    if veths.is_empty() {
+    let no_ends = match &end {
+        RecreatedEnd::Container { veths, .. } => veths.is_empty(),
+        RecreatedEnd::Domain | RecreatedEnd::Unplanned(_) => {
+            node_links(lab_links.links(), &redeploy.node_record_id).is_empty()
+        }
+    };
+    if no_ends {
         return vec![];
     }
     let host = KernelHost::new(&redeploy.state.docker, &redeploy.state.qemu);
-    let outcomes = reattach_node_links(
-        &host,
-        lab_links,
-        &redeploy.node_record_id,
-        RecreatedEnd::Container {
-            container: container_name,
-            veths,
-        },
-    )
-    .await;
+    let outcomes = reattach_node_links(&host, lab_links, &redeploy.node_record_id, end).await;
     let reports = report_links(
         &host,
         lab_links,

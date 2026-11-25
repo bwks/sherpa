@@ -28,7 +28,7 @@ use libvirt::{
     ConsoleSockets, SerialConsole, VncConsole, move_consoles_to_sockets, serial_console,
     vnc_console,
 };
-use shared::data::NodeKind;
+use shared::data::{ModelKind, NodeKind};
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_owner;
@@ -50,6 +50,7 @@ pub struct ConsoleTarget {
     pub lab_id: String,
     pub node_name: String,
     pub domain: String,
+    pub microvm_serial: Option<String>,
 }
 
 /// The folder of lab `lab_id`'s console sockets under `root`.
@@ -173,7 +174,16 @@ pub async fn console_target(
         .await
         .context("Failed to read the node's image")?
         .ok_or_else(|| anyhow!("Node '{node_name}' has no image"))?;
+    let in_microvm = image.model_kind().is_ok_and(ModelKind::runs_in_microvm);
     match (image.kind(), kind) {
+        (NodeKind::Container, ConsoleKind::Serial) if in_microvm => {
+            return Ok(ConsoleTarget {
+                lab_id: lab_id.to_owned(),
+                node_name: node_name.to_owned(),
+                domain: format!("{node_name}-{lab_id}"),
+                microvm_serial: Some(socket_path(lab_id, node.index, ConsoleKind::Serial)?),
+            });
+        }
         (NodeKind::Container, _) => {
             return Err(ServiceError::Invalid(format!(
                 "{node_name} is a container, and containers have no {kind}. Connect with \
@@ -194,6 +204,7 @@ pub async fn console_target(
         lab_id: lab_id.to_owned(),
         node_name: node_name.to_owned(),
         domain: format!("{node_name}-{lab_id}"),
+        microvm_serial: None,
     })
 }
 
@@ -210,6 +221,12 @@ pub async fn console_socket(
     target: &ConsoleTarget,
     kind: ConsoleKind,
 ) -> Result<String> {
+    if let Some(serial) = &target.microvm_serial {
+        let reached = Path::new(serial)
+            .exists()
+            .then(|| Reached::Socket(serial.clone()));
+        return socket_of(&target.node_name, kind, reached).map_err(Into::into);
+    }
     let qemu = state.qemu.clone();
     let domain = target.domain.clone();
     let reached = task::spawn_blocking(move || -> Result<Option<Reached>> {
@@ -487,6 +504,7 @@ mod tests {
                     lab_id: "abcd1234".to_owned(),
                     node_name: "node1".to_owned(),
                     domain: "node1-abcd1234".to_owned(),
+                    microvm_serial: None,
                 }
             );
             for (name, admin, expected) in [

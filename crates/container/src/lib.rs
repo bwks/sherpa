@@ -5,6 +5,7 @@ mod connect;
 mod container;
 mod error;
 mod image;
+pub mod microvm;
 #[cfg(test)]
 mod mock_docker;
 mod network;

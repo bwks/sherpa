@@ -25,6 +25,13 @@ sudo ./scripts/sherpa_install.sh
 - Creates the blank disk templates in `/opt/sherpa/images/blank_disk/` that node ZTP disks are
   copied from, each only if it is missing (see "Blank disks" in `docs/architecture/ZTP.md`)
 - Pulls the Sherpa router container image by the digest the script pins, tagged `:latest`
+- Prepares `/opt/sherpa/microvm/`, which the privileged container models run in: installs
+  `busybox-static`, `linux-modules-extra` for the running kernel, `zstd` and `cpio`; installs
+  Cloud Hypervisor, root's `0755`, after checking its SHA-256 against the one the script pins;
+  builds the guest `initramfs.img` and copies the running kernel as `vmlinuz` with
+  `scripts/microvm/build-guest.sh`, fetched with `init` and `modules.list` from the repository at
+  the release's tag (or from `microvm/` in `SHERPA_ARTIFACT_DIR`); and makes `images/`, which
+  `sherpad` writes base disks to, `sherpa`'s
 - Installs the binaries, the sherpad systemd service and its environment file. Run again, it
   keeps an existing `sherpa.env` line for line and adds only the settings it lacks
 - Refuses a server older than 0.5.0 (a `sherpa-db` SurrealDB container exists)
@@ -52,7 +59,9 @@ On every run, including one with nothing to install, it creates the blank disk t
 are missing, installing `qemu-utils`, `dosfstools` and `e2fsprogs` first if a tool is missing.
 Existing disks are never changed. Running it again is how a server gets a disk that was removed.
 It also pulls the router image by the digest the release pins, before sherpad stops, and names it
-in its closing summary; a pull that fails stops the update with nothing changed.
+in its closing summary; a pull that fails stops the update with nothing changed. Before sherpad
+stops it also does the microVM step of the install: it installs the packages, installs Cloud
+Hypervisor again and rebuilds the initramfs and the kernel copy for the running kernel.
 
 ### `sherpa_client_install.ps1`
 Installs or updates the Sherpa CLI client on Windows. No administrator privileges required.
@@ -87,8 +96,10 @@ irm https://raw.githubusercontent.com/bwks/sherpa/main/scripts/sherpa_client_ins
 - Internet access to GitHub
 
 ### `sherpa_uninstall.sh`
-Removes the sherpad service and binaries, the `sherpa-db` container of a release before 0.5.0
-if one is left, and optionally the data.
+Removes the sherpad service and binaries, `/opt/sherpa/microvm` (Cloud Hypervisor, the kernel,
+the initramfs and the base disks, which are made again from the install script and the Docker
+images), the `sherpa-db` container of a release before 0.5.0 if one is left, and optionally the
+data.
 
 **Usage:**
 ```bash
@@ -127,8 +138,9 @@ All scripts can be run from the repository root:
 sudo -E ./scripts/sherpa_install.sh --version v0.3.79
 ```
 
-### Blank disks, server folders and the router image
-`sherpa_install.sh` and `sherpa_update.sh` carry the same blank disk section, between
+### Blank disks, server folders, the router image and the microVM host tools
+`sherpa_install.sh` and `sherpa_update.sh` carry the same microVM host tools section, between
+`# BEGIN microvm host tools` and `# END microvm host tools`, the same blank disk section, between
 `# BEGIN blank disks` and `# END blank disks`, the same server folders section, between
 `# BEGIN server folders` and `# END server folders`, and the same router image section, with its
 pinned digest, between `# BEGIN router image` and `# END router image`, because each is fetched

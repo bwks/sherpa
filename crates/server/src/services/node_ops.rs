@@ -26,6 +26,7 @@ use crate::services::guest_account::{self, GuestAccount, KeyFormat, PasswordForm
 use crate::services::image_lifecycle::ImageLease;
 use crate::services::keycloak::api::keycloak_address;
 use crate::services::keycloak::lab::{KEYCLOAK_DIR, ensure_keycloak_credentials};
+use crate::services::microvm;
 use crate::services::p2p_links::{KernelHost, LinkHost};
 use crate::services::progress::ProgressSender;
 use crate::services::surreal_db::{
@@ -4614,6 +4615,7 @@ pub async fn destroy_container_node(
     lab_id: &str,
 ) -> Result<()> {
     let container_name = format!("{node_name}-{lab_id}");
+    microvm::stop_microvm_node(lab_id, node_name).await?;
     // Killing fails when the container is not running, which is fine: it is removed next.
     if let Err(error) = container::kill_container(docker, &container_name).await {
         tracing::debug!(container = %container_name, error = %error, "Container not killed");

@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use opentelemetry::KeyValue;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
+use container::microvm::stop_lab_microvms;
 use container::tailscale::{Logout, gateway_name, is_gateway, remove_gateway};
 use container::{
     Docker, delete_network, kill_container, list_containers, list_networks, remove_container,
@@ -244,6 +245,7 @@ async fn destroy_compute(
     let containers_timer = Instant::now();
     tracing::info!(lab_id = %lab_id, "Destroying containers");
     send_progress(progress, "Destroying containers...", StatusKind::Progress);
+    destroy_microvms(lab_id, errors).await;
     destroy_containers(
         lab_id,
         &state.docker,
@@ -519,6 +521,18 @@ fn is_lab_interface(interface: &str, lab_id: &str) -> bool {
         .iter()
         .any(|prefix| interface.starts_with(prefix.as_str()))
         && is_lab_resource(interface, lab_id)
+}
+
+/// Stop the microVMs of lab `lab_id`, the containers that run in one; their taps go with them.
+#[instrument(skip(errors), level = "debug")]
+async fn destroy_microvms(lab_id: &str, errors: &mut Vec<DestroyError>) {
+    if let Err(error) = stop_lab_microvms(lab_id).await {
+        errors.push(DestroyError::new(
+            "microvm",
+            lab_id,
+            Unexpected::log(&error, "Failed to stop a microVM").to_string(),
+        ));
+    }
 }
 
 /// Destroy all containers for a lab

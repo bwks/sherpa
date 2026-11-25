@@ -6,6 +6,8 @@ pub(crate) const SHERPA_BLANK_DISK_DIR: &str = "blank_disk";
 pub(crate) const SHERPA_CONFIG_FILE_PATH: &str = "/opt/sherpa/config/sherpa.toml";
 pub(crate) const SHERPA_SERVER_CERT_PATH: &str = "/opt/sherpa/.certs/server.crt";
 pub(crate) const SHERPA_MANAGEMENT_NETWORK_NAME: &str = "sherpa-management";
+/// The prefix of a lab's management Linux bridge, `brm-<lab_id>`.
+pub(crate) const SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX: &str = "brm";
 pub(crate) const SHERPA_ADMIN_PASSWORD_ENV: &str = "SHERPA_ADMIN_PASSWORD";
 pub(crate) const TAP_PREFIX: &str = "tp";
 /// Host side of a P2p container's private bridge member veth; it joins the bridge.

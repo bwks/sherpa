@@ -776,6 +776,105 @@ pull_sherpa_router_image() {
 # END router image
 
 ################################################################################
+# MicroVM Host Tools
+################################################################################
+# This section is the same in sherpa_install.sh and sherpa_update.sh, between the BEGIN and END
+# lines; tests/bats/install_tests.bats runs its cases against each copy.
+# BEGIN microvm host tools
+
+# What sherpad runs the privileged container models in: the Cloud Hypervisor binary, pinned by its
+# SHA-256, the host's kernel and an initramfs that scripts/microvm/build-guest.sh builds from it.
+MICROVM_DIR="${SHERPA_BASE_DIR}/microvm"
+MICROVM_IMAGES_DIR="${MICROVM_DIR}/images"
+CLOUD_HYPERVISOR_VERSION="v55.0"
+CLOUD_HYPERVISOR_URL="https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/${CLOUD_HYPERVISOR_VERSION}/cloud-hypervisor-static"
+CLOUD_HYPERVISOR_SHA256="ce7133bf535ed5a4e2a63ea1f26025445a5b1241f73ddfb81ff2fbcb2e803a59"
+# The files of scripts/microvm that build the initramfs, fetched from the release's tag.
+MICROVM_GUEST_FILES=(build-guest.sh init modules.list)
+MICROVM_GUEST_URL="https://raw.githubusercontent.com/${GITHUB_REPO}"
+
+# Install the packages the guest is built from: busybox, the kernel's extra modules (vrf, mpls),
+# zstd to unpack the modules and cpio to pack the initramfs.
+install_microvm_packages() {
+    local packages=(busybox-static "linux-modules-extra-$(uname -r)" zstd cpio)
+    print_info "Installing the microVM packages: ${packages[*]}"
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${packages[@]}"
+}
+
+# Make the microVM folder and its images folder, owned by sherpa, which writes the base disks.
+ensure_microvm_dirs() {
+    path_has_no_symlink "${MICROVM_DIR}" || return 1
+    install -d -o sherpa -g sherpa -m 755 "${MICROVM_DIR}" "${MICROVM_IMAGES_DIR}"
+}
+
+# Download Cloud Hypervisor and install it, root's and 0755, once its SHA-256 is the one pinned
+# above. A binary that differs stops the script before anything is installed.
+install_cloud_hypervisor() {
+    print_info "Installing Cloud Hypervisor ${CLOUD_HYPERVISOR_VERSION}..."
+    local tmp
+    tmp="$(mktemp)"
+    if ! curl -fsSL --connect-timeout 15 --retry 3 --retry-all-errors -o "${tmp}" "${CLOUD_HYPERVISOR_URL}"; then
+        rm -f "${tmp}"
+        print_error "Could not download Cloud Hypervisor: ${CLOUD_HYPERVISOR_URL}"
+        return 1
+    fi
+    if [ "$(sha256sum "${tmp}" | awk '{ print $1 }')" != "${CLOUD_HYPERVISOR_SHA256}" ]; then
+        rm -f "${tmp}"
+        print_error "Cloud Hypervisor at ${CLOUD_HYPERVISOR_URL} is not the one this script trusts"
+        print_error "  expected SHA-256 ${CLOUD_HYPERVISOR_SHA256}"
+        return 1
+    fi
+    install -o root -g root -m 755 "${tmp}" "${MICROVM_DIR}/cloud-hypervisor"
+    rm -f "${tmp}"
+    print_success "Cloud Hypervisor installed to ${MICROVM_DIR}/cloud-hypervisor"
+}
+
+# Copy the guest build files into the folder $1: from ${SHERPA_ARTIFACT_DIR}/microvm when local
+# artifacts are used, otherwise from the repository at the tag of the release being installed.
+fetch_microvm_guest_files() {
+    local dest="$1" file
+    for file in "${MICROVM_GUEST_FILES[@]}"; do
+        if [ -n "${SHERPA_ARTIFACT_DIR}" ]; then
+            cp "${SHERPA_ARTIFACT_DIR}/microvm/${file}" "${dest}/${file}" || return 1
+        else
+            curl -fsSL --connect-timeout 15 --retry 3 --retry-all-errors -o "${dest}/${file}" \
+                "${MICROVM_GUEST_URL}/${SHERPA_VERSION}/scripts/microvm/${file}" || return 1
+        fi
+    done
+}
+
+# Build the initramfs from the running kernel's modules and install it, with the kernel, in the
+# microVM folder. Run on every install and update, as the kernel may have changed.
+build_microvm_guest() {
+    print_info "Building the microVM guest for kernel $(uname -r)..."
+    local src status=0
+    src="$(mktemp -d)"
+    if ! fetch_microvm_guest_files "${src}"; then
+        rm -rf "${src}"
+        print_error "Could not fetch the microVM guest build files for ${SHERPA_VERSION}"
+        return 1
+    fi
+    sh "${src}/build-guest.sh" "${src}" "${MICROVM_DIR}" || status=1
+    rm -rf "${src}"
+    if [ "${status}" -ne 0 ]; then
+        print_error "Could not build the microVM guest"
+        return 1
+    fi
+    print_success "microVM guest installed in ${MICROVM_DIR}"
+}
+
+# Install everything the microVM nodes need on the host.
+install_microvm_host_tools() {
+    install_microvm_packages
+    ensure_microvm_dirs
+    install_cloud_hypervisor
+    build_microvm_guest
+}
+
+# END microvm host tools
+
+################################################################################
 # Install Binaries
 ################################################################################
 
@@ -1023,6 +1122,10 @@ ExecStart=/opt/sherpa/bin/sherpad start --foreground
 # Restart policy
 Restart=on-failure
 RestartSec=5
+
+# Stopping sherpad stops only sherpad: the Cloud Hypervisor microVMs it started keep running,
+# as libvirt domains do, and sherpad finds them again by their API sockets.
+KillMode=process
 
 # Environment configuration (optional file)
 EnvironmentFile=-/opt/sherpa/env/sherpa.env
@@ -1277,6 +1380,7 @@ main() {
     
     # Install binaries and systemd service
     install_binaries
+    install_microvm_host_tools
     install_systemd_service
     
     echo ""

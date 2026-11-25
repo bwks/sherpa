@@ -7,7 +7,8 @@ carrier; the behaviour is in [`tests/specs/links-and-bridges.md`](../../tests/sp
 
 ## How It Works
 
-Each end has a host interface: a tap for a VM or unikernel, a veth for a container. On each,
+Each end has a host interface: a tap for a VM or unikernel, a veth for a container, and a tap
+Cloud Hypervisor makes for a container that runs in a microVM ([`MICROVM.md`](MICROVM.md)). On each,
 `network::attach_p2p_redirect` attaches one shared program to ingress, with the peer's ifindex
 in its map, and it redirects every frame to the peer's egress. Nothing sits between the ends. A
 VM's tap is pre-made by libvirt (`<interface type='ethernet'>`) with an MTU of 9600: a redirect
