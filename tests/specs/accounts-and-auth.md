@@ -41,7 +41,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `access_control`: an operation on a lab is carried out only for a user allowed to do it
 
-**Statement:** an operation on a lab is carried out only for a user allowed to do it: authenticated, and the lab's owner where the operation is the owner's.
+**Statement:** an operation on a lab is carried out only for a user allowed to do it: authenticated, and the lab's owner where the operation is the owner's; a user who is neither the lab's owner nor an admin is answered as for a lab that does not exist, so no answer tells them whether another user has a lab.
 **Relied on by:** the user, the admin. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -54,16 +54,18 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 006 | An admin who does not own a lab is refused `sherpa ssh` to its nodes, before anything connects | e2e |
 | 007 | An admin who does not own a lab is refused its consoles by the server | e2e |
 | 008 | An admin can destroy a lab they do not own | e2e |
-| 009 | Each lab operation is carried out for the lab's owner and for an admin, and refused to any other user, over RPC, REST and the web UI | integration |
+| 009 | Each lab operation is carried out for the lab's owner and for an admin, and any other user gets the answer for a lab that does not exist, over RPC, REST and the web UI | integration |
 | 010 | A lab's files, node secrets and host keys are given to its owner only, an admin refused, over every transport | integration |
 | 011 | A user's lab list holds their own labs only; an admin gets another user's by asking for them, and a request with no login gets none | integration |
 | 012 | The page and the progress stream of a web job are served to its creator and to an admin, and to no other user | integration |
-| 013 | A node operation is refused to a user who does not own the lab, and an unknown lab or node is answered not found | integration |
+| 013 | A node operation on another user's lab, on an unknown lab and on an unknown node is answered not found | integration |
 | 014 | Only an admin's manifest may give a container host access: privileged mode or a host volume | integration |
 | 015 | A request with no token is refused: auth required for every RPC method but login and validate, 401 over REST, and a page sends the browser to the login page | integration |
 | 016 | The CLI refuses to connect to the nodes of a lab folder whose lab belongs to another user, before it asks the server, and takes a folder with only a manifest as the user's own | unit |
 | 017 | A refusal for CPUs another lab holds names that lab to its owner and to an admin, and says only "another lab" to anyone else | unit |
 | 018 | The server never reads a file a manifest names, such as a key file or a script: the client sends the content | integration |
+| 019 | Every RPC, REST and web route that takes a lab ID answers another user's lab with the same status, error code and body as the same lab ID once the lab is gone: not found | integration |
+| 020 | The destroy button of a lab is served to its owner and an admin, and is not found for any other user | integration |
 
 ## `account_keys`: a user's SSH keys are added only by that user
 

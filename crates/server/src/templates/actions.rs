@@ -63,8 +63,17 @@ impl LabActions {
 }
 
 impl NodeActions {
+    /// The node's actions for its state, with redeploy offered only to the lab's owner.
+    pub fn for_node(state: NodeState, owns_lab: bool) -> Self {
+        let actions = Self::for_state(state);
+        Self {
+            redeploy: actions.redeploy && owns_lab,
+            ..actions
+        }
+    }
+
     /// A node being built offers nothing; a missing one only redeploy.
-    pub fn for_state(state: NodeState) -> Self {
+    fn for_state(state: NodeState) -> Self {
         match state {
             NodeState::Building => Self::default(),
             NodeState::Starting | NodeState::Running => Self {
@@ -82,6 +91,33 @@ impl NodeActions {
                 stop: false,
                 redeploy: true,
             },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lab_page_016_an_admin_who_does_not_own_the_lab_is_offered_no_redeploy() {
+        for state in [
+            NodeState::Building,
+            NodeState::Starting,
+            NodeState::Running,
+            NodeState::Stopped,
+            NodeState::Failed,
+            NodeState::Missing,
+            NodeState::Unknown,
+        ] {
+            assert_eq!(
+                NodeActions::for_node(state, false),
+                NodeActions {
+                    redeploy: false,
+                    ..NodeActions::for_node(state, true)
+                },
+                "{state}"
+            );
         }
     }
 }

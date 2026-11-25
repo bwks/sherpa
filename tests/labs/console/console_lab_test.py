@@ -137,8 +137,14 @@ def path_without(*tools):
 
 
 def refused_to(lab_id):
-    """What the server says to anyone but the owner of lab `lab_id` asking for a console."""
+    """What the server says to an admin who does not own lab `lab_id` asking for a console."""
     return f"Access denied: only the owner of lab '{lab_id}' can open its consoles"
+
+
+def not_found(lab_id):
+    """What the server says to a user who is not an admin asking for a console of another
+    user's lab `lab_id`: the answer for a lab that does not exist."""
+    return f"Lab not found: {lab_id}"
 
 
 def connected_line(lab_name):
@@ -751,18 +757,18 @@ def test_vnc_console_007_once_a_viewer_leaves_the_next_one_gets_the_banner(lab, 
     require(banner == RFB_BANNER, f"a viewer after the first left got {banner!r}; see {lab.log.name}")
 
 
-def test_console_access_001_another_user_is_refused_the_console_as_not_the_owner(lab):
+def test_console_access_001_another_user_is_refused_the_console_as_a_lab_not_found(lab):
     label = f"console as the user {lab.user.username}"
     outcome = lab.as_account(lab.user, label, ["console", VM], CONSOLE_TIMEOUT)
     require(outcome.code not in (0, None), f"{label} succeeded")
-    require(refused_to(lab.lab_id) in outcome.output, f"{label} was not refused as not the owner; see {lab.log.name}")
+    require(not_found(lab.lab_id) in outcome.output, f"{label} was not refused as a lab not found; see {lab.log.name}")
 
 
 def test_console_access_002_another_user_and_an_admin_are_refused_vnc_with_no_address(lab):
-    for account in (lab.user, lab.admin):
+    for account, message in ((lab.user, not_found(lab.lab_id)), (lab.admin, refused_to(lab.lab_id))):
         label = f"vnc as the {account.role} {account.username}"
         outcome = lab.as_account(account, label, ["vnc", VM], VNC_TIMEOUT)
-        require_vnc_refused(lab, label, outcome, refused_to(lab.lab_id))
+        require_vnc_refused(lab, label, outcome, message)
 
 
 def test_console_session_001_a_second_console_fails_naming_the_holder_and_offering_force(lab, at_login):

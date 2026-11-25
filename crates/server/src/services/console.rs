@@ -489,7 +489,20 @@ mod tests {
                     domain: "node1-abcd1234".to_owned(),
                 }
             );
-            for (name, admin) in [("bob", false), ("dana", true)] {
+            for (name, admin, expected) in [
+                (
+                    "bob",
+                    false,
+                    ServiceError::NotFound("Lab not found: abcd1234".to_owned()),
+                ),
+                (
+                    "dana",
+                    true,
+                    ServiceError::Denied(
+                        "only the owner of lab 'abcd1234' can open its consoles".to_owned(),
+                    ),
+                ),
+            ] {
                 let error = console_target(
                     &AuthContext::for_test(name, admin),
                     &db,
@@ -499,13 +512,7 @@ mod tests {
                 )
                 .await
                 .unwrap_err();
-                assert_eq!(
-                    refusal(&error),
-                    Some(ServiceError::Denied(
-                        "only the owner of lab 'abcd1234' can open its consoles".to_owned()
-                    )),
-                    "{name} {kind}"
-                );
+                assert_eq!(refusal(&error), Some(expected), "{name} {kind}");
             }
         }
     }

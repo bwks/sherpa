@@ -5,7 +5,7 @@ What Sherpa shows about labs and nodes, and to whom: what `sherpa inspect` print
 Other areas own what is shown when it is the subject of their behaviour:
 
 - What state a node is in, and that inspect reads a container's from Docker, is `node_state` in [nodes.md](nodes.md), with which actions a node's state allows (`node_state_020`). A lab's status from its nodes is `lab_status` in [lab-lifecycle.md](lab-lifecycle.md).
-- Who may see a lab, a list or a job, over RPC, REST and the web UI, is `access_control` in [accounts-and-auth.md](accounts-and-auth.md): an admin inspecting another user's lab (`004`), every lab operation (`009`), the lab lists (`011`), web jobs (`012`), unknown labs and nodes (`013`), no login (`015`). The admin pages are `admin_only_004`. Login, the session cookie, the login page and its notices are `user_login` and `user_sessions`; the profile page is `account_keys`, `user_passwords` and `device_password`.
+- Who may see a lab, a list or a job, over RPC, REST and the web UI, is `access_control` in [accounts-and-auth.md](accounts-and-auth.md): an admin inspecting another user's lab (`004`), every lab operation (`009`), the lab lists (`011`), web jobs (`012`), unknown labs and nodes (`013`), another user's lab answered as one that does not exist (`019`), the destroy button (`020`), no login (`015`). The admin pages are `admin_only_004`. Login, the session cookie, the login page and its notices are `user_login` and `user_sessions`; the profile page is `account_keys`, `user_passwords` and `device_password`.
 - What a link's state is, and what the server reports for it, is `link_state` in [links-and-bridges.md](links-and-bridges.md). How the CLI prints it is `cli_tables_011` here.
 - The Tailscale table and the status in it are `tailnet_status` in [tailnet.md](tailnet.md). The Provisioning table is `provision_report_003` in [provisioning.md](provisioning.md). The image tables and the admin image pages are `image_list`, `image_settings` and `image_import` in [images.md](images.md).
 - Start, stop, redeploy and destroy from the web UI are the operations of [lab-lifecycle.md](lab-lifecycle.md) and [nodes.md](nodes.md); what a manifest pasted in the web UI is refused for is in [manifests.md](manifests.md), `provisioner_secrecy_002` and `tailnet_key_011`. The lab download, and the files in it, are `saved_lab_files` and `access_control_010`.
@@ -128,8 +128,9 @@ Each lab's status is `lab_status_006`. Whose labs a list holds is `access_contro
 | 013 | After a start, stop or redeploy the page says which nodes were taken, and each link left unattached with the reason, in red when a node or a link failed (no test yet) | e2e (browser) |
 | 014 | An error page is served as HTML with its own status, 404 or 403 | unit |
 | 015 | A lab that does not exist is a 404 page saying so, and any other failure to load a lab is a 404 page too, with a general message (no test yet) | integration |
+| 016 | An admin who does not own the lab is offered no redeploy of its nodes, on the lab's page, its nodes table and a node's page, and every other action its owner is | unit |
 
-That another user's lab is refused is `access_control_009`. A lab with a Tailscale gateway offers the `sherpa resume` instruction in place of start: `tailnet_suspend_026`. Which actions a node's row offers is `node_state_020`.
+That another user's lab is answered as a lab that does not exist is `access_control_009` and `019`. A lab with a Tailscale gateway offers the `sherpa resume` instruction in place of start: `tailnet_suspend_026`. Which actions a node's row offers is `node_state_020`.
 
 ## `node_page`: a node's page shows the node as it was built
 

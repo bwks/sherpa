@@ -1832,14 +1832,13 @@ async fn create_keyed_user(server: &TestServer, name: &str, is_admin: bool) -> R
     Ok(user)
 }
 
-/// RPC redeploy as `username`: the owner reaches the node lookup, anyone else is refused
-/// before any progress is streamed.
+/// RPC redeploy as `username`: the owner reaches the node lookup, an admin is refused and
+/// anyone else told the lab is not found, before any progress is streamed.
 async fn check_redeploy_rpc(
     ws: &mut TestWsClient,
     lab_id: &str,
     owner: &str,
-    username: &str,
-    token: &str,
+    (username, token, is_admin): (&str, &str, bool),
 ) -> Result<()> {
     let owns_lab = username == owner;
     let (statuses, response) = ws.rpc_call_streaming("redeploy", json!({
@@ -1847,7 +1846,7 @@ async fn check_redeploy_rpc(
         "username": owner,
         "manifest": { "name": "auth-test", "nodes": [{ "name": "vm", "model": "ubuntu_linux" }] },
     }), Duration::from_secs(30)).await?;
-    let expected = if owns_lab {
+    let expected = if owns_lab || !is_admin {
         RpcErrorCode::NotFound
     } else {
         RpcErrorCode::AccessDenied
@@ -1873,16 +1872,20 @@ async fn check_redeploy_rpc(
 }
 
 /// REST and cookie redeploy as `username`: the owner gets past authorization to the missing
-/// manifest, anyone else gets 403.
+/// manifest, an admin gets 403 and anyone else 404.
 async fn check_redeploy_http(
     http: &Client,
     server: &TestServer,
     lab_id: &str,
     owner: &str,
-    username: &str,
-    token: &str,
+    (username, token, is_admin): (&str, &str, bool),
 ) -> Result<()> {
     let owns_lab = username == owner;
+    let refusal = if is_admin {
+        StatusCode::FORBIDDEN
+    } else {
+        StatusCode::NOT_FOUND
+    };
     // Missing manifest yields 400 only after owner authorization passes.
     let response = http
         .post(format!(
@@ -1898,7 +1901,7 @@ async fn check_redeploy_http(
             == if owns_lab {
                 StatusCode::BAD_REQUEST
             } else {
-                StatusCode::FORBIDDEN
+                refusal
             },
         "Wrong HTTP authorization for {username}: {}",
         response.status()
@@ -1920,7 +1923,7 @@ async fn check_redeploy_http(
             == if owns_lab {
                 StatusCode::CONFLICT
             } else {
-                StatusCode::FORBIDDEN
+                refusal
             },
         "Wrong cookie authorization for {username}: {}",
         response.status()
@@ -1944,9 +1947,9 @@ async fn access_control_002_only_the_labs_owner_can_redeploy_over_rpc_and_http()
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
     let callers = [
-        ("alice", alice_token.as_str()),
-        ("bob", bob_token.as_str()),
-        ("dana", admin_token.as_str()),
+        ("alice", alice_token.as_str(), false),
+        ("bob", bob_token.as_str(), false),
+        ("dana", admin_token.as_str(), true),
     ];
     // Lab ownership is immutable, so exercise both regular-user and admin-owned labs.
     for (index, owner) in [&alice, &bob, &admin].into_iter().enumerate() {
@@ -1966,9 +1969,9 @@ async fn access_control_002_only_the_labs_owner_can_redeploy_over_rpc_and_http()
         .await?;
         // As `up` leaves it once built: a redeploy needs a ready lab.
         db::update_lab_phase_from(&server.db, &lab_id, LabPhase::Creating, LabPhase::Ready).await?;
-        for (username, token) in callers {
-            check_redeploy_rpc(&mut ws, &lab_id, &owner.username, username, token).await?;
-            check_redeploy_http(&http, &server, &lab_id, &owner.username, username, token).await?;
+        for caller in callers {
+            check_redeploy_rpc(&mut ws, &lab_id, &owner.username, caller).await?;
+            check_redeploy_http(&http, &server, &lab_id, &owner.username, caller).await?;
         }
         ensure!(
             db::list_nodes_by_lab(&server.db, db::get_lab_id(&lab)?)

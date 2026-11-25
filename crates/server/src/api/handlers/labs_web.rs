@@ -12,9 +12,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::api::request_parse::FormBody;
 use crate::api::sse::{destroy_progress_stream, up_progress_stream};
-use crate::auth::policy::{
-    LabRule, check_lab_rule, require_lab_access, require_lab_owner, require_lab_starter,
-};
+use crate::auth::policy::{require_lab_access, require_lab_owner, require_lab_starter};
 use crate::auth::session::SessionLookup;
 use crate::daemon::state::AppState;
 use crate::daemon::state::{Job, JobType};
@@ -232,7 +230,7 @@ pub async fn node_redeploy_handler(
     Path((lab_id, node_name)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let auth = auth.into_context();
-    // Checked before reading the definition so a non-owner gets 403, not a refusal.
+    // Checked before reading the definition so a refusal keeps its status.
     let db_lab = require_lab_owner(&auth, &state.db, &lab_id).await?;
     let lab_record_id = db::get_lab_id(&db_lab).map_err(ApiError::from)?;
 
@@ -287,8 +285,7 @@ pub async fn node_redeploy_handler(
 /// Returns HTML page with lab details
 ///
 /// # Errors
-/// - `403 Forbidden` - User doesn't have permission to view this lab
-/// - `404 Not Found` - Lab doesn't exist
+/// - `404 Not Found` - Lab doesn't exist, or another user owns it and the caller is not an admin
 /// - `500 Internal Server Error` - Server error while fetching lab details
 ///
 pub async fn lab_detail_handler(
@@ -306,8 +303,7 @@ pub async fn lab_detail_handler(
     let ctx = auth.context();
     match inspect::inspect_lab(&ctx, &lab_id, &state).await {
         Ok(response) => {
-            let owns_lab =
-                check_lab_rule(&ctx, LabRule::OwnerOnly, &lab_id, &response.lab_info.user).is_ok();
+            let owns_lab = ctx.can_redeploy(&response.lab_info.user);
             tracing::info!(
                 "Successfully loaded lab '{}' details for user '{}'",
                 lab_id,
@@ -334,7 +330,11 @@ pub async fn lab_detail_handler(
                     response.tailscale.is_some(),
                 ),
                 offers_download: lab_offers_download(owns_lab, response.lab_state),
-                nodes: response.devices.into_iter().map(NodeRow::from).collect(),
+                nodes: response
+                    .devices
+                    .into_iter()
+                    .map(|device| NodeRow::new(device, owns_lab))
+                    .collect(),
                 device_count,
                 inactive_devices: response.inactive_devices,
                 inactive_device_count,
@@ -444,7 +444,8 @@ pub async fn node_detail_handler(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     // Inspect lab to get runtime device info (disks, state)
-    let inspect_response = match inspect::inspect_lab(&auth.context(), &lab_id, &state).await {
+    let ctx = auth.context();
+    let inspect_response = match inspect::inspect_lab(&ctx, &lab_id, &state).await {
         Ok(r) => r,
         Err(e) => {
             return lab_error_page(
@@ -535,6 +536,7 @@ pub async fn node_detail_handler(
         defined_node_ztp(definition.as_ref(), &node_name),
         &node_config,
     );
+    let owns_lab = ctx.can_redeploy(&inspect_response.lab_info.user);
 
     NodeDetailTemplate {
         username: auth.username,
@@ -543,7 +545,7 @@ pub async fn node_detail_handler(
         lab_id: lab_id.clone(),
         lab_name: inspect_response.lab_info.name.clone(),
         state_badge: Badge::for_node_state(device.state, BadgeSize::Large),
-        actions: NodeActions::for_state(device.state),
+        actions: NodeActions::for_node(device.state, owns_lab),
         device,
         ztp,
         node_config,
@@ -574,12 +576,18 @@ pub async fn lab_nodes_handler(
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    match inspect::inspect_lab(&auth.into_context(), &lab_id, &state).await {
+    let ctx = auth.into_context();
+    match inspect::inspect_lab(&ctx, &lab_id, &state).await {
         Ok(response) => {
+            let owns_lab = ctx.can_redeploy(&response.lab_info.user);
             let device_count = response.devices.len();
             NodesTableFragment {
                 lab_id,
-                nodes: response.devices.into_iter().map(NodeRow::from).collect(),
+                nodes: response
+                    .devices
+                    .into_iter()
+                    .map(|device| NodeRow::new(device, owns_lab))
+                    .collect(),
                 device_count,
             }
             .into_response()
@@ -678,9 +686,13 @@ pub async fn lab_destroy_confirm_handler(
 /// GET `/labs/{lab_id}/destroy/button`
 pub async fn lab_destroy_button_handler(
     Path(lab_id): Path<String>,
-    _auth: AuthenticatedUserFromCookie,
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
 ) -> impl IntoResponse {
-    LabDestroyButtonFragment { lab_id }
+    match require_lab_access(&auth.into_context(), &state.db, &lab_id).await {
+        Ok(_) => LabDestroyButtonFragment { lab_id }.into_response(),
+        Err(e) => lab_error_fragment(&e, "Failed to load lab details"),
+    }
 }
 
 /// Handler to initiate destroy — creates a job and redirects to the jobs page

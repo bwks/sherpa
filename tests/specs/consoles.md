@@ -50,8 +50,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | Another user, in a folder holding a copy of the owner's lab info, is refused `sherpa console` by the server, as not the lab's owner | e2e |
-| 002 | Another user and an admin are each refused `sherpa vnc` the same way, with exit code 1 and no address printed | e2e |
+| 001 | Another user, in a folder holding a copy of the owner's lab info, is refused `sherpa console` by the server, as a lab that does not exist | e2e |
+| 002 | Another user and an admin are each refused `sherpa vnc`, the user as a lab that does not exist and the admin as not the lab's owner, with exit code 1 and no address printed | e2e |
 | 003 | A request with no token is refused with 401, for each console | integration |
 | 004 | The web UI's session cookie opens no console: a request with the owner's cookie and no bearer token is refused with 401 (no test yet) | integration |
 | 005 | A token whose session has ended opens no console (no test yet) | integration |
