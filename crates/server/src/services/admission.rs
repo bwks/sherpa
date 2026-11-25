@@ -933,18 +933,13 @@ mod tests {
         )
         .await
         .unwrap_err();
-        let message = format!("{refused:#}");
-        assert!(
-            message.contains("CPU pinning validation failed"),
-            "{message}"
-        );
         assert!(
             matches!(
                 ServiceError::find(&refused),
                 Some(ServiceError::CpuPinsHeld { conflict, .. })
                     if conflict.host_cpus == [0] && conflict.held_role == CpuPinRole::Vcpu
             ),
-            "{message}"
+            "{refused:#}"
         );
         let held_pins = db::list_cpu_pins(&db).await.unwrap();
         assert_eq!(held_pins.len(), 1);

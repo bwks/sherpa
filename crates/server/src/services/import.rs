@@ -22,7 +22,7 @@ use tracing::instrument;
 
 use crate::daemon::state::AppState;
 use crate::services::container_scan::{ScanTarget, plan_container_scan, tagged_versions};
-use crate::services::error::{ServiceCategory, ServiceError, Unexpected};
+use crate::services::error::{ServiceError, Unexpected};
 use crate::services::image_lifecycle::{
     BackedVolumes, ensure_image_has_no_overlays, image_model_kind, lock_image,
 };
@@ -279,17 +279,20 @@ fn ensure_disk_replaceable(
     progress: &ProgressSender,
 ) -> Result<()> {
     ensure_image_has_no_overlays(pool, version_dir).map_err(|error| {
-        let context = format!(
-            "{} differs from the source and lab disks are built on it; destroy those labs or add \
-             the image as a new version",
-            version_disk.display()
-        );
-        if ServiceError::find(&error).and_then(ServiceError::category)
-            == Some(ServiceCategory::Conflict)
+        if let Some(ServiceError::ImageHasOverlay { disk, image_dir }) = ServiceError::find(&error)
         {
-            ServiceError::Conflict(format!("{context}: {error}")).into()
+            ServiceError::DiskReplaceBlocked {
+                version_disk: version_disk.to_owned(),
+                lab_disk: disk.clone(),
+                image_dir: image_dir.clone(),
+            }
+            .into()
         } else {
-            error.context(context)
+            error.context(format!(
+                "{} differs from the source and lab disks are built on it; destroy those labs or \
+                 add the image as a new version",
+                version_disk.display()
+            ))
         }
     })?;
     let _ = progress.send_status(
@@ -803,10 +806,7 @@ async fn resolve_download_url(
             let schematic_id = talos_vanilla_schematic_id().await?;
             Ok(talos_image_url(&schematic_id, version))
         }
-        _ => Err(ServiceError::Invalid(format!(
-            "No auto-download URL for model '{model}'. Provide --url."
-        ))
-        .into()),
+        _ => Err(ServiceError::DownloadUrlMissing { model: *model }.into()),
     }
 }
 
@@ -998,12 +998,18 @@ where
     if let Some(expected) = source.len
         && downloaded != expected
     {
-        bail!("Download ended after {downloaded} of {expected} bytes");
+        bail!(ServiceError::DownloadShort {
+            downloaded,
+            expected
+        });
     }
     if let Some(expected) = &source.sha256 {
         let actual = hex::encode(hasher.finalize());
         if actual != *expected {
-            bail!("The downloaded image's SHA-256 is {actual}, not the published {expected}");
+            bail!(ServiceError::DownloadChecksumMismatch {
+                actual,
+                expected: expected.clone(),
+            });
         }
     }
     let placed = tokio::task::spawn_blocking(move || staged.place())
@@ -1254,7 +1260,13 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(error.to_string().contains("3 of 10 bytes"), "{error}");
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::DownloadShort {
+                downloaded: 3,
+                expected: 10
+            })
+        );
         assert!(!dest.exists());
     }
 
@@ -1300,11 +1312,15 @@ mod tests {
 
     #[tokio::test]
     async fn image_download_007_without_a_url_a_model_other_than_ubuntu_or_talos_is_refused() {
-        let result = resolve_download_url(&NodeModel::FedoraLinux, "42", None).await;
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(err.contains("No auto-download URL"));
-        assert!(err.contains("fedora_linux"));
+        let error = resolve_download_url(&NodeModel::FedoraLinux, "42", None)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::DownloadUrlMissing {
+                model: NodeModel::FedoraLinux
+            })
+        );
     }
 
     #[test]
@@ -1509,7 +1525,14 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(format!("{error:#}").contains("new version"), "{error:#}");
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::DiskReplaceBlocked {
+                version_disk: disk.clone(),
+                lab_disk: "node-lab-hdd.qcow2".to_owned(),
+                image_dir: disk.parent().unwrap().to_owned(),
+            })
+        );
         assert_eq!(std::fs::read(&disk).unwrap(), base);
         assert!(recorded(&database, "1").await.is_none());
     }
@@ -1684,7 +1707,15 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(format!("{error:#}").contains("SHA-256"), "{error:#}");
+        assert!(
+            matches!(
+                error.downcast_ref::<ServiceError>(),
+                Some(ServiceError::DownloadChecksumMismatch { actual, expected })
+                    if *actual == sha256_hex(b"tampered image")
+                        && *expected == sha256_hex(b"real image")
+            ),
+            "{error:#}"
+        );
         let version_dir = paths.version_dir(NodeModel::UbuntuLinux, "1");
         assert_eq!(std::fs::read_dir(version_dir).unwrap().count(), 0);
         assert!(recorded(&database, "1").await.is_none());
@@ -1729,7 +1760,13 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(format!("{error:#}").contains("new version"), "{error:#}");
+        assert!(
+            matches!(
+                error.downcast_ref::<ServiceError>(),
+                Some(ServiceError::DiskReplaceBlocked { version_disk, .. }) if *version_disk == disk
+            ),
+            "{error:#}"
+        );
         assert_eq!(std::fs::read(&disk).unwrap(), b"base");
         assert!(recorded(&database, "1").await.is_none());
     }

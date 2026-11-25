@@ -234,22 +234,16 @@ fn check_manifest(ctx: &AuthContext, request: &RedeployRequest) -> Result<Redepl
     let manifest =
         lab_definition::parse_manifest(&request.manifest, request.file_contents.as_ref())
             .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
-    check_lab_name(&manifest.name)
-        .context("Manifest validation failed: lab name")
-        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+    check_lab_name(&manifest.name).map_err(|error| manifest_refusal("lab name", error))?;
     require_host_access(ctx, &manifest.nodes)?;
     check_ready_timeout(manifest.ready_timeout)
-        .context("Manifest validation failed: ready timeout")
-        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+        .map_err(|error| manifest_refusal("ready timeout", error))?;
     check_nonzero_node_settings(&manifest.nodes)
-        .context("Manifest validation failed: node settings")
-        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+        .map_err(|error| manifest_refusal("node settings", error))?;
     validate_environment_variables(&manifest.nodes)
-        .context("Manifest validation failed: environment variables")
-        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+        .map_err(|error| manifest_refusal("environment variables", error))?;
     check_text_file_modes(&manifest.nodes)
-        .context("Manifest validation failed: text files")
-        .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
+        .map_err(|error| manifest_refusal("text files", error))?;
     check_windows_startup_script_names(&manifest.nodes)
         .context("Manifest validation failed: startup scripts")
         .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
@@ -283,6 +277,13 @@ fn check_manifest(ctx: &AuthContext, request: &RedeployRequest) -> Result<Redepl
         manifest,
         as_written,
     })
+}
+
+/// The refusal of a manifest that fails `check`. Its message is the failure's whole chain, and
+/// the failure stays in the chain beneath it, so a caller can tell it by its type.
+fn manifest_refusal(check: &str, error: anyhow::Error) -> anyhow::Error {
+    let message = format!("Manifest validation failed: {check}: {error:#}");
+    error.context(ServiceError::Invalid(message))
 }
 
 /// The Talos clusters of the lab `lab_record_id`'s stored definition, which node `node_name` is
@@ -422,20 +423,16 @@ async fn redeploy_image(
             .await
             .context("Failed to look up the node's image")?
             .ok_or_else(|| {
-                ServiceError::NotFound(format!(
-                    "Node image not found for model: {model} kind: {kind} version: {version}"
-                ))
+                ServiceError::ImageVersionNotFound {
+                    model_kind,
+                    version: version.to_owned(),
+                }
                 .into()
             }),
         None => db::find_default_node_image(db, &model, &kind)
             .await
             .context("Failed to look up the node's image")?
-            .ok_or_else(|| {
-                ServiceError::NotFound(format!(
-                    "Default node image not found for model: {model} kind: {kind}"
-                ))
-                .into()
-            }),
+            .ok_or_else(|| ServiceError::DefaultImageNotFound { model_kind }.into()),
     }
 }
 
@@ -649,6 +646,9 @@ mod tests {
 
     use shared::data::{NodeModel, NodeState};
 
+    use topology::TopologyError;
+
+    use crate::services::error::ServiceCategory;
     use crate::services::guest_account::tests::test_account;
     use crate::services::lab_definition::tests::{lab_with, store};
     use tokio::sync::mpsc;
@@ -704,13 +704,20 @@ mod tests {
         }
     }
 
-    /// The error a redeploy of `r1` gives for `manifest`, refused before anything is torn down.
-    fn redeploy_refusal(manifest: &serde_json::Value) -> String {
+    /// The manifest check a redeploy of `r1` refuses `manifest` for, before anything is torn
+    /// down.
+    fn redeploy_refusal(manifest: &serde_json::Value) -> TopologyError {
         let ctx = AuthContext::new("dev".to_string(), false, "s".to_string());
         let Err(error) = check_manifest(&ctx, &request(manifest.clone(), None)) else {
             panic!("a redeploy of {manifest} was not refused");
         };
-        format!("{error:#}")
+        assert_eq!(
+            ServiceError::find(&error).and_then(ServiceError::category),
+            Some(ServiceCategory::Invalid)
+        );
+        error
+            .downcast::<TopologyError>()
+            .expect("a manifest check's refusal")
     }
 
     #[test]
@@ -720,7 +727,10 @@ mod tests {
             "nodes": [{ "name": "r1", "model": "ubuntu_linux" }],
         }));
         assert!(
-            error.contains("lab name '../x y' is not allowed"),
+            matches!(
+                &error,
+                TopologyError::NameNotPlain { what: "lab", name, .. } if name == "../x y"
+            ),
             "{error}"
         );
     }
@@ -732,7 +742,7 @@ mod tests {
             "ready_timeout": 0,
             "nodes": [{ "name": "r1", "model": "ubuntu_linux" }],
         }));
-        assert!(error.contains("`ready_timeout` is 0"), "{error}");
+        assert_eq!(error, TopologyError::ReadyTimeoutZero);
     }
 
     #[test]
@@ -743,9 +753,9 @@ mod tests {
             "ready_timeout": u64::MAX,
             "nodes": [{ "name": "r1", "model": "ubuntu_linux" }],
         }));
-        assert!(
-            error.contains("`ready_timeout` is 18446744073709551615"),
-            "{error}"
+        assert_eq!(
+            error,
+            TopologyError::ReadyTimeoutTooLong { seconds: u64::MAX }
         );
     }
 
@@ -755,7 +765,13 @@ mod tests {
             "name": "core",
             "nodes": [{ "name": "r1", "model": "ubuntu_linux", "memory": 0 }],
         }));
-        assert!(error.contains("'r1' `memory` is 0"), "{error}");
+        assert_eq!(
+            error,
+            TopologyError::ZeroSetting {
+                node: "r1".to_owned(),
+                field: "memory"
+            }
+        );
     }
 
     #[test]
@@ -769,7 +785,14 @@ mod tests {
                 "environment_variables": ["1BAD KEY=x"],
             }],
         }));
-        assert!(error.contains("key '1BAD KEY' for node 'r1'"), "{error}");
+        assert!(
+            matches!(
+                &error,
+                TopologyError::EnvironmentVariableKeyStartsWithDigit { key, node }
+                    if key == "1BAD KEY" && node == "r1"
+            ),
+            "{error}"
+        );
     }
 
     #[test]
@@ -794,8 +817,13 @@ mod tests {
         let Err(error) = check_manifest(&ctx, &request(manifest, Some(file_contents))) else {
             panic!("a redeploy of a text file mode 999 was not refused");
         };
-        let error = format!("{error:#}");
-        assert!(error.contains("'r1' text file '/etc/motd'"), "{error}");
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::TextFilePermissions {
+                node: "r1".to_owned(),
+                dst: "/etc/motd".to_owned()
+            })
+        );
     }
 
     #[tokio::test]
@@ -873,11 +901,13 @@ workers = ["w1"]
 
     #[test]
     fn a_redeploy_is_refused_before_teardown_for_a_name_the_model_cannot_take() {
-        let error = login_after_redeploy(&"w".repeat(21), NodeModel::WindowsServer, false)
-            .unwrap_err()
-            .to_string();
+        let error =
+            login_after_redeploy(&"w".repeat(21), NodeModel::WindowsServer, false).unwrap_err();
         assert!(
-            error.contains("Node 'n1' (windows_server) takes login names of at most 20"),
+            matches!(
+                error.downcast_ref::<ServiceError>(),
+                Some(ServiceError::LoginNameTooLong { node, max_length: 20, .. }) if node == "n1"
+            ),
             "{error}"
         );
     }
@@ -1026,11 +1056,13 @@ workers = ["w1"]
         // Another kind's version is never the node's.
         let error = redeploy_image(&database, ceos, Some("4.35"))
             .await
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.contains("model: arista_eos kind: container version: 4.35"),
-            "{error}"
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::ImageVersionNotFound {
+                model_kind: ceos,
+                version: "4.35".to_owned(),
+            })
         );
     }
 }

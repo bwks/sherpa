@@ -81,7 +81,7 @@ A config template is tested one case per model, not one table-driven case for al
 | 023 | `volume` on the SONiC container: the `supervisord` config, the start script and `config_db.json` are mounted read-only | unit |
 | 024 | `volume` on a VM fails as not validated, and nothing is written | unit |
 | 025 | Any method but `volume` on a container fails as not validated, and nothing is written | unit |
-| 026 | `volume` on a container of a model Sherpa generates no config for fails as not validated, naming the model | unit |
+| 026 | `volume` on a container of a model Sherpa generates no config for fails as not validated, carrying the model | unit |
 | 027 | The image's own CD-ROM, such as vEOS's Aboot, is attached unless the ZTP method brings a CD-ROM (no test yet) | unit |
 | 028 | At up, every container and every VM is issued a certificate and a key by the lab's CA, in the lab's certificates folder beside the CA's own, and a unikernel is issued none | integration |
 | 029 | An Ignition config carries the lab CA's certificate and the node's certificate as files anyone on the node reads (0644), and the node's key as a file only root reads (0600) | unit |
@@ -267,7 +267,7 @@ Cases 001 to 014 render the model's config with device passwords that between th
 | 022 | A `juniper_srxv3` node's config has the owner and `root` each with a hash of the device password | unit |
 | 023 | The configs served over TFTP and HTTP carry only a hash of the device password, and AOS-CX's carries none | unit |
 | 024 | The models that store a hash, Arista, Junos, PAN-OS, FRR and SONiC, each have the hash unchanged for every character a password may have, and only the accounts their case in `generated_config` shows (no test yet) | unit |
-| 025 | The Cisco IOS family (IOSv, IOSvL2, IOL, IOL L2, CSR 1000v, Cat8000v, Cat9000v) takes the owner's RSA keys of 4096 bits or less only: a larger RSA key is skipped and named in the skipped keys with its size, and an owner with no RSA key of 4096 bits or less is refused with the command that makes one | unit |
+| 025 | The Cisco IOS family (IOSv, IOSvL2, IOL, IOL L2, CSR 1000v, Cat8000v, Cat9000v) takes the owner's RSA keys of 4096 bits or less only: a larger RSA key is skipped and named in the skipped keys with its size, and an owner with no RSA key of 4096 bits or less is refused, carrying the key type whose command makes one | unit |
 
 ## `boot_server`: each lab has a boot server for its nodes' addresses, names and network configs
 

@@ -12,15 +12,23 @@ use std::process::ExitStatus;
 
 use db::{CpuPinTaken, UserChanged};
 use nix::unistd::Pid;
-use shared::data::{ModelKind, NodeKind, NodeModel};
+use shared::data::{LabPhase, ModelKind, NodeKind, NodeModel, Ztp};
 use shared::error::{CpuPinConflict, SharedError};
-use shared::konst::{ADMIN_USERNAME, SHERPA_USERNAME};
+use shared::konst::{
+    ADMIN_USERNAME, CONTAINER_SECRETS_DIR, DEVICE_PASSWORD_DOCS_URL, SHERPA_USERNAME,
+    SSH_KEYS_DOCS_URL,
+};
 use thiserror::Error;
 use uuid::Uuid;
 
 use crate::auth::jwt;
 use crate::daemon::pidfile::SHERPAD_LOG_FILE_PATH;
 use crate::konst::SHERPA_ADMIN_PASSWORD_ENV;
+use crate::services::guest_account::KeyType;
+use crate::services::node_ops::CISCO_IOL_MAX_APP_ID;
+use crate::services::talos::lab::{ClusterMembership, describe_membership};
+use crate::services::talos::secrets::TALOS_SUPPORTED_MINOR_VERSION;
+use crate::services::vault::lab::reset_instructions;
 use crate::validate::{DevicePasswordRule, MemoryShortage};
 
 /// What a refusal of a node's version or image starts with.
@@ -333,6 +341,224 @@ pub enum ServiceError {
         message: String,
         conflict: CpuPinConflict,
     },
+
+    #[error(
+        "'{model}' has no built-in repo: pass --repo with the image reference and its tag (e.g. \
+         nats:2.11 or registry.io/account/image:version)"
+    )]
+    PullRepoMissing { model: NodeModel },
+
+    #[error(
+        "Node '{node}' ({model_kind}) takes {} SSH keys only{}, and none of the keys registered \
+         for '{username}' is one. Make one with '{}', then add the public key on the web UI \
+         Profile page or with 'sherpa server user ssh-key add'. See {docs}",
+        key_types(accepted),
+        rsa_size_limit(*max_rsa_bits),
+        preferred.keygen_command(),
+        docs = SSH_KEYS_DOCS_URL
+    )]
+    NoAcceptedSshKey {
+        node: String,
+        model_kind: ModelKind,
+        accepted: &'static [KeyType],
+        preferred: KeyType,
+        max_rsa_bits: Option<u32>,
+        username: String,
+    },
+
+    #[error(
+        "User '{username}' has no SSH public key registered, and labs need one. Add a key on the \
+         web UI Profile page or with 'sherpa server user ssh-key add'. See {docs}",
+        docs = SSH_KEYS_DOCS_URL
+    )]
+    NoSshKey { username: String },
+
+    #[error(
+        "User '{username}' has no device password, and labs need one: it is the password of your \
+         login on lab nodes. Set it with 'sherpa server user device-password' or on the web UI \
+         Profile page. See {docs}",
+        docs = DEVICE_PASSWORD_DOCS_URL
+    )]
+    NoDevicePassword { username: String },
+
+    #[error(
+        "User '{username}' cannot start labs: the name cannot be a login on lab nodes. Start the \
+         lab from another account: {reason}"
+    )]
+    OwnerNameNotLogin { username: String, reason: String },
+
+    #[error(
+        "Disk {disk} is built on the image at {}; destroy or redeploy its node first",
+        image_dir.display()
+    )]
+    ImageHasOverlay { disk: String, image_dir: PathBuf },
+
+    #[error(
+        "{} differs from the source and lab disks are built on it; destroy those labs or add the \
+         image as a new version: Disk {lab_disk} is built on the image at {}; destroy or redeploy \
+         its node first",
+        version_disk.display(),
+        image_dir.display()
+    )]
+    DiskReplaceBlocked {
+        version_disk: PathBuf,
+        lab_disk: String,
+        image_dir: PathBuf,
+    },
+
+    #[error("No auto-download URL for model '{model}'. Provide --url.")]
+    DownloadUrlMissing { model: NodeModel },
+
+    #[error("Download ended after {downloaded} of {expected} bytes")]
+    DownloadShort { downloaded: u64, expected: u64 },
+
+    #[error("The downloaded image's SHA-256 is {actual}, not the published {expected}")]
+    DownloadChecksumMismatch { actual: String, expected: String },
+
+    #[error("Lab {lab_id} is being destroyed; this operation stopped")]
+    LabBeingDestroyed { lab_id: String },
+
+    #[error("Lab {lab_id}: this operation was stopped on request")]
+    OperationStoppedOnRequest { lab_id: String },
+
+    #[error(
+        "ZTP setting '{ztp}' of container node '{node}' was not validated: containers take only \
+         'disabled' and 'volume'"
+    )]
+    ContainerZtpNotValidated { node: String, ztp: Ztp },
+
+    #[error(
+        "ZTP setting 'volume' of container node '{node}' was not validated: Sherpa generates no \
+         config for model {model}"
+    )]
+    VolumeZtpWithoutGenerator { node: String, model: NodeModel },
+
+    #[error(
+        "ZTP setting '{ztp}' of virtual machine '{node}' was not validated: it is a container's \
+         method"
+    )]
+    VmZtpNotValidated { node: String, ztp: Ztp },
+
+    #[error(
+        "IOL node '{node}' is node {index} of its lab; an IOL node must be one of the first \
+         {max}, as its application ID is its place in the lab",
+        max = CISCO_IOL_MAX_APP_ID
+    )]
+    IolNodeIndexOutOfRange { node: String, index: u16 },
+
+    #[error(
+        "Container '{node}' mounts {mount} at {dir}, not its secret files",
+        dir = CONTAINER_SECRETS_DIR
+    )]
+    SecretsMountedElsewhere { node: String, mount: String },
+
+    #[error(
+        "Container '{node}' was created without secret files; run `sherpa redeploy -n {node}` to \
+         add them"
+    )]
+    SecretsMountMissing { node: String },
+
+    #[error(
+        "Node image not found for model: {model} kind: {kind} version: {version}",
+        model = model_kind.model(),
+        kind = model_kind.kind()
+    )]
+    ImageVersionNotFound {
+        model_kind: ModelKind,
+        version: String,
+    },
+
+    #[error(
+        "Default node image not found for model: {model} kind: {kind}",
+        model = model_kind.model(),
+        kind = model_kind.kind()
+    )]
+    DefaultImageNotFound { model_kind: ModelKind },
+
+    #[error(
+        "The lab's Tailscale gateway is not connected, so resuming it needs an auth key; run sherpa resume in the lab folder with {} set",
+        auth_key_variable(auth_key_env.as_deref())
+    )]
+    ResumeNeedsAuthKey { auth_key_env: Option<String> },
+
+    #[error("gRPC status {code}: {}", message.as_deref().unwrap_or("no message"))]
+    GrpcStatus {
+        code: String,
+        message: Option<String>,
+    },
+
+    #[error(
+        "Node '{node}' is a controller of talos cluster '{cluster}' and cannot be redeployed: its etcd member would have to be removed first. Redeploy workers only, or destroy and recreate the lab"
+    )]
+    ControllerNotRedeployable { node: String, cluster: String },
+
+    #[error(
+        "node '{node}' is {} in this lab; the manifest says it is {}. To change a cluster, destroy the lab and run up again",
+        describe_membership(stored.as_ref()),
+        describe_membership(manifest.as_ref())
+    )]
+    ClusterMembershipChanged {
+        node: String,
+        stored: Option<ClusterMembership>,
+        manifest: Option<ClusterMembership>,
+    },
+
+    #[error(
+        "Node '{node}' uses Talos Linux {version}, but Sherpa builds clusters with Talos {minor}.x only. Use a {minor}.x image, or remove the node from its cluster and provide your own config with ztp.config",
+        minor = TALOS_SUPPORTED_MINOR_VERSION
+    )]
+    TalosVersionUnsupported { node: String, version: String },
+
+    #[error("P2p link end {end} of node {node} is gone from the host while its container runs")]
+    LinkEndGone { end: String, node: String },
+
+    #[error(
+        "Lab {}. Destroy the existing lab before starting it again.\n Lab name: {lab_name}\n Lab id: {lab_id}",
+        lab_state(*phase)
+    )]
+    LabExists {
+        lab_name: String,
+        lab_id: String,
+        phase: LabPhase,
+    },
+
+    #[error(
+        "Lab '{lab_name}' gets the lab ID {lab_id}, which another lab already uses. Lab IDs come \
+         from the owner and the lab name, and these collide; rename the lab."
+    )]
+    LabIdCollision { lab_name: String, lab_id: String },
+
+    #[error("{what} failed: {}", failures.join("; "))]
+    TasksFailed {
+        what: &'static str,
+        failures: Vec<String>,
+    },
+
+    #[error(
+        "Vault node '{node}' was initialised outside Sherpa, so Sherpa has no unseal key or root token for it"
+    )]
+    VaultInitialisedOutside { node: String },
+
+    #[error(
+        "Vault node '{node}' is initialised, but Sherpa lost the init response carrying its \
+         unseal key and root token: the init request failed ({init_error}) after Vault had \
+         started it. Vault gives these out only once, so Sherpa cannot unseal the node. {}",
+        reset_instructions(node)
+    )]
+    VaultInitResponseLost { node: String, init_error: String },
+
+    #[error(
+        "Failed to initialise Vault node '{node}' ({init_error}), and its seal status could not \
+         be read afterwards ({status_error}), so Sherpa cannot tell whether the init completed. \
+         If it did, Sherpa lost the init response carrying the node's unseal key and root token. \
+         {}",
+        reset_instructions(node)
+    )]
+    VaultInitUnknown {
+        node: String,
+        init_error: String,
+        status_error: String,
+    },
 }
 
 /// The kind of refusal a transport answers a [`ServiceError`] with.
@@ -355,6 +581,36 @@ fn version_refusal(model_kind: ModelKind, version: &str, available: &[String]) -
              Available versions: {}",
             available.join(", ")
         )
+    }
+}
+
+/// The names of the SSH key types `accepted`, joined with "or".
+fn key_types(accepted: &[KeyType]) -> String {
+    accepted
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(" or ")
+}
+
+/// ", of N bits or less" for an RSA size limit, or nothing.
+fn rsa_size_limit(max_rsa_bits: Option<u32>) -> String {
+    max_rsa_bits.map_or_default(|max| format!(", of {max} bits or less"))
+}
+
+/// The variable that holds a lab's Tailscale auth key, for messages: `'NAME'`, or what names it.
+fn auth_key_variable(auth_key_env: Option<&str>) -> String {
+    auth_key_env.map_or_else(
+        || "the variable named by tailscale.auth_key_env".to_owned(),
+        |name| format!("'{name}'"),
+    )
+}
+
+/// "already exists", and for a lab that is not ready the phase it is in.
+fn lab_state(phase: LabPhase) -> String {
+    match phase {
+        LabPhase::Ready => "already exists".to_string(),
+        phase => format!("already exists and is {phase}"),
     }
 }
 
@@ -427,13 +683,26 @@ impl ServiceError {
             Self::NotFound(_)
             | Self::NodeImageNotFound { .. }
             | Self::VersionNotFound { .. }
-            | Self::DiskImageNotFound { .. } => Some(ServiceCategory::NotFound),
+            | Self::DiskImageNotFound { .. }
+            | Self::ImageVersionNotFound { .. }
+            | Self::DefaultImageNotFound { .. } => Some(ServiceCategory::NotFound),
             Self::Denied(_) => Some(ServiceCategory::Denied),
             Self::Conflict(_)
             | Self::NotWebRedeployable { .. }
             | Self::ContainerRepoMissing { .. }
             | Self::InsufficientMemory { .. }
-            | Self::CpuPinsHeld { .. } => Some(ServiceCategory::Conflict),
+            | Self::CpuPinsHeld { .. }
+            | Self::NoAcceptedSshKey { .. }
+            | Self::NoSshKey { .. }
+            | Self::NoDevicePassword { .. }
+            | Self::ImageHasOverlay { .. }
+            | Self::DiskReplaceBlocked { .. }
+            | Self::SecretsMountedElsewhere { .. }
+            | Self::SecretsMountMissing { .. }
+            | Self::ControllerNotRedeployable { .. }
+            | Self::ClusterMembershipChanged { .. }
+            | Self::LabExists { .. }
+            | Self::LabIdCollision { .. } => Some(ServiceCategory::Conflict),
             Self::Invalid(_)
             | Self::DevicePasswordRefused { .. }
             | Self::DevicePasswordSameAsLogin
@@ -463,7 +732,12 @@ impl ServiceError {
             | Self::ScanModelNotContainer { .. }
             | Self::ScanRepoInvalid { .. }
             | Self::ImageFormFieldNotTaken { .. }
-            | Self::ImageFormFieldMissing { .. } => Some(ServiceCategory::Invalid),
+            | Self::ImageFormFieldMissing { .. }
+            | Self::PullRepoMissing { .. }
+            | Self::OwnerNameNotLogin { .. }
+            | Self::DownloadUrlMissing { .. }
+            | Self::ResumeNeedsAuthKey { .. }
+            | Self::TalosVersionUnsupported { .. } => Some(ServiceCategory::Invalid),
             Self::OvercommitPercentTooLow { .. }
             | Self::NotServiceAccount { .. }
             | Self::TailscaleImageInvalid
@@ -480,7 +754,21 @@ impl ServiceError {
             | Self::NoCertificates { .. }
             | Self::ServerHoldsDatabase { .. }
             | Self::UnlockUserNotFound { .. }
-            | Self::AdminAccountMissing => None,
+            | Self::AdminAccountMissing
+            | Self::DownloadShort { .. }
+            | Self::DownloadChecksumMismatch { .. }
+            | Self::LabBeingDestroyed { .. }
+            | Self::OperationStoppedOnRequest { .. }
+            | Self::ContainerZtpNotValidated { .. }
+            | Self::VolumeZtpWithoutGenerator { .. }
+            | Self::VmZtpNotValidated { .. }
+            | Self::IolNodeIndexOutOfRange { .. }
+            | Self::GrpcStatus { .. }
+            | Self::LinkEndGone { .. }
+            | Self::TasksFailed { .. }
+            | Self::VaultInitialisedOutside { .. }
+            | Self::VaultInitResponseLost { .. }
+            | Self::VaultInitUnknown { .. } => None,
         }
     }
 

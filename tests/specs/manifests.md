@@ -157,7 +157,7 @@ A node with its own `ztp.config` takes none of the three: its config replaces th
 | 012 | Every model's built-in data interface count fits the interfaces the model has | unit |
 | 013 | A redeploy whose manifest gives the node a setting its kind does not take is refused, and the node stays as it was (no test yet) | integration |
 | 014 | A `memory`, `cpu.count`, `boot_disk.size`, `interfaces.data_count` or `ready_check.port` of 0 is refused, and the error carries the node and the field; 1 is taken | unit |
-| 015 | A redeploy whose manifest sets one of those to 0 is refused before any node is torn down, naming the node and the field | unit |
+| 015 | A redeploy whose manifest sets one of those to 0 is refused before any node is torn down, carrying the node and the field | unit |
 | 016 | `text_files`, `startup_scripts` and `systemd_units` on a container are each refused, and the error carries the node, the setting, the model and the kind | unit |
 | 017 | Each of them on a network-device virtual machine, such as `arista_eos` or `juniper_srxv3`, is refused | unit |
 | 018 | Each of them on a node whose model takes it but whose ZTP is off is refused as unused with ZTP disabled | unit |
@@ -220,7 +220,7 @@ A node with its own `ztp.config` takes none of the three: its config replaces th
 | 011 | A bridge link that names a node the manifest does not define is refused, and the error carries the node | unit |
 | 012 | Retired: a link's `p2p` key is removed and refused as an unknown key; see `manifest_file` 004 | — |
 | 013 | A link impairment with a delay or jitter over 274877 ms, or a percentage outside 0 to 100, is refused for each field, and the error carries the link; one within is taken | unit |
-| 014 | At up the server refuses a manifest of bridges alone that puts one interface on two bridges, naming the node and the interface's index | unit |
+| 014 | At up the server refuses a manifest of bridges alone that puts one interface on two bridges, carrying the bridge, the node and the interface's index | unit |
 
 The count that bounds case 008 is the node's `interfaces.data_count`, or else its image's (`node_settings_010`, `node_interfaces_008`).
 
@@ -277,8 +277,8 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 | 003 | An entry with no `=`, an empty key, a key that starts with a digit or a key with another character is refused, and the error carries the entry or the key and the node | unit |
 | 004 | Retired: `sherpa validate` now refuses an entry whose key is not a name; see 008 | — |
 | 005 | Retired: a redeploy now runs both checks; see 006 and 007 | — |
-| 006 | A redeploy whose manifest has an `environment_variables` key that is not a name is refused before any node is torn down, naming the key and the node | unit |
-| 007 | A redeploy whose manifest gives a Flatcar node a text file mode that is not octal digits up to 777 is refused before any node is torn down, naming the node and the file's `dst` | unit |
+| 006 | A redeploy whose manifest has an `environment_variables` key that is not a name is refused before any node is torn down, carrying the key and the node | unit |
+| 007 | A redeploy whose manifest gives a Flatcar node a text file mode that is not octal digits up to 777 is refused before any node is torn down, carrying the node and the file's `dst` | unit |
 | 008 | `sherpa validate` refuses a manifest with an `environment_variables` key that is not a name, naming the key and the node | unit |
 
 ## `lab_settings`: the lab's own settings are checked before it is built
@@ -296,7 +296,7 @@ The count that bounds case 008 is the node's `interfaces.data_count`, or else it
 | 006 | A plain lab name is taken: letters of either case, digits, `-` and `_` after the first character, and 63 characters | unit |
 | 007 | An empty lab name, one that is path-like or shell-like, one with a dot, a space, a quote, markup, a line break or a non-ASCII letter, and one of 64 characters, are refused, and the error carries the name | unit |
 | 008 | A `ready_timeout` of 0 is refused and 1 is taken | unit |
-| 009 | A redeploy whose manifest has a lab name the rule refuses is refused before any node is torn down, naming the name | unit |
+| 009 | A redeploy whose manifest has a lab name the rule refuses is refused before any node is torn down, carrying the name | unit |
 | 010 | A redeploy whose manifest has a `ready_timeout` of 0 is refused before any node is torn down | unit |
 | 011 | A `ready_timeout` over 9223372036854775807 is refused, and the error carries the value; 9223372036854775807 is taken | unit |
 | 012 | A redeploy whose manifest has a `ready_timeout` over 9223372036854775807 is refused before any node is torn down | unit |

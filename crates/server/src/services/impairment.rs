@@ -244,8 +244,8 @@ mod tests {
     use super::*;
 
     use std::cell::Cell;
+    use std::io;
 
-    use anyhow::bail;
     use shared::data::RecordId;
 
     use crate::services::p2p_links::fake::FakeHost;
@@ -344,12 +344,13 @@ mod tests {
             &link(),
             ImpairmentDirection::Both,
             &delay(50),
-            |_| async { bail!("database is locked") },
+            |_| async { Err(io::Error::from(io::ErrorKind::ResourceBusy).into()) },
         )
         .await;
         let error = result.unwrap_err();
-        assert!(
-            format!("{error:#}").contains("database is locked"),
+        assert_eq!(
+            error.downcast_ref::<io::Error>().map(io::Error::kind),
+            Some(io::ErrorKind::ResourceBusy),
             "{error:#}"
         );
         assert_eq!(host.netem_on("tpa0"), Some(delay(5)));

@@ -219,15 +219,14 @@ pub async fn update_node_secrets(
 fn check_secrets_mount(source: Option<&str>, expected: &Path, node_name: &str) -> Result<()> {
     match source {
         Some(source) if Path::new(source) == expected => Ok(()),
-        Some(source) => Err(ServiceError::Conflict(format!(
-            "Container '{node_name}' mounts {source} at {CONTAINER_SECRETS_DIR}, not its secret \
-             files"
-        ))
+        Some(source) => Err(ServiceError::SecretsMountedElsewhere {
+            node: node_name.to_owned(),
+            mount: source.to_owned(),
+        }
         .into()),
-        None => Err(ServiceError::Conflict(format!(
-            "Container '{node_name}' was created without secret files; run `sherpa redeploy -n \
-             {node_name}` to add them"
-        ))
+        None => Err(ServiceError::SecretsMountMissing {
+            node: node_name.to_owned(),
+        }
         .into()),
     }
 }
@@ -251,6 +250,8 @@ mod tests {
 
     use shared::data::SecretContent;
     use tempfile::tempdir;
+
+    use crate::services::error::ServiceCategory;
 
     fn secret(name: &str, mode: u32, content: &[u8]) -> SecretFile {
         SecretFile {
@@ -375,19 +376,25 @@ mod tests {
         check_secrets_mount(Some("/run/sherpa/secrets/abcd1234/db01"), expected, "db01").unwrap();
         let missing = check_secrets_mount(None, expected, "db01").unwrap_err();
         // A conflict, so the RPC returns the message the user can act on.
-        assert!(
-            matches!(
-                ServiceError::find(&missing),
-                Some(ServiceError::Conflict(_))
-            ),
-            "{missing}"
+        let refusal = ServiceError::find(&missing);
+        assert_eq!(
+            refusal,
+            Some(&ServiceError::SecretsMountMissing {
+                node: "db01".to_owned()
+            })
         );
-        let missing = missing.to_string();
-        assert!(missing.contains("sherpa redeploy -n db01"), "{missing}");
-        let other = check_secrets_mount(Some("/srv/other"), expected, "db01")
-            .unwrap_err()
-            .to_string();
-        assert!(other.contains("/srv/other"), "{other}");
+        assert_eq!(
+            refusal.and_then(ServiceError::category),
+            Some(ServiceCategory::Conflict)
+        );
+        let other = check_secrets_mount(Some("/srv/other"), expected, "db01").unwrap_err();
+        assert_eq!(
+            ServiceError::find(&other),
+            Some(&ServiceError::SecretsMountedElsewhere {
+                node: "db01".to_owned(),
+                mount: "/srv/other".to_owned(),
+            })
+        );
     }
 
     #[test]

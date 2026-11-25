@@ -43,6 +43,8 @@ use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
+use crate::services::error::ServiceError;
+
 static LAB_LEASES: OnceLock<DashMap<String, LeaseSlot>> = OnceLock::new();
 static LAB_CANCELLATIONS: OnceLock<DashMap<String, Cancellation>> = OnceLock::new();
 /// Destroys waiting for or holding each lab's write lease. An operation that starts while one
@@ -186,16 +188,12 @@ impl LabOperation {
     pub fn ensure_active(&self) -> Result<()> {
         match self.stop_reason() {
             None => Ok(()),
-            Some(StopReason::Destroy) => bail!(
-                "Lab {} is being destroyed; this operation stopped",
-                self.entry.lab_id
-            ),
-            Some(StopReason::Request) => {
-                bail!(
-                    "Lab {}: this operation was stopped on request",
-                    self.entry.lab_id
-                )
-            }
+            Some(StopReason::Destroy) => bail!(ServiceError::LabBeingDestroyed {
+                lab_id: self.entry.lab_id.clone()
+            }),
+            Some(StopReason::Request) => bail!(ServiceError::OperationStoppedOnRequest {
+                lab_id: self.entry.lab_id.clone()
+            }),
         }
     }
 
@@ -401,7 +399,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap_err();
-        assert!(error.to_string().contains("being destroyed"));
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::LabBeingDestroyed {
+                lab_id: "lab-ops-stop".to_owned()
+            })
+        );
         assert_eq!(operation.stop_reason(), Some(StopReason::Destroy));
         assert!(!stopping.is_finished());
         drop(operation);
@@ -480,7 +483,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap_err();
-        assert!(error.to_string().contains("stopped on request"));
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::OperationStoppedOnRequest {
+                lab_id: "lab-ops-request".to_owned()
+            })
+        );
         assert_eq!(operation.stop_reason(), Some(StopReason::Request));
         drop(operation);
         assert!(tokio::time::timeout(WAIT, stopping).await.unwrap().unwrap());
@@ -538,7 +546,12 @@ mod tests {
             .unwrap()
             .unwrap()
             .unwrap_err();
-        assert!(error.to_string().contains("stopped on request"), "{error}");
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::OperationStoppedOnRequest {
+                lab_id: lab.to_owned()
+            })
+        );
         assert!(tokio::time::timeout(WAIT, stopping).await.unwrap().unwrap());
     }
 

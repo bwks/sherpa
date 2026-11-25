@@ -356,7 +356,8 @@ async fn restore_node_services(redeploy: &Redeploy<'_>, initialises_vault: bool)
 
 #[cfg(test)]
 mod tests {
-    use anyhow::anyhow;
+    use std::io;
+
     use shared::data::NodeState;
 
     use super::*;
@@ -379,13 +380,16 @@ mod tests {
         let restore = async {
             let state = db::get_node(&db, node.clone()).await?.state;
             assert_eq!(state, NodeState::Starting);
-            Err(anyhow!("Vault did not unseal"))
+            Err(io::Error::from(io::ErrorKind::TimedOut).into())
         };
 
         let error = ready_after_restore(&db, &operation, &node, restore)
             .await
             .unwrap_err();
-        assert!(error.to_string().contains("unseal"));
+        assert_eq!(
+            error.downcast_ref::<io::Error>().map(io::Error::kind),
+            Some(io::ErrorKind::TimedOut)
+        );
         assert_eq!(
             db::get_node(&db, node).await.unwrap().state,
             NodeState::Starting

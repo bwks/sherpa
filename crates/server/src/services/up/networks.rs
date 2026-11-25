@@ -15,7 +15,7 @@ use crate::services::error::ServiceError;
 use crate::services::p2p_links::{ContainerVeth, bridge_member_host_veth};
 
 use shared::data;
-use shared::data::{LabPhase, LabSubnets, RecordId, StatusKind};
+use shared::data::{LabSubnets, RecordId, StatusKind};
 use shared::konst::{MANAGEMENT_GATEWAY_HOST_OFFSET, SHERPA_MANAGEMENT_IP_INDEX};
 use shared::util;
 
@@ -305,21 +305,20 @@ pub(super) fn lab_id_taken(
     lab_name: &str,
     owner: Option<&RecordId>,
 ) -> anyhow::Error {
-    let message = if existing.name == lab_name && owner == Some(&existing.user) {
-        let state = match existing.phase {
-            LabPhase::Ready => "already exists".to_string(),
-            phase => format!("already exists and is {phase}"),
-        };
-        format!(
-            "Lab {state}. Destroy the existing lab before starting it again.\n Lab name: {lab_name}\n Lab id: {lab_id}"
-        )
+    if existing.name == lab_name && owner == Some(&existing.user) {
+        ServiceError::LabExists {
+            lab_name: lab_name.to_owned(),
+            lab_id: lab_id.to_owned(),
+            phase: existing.phase,
+        }
+        .into()
     } else {
-        format!(
-            "Lab '{lab_name}' gets the lab ID {lab_id}, which another lab already uses. \
-             Lab IDs come from the owner and the lab name, and these collide; rename the lab."
-        )
-    };
-    ServiceError::Conflict(message).into()
+        ServiceError::LabIdCollision {
+            lab_name: lab_name.to_owned(),
+            lab_id: lab_id.to_owned(),
+        }
+        .into()
+    }
 }
 
 /// Create the Docker networks of the disabled interfaces of containers on no link or bridge.
@@ -573,6 +572,7 @@ pub(super) fn container_data_attachments(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::LabPhase;
 
     #[test]
     fn lab_addressing_009_the_management_network_spans_the_labs_subnets_from_the_gateway() {
@@ -634,13 +634,13 @@ mod tests {
             .err()
             .unwrap();
 
-        assert!(
-            matches!(ServiceError::find(&error), Some(ServiceError::Conflict(_))),
-            "{error:#}"
-        );
-        assert!(
-            error.to_string().contains("already exists and is creating"),
-            "{error}"
+        assert_eq!(
+            ServiceError::find(&error),
+            Some(&ServiceError::LabExists {
+                lab_name: "core".to_owned(),
+                lab_id: "ab12cd34".to_owned(),
+                phase: LabPhase::Creating,
+            })
         );
         let lab = db::find_lab(&db, "ab12cd34").await.unwrap().unwrap();
         assert_eq!(lab.id, first.record.id);
@@ -669,7 +669,7 @@ mod tests {
     }
 
     #[test]
-    fn lab_phase_013_an_up_of_a_lab_that_is_not_ready_names_its_phase() {
+    fn lab_phase_013_an_up_of_a_lab_that_is_not_ready_carries_its_phase() {
         let alice = RecordId::new("user", "alice".to_string());
 
         let stranded = lab_id_taken(
@@ -677,13 +677,15 @@ mod tests {
             &lab("core", &alice, LabPhase::DestroyFailed),
             "core",
             Some(&alice),
-        )
-        .to_string();
+        );
 
         assert_eq!(
-            stranded,
-            "Lab already exists and is destroy failed. Destroy the existing lab before starting \
-             it again.\n Lab name: core\n Lab id: ab12cd34"
+            stranded.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::LabExists {
+                lab_name: "core".to_owned(),
+                lab_id: "ab12cd34".to_owned(),
+                phase: LabPhase::DestroyFailed,
+            })
         );
     }
 
@@ -697,11 +699,14 @@ mod tests {
             &lab("core", &alice, LabPhase::Ready),
             "core",
             Some(&alice),
-        )
-        .to_string();
-        assert!(
-            redeployed.contains("Lab already exists. Destroy the existing lab"),
-            "{redeployed}"
+        );
+        assert_eq!(
+            redeployed.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::LabExists {
+                lab_name: "core".to_owned(),
+                lab_id: "ab12cd34".to_owned(),
+                phase: LabPhase::Ready,
+            })
         );
 
         let collision = lab_id_taken(
@@ -709,9 +714,13 @@ mod tests {
             &lab("x", &bob, LabPhase::Ready),
             "core",
             Some(&alice),
-        )
-        .to_string();
-        assert!(collision.contains("rename the lab"), "{collision}");
-        assert!(!collision.contains("'x'"), "{collision}");
+        );
+        assert_eq!(
+            collision.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::LabIdCollision {
+                lab_name: "core".to_owned(),
+                lab_id: "ab12cd34".to_owned(),
+            })
+        );
     }
 }

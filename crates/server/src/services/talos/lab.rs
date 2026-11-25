@@ -37,6 +37,13 @@ use crate::services::progress::ProgressSender;
 use crate::services::vault::api::{VaultClient, vault_address};
 use crate::services::vault::{ClusterAccess, cluster_auth_mount, configure_cluster_access};
 
+/// A node's place in a Talos cluster: the cluster and the node's role in it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClusterMembership {
+    pub cluster: String,
+    pub role: ClusterRole,
+}
+
 /// A cluster prepared for a lab: its plan and secrets.
 #[derive(Clone, Debug)]
 pub struct LabCluster {
@@ -83,11 +90,10 @@ pub fn ensure_redeployable(
     membership: Option<(&TalosCluster, ClusterRole)>,
 ) -> Result<()> {
     if let Some((cluster, ClusterRole::ControlPlane)) = membership {
-        return Err(ServiceError::Conflict(format!(
-            "Node '{node_name}' is a controller of talos cluster '{}' and cannot be redeployed: its etcd member would have to be removed first. Redeploy workers only, or destroy and recreate the lab",
-            cluster.name
-        ))
-        .into());
+        bail!(ServiceError::ControllerNotRedeployable {
+            node: node_name.to_owned(),
+            cluster: cluster.name.clone(),
+        });
     }
     Ok(())
 }
@@ -109,24 +115,35 @@ pub fn ensure_same_membership(
         _ => false,
     };
     if !same {
-        return Err(ServiceError::Conflict(format!(
-            "node '{node_name}' is {} in this lab; the manifest says it is {}. To change a cluster, destroy the lab and run up again",
-            describe_membership(stored),
-            describe_membership(manifest)
-        ))
-        .into());
+        bail!(ServiceError::ClusterMembershipChanged {
+            node: node_name.to_owned(),
+            stored: membership(stored),
+            manifest: membership(manifest),
+        });
     }
     Ok(())
 }
 
+/// The membership a cluster and role found for a node make.
+fn membership(found: Option<(&TalosCluster, ClusterRole)>) -> Option<ClusterMembership> {
+    found.map(|(cluster, role)| ClusterMembership {
+        cluster: cluster.name.clone(),
+        role,
+    })
+}
+
 /// A node's cluster membership in words: "a controller of cluster 'k1'", "a worker of cluster
 /// 'k1'", or "in no cluster".
-fn describe_membership(membership: Option<(&TalosCluster, ClusterRole)>) -> String {
+pub(crate) fn describe_membership(membership: Option<&ClusterMembership>) -> String {
     match membership {
-        Some((cluster, ClusterRole::ControlPlane)) => {
-            format!("a controller of cluster '{}'", cluster.name)
-        }
-        Some((cluster, ClusterRole::Worker)) => format!("a worker of cluster '{}'", cluster.name),
+        Some(ClusterMembership {
+            cluster,
+            role: ClusterRole::ControlPlane,
+        }) => format!("a controller of cluster '{cluster}'"),
+        Some(ClusterMembership {
+            cluster,
+            role: ClusterRole::Worker,
+        }) => format!("a worker of cluster '{cluster}'"),
         None => "in no cluster".to_owned(),
     }
 }
@@ -710,10 +727,15 @@ pub(crate) mod tests {
         };
         ensure_redeployable("vm", None).unwrap();
         ensure_redeployable("w1", Some((&cluster, ClusterRole::Worker))).unwrap();
-        let error = ensure_redeployable("cp1", Some((&cluster, ClusterRole::ControlPlane)))
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("controller of talos cluster 'k8s'"));
+        let error =
+            ensure_redeployable("cp1", Some((&cluster, ClusterRole::ControlPlane))).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::ControllerNotRedeployable {
+                node: "cp1".to_owned(),
+                cluster: "k8s".to_owned(),
+            })
+        );
     }
 
     #[test]
@@ -730,36 +752,45 @@ pub(crate) mod tests {
         };
         let controller = Some((&k1, ClusterRole::ControlPlane));
         let worker = Some((&k1, ClusterRole::Worker));
-        for (node, stored, manifest, expected) in [
+        let of = |cluster: &str, role| {
+            Some(ClusterMembership {
+                cluster: cluster.to_owned(),
+                role,
+            })
+        };
+        for (node, stored, manifest, expected_stored, expected_manifest) in [
             (
                 "cp1",
                 controller,
                 None,
-                "node 'cp1' is a controller of cluster 'k1' in this lab; the manifest says it is in no cluster. To change a cluster, destroy the lab and run up again",
+                of("k1", ClusterRole::ControlPlane),
+                None,
             ),
             (
                 "w1",
                 worker,
                 Some((&k2, ClusterRole::Worker)),
-                "node 'w1' is a worker of cluster 'k1' in this lab; the manifest says it is a worker of cluster 'k2'",
+                of("k1", ClusterRole::Worker),
+                of("k2", ClusterRole::Worker),
             ),
             (
                 "w1",
                 worker,
                 controller,
-                "node 'w1' is a worker of cluster 'k1' in this lab; the manifest says it is a controller of cluster 'k1'",
+                of("k1", ClusterRole::Worker),
+                of("k1", ClusterRole::ControlPlane),
             ),
-            (
-                "vm",
-                None,
-                worker,
-                "node 'vm' is in no cluster in this lab; the manifest says it is a worker of cluster 'k1'",
-            ),
+            ("vm", None, worker, None, of("k1", ClusterRole::Worker)),
         ] {
-            let error = ensure_same_membership(node, stored, manifest)
-                .unwrap_err()
-                .to_string();
-            assert!(error.starts_with(expected), "{error}");
+            let error = ensure_same_membership(node, stored, manifest).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<ServiceError>(),
+                Some(&ServiceError::ClusterMembershipChanged {
+                    node: node.to_owned(),
+                    stored: expected_stored,
+                    manifest: expected_manifest,
+                })
+            );
         }
         ensure_same_membership("w1", worker, worker).unwrap();
         ensure_same_membership("vm", None, None).unwrap();

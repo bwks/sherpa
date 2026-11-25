@@ -71,7 +71,7 @@ A worker's machine config carrying no private key is `machine_config_002`.
 | 003 | The controllers of a cluster with a shared address announce it on the management interface, and those of a cluster without one do not | unit |
 | 004 | Controllers of a cluster with workers are tainted against workloads, and those of a cluster with none are not | unit |
 | 005 | A Flannel cluster's controllers keep Flannel and kube-proxy and carry no manifest of Sherpa's | unit |
-| 006 | A member on a Talos image that is not 1.14.x is refused, naming the node and its version and pointing to the node's own `ztp.config`; 1.14 with or without a leading `v` is taken | unit |
+| 006 | A member on a Talos image that is not 1.14.x is refused, carrying the node and its version; 1.14 with or without a leading `v` is taken | unit |
 | 007 | A cluster member that sets its own `ztp.config` is refused, and the error carries the node and the cluster | unit |
 | 008 | A cluster whose `vault` node sets its own `ztp.config` is refused | unit |
 | 009 | Keycloak and Vault add no document to a controller's config, and nothing to the manifests Talos fetches by URL | unit |
@@ -88,7 +88,7 @@ A machine config reaching its node byte for byte as NoCloud `user-data` is `conf
 | 001 | A cluster of one controller and three workers comes up with every node Ready, and `talosctl health` passes (real cluster) | e2e |
 | 002 | A cluster of three controllers and two workers, with Cilium, a Keycloak and a Vault, comes up with every node Ready, and `talosctl health` passes (real cluster) | e2e |
 | 003 | On a Flannel cluster, pods on different workers all answer through one node's port (real cluster) | e2e |
-| 004 | A bootstrap Talos accepts, or answers as already done, counts as bootstrapped; any other answer is refused with its code and message, and so is an answer with no status | unit |
+| 004 | A bootstrap Talos accepts, or answers as already done, counts as bootstrapped; any other answer is refused, carrying its code and message, and so is an answer with no status | unit |
 | 005 | Only a node whose `Ready` condition is true counts as ready | unit |
 | 006 | A cluster's worker is not waited for on its Talos API during node readiness; a controller and a Talos node in no cluster are | unit |
 | 007 | An up whose cluster is not Ready within `ready_timeout` exits non-zero, names the cluster, keeps the lab, and has saved the kubeconfig and talosconfig (no test yet; real cluster) | e2e |
@@ -176,8 +176,8 @@ A machine config reaching its node byte for byte as NoCloud `user-data` is `conf
 | 006 | Only a `hashicorp_vault` node without a config of its own is initialised | unit |
 | 007 | After an init that failed, init is sent once more while Vault says it is not initialised, and no more after the second failure | unit |
 | 008 | A Vault found initialised after a failed init, sealed or not, is a lost init response and is never sent init again | unit |
-| 009 | The lost init response error says so, gives the cause, says Sherpa has not reset the node, and gives the `sherpa redeploy --node` command that does | unit |
-| 010 | When the status cannot be read after a failed init, the error gives both causes, says the init may have completed, and gives the same command | unit |
+| 009 | A lost init response is its own error, carrying the node and the cause | unit |
+| 010 | When the status cannot be read after a failed init, the error is its own, carrying the node and both causes | unit |
 | 011 | The config Sherpa generates has Raft storage in the container, a TLS listener on port 8200 with the node's lab certificate, the node's management address as its API and cluster addresses, and the web UI on | unit |
 | 012 | After up, `vault status` with the address in the saved file and the lab CA shows the node initialised and unsealed, and the saved root token is accepted (no test yet) | e2e |
 | 013 | A Vault node with its own `ztp.config` is not initialised, and no credentials file is saved for it (no test yet) | e2e |
@@ -244,7 +244,7 @@ The saved file being readable by sherpad alone is `lab_credentials_018`.
 | 006 | After `sherpa redeploy` of a cluster's Vault, the folder's file has a new root token and unseal key, and a secret written with them is synced into the cluster (no test yet; real cluster) | e2e |
 | 007 | After `sherpa redeploy` of a cluster's Keycloak, the owner logs in to the cluster with the same user and password as before (no test yet; real cluster) | e2e |
 | 008 | The config a redeployed worker gets is the one up gave it (no test yet) | unit |
-| 009 | A redeploy whose manifest puts the node in another cluster, gives it another role, or puts it in or out of a cluster is refused before teardown, naming the node, its stored membership and the manifest's | unit |
+| 009 | A redeploy whose manifest puts the node in another cluster, gives it another role, or puts it in or out of a cluster is refused before teardown, carrying the node, its stored membership and the manifest's | unit |
 | 010 | A redeployed node is rebuilt with the lab's stored clusters, not the manifest's: a manifest that leaves another member out of the cluster does not change it | unit |
 
 A redeployed Keycloak node keeping its administrator and users is `lab_credentials_013` and `014`.

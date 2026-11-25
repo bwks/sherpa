@@ -130,7 +130,7 @@ const CISCO_IOL_STARTUP_CONFIG: &str = "ios_config.txt";
 const CISCO_IOL_RUN_DIR: &str = "/tmp/run";
 /// The highest IOL application ID Sherpa gives a node. IOL derives its MAC addresses from the
 /// ID, and the launcher takes 1000 for itself.
-const CISCO_IOL_MAX_APP_ID: u16 = 999;
+pub(crate) const CISCO_IOL_MAX_APP_ID: u16 = 999;
 /// The directory the cJunosEvolved entrypoint reads a startup `juniper.conf` from.
 const JUNIPER_CEVOLVED_CONFIG_DIR: &str = "/home/evo/configdisk";
 const CONTAINER_ARISTA_CEOS_ENV_VARS: &[&str] = &[
@@ -626,11 +626,10 @@ fn container_model_setup(
         | data::Ztp::Ignition
         | data::Ztp::NoCloud
         | data::Ztp::Tftp
-        | data::Ztp::Usb => bail!(
-            "ZTP setting '{setting}' of container node '{}' was not validated: containers take \
-             only 'disabled' and 'volume'",
-            node.name
-        ),
+        | data::Ztp::Usb => bail!(ServiceError::ContainerZtpNotValidated {
+            node: node.name.clone(),
+            ztp: setting,
+        }),
     }
 }
 
@@ -690,11 +689,10 @@ fn container_volume_ztp(
         }
         data::NodeModel::FrrLinux => frr_volume_ztp(node, ztp, setup),
         data::NodeModel::SonicLinux => sonic_container_volume_ztp(node, node_image, ztp, setup),
-        model => bail!(
-            "ZTP setting 'volume' of container node '{}' was not validated: Sherpa generates \
-             no config for model {model}",
-            node.name
-        ),
+        model => bail!(ServiceError::VolumeZtpWithoutGenerator {
+            node: node.name.clone(),
+            model,
+        }),
     }
 }
 
@@ -984,10 +982,10 @@ pub(crate) fn iol_app_id(node_name: &str, index: u16) -> Result<u16> {
     if (1..=CISCO_IOL_MAX_APP_ID).contains(&index) {
         Ok(index)
     } else {
-        bail!(
-            "IOL node '{node_name}' is node {index} of its lab; an IOL node must be one of the \
-             first {CISCO_IOL_MAX_APP_ID}, as its application ID is its place in the lab"
-        )
+        bail!(ServiceError::IolNodeIndexOutOfRange {
+            node: node_name.to_owned(),
+            index,
+        })
     }
 }
 
@@ -1615,11 +1613,10 @@ fn generate_vm_ztp_media(
             media.ignition = Some((src_ign, dst_ign));
             media.config_disk = Some((src_cfg, dst_cfg));
         }
-        data::Ztp::Volume => bail!(
-            "ZTP setting '{setting}' of virtual machine '{}' was not validated: it is a \
-             container's method",
-            node.name
-        ),
+        data::Ztp::Volume => bail!(ServiceError::VmZtpNotValidated {
+            node: node.name.clone(),
+            ztp: setting,
+        }),
     }
     Ok(media)
 }
@@ -6253,11 +6250,15 @@ echo "$*" >> '{}'
             None,
         )
         .err()
-        .expect("the setting is refused")
-        .to_string();
+        .expect("the setting is refused");
 
-        assert!(error.contains("'volume'"), "{error}");
-        assert!(error.contains("was not validated"), "{error}");
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::VmZtpNotValidated {
+                node: "vm01".to_owned(),
+                ztp: data::Ztp::Volume,
+            })
+        );
         assert!(lab.files().is_empty(), "{:?}", lab.files());
     }
 
@@ -6597,9 +6598,14 @@ echo "$*" >> '{}'
         assert_eq!(iol_app_id("r1", 1).unwrap(), 1);
         assert_eq!(iol_app_id("r1", 999).unwrap(), 999);
         for index in [0, 1000, u16::MAX] {
-            let error = iol_app_id("r1", index).unwrap_err().to_string();
-            assert!(error.contains("r1"), "{error}");
-            assert!(error.contains("999"), "{error}");
+            let error = iol_app_id("r1", index).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<ServiceError>(),
+                Some(&ServiceError::IolNodeIndexOutOfRange {
+                    node: "r1".to_owned(),
+                    index,
+                })
+            );
         }
     }
 
@@ -6607,8 +6613,14 @@ echo "$*" >> '{}'
     fn an_iol_node_past_the_999th_is_refused() {
         let lab = ZtpLab::new();
         let mut node = iol_node("r1000", data::NodeModel::CiscoIol, 1000);
-        let error = lab.container(&mut node, None).err().unwrap().to_string();
-        assert!(error.contains("r1000"), "{error}");
+        let error = lab.container(&mut node, None).err().unwrap();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::IolNodeIndexOutOfRange {
+                node: "r1000".to_owned(),
+                index: 1000,
+            })
+        );
     }
 
     #[test]
@@ -6629,11 +6641,14 @@ echo "$*" >> '{}'
                 let error = lab
                     .container(&mut node, Some(ztp))
                     .err()
-                    .expect("the setting is refused")
-                    .to_string();
-                assert!(
-                    error.contains("was not validated"),
-                    "{model} {ztp}: {error}"
+                    .expect("the setting is refused");
+                assert_eq!(
+                    error.downcast_ref::<ServiceError>(),
+                    Some(&ServiceError::ContainerZtpNotValidated {
+                        node: "node1".to_owned(),
+                        ztp,
+                    }),
+                    "{model} {ztp}"
                 );
                 assert!(lab.files().is_empty(), "{model} {ztp}");
             }
@@ -6641,16 +6656,20 @@ echo "$*" >> '{}'
     }
 
     #[test]
-    fn config_delivery_026_volume_on_a_model_without_a_generator_fails_naming_it() {
+    fn config_delivery_026_volume_on_a_model_without_a_generator_fails_carrying_it() {
         let lab = ZtpLab::new();
         let mut node = named_node("db01", data::NodeModel::MongoDb);
         let error = lab
             .container(&mut node, Some(data::Ztp::Volume))
             .err()
-            .expect("the setting is refused")
-            .to_string();
-        assert!(error.contains("was not validated"), "{error}");
-        assert!(error.contains("mongo_db"), "{error}");
+            .expect("the setting is refused");
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::VolumeZtpWithoutGenerator {
+                node: "db01".to_owned(),
+                model: data::NodeModel::MongoDb,
+            })
+        );
     }
 
     #[test]

@@ -436,6 +436,7 @@ mod tests {
     use crate::services::guest_account::tests::test_account;
     use shared::data::{ModelKind, NodeModel};
     use tokio::sync::mpsc;
+    use topology::{Connection, TopologyError};
 
     const OWNER_KEY: &str =
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh";
@@ -512,13 +513,19 @@ mod tests {
             ..Default::default()
         };
 
-        let error = format!(
-            "{:#}",
-            process_links(&manifest, &nodes, "abcd1234").unwrap_err()
-        );
+        let error = process_links(&manifest, &nodes, "abcd1234").unwrap_err();
 
-        assert!(error.contains("node 'r1' interface index"), "{error}");
-        assert!(error.contains("is already in use"), "{error}");
+        assert!(
+            matches!(
+                error.downcast_ref::<TopologyError>(),
+                Some(TopologyError::InterfaceInUse {
+                    connection: Connection::Bridge { name },
+                    node,
+                    ..
+                }) if name == "b2" && node == "r1"
+            ),
+            "{error:#}"
+        );
     }
 
     #[test]
@@ -530,14 +537,16 @@ mod tests {
                 node("win1", NodeModel::WindowsServer),
             ],
         )
-        .unwrap_err()
-        .to_string();
-        assert!(
-            error.contains(
-                "Node 'win1' (windows_server) takes login names of at most 20 characters; \
-                 'a-very-long-owner-name' has 22"
-            ),
-            "{error}"
+        .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::LoginNameTooLong {
+                node: "win1".to_owned(),
+                model_kind: ModelKind::default_for(NodeModel::WindowsServer),
+                username: "a-very-long-owner-name".to_owned(),
+                max_length: 20,
+                length: 22,
+            })
         );
     }
 }

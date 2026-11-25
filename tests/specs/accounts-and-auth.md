@@ -21,10 +21,10 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 008 | An owner with no device password is refused at up, before anything is created | integration |
 | 009 | An owner with no device password is refused at redeploy, before any of it starts | integration |
 | 010 | A lab with a node whose model cannot take the owner's name, too long or starting with `_`, is refused, carrying the node, the model and the name, and for a name too long the limit; every other model takes every Sherpa username | unit |
-| 011 | An owner whose name cannot be a login on a node, a reserved one such as `root` or one that breaks the login name rule, is refused with the reason | unit |
+| 011 | An owner whose name cannot be a login on a node, a reserved one such as `root` or one that breaks the login name rule, is refused, carrying the owner's name and the reason | unit |
 | 012 | Linux, BSD and Windows nodes take every key on the owner's account, with duplicates of one key dropped | unit |
 | 013 | A network device takes only the key types it accepts and no more keys than it holds, and the keys left out are reported | unit |
-| 014 | A device that none of the owner's keys fits fails, with the command that makes a key it takes | unit |
+| 014 | A device that none of the owner's keys fits fails, carrying the key types it takes and the one whose command makes a key | unit |
 | 015 | The account on each operating system has that system's shell, home and admin rights: Bash and sudo on Linux, the system Bash on NixOS, `ash` and `doas` on Alpine, `sh` and `wheel` on the BSDs, sudo and `docker` on Flatcar, sudo on the SONiC container when its image has it, a local administrator on Windows | unit |
 | 016 | The device password is written to each node as plain text or as a hash that verifies against it, as the model takes | unit |
 | 017 | A node with a custom ZTP config, or with ZTP off in its manifest or its image, gets no owner login | unit |

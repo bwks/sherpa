@@ -53,7 +53,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 004 | An HTTP answer that is not a success is refused, and nothing is recorded (no test yet) | integration |
 | 005 | A version whose file on the server has the length the source declares, and the SHA-256 it publishes where it publishes one, is recorded without a download | unit |
 | 006 | `--url` is the URL downloaded, for any model | unit |
-| 007 | Without `--url` only `ubuntu_linux` and `talos_linux` are downloaded; any other model is refused, saying to give `--url` | unit |
+| 007 | Without `--url` only `ubuntu_linux` and `talos_linux` are downloaded; any other model is refused, carrying the model | unit |
 | 008 | A `talos_linux` version, with or without a leading `v`, is downloaded from the Talos Image Factory's vanilla schematic | unit |
 | 009 | An Image Factory answer without a schematic ID is refused | unit |
 | 010 | The Talos Image Factory answers Sherpa's request with the vanilla schematic's ID | integration |
@@ -83,7 +83,7 @@ Only an Ubuntu release, downloaded without `--url`, publishes a SHA-256 (its `SH
 | 007 | A pull for a model or kind that is not a container is refused by the server (no test yet) | integration |
 | 008 | A pull that fails records nothing (no test yet) | integration |
 | 009 | Without `--repo`, the server pulls the model's built-in repo at `--version`, for a model the CLI's old list lacked, such as `nats_bus` | unit |
-| 010 | Without `--repo`, a model with no built-in repo is refused, naming the model and saying to pass `--repo` | unit |
+| 010 | Without `--repo`, a model with no built-in repo is refused, carrying the model | unit |
 
 ## `image_scan`: scan records the images on the server that are not recorded
 
@@ -145,7 +145,7 @@ Only an Ubuntu release, downloaded without `--url`, publishes a SHA-256 (its `SH
 | 003 | A container created from another tag of the same image does not stop the delete, unless the tag being deleted is the image's last | unit |
 | 004 | Deleting a VM or unikernel image removes its file, and the version folder with the last file in it (no test at this level yet) | integration |
 | 005 | Deleting one kind of a model at a version keeps the other kind's record and file at that version | integration |
-| 006 | A VM or unikernel image with a lab disk built on it, running or stopped, is not deleted, and the refusal names the disk (no test at this level yet) | integration |
+| 006 | A VM or unikernel image with a lab disk built on it, running or stopped, is not deleted, and the refusal carries the disk (no test at this level yet) | integration |
 | 007 | A lab disk built on another image does not stop the delete | unit |
 | 008 | A lab disk copied from the image (`clone_method = "copy"`) does not stop the delete; only an overlay does (no test at this level yet) | integration |
 | 009 | A lab disk whose base is reached through a renamed model's old folder still stops the delete | unit |

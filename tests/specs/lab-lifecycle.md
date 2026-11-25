@@ -44,8 +44,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 001 | A second up of a lab that is coming up is refused and leaves the first alone | integration |
 | 002 | Two destroys of one lab both succeed | integration |
 | 003 | Labs brought up at once get distinct management subnets | integration |
-| 004 | A second reservation of a lab ID that is being created is refused as a conflict that says the lab already exists and is creating, and the first's record is left as it was | integration |
-| 005 | A destroy stops the operations running on its lab, each ending with an error that says the lab is being destroyed, and goes on only once they have ended | unit |
+| 004 | A second reservation of a lab ID that is being created is refused as a conflict, carrying the lab and its `creating` phase, and the first's record is left as it was | integration |
+| 005 | A destroy stops the operations running on its lab, each ending with the error of a lab being destroyed, and goes on only once they have ended | unit |
 | 006 | A destroy of a lab with nothing running does not wait | unit |
 | 007 | An operation started while its lab is being destroyed waits for the destroy, then runs as any other | unit |
 | 008 | Stopping the operations of one lab leaves those of another running | unit |
@@ -180,7 +180,7 @@ Names are compared, never IDs, so a lab keeps the ID it was given. Refusing to c
 | 010 | A phase write made from a phase the lab has since left changes nothing, and a lab that does not exist is not moved | integration |
 | 011 | A record is removed only from the phase it was read in, and removing it again is no error | integration |
 | 012 | Down, resume and redeploy of a lab that is not `ready` are refused with a conflict that says what to do, and its nodes are untouched | integration |
-| 013 | An up of a lab that exists and is not `ready` is refused saying it exists and naming its phase | unit |
+| 013 | An up of a lab that exists and is not `ready` is refused as existing, carrying its phase | unit |
 | 014 | At startup a lab left `creating` becomes `interrupted` and one left `destroying` becomes `destroy failed`, `ready` and `destroy failed` labs are left as they are, no record is removed, and a second run finds nothing to mark | integration |
 | 015 | A lab that cannot be marked at startup is counted and logged, and the others are still marked | integration |
 | 016 | After sherpad is stopped during an up and started again, `sherpa inspect` shows the lab `interrupted` with what to do, down is refused, and `sherpa destroy` removes it (no test yet) | e2e |
@@ -196,7 +196,7 @@ The nodes an up or a redeploy was building when the server stopped are `node_fai
 |---|---|---|
 | 001 | Cancel of a lab with nothing running answers `stopped: false` with the lab's ID | integration |
 | 002 | `POST /api/v1/labs/{id}/cancel` answers as the RPC does | integration |
-| 003 | A requested stop ends a waiting operation with an error that says it was stopped on request, returns only once it has ended, saying an operation was running, and operations started after it run as any other | unit |
+| 003 | A requested stop ends a waiting operation with the error of a stop on request, returns only once it has ended, saying an operation was running, and operations started after it run as any other | unit |
 | 004 | A cancelled up of a container lab ends with nothing of the lab left in Docker or the database, and cancel answers `stopped: true` only once it is gone | integration |
 | 005 | A cancelled up whose rollback leaves something behind leaves the lab `destroy failed` | integration |
 | 006 | A cancelled resume stops waiting for its nodes: the nodes it started keep running and the lab stays `ready` | integration |

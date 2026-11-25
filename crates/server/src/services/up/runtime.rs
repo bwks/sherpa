@@ -7,6 +7,7 @@ use tokio::task::JoinHandle;
 use tracing::instrument;
 
 use super::context::LabBuild;
+use crate::services::error::ServiceError;
 use crate::services::node_ops;
 
 use shared::data::StatusKind;
@@ -75,7 +76,7 @@ pub(super) async fn create_unikernels(
 ///
 /// Stopping at the first failure would drop the other handles, which detaches their tasks:
 /// they would go on creating domains while the rollback that follows removes the lab.
-async fn join_all_tasks(tasks: Vec<JoinHandle<Result<()>>>, what: &str) -> Result<()> {
+async fn join_all_tasks(tasks: Vec<JoinHandle<Result<()>>>, what: &'static str) -> Result<()> {
     let mut failures = Vec::new();
     for task in tasks {
         match task.await {
@@ -87,7 +88,7 @@ async fn join_all_tasks(tasks: Vec<JoinHandle<Result<()>>>, what: &str) -> Resul
     if failures.is_empty() {
         return Ok(());
     }
-    bail!("{what} failed: {}", failures.join("; "))
+    bail!(ServiceError::TasksFailed { what, failures })
 }
 
 #[cfg(test)]
@@ -119,10 +120,13 @@ mod tests {
             slow_finished.load(Ordering::SeqCst),
             "returned before the slow task ended"
         );
-        let message = format!("{error:#}");
         assert!(
-            message.contains("r1") && message.contains("r3"),
-            "{message}"
+            matches!(
+                error.downcast_ref::<ServiceError>(),
+                Some(ServiceError::TasksFailed { what: "VM creation", failures })
+                    if failures.len() == 2
+            ),
+            "{error:#}"
         );
     }
 }

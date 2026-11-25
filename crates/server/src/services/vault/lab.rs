@@ -20,6 +20,7 @@ use shared::util::write_file_with_permissions;
 use super::api::{SealStatus, VaultClient, VaultRefusal};
 use crate::daemon::vault_seals::VaultSeals;
 use crate::konst::READINESS_SLEEP;
+use crate::services::error::ServiceError;
 use crate::services::progress::ProgressSender;
 
 /// Directory in the lab directory holding each Vault node's credentials.
@@ -305,10 +306,11 @@ pub fn record_seal_outcome(
 /// The saved credentials of a Vault node that was already initialised when Sherpa first read
 /// its seal status. With none saved, Sherpa did not initialise it.
 fn saved_credentials(node_name: &str, saved: Option<VaultCredentials>) -> Result<VaultCredentials> {
-    saved.with_context(|| {
-        format!(
-            "Vault node '{node_name}' was initialised outside Sherpa, so Sherpa has no unseal key or root token for it"
-        )
+    saved.ok_or_else(|| {
+        ServiceError::VaultInitialisedOutside {
+            node: node_name.to_owned(),
+        }
+        .into()
     })
 }
 
@@ -384,7 +386,7 @@ fn after_failed_init(status: SealStatus, failed_inits: u32) -> AfterFailedInit {
 }
 
 /// How to recover a Vault node whose credentials Sherpa does not have.
-fn reset_instructions(node_name: &str) -> String {
+pub(crate) fn reset_instructions(node_name: &str) -> String {
     format!(
         "Sherpa has not reset it. To recover, reset the node's Vault data with \
          `sherpa redeploy --node {node_name}` in the lab directory: the node starts again with \
@@ -393,27 +395,29 @@ fn reset_instructions(node_name: &str) -> String {
     )
 }
 
+/// The error of a Vault node that is initialised but whose init response, after `init_error`,
+/// Sherpa does not have.
 fn lost_init_response_error(node_name: &str, init_error: &anyhow::Error) -> anyhow::Error {
-    anyhow!(
-        "Vault node '{node_name}' is initialised, but Sherpa lost the init response carrying its \
-         unseal key and root token: the init request failed ({init_error:#}) after Vault had \
-         started it. Vault gives these out only once, so Sherpa cannot unseal the node. {}",
-        reset_instructions(node_name)
-    )
+    ServiceError::VaultInitResponseLost {
+        node: node_name.to_owned(),
+        init_error: format!("{init_error:#}"),
+    }
+    .into()
 }
 
+/// The error of a failed init, `init_error`, after which the seal status could not be read
+/// either, failing with `status_error`.
 fn status_unknown_error(
     node_name: &str,
     init_error: &anyhow::Error,
     status_error: &anyhow::Error,
 ) -> anyhow::Error {
-    anyhow!(
-        "Failed to initialise Vault node '{node_name}' ({init_error:#}), and its seal status \
-         could not be read afterwards ({status_error:#}), so Sherpa cannot tell whether the init \
-         completed. If it did, Sherpa lost the init response carrying the node's unseal key and \
-         root token. {}",
-        reset_instructions(node_name)
-    )
+    ServiceError::VaultInitUnknown {
+        node: node_name.to_owned(),
+        init_error: format!("{init_error:#}"),
+        status_error: format!("{status_error:#}"),
+    }
+    .into()
 }
 
 /// Poll until the node is active, within `timeout`. Right after an unseal, Raft storage elects
@@ -813,44 +817,32 @@ cluster_addr = "https://127.0.0.1:8201"
     }
 
     #[test]
-    fn vault_init_009_a_lost_init_response_says_so_and_how_to_reset_the_node() {
+    fn vault_init_009_a_lost_init_response_is_its_own_error_carrying_the_node_and_the_cause() {
         let init_error = anyhow!("operation timed out").context("Vault API did not answer");
-        let message = format!("{:#}", lost_init_response_error("vault01", &init_error));
+        let error = lost_init_response_error("vault01", &init_error);
         assert!(
-            message.contains("Sherpa lost the init response"),
-            "{message}"
+            matches!(
+                error.downcast_ref::<ServiceError>(),
+                Some(ServiceError::VaultInitResponseLost { node, .. }) if node == "vault01"
+            ),
+            "{error:#}"
         );
-        assert!(
-            message.contains("Vault API did not answer: operation timed out"),
-            "{message}"
-        );
-        assert!(message.contains("Sherpa has not reset it"), "{message}");
-        assert!(
-            message.contains("`sherpa redeploy --node vault01`"),
-            "{message}"
-        );
-        assert!(!message.contains("outside Sherpa"), "{message}");
     }
 
     #[test]
-    fn vault_init_010_an_unknown_status_after_a_failed_init_says_how_to_reset_the_node() {
-        let message = format!(
-            "{:#}",
-            status_unknown_error(
-                "vault01",
-                &anyhow!("operation timed out"),
-                &anyhow!("connection refused")
-            )
-        );
-        assert!(message.contains("operation timed out"), "{message}");
-        assert!(message.contains("connection refused"), "{message}");
-        assert!(
-            message.contains("cannot tell whether the init"),
-            "{message}"
+    fn vault_init_010_an_unknown_status_after_a_failed_init_is_its_own_error_carrying_both_causes()
+    {
+        let error = status_unknown_error(
+            "vault01",
+            &anyhow!("operation timed out"),
+            &anyhow!("connection refused"),
         );
         assert!(
-            message.contains("`sherpa redeploy --node vault01`"),
-            "{message}"
+            matches!(
+                error.downcast_ref::<ServiceError>(),
+                Some(ServiceError::VaultInitUnknown { node, .. }) if node == "vault01"
+            ),
+            "{error:#}"
         );
     }
 
@@ -920,9 +912,11 @@ cluster_addr = "https://127.0.0.1:8201"
         )
         .await
         .unwrap_err();
-        assert!(
-            format!("{error:#}").contains("initialised outside Sherpa"),
-            "{error:#}"
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::VaultInitialisedOutside {
+                node: "vault01".to_owned()
+            })
         );
         assert_eq!(load_credentials(elsewhere.path(), "vault01").unwrap(), None);
         vault.remove().await;
@@ -941,12 +935,13 @@ cluster_addr = "https://127.0.0.1:8201"
         let error = unseal_with_client(&client, dir.path(), "vault01", TEST_TIMEOUT, &progress())
             .await
             .unwrap_err();
-        let message = format!("{error:#}");
         assert!(
-            message.contains("Sherpa lost the init response"),
-            "{message}"
+            matches!(
+                error.downcast_ref::<ServiceError>(),
+                Some(ServiceError::VaultInitResponseLost { node, .. }) if node == "vault01"
+            ),
+            "{error:#}"
         );
-        assert!(!message.contains("outside Sherpa"), "{message}");
         assert_eq!(
             load_credentials(dir.path(), "vault01").unwrap(),
             Some(credentials("hvs.stale"))

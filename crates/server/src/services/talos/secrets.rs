@@ -17,7 +17,7 @@ use crate::tls::generator::{
 };
 
 /// Talos Linux minor version Sherpa generates cluster machine configs for.
-const TALOS_SUPPORTED_MINOR_VERSION: &str = "1.14";
+pub(crate) const TALOS_SUPPORTED_MINOR_VERSION: &str = "1.14";
 
 /// Validity of cluster CAs: long enough to outlive any lab.
 const CA_VALIDITY_DAYS: u32 = 3650;
@@ -162,9 +162,10 @@ pub fn ensure_supported_version(node_name: &str, version: &str) -> Result<()> {
     let version = version.strip_prefix('v').unwrap_or(version);
     let minor = version.splitn(3, '.').take(2).collect::<Vec<_>>().join(".");
     if minor != TALOS_SUPPORTED_MINOR_VERSION {
-        return Err(ServiceError::Invalid(format!(
-            "Node '{node_name}' uses Talos Linux {version}, but Sherpa builds clusters with Talos {TALOS_SUPPORTED_MINOR_VERSION}.x only. Use a {TALOS_SUPPORTED_MINOR_VERSION}.x image, or remove the node from its cluster and provide your own config with ztp.config"
-        ))
+        return Err(ServiceError::TalosVersionUnsupported {
+            node: node_name.to_owned(),
+            version: version.to_owned(),
+        }
         .into());
     }
     Ok(())
@@ -254,17 +255,14 @@ mod tests {
             ensure_supported_version("cp1", version).unwrap();
         }
         for version in ["1.13.11", "1.15.0", "1.1", "latest"] {
-            let error = ensure_supported_version("cp1", version)
-                .unwrap_err()
-                .to_string();
-            assert!(error.contains("1.14.x only"), "{version}: {error}");
-            assert!(
-                error.contains("your own config with ztp.config"),
-                "{version}: {error}"
-            );
-            assert!(
-                error.contains(&format!("Node 'cp1' uses Talos Linux {version},")),
-                "{version}: {error}"
+            let error = ensure_supported_version("cp1", version).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<ServiceError>(),
+                Some(&ServiceError::TalosVersionUnsupported {
+                    node: "cp1".to_owned(),
+                    version: version.to_owned(),
+                }),
+                "{version}"
             );
         }
     }
