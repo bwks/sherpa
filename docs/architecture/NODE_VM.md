@@ -70,6 +70,9 @@ The domain boots the kernel directly (`<os><kernel>`, `<cmdline>`), not through 
   `/usr` partition, which updates never change.
 - It has no `console=`: the kernel's messages never reach the serial console, which is the
   network OS's. Printing them there is slow in a VM, and slower nested.
+- `rootflags=rw,noinit_itable`: ext4 does not zero the root filesystem's inode tables in the
+  background. Flatcar's ROOT has 1.6 million inodes, and zeroing their tables wrote about 300 MB
+  into every node's overlay of the base image.
 - `flatcar.first_boot=detected` is on the command line of the first boot, so Ignition runs.
   Once the VM's Docker answers, Ignition has run, and sherpad defines the domain again without it
   (`libvirt::set_node_vm_cmdline`): later boots skip Ignition, as GRUB's would.
@@ -109,10 +112,17 @@ The alternatives measured, and why they were not taken:
   store's layer folders read-only into a writable data root depends on Docker's private layout;
   it did not run and was not pursued. A qcow2 backing file shares the store at the block layer
   instead: the node's Docker sees a writable disk, and the server's disk holds the store once.
-- **The image baked into the base image, one disk chain.** The baked disk would have booted once,
-  so it would need Flatcar's first boot state back (`flatcar-reset`) before each node's Ignition,
-  and a new Flatcar release would mean baking every image again. A second disk keeps the base
-  image as Flatcar ships it.
+- **The image baked into the base image, one disk.** A Flatcar VM boots an overlay of the base
+  image, loads the image into `/var/lib/docker` on its root filesystem, stages
+  `flatcar-reset --keep-paths /var/lib/docker /var/lib/containerd` so the next boot is a first
+  boot again, and the disk is flattened to stand alone; each node boots one overlay of it.
+  Without the reset, a node's Ignition writes its files but enables none of its units (presets
+  apply only on a first boot), so the NIC mover and the console never run. Measured with the
+  test lab, three runs each: lab up 134 to 144 s against 138 to 139 s, Docker answering 2 to
+  3 s sooner, the same memory, about 70 MiB per node against 50 MiB once the root filesystem
+  skips its inode table zeroing (see Boot), and 2.6 to 4.3 GB per image on the server against
+  the store's 1.9 to 3.6 GB, as every baked disk holds its own Flatcar. It also needs the
+  flattening copy and a new bake of every image for each Flatcar release.
 - **Starting the container from a systemd unit at boot, not over the API.** The API calls after
   Docker answers take about 2 s (create, file upload, start); the unit would save at most that,
   and would need the container's settings and files in Ignition.
@@ -151,13 +161,51 @@ in. It sets:
   and `update-engine` and `locksmithd` masked.
 - No login: no users, `sshd` and its vsock socket masked, the serial getty masked. The OpenStack metadata units of the
   image are masked: the VM has no network of its own.
+- No rebuilds of the library cache and the hardware database: `ldconfig.service` and
+  `systemd-hwdb-update.service` are masked. Both run on every boot of a node VM and hold up
+  Docker (see Boot time). Flatcar's default confext ships the `/etc/ld.so.cache` that
+  `ldconfig` would write, and udev needs no hardware database for the VM's virtio devices.
 - Networking: the management NIC is renamed `sherpa0` by MAC and kept up with no address; every
   other NIC is unmanaged.
 - Docker: its data on the Docker disk (see Docker stores); it listens on `127.0.0.1:2376` with `--tlsverify`, its server certificate and the VM's CA,
-  besides its local socket, with no default bridge. `docker-vsock.socket` listens on vsock port
-  2376 and hands each connection to `systemd-socket-proxyd`, which connects it to that listener.
+  besides its local socket, with no default bridge and no iptables rules (`--iptables=false
+  --ip6tables=false`): the container publishes no ports. containerd runs with
+  `/etc/containerd/config.toml` (`crates/server/src/services/node_vm/containerd.toml`, set by a
+  drop-in's `CONTAINERD_CONFIG`): Flatcar's settings with the CRI plugins and NRI disabled,
+  which Docker does not use and whose start held up containerd's. `docker-vsock.socket` listens
+  on vsock port 2376 and hands each connection to `systemd-socket-proxyd`, which connects it to
+  that listener.
 - The NIC mover, the console, and for SR Linux the start step (below), as scripts in
   `/opt/sherpa` with their units.
+
+## Boot time
+
+From `virsh start` to the VM's Docker answering over vsock, one SONiC node VM alone, nested,
+median of three first boots: 34.8 s. The phases, on the kernel's clock:
+
+| Phase | Ends at | Takes |
+|---|--:|--:|
+| Kernel, to `/init` | 3.9 s | 3.9 s |
+| initrd modules, to the initrd's systemd | 7.0 s | 3.1 s |
+| initrd: devices, Ignition, root setup, to the switch to the root | 16.1 s | 9.1 s |
+| Root: systemd and SELinux policy, udev, local file systems, confext and sysext (Docker and containerd are sysexts) | 23.0 s | 6.9 s |
+| containerd, to ready | 24.9 s | 1.9 s |
+| dockerd, to its API | 28.8 s | 3.9 s |
+
+The other 6 s are before the kernel's clock starts (libvirt starting QEMU, the firmware, loading
+and unpacking the kernel) and the first answer over vsock. The vsock socket listens from about
+23 s and holds each connection until dockerd is ready, so
+sherpad's next check after that answers as soon as Docker does; a shorter poll than its 2 s
+gains nothing.
+
+Measured one at a time against that boot, and not taken, as none moved it beyond the 0.6 s
+noise between boots: `cryptomgr.notests` (the kernel's slowest initcall, `crypto_kdf108_init`,
+1.7 s, is a self-test), loading `sha256_ssse3` before dm-verity in the initrd (`/usr` is
+verified with `sha256-generic`), no USB controller, Ignition by `fw_cfg` with
+`flatcar.oem.id=qemu` and no config drive, qboot instead of SeaBIOS, masking the config drive's
+mount, and masking units that are off the critical path (`sshd-keygen`, `nvidia`, `motdgen`,
+`systemd-timesyncd`). Docker socket activation was not tried: dockerd waits for containerd
+either way, and sherpad is the only client.
 
 ## Docker's API: vsock with mutual TLS
 
@@ -252,18 +300,21 @@ A node VM gets the manifest's or the image's `memory` with 1024 MiB on top, and 
 image's `cpu.count` (`planned_resources`); admission counts that. In the VM the container has no
 limits: the VM is its limit.
 
-Measured in a nested guest, lab up with the three models and an Alpine VM, Docker stores made:
+Measured in a nested guest, lab up with the three models and an Alpine VM, Docker stores made,
+mean of three ups, a minute after ready:
 
 | Node | VM memory | QEMU PSS on the host | Used in the VM | Page cache in the VM | Disks on the server | Domain start to SSH-ready | runc: container start to SSH |
 |---|---|---|---|---|---|---|---|
-| cEOS | 5120 MiB | 3070 MiB | 1591 MiB | 1519 MiB | 354 MiB | 133 s | 71 s |
-| SR Linux | 5120 MiB | 3781 MiB | 1962 MiB | 1747 MiB | 342 MiB | 51 s | not reached |
-| SONiC | 2048 MiB | 1628 MiB | 768 MiB | 791 MiB | 346 MiB | 101 s | 65 s |
+| cEOS | 5120 MiB | 3027 MiB | 1571 MiB | 1431 MiB | 51 MiB | 117 to 125 s | 71 s |
+| SR Linux | 5120 MiB | 3659 MiB | 1962 MiB | 1647 MiB | 38 MiB | 45 s | not reached |
+| SONiC | 2048 MiB | 1506 MiB | 772 MiB | 692 MiB | 44 MiB | 96 s | 65 s |
 
-The whole lab is up in about 150 s. A node VM's time to ready is about 45 s from domain start to
-its Docker answering, 2 s to start its container, and then the network OS's own boot. The
-first up with an image adds making its store: about 140 s with the three made at once. A store
-takes 1.8 to 3.6 GB once on the server; each node's disks hold only what it writes.
+The whole lab is up in 128 to 138 s, which is cEOS's own boot. A node VM's time to ready is 37
+to 40 s from domain start to its Docker answering (see Boot time), 2 s to start its container,
+and then the network OS's own boot. The first up with an image adds making its store: about
+120 s for one, about 140 s with the three made at once. A store takes 1.8 to 3.6 GB once on the
+server; each node's disks hold only what it writes, 11 MiB of it on its overlay of the base
+image.
 
 ## Limits
 
