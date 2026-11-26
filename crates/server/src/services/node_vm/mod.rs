@@ -219,15 +219,6 @@ fn state_dir(lab_dir: &str, node_name: &str) -> PathBuf {
     Path::new(lab_dir).join(node_name).join(NODE_VM_STATE_DIR)
 }
 
-/// The step a model runs after each start of its container, in the VM: SR Linux's management
-/// address flush.
-fn on_start_script(model_kind: ModelKind) -> Option<&'static str> {
-    match model_kind.model() {
-        NodeModel::NokiaSrlinux => Some(include_str!("srlinux-on-start.sh")),
-        _ => None,
-    }
-}
-
 /// The command the VM's serial console runs in the node's container: its network OS CLI.
 fn console_command(model_kind: ModelKind) -> &'static [&'static str] {
     match model_kind.model() {
@@ -405,7 +396,6 @@ pub(crate) async fn create_node_vm(
             server_key: &certs.server_key,
         },
         console_command: console_command(create.model_kind),
-        on_start: on_start_script(create.model_kind),
     })?;
     let config_drive = write_config_drive(&dir, &device, &ignition)?;
     let vm = NodeVm {

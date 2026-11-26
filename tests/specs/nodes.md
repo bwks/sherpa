@@ -77,7 +77,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 012 | Volume files land at their destination in the container, a folder's files recursively | unit |
 | 013 | The console runs each model's CLI | unit |
 | 014 | Each node VM has a CA of its own, which signs both ends | unit |
-| 015 | The model's start step is installed for the NIC mover to run after each start | unit |
+| 015 | Retired: no model has a step of its own after its container starts; see 044 | — |
 | 016 | A node VM gets its container's memory, the manifest's or the image's, with 1024 MB on top, and its vCPUs | unit |
 | 017 | libvirt runs the containers of the three models, as VMs; other containers stay Docker's | unit |
 | 018 | A lab with a node VM is refused before anything is created when the base image or its kernel is missing | unit |
@@ -91,7 +91,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 026 | Destroy leaves no domain, volume, tap, eBPF filter, process or folder of the node VMs (no test yet) | e2e |
 | 027 | An up that fails while creating node VMs removes what it created (no test yet) | e2e |
 | 028 | A restart of sherpad leaves the node VMs running (no test yet) | e2e |
-| 029 | SR Linux's management address answers once after every start of its container (no test yet) | e2e |
+| 029 | SR Linux's management address answers after every start of its container (no test yet) | e2e |
 | 030 | A Docker store is named by the image's ID, and an ID that is not a SHA-256 gets none | unit |
 | 031 | The VM that makes a Docker store has no NICs and no console | unit |
 | 032 | The kernel command line of a domain is replaced and the rest of its XML kept; XML without one is refused | unit |

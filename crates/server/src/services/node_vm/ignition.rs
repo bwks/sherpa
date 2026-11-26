@@ -25,12 +25,8 @@ const CONTAINERD_CONFIG_PATH: &str = "/etc/containerd/config.toml";
 /// The script that names the NICs and makes the interfaces on no link, before the container
 /// starts.
 const LINKS_SCRIPT: &str = include_str!("links.sh");
-/// The script that moves the data NICs into the container.
-const MOVE_NICS_SCRIPT: &str = include_str!("move-nics.sh");
 /// The script that runs the network OS CLI on the serial console.
 const CONSOLE_SCRIPT: &str = include_str!("console.sh");
-/// Where the model's own step after each start of its container goes.
-const ON_START_PATH: &str = "/opt/sherpa/on-start";
 /// The label of the filesystem on a node VM's Docker store disk.
 const DOCKER_STORE_LABEL: &str = "sherpa-docker";
 /// The Docker store disk, the VM's second disk.
@@ -76,7 +72,6 @@ pub(super) struct GuestConfig<'a> {
     pub(super) placeholders: &'a [(String, String)],
     pub(super) tls: DockerTls<'a>,
     pub(super) console_command: &'a [&'a str],
-    pub(super) on_start: Option<&'a str>,
 }
 
 /// A root-owned file at `path` with `mode` and `contents`.
@@ -176,14 +171,8 @@ fn files(config: &GuestConfig<'_>) -> Vec<IgnitionFile> {
             &interfaces_file(config.placeholders),
         ),
         file("/opt/sherpa/links", 0o755, LINKS_SCRIPT),
-        file("/opt/sherpa/move-nics", 0o755, MOVE_NICS_SCRIPT),
         file("/opt/sherpa/console", 0o755, CONSOLE_SCRIPT),
     ]);
-    files.extend(
-        config
-            .on_start
-            .map(|script| file(ON_START_PATH, 0o755, script)),
-    );
     files
 }
 
@@ -243,15 +232,6 @@ fn units(config: &GuestConfig<'_>) -> Vec<IgnitionUnit> {
         "[Unit]\nDescription=Name the NICs for the network OS\nBefore=docker.service\n\n\
          [Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/opt/sherpa/links\n\n\
          [Install]\nWantedBy=docker.service\n"
-            .to_owned(),
-    ));
-    units.push(unit(
-        "sherpa-nics.service",
-        true,
-        "[Unit]\nDescription=Move the data NICs into the node container\nRequires=docker.service\n\
-         After=docker.service\nStartLimitIntervalSec=0\n\n[Service]\n\
-         ExecStart=/opt/sherpa/move-nics\nRestart=always\nRestartSec=1\n\n[Install]\n\
-         WantedBy=multi-user.target\n"
             .to_owned(),
     ));
     units.push(unit(
@@ -328,7 +308,6 @@ mod tests {
                 server_key: "KEY",
             },
             console_command: &["Cli"],
-            on_start: Some("#!/bin/sh\n"),
         })
         .unwrap();
         serde_json::from_str(&json).unwrap()
@@ -465,16 +444,6 @@ mod tests {
                     .as_str()
                     .unwrap()
                     .starts_with("/etc/systemd/network/"))
-        );
-    }
-
-    #[test]
-    fn node_vm_015_the_models_start_step_is_installed_for_the_nic_mover_to_run() {
-        let config = config();
-        assert_eq!(file_text(&config, "/opt/sherpa/on-start"), "#!/bin/sh\n");
-        assert!(
-            file_text(&config, "/opt/sherpa/move-nics")
-                .contains("/opt/sherpa/on-start \"$name\" &")
         );
     }
 
