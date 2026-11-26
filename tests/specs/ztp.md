@@ -162,7 +162,7 @@ Cases 001 to 024 are each the whole config of one model, for a lab with IPv4 onl
 | 017 | FRR: the start script, which installs and starts the SSH server and makes the owner's account | unit |
 | 018 | Junos, the one config vRouter, vSwitch, vSRX, vEvolved and cEvolved get | unit |
 | 019 | MikroTik RouterOS | unit |
-| 020 | Nokia SR Linux; with no IPv6 in the lab its management interface asks for an IPv6 address by DHCP | unit |
+| 020 | Nokia SR Linux: its management interface has a DHCP client for IPv4 and IPv6, which takes the addresses the runtime gave it | unit |
 | 021 | Nokia SR Linux: the management network instance and its ACL | unit |
 | 022 | Palo Alto PAN-OS: `init-cfg.txt` | unit |
 | 023 | Palo Alto PAN-OS: `bootstrap.xml` | unit |
@@ -203,7 +203,7 @@ Cases 001 to 024 are each the whole config of one model, for a lab with IPv4 onl
 | 007 | Arista vEOS in a lab with IPv6 has its IPv6 address and default route | unit |
 | 008 | Cisco IOSv in a lab with IPv6 | unit |
 | 009 | Cisco IOL in a lab with IPv6 | unit |
-| 010 | Nokia SR Linux in a lab with IPv6 has both addresses and asks for none by DHCP | unit |
+| 010 | Retired: SR Linux's config sets no address, its DHCP client takes the ones the node VM gives `eth0`; see `generated_config_020` and `node_vm_046` | — |
 | 011 | The configs of AOS-CX, ASAv, cEOS, IOSvL2, IOS XE, IOS XR, ISE, NX-OS, Cumulus Linux, FRR, Junos, RouterOS and PAN-OS in a lab with IPv6 have the node's IPv6 address and default route (no test yet) | unit |
 | 012 | A SONiC container's config has no management port or address: Docker gives the container its address | unit |
 | 013 | An OpenBSD node's `network-config` has no IPv6 address in a lab with IPv6 (no test yet) | unit |

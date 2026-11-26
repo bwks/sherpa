@@ -845,8 +845,6 @@ fn srlinux_volume_ztp(
         custom_ztp,
         guest_account,
         dns,
-        mgmt_net,
-        node_ipv4_address,
         ..
     } = *ztp;
     let srlinux_config = match custom_ztp {
@@ -855,9 +853,6 @@ fn srlinux_volume_ztp(
             &node.name,
             &guest_account::owner_user(guest_account, KeyFormat::OpenSsh, PasswordForm::Plain)?,
             dns,
-            &mgmt_net.v4,
-            node_ipv4_address,
-            node.ipv6_address.zip(mgmt_net.v6.as_ref()),
         )?,
     };
     let ztp_config = format!("{dir}/{}.json", node.name);

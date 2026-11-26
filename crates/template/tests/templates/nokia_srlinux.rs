@@ -1,5 +1,3 @@
-use std::net::Ipv4Addr;
-
 use serde_json::{Value, json};
 
 use shared::data::SherpaNetwork;
@@ -16,15 +14,11 @@ const SYSTEM: &str = "srl_nokia-system:system";
 const AAA: &str = "srl_nokia-aaa:aaa";
 
 /// The built config, parsed.
-fn config(hostname: &str, password: &str, ipv6: bool) -> (String, Value) {
-    let v6 = helpers::test_network_v6();
+fn config(hostname: &str, password: &str) -> (String, Value) {
     let json = build_srlinux_config(
         hostname,
         &helpers::test_owner(password),
         &helpers::test_dns(),
-        &helpers::test_network_v4(),
-        Ipv4Addr::new(172, 20, 0, 10),
-        ipv6.then(|| ("fd00::10".parse().expect("valid"), &v6)),
     )
     .expect("builds config");
     let value = serde_json::from_str(&json).expect("valid json");
@@ -37,7 +31,7 @@ fn config(hostname: &str, password: &str, ipv6: bool) -> (String, Value) {
 
 #[test]
 fn generated_config_020_nokia_srlinux() {
-    let (_, value) = config("srl01", "Rand0mPass-1", false);
+    let (_, value) = config("srl01", "Rand0mPass-1");
     assert_eq!(
         value[SYSTEM]["srl_nokia-system-name:name"]["host-name"],
         "srl01"
@@ -53,48 +47,21 @@ fn generated_config_020_nokia_srlinux() {
     );
     let subinterface = &value["srl_nokia-interfaces:interface"][0]["subinterface"][0];
     assert_eq!(value["srl_nokia-interfaces:interface"][0]["name"], "mgmt0");
-    assert_eq!(
-        subinterface["ipv4"],
-        json!({
-            "admin-state": "enable",
-            "address": [{"ip-prefix": "172.20.0.10/24"}],
-        })
-    );
-    assert_eq!(
-        subinterface["ipv6"],
-        json!({
-            "admin-state": "enable",
-            "srl_nokia-interfaces-ip-dhcp:dhcp-client": {},
-        })
-    );
-}
-
-#[test]
-fn config_addressing_010_nokia_srlinux_dual_stack_asks_for_no_dhcp() {
-    let (_, value) = config("srl03", "Rand0mPass-1", true);
-    assert_eq!(
-        value[SYSTEM]["srl_nokia-system-name:name"]["host-name"],
-        "srl03"
-    );
-    let subinterface = &value["srl_nokia-interfaces:interface"][0]["subinterface"][0];
-    assert_eq!(
-        subinterface["ipv4"]["address"],
-        json!([{"ip-prefix": "172.20.0.10/24"}])
-    );
-    assert_eq!(
-        subinterface["ipv6"]["address"],
-        json!([{"ip-prefix": "fd00::10/64"}])
-    );
-    assert!(
-        subinterface["ipv6"]
-            .get("srl_nokia-interfaces-ip-dhcp:dhcp-client")
-            .is_none()
-    );
+    for family in ["ipv4", "ipv6"] {
+        assert_eq!(
+            subinterface[family],
+            json!({
+                "admin-state": "enable",
+                "srl_nokia-interfaces-ip-dhcp:dhcp-client": {},
+            }),
+            "{family}"
+        );
+    }
 }
 
 #[test]
 fn generated_config_021_nokia_srlinux_management_network_instance_and_acl() {
-    let (_, value) = config("srl01", "Rand0mPass-1", false);
+    let (_, value) = config("srl01", "Rand0mPass-1");
     let instance = &value["srl_nokia-network-instance:network-instance"][0];
     assert_eq!(instance["name"], "mgmt");
     assert_eq!(instance["interface"], json!([{"name": "mgmt0.0"}]));
@@ -110,7 +77,7 @@ fn generated_config_021_nokia_srlinux_management_network_instance_and_acl() {
 
 #[test]
 fn device_accounts_012_srlinux_admin_and_owner_are_the_only_accounts() {
-    let (_, value) = config("srl01", "Rand0mPass-1", false);
+    let (_, value) = config("srl01", "Rand0mPass-1");
     let authentication = &value[SYSTEM][AAA]["authentication"];
     assert_eq!(authentication["authentication-method"], json!(["local"]));
     assert_eq!(
@@ -126,7 +93,7 @@ fn device_accounts_012_srlinux_admin_and_owner_are_the_only_accounts() {
 #[test]
 fn device_accounts_013_srlinux_admin_and_owner_passwords() {
     for password in helpers::ALL_CHARACTER_PASSWORDS {
-        let (json, value) = config("srl01", password, false);
+        let (json, value) = config("srl01", password);
         let authentication = &value[SYSTEM][AAA]["authentication"];
         assert_eq!(authentication["admin-user"]["password"], *password);
         assert_eq!(authentication["user"][0]["password"], *password);
@@ -142,15 +109,8 @@ fn config_name_server_014_nokia_srlinux_names_the_boot_server_on_ipv4_and_ipv6()
         v4: v4.clone(),
         v6: Some(v6.clone()),
     });
-    let json = build_srlinux_config(
-        "srl01",
-        &helpers::test_owner("Rand0mPass-1"),
-        &dns,
-        &v4,
-        Ipv4Addr::new(172, 20, 0, 10),
-        Some(("fd00::10".parse().expect("valid"), &v6)),
-    )
-    .expect("builds config");
+    let json = build_srlinux_config("srl01", &helpers::test_owner("Rand0mPass-1"), &dns)
+        .expect("builds config");
     let value: Value = serde_json::from_str(&json).expect("valid json");
     assert_eq!(
         value[SYSTEM]["srl_nokia-dns:dns-instance"][0]["server-list"],
@@ -160,7 +120,7 @@ fn config_name_server_014_nokia_srlinux_names_the_boot_server_on_ipv4_and_ipv6()
 
 #[test]
 fn config_name_server_015_nokia_srlinux_searches_the_lab_domain() {
-    let (_, value) = config("srl01", "Rand0mPass-1", false);
+    let (_, value) = config("srl01", "Rand0mPass-1");
     assert_eq!(
         value[SYSTEM]["srl_nokia-dns:dns-instance"][0]["search-list"],
         json!(["sherpa.lab.local"])
