@@ -175,29 +175,24 @@ pub fn resize_disk(conn: &Connect, path: &str, size_gb: u16) -> Result<()> {
     Ok(())
 }
 
-/// Delete the volume `disk_name` from the storage pool, refreshed first so a file written
-/// outside libvirt is seen. A volume already gone counts as deleted.
+/// Delete the volume `disk_name` from the storage pool.
 ///
 /// # Errors
 ///
-/// Fails when the pool cannot be found or refreshed, or libvirt cannot look the volume up or
-/// delete it.
+/// Fails when the pool or the volume cannot be found, or libvirt cannot delete the volume.
 #[instrument(level = "debug", skip(conn))]
 pub fn delete_disk(conn: &Connect, disk_name: &str) -> Result<()> {
     let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)
         .with_context(|| format!("Cannot find storage pool '{SHERPA_STORAGE_POOL}'"))?;
-    refresh_pool(&pool)?;
-    match StorageVol::lookup_by_name(&pool, disk_name) {
-        Ok(volume) => volume
-            .delete(0)
-            .with_context(|| format!("Cannot delete volume '{disk_name}'")),
-        Err(error) if error.code() == ErrorNumber::NoStorageVolume => Ok(()),
-        Err(error) => Err(error).with_context(|| format!("Cannot look up volume '{disk_name}'")),
-    }
+    let vol = StorageVol::lookup_by_name(&pool, disk_name)
+        .with_context(|| format!("Cannot find volume '{disk_name}'"))?;
+    vol.delete(0)
+        .with_context(|| format!("Cannot delete volume '{disk_name}'"))?;
+    Ok(())
 }
 
-/// Stop domain `name` if it runs and undefine it with its NVRAM. A domain already gone counts
-/// as removed, so a retried teardown succeeds.
+/// Stop domain `name` if it runs and undefine it with its NVRAM, counting a domain already gone
+/// as removed so a retried teardown succeeds.
 ///
 /// # Errors
 ///

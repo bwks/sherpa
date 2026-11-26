@@ -214,7 +214,7 @@ impl Configuring<'_, '_> {
         )
     }
 
-    /// Configure a container node. Returns the settings it is created with, its mounts with
+    /// Configure a container node and return the settings it is created with, its mounts with
     /// the lab certificate mounts.
     async fn configure_container(
         &mut self,

@@ -352,11 +352,9 @@ impl ModelKind {
         matches!(self.model, NodeModel::CiscoIol | NodeModel::CiscoIoll2)
     }
 
-    /// The TCP port that shows a node of this model and kind is ready, when the manifest sets
-    /// none: SSH for a virtual machine, or the Talos API for Talos Linux, which has no SSH.
-    /// A container that runs in a node VM waits for SSH too: its VM runs long before its network
-    /// OS answers, and the `sonic_linux` start script starts its SSH server last, once the switch
-    /// is up and its config loaded. `None` for any other container or a unikernel, which is
+    /// The TCP port that shows a node of this model and kind is ready when the manifest sets
+    /// none: SSH for a virtual machine and a container that runs in a node VM, the Talos API for
+    /// Talos Linux, which has no SSH, and `None` for any other container or a unikernel, which is
     /// ready once it runs.
     #[must_use]
     pub fn ready_port(self) -> Option<u16> {

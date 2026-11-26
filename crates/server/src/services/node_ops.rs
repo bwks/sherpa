@@ -4232,9 +4232,8 @@ pub async fn check_node_ssh_ready(ip: &str, port: u16) -> Result<Option<String>>
     }
 }
 
-/// Port that shows a container is ready once it has kept running: the port of its stored
-/// check (`stored_ready_check`). Without one it is ready once it keeps running; a skipped check
-/// has none either.
+/// The port of a container's stored check (`stored_ready_check`) that shows it is ready once it
+/// has kept running, `None` when it is ready once it keeps running or its check is skipped.
 pub fn container_ready_port(ready_check: &data::ReadyCheck) -> Option<u16> {
     if ready_check.skip {
         None
@@ -4243,12 +4242,9 @@ pub fn container_ready_port(ready_check: &data::ReadyCheck) -> Option<u16> {
     }
 }
 
-/// The port a node is checked on when its manifest sets none: its model and kind's port, except
-/// for a cEOS or SR Linux container whose management address Sherpa cannot expect to answer.
-/// cEOS keeps only the addresses its own config sets, and an SR Linux config of the node's own
-/// may set none, or set them statically, which leaves them on two interfaces. So a cEOS node
-/// whose config Sherpa does not write, with ZTP off or a config of its own, and an SR Linux node
-/// with a config of its own, are ready once their container runs, as under runc.
+/// The port a node is checked on when its manifest sets none: its model and kind's port, or none
+/// for a cEOS container whose config Sherpa does not write and an SR Linux container with a
+/// config of its own, whose management address may not answer.
 fn model_ready_port(model_kind: data::ModelKind, ztp: data::Ztp, own_config: bool) -> Option<u16> {
     let sherpa_config = ztp == data::Ztp::Volume && !own_config;
     match model_kind.model() {
@@ -4258,14 +4254,10 @@ fn model_ready_port(model_kind: data::ModelKind, ztp: data::Ztp, own_config: boo
     }
 }
 
-/// The readiness check stored with a node, from its manifest `ready_check`, its effective `ztp`
-/// and whether it has a config of its own (`ztp.config`): the manifest's port, else the port of
-/// its model and kind (`model_ready_port`), and, when that is SSH, whether its SSH server must
-/// show Sherpa's ready marker (`ModelKind::waits_for_sshd_ready_marker`); a Windows node checked
-/// on another port is checked as that port. A virtual machine and the containers that run in a
-/// node VM have a model port; any other container or a unikernel without a manifest port has
-/// none and is ready once it runs. Every readiness probe, in `up`, `redeploy`, `resume`, the
-/// scanner and `node.host_keys`, reads this check.
+/// The readiness check stored with a node, which every readiness probe reads, from its manifest
+/// `ready_check`, its effective `ztp` and whether it has a config of its own (`ztp.config`): the
+/// manifest's port, else its model port (`model_ready_port`), and, when that is SSH, whether its
+/// SSH server must show Sherpa's ready marker (`ModelKind::waits_for_sshd_ready_marker`).
 pub fn stored_ready_check(
     model_kind: data::ModelKind,
     ready_check: &NodeReadyCheck,

@@ -44,10 +44,9 @@ pub(super) async fn create_vms(
     Ok(())
 }
 
-/// Create the VM of every container node that runs in one, all at once, and wait for all of
-/// them; every node's create is built before any VM is. Each VM has its node's link ends as
-/// taps, so its links are attached with the VMs' (phase 11). Returns the watch on each VM's
-/// status, by node name.
+/// Create the VM of every container node that runs in one, all at once once every node's create
+/// is built, wait for all of them, and return the watch on each VM's status by node name
+/// (phase 11, its links attached with the VMs' as its link ends are taps).
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn create_node_vms(
     build: &LabBuild<'_>,

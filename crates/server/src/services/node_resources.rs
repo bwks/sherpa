@@ -48,13 +48,10 @@ struct PinOverlap {
     held: CpuPinRole,
 }
 
-/// The vCPUs and memory a node gets. A VM or unikernel gets the manifest's values, else the image's. A container gets the
-/// manifest's as Docker limits, and is not limited in what the manifest leaves out; the image's
-/// values are not limits. a `juniper_evolved` container sizes its EVO VM from the manifest or image values,
-/// so its container's memory limit is that and its overhead, with no CPU quota, which would
-/// throttle the EVO VM. IOL takes the manifest or image memory as its own, so its container's
-/// limit is that and the launcher's overhead. A container that runs in a node VM gets the
-/// manifest or image values as its VM's vCPUs and memory, with the VM's overhead on top.
+/// The vCPUs and memory a node gets: the manifest's values, else the image's, for a VM, a
+/// unikernel or a container that runs in a node VM, which gets the VM's overhead on top; and for
+/// any other container the manifest's alone as Docker limits, but the manifest's or image's
+/// memory with the launcher's overhead for `juniper_evolved`, with no CPU quota, and for IOL.
 pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> NodeResources {
     match image.kind() {
         NodeKind::VirtualMachine | NodeKind::Unikernel => NodeResources {

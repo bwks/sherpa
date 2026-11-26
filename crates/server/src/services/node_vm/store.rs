@@ -112,8 +112,8 @@ impl Store {
     }
 }
 
-/// Whether pool volume `volume` is what a store build makes and removes again: the VM's disk
-/// or config drive, the image archive or the partial store. A store itself is not.
+/// Whether pool volume `volume` is one a store build makes and removes again, the VM's disk or
+/// config drive, the image archive or the partial store, and not a store.
 fn is_build_volume(volume: &str) -> bool {
     volume.starts_with(STORE_VM_PREFIX)
         || volume
@@ -284,7 +284,8 @@ async fn remove_store_vm(host: &NodeVmHost, store: &Store, delete_partial: bool)
     task::spawn_blocking(move || {
         let conn = qemu.connect()?;
         libvirt::remove_domain(&conn, &vm)?;
-        for volume in &volumes {
+        let present = libvirt::list_pool_volumes(&conn)?;
+        for volume in volumes.iter().filter(|volume| present.contains(volume)) {
             libvirt::delete_disk(&conn, volume)?;
         }
         Ok(())

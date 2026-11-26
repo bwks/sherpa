@@ -678,8 +678,8 @@ impl Readiness<'_, '_> {
     }
 
     /// Check a node that runs in a node VM: launched once its VM reports its container
-    /// started, then ready once its ready port answers on its management address, or at once
-    /// without one. A failure the VM reports fails the node with its reason.
+    /// started, failed with the reason the VM reports, and ready once its ready port answers on
+    /// its management address, or at once without one.
     async fn check_node_vm(&mut self, node: &topology::NodeExpanded) -> Result<()> {
         if !self.node_vm_started.contains(&node.name) {
             return self.check_node_vm_start(node).await;

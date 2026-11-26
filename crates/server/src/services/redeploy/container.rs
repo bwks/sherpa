@@ -141,7 +141,7 @@ pub(super) async fn redeploy_container(
 
 /// Configure a container that runs in a node VM again, create its VM with its link ends as
 /// taps, wait for the VM to start its container, re-attach its links, and wait for it as
-/// `redeploy_container` does (stages 4 and 5). Returns its links' states.
+/// `redeploy_container` does (stages 4 and 5), returning its links' states.
 #[instrument(skip_all, fields(lab_id = %redeploy.lab_id, node_name = %redeploy.node_name), level = "debug")]
 pub(super) async fn redeploy_node_vm(
     redeploy: &mut Redeploy<'_>,

@@ -239,9 +239,8 @@ pub fn overlay_on_image<'a>(
     Ok(None)
 }
 
-/// Create an empty sparse QCOW2 disk of `size_gb` GiB at `dst`, readable by everyone, so it can
-/// be the read-only base of other disks once it has been filled. The volume is created
-/// exclusively; an existing destination is never changed.
+/// Create an empty sparse QCOW2 disk of `size_gb` GiB at `dst`, never changing an existing
+/// destination.
 ///
 /// # Errors
 ///
@@ -277,9 +276,8 @@ pub(crate) fn new_volume_name(dst: &str) -> Result<&str> {
         .with_context(|| format!("Invalid disk file name: {dst}"))
 }
 
-/// Create the volume of volume XML `xml` in the Sherpa storage pool, refreshed first. libvirt
-/// refuses a duplicate name atomically, and a volume is never deleted after a refusal: it may
-/// belong to a concurrent or previous attempt.
+/// Create the volume of volume XML `xml` in the Sherpa storage pool, refreshed first, never
+/// deleting a volume libvirt refuses as a duplicate, which may be another attempt's.
 ///
 /// # Errors
 ///

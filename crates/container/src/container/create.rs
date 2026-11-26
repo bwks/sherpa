@@ -217,9 +217,8 @@ fn create_body(spec: ContainerSpec) -> Result<ContainerCreateBody> {
 
 /// The `docker create` arguments of a node VM's container, its image and command last: the
 /// settings `run_container` gives a container, in the VM's network namespace instead of on a
-/// Docker network, with the lab's name servers and domain, as the VM has no resolver, its
-/// hostname resolving to loopback, and Docker restarting it unless it was stopped. Docker never
-/// pulls the image: the VM has it in its store.
+/// Docker network, with the lab's name servers and domain, its hostname resolving to loopback,
+/// Docker restarting it unless it was stopped, and no image pull, as the VM's store has it.
 #[must_use]
 pub fn node_vm_create_args(spec: &ContainerSpec, dns: &Dns) -> Vec<String> {
     let mut args = vec![
