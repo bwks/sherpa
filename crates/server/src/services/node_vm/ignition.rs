@@ -28,9 +28,11 @@ const ON_START_PATH: &str = "/opt/sherpa/on-start";
 const DOCKER_STORE_LABEL: &str = "sherpa-docker";
 /// The Docker store disk, the VM's second disk.
 const DOCKER_STORE_DEVICE: &str = "/dev/vdb";
-/// Units a node VM never runs: updates and their reboots, SSH logins, the serial login, and
-/// the image's cloud metadata units, which wait for a network the VM does not have.
-const MASKED_UNITS: [&str; 11] = [
+/// Units a node VM never runs: updates and their reboots, SSH logins, the serial login, the
+/// image's cloud metadata units, which wait for a network the VM does not have, and the first
+/// boot's rebuilds of the library cache and the hardware database, which hold up Docker: the
+/// image ships the library cache, and udev needs no hardware database for the VM's devices.
+const MASKED_UNITS: [&str; 13] = [
     "update-engine.service",
     "locksmithd.service",
     "sshd.socket",
@@ -42,6 +44,8 @@ const MASKED_UNITS: [&str; 11] = [
     "flatcar-openstack-hostname.service",
     "coreos-metadata.service",
     "systemd-networkd-wait-online.service",
+    "ldconfig.service",
+    "systemd-hwdb-update.service",
 ];
 
 /// The TLS files of a VM's Docker API.
@@ -361,6 +365,14 @@ mod tests {
             assert_eq!(unit_of(&config, name)["mask"], true, "{name}");
         }
         assert_eq!(config["passwd"]["users"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn node_vm_039_the_first_boot_does_not_rebuild_the_library_cache_or_hardware_database() {
+        let config = config();
+        for name in ["ldconfig.service", "systemd-hwdb-update.service"] {
+            assert_eq!(unit_of(&config, name)["mask"], true, "{name}");
+        }
     }
 
     #[test]
