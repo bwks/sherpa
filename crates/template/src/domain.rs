@@ -134,11 +134,13 @@ pub struct NodeVmManagement {
     pub mac: String,
 }
 
-/// A node VM's data interface: a virtio NIC whose host side is the tap `tap`.
+/// A node VM's data interface: a virtio NIC whose host side is the tap `tap`, on private bridge
+/// `bridge` when it is a bridge member.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeVmNic {
     pub tap: String,
     pub mac: String,
+    pub bridge: Option<String>,
 }
 
 /// The domain of a node VM, or of a VM that makes a Docker store, which has an image archive

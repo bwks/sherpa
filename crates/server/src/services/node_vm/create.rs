@@ -143,11 +143,6 @@ pub(crate) async fn create_node_vm(host: &NodeVmHost, create: NodeVmCreate) -> R
         libvirt::create_overlay(conn, &store, &domain.docker_disk, None)
     })
     .await?;
-    for veth in &create.veths {
-        if let Some(bridge) = &veth.bridge {
-            network::enslave_to_bridge(&veth.host_veth, bridge).await?;
-        }
-    }
     let stream = status::connect(&status_socket, &device).await?;
     let qemu = Arc::clone(&host.qemu);
     let cmdline = kernel_cmdline(&usr_hash, false);

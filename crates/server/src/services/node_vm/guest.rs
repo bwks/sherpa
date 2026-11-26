@@ -78,6 +78,7 @@ pub(super) fn guest_nics(model_kind: ModelKind, veths: &[ContainerVeth]) -> Resu
         guest.nics.push(NodeVmNic {
             tap: veth.host_veth.clone(),
             mac: interface.mac.clone(),
+            bridge: veth.bridge.clone(),
         });
         guest.interfaces.push(interface);
     }

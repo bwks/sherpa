@@ -59,6 +59,15 @@
     {% endif %}
 
     {% for nic in nics %}
+    {%   if let Some(bridge) = nic.bridge %}
+    <interface type='bridge'>
+      <mtu size='{{ shared::konst::MTU_JUMBO_NET }}'/>
+      <mac address='{{ nic.mac }}'/>
+      <source bridge='{{ bridge }}'/>
+      <target dev='{{ nic.tap }}'/>
+      <model type='virtio'/>
+    </interface>
+    {%   else %}
     <interface type='ethernet'>
       <mtu size='{{ shared::konst::MTU_JUMBO_NET }}'/>
       <mac address='{{ nic.mac }}'/>
@@ -66,6 +75,7 @@
       <script path=''/>
       <model type='virtio'/>
     </interface>
+    {%   endif %}
     {% endfor %}
 
     <channel type='unix'>

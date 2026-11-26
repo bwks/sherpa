@@ -118,6 +118,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 053 | A failure the VM reports fails it with the reason, and a status other than the one awaited fails it | unit |
 | 054 | The update installs `bzip2` when `bunzip2` is missing, and nothing otherwise | unit (bats) |
 | 055 | A node VM whose container cannot be started is failed by `up` with the reason the VM reports, before the readiness wait ends (no test yet) | e2e |
+| 056 | A data interface on a private bridge is a bridge interface of the domain, so libvirt puts its tap on the bridge at every start | unit |
 
 ## `node_ready`: a node is running only once its ready check passes
 

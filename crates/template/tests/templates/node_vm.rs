@@ -134,10 +134,17 @@ fn domain() -> NodeVmDomainTemplate {
             NodeVmNic {
                 tap: "tpa1-abc12345".to_owned(),
                 mac: "52:54:00:00:00:02".to_owned(),
+                bridge: None,
             },
             NodeVmNic {
                 tap: "tpb2-abc12345".to_owned(),
                 mac: "52:54:00:00:00:03".to_owned(),
+                bridge: None,
+            },
+            NodeVmNic {
+                tap: "bra3-abc12345".to_owned(),
+                mac: "52:54:00:00:00:04".to_owned(),
+                bridge: Some("brs-lan-abc12345".to_owned()),
             },
         ],
         status_socket: "/opt/sherpa/run/console/abc12345/1.status".to_owned(),
@@ -186,11 +193,21 @@ fn node_vm_002_each_data_interface_is_a_tap_named_like_its_link_end() {
          <target dev='tpa1-abc12345'/>"
     ));
     assert!(xml.contains("<target dev='tpb2-abc12345'/>"));
-    assert_eq!(xml.matches("<interface ").count(), 3);
+    assert_eq!(xml.matches("<interface ").count(), 4);
     assert!(xml.contains(
         "<interface type='network'><mac address='52:54:00:00:00:01'/>\
          <source network='sherpa-management-abc12345'/>"
     ));
+}
+
+#[test]
+fn node_vm_056_a_bridge_member_is_a_bridge_interface_so_libvirt_enslaves_it_on_every_start() {
+    let xml = compact(&domain().render().unwrap());
+    assert!(xml.contains(
+        "<interface type='bridge'><mtu size='9600'/><mac address='52:54:00:00:00:04'/>\
+         <source bridge='brs-lan-abc12345'/><target dev='bra3-abc12345'/>"
+    ));
+    assert_eq!(xml.matches("<interface type='ethernet'>").count(), 2);
 }
 
 #[test]

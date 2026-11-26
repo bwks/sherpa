@@ -182,7 +182,9 @@ link end; a virtio RNG; the status channel; and the serial console on the node's
 Each data interface of the node on a link or bridge is a virtio NIC whose host side is a tap
 named like the node's link end. libvirt makes the taps when it starts the domain, so a node VM's
 links are attached in phase 11b with the VMs' (`attach_vm_links`), and re-attached after a cold
-boot or a redeploy as a domain's are (`RecreatedEnd::Domain`). The eBPF redirect, netem
+boot or a redeploy as a domain's are (`RecreatedEnd::Domain`). A data interface on a private
+bridge is a bridge interface of the domain (`<interface type='bridge'>`), so libvirt puts its
+tap on the bridge at every start, as it does for a VM's. The eBPF redirect, netem
 impairment and carrier handling are those of every P2p link
 ([P2P-ARCHITECTURE.md](P2P-ARCHITECTURE.md)).
 
