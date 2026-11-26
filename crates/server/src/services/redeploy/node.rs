@@ -258,6 +258,7 @@ async fn rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkReport>> {
             redeploy.target_node.model_kind,
             &redeploy.target_node.ready_check,
             effective_ztp(redeploy.target_node.ztp.method, &redeploy.node_image),
+            redeploy.target_node.ztp.config.is_some(),
         ),
     )
     .await?;

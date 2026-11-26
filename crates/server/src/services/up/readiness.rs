@@ -533,7 +533,7 @@ impl Readiness<'_, '_> {
     ) -> Result<()> {
         let container_name = format!("{}-{}", container.name, self.build.lab_id);
         let ready_port =
-            node_ops::container_ready_port(container.model_kind, &container.ready_check);
+            node_ops::container_ready_port(&self.node_data(&container.name)?.record.ready_check);
         let ready_label = ready_port.map(node_ops::ready_port_label);
         let status = match container::container_state(
             self.docker_for(&container_name),
@@ -779,7 +779,7 @@ impl Readiness<'_, '_> {
         // The check stored for the node: the manifest's port, else the model's own, SSH or the
         // Talos API for Talos Linux; and, for a Windows node, whose SSH server answers before its
         // owner can log in, Sherpa's ready marker.
-        let ready_check = node_ops::stored_ready_check(vm.model_kind, &vm.ready_check, record.ztp);
+        let ready_check = self.node_data(&vm.name)?.record.ready_check.clone();
         let ready_port = ready_check
             .port
             .with_context(|| format!("VM '{}' has no readiness port", vm.name))?;

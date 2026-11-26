@@ -4206,33 +4206,49 @@ pub async fn check_node_ssh_ready(ip: &str, port: u16) -> Result<Option<String>>
     }
 }
 
-/// Port that shows a container is ready once it has kept running: the manifest's
-/// `ready_check.port`, else its model and kind's port, which only the `sonic_linux` container has.
-/// Without one it is ready once it keeps running; a skipped check has none either.
-pub fn container_ready_port(
-    model_kind: data::ModelKind,
-    ready_check: &NodeReadyCheck,
-) -> Option<u16> {
-    if ready_check.skip.unwrap_or(false) {
+/// Port that shows a container is ready once it has kept running: the port of its stored
+/// check (`stored_ready_check`). Without one it is ready once it keeps running; a skipped check
+/// has none either.
+pub fn container_ready_port(ready_check: &data::ReadyCheck) -> Option<u16> {
+    if ready_check.skip {
         None
     } else {
-        ready_check.port.or(model_kind.ready_port())
+        ready_check.port
     }
 }
 
-/// The readiness check stored with a node, from its manifest `ready_check` and its effective
-/// `ztp`: the manifest's port, else its model and kind's port, and, when that is SSH, whether
-/// its SSH server must show Sherpa's ready marker (`ModelKind::waits_for_sshd_ready_marker`);
-/// a Windows node checked on another port is checked as that port. A virtual machine and the
-/// `sonic_linux` container have a model port; any other container or a unikernel without a manifest
-/// port has none and is ready once it runs. Every readiness probe, in `up`, `redeploy`, `resume`, the scanner and
-/// `node.host_keys`, reads this check.
+/// The port a node is checked on when its manifest sets none: its model and kind's port, except
+/// for a cEOS or SR Linux container whose management address Sherpa cannot expect to answer.
+/// cEOS keeps only the addresses its own config sets, and an SR Linux config of the node's own
+/// may set none, or set them statically, which leaves them on two interfaces. So a cEOS node
+/// whose config Sherpa does not write, with ZTP off or a config of its own, and an SR Linux node
+/// with a config of its own, are ready once their container runs, as under runc.
+fn model_ready_port(model_kind: data::ModelKind, ztp: data::Ztp, own_config: bool) -> Option<u16> {
+    let sherpa_config = ztp == data::Ztp::Volume && !own_config;
+    match model_kind.model() {
+        data::NodeModel::AristaEos if model_kind.runs_in_node_vm() && !sherpa_config => None,
+        data::NodeModel::NokiaSrlinux if model_kind.runs_in_node_vm() && own_config => None,
+        _ => model_kind.ready_port(),
+    }
+}
+
+/// The readiness check stored with a node, from its manifest `ready_check`, its effective `ztp`
+/// and whether it has a config of its own (`ztp.config`): the manifest's port, else the port of
+/// its model and kind (`model_ready_port`), and, when that is SSH, whether its SSH server must
+/// show Sherpa's ready marker (`ModelKind::waits_for_sshd_ready_marker`); a Windows node checked
+/// on another port is checked as that port. A virtual machine and the containers that run in a
+/// node VM have a model port; any other container or a unikernel without a manifest port has
+/// none and is ready once it runs. Every readiness probe, in `up`, `redeploy`, `resume`, the
+/// scanner and `node.host_keys`, reads this check.
 pub fn stored_ready_check(
     model_kind: data::ModelKind,
     ready_check: &NodeReadyCheck,
     ztp: data::Ztp,
+    own_config: bool,
 ) -> data::ReadyCheck {
-    let port = ready_check.port.or(model_kind.ready_port());
+    let port = ready_check
+        .port
+        .or_else(|| model_ready_port(model_kind, ztp, own_config));
     data::ReadyCheck {
         port,
         skip: ready_check.skip.unwrap_or(false),
@@ -5587,16 +5603,13 @@ echo "$*" >> '{}'
     fn node_ready_018_a_skipped_check_does_not_wait_for_a_containers_ready_port() {
         let check = |port, skip| NodeReadyCheck { port, skip };
         let frr = ModelKind::default_for(data::NodeModel::FrrLinux);
-        assert_eq!(container_ready_port(frr, &check(Some(80), None)), Some(80));
-        assert_eq!(
-            container_ready_port(frr, &check(Some(80), Some(false))),
-            Some(80)
-        );
-        assert_eq!(container_ready_port(frr, &check(None, None)), None);
-        assert_eq!(
-            container_ready_port(frr, &check(Some(80), Some(true))),
-            None
-        );
+        let port = |ready_check| {
+            container_ready_port(&stored_ready_check(frr, &ready_check, Ztp::Disabled, false))
+        };
+        assert_eq!(port(check(Some(80), None)), Some(80));
+        assert_eq!(port(check(Some(80), Some(false))), Some(80));
+        assert_eq!(port(check(None, None)), None);
+        assert_eq!(port(check(Some(80), Some(true))), None);
     }
 
     #[test]
@@ -5604,19 +5617,45 @@ echo "$*" >> '{}'
         let check = |port, skip| NodeReadyCheck { port, skip };
         let sonic =
             ModelKind::new(data::NodeModel::SonicLinux, Some(data::NodeKind::Container)).unwrap();
+        for (ztp, own_config) in [
+            (Ztp::Volume, false),
+            (Ztp::Volume, true),
+            (Ztp::Disabled, false),
+        ] {
+            let port = |ready_check| {
+                container_ready_port(&stored_ready_check(sonic, &ready_check, ztp, own_config))
+            };
+            assert_eq!(port(check(None, None)), Some(SSH_PORT));
+            assert_eq!(port(check(Some(80), None)), Some(80));
+            assert_eq!(port(check(None, Some(true))), None);
+        }
+    }
+
+    #[test]
+    fn node_ready_036_ceos_and_sr_linux_wait_for_ssh_only_on_a_management_address_they_are_given() {
+        let manifest = NodeReadyCheck {
+            port: None,
+            skip: None,
+        };
+        let ceos =
+            ModelKind::new(data::NodeModel::AristaEos, Some(data::NodeKind::Container)).unwrap();
+        let srlinux = ModelKind::default_for(data::NodeModel::NokiaSrlinux);
+        let port = |model_kind, ztp, own_config| {
+            stored_ready_check(model_kind, &manifest, ztp, own_config).port
+        };
+        assert_eq!(port(ceos, Ztp::Volume, false), Some(SSH_PORT));
+        assert_eq!(port(ceos, Ztp::Disabled, false), None);
+        assert_eq!(port(ceos, Ztp::Volume, true), None);
+        assert_eq!(port(srlinux, Ztp::Volume, false), Some(SSH_PORT));
+        assert_eq!(port(srlinux, Ztp::Disabled, false), Some(SSH_PORT));
+        assert_eq!(port(srlinux, Ztp::Volume, true), None);
+        let own_port = NodeReadyCheck {
+            port: Some(SSH_PORT),
+            skip: None,
+        };
         assert_eq!(
-            container_ready_port(sonic, &check(None, None)),
+            stored_ready_check(ceos, &own_port, Ztp::Disabled, false).port,
             Some(SSH_PORT)
-        );
-        assert_eq!(
-            container_ready_port(sonic, &check(Some(80), None)),
-            Some(80)
-        );
-        assert_eq!(container_ready_port(sonic, &check(None, Some(true))), None);
-        // `up` probes the port the node's stored check holds.
-        assert_eq!(
-            container_ready_port(sonic, &check(None, None)),
-            stored_ready_check(sonic, &check(None, None), data::Ztp::Volume).port
         );
     }
 
@@ -5631,15 +5670,20 @@ echo "$*" >> '{}'
         let ubuntu = ModelKind::default_for(data::NodeModel::UbuntuLinux);
         let talos = ModelKind::default_for(data::NodeModel::TalosLinux);
         assert_eq!(
-            stored_ready_check(ubuntu, &check(None, None), Ztp::CloudInit),
+            stored_ready_check(ubuntu, &check(None, None), Ztp::CloudInit, false),
             stored(Some(SSH_PORT), false)
         );
         assert_eq!(
-            stored_ready_check(talos, &check(None, None), Ztp::CloudInit),
+            stored_ready_check(talos, &check(None, None), Ztp::CloudInit, false),
             stored(Some(TALOS_API_PORT), false)
         );
         assert_eq!(
-            stored_ready_check(ubuntu, &check(Some(8443), Some(true)), Ztp::CloudInit),
+            stored_ready_check(
+                ubuntu,
+                &check(Some(8443), Some(true)),
+                Ztp::CloudInit,
+                false
+            ),
             stored(Some(8443), true)
         );
         for model in [
@@ -5648,11 +5692,16 @@ echo "$*" >> '{}'
         ] {
             let model_kind = ModelKind::default_for(model);
             assert_eq!(
-                stored_ready_check(model_kind, &check(None, None), Ztp::CloudInit),
+                stored_ready_check(model_kind, &check(None, None), Ztp::CloudInit, false),
                 stored(None, false)
             );
             assert_eq!(
-                stored_ready_check(model_kind, &check(Some(80), Some(false)), Ztp::CloudInit),
+                stored_ready_check(
+                    model_kind,
+                    &check(Some(80), Some(false)),
+                    Ztp::CloudInit,
+                    false
+                ),
                 stored(Some(80), false)
             );
         }
@@ -5666,13 +5715,15 @@ echo "$*" >> '{}'
             data::NodeModel::DevboxWindows,
         ] {
             let windows = ModelKind::default_for(model);
-            assert!(stored_ready_check(windows, &check(None), Ztp::CloudInit).sshd_marker);
-            assert!(!stored_ready_check(windows, &check(None), Ztp::Disabled).sshd_marker);
+            assert!(stored_ready_check(windows, &check(None), Ztp::CloudInit, false).sshd_marker);
+            assert!(!stored_ready_check(windows, &check(None), Ztp::Disabled, false).sshd_marker);
             // Checked on another port, it is checked as that port.
-            assert!(!stored_ready_check(windows, &check(Some(3389)), Ztp::CloudInit).sshd_marker);
+            assert!(
+                !stored_ready_check(windows, &check(Some(3389)), Ztp::CloudInit, false).sshd_marker
+            );
         }
         let ubuntu = ModelKind::default_for(data::NodeModel::UbuntuLinux);
-        assert!(!stored_ready_check(ubuntu, &check(None), Ztp::CloudInit).sshd_marker);
+        assert!(!stored_ready_check(ubuntu, &check(None), Ztp::CloudInit, false).sshd_marker);
     }
 
     /// A listener that answers every connection with `reply` and hangs up, such as a web

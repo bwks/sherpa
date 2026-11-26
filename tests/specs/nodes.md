@@ -153,6 +153,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 033 | A node with a skipped check is `running` as soon as the scanner sees it run, whatever its port | unit |
 | 034 | The scanner does not probe a node that is not running, or one already recorded `running` | unit |
 | 035 | The scanner waits for a Windows node's ready marker, as up does | integration |
+| 036 | A cEOS container is checked on SSH only with the config Sherpa generates, and an SR Linux container unless it has a config of its own; otherwise, with no `ready_check.port`, it is ready once its container runs, as under runc, since its management address may not answer | unit |
 
 Cases 001 to 020 are up, 021 to 026 resume, 027 and 028 redeploy, 029 to 035 the server's scanner.
 
