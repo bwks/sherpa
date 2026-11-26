@@ -135,7 +135,7 @@ async fn ensure_lab_destroyed(
 
 /// Clean up after a test. With `SHERPA_TEST_KEEP_FAILED_LABS=1`, a failed test keeps its
 /// lab for debugging; the leftover lab is then reported by whoever runs the suite.
-async fn cleanup_lab(
+pub(crate) async fn cleanup_lab(
     ws: &mut TestWsClient,
     server: &TestServer,
     token: &str,
@@ -150,7 +150,7 @@ async fn cleanup_lab(
 }
 
 /// Report a test failure and a cleanup failure together; neither may hide the other.
-fn with_cleanup(checks: Result<()>, cleanup: Result<()>) -> Result<()> {
+pub(crate) fn with_cleanup(checks: Result<()>, cleanup: Result<()>) -> Result<()> {
     match (checks, cleanup) {
         (Ok(()), Ok(())) => Ok(()),
         (Err(error), Ok(())) => Err(error),
@@ -216,7 +216,7 @@ async fn node_address(server: &TestServer, lab_id: &str, name: &str) -> Result<S
 }
 
 /// What lab `lab_id` left in libvirt: its domains, networks and storage volumes, by name.
-fn libvirt_leftovers(lab_id: &str) -> Result<Vec<String>> {
+pub(crate) fn libvirt_leftovers(lab_id: &str) -> Result<Vec<String>> {
     let conn = Qemu::default().connect()?;
     let mut leftovers: Vec<String> = libvirt::list_domain_memory(&conn)?
         .into_iter()
@@ -239,7 +239,10 @@ fn libvirt_leftovers(lab_id: &str) -> Result<Vec<String>> {
 }
 
 /// Each node's recorded state, by name.
-async fn node_states(server: &TestServer, lab_id: &str) -> Result<BTreeMap<String, NodeState>> {
+pub(crate) async fn node_states(
+    server: &TestServer,
+    lab_id: &str,
+) -> Result<BTreeMap<String, NodeState>> {
     let lab = db::get_lab(&server.db, lab_id).await?;
     let nodes = db::list_nodes_by_lab(&server.db, lab.id.context("lab has no record ID")?).await?;
     Ok(nodes
@@ -275,7 +278,7 @@ async fn wait_for_node_state(
     }
 }
 
-async fn lab_up(
+pub(crate) async fn lab_up(
     ws: &mut TestWsClient,
     token: &str,
     lab_id: &str,
@@ -1581,7 +1584,7 @@ async fn lab_concurrency_003_labs_brought_up_at_once_get_distinct_management_sub
 // ── VM Lab Lifecycle ──
 
 /// Fail unless the host can run VMs: a missing requirement is a failure, not a pass.
-fn require_kvm() -> Result<()> {
+pub(crate) fn require_kvm() -> Result<()> {
     ensure!(
         Path::new("/dev/kvm").exists(),
         "/dev/kvm is required for the VM lab tests"

@@ -80,9 +80,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 022 | An impairment set on a node VM's link applies, and clearing it removes it (no test yet) | e2e |
 | 023 | `sherpa console` reaches each model's CLI (no test yet) | e2e |
 | 024 | A config saved on the node survives down and resume, and its links are re-attached (no test yet) | e2e |
-| 025 | A redeploy gives the node a new disk and config drive with its generated config only, and re-attaches its links (no test yet) | e2e |
-| 026 | Destroy leaves no domain, volume, tap, eBPF filter, process or folder of the node VMs (no test yet) | e2e |
-| 027 | An up that fails while creating node VMs is rolled back with nothing of the lab left (no test yet) | e2e |
+| 025 | A redeploy gives the node VM a new disk and config drive, and its P2p link is attached again | integration |
+| 026 | Destroy leaves no domain, volume, network, tap, console folder, lab folder or record of a lab of node VMs, and keeps the image's Docker store | integration |
+| 027 | An up that fails while creating node VMs, one with a volume whose source is missing, is rolled back with nothing of the lab left | integration |
 | 028 | A restart of sherpad leaves the node VMs running (no test yet) | e2e |
 | 029 | SR Linux's management address answers after up, after down and resume, and after a redeploy (no test yet) | e2e |
 | 030 | A Docker store is named by the image's ID, and an ID that is not a SHA-256 gets none | unit |
@@ -93,7 +93,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 035 | Each data interface on no link is listed with its fixed MAC, for the guest to make a veth whose peer is down in a namespace of its own | unit |
 | 036 | Docker keeps its data on the Docker store disk, which the store's VM formats and a node VM mounts | unit |
 | 037 | Destroy takes a node VM's Docker disk and never a Docker store | unit |
-| 038 | A second lab with the same image boots on the store the first made, with no image copy (no test yet) | e2e |
+| 038 | A second lab with the same image boots on the store the first made, which it neither makes again nor changes | integration |
 | 039 | A node VM's first boot does not rebuild the library cache or the hardware database | unit |
 | 040 | Docker in a node VM listens on its local socket only and sets up no iptables rules | unit |
 | 041 | containerd in a node VM runs without the CRI plugins, on its usual socket | unit |
@@ -109,7 +109,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 052 | The config drive holds the Ignition config and each volume's file or folder, and a missing volume source fails it | unit |
 | 053 | A failure the VM reports fails it with the reason, and a status other than the one awaited fails it | unit |
 | 054 | The update installs `bzip2` when `bunzip2` is missing, and nothing otherwise | unit (bats) |
-| 055 | A node VM whose container cannot be started is failed by `up` with the reason the VM reports, before the readiness wait ends (no test yet) | e2e |
+| 055 | A node VM whose container cannot be started is failed by `up` with the reason the VM reports, well before the readiness wait ends | integration |
 | 056 | A data interface on a private bridge is a bridge interface of the domain, so libvirt puts its tap on the bridge at every start | unit |
 | 057 | A first boot whose copy of the writable volumes into the container fails removes the container, starts nothing and reports why | unit |
 | 058 | A container that a first boot left without its writable volumes is removed and created again with them at the next boot | unit |
@@ -121,6 +121,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 064 | Up reads a node VM's status as it polls, with no task of its own: a status sent is seen at a later poll, none yet is no status, and a closed channel fails the node | unit |
 | 065 | A store build's VM disk, config drive, image archive and partial store are the build's, a store is not, and the build's status socket is in no lab's folder | unit |
 | 066 | At its start sherpad removes what an unfinished store build left (the store VM, its volumes, staging folder and status socket) and keeps the stores | integration |
+| 067 | A node VM on a private bridge has its taps on the bridge again after down and resume | integration |
 
 ## `node_ready`: a node is running only once its ready check passes
 
