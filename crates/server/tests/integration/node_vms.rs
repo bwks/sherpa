@@ -52,6 +52,16 @@ const SETTLE_TIMEOUT: Duration = Duration::from_secs(60);
 /// The folder of the labs' console sockets.
 const CONSOLE_DIR: &str = "/opt/sherpa/run/console";
 
+/// The folder of the status sockets of the VMs that make Docker stores.
+const NODE_VM_RUN_DIR: &str = "/opt/sherpa/run/node_vm";
+
+/// Report the checks and the cleanup together, after removing the store status folder when it
+/// is empty, as one these tests made as root would refuse sherpad, which makes it again.
+fn finish(checks: Result<()>, cleanup: Result<()>) -> Result<()> {
+    let _ = fs::remove_dir(NODE_VM_RUN_DIR);
+    with_cleanup(checks, cleanup)
+}
+
 /// The memory of a node's container, in MiB; its VM has 1024 more.
 const CONTAINER_MEMORY_MIB: u16 = 128;
 
@@ -342,7 +352,7 @@ async fn node_vm_067_a_node_vm_on_a_private_bridge_is_on_it_again_after_down_and
     }
     .await;
     let cleanup = cleanup_lab(&mut ws, &server, &token, &lab, &checks).await;
-    with_cleanup(checks, cleanup)
+    finish(checks, cleanup)
 }
 
 #[tokio::test]
@@ -382,7 +392,7 @@ async fn node_vm_025_a_redeploy_gives_the_node_a_new_disk_and_config_drive_and_a
     }
     .await;
     let cleanup = cleanup_lab(&mut ws, &server, &token, &lab, &checks).await;
-    with_cleanup(checks, cleanup)
+    finish(checks, cleanup)
 }
 
 #[tokio::test]
@@ -420,7 +430,7 @@ async fn node_vm_026_destroy_leaves_no_domain_volume_tap_or_console_folder_and_k
     }
     .await;
     let cleanup = cleanup_lab(&mut ws, &server, &token, &lab, &checks).await;
-    with_cleanup(checks, cleanup)
+    finish(checks, cleanup)
 }
 
 #[tokio::test]
@@ -468,7 +478,7 @@ async fn node_vm_027_an_up_that_fails_creating_node_vms_is_rolled_back_with_noth
     }
     .await;
     let cleanup = cleanup_lab(&mut ws, &server, &token, &lab, &checks).await;
-    with_cleanup(checks, cleanup)
+    finish(checks, cleanup)
 }
 
 #[tokio::test]
@@ -516,7 +526,7 @@ async fn node_vm_038_a_second_lab_with_the_same_image_boots_on_the_store_the_fir
     .await;
     let cleanup = cleanup_lab(&mut ws, &server, &token, &first, &checks).await;
     let cleanup_second = cleanup_lab(&mut ws, &server, &token, &second, &checks).await;
-    with_cleanup(checks, cleanup.and(cleanup_second))
+    finish(checks, cleanup.and(cleanup_second))
 }
 
 #[tokio::test]
@@ -569,5 +579,5 @@ async fn node_vm_055_a_node_vm_whose_container_cannot_start_fails_with_the_reaso
     }
     .await;
     let cleanup = cleanup_lab(&mut ws, &server, &token, &lab, &checks).await;
-    with_cleanup(checks, cleanup)
+    finish(checks, cleanup)
 }

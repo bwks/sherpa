@@ -208,7 +208,9 @@ mod tests {
     use shared::util::default_dns;
 
     use super::*;
-    use crate::konst::SHERPA_CONSOLE_DIR;
+    use std::fs;
+
+    use crate::konst::{SHERPA_CONSOLE_DIR, SHERPA_NODE_VM_RUN_DIR};
     use crate::services::node_ops;
 
     /// A lab's management network `198.18.250.0/24`, removed when dropped.
@@ -360,6 +362,8 @@ mod tests {
                 let _ = libvirt::delete_disk(&conn, &volume);
             }
             let _ = console::remove_console_dir(Path::new(SHERPA_CONSOLE_DIR), self.lab_id);
+            // Made by root here, the folder would refuse sherpad later; empty, it is made again.
+            let _ = fs::remove_dir(SHERPA_NODE_VM_RUN_DIR);
         }
     }
 
