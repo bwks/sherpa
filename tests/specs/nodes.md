@@ -105,7 +105,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 040 | Docker in a node VM sets up no iptables rules | unit |
 | 041 | containerd in a node VM runs without the CRI plugins, on its usual socket | unit |
 | 042 | A node VM mounts its root filesystem without zeroing its inode tables, so its disk holds only what it writes | unit |
-| 043 | A SONiC container sets its management address, IPv6 when the node has one, and default routes on `eth0` before its network OS starts | unit |
+| 043 | Retired: the node VM gives every model its management addresses; see 045 and 046 | — |
 | 044 | A node VM's container runs in the VM's network namespace, with no Docker network, the lab's name servers and domain, and its hostname resolving | unit |
 | 045 | A node VM's management NIC is given the node's IPv4 address, and its IPv6 address when the node and the lab's network have one, each with the network's prefix length and its gateway, as Docker gives a container on the network | unit |
 | 046 | Before Docker starts, the guest sets the management addresses and a default route through each gateway on `eth0` | unit |

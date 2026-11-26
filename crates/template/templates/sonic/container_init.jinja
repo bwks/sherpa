@@ -1,6 +1,6 @@
 #!/bin/bash
-# Sherpa's start script for a SONiC container. It sets the node's management addresses, waits
-# for the node's data interfaces, then hands over to the image's supervisord.
+# Sherpa's start script for a SONiC container. It waits for the node's data interfaces, then
+# hands over to the image's supervisord.
 # The container keeps its filesystem across a restart, so each step is safe to run again.
 {%- if let Some(owner) = owner %}
 
@@ -39,15 +39,6 @@ fi
 usermod -L root
 # `show ip route` runs rvtysh, which the image does not have.
 [ -e /usr/local/bin/rvtysh ] || ln -s /usr/bin/vtysh /usr/local/bin/rvtysh
-
-# The node's management addresses and default routes, at every start.
-ip link set eth0 up
-ip addr replace {{ mgmt.ipv4_address }}/{{ mgmt.ipv4_prefix_length }} dev eth0
-ip route replace default via {{ mgmt.ipv4_gateway }} dev eth0
-{%- if let Some(v6) = mgmt.ipv6 %}
-ip -6 addr replace {{ v6.address }}/{{ v6.prefix_length }} dev eth0 nodad
-ip -6 route replace default via {{ v6.gateway }} dev eth0
-{%- endif %}
 
 # The image maps the data interfaces it finds at start to front-panel ports, once.
 DATA_COUNT={{ data_count }}

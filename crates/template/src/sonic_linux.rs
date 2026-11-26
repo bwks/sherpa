@@ -29,22 +29,6 @@ pub struct SonicLinuxContainerInitTemplate {
     pub data_count: u8,
     pub owner: Option<OwnerUser>,
     pub config_db: Option<String>,
-    pub mgmt: SonicLinuxContainerManagement,
-}
-
-/// The management addresses a `sonic_linux` container sets on `eth0` at each start, with their
-/// gateways.
-pub struct SonicLinuxContainerManagement {
-    pub ipv4_address: Ipv4Addr,
-    pub ipv4_prefix_length: u8,
-    pub ipv4_gateway: Ipv4Addr,
-    pub ipv6: Option<SonicLinuxContainerManagementV6>,
-}
-
-pub struct SonicLinuxContainerManagementV6 {
-    pub address: Ipv6Addr,
-    pub prefix_length: u8,
-    pub gateway: Ipv6Addr,
 }
 
 pub struct SonicLinuxZtp {
