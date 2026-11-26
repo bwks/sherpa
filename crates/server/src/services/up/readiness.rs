@@ -17,7 +17,7 @@ use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, ContainerSettings, VmReadiness};
 use crate::services::node_secrets::write_node_secrets;
-use crate::services::node_vm::NodeVmStart;
+use crate::services::node_vm::StatusWatch;
 use crate::services::p2p_links::{KernelHost, LinkHost, make_veth};
 use crate::services::talos;
 
@@ -75,7 +75,7 @@ pub(super) async fn wait_for_nodes(
     operation: &LabOperation,
     inputs: &ReadinessInputs<'_>,
     p2p: &mut P2pAttachment,
-    node_vm_starts: HashMap<String, NodeVmStart>,
+    node_vm_watches: HashMap<String, StatusWatch>,
 ) -> Result<NodesReady> {
     let started = Instant::now();
     let all_nodes: Vec<&topology::NodeExpanded> = inputs
@@ -104,7 +104,7 @@ pub(super) async fn wait_for_nodes(
         waiting_for_port: HashSet::new(),
         nodes: Vec::new(),
         errors: Vec::new(),
-        node_vm_starts,
+        node_vm_watches,
         node_vm_started: HashSet::new(),
     };
     readiness.skip_unpolled_nodes(&all_nodes).await?;
@@ -153,10 +153,10 @@ pub(super) async fn wait_for_nodes(
         }
     }
 
-    for (name, start) in readiness.node_vm_starts.drain() {
+    for name in readiness.node_vm_watches.keys() {
         tracing::warn!(node_name = %name, "Node VM still starting its container when polling ended");
-        start.abort();
     }
+    readiness.node_vm_watches.clear();
     readiness.recheck_containers().await?;
     for link in inputs.p2p_links {
         if !readiness.p2p.attached.contains(&link.index) {
@@ -256,7 +256,7 @@ struct Readiness<'a, 'b> {
     waiting_for_port: HashSet<String>,
     nodes: Vec<data::NodeInfo>,
     errors: Vec<data::UpError>,
-    node_vm_starts: HashMap<String, NodeVmStart>,
+    node_vm_watches: HashMap<String, StatusWatch>,
     node_vm_started: HashSet<String>,
 }
 
@@ -724,11 +724,12 @@ impl Readiness<'_, '_> {
     /// Check whether node `node`'s VM has reported its container started: record it launched,
     /// or ready at once with its check skipped; or failed, with the reason the VM reported.
     async fn check_node_vm_start(&mut self, node: &topology::NodeExpanded) -> Result<()> {
-        let start = self
-            .node_vm_starts
-            .get(&node.name)
-            .with_context(|| format!("Node {} has no node VM start to wait for", node.name))?;
-        if !start.is_finished() {
+        let watch = self
+            .node_vm_watches
+            .get_mut(&node.name)
+            .with_context(|| format!("Node {} has no node VM status to wait for", node.name))?;
+        let started = watch.started();
+        if matches!(started, Ok(false)) {
             let _ = self.build.progress.send_status(
                 format!(
                     "Node {} - Waiting for its VM to start its container",
@@ -738,12 +739,9 @@ impl Readiness<'_, '_> {
             );
             return Ok(());
         }
-        let start = self
-            .node_vm_starts
-            .remove(&node.name)
-            .with_context(|| format!("Node {} has no node VM start to wait for", node.name))?;
+        self.node_vm_watches.remove(&node.name);
         let mgmt_ipv4 = node.ipv4_address.map(|ip| ip.to_string());
-        if let Err(error) = start.await.context("The node VM start watch panicked")? {
+        if let Err(error) = started {
             tracing::warn!(node_name = %node.name, error = %format!("{error:#}"), "Node VM did not start its container");
             let _ = self.build.progress.send_status(
                 format!("Node {} - {error:#}", node.name),

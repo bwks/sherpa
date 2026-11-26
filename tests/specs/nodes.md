@@ -125,6 +125,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 060 | A status line longer than 4 KiB fails the VM once that much has arrived, without reading the rest | unit |
 | 061 | More than 64 KiB of lines that are no status fails the VM | unit |
 | 062 | A failure's reason has its control characters dropped and is cut to 512 characters | unit |
+| 063 | A started node VM is defined without `flatcar.first_boot` for its later boots, whether or not its status is ever read | integration |
+| 064 | Up reads a node VM's status as it polls, with no task of its own: a status sent is seen at a later poll, none yet is no status, and a closed channel fails the node | unit |
 
 ## `node_ready`: a node is running only once its ready check passes
 

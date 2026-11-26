@@ -155,7 +155,7 @@ pub(super) async fn redeploy_node_vm(
     );
     let db = &redeploy.state.db;
     let lab_links = LabLinks::load(db, &redeploy.lab_id, &redeploy.lab_record_id).await?;
-    let start = node_vm::create_node_vm(
+    let mut watch = node_vm::create_node_vm(
         &NodeVmHost {
             docker: Arc::clone(&redeploy.state.docker),
             qemu: Arc::clone(&redeploy.state.qemu),
@@ -187,15 +187,14 @@ pub(super) async fn redeploy_node_vm(
     )
     .await?;
     let timeout = redeploy.ready_timeout();
-    time::timeout(timeout, start)
+    time::timeout(timeout, watch.wait_started())
         .await
         .with_context(|| {
             format!(
                 "Node VM {node_name} did not start its container within {} seconds",
                 timeout.as_secs()
             )
-        })?
-        .context("The node VM start watch panicked")??;
+        })??;
     node_lifecycle::record(
         db,
         redeploy.operation,

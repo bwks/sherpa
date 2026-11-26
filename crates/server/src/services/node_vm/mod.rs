@@ -10,6 +10,5 @@ mod status;
 mod store;
 
 pub(crate) use base::require_base_image;
-pub(crate) use create::{
-    NODE_VM_MEMORY_OVERHEAD_MIB, NodeVmCreate, NodeVmHost, NodeVmStart, create_node_vm,
-};
+pub(crate) use create::{NODE_VM_MEMORY_OVERHEAD_MIB, NodeVmCreate, NodeVmHost, create_node_vm};
+pub(crate) use status::StatusWatch;

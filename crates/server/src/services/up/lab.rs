@@ -35,7 +35,7 @@ use crate::services::lab_definition;
 use crate::services::lab_lifecycle;
 use crate::services::lab_operations::{self, LabHold, LabOperation, Operation, StopReason};
 use crate::services::node_ops::{self, ContainerSettings};
-use crate::services::node_vm::{self, NodeVmHost, NodeVmStart};
+use crate::services::node_vm::{self, NodeVmHost, StatusWatch};
 use crate::services::progress::ProgressSender;
 use crate::services::ssh_config::{self, LabSshFiles};
 use crate::services::surreal_db;
@@ -97,7 +97,7 @@ struct BuiltNodes {
     secret_mounts: HashMap<String, data::ContainerMount>,
     lab_clusters: Vec<LabCluster>,
     p2p: P2pAttachment,
-    node_vm_starts: HashMap<String, NodeVmStart>,
+    node_vm_watches: HashMap<String, StatusWatch>,
 }
 
 /// What phases 12 and 13 leave for the response.
@@ -718,7 +718,7 @@ impl LabUp<'_> {
         self.start_phase(data::UpPhase::VmCreation, "Creating VMs".to_string())?;
         let secret_mounts = write_secret_mounts(&self.build, self.node_secrets)?;
         create_vms(&self.build, domains).await?;
-        let node_vm_starts = create_node_vms(
+        let node_vm_watches = create_node_vms(
             &self.build,
             &NodeVmNodes {
                 host: NodeVmHost {
@@ -766,7 +766,7 @@ impl LabUp<'_> {
             secret_mounts,
             lab_clusters,
             p2p,
-            node_vm_starts,
+            node_vm_watches,
         })
     }
 
@@ -825,7 +825,7 @@ impl LabUp<'_> {
                 timeout: Duration::from_secs(ready_timeout_secs),
             },
             &mut built.p2p,
-            mem::take(&mut built.node_vm_starts),
+            mem::take(&mut built.node_vm_watches),
         )
         .await?;
         self.errors.extend(readiness_errors);

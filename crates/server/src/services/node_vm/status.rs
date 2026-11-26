@@ -2,14 +2,13 @@
 //! whose host side is a socket QEMU binds. The guest writes one line, `started`, `loaded` or
 //! `failed: REASON`, and sherpad reads it. A guest's write waits until sherpad has connected.
 
-use std::sync::Arc;
+use std::io::ErrorKind;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use libvirt::Qemu;
 use tokio::io::AsyncReadExt;
 use tokio::net::UnixStream;
-use tokio::{task, time};
+use tokio::time;
 use tracing::instrument;
 
 use crate::services::error::ServiceError;
@@ -40,7 +39,7 @@ pub(super) enum Status {
 }
 
 /// The status channel of a started VM, read up to its first status.
-pub(super) struct StatusWatch {
+pub(crate) struct StatusWatch {
     name: String,
     stream: UnixStream,
     pending: Vec<u8>,
@@ -141,6 +140,40 @@ impl StatusWatch {
         }
     }
 
+    /// Whether the node VM has reported its container started, from what it has sent by now,
+    /// without waiting.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the VM reported a failure or another status, or as `next` does.
+    pub(crate) fn started(&mut self) -> Result<bool> {
+        let mut chunk = [0; READ_CHUNK_BYTES];
+        loop {
+            if let Some(status) = self.take()? {
+                status.expect(&Status::Started, &self.name)?;
+                return Ok(true);
+            }
+            match self.stream.try_read(&mut chunk) {
+                Ok(read) => self.receive(&chunk[..read])?,
+                Err(error) if error.kind() == ErrorKind::WouldBlock => return Ok(false),
+                Err(error) => {
+                    return Err(error)
+                        .with_context(|| format!("Cannot read the status of VM {}", self.name));
+                }
+            }
+        }
+    }
+
+    /// Wait until the node VM reports its container started.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the VM reported a failure or another status, or as `next` does.
+    pub(crate) async fn wait_started(&mut self) -> Result<()> {
+        let status = self.next().await?;
+        Ok(status.expect(&Status::Started, &self.name)?)
+    }
+
     /// Add `bytes` read from the stream; none means the stream ended.
     fn receive(&mut self, bytes: &[u8]) -> Result<(), ServiceError> {
         if bytes.is_empty() {
@@ -213,22 +246,6 @@ fn capped(text: &str, max: usize) -> String {
     }
 }
 
-/// Define domain `name` again with kernel command line `cmdline`, from its next boot on.
-///
-/// # Errors
-///
-/// Fails when libvirt cannot redefine the domain.
-pub(super) async fn set_cmdline(qemu: &Arc<Qemu>, name: &str, cmdline: String) -> Result<()> {
-    let qemu = Arc::clone(qemu);
-    let name = name.to_owned();
-    task::spawn_blocking(move || {
-        let conn = qemu.connect()?;
-        libvirt::set_node_vm_cmdline(&conn, &name, &cmdline)
-    })
-    .await
-    .context("The node VM redefinition panicked")?
-}
-
 #[cfg(test)]
 mod tests {
     use tokio::io::AsyncWriteExt;
@@ -236,7 +253,7 @@ mod tests {
     use super::*;
 
     /// A watch on one end of a socket pair, and the guest's end.
-    fn watch() -> (StatusWatch, UnixStream) {
+    fn pair() -> (StatusWatch, UnixStream) {
         let (host, guest) = UnixStream::pair().unwrap();
         (StatusWatch::of(host, "srl1-abc12345"), guest)
     }
@@ -266,7 +283,7 @@ mod tests {
     #[tokio::test]
     async fn node_vm_060_a_status_line_longer_than_the_limit_fails_the_vm_before_it_is_read_whole()
     {
-        let (mut watch, mut guest) = watch();
+        let (mut watch, mut guest) = pair();
         let writer = tokio::spawn(async move {
             let flood = vec![b'x'; 1024 * 1024];
             let _ = guest.write_all(&flood).await;
@@ -286,7 +303,7 @@ mod tests {
 
     #[tokio::test]
     async fn node_vm_061_lines_that_are_no_status_beyond_the_limit_fail_the_vm() {
-        let (mut watch, mut guest) = watch();
+        let (mut watch, mut guest) = pair();
         let writer = tokio::spawn(async move {
             let lines = b"junk\n".repeat(100_000);
             let _ = guest.write_all(&lines).await;
@@ -305,7 +322,7 @@ mod tests {
 
     #[tokio::test]
     async fn node_vm_062_a_failure_reason_has_no_control_characters_and_is_capped() {
-        let (mut watch, mut guest) = watch();
+        let (mut watch, mut guest) = pair();
         let reason = format!("bad\x1b[31m\x07 {}", "y".repeat(2000));
         guest
             .write_all(format!("junk\nfailed: {reason}\n").as_bytes())
@@ -318,5 +335,32 @@ mod tests {
         assert!(!read.chars().any(char::is_control));
         assert_eq!(read.chars().count(), 512 + 3);
         assert!(read.ends_with("y..."));
+    }
+
+    #[tokio::test]
+    async fn node_vm_064_up_reads_a_node_vms_status_as_it_polls_with_no_task_of_its_own() {
+        let (mut watch, mut guest) = pair();
+        assert!(!watch.started().unwrap());
+        guest.write_all(b"started\n").await.unwrap();
+        let mut seen = false;
+        for _ in 0..100 {
+            if watch.started().unwrap() {
+                seen = true;
+                break;
+            }
+            time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(seen);
+        let (mut closed, guest) = pair();
+        drop(guest);
+        time::sleep(Duration::from_millis(10)).await;
+        let error = closed.started().unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<ServiceError>(),
+                Some(ServiceError::NodeVmStatusClosed { .. })
+            ),
+            "{error:#}"
+        );
     }
 }

@@ -19,7 +19,7 @@ use shared::konst::SHERPA_STORAGE_POOL_PATH;
 use template::{NodeVmDomainTemplate, store_vm_ignition_json};
 
 use super::base::{NODE_VM_IMAGE_DIR, base_image, base_kernel, kernel_cmdline, kernel_usr_hash};
-use super::create::{NodeVmHost, start_domain};
+use super::create::{DomainDisk, NodeVmHost, start_domain};
 use super::guest::write_config_drive;
 use super::status::{Status, StatusWatch};
 use crate::services::console;
@@ -148,12 +148,13 @@ async fn make_store(host: &NodeVmHost, lab_id: &str, image: &str, store: &Store)
         &[],
     )?;
     let status_socket = store.status_socket(lab_id)?;
+    let usr_hash = kernel_usr_hash(&host.images_dir)?;
     let domain = NodeVmDomainTemplate {
         name: store.vm(),
         memory_mib: STORE_VM_MEMORY_MIB,
         vcpus: STORE_VM_VCPUS,
         kernel: base_kernel(&host.images_dir),
-        cmdline: kernel_cmdline(&kernel_usr_hash(&host.images_dir)?, true),
+        cmdline: kernel_cmdline(&usr_hash, true),
         disk: pool_path(&store.vm_disk()),
         docker_disk: pool_path(&store.partial()),
         image_archive: Some(archive),
@@ -163,12 +164,17 @@ async fn make_store(host: &NodeVmHost, lab_id: &str, image: &str, store: &Store)
         status_socket: status_socket.clone(),
         serial_socket: None,
     };
-    let base = base_image(&host.images_dir);
-    start_domain(&host.qemu, domain, move |conn, domain| {
-        libvirt::create_overlay(conn, &base, &domain.disk, None)?;
-        libvirt::create_blank_qcow2(conn, &domain.docker_disk, STORE_DISK_GB)
-    })
-    .await?;
+    let disks = vec![
+        DomainDisk::Overlay {
+            base: base_image(&host.images_dir),
+            path: domain.disk.clone(),
+        },
+        DomainDisk::Blank {
+            path: domain.docker_disk.clone(),
+            size_gb: STORE_DISK_GB,
+        },
+    ];
+    start_domain(&host.qemu, domain, disks, kernel_cmdline(&usr_hash, false)).await?;
     let vm = store.vm();
     let mut watch = StatusWatch::connect(&status_socket, &vm).await?;
     time::timeout(STORE_VM_LOAD, watch.next())

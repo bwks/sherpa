@@ -12,7 +12,7 @@ use super::links::P2pContainerVeth;
 use super::readiness::container_spec;
 use crate::services::error::ServiceError;
 use crate::services::node_ops::{self, ContainerSettings};
-use crate::services::node_vm::{self, NodeVmCreate, NodeVmHost, NodeVmStart};
+use crate::services::node_vm::{self, NodeVmCreate, NodeVmHost, StatusWatch};
 
 use shared::data::{self, StatusKind};
 
@@ -45,30 +45,35 @@ pub(super) async fn create_vms(
 }
 
 /// Create the VM of every container node that runs in one, all at once, and wait for all of
-/// them. Each VM has its node's link ends as taps, so its links are attached with the VMs'
-/// (phase 11). Returns the watch on each VM's start, by node name.
+/// them; every node's create is built before any VM is. Each VM has its node's link ends as
+/// taps, so its links are attached with the VMs' (phase 11). Returns the watch on each VM's
+/// status, by node name.
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn create_node_vms(
     build: &LabBuild<'_>,
     nodes: &NodeVmNodes<'_>,
-) -> Result<HashMap<String, NodeVmStart>> {
+) -> Result<HashMap<String, StatusWatch>> {
     let progress = build.progress;
-    let mut names = Vec::new();
-    let mut tasks = Vec::new();
-    for container in nodes.container_nodes {
-        if !container.model_kind.runs_in_node_vm() {
-            continue;
-        }
-        let create = node_vm_create(build, nodes, container)?;
-        let host = nodes.host.clone();
-        names.push(container.name.clone());
-        tasks.push(task::spawn(async move {
-            node_vm::create_node_vm(&host, create).await
-        }));
-    }
-    if tasks.is_empty() {
+    let creates = nodes
+        .container_nodes
+        .iter()
+        .filter(|container| container.model_kind.runs_in_node_vm())
+        .map(|container| node_vm_create(build, nodes, container))
+        .collect::<Result<Vec<_>>>()?;
+    if creates.is_empty() {
         return Ok(HashMap::new());
     }
+    let names: Vec<String> = creates
+        .iter()
+        .map(|create| create.node_name.clone())
+        .collect();
+    let tasks: Vec<_> = creates
+        .into_iter()
+        .map(|create| {
+            let host = nodes.host.clone();
+            task::spawn(async move { node_vm::create_node_vm(&host, create).await })
+        })
+        .collect();
     let _ = progress.send_status(
         format!("Creating {} node VMs in parallel", tasks.len()),
         StatusKind::Progress,

@@ -70,9 +70,11 @@ Flatcar's GRUB builds (`base::kernel_cmdline`):
   there is slow.
 - `rootflags=rw,noinit_itable`: ext4 does not zero the root filesystem's inode tables into the
   node's overlay.
-- `flatcar.first_boot=detected` on the first boot only, so Ignition runs once. sherpad defines the
-  domain again without it (`libvirt::set_node_vm_cmdline`) when the VM first reports its status,
-  which comes from a unit Ignition installed.
+- `flatcar.first_boot=detected` on the first boot only, so Ignition runs once. Right after it has
+  started the domain, in the same libvirt call as the start (`create::start_domain`), sherpad
+  defines it again without it (`libvirt::set_node_vm_cmdline`); the running VM keeps the command
+  line it booted with. Nothing redefines a domain later, so a teardown that removes it at any
+  point is final.
 
 ## Config drive
 
@@ -252,16 +254,19 @@ the model's CLI (`Cli`, `sr_cli`, `bash` for SONiC). systemd starts it again whe
 
 - **Up.** Phase 11 creates each node VM, in parallel with the others (`create_node_vms`, after
   the VMs): the image's Docker store when there is none, the config drive with the node's
-  container and secret files, the two overlays, the domain, and a watch on its status. Readiness
-  (phase 13) records the node launched once its VM reports `started`, failed with the reason when
-  it reports a failure, and ready as above.
+  container and secret files, the two overlays, the domain, and the connection to its status
+  channel (`StatusWatch`). No task reads the channel: readiness (phase 13) reads what has arrived
+  at each poll (`StatusWatch::started`), records the node launched once its VM reports `started`,
+  failed with the reason when it reports a failure, and ready as above, and closes the channel
+  when it stops waiting. Every node's create is built before any VM is created, and every
+  creation task is awaited before up goes on or rolls back.
 - **Down, resume, status, scanner, console.** These nodes run as VMs (`ModelKind::runs_as`):
   `down` shuts the domain down over ACPI, which stops Docker and the container cleanly; `resume`
   starts the domain, `sherpa-node` starts the container again with what it wrote, and the links
   are re-attached.
 - **Redeploy.** Removes the VM and its volumes as a VM's (`destroy_vm_node`), generates the
   node's config again, and creates the VM again with a new config drive and new overlays; it waits
-  for the VM's status up to the manifest's `ready_timeout`.
+  for the VM's status up to the manifest's `ready_timeout`, in the redeploy itself.
 - **Destroy and rollback.** The domain and its volumes go with the lab's other domains and
   volumes, by the lab's name suffix. A domain libvirt defined stays defined when a later step
   fails, as a VM's does, and destroy or the rollback removes it.
@@ -301,6 +306,8 @@ The measurements behind each are on #683.
   only that its ready port stops answering.
 - A failure before the VM's units run, such as Ignition failing in the initrd, sends no status:
   the node is not ready when the readiness wait ends.
+- A node VM stopped before its first boot finished Ignition boots without it the next time, and
+  its container is never made; redeploy the node.
 - SR Linux's commit of its startup config fails with `Unacceptable syslog configuration` when
   its rsyslogd restarts take over about 60 s, as when the lab's name server does not answer; it
   then falls back to the next config, and the node has no `dev` login.

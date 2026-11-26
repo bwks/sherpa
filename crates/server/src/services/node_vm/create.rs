@@ -10,9 +10,8 @@ use anyhow::{Context, Result};
 use askama::Template;
 use bollard::Docker;
 use libvirt::Qemu;
-use tokio::task::{self, JoinHandle};
+use tokio::task;
 use tracing::instrument;
-use virt::connect::Connect;
 
 use container::ContainerSpec;
 use shared::data::{Dns, ModelKind, SherpaNetwork};
@@ -24,7 +23,7 @@ use super::guest::{
     console_command, guest_create_args, guest_nics, guest_volumes, management_addresses,
     write_config_drive,
 };
-use super::status::{self, Status, StatusWatch};
+use super::status::StatusWatch;
 use super::store::ensure_docker_store;
 use crate::daemon::docker_stores::DockerStoreLocks;
 use crate::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
@@ -64,9 +63,11 @@ pub(crate) struct NodeVmCreate {
     pub(crate) ipv6: Option<Ipv6Addr>,
 }
 
-/// The watch on a started node VM: it ends once the VM reports its container started, or
-/// fails with the reason the VM reports.
-pub(crate) type NodeVmStart = JoinHandle<Result<()>>;
+/// A disk a node VM's domain boots with, made before the domain is defined.
+pub(super) enum DomainDisk {
+    Overlay { base: String, path: String },
+    Blank { path: String, size_gb: u16 },
+}
 
 /// The storage pool volume of node VM `device`'s disk, an overlay on the base image.
 fn disk_name(device: &str) -> String {
@@ -83,14 +84,14 @@ fn config_drive_name(device: &str) -> String {
     format!("{device}.iso")
 }
 
-/// Create the node's VM and start it, and watch for the status it reports.
+/// Create the node's VM and start it, and return the watch on the status it reports.
 ///
 /// # Errors
 ///
 /// Fails when the base image is missing, the image's store cannot be made, the config drive
 /// cannot be written, or libvirt cannot create the disks or define and start the domain.
 #[instrument(skip(host, create), fields(lab_id = %create.lab_id, node_name = %create.node_name))]
-pub(crate) async fn create_node_vm(host: &NodeVmHost, create: NodeVmCreate) -> Result<NodeVmStart> {
+pub(crate) async fn create_node_vm(host: &NodeVmHost, create: NodeVmCreate) -> Result<StatusWatch> {
     require_base_image(&host.images_dir, &[create.model_kind])?;
     let usr_hash = kernel_usr_hash(&host.images_dir)?;
     let store = ensure_docker_store(host, &create.lab_id, &create.spec.image).await?;
@@ -137,33 +138,33 @@ pub(crate) async fn create_node_vm(host: &NodeVmHost, create: NodeVmCreate) -> R
         status_socket: status_socket.clone(),
         serial_socket: Some(console::console_sockets(&create.lab_id, create.node_index)?.serial),
     };
-    let base = base_image(&host.images_dir);
-    start_domain(&host.qemu, domain, move |conn, domain| {
-        libvirt::create_overlay(conn, &base, &domain.disk, None)?;
-        libvirt::create_overlay(conn, &store, &domain.docker_disk, None)
-    })
-    .await?;
-    let mut watch = StatusWatch::connect(&status_socket, &device).await?;
-    let qemu = Arc::clone(&host.qemu);
-    let cmdline = kernel_cmdline(&usr_hash, false);
-    Ok(task::spawn(async move {
-        let status = watch.next().await?;
-        // Any status comes from a unit Ignition installed, so later boots skip Ignition.
-        status::set_cmdline(&qemu, &device, cmdline).await?;
-        Ok(status.expect(&Status::Started, &device)?)
-    }))
+    let disks = vec![
+        DomainDisk::Overlay {
+            base: base_image(&host.images_dir),
+            path: domain.disk.clone(),
+        },
+        DomainDisk::Overlay {
+            base: store,
+            path: domain.docker_disk.clone(),
+        },
+    ];
+    start_domain(&host.qemu, domain, disks, kernel_cmdline(&usr_hash, false)).await?;
+    StatusWatch::connect(&status_socket, &device).await
 }
 
-/// Make `domain`'s disks with `make_disks`, then define and start it.
+/// Make `disks`, define and start `domain`, and define it again with `next_cmdline` for its
+/// later boots, so only the boot it starts now runs Ignition.
 ///
 /// # Errors
 ///
 /// Fails when the domain XML cannot be rendered, a disk cannot be made, or libvirt cannot
-/// define and start the domain.
+/// define, start or redefine the domain.
+#[instrument(skip_all, fields(name = %domain.name), level = "debug")]
 pub(super) async fn start_domain(
     qemu: &Arc<Qemu>,
     domain: NodeVmDomainTemplate,
-    make_disks: impl FnOnce(&Connect, &NodeVmDomainTemplate) -> Result<()> + Send + 'static,
+    disks: Vec<DomainDisk>,
+    next_cmdline: String,
 ) -> Result<()> {
     let xml = domain
         .render()
@@ -171,9 +172,18 @@ pub(super) async fn start_domain(
     let qemu = Arc::clone(qemu);
     task::spawn_blocking(move || {
         let conn = qemu.connect()?;
-        make_disks(&conn, &domain)?;
+        for disk in &disks {
+            match disk {
+                DomainDisk::Overlay { base, path } => {
+                    libvirt::create_overlay(&conn, base, path, None)?;
+                }
+                DomainDisk::Blank { path, size_gb } => {
+                    libvirt::create_blank_qcow2(&conn, path, *size_gb)?;
+                }
+            }
+        }
         libvirt::create_vm(&conn, &xml)?;
-        Ok(())
+        libvirt::set_node_vm_cmdline(&conn, &domain.name, &next_cmdline)
     })
     .await
     .context("The node VM start panicked")?
@@ -186,7 +196,9 @@ mod tests {
     use ipnet::Ipv4Net;
     use tempfile::TempDir;
     use tokio::time;
+    use virt::domain::Domain;
     use virt::network::Network;
+    use virt::sys::VIR_DOMAIN_XML_INACTIVE;
 
     use shared::data::{ContainerNetworkAttachment, NetworkV4, NodeKind, NodeModel};
     use shared::konst::SHERPA_IMAGES_PATH;
@@ -247,74 +259,137 @@ mod tests {
         }
     }
 
+    /// A node VM of a `sonic_linux` node on `busybox:1.37` in lab `lab_id`, with the lab's
+    /// management network and console folder, all removed when dropped.
+    struct TestNodeVm {
+        qemu: Arc<Qemu>,
+        lab_id: &'static str,
+        lab_dir: TempDir,
+        network: TestNetwork,
+    }
+
+    impl TestNodeVm {
+        fn new(lab_id: &'static str) -> Self {
+            let qemu = Arc::new(Qemu::default());
+            let network = TestNetwork::create(&qemu, lab_id);
+            console::create_console_dir(lab_id).unwrap();
+            Self {
+                qemu,
+                lab_id,
+                lab_dir: TempDir::new().unwrap(),
+                network,
+            }
+        }
+
+        fn domain(&self) -> String {
+            domain_name("sonic1", self.lab_id)
+        }
+
+        async fn create(&self) -> Result<StatusWatch> {
+            let host = NodeVmHost {
+                docker: Arc::new(Docker::connect_with_local_defaults().unwrap()),
+                qemu: Arc::clone(&self.qemu),
+                images_dir: SHERPA_IMAGES_PATH.to_owned(),
+                store_locks: DockerStoreLocks::default(),
+            };
+            let spec = node_ops::container_spec(
+                self.lab_id,
+                "sonic1",
+                "1.37",
+                node_ops::ContainerSettings {
+                    image: "busybox".to_owned(),
+                    env_vars: Vec::new(),
+                    volumes: Vec::new(),
+                    commands: vec!["sleep".to_owned(), "infinity".to_owned()],
+                    capabilities: Vec::new(),
+                    privileged: true,
+                    shm_size: None,
+                    user: None,
+                },
+                ContainerNetworkAttachment {
+                    name: self.network.name.clone(),
+                    ipv4_address: None,
+                    ipv6_address: None,
+                    linux_interface_name: None,
+                    admin_down: false,
+                },
+            );
+            create_node_vm(
+                &host,
+                NodeVmCreate {
+                    lab_id: self.lab_id.to_owned(),
+                    lab_dir: self.lab_dir.path().to_str().unwrap().to_owned(),
+                    node_name: "sonic1".to_owned(),
+                    node_index: 1,
+                    model_kind: ModelKind::new(NodeModel::SonicLinux, Some(NodeKind::Container))
+                        .unwrap(),
+                    spec,
+                    dns: default_dns(&self.network.network),
+                    memory_mib: 1024,
+                    vcpus: 1,
+                    veths: Vec::new(),
+                    mgmt_net: self.network.network.clone(),
+                    ipv4: Ipv4Addr::new(198, 18, 250, 23),
+                    ipv6: None,
+                },
+            )
+            .await
+        }
+
+        fn domain_xml(&self, flags: u32) -> String {
+            Domain::lookup_by_name(&self.qemu.connect().unwrap(), &self.domain())
+                .unwrap()
+                .get_xml_desc(flags)
+                .unwrap()
+        }
+
+        fn lab_volumes(&self) -> Vec<String> {
+            libvirt::list_lab_volumes(&self.qemu.connect().unwrap(), self.lab_id).unwrap()
+        }
+    }
+
+    impl Drop for TestNodeVm {
+        fn drop(&mut self) {
+            let conn = self.qemu.connect().unwrap();
+            let _ = libvirt::remove_domain(&conn, &self.domain());
+            for volume in self.lab_volumes() {
+                let _ = libvirt::delete_disk(&conn, &volume);
+            }
+            let _ = console::remove_console_dir(Path::new(SHERPA_CONSOLE_DIR), self.lab_id);
+        }
+    }
+
     #[tokio::test]
     #[ignore = "Requires libvirt, sherpa-pool, Docker with busybox:1.37 and the node VM base image; run as root"]
     async fn node_vm_019_a_node_vm_boots_on_its_store_and_its_unit_starts_the_container() {
-        let qemu = Arc::new(Qemu::default());
-        let lab_id = "nvtest19";
-        let lab_dir = TempDir::new().unwrap();
-        let network = TestNetwork::create(&qemu, lab_id);
-        console::create_console_dir(lab_id).unwrap();
-        let host = NodeVmHost {
-            docker: Arc::new(Docker::connect_with_local_defaults().unwrap()),
-            qemu: Arc::clone(&qemu),
-            images_dir: SHERPA_IMAGES_PATH.to_owned(),
-            store_locks: DockerStoreLocks::default(),
-        };
-        let spec = node_ops::container_spec(
-            lab_id,
-            "sonic1",
-            "1.37",
-            node_ops::ContainerSettings {
-                image: "busybox".to_owned(),
-                env_vars: Vec::new(),
-                volumes: Vec::new(),
-                commands: vec!["sleep".to_owned(), "infinity".to_owned()],
-                capabilities: Vec::new(),
-                privileged: true,
-                shm_size: None,
-                user: None,
-            },
-            ContainerNetworkAttachment {
-                name: network.name.clone(),
-                ipv4_address: None,
-                ipv6_address: None,
-                linux_interface_name: None,
-                admin_down: false,
-            },
-        );
-        let start = create_node_vm(
-            &host,
-            NodeVmCreate {
-                lab_id: lab_id.to_owned(),
-                lab_dir: lab_dir.path().to_str().unwrap().to_owned(),
-                node_name: "sonic1".to_owned(),
-                node_index: 1,
-                model_kind: ModelKind::new(NodeModel::SonicLinux, Some(NodeKind::Container))
-                    .unwrap(),
-                spec,
-                dns: default_dns(&network.network),
-                memory_mib: 1024,
-                vcpus: 1,
-                veths: Vec::new(),
-                mgmt_net: network.network.clone(),
-                ipv4: Ipv4Addr::new(198, 18, 250, 23),
-                ipv6: None,
-            },
-        )
-        .await;
-        let started = match start {
-            Ok(start) => time::timeout(Duration::from_secs(300), start).await,
-            Err(error) => panic!("{error:#}"),
-        };
-        node_ops::destroy_vm_node(Arc::new(qemu.connect().unwrap()), "sonic1", lab_id, 1, 0)
+        let vm = TestNodeVm::new("nvtest19");
+        let mut watch = vm.create().await.unwrap();
+        time::timeout(Duration::from_secs(300), watch.wait_started())
             .await
+            .unwrap()
             .unwrap();
-        console::remove_console_dir(Path::new(SHERPA_CONSOLE_DIR), lab_id).unwrap();
-        started.unwrap().unwrap().unwrap();
-        assert_eq!(
-            libvirt::list_lab_volumes(&qemu.connect().unwrap(), lab_id).unwrap(),
-            Vec::<String>::new()
-        );
+        node_ops::destroy_vm_node(
+            Arc::new(vm.qemu.connect().unwrap()),
+            "sonic1",
+            vm.lab_id,
+            1,
+            0,
+        )
+        .await
+        .unwrap();
+        assert_eq!(vm.lab_volumes(), Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires libvirt, sherpa-pool, Docker with busybox:1.37 and the node VM base image; run as root"]
+    async fn node_vm_063_a_started_node_vm_is_defined_for_later_boots_without_ignition_whether_or_not_its_status_is_read()
+     {
+        let vm = TestNodeVm::new("nvtest63");
+        let watch = vm.create().await.unwrap();
+        drop(watch);
+        assert!(vm.domain_xml(0).contains("flatcar.first_boot=detected"));
+        let inactive = vm.domain_xml(VIR_DOMAIN_XML_INACTIVE);
+        assert!(inactive.contains("<cmdline>"), "{inactive}");
+        assert!(!inactive.contains("flatcar.first_boot"), "{inactive}");
     }
 }
