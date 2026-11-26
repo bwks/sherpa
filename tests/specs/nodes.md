@@ -105,6 +105,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 040 | Docker in a node VM sets up no iptables rules | unit |
 | 041 | containerd in a node VM runs without the CRI plugins, on its usual socket | unit |
 | 042 | A node VM mounts its root filesystem without zeroing its inode tables, so its disk holds only what it writes | unit |
+| 043 | A SONiC container sets its management address, IPv6 when the node has one, and default routes on `eth0` before its network OS starts | unit |
 
 ## `node_ready`: a node is running only once its ready check passes
 

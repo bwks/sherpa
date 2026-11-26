@@ -1178,7 +1178,7 @@ fn sonic_container_start(
         supervisord.as_bytes(),
         NODE_CONFIG_FILE_MODE,
     )?;
-    let init_file = write_sonic_container_init(node, node_image, dir, None, None)?;
+    let init_file = write_sonic_container_init(node, node_image, ztp, None, None)?;
 
     setup.privileged = true;
     // Mounted with the manifest's, which a node with ZTP off keeps, so the node's own mounts
@@ -1214,7 +1214,7 @@ fn sonic_container_volume_ztp(
         mgmt_net,
         ..
     } = *ztp;
-    // Docker addresses `eth0`, so the config has no management entries.
+    // The start script addresses `eth0`, so the config has no management entries.
     let config_db = match custom_ztp {
         Some(config) => config.to_owned(),
         None => SonicLinuxZtp {
@@ -1241,7 +1241,7 @@ fn sonic_container_volume_ztp(
     write_sonic_container_init(
         node,
         node_image,
-        dir,
+        ztp,
         Some(owner),
         Some(SONIC_CONTAINER_CONFIG_DB_MOUNT),
     )?;
@@ -1267,15 +1267,25 @@ fn sonic_container_volume_ztp(
     Ok(())
 }
 
-/// Render a `sonic_linux` container's start script into `dir` and return its path. It waits for the
-/// node's data interfaces, as many as the node has.
+/// Render a `sonic_linux` container's start script into the node's ZTP folder and return its
+/// path. It sets the node's management addresses on `eth0` and waits for the node's data
+/// interfaces, as many as the node has.
 fn write_sonic_container_init(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
-    dir: &str,
+    ztp: &ContainerZtp<'_>,
     owner: Option<data::OwnerUser>,
     config_db: Option<&str>,
 ) -> Result<String> {
+    let mgmt_net = ztp.mgmt_net;
+    let ipv6 = node
+        .ipv6_address
+        .zip(mgmt_net.v6.as_ref())
+        .map(|(address, v6)| template::SonicLinuxContainerManagementV6 {
+            address,
+            prefix_length: v6.prefix_length,
+            gateway: v6.first,
+        });
     let init = template::SonicLinuxContainerInitTemplate {
         data_count: effective_data_interface_count(
             &node.name,
@@ -1284,9 +1294,15 @@ fn write_sonic_container_init(
         )?,
         owner,
         config_db: config_db.map(str::to_owned),
+        mgmt: template::SonicLinuxContainerManagement {
+            ipv4_address: ztp.node_ipv4_address,
+            ipv4_prefix_length: mgmt_net.v4.prefix_length,
+            ipv4_gateway: mgmt_net.v4.first,
+            ipv6,
+        },
     }
     .render()?;
-    let init_file = format!("{dir}/sherpa-init.sh");
+    let init_file = format!("{}/sherpa-init.sh", ztp.dir);
     util::write_file_with_permissions(
         Path::new(&init_file),
         init.as_bytes(),

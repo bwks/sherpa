@@ -1,6 +1,11 @@
 use askama::Template;
 
-use template::{SonicLinuxContainerInitTemplate, SonicLinuxContainerSupervisordTemplate};
+use std::net::{Ipv4Addr, Ipv6Addr};
+
+use template::{
+    SonicLinuxContainerInitTemplate, SonicLinuxContainerManagement,
+    SonicLinuxContainerManagementV6, SonicLinuxContainerSupervisordTemplate,
+};
 
 use crate::helpers;
 
@@ -26,11 +31,21 @@ stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 redirect_stderr=true";
 
+fn management(ipv6: Option<SonicLinuxContainerManagementV6>) -> SonicLinuxContainerManagement {
+    SonicLinuxContainerManagement {
+        ipv4_address: Ipv4Addr::new(172, 31, 0, 23),
+        ipv4_prefix_length: 24,
+        ipv4_gateway: Ipv4Addr::new(172, 31, 0, 1),
+        ipv6,
+    }
+}
+
 fn init(hash: Option<&str>, config_db: Option<&str>) -> String {
     SonicLinuxContainerInitTemplate {
         data_count: 2,
         owner: hash.map(helpers::test_owner),
         config_db: config_db.map(str::to_owned),
+        mgmt: management(None),
     }
     .render()
     .expect("template renders")
@@ -202,4 +217,41 @@ fn generated_config_031_sonic_container_makes_its_own_host_keys_once_before_ssh(
         .find("exec /usr/local/bin/supervisord")
         .expect("hands over");
     assert!(keygen < sshd && keygen < supervisord, "{output}");
+}
+
+#[test]
+fn node_vm_043_a_sonic_container_addresses_eth0_itself_before_its_network_os_starts() {
+    let v4_only = init(None, None);
+    let addresses = [
+        "ip link set eth0 up",
+        "ip addr replace 172.31.0.23/24 dev eth0",
+        "ip route replace default via 172.31.0.1 dev eth0",
+    ];
+    for line in addresses {
+        assert!(v4_only.lines().any(|l| l == line), "{line}\n{v4_only}");
+    }
+    assert!(!v4_only.contains("ip -6"));
+    let supervisord = v4_only.find("exec /usr/local/bin/supervisord").unwrap();
+    assert!(v4_only.find(addresses[1]).unwrap() < supervisord);
+
+    let dual = SonicLinuxContainerInitTemplate {
+        data_count: 2,
+        owner: None,
+        config_db: None,
+        mgmt: management(Some(SonicLinuxContainerManagementV6 {
+            address: "fd00:b0d1:0:1::17".parse::<Ipv6Addr>().unwrap(),
+            prefix_length: 64,
+            gateway: "fd00:b0d1:0:1::1".parse::<Ipv6Addr>().unwrap(),
+        })),
+    }
+    .render()
+    .unwrap();
+    assert!(
+        dual.lines()
+            .any(|l| l == "ip -6 addr replace fd00:b0d1:0:1::17/64 dev eth0 nodad")
+    );
+    assert!(
+        dual.lines()
+            .any(|l| l == "ip -6 route replace default via fd00:b0d1:0:1::1 dev eth0")
+    );
 }

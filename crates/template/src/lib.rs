@@ -59,7 +59,8 @@ pub use mikrotik_routeros::MikrotikRouterosZtpTemplate;
 pub use nokia_srlinux::build_srlinux_config;
 pub use paloalto_panos::{PaloAltoPanosBootstrapTemplate, PaloAltoPanosZtpTemplate};
 pub use sonic_linux::{
-    SonicLinuxContainerInitTemplate, SonicLinuxContainerSupervisordTemplate,
+    SonicLinuxContainerInitTemplate, SonicLinuxContainerManagement,
+    SonicLinuxContainerManagementV6, SonicLinuxContainerSupervisordTemplate,
     SonicLinuxUserTemplate, SonicLinuxZtp,
 };
 pub use ssh::{KnownHostsEntry, KnownHostsTemplate, SshConfigTemplate, SshHostConfig};
