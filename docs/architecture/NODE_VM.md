@@ -289,7 +289,6 @@ its limit.
 
 ## Limits
 
-- A shared bridge (`[[bridges]]` with Docker networks) does not reach a node VM's container.
 - A volume's source is read when the config drive is written: a change on the server is not seen
   until a redeploy, and what the container writes to a writable volume stays in the VM.
 - Secret files are on the config drive in the storage pool, not in RAM, until destroy or redeploy.
