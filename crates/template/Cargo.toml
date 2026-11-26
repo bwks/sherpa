@@ -18,6 +18,7 @@ sha-crypt = { workspace = true }
 ipnet = { workspace = true }
 
 [dev-dependencies]
+toml = { workspace = true }
 urlencoding = "2.1"
 
 [lints]

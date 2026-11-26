@@ -62,8 +62,8 @@ pub use juniper_junos::JunipervJunosZtpTemplate;
 pub use mikrotik_routeros::MikrotikRouterosZtpTemplate;
 pub use node_vm::{
     GuestAddress, GuestInterface, NODE_VM_CONFIG_DRIVE_LABEL, NODE_VM_CONFIG_DRIVE_MOUNT,
-    NODE_VM_CONFIG_DRIVE_USER_DATA, NODE_VM_MANAGEMENT_INTERFACE, NodeVmGuest, WritableVolume,
-    store_vm_ignition_json,
+    NODE_VM_CONFIG_DRIVE_USER_DATA, NODE_VM_MANAGEMENT_INTERFACE, NodeScript, NodeVmGuest,
+    WritableVolume, store_vm_ignition_json,
 };
 pub use nokia_srlinux::build_srlinux_config;
 pub use paloalto_panos::{PaloAltoPanosBootstrapTemplate, PaloAltoPanosZtpTemplate};

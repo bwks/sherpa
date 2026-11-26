@@ -1,0 +1,12 @@
+[Unit]
+Description=Name and address the NICs for the network OS
+Before=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart={{ crate::node_vm::LINKS_SCRIPT_PATH }}
+
+[Install]
+WantedBy=docker.service
+

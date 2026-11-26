@@ -5620,6 +5620,7 @@ dependencies = [
  "serde_json",
  "sha-crypt",
  "shared",
+ "toml",
  "urlencoding",
 ]
 

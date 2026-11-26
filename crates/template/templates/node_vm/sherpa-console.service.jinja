@@ -1,0 +1,19 @@
+[Unit]
+Description=Network OS console
+Requires=docker.service
+After=docker.service
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart={{ crate::node_vm::CONSOLE_SCRIPT_PATH }}
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/{{ crate::node_vm::NODE_VM_CONSOLE_TTY }}
+TTYReset=yes
+TTYVHangup=yes
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target
+

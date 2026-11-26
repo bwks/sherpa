@@ -96,23 +96,45 @@ fn has_unit(config: &Value, name: &str) -> bool {
         .any(|unit| unit["name"] == name)
 }
 
-/// The `key=value` settings of unit `name`, in order.
-fn unit_settings(config: &Value, name: &str) -> Vec<(String, String)> {
-    unit(config, name)["contents"]
-        .as_str()
-        .unwrap()
-        .lines()
-        .filter_map(|line| line.split_once('='))
-        .map(|(key, value)| (key.to_owned(), value.to_owned()))
-        .collect()
+/// The `(section, key, value)` settings of unit file or drop-in `text`, in order, as systemd
+/// reads them.
+fn ini(text: &str) -> Vec<(String, String, String)> {
+    let mut section = String::new();
+    let mut settings = Vec::new();
+    for line in text.lines().map(str::trim) {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some(name) = line
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+        {
+            name.clone_into(&mut section);
+            continue;
+        }
+        let (key, value) = line
+            .split_once('=')
+            .unwrap_or_else(|| panic!("not a setting: {line}"));
+        settings.push((section.clone(), key.to_owned(), value.to_owned()));
+    }
+    settings
 }
 
-fn setting(config: &Value, unit_name: &str, key: &str) -> String {
-    unit_settings(config, unit_name)
+/// The value of `key` in `section` of unit file or drop-in `text`.
+fn ini_value(text: &str, section: &str, key: &str) -> String {
+    ini(text)
         .into_iter()
-        .find(|(name, _)| name == key)
-        .unwrap_or_else(|| panic!("{unit_name} has no {key}"))
-        .1
+        .find(|(name, setting, _)| name == section && setting == key)
+        .unwrap_or_else(|| panic!("no {key} in [{section}]"))
+        .2
+}
+
+fn setting(config: &Value, unit_name: &str, section: &str, key: &str) -> String {
+    ini_value(
+        unit(config, unit_name)["contents"].as_str().unwrap(),
+        section,
+        key,
+    )
 }
 
 fn domain() -> NodeVmDomainTemplate {
@@ -293,11 +315,11 @@ fn node_vm_040_docker_in_the_node_vm_sets_up_no_iptables_rules_and_listens_on_it
         &node_config(),
         "/etc/systemd/system/docker.service.d/10-sherpa.conf",
     );
-    let opts = options
-        .lines()
-        .find_map(|line| line.strip_prefix(r#"Environment="DOCKER_OPTS="#))
-        .unwrap()
-        .trim_end_matches('"');
+    let environment = ini_value(&options, "Service", "Environment");
+    let opts = environment
+        .trim_matches('"')
+        .strip_prefix("DOCKER_OPTS=")
+        .unwrap();
     assert_eq!(
         opts.split(' ').collect::<Vec<_>>(),
         ["--bridge=none", "--iptables=false", "--ip6tables=false"]
@@ -307,22 +329,23 @@ fn node_vm_040_docker_in_the_node_vm_sets_up_no_iptables_rules_and_listens_on_it
 #[test]
 fn node_vm_041_containerd_in_the_node_vm_runs_without_the_cri_plugins() {
     let config = node_config();
-    assert_eq!(
-        file_text(
-            &config,
-            "/etc/systemd/system/containerd.service.d/10-sherpa.conf"
-        ),
-        "[Service]\nEnvironment=CONTAINERD_CONFIG=/etc/containerd/config.toml\n"
+    let options = file_text(
+        &config,
+        "/etc/systemd/system/containerd.service.d/10-sherpa.conf",
     );
-    let containerd = file_text(&config, "/etc/containerd/config.toml");
-    let disabled: Vec<&str> = containerd
-        .lines()
-        .skip_while(|line| !line.starts_with("disabled_plugins"))
-        .take_while(|line| !line.starts_with(']'))
-        .filter_map(|line| line.trim().strip_prefix('"')?.strip_suffix("\","))
-        .collect();
-    assert!(disabled.contains(&"io.containerd.grpc.v1.cri"));
-    assert!(containerd.contains("address = \"/run/containerd/containerd.sock\""));
+    assert_eq!(
+        ini_value(&options, "Service", "Environment"),
+        "CONTAINERD_CONFIG=/etc/containerd/config.toml"
+    );
+    let containerd: toml::Table = file_text(&config, "/etc/containerd/config.toml")
+        .parse()
+        .unwrap();
+    let disabled = containerd["disabled_plugins"].as_array().unwrap();
+    assert!(disabled.contains(&toml::Value::from("io.containerd.grpc.v1.cri")));
+    assert_eq!(
+        containerd["grpc"]["address"].as_str(),
+        Some("/run/containerd/containerd.sock")
+    );
 }
 
 #[test]
@@ -333,12 +356,15 @@ fn node_vm_010_the_nics_are_named_by_their_lowercase_mac_before_docker_and_nothi
         "52:54:00:ab:00:01 eth0\n52:54:00:ab:00:02 eth1\n"
     );
     assert_eq!(
-        setting(&config, "sherpa-links.service", "Before"),
+        setting(&config, "sherpa-links.service", "Unit", "Before"),
         "docker.service"
     );
-    assert_eq!(setting(&config, "sherpa-links.service", "Type"), "oneshot");
     assert_eq!(
-        setting(&config, "sherpa-links.service", "ExecStart"),
+        setting(&config, "sherpa-links.service", "Service", "Type"),
+        "oneshot"
+    );
+    assert_eq!(
+        setting(&config, "sherpa-links.service", "Service", "ExecStart"),
         "/opt/sherpa/links"
     );
     assert_eq!(file(&config, "/opt/sherpa/links")["mode"], 0o755);
@@ -377,15 +403,15 @@ fn node_vm_035_interfaces_on_no_link_are_listed_with_their_fixed_mac_for_the_gue
 fn node_vm_036_docker_keeps_its_data_on_the_store_disk_which_the_store_vm_formats() {
     let node = node_config();
     assert_eq!(
-        setting(&node, "var-lib-docker.mount", "What"),
+        setting(&node, "var-lib-docker.mount", "Mount", "What"),
         "/dev/disk/by-label/sherpa-docker"
     );
     assert_eq!(
-        setting(&node, "var-lib-docker.mount", "Where"),
+        setting(&node, "var-lib-docker.mount", "Mount", "Where"),
         "/var/lib/docker"
     );
     assert_eq!(
-        setting(&node, "var-lib-docker.mount", "RequiredBy"),
+        setting(&node, "var-lib-docker.mount", "Install", "RequiredBy"),
         "containerd.service docker.service"
     );
     assert_eq!(node["storage"]["filesystems"], serde_json::json!([]));
@@ -407,11 +433,11 @@ fn node_vm_011_the_serial_console_runs_the_network_os_cli() {
     let config = node_config();
     assert_eq!(file_text(&config, "/etc/sherpa/console"), "Cli\n");
     assert_eq!(
-        setting(&config, "sherpa-console.service", "ExecStart"),
+        setting(&config, "sherpa-console.service", "Service", "ExecStart"),
         "/opt/sherpa/console"
     );
     assert_eq!(
-        setting(&config, "sherpa-console.service", "TTYPath"),
+        setting(&config, "sherpa-console.service", "Service", "TTYPath"),
         "/dev/ttyS0"
     );
 }
@@ -430,18 +456,21 @@ fn node_vm_049_a_unit_starts_the_container_after_docker_and_the_nics_from_sherpa
     let unit_name = "sherpa-node.service";
     assert_eq!(unit(&config, unit_name)["enabled"], true);
     assert_eq!(
-        setting(&config, unit_name, "Requires"),
+        setting(&config, unit_name, "Unit", "Requires"),
         "docker.service sherpa-links.service"
     );
     assert_eq!(
-        setting(&config, unit_name, "After"),
+        setting(&config, unit_name, "Unit", "After"),
         "docker.service sherpa-links.service"
     );
     assert_eq!(
-        setting(&config, unit_name, "RequiresMountsFor"),
+        setting(&config, unit_name, "Unit", "RequiresMountsFor"),
         NODE_VM_CONFIG_DRIVE_MOUNT
     );
-    assert_eq!(setting(&config, unit_name, "ExecStart"), "/opt/sherpa/node");
+    assert_eq!(
+        setting(&config, unit_name, "Service", "ExecStart"),
+        "/opt/sherpa/node"
+    );
     assert_eq!(file(&config, "/opt/sherpa/node")["mode"], 0o755);
 }
 
@@ -449,14 +478,17 @@ fn node_vm_049_a_unit_starts_the_container_after_docker_and_the_nics_from_sherpa
 fn node_vm_050_the_config_drive_is_mounted_and_writable_volumes_are_listed_for_copying_in() {
     let config = node_config();
     assert_eq!(
-        setting(&config, "media-config.mount", "What"),
+        setting(&config, "media-config.mount", "Mount", "What"),
         "/dev/disk/by-label/config-2"
     );
     assert_eq!(
-        setting(&config, "media-config.mount", "Where"),
+        setting(&config, "media-config.mount", "Mount", "Where"),
         NODE_VM_CONFIG_DRIVE_MOUNT
     );
-    assert_eq!(setting(&config, "media-config.mount", "Options"), "ro");
+    assert_eq!(
+        setting(&config, "media-config.mount", "Mount", "Options"),
+        "ro"
+    );
     assert_eq!(
         file_text(&config, "/etc/sherpa/writable"),
         "/media/config/sherpa/volumes/1 /etc/opt/srlinux/config.json\n"
@@ -471,11 +503,11 @@ fn node_vm_051_both_vms_have_the_status_report_and_the_store_vm_loads_its_archiv
         assert_eq!(file(config, "/opt/sherpa/report")["mode"], 0o755);
     }
     assert_eq!(
-        setting(&store, "sherpa-store.service", "After"),
+        setting(&store, "sherpa-store.service", "Unit", "After"),
         "docker.service"
     );
     assert_eq!(
-        setting(&store, "sherpa-store.service", "ExecStart"),
+        setting(&store, "sherpa-store.service", "Service", "ExecStart"),
         "/opt/sherpa/store"
     );
     assert_eq!(unit(&store, "sherpa-store.service")["enabled"], true);

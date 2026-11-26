@@ -1,16 +1,16 @@
 #!/bin/bash
-# Opens the node's network OS CLI, the command in /etc/sherpa/console, on the VM's serial console
-# when Enter is pressed, once its container runs, so the CLI starts with someone at the console.
+# Opens the node's network OS CLI, the command sherpad listed, on the VM's serial console when
+# Enter is pressed, once its container runs, so the CLI starts with someone at the console.
 # systemd starts it again when the CLI exits.
 set -eu
 
-name=$(cat /etc/sherpa/container)
-mapfile -t command < /etc/sherpa/console
+name=$(cat {{ crate::node_vm::CONTAINER_FILE }})
+mapfile -t command < {{ crate::node_vm::CONSOLE_COMMAND_FILE }}
 echo
 echo "$(hostname) console: press Enter to open the network OS CLI"
 read -r _
 # Until the container exists, Docker says it has no such container; that is the wait.
-until [ "$(docker container inspect -f '{{.State.Running}}' "$name" 2> /dev/null)" = true ]; do
+until [ "$(docker container inspect -f '{% raw %}{{.State.Running}}{% endraw %}' "$name" 2> /dev/null)" = true ]; do
   echo "Waiting for the node's container to start..."
   sleep 2
 done
@@ -19,3 +19,4 @@ if [ "$(stty size)" = "0 0" ]; then
   stty rows 24 cols 80
 fi
 exec docker exec -it "$name" "${command[@]}"
+

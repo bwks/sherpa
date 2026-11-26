@@ -91,9 +91,10 @@ container's layer, on the VM's Docker disk, across down and resume.
 
 ## First boot
 
-Ignition's JSON is generated at run time (`template::NodeVmGuest::ignition_json`; its fixed files
-and units are in `crates/template/src/node_vm.rs` and `crates/template/templates/node_vm/`). It
-sets:
+Ignition's JSON is generated at run time (`template::NodeVmGuest::ignition_json`). Its units,
+drop-ins, scripts and guest files are Askama templates in `crates/template/templates/node_vm/`,
+which take their paths, labels, port names and MTU from the constants in
+`crates/template/src/node_vm.rs`. It sets:
 
 - Updates and reboots off (`IgnitionFile::disable_updates`, `update-engine` and `locksmithd`
   masked); no login (no users, `sshd` and its sockets and the serial getty masked); none of the
