@@ -30,8 +30,10 @@ pub use overlay::create_overlay;
 pub use qcow2::{Qcow2Metadata, read_qcow2_metadata};
 pub use qemu::{Qemu, QemuConnection};
 pub use storage::{
-    BackedVolume, SherpaStoragePool, create_blank_qcow2, list_lab_volumes, overlay_on_image,
-    pool_backed_volumes, refresh_pool,
+    BackedVolume, SherpaStoragePool, create_blank_qcow2, list_lab_volumes, list_pool_volumes,
+    overlay_on_image, pool_backed_volumes, refresh_pool,
 };
-pub use vm::{clone_disk, create_vm, delete_disk, get_mgmt_ip, remove_domain, resize_disk};
+pub use vm::{
+    clone_disk, create_vm, delete_disk, get_mgmt_ip, list_domain_names, remove_domain, resize_disk,
+};
 pub use vnc::{VncConsole, vnc_console};

@@ -51,6 +51,9 @@ pub(crate) const SHERPA_SECRETS_DIR: &str = "/run/sherpa/secrets";
 /// Folder of the labs' serial console sockets, one folder per lab below it. On disk, not under
 /// `/run`, so a domain defined with its socket here still starts after the server reboots.
 pub(crate) const SHERPA_CONSOLE_DIR: &str = "/opt/sherpa/run/console";
+/// Folder of the status sockets of the VMs that make node VM Docker stores, which belong to no
+/// lab.
+pub(crate) const SHERPA_NODE_VM_RUN_DIR: &str = "/opt/sherpa/run/node_vm";
 /// Group of the console folders. libvirt binds the serial sockets as root; the QEMU user
 /// (`libvirt-qemu`) is in it, and so is `sherpa`, which connects to them.
 pub(crate) const CONSOLE_GROUP: &str = "kvm";

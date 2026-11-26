@@ -223,6 +223,20 @@ pub fn remove_domain(conn: &Connect, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// The names of every domain libvirt has, running or not.
+///
+/// # Errors
+///
+/// Fails when libvirt cannot list the domains or read a name.
+#[instrument(level = "debug", skip(conn))]
+pub fn list_domain_names(conn: &Connect) -> Result<Vec<String>> {
+    conn.list_all_domains(0)
+        .context("Cannot list domains")?
+        .iter()
+        .map(|domain| domain.get_name().context("Cannot read a domain's name"))
+        .collect()
+}
+
 /// Define a persistent virtual machine from `xml` and start it. A VM that fails to start stays
 /// defined; destroy finds it by name and removes it.
 ///

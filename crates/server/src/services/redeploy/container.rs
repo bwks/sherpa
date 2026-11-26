@@ -161,6 +161,7 @@ pub(super) async fn redeploy_node_vm(
             qemu: Arc::clone(&redeploy.state.qemu),
             images_dir: redeploy.state.config.images_dir.clone(),
             store_locks: redeploy.state.docker_store_locks.clone(),
+            progress: redeploy.progress.clone(),
         },
         NodeVmCreate {
             lab_id: redeploy.lab_id.clone(),

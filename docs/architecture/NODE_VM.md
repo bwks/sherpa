@@ -129,9 +129,10 @@ VM has the image in its store.
 
 ## Status
 
-Each VM has a virtio-serial port, `org.sherpa.status`, whose host side is a socket QEMU binds in
-the lab's console folder: `NODE_INDEX.status` for a node VM, `store-ID.status` for a Docker
-store VM. `report.sh` writes one line to it: `started`, `loaded` or `failed: REASON`, newlines
+Each VM has a virtio-serial port, `org.sherpa.status`, whose host side is a socket QEMU binds:
+`NODE_INDEX.status` in the lab's console folder for a node VM, and `store-ID.status` in
+`/opt/sherpa/run/node_vm` (`SHERPA_NODE_VM_RUN_DIR`, `sherpa:kvm`, mode `2770`) for a Docker
+store VM, which belongs to no lab. `report.sh` writes one line to it: `started`, `loaded` or `failed: REASON`, newlines
 flattened. A guest's write waits until a reader is connected, for up to 60 s.
 
 sherpad connects as soon as it has started the domain (`StatusWatch::connect`) and reads up to
@@ -166,7 +167,14 @@ Docker data has the image loaded, which every node VM of the image boots an over
   Ignition formats, and the archive as a read-only raw disk with serial `sherpa-image`.
   `sherpa-store.service` runs `docker load` from that disk, reports `loaded`, and powers the VM
   off. sherpad waits for the report, then for the domain to stop, removes the VM, its disks and
-  the archive, and renames the disk to the store, so a store that exists is complete.
+  the archive, and renames the disk to the store, so a store that exists is complete. The user
+  sees a progress message while a store is made, and another while waiting for a store another
+  operation is making.
+- **Swept.** A build sherpad stopped during, or whose operation was dropped, leaves its VM and
+  files. At its start, before it takes requests, sherpad removes every `sherpa-flatcar-docker-*`
+  domain, every pool volume a build makes (the VM's disk and config drive, `flatcar-docker-*.tar`
+  and `flatcar-docker-*.qcow2.part`), the staging folders and the store status sockets
+  (`store::remove_unfinished_store_builds`); stores are kept.
 - **Used.** A node VM's Docker disk is `NODE-LAB-docker.qcow2`, a qcow2 overlay on the store,
   mounted at `/var/lib/docker` with `noinit_itable`.
 - **Kept.** Stores belong to no lab: destroy never deletes one (`node_vm_037`).

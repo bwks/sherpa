@@ -140,17 +140,27 @@ pub fn refresh_pool(pool: &StoragePool) -> Result<()> {
 /// Fails when the pool cannot be found, refreshed or listed.
 #[instrument(level = "debug", skip(qemu_conn))]
 pub fn list_lab_volumes(qemu_conn: &Connect, lab_id: &str) -> Result<Vec<String>> {
+    Ok(list_pool_volumes(qemu_conn)?
+        .into_iter()
+        .filter(|volume| is_lab_volume(volume, lab_id))
+        .collect())
+}
+
+/// The volumes of the Sherpa storage pool, after refreshing the pool so volumes made outside
+/// libvirt are seen.
+///
+/// # Errors
+///
+/// Fails when the pool cannot be found, refreshed or listed.
+#[instrument(level = "debug", skip(qemu_conn))]
+pub fn list_pool_volumes(qemu_conn: &Connect) -> Result<Vec<String>> {
     let pool = StoragePool::lookup_by_name(qemu_conn, SHERPA_STORAGE_POOL).context(format!(
         "Failed to find storage pool '{SHERPA_STORAGE_POOL}'"
     ))?;
     refresh_pool(&pool)?;
-    let volumes = pool.list_volumes().context(format!(
+    pool.list_volumes().context(format!(
         "Failed to list volumes in pool '{SHERPA_STORAGE_POOL}'"
-    ))?;
-    Ok(volumes
-        .into_iter()
-        .filter(|volume| is_lab_volume(volume, lab_id))
-        .collect())
+    ))
 }
 
 /// Each volume in the Sherpa storage pool that has a backing file, with the file as libvirt

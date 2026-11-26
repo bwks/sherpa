@@ -3,18 +3,21 @@
 //! it once per image, loading the image's archive from a disk of its own.
 
 use std::fs;
+use std::io::ErrorKind;
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
+use libvirt::Qemu;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::{task, time};
 use tracing::instrument;
 
+use shared::data::StatusKind;
 use shared::konst::SHERPA_STORAGE_POOL_PATH;
 use template::{NodeVmDomainTemplate, store_vm_ignition_json};
 
@@ -22,7 +25,8 @@ use super::base::{NODE_VM_IMAGE_DIR, base_image, base_kernel, kernel_cmdline, ke
 use super::create::{DomainDisk, NodeVmHost, start_domain};
 use super::guest::write_config_drive;
 use super::status::{Status, StatusWatch};
-use crate::services::console;
+use crate::daemon::storage::restrict_dir;
+use crate::konst::{CONSOLE_GROUP, CONSOLE_LAB_DIR_MODE, SHERPA_NODE_VM_RUN_DIR};
 
 /// The size of a Docker store: the image, and what each node of it writes.
 const STORE_DISK_GB: u16 = 32;
@@ -40,6 +44,16 @@ const STORE_VM_SHUTDOWN: Duration = Duration::from_secs(120);
 const SECTOR_BYTES: u64 = 512;
 /// The mode of the image archive, which libvirt hands to QEMU.
 const ARCHIVE_MODE: u32 = 0o644;
+/// The start of the name of a store and of the files its build makes.
+const STORE_PREFIX: &str = "flatcar-docker-";
+/// The start of the domain name of a store's VM, and of its disks.
+const STORE_VM_PREFIX: &str = "sherpa-flatcar-docker-";
+/// The end of a store's volume name.
+const STORE_SUFFIX: &str = ".qcow2";
+/// The end of a partial store's volume name.
+const PARTIAL_SUFFIX: &str = ".qcow2.part";
+/// The end of an image archive's volume name.
+const ARCHIVE_SUFFIX: &str = ".tar";
 
 /// The names of the Docker store of one image ID and of what makes it.
 struct Store {
@@ -57,22 +71,22 @@ impl Store {
 
     /// The store's volume.
     fn volume(&self) -> String {
-        format!("flatcar-docker-{}.qcow2", self.id)
+        format!("{STORE_PREFIX}{}{STORE_SUFFIX}", self.id)
     }
 
     /// The volume the store is made in, renamed to the store once it is complete.
     fn partial(&self) -> String {
-        format!("flatcar-docker-{}.qcow2.part", self.id)
+        format!("{STORE_PREFIX}{}{PARTIAL_SUFFIX}", self.id)
     }
 
     /// The volume of the image archive the VM loads.
     fn archive(&self) -> String {
-        format!("flatcar-docker-{}.tar", self.id)
+        format!("{STORE_PREFIX}{}{ARCHIVE_SUFFIX}", self.id)
     }
 
     /// The domain name of the VM that makes the store.
     fn vm(&self) -> String {
-        format!("sherpa-flatcar-docker-{}", self.id)
+        format!("{STORE_VM_PREFIX}{}", self.id)
     }
 
     /// The VM's disk, an overlay on the base image.
@@ -85,10 +99,26 @@ impl Store {
         format!("{}.iso", self.vm())
     }
 
-    /// The VM's status socket in lab `lab_id`'s console folder.
-    fn status_socket(&self, lab_id: &str) -> Result<String> {
-        console::lab_socket(lab_id, &format!("store-{}.status", self.id))
+    /// The folder in `images_dir` the VM's config drive is staged in.
+    fn vm_stage(&self, images_dir: &str) -> PathBuf {
+        Path::new(images_dir)
+            .join(NODE_VM_IMAGE_DIR)
+            .join(format!(".{}", self.vm()))
     }
+
+    /// The VM's status socket.
+    fn status_socket(&self) -> String {
+        format!("{SHERPA_NODE_VM_RUN_DIR}/store-{}.status", self.id)
+    }
+}
+
+/// Whether pool volume `volume` is what a store build makes and removes again: the VM's disk
+/// or config drive, the image archive or the partial store. A store itself is not.
+fn is_build_volume(volume: &str) -> bool {
+    volume.starts_with(STORE_VM_PREFIX)
+        || volume
+            .strip_prefix(STORE_PREFIX)
+            .is_some_and(|rest| rest.ends_with(ARCHIVE_SUFFIX) || rest.ends_with(PARTIAL_SUFFIX))
 }
 
 /// The storage pool path of volume `volume`.
@@ -96,18 +126,13 @@ fn pool_path(volume: &str) -> String {
     format!("{SHERPA_STORAGE_POOL_PATH}/{volume}")
 }
 
-/// The path of the Docker store of image `image`, made first when there is none, for a node of
-/// lab `lab_id`.
+/// The path of the Docker store of image `image`, made first when there is none.
 ///
 /// # Errors
 ///
 /// Fails when the server's Docker does not have the image, or the store cannot be made.
 #[instrument(skip(host), level = "debug")]
-pub(super) async fn ensure_docker_store(
-    host: &NodeVmHost,
-    lab_id: &str,
-    image: &str,
-) -> Result<String> {
+pub(super) async fn ensure_docker_store(host: &NodeVmHost, image: &str) -> Result<String> {
     let id = host
         .docker
         .inspect_image(image)
@@ -118,36 +143,58 @@ pub(super) async fn ensure_docker_store(
     let store = Store::of(&id).with_context(|| format!("Image {image} has ID '{id}'"))?;
     let path = pool_path(&store.volume());
     let lock = host.store_locks.of(&store.volume());
-    let _guard = lock.lock().await;
+    let _guard = if let Ok(guard) = lock.try_lock() {
+        guard
+    } else {
+        let _ = host.progress.send_status(
+            format!("Waiting for the node VM Docker store of image {image} to be made"),
+            StatusKind::Waiting,
+        );
+        lock.lock().await
+    };
     if Path::new(&path).is_file() {
         return Ok(path);
     }
     tracing::info!(%image, store = %store.volume(), "Making the node VM Docker store of the image");
-    let made = make_store(host, lab_id, image, &store).await;
+    let _ = host.progress.send_status(
+        format!(
+            "Making the node VM Docker store of image {image}: a VM loads the image, which takes \
+             minutes, once per image"
+        ),
+        StatusKind::Progress,
+    );
+    let made = make_store(host, image, &store).await;
     if let Err(removal) = remove_store_vm(host, &store, made.is_err()).await {
         tracing::warn!(store = %store.volume(), error = %removal, "Cannot remove the VM that made a Docker store");
     }
     made?;
     let partial = pool_path(&store.partial());
     fs::rename(&partial, &path).with_context(|| format!("Cannot rename {partial} to {path}"))?;
+    let _ = host.progress.send_status(
+        format!("Made the node VM Docker store of image {image}"),
+        StatusKind::Done,
+    );
     Ok(path)
 }
 
 /// Make `store` of image `image`: write the image's archive, boot a Flatcar VM that loads it
 /// into an empty disk and powers off, and wait until it has.
-async fn make_store(host: &NodeVmHost, lab_id: &str, image: &str, store: &Store) -> Result<()> {
+async fn make_store(host: &NodeVmHost, image: &str, store: &Store) -> Result<()> {
     remove_store_vm(host, store, true).await?;
+    restrict_dir(
+        Path::new(SHERPA_NODE_VM_RUN_DIR),
+        CONSOLE_LAB_DIR_MODE,
+        Some(CONSOLE_GROUP),
+    )?;
     let archive = pool_path(&store.archive());
     write_image_archive(host, image, &archive).await?;
     let config_drive = write_config_drive(
-        &Path::new(&host.images_dir)
-            .join(NODE_VM_IMAGE_DIR)
-            .join(format!(".{}", store.vm())),
+        &store.vm_stage(&host.images_dir),
         &store.vm_config_drive(),
         &store_vm_ignition_json()?,
         &[],
     )?;
-    let status_socket = store.status_socket(lab_id)?;
+    let status_socket = store.status_socket();
     let usr_hash = kernel_usr_hash(&host.images_dir)?;
     let domain = NodeVmDomainTemplate {
         name: store.vm(),
@@ -246,9 +293,92 @@ async fn remove_store_vm(host: &NodeVmHost, store: &Store, delete_partial: bool)
     .context("The Docker store VM removal panicked")?
 }
 
+/// Remove what unfinished store builds left, run at sherpad's start before anything can build a
+/// store: each store VM, its disk and config drive, each image archive and partial store, each
+/// staging folder in `images_dir` and status socket in `run_dir`, but no store.
+///
+/// # Errors
+///
+/// Fails when libvirt cannot list or remove the domains or volumes, or a file cannot be
+/// removed.
+#[instrument(skip(qemu))]
+pub(crate) async fn remove_unfinished_store_builds(
+    qemu: &Arc<Qemu>,
+    images_dir: &str,
+    run_dir: &Path,
+) -> Result<()> {
+    let qemu = Arc::clone(qemu);
+    let removed = task::spawn_blocking(move || {
+        let conn = qemu.connect()?;
+        let mut removed = Vec::new();
+        for name in libvirt::list_domain_names(&conn)? {
+            if name.starts_with(STORE_VM_PREFIX) {
+                libvirt::remove_domain(&conn, &name)?;
+                removed.push(name);
+            }
+        }
+        for volume in libvirt::list_pool_volumes(&conn)? {
+            if is_build_volume(&volume) {
+                libvirt::delete_disk(&conn, &volume)?;
+                removed.push(volume);
+            }
+        }
+        Ok::<_, anyhow::Error>(removed)
+    })
+    .await
+    .context("The Docker store build sweep panicked")??;
+    let mut files = removed;
+    for dir in [
+        Path::new(images_dir).join(NODE_VM_IMAGE_DIR),
+        run_dir.to_owned(),
+    ] {
+        files.extend(remove_build_files(&dir)?);
+    }
+    if !files.is_empty() {
+        tracing::warn!(
+            ?files,
+            "Removed what unfinished node VM Docker store builds left"
+        );
+    }
+    Ok(())
+}
+
+/// Remove the staging folders and status sockets of store builds in `dir`, and return their
+/// names; a missing folder holds none.
+fn remove_build_files(dir: &Path) -> Result<Vec<String>> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("Cannot read {}", dir.display()));
+        }
+    };
+    let mut removed = Vec::new();
+    for entry in entries {
+        let entry = entry.with_context(|| format!("Cannot read {}", dir.display()))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+        if name.starts_with(&format!(".{STORE_VM_PREFIX}")) {
+            fs::remove_dir_all(&path)
+                .with_context(|| format!("Cannot remove {}", path.display()))?;
+        } else if name.starts_with("store-") && name.ends_with(".status") {
+            fs::remove_file(&path).with_context(|| format!("Cannot remove {}", path.display()))?;
+        } else {
+            continue;
+        }
+        removed.push(path.display().to_string());
+    }
+    Ok(removed)
+}
+
 #[cfg(test)]
 mod tests {
+    use tempfile::TempDir;
+    use virt::domain::Domain;
+
     use super::*;
+
+    const TEST_ID: &str = "sha256:5ee75ee75ee75ee70000000000000000";
 
     #[test]
     fn node_vm_030_a_store_is_named_by_the_images_id() {
@@ -258,5 +388,77 @@ mod tests {
         assert!(Store::of("0123456789abcdef0123").is_none());
         assert!(Store::of("sha256:0123").is_none());
         assert!(Store::of("sha256:01234567../../etc/x").is_none());
+    }
+
+    #[test]
+    fn node_vm_065_the_files_a_store_build_makes_are_its_own_and_a_store_is_not() {
+        let store = Store::of(TEST_ID).unwrap();
+        for volume in [
+            store.vm_disk(),
+            store.vm_config_drive(),
+            store.archive(),
+            store.partial(),
+        ] {
+            assert!(is_build_volume(&volume), "{volume}");
+        }
+        for volume in [
+            store.volume(),
+            "ceos1-abc12345-docker.qcow2".to_owned(),
+            "flatcar-docker-x.iso".to_owned(),
+            "sherpa-images.qcow2".to_owned(),
+        ] {
+            assert!(!is_build_volume(&volume), "{volume}");
+        }
+        assert_eq!(
+            store.status_socket(),
+            "/opt/sherpa/run/node_vm/store-5ee75ee75ee75ee7.status"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires libvirt and sherpa-pool, and no store being made; run as root"]
+    async fn node_vm_066_sherpad_removes_what_an_unfinished_store_build_left_and_keeps_stores() {
+        let qemu = Arc::new(Qemu::default());
+        let conn = qemu.connect().unwrap();
+        let store = Store::of(TEST_ID).unwrap();
+        for volume in [
+            store.vm_disk(),
+            store.archive(),
+            store.partial(),
+            store.volume(),
+        ] {
+            libvirt::create_blank_qcow2(&conn, &pool_path(&volume), 1).unwrap();
+        }
+        Domain::define_xml(
+            &conn,
+            &format!(
+                "<domain type='kvm'><name>{}</name><memory unit='MiB'>64</memory>\
+                 <os><type arch='x86_64'>hvm</type></os></domain>",
+                store.vm()
+            ),
+        )
+        .unwrap();
+        let images = TempDir::new().unwrap();
+        let stage = store.vm_stage(images.path().to_str().unwrap());
+        fs::create_dir_all(stage.join("openstack")).unwrap();
+        let run = TempDir::new().unwrap();
+        let socket = run.path().join("store-5ee75ee75ee75ee7.status");
+        fs::write(&socket, "").unwrap();
+
+        let swept =
+            remove_unfinished_store_builds(&qemu, images.path().to_str().unwrap(), run.path())
+                .await;
+
+        let volumes = libvirt::list_pool_volumes(&conn).unwrap();
+        let domains = libvirt::list_domain_names(&conn).unwrap();
+        libvirt::delete_disk(&conn, &store.volume()).unwrap();
+        swept.unwrap();
+        assert!(volumes.contains(&store.volume()));
+        for volume in [store.vm_disk(), store.archive(), store.partial()] {
+            assert!(!volumes.contains(&volume), "{volume}");
+        }
+        assert!(!domains.contains(&store.vm()));
+        assert!(!stage.exists());
+        assert!(!socket.exists());
     }
 }

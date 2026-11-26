@@ -726,6 +726,7 @@ impl LabUp<'_> {
                     qemu: Arc::clone(self.build.qemu),
                     images_dir: self.build.config.images_dir.clone(),
                     store_locks: self.build.docker_store_locks.clone(),
+                    progress: self.build.progress.clone(),
                 },
                 container_nodes: &records.container_nodes,
                 lab_node_data: &records.lab_node_data,

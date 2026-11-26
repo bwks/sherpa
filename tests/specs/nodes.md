@@ -127,6 +127,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 062 | A failure's reason has its control characters dropped and is cut to 512 characters | unit |
 | 063 | A started node VM is defined without `flatcar.first_boot` for its later boots, whether or not its status is ever read | integration |
 | 064 | Up reads a node VM's status as it polls, with no task of its own: a status sent is seen at a later poll, none yet is no status, and a closed channel fails the node | unit |
+| 065 | A store build's VM disk, config drive, image archive and partial store are the build's, a store is not, and the build's status socket is in no lab's folder | unit |
+| 066 | At its start sherpad removes what an unfinished store build left (the store VM, its volumes, staging folder and status socket) and keeps the stores | integration |
 
 ## `node_ready`: a node is running only once its ready check passes
 

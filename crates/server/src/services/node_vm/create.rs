@@ -30,20 +30,22 @@ use crate::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
 use crate::services::console;
 use crate::services::node_resources::domain_name;
 use crate::services::p2p_links::ContainerVeth;
+use crate::services::progress::ProgressSender;
 
 /// The memory a node VM has beyond its container's.
 pub(crate) const NODE_VM_MEMORY_OVERHEAD_MIB: u16 = 1024;
 /// The folder in the node's lab folder its config drive is staged in.
 const CONFIG_DRIVE_STAGE: &str = "config-drive";
 
-/// What node VMs are made with: the server's Docker and libvirt, the images folder, and the
-/// Docker store locks.
+/// What node VMs are made with: the server's Docker and libvirt, the images folder, the Docker
+/// store locks, and the operation's progress.
 #[derive(Clone)]
 pub(crate) struct NodeVmHost {
     pub(crate) docker: Arc<Docker>,
     pub(crate) qemu: Arc<Qemu>,
     pub(crate) images_dir: String,
     pub(crate) store_locks: DockerStoreLocks,
+    pub(crate) progress: ProgressSender,
 }
 
 /// What a node VM is created from.
@@ -94,7 +96,7 @@ fn config_drive_name(device: &str) -> String {
 pub(crate) async fn create_node_vm(host: &NodeVmHost, create: NodeVmCreate) -> Result<StatusWatch> {
     require_base_image(&host.images_dir, &[create.model_kind])?;
     let usr_hash = kernel_usr_hash(&host.images_dir)?;
-    let store = ensure_docker_store(host, &create.lab_id, &create.spec.image).await?;
+    let store = ensure_docker_store(host, &create.spec.image).await?;
     let device = domain_name(&create.node_name, &create.lab_id);
     let nics = guest_nics(create.model_kind, &create.veths)?;
     let volumes = guest_volumes(&create.spec.volumes);
@@ -195,6 +197,7 @@ mod tests {
 
     use ipnet::Ipv4Net;
     use tempfile::TempDir;
+    use tokio::sync::mpsc;
     use tokio::time;
     use virt::domain::Domain;
     use virt::network::Network;
@@ -291,6 +294,7 @@ mod tests {
                 qemu: Arc::clone(&self.qemu),
                 images_dir: SHERPA_IMAGES_PATH.to_owned(),
                 store_locks: DockerStoreLocks::default(),
+                progress: ProgressSender::new(mpsc::unbounded_channel().0),
             };
             let spec = node_ops::container_spec(
                 self.lab_id,
