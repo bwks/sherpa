@@ -1,8 +1,10 @@
 use std::io;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use quick_xml::Writer;
-use quick_xml::events::{BytesText, Event};
+use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::reader::Reader;
 use tracing::instrument;
 use virt::connect::Connect;
@@ -10,24 +12,38 @@ use virt::domain::Domain;
 use virt::error::ErrorNumber;
 use virt::storage_pool::StoragePool;
 use virt::storage_vol::StorageVol;
+use virt::sys::{VIR_DOMAIN_XML_INACTIVE, VIR_DOMAIN_XML_SECURE};
 
 use shared::konst::{MTU_JUMBO_NET, SHERPA_STORAGE_POOL};
 
 use crate::error::LibvirtError;
 use crate::storage::refresh_pool;
 
-/// A Flatcar VM that runs one container node on its own Docker.
+/// The pause between two checks of whether a domain that was asked to shut down has stopped.
+const SHUTDOWN_POLL: Duration = Duration::from_secs(1);
+
+/// A Flatcar VM that runs one container node on its own Docker, or that fills a Docker store
+/// disk with one image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeVm {
     pub name: String,
     pub memory_mib: u64,
     pub vcpus: u8,
+    pub kernel: String,
+    pub cmdline: String,
     pub disk: String,
+    pub docker_disk: String,
     pub config_iso: String,
-    pub management_network: String,
-    pub management_mac: String,
+    pub management: Option<NodeVmManagement>,
     pub nics: Vec<NodeVmNic>,
-    pub serial_socket: String,
+    pub serial_socket: Option<String>,
+}
+
+/// A node VM's management NIC: a virtio NIC on the lab's management network.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeVmManagement {
+    pub network: String,
+    pub mac: String,
 }
 
 /// A node VM's data interface: a virtio NIC whose host side is the tap `tap`.
@@ -35,7 +51,6 @@ pub struct NodeVm {
 pub struct NodeVmNic {
     pub tap: String,
     pub mac: String,
-    pub up: bool,
 }
 
 impl NodeVm {
@@ -64,9 +79,8 @@ impl NodeVm {
                     w.create_element("type")
                         .with_attributes([("arch", "x86_64"), ("machine", "q35")])
                         .write_text_content(BytesText::new("hvm"))?;
-                    w.create_element("boot")
-                        .with_attribute(("dev", "hd"))
-                        .write_empty()?;
+                    text(w, "kernel", &self.kernel)?;
+                    text(w, "cmdline", &self.cmdline)?;
                     Ok::<(), io::Error>(())
                 })?;
                 w.create_element("features").write_inner_content(|w| {
@@ -111,20 +125,22 @@ impl NodeVm {
     }
 
     fn write_disks(&self, w: &mut Writer<Vec<u8>>) -> io::Result<()> {
-        w.create_element("disk")
-            .with_attributes([("type", "file"), ("device", "disk")])
-            .write_inner_content(|w| {
-                w.create_element("driver")
-                    .with_attributes([("name", "qemu"), ("type", "qcow2")])
-                    .write_empty()?;
-                w.create_element("source")
-                    .with_attribute(("file", self.disk.as_str()))
-                    .write_empty()?;
-                w.create_element("target")
-                    .with_attributes([("dev", "vda"), ("bus", "virtio")])
-                    .write_empty()?;
-                Ok::<(), io::Error>(())
-            })?;
+        for (file, target) in [(&self.disk, "vda"), (&self.docker_disk, "vdb")] {
+            w.create_element("disk")
+                .with_attributes([("type", "file"), ("device", "disk")])
+                .write_inner_content(|w| {
+                    w.create_element("driver")
+                        .with_attributes([("name", "qemu"), ("type", "qcow2")])
+                        .write_empty()?;
+                    w.create_element("source")
+                        .with_attribute(("file", file.as_str()))
+                        .write_empty()?;
+                    w.create_element("target")
+                        .with_attributes([("dev", target), ("bus", "virtio")])
+                        .write_empty()?;
+                    Ok::<(), io::Error>(())
+                })?;
+        }
         w.create_element("disk")
             .with_attributes([("type", "file"), ("device", "cdrom")])
             .write_inner_content(|w| {
@@ -144,17 +160,19 @@ impl NodeVm {
     }
 
     fn write_interfaces(&self, w: &mut Writer<Vec<u8>>) -> io::Result<()> {
-        w.create_element("interface")
-            .with_attribute(("type", "network"))
-            .write_inner_content(|w| {
-                w.create_element("mac")
-                    .with_attribute(("address", self.management_mac.as_str()))
-                    .write_empty()?;
-                w.create_element("source")
-                    .with_attribute(("network", self.management_network.as_str()))
-                    .write_empty()?;
-                virtio_model(w)
-            })?;
+        if let Some(management) = &self.management {
+            w.create_element("interface")
+                .with_attribute(("type", "network"))
+                .write_inner_content(|w| {
+                    w.create_element("mac")
+                        .with_attribute(("address", management.mac.as_str()))
+                        .write_empty()?;
+                    w.create_element("source")
+                        .with_attribute(("network", management.network.as_str()))
+                        .write_empty()?;
+                    virtio_model(w)
+                })?;
+        }
         for nic in &self.nics {
             w.create_element("interface")
                 .with_attribute(("type", "ethernet"))
@@ -171,11 +189,7 @@ impl NodeVm {
                     w.create_element("script")
                         .with_attribute(("path", ""))
                         .write_empty()?;
-                    virtio_model(w)?;
-                    w.create_element("link")
-                        .with_attribute(("state", if nic.up { "up" } else { "down" }))
-                        .write_empty()?;
-                    Ok::<(), io::Error>(())
+                    virtio_model(w)
                 })?;
         }
         Ok(())
@@ -190,11 +204,14 @@ impl NodeVm {
                     .write_empty()?;
                 Ok::<(), io::Error>(())
             })?;
+        let Some(socket) = &self.serial_socket else {
+            return Ok(());
+        };
         w.create_element("serial")
             .with_attribute(("type", "unix"))
             .write_inner_content(|w| {
                 w.create_element("source")
-                    .with_attributes([("mode", "bind"), ("path", self.serial_socket.as_str())])
+                    .with_attributes([("mode", "bind"), ("path", socket.as_str())])
                     .write_empty()?;
                 w.create_element("target")
                     .with_attributes([("type", "isa-serial"), ("port", "0")])
@@ -205,7 +222,7 @@ impl NodeVm {
             .with_attribute(("type", "unix"))
             .write_inner_content(|w| {
                 w.create_element("source")
-                    .with_attributes([("mode", "bind"), ("path", self.serial_socket.as_str())])
+                    .with_attributes([("mode", "bind"), ("path", socket.as_str())])
                     .write_empty()?;
                 w.create_element("target")
                     .with_attributes([("type", "serial"), ("port", "0")])
@@ -361,6 +378,115 @@ pub fn delete_volume_if_present(conn: &Connect, name: &str) -> Result<()> {
     }
 }
 
+/// Domain XML `domain_xml` with the text of its `<os><cmdline>` replaced by `cmdline`; every
+/// other part is kept as it is.
+///
+/// # Errors
+///
+/// Fails when the XML cannot be parsed or written, or has no `<cmdline>` in `<os>`.
+pub fn with_cmdline(domain_xml: &str, cmdline: &str) -> Result<String, LibvirtError> {
+    let mut reader = Reader::from_str(domain_xml);
+    let mut writer = Writer::new(Vec::new());
+    let mut path: Vec<String> = Vec::new();
+    let mut replaced = false;
+    loop {
+        let event = reader
+            .read_event()
+            .map_err(|_| LibvirtError::DomainXmlInvalidAt {
+                position: reader.buffer_position(),
+            })?;
+        let in_os = path.len() == 2 && path[1] == "os";
+        let in_cmdline = path.len() == 3 && path[1] == "os" && path[2] == "cmdline";
+        let written = match event {
+            Event::Eof => break,
+            Event::Start(element) if in_os && element.name().as_ref() == "cmdline" => {
+                path.push("cmdline".to_owned());
+                replaced = true;
+                write_cmdline(&mut writer, cmdline, false)
+            }
+            Event::Empty(element) if in_os && element.name().as_ref() == "cmdline" => {
+                replaced = true;
+                write_cmdline(&mut writer, cmdline, true)
+            }
+            Event::Text(_) | Event::CData(_) if in_cmdline => Ok(()),
+            Event::Start(element) => {
+                path.push(element.name().as_ref().to_owned());
+                writer.write_event(Event::Start(element))
+            }
+            Event::End(element) => {
+                path.pop();
+                writer.write_event(Event::End(element))
+            }
+            other => writer.write_event(other),
+        };
+        written.map_err(|_| LibvirtError::DomainXmlWrite)?;
+    }
+    if !replaced {
+        return Err(LibvirtError::DomainXmlNoCmdline);
+    }
+    String::from_utf8(writer.into_inner()).map_err(|_| LibvirtError::DomainXmlWrite)
+}
+
+/// Write `<cmdline>` with text `cmdline`, and its end tag when `close`.
+fn write_cmdline(writer: &mut Writer<Vec<u8>>, cmdline: &str, close: bool) -> io::Result<()> {
+    writer.write_event(Event::Start(BytesStart::new("cmdline")))?;
+    writer.write_event(Event::Text(BytesText::new(cmdline)))?;
+    if close {
+        writer.write_event(Event::End(BytesEnd::new("cmdline")))?;
+    }
+    Ok(())
+}
+
+/// Set the kernel command line of defined domain `name` to `cmdline` from its next boot on; a
+/// running domain keeps the one it booted with.
+///
+/// # Errors
+///
+/// Fails when libvirt cannot find the domain, read its XML or define it again, or the XML has
+/// no kernel command line.
+#[instrument(level = "debug", skip(conn))]
+pub fn set_node_vm_cmdline(conn: &Connect, name: &str, cmdline: &str) -> Result<()> {
+    let domain = Domain::lookup_by_name(conn, name)
+        .with_context(|| format!("Cannot look up domain {name}"))?;
+    let xml = domain
+        .get_xml_desc(VIR_DOMAIN_XML_INACTIVE | VIR_DOMAIN_XML_SECURE)
+        .with_context(|| format!("Cannot read the XML of domain {name}"))?;
+    Domain::define_xml(conn, &with_cmdline(&xml, cmdline)?)
+        .with_context(|| format!("Cannot define domain {name} again"))?;
+    Ok(())
+}
+
+/// Ask running domain `name` to shut down over ACPI and wait until it has stopped, for up to
+/// `timeout`.
+///
+/// # Errors
+///
+/// Fails when libvirt cannot find the domain or ask it to shut down, or it still runs after
+/// `timeout`.
+#[instrument(level = "debug", skip(conn))]
+pub fn shut_down_node_vm(conn: &Connect, name: &str, timeout: Duration) -> Result<()> {
+    let domain = Domain::lookup_by_name(conn, name)
+        .with_context(|| format!("Cannot look up domain {name}"))?;
+    domain
+        .shutdown()
+        .with_context(|| format!("Cannot shut domain {name} down"))?;
+    let started = Instant::now();
+    while domain
+        .is_active()
+        .with_context(|| format!("Cannot read whether domain {name} runs"))?
+    {
+        if started.elapsed() >= timeout {
+            return Err(LibvirtError::ShutdownTimedOut {
+                name: name.to_owned(),
+                seconds: timeout.as_secs(),
+            }
+            .into());
+        }
+        thread::sleep(SHUTDOWN_POLL);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,37 +496,47 @@ mod tests {
             name: "ceos1-abc12345".to_string(),
             memory_mib: 6144,
             vcpus: 2,
+            kernel: "/opt/sherpa/images/node_vm/flatcar-1.2.3.vmlinuz".to_string(),
+            cmdline: "root=LABEL=ROOT flatcar.first_boot=detected".to_string(),
             disk: "/opt/sherpa/libvirt/images/ceos1-abc12345-hdd.qcow2".to_string(),
+            docker_disk: "/opt/sherpa/libvirt/images/ceos1-abc12345-docker.qcow2".to_string(),
             config_iso: "/opt/sherpa/libvirt/images/ceos1-abc12345.iso".to_string(),
-            management_network: "sherpa-management-abc12345".to_string(),
-            management_mac: "52:54:00:00:00:01".to_string(),
+            management: Some(NodeVmManagement {
+                network: "sherpa-management-abc12345".to_string(),
+                mac: "52:54:00:00:00:01".to_string(),
+            }),
             nics: vec![
                 NodeVmNic {
                     tap: "tpa1-abc12345".to_string(),
                     mac: "52:54:00:00:00:02".to_string(),
-                    up: true,
                 },
                 NodeVmNic {
                     tap: "tpb2-abc12345".to_string(),
                     mac: "52:54:00:00:00:03".to_string(),
-                    up: false,
                 },
             ],
-            serial_socket: "/opt/sherpa/run/console/abc12345/1.serial".to_string(),
+            serial_socket: Some("/opt/sherpa/run/console/abc12345/1.serial".to_string()),
         }
     }
 
     #[test]
-    fn node_vm_001_the_domain_boots_its_overlay_disk_with_the_ignition_config_disk() {
+    fn node_vm_001_the_domain_boots_its_kernel_with_its_disks_and_the_ignition_config_disk() {
         let xml = vm().domain_xml().unwrap();
         assert!(xml.contains(r#"<driver name="qemu" type="qcow2"/>"#));
         assert!(
             xml.contains(r#"<source file="/opt/sherpa/libvirt/images/ceos1-abc12345-hdd.qcow2"/>"#)
         );
+        assert!(xml.contains(r#"<target dev="vda" bus="virtio"/>"#));
+        assert!(xml.contains(
+            r#"<source file="/opt/sherpa/libvirt/images/ceos1-abc12345-docker.qcow2"/>"#
+        ));
+        assert!(xml.contains(r#"<target dev="vdb" bus="virtio"/>"#));
         assert!(xml.contains(r#"<disk type="file" device="cdrom">"#));
         assert!(xml.contains(r#"<source file="/opt/sherpa/libvirt/images/ceos1-abc12345.iso"/>"#));
         assert!(xml.contains("<readonly/>"));
-        assert!(xml.contains(r#"<boot dev="hd"/>"#));
+        assert!(xml.contains("<kernel>/opt/sherpa/images/node_vm/flatcar-1.2.3.vmlinuz</kernel>"));
+        assert!(xml.contains("<cmdline>root=LABEL=ROOT flatcar.first_boot=detected</cmdline>"));
+        assert!(!xml.contains("<boot "));
         assert!(xml.contains(r#"machine="q35""#));
     }
 
@@ -410,9 +546,48 @@ mod tests {
         assert!(xml.contains(r#"<target dev="tpa1-abc12345"/>"#));
         assert!(xml.contains(r#"<target dev="tpb2-abc12345"/>"#));
         assert!(xml.contains(r#"<mac address="52:54:00:00:00:03"/>"#));
-        assert_eq!(xml.matches(r#"<link state="down"/>"#).count(), 1);
-        assert_eq!(xml.matches(r#"<link state="up"/>"#).count(), 1);
+        assert_eq!(xml.matches("<interface ").count(), 3);
         assert!(xml.contains(r#"<source network="sherpa-management-abc12345"/>"#));
+    }
+
+    #[test]
+    fn node_vm_031_a_docker_store_vm_has_no_nics_and_no_console() {
+        let mut vm = vm();
+        vm.management = None;
+        vm.nics.clear();
+        vm.serial_socket = None;
+        let xml = vm.domain_xml().unwrap();
+        assert!(!xml.contains("<interface "));
+        assert!(!xml.contains("<serial "));
+        assert!(!xml.contains("<console "));
+        assert!(xml.contains(r#"<vsock model="virtio">"#));
+    }
+
+    #[test]
+    fn node_vm_032_the_kernel_command_line_is_replaced_and_the_rest_is_kept() {
+        let xml = vm().domain_xml().unwrap();
+        let replaced = with_cmdline(&xml, "root=LABEL=ROOT a&b").unwrap();
+        assert!(replaced.contains("<cmdline>root=LABEL=ROOT a&amp;b</cmdline>"));
+        assert!(!replaced.contains("first_boot"));
+        assert_eq!(
+            replaced.replace("<cmdline>root=LABEL=ROOT a&amp;b</cmdline>", ""),
+            xml.replace(
+                "<cmdline>root=LABEL=ROOT flatcar.first_boot=detected</cmdline>",
+                ""
+            )
+        );
+        let empty = "<domain><os><type>hvm</type><cmdline/></os></domain>";
+        assert_eq!(
+            with_cmdline(empty, "x").unwrap(),
+            "<domain><os><type>hvm</type><cmdline>x</cmdline></os></domain>"
+        );
+        assert_eq!(
+            with_cmdline(
+                "<domain><os/><devices><cmdline>x</cmdline></devices></domain>",
+                "y"
+            ),
+            Err(LibvirtError::DomainXmlNoCmdline)
+        );
     }
 
     #[test]

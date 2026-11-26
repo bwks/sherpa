@@ -26,10 +26,10 @@ pub use interface::{interface_link_up, set_interface_link};
 pub use names::{is_device_volume, is_lab_volume};
 pub use network::{BridgeNetwork, IsolatedNetwork, NatNetwork, ReservedNetwork};
 pub use node_vm::{
-    NodeVm, NodeVmNic, create_node_vm, delete_volume_if_present, node_vm_cid, remove_node_vm,
-    vsock_cid,
+    NodeVm, NodeVmManagement, NodeVmNic, create_node_vm, delete_volume_if_present, node_vm_cid,
+    remove_node_vm, set_node_vm_cmdline, shut_down_node_vm, vsock_cid, with_cmdline,
 };
-pub use overlay::create_overlay;
+pub use overlay::{create_blank_qcow2, create_overlay};
 pub use qcow2::{Qcow2Metadata, read_qcow2_metadata};
 pub use qemu::{Qemu, QemuConnection};
 pub use storage::{

@@ -1,13 +1,16 @@
 //! The Ignition config a node VM boots with the first time: Flatcar with updates and reboots
-//! off, no login, Docker's API on vsock behind mutual TLS, the data NICs moved into the node's
-//! container, and the network OS CLI on the serial console.
+//! off, no login, Docker's data on the VM's Docker store disk, Docker's API on vsock behind
+//! mutual TLS, the data NICs moved into the node's container, and the network OS CLI on the
+//! serial console. The VM that makes a Docker store boots with the Docker part alone.
 
 use std::fmt::Write as _;
 
 use anyhow::Result;
 
 use shared::util::base64_encode;
-use template::{FileMode, IgnitionConfig, IgnitionFile, IgnitionFileContents, IgnitionUnit};
+use template::{
+    FileMode, IgnitionConfig, IgnitionFile, IgnitionFileContents, IgnitionFileSystem, IgnitionUnit,
+};
 
 use super::{NODE_VM_DOCKER_PORT, NODE_VM_MANAGEMENT_INTERFACE};
 
@@ -21,6 +24,10 @@ const MOVE_NICS_SCRIPT: &str = include_str!("move-nics.sh");
 const CONSOLE_SCRIPT: &str = include_str!("console.sh");
 /// Where the model's own step after each start of its container goes.
 const ON_START_PATH: &str = "/opt/sherpa/on-start";
+/// The label of the filesystem on a node VM's Docker store disk.
+const DOCKER_STORE_LABEL: &str = "sherpa-docker";
+/// The Docker store disk, the VM's second disk.
+const DOCKER_STORE_DEVICE: &str = "/dev/vdb";
 /// Units a node VM never runs: updates and their reboots, SSH logins, the serial login, and
 /// the image's cloud metadata units, which wait for a network the VM does not have.
 const MASKED_UNITS: [&str; 11] = [
@@ -37,15 +44,21 @@ const MASKED_UNITS: [&str; 11] = [
     "systemd-networkd-wait-online.service",
 ];
 
+/// The TLS files of a VM's Docker API.
+pub(super) struct DockerTls<'a> {
+    pub(super) ca: &'a str,
+    pub(super) server_cert: &'a str,
+    pub(super) server_key: &'a str,
+}
+
 /// What a node VM's first boot sets up.
 pub(super) struct GuestConfig<'a> {
     pub(super) hostname: &'a str,
     pub(super) container: &'a str,
     pub(super) management_mac: &'a str,
     pub(super) interfaces: &'a [(String, String)],
-    pub(super) ca_pem: &'a str,
-    pub(super) server_cert_pem: &'a str,
-    pub(super) server_key_pem: &'a str,
+    pub(super) placeholders: &'a [(String, String)],
+    pub(super) tls: DockerTls<'a>,
     pub(super) console_command: &'a [&'a str],
     pub(super) on_start: Option<&'a str>,
 }
@@ -74,14 +87,46 @@ fn unit(name: &str, enabled: bool, contents: String) -> IgnitionUnit {
     }
 }
 
-/// The guest's data interfaces, one `mac name` per line, the MAC in the lowercase form the
-/// guest's kernel reports.
+/// The guest's data interfaces, NICs or the veths made for interfaces on no link, one
+/// `mac name` per line, the MAC in the lowercase form the guest's kernel reports.
 fn interfaces_file(interfaces: &[(String, String)]) -> String {
     let mut file = String::new();
     for (mac, name) in interfaces {
         let _ = writeln!(file, "{} {name}", mac.to_ascii_lowercase());
     }
     file
+}
+
+/// The files of Docker on its store disk with its API behind TLS, and of updates off.
+fn docker_files(tls: &DockerTls<'_>) -> Vec<IgnitionFile> {
+    let docker_options = format!(
+        "[Service]\nEnvironment=\"DOCKER_OPTS=--host=tcp://127.0.0.1:{DOCKER_TLS_LOCAL_PORT} \
+         --tlsverify --tlscacert={DOCKER_TLS_DIR}/ca.pem --tlscert={DOCKER_TLS_DIR}/server.pem \
+         --tlskey={DOCKER_TLS_DIR}/server-key.pem --bridge=none\"\n"
+    );
+    vec![
+        file(
+            "/etc/flatcar/update.conf",
+            0o644,
+            "SERVER=disabled\nREBOOT_STRATEGY=off\n",
+        ),
+        file(&format!("{DOCKER_TLS_DIR}/ca.pem"), 0o644, tls.ca),
+        file(
+            &format!("{DOCKER_TLS_DIR}/server.pem"),
+            0o644,
+            tls.server_cert,
+        ),
+        file(
+            &format!("{DOCKER_TLS_DIR}/server-key.pem"),
+            0o600,
+            tls.server_key,
+        ),
+        file(
+            "/etc/systemd/system/docker.service.d/10-sherpa.conf",
+            0o644,
+            &docker_options,
+        ),
+    ]
 }
 
 /// The files of the guest's first boot.
@@ -95,18 +140,9 @@ fn files(config: &GuestConfig<'_>) -> Vec<IgnitionFile> {
         "[Match]\nName={NODE_VM_MANAGEMENT_INTERFACE}\n\n[Link]\nActivationPolicy=always-up\n\
          RequiredForOnline=no\n\n[Network]\nLinkLocalAddressing=no\nIPv6AcceptRA=no\n"
     );
-    let docker_options = format!(
-        "[Service]\nEnvironment=\"DOCKER_OPTS=--host=tcp://127.0.0.1:{DOCKER_TLS_LOCAL_PORT} \
-         --tlsverify --tlscacert={DOCKER_TLS_DIR}/ca.pem --tlscert={DOCKER_TLS_DIR}/server.pem \
-         --tlskey={DOCKER_TLS_DIR}/server-key.pem --bridge=none\"\n"
-    );
-    let mut files = vec![
+    let mut files = docker_files(&config.tls);
+    files.extend([
         file("/etc/hostname", 0o644, &format!("{}\n", config.hostname)),
-        file(
-            "/etc/flatcar/update.conf",
-            0o644,
-            "SERVER=disabled\nREBOOT_STRATEGY=off\n",
-        ),
         file(
             "/etc/systemd/network/00-sherpa-management.link",
             0o644,
@@ -122,22 +158,6 @@ fn files(config: &GuestConfig<'_>) -> Vec<IgnitionFile> {
             0o644,
             "[Match]\nName=*\n\n[Link]\nUnmanaged=yes\n",
         ),
-        file(&format!("{DOCKER_TLS_DIR}/ca.pem"), 0o644, config.ca_pem),
-        file(
-            &format!("{DOCKER_TLS_DIR}/server.pem"),
-            0o644,
-            config.server_cert_pem,
-        ),
-        file(
-            &format!("{DOCKER_TLS_DIR}/server-key.pem"),
-            0o600,
-            config.server_key_pem,
-        ),
-        file(
-            "/etc/systemd/system/docker.service.d/10-sherpa.conf",
-            0o644,
-            &docker_options,
-        ),
         file(
             "/etc/sherpa/container",
             0o644,
@@ -148,9 +168,14 @@ fn files(config: &GuestConfig<'_>) -> Vec<IgnitionFile> {
             0o644,
             &interfaces_file(config.interfaces),
         ),
+        file(
+            "/etc/sherpa/placeholders",
+            0o644,
+            &interfaces_file(config.placeholders),
+        ),
         file("/opt/sherpa/move-nics", 0o755, MOVE_NICS_SCRIPT),
         file("/opt/sherpa/console", 0o755, CONSOLE_SCRIPT),
-    ];
+    ]);
     files.extend(
         config
             .on_start
@@ -159,8 +184,9 @@ fn files(config: &GuestConfig<'_>) -> Vec<IgnitionFile> {
     files
 }
 
-/// The units of the guest's first boot.
-fn units(config: &GuestConfig<'_>) -> Vec<IgnitionUnit> {
+/// The units of Docker on its store disk with its API on vsock, with updates, logins and
+/// metadata off.
+fn docker_units() -> Vec<IgnitionUnit> {
     let mut units: Vec<IgnitionUnit> = MASKED_UNITS
         .iter()
         .map(|name| IgnitionUnit {
@@ -191,6 +217,23 @@ fn units(config: &GuestConfig<'_>) -> Vec<IgnitionUnit> {
              ExecStart=/usr/lib/systemd/systemd-socket-proxyd 127.0.0.1:{DOCKER_TLS_LOCAL_PORT}\n"
         ),
     ));
+    // Not lazily zeroing the inode tables keeps every node's writes off the shared store.
+    units.push(unit(
+        "var-lib-docker.mount",
+        true,
+        format!(
+            "[Unit]\nDescription=Docker store\nBefore=containerd.service docker.service\n\n\
+             [Mount]\nWhat=/dev/disk/by-label/{DOCKER_STORE_LABEL}\nWhere=/var/lib/docker\n\
+             Type=ext4\nOptions=noinit_itable\n\n[Install]\n\
+             RequiredBy=containerd.service docker.service\n"
+        ),
+    ));
+    units
+}
+
+/// The units of the guest's first boot.
+fn units(config: &GuestConfig<'_>) -> Vec<IgnitionUnit> {
+    let mut units = docker_units();
     units.push(unit(
         "sherpa-nics.service",
         true,
@@ -225,6 +268,29 @@ pub(super) fn ignition_json(config: &GuestConfig<'_>) -> Result<String> {
         .to_json_pretty()
 }
 
+/// The Ignition config of the VM that makes a Docker store, as JSON: Docker as in a node VM,
+/// on its empty second disk, which it formats.
+///
+/// # Errors
+///
+/// Fails when the config cannot be serialized.
+pub(super) fn store_ignition_json(tls: &DockerTls<'_>) -> Result<String> {
+    IgnitionConfig::new(
+        vec![],
+        docker_files(tls),
+        vec![],
+        docker_units(),
+        vec![],
+        vec![IgnitionFileSystem {
+            device: DOCKER_STORE_DEVICE.to_owned(),
+            format: "ext4".to_owned(),
+            wipe_filesystem: false,
+            label: DOCKER_STORE_LABEL.to_owned(),
+        }],
+    )
+    .to_json_pretty()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,9 +305,15 @@ mod tests {
             container: "ceos1-abc12345",
             management_mac: "52:54:00:AB:00:01",
             interfaces: &interfaces,
-            ca_pem: "CA",
-            server_cert_pem: "CERT",
-            server_key_pem: "KEY",
+            placeholders: &[
+                ("52:54:00:AB:00:03".to_owned(), "eth2".to_owned()),
+                ("52:54:00:AB:00:04".to_owned(), "eth3".to_owned()),
+            ],
+            tls: DockerTls {
+                ca: "CA",
+                server_cert: "CERT",
+                server_key: "KEY",
+            },
             console_command: &["Cli"],
             on_start: Some("#!/bin/sh\n"),
         })
@@ -339,6 +411,49 @@ mod tests {
         assert!(
             file_text(&config, "/opt/sherpa/move-nics")
                 .contains("/opt/sherpa/on-start \"$name\" &")
+        );
+    }
+
+    #[test]
+    fn node_vm_035_interfaces_on_no_link_are_listed_with_a_fixed_mac_for_the_mover_to_make() {
+        let config = config();
+        assert_eq!(
+            file_text(&config, "/etc/sherpa/placeholders"),
+            "52:54:00:ab:00:03 eth2\n52:54:00:ab:00:04 eth3\n"
+        );
+        let mover = file_text(&config, "/opt/sherpa/move-nics");
+        assert!(mover.contains("type veth peer name"));
+        assert!(mover.contains("done < /etc/sherpa/placeholders"));
+    }
+
+    #[test]
+    fn node_vm_036_docker_keeps_its_data_on_the_store_disk_which_the_store_vm_formats() {
+        let mount = unit_of(&config(), "var-lib-docker.mount")["contents"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(mount.contains("What=/dev/disk/by-label/sherpa-docker\nWhere=/var/lib/docker\n"));
+        assert!(mount.contains("RequiredBy=containerd.service docker.service"));
+        let node: Value = config();
+        assert_eq!(node["storage"]["filesystems"], serde_json::json!([]));
+        let store: Value = serde_json::from_str(
+            &store_ignition_json(&DockerTls {
+                ca: "CA",
+                server_cert: "CERT",
+                server_key: "KEY",
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(store["storage"]["filesystems"][0]["device"], "/dev/vdb");
+        assert_eq!(store["storage"]["filesystems"][0]["label"], "sherpa-docker");
+        assert_eq!(unit_of(&store, "var-lib-docker.mount")["enabled"], true);
+        assert!(
+            store["systemd"]["units"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|unit| unit["name"] != "sherpa-nics.service")
         );
     }
 

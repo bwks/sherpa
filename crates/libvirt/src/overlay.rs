@@ -10,6 +10,7 @@ use virt::storage_pool::StoragePool;
 use virt::storage_vol::StorageVol;
 
 use crate::qcow2::read_qcow2_metadata;
+use crate::size::gib_to_bytes;
 use crate::storage::{ensure_destination_absent, refresh_pool};
 use shared::konst::SHERPA_STORAGE_POOL;
 
@@ -20,6 +21,49 @@ struct OverlayVolume<'a> {
     destination: &'a str,
     backing: &'a str,
     capacity: u64,
+}
+
+#[derive(Template)]
+#[template(path = "blank.xml", ext = "xml", escape = "xml")]
+struct BlankVolume<'a> {
+    name: &'a str,
+    destination: &'a str,
+    capacity: u64,
+}
+
+/// Create an empty sparse QCOW2 disk of `size_gb` GiB at `dst`, readable by everyone, so it can
+/// be the read-only base of other disks once it has been filled. The volume is created
+/// exclusively; an existing destination is never changed.
+///
+/// # Errors
+///
+/// Fails when `dst` exists, is relative or is not a UTF-8 file name, or libvirt cannot create
+/// the volume.
+#[instrument(level = "debug", skip(conn))]
+pub fn create_blank_qcow2(conn: &Connect, dst: &str, size_gb: u16) -> Result<()> {
+    ensure_destination_absent(dst)?;
+    let destination = Path::new(dst);
+    ensure!(
+        destination.is_absolute(),
+        "Blank disk destination must be absolute"
+    );
+    let name = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("Invalid blank disk filename")?;
+    let xml = BlankVolume {
+        name,
+        destination: dst,
+        capacity: gib_to_bytes(size_gb),
+    }
+    .render()
+    .context("Cannot render blank volume XML")?;
+    let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)
+        .context("Cannot find the storage pool")?;
+    refresh_pool(&pool).context("Cannot refresh the storage pool")?;
+    StorageVol::create_xml(&pool, &xml, 0)
+        .with_context(|| format!("Cannot create blank QCOW2 disk {dst}"))?;
+    Ok(())
 }
 
 /// Create a sparse QCOW2 boot disk with an absolute, explicit QCOW2 backing store.

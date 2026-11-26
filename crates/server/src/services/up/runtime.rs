@@ -68,6 +68,13 @@ pub(super) async fn create_node_vms(
     let creates = nodes
         .iter()
         .map(|node| -> Result<NodeVmCreate<'_>> {
+            let container = container_nodes
+                .iter()
+                .find(|container| container.name == node.name)
+                .with_context(|| format!("Node '{}' is not a container", node.name))?;
+            let (Some(image), Some(version)) = (&container.image, &container.version) else {
+                bail!("Node '{}' has no image and version", node.name);
+            };
             Ok(NodeVmCreate {
                 lab_id: build.lab_id,
                 lab_dir: build.lab_dir,
@@ -75,6 +82,7 @@ pub(super) async fn create_node_vms(
                 node_name: &node.name,
                 node_index: node.index,
                 model_kind: node.model_kind,
+                image: container::image_reference(image, version),
                 memory_mib: node
                     .record
                     .memory
@@ -95,7 +103,7 @@ pub(super) async fn create_node_vms(
     let results = join_all(
         creates
             .iter()
-            .map(|create| node_vm::create_node_vm(build.qemu, create)),
+            .map(|create| node_vm::create_node_vm(build.docker_conn, build.qemu, create)),
     )
     .await;
     for (create, result) in creates.iter().zip(results) {

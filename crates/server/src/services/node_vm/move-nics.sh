@@ -1,8 +1,10 @@
 #!/bin/bash
 # Moves this node VM's data NICs into the node container's network namespace, named as the
-# network OS expects, each time the container starts, then runs the model's own start step. A
-# NIC returns to the VM when the container's namespace goes, so it is moved again at the next
-# start.
+# network OS expects, each time the container starts, and gives the container each data
+# interface that is on no link as a veth with the interface's fixed MAC, whose peer stays down
+# in the VM, so it has no carrier.
+# Then runs the model's own start step. A NIC returns to the VM when the container's namespace
+# goes, and a veth goes with it, so both are made again at the next start.
 set -u
 
 name=$(cat /etc/sherpa/container)
@@ -26,6 +28,18 @@ move_nics() {
       fi
     done
   done < /etc/sherpa/interfaces
+  index=0
+  while read -r mac want; do
+    index=$((index + 1))
+    nsenter -t "$pid" -n ip link show dev "$want" >/dev/null 2>&1 && continue
+    ip link del dev "spp$index" 2>/dev/null
+    ip link add "sph$index" address "$mac" mtu 9600 type veth peer name "spp$index" mtu 9600 ||
+      continue
+    if ip link set dev "sph$index" netns "$pid"; then
+      nsenter -t "$pid" -n ip link set dev "sph$index" name "$want"
+      nsenter -t "$pid" -n ip link set dev "$want" up
+    fi
+  done < /etc/sherpa/placeholders
 }
 
 # The model's own step after each start, such as SR Linux's management address flush.

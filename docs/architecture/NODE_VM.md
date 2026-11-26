@@ -16,8 +16,10 @@ flowchart LR
   subgraph host[Sherpa server]
     S[sherpad] -->|bollard over vsock, mutual TLS| V
     S -->|libvirt: domain, overlay disk, config drive| L[libvirtd]
-    D[(server Docker: node image)] -->|docker save stream| S
+    D[(server Docker: node image)] -->|docker save stream, once per image| ST[(flatcar-docker-ID.qcow2, the image's Docker store)]
     B[(node_vm/flatcar-VERSION.qcow2, read-only base)] --> O[(NODE-LAB-hdd.qcow2 overlay)]
+    ST --> OD[(NODE-LAB-docker.qcow2 overlay)]
+    K[(node_vm/flatcar-VERSION.vmlinuz)] -->|direct kernel boot| V
     T1[tap tpaN-LAB] <-->|eBPF redirect, netem| T2[tap of the peer node]
     M[brm-LAB bridge, lab management network]
     R[console relay] --- SOCK[/console socket NODE-INDEX.serial/]
@@ -30,6 +32,7 @@ flowchart LR
     MAC[macvlan on sherpa0, node's management addresses] --> C
   end
   O --> V
+  OD -->|/var/lib/docker| V
   ISO[(NODE-LAB.iso, label config-2, Ignition)] --> V
   V ---|virtio NIC| T1
   V ---|virtio NIC sherpa0| M
@@ -40,43 +43,107 @@ flowchart LR
 
 - Flatcar stable, the OpenStack image (`flatcar_production_openstack_image.img.bz2`), whose
   Ignition reads its config from a config drive. The QEMU image reads Ignition only from
-  `fw_cfg`.
+  `fw_cfg`; booting with Ignition from `fw_cfg` measured the same as the config drive.
+- Its kernel, `flatcar_production_image.vmlinuz` of the same release, which node VMs boot
+  directly (below).
 - The release is pinned in two places that must match: `FLATCAR_NODE_VM_VERSION` in
   `crates/server/src/services/node_vm/mod.rs`, and `NODE_VM_FLATCAR_VERSION` with
-  `NODE_VM_FLATCAR_SHA512` in the "node VM image" section of `scripts/sherpa_install.sh` and
-  `scripts/sherpa_update.sh` (the section is the same in both).
-- `ensure_node_vm_image` downloads the compressed image from `stable.release.flatcar-linux.net`
-  as `sherpa`, checks it against the pinned SHA-512 (the value Flatcar publishes in the image's
-  `.DIGESTS`), and unpacks it to `/opt/sherpa/images/node_vm/flatcar-VERSION.qcow2`, mode `0644`.
-  An image already there is never changed: every node VM disk is an overlay on it. A new
-  release is a new file name, so running node VMs keep theirs.
+  `NODE_VM_FLATCAR_SHA512` and `NODE_VM_KERNEL_SHA512` in the "node VM image" section of
+  `scripts/sherpa_install.sh` and `scripts/sherpa_update.sh` (the section is the same in both).
+- `ensure_node_vm_image` downloads the compressed image and the kernel from
+  `stable.release.flatcar-linux.net` as `sherpa`, checks each against its pinned SHA-512 (the
+  values Flatcar publishes in their `.DIGESTS`), and puts them at
+  `/opt/sherpa/images/node_vm/flatcar-VERSION.qcow2` and `flatcar-VERSION.vmlinuz`, mode `0644`.
+  A file already there is never changed: every node VM disk is an overlay on the image, and every
+  node VM boots the kernel. A new release is a new file name, so running node VMs keep theirs.
 - The script also loads `vhost_vsock` and adds it to
   `/etc/modules-load.d/sherpa-node-vm.conf`; uninstall removes that file.
 - `up` and `redeploy` refuse a lab with a node VM before creating anything when the base image
-  is missing (`ServiceError::NodeVmBaseImageMissing`).
+  or its kernel is missing (`ServiceError::NodeVmBaseImageMissing`).
+
+## Boot
+
+The domain boots the kernel directly (`<os><kernel>`, `<cmdline>`), not through GRUB:
+
+- The command line is the one Flatcar's GRUB builds, with `verity.usrhash` read from the
+  kernel's header (64 hex digits at offset 64, where GRUB reads it) and `/usr` on the first
+  `/usr` partition, which updates never change.
+- It has no `console=`: the kernel's messages never reach the serial console, which is the
+  network OS's. Printing them there is slow in a VM, and slower nested.
+- `flatcar.first_boot=detected` is on the command line of the first boot, so Ignition runs.
+  Once the VM's Docker answers, Ignition has run, and sherpad defines the domain again without it
+  (`libvirt::set_node_vm_cmdline`): later boots skip Ignition, as GRUB's would.
+
+## Docker stores
+
+The node's image is not copied into each node VM. Each image has a Docker store: a disk whose
+Docker data has the image loaded, which every node VM of the image boots an overlay of.
+
+- **Name.** `flatcar-docker-ID.qcow2` in the storage pool, `ID` the first 16 hex digits of the
+  image's ID on the server's Docker. An image imported again under the same name has a new ID,
+  so it gets a store of its own.
+- **Made** at the first `up` or `redeploy` that needs it (`store::ensure_docker_store`), while
+  the node VMs are created. A Flatcar VM `sherpa-flatcar-docker-ID`, with no NICs and no console,
+  boots on an overlay of the base image with an empty 32 GiB qcow2 as its second disk. Its
+  Ignition formats that disk ext4, labelled `sherpa-docker`, and mounts it at
+  `/var/lib/docker`, with Docker on vsock as in a node VM. sherpad streams `docker save` of the
+  image into its `docker load` (`container::copy_image_to_node_vm`), shuts it down over ACPI, and
+  removes it. The disk is made as `flatcar-docker-ID.qcow2.part`, mode `0644`, and renamed to
+  the store once the VM has shut down, so a store that exists is complete. Nodes of one image
+  wait for the one VM that makes its store.
+- **Used.** A node VM's second disk is `NODE-LAB-docker.qcow2`, a qcow2 overlay on the store.
+  Its Ignition mounts it at `/var/lib/docker` before containerd and Docker start, with
+  `noinit_itable`, so no node zeroes inode tables into its overlay. The VM's Docker has the image
+  when it starts; `start_node_container` still copies it when it is missing.
+- **Kept.** Stores belong to no lab: destroy never deletes one (`node_vm_037`).
+
+The alternatives measured, and why they were not taken:
+
+- **A read-only disk shared by every node, with Docker's data on it.** dockerd refuses a
+  read-only data root (it changes its mode at start). A data root on an overlayfs of the
+  read-only store and a writable layer is refused by the `overlay2` driver ("driver not
+  supported"), and dockerd then picks no other driver. With the containerd image store, Docker
+  keeps images in the system containerd's root, which must be writable and is under the same
+  overlay limit. Docker has no additional read-only image stores; those are a
+  `containers/storage` feature of Podman and CRI-O, which Flatcar does not ship. Binding the
+  store's layer folders read-only into a writable data root depends on Docker's private layout;
+  it did not run and was not pursued. A qcow2 backing file shares the store at the block layer
+  instead: the node's Docker sees a writable disk, and the server's disk holds the store once.
+- **The image baked into the base image, one disk chain.** The baked disk would have booted once,
+  so it would need Flatcar's first boot state back (`flatcar-reset`) before each node's Ignition,
+  and a new Flatcar release would mean baking every image again. A second disk keeps the base
+  image as Flatcar ships it.
+- **Starting the container from a systemd unit at boot, not over the API.** The API calls after
+  Docker answers take about 2 s (create, file upload, start); the unit would save at most that,
+  and would need the container's settings and files in Ignition.
+- **Restoring a saved VM state.** A restore answered in under 5 s, against about 40 s for a boot,
+  but the state file is the VM's memory (0.95 GB for an idle 2 GiB VM), and a restored VM keeps the
+  saved one's NIC MACs, vsock ID and Docker certificates, which are per node.
 
 ## Per node
 
 | What | Where | Removed by |
 |---|---|---|
 | Domain `NODE-LAB` | libvirt, persistent | destroy (lab suffix), redeploy, rollback |
-| Disk, a 24 GiB qcow2 overlay on the base image | storage pool, `NODE-LAB-hdd.qcow2` | destroy (lab volume suffix), redeploy |
+| Disk, a qcow2 overlay on the base image | storage pool, `NODE-LAB-hdd.qcow2` | destroy (lab volume suffix), redeploy |
+| Docker disk, a qcow2 overlay on the image's Docker store | storage pool, `NODE-LAB-docker.qcow2` | destroy (lab volume suffix), redeploy |
 | Config drive, ISO 9660 labelled `config-2` holding `openstack/latest/user_data` | storage pool, `NODE-LAB.iso` | destroy, redeploy |
 | sherpad's CA, client certificate and key for the VM's Docker, `0600` | `LAB_DIR/NODE/node-vm/` | destroy (lab folder), redeploy |
 
-The disk holds everything the node writes, including the image Docker loaded and the network
-OS's saved config, so a saved config survives `down` and `resume`. Redeploy and destroy delete
-it.
+The two overlays hold everything the node writes, including the network OS's saved config, so a
+saved config survives `down` and `resume`. Redeploy and destroy delete them.
 
 The domain (`crates/libvirt/src/node_vm.rs`, XML written with `quick-xml`) is q35 with
-`host-passthrough` CPU, no video and no balloon: the overlay disk on virtio, the config drive on
-SATA, the management NIC on the lab's libvirt management network, one virtio NIC per data
-interface whose tap is named like the node's link end, a vsock device with a context ID libvirt
-picks, a virtio RNG, and the serial console on the node's console socket.
+`host-passthrough` CPU, no video and no balloon: the base image's kernel and its command line,
+the two overlay disks on virtio, the config drive on SATA, the management NIC on the lab's
+libvirt management network, one virtio NIC per data interface on a link or bridge whose tap is
+named like the node's link end, a vsock device with a context ID libvirt picks, a virtio RNG,
+and the serial console on the node's console socket. A balloon with free page reporting was
+measured and gave nothing: without an image load, a node VM never fills its memory.
 
 ## First boot
 
-Ignition runs once, on the first boot of a disk. Its JSON is generated at run time from
+Ignition runs once, on the first boot of a disk (see Boot). Its JSON is generated at run time from
 `template::IgnitionConfig` (`crates/server/src/services/node_vm/ignition.rs`); none is checked
 in. It sets:
 
@@ -86,7 +153,7 @@ in. It sets:
   image are masked: the VM has no network of its own.
 - Networking: the management NIC is renamed `sherpa0` by MAC and kept up with no address; every
   other NIC is unmanaged.
-- Docker: listens on `127.0.0.1:2376` with `--tlsverify`, its server certificate and the VM's CA,
+- Docker: its data on the Docker disk (see Docker stores); it listens on `127.0.0.1:2376` with `--tlsverify`, its server certificate and the VM's CA,
   besides its local socket, with no default bridge. `docker-vsock.socket` listens on vsock port
   2376 and hands each connection to `systemd-socket-proxyd`, which connects it to that listener.
 - The NIC mover, the console, and for SR Linux the start step (below), as scripts in
@@ -117,34 +184,12 @@ custom transport. Each request opens its own connection: a non-blocking `AF_VSOC
 HTTP/1 connection from `hyper` kept for upgrades. The context ID is read from the running
 domain's XML each time a client is made, so it can change across restarts.
 
-## Images into the VM
-
-`container::copy_image_to_node_vm` streams `docker save` of the server's image into the VM's
-`docker load`, unless the VM has the image already. It is copied once per disk: at `up` and at
-`redeploy`, never at `resume`.
-
-| Image | Size on the server | `docker save` stream | Copy time (nested guest, three at once) |
-|---|---|---|---|
-| `localrepo/arista_eos:4.35.1F` | 3.5 GB | 0.89 GB | 143 s |
-| `ghcr.io/nokia/srlinux:26.7.2` | 3.2 GB | 0.75 GB | 133 s |
-| `docker-sonic-vs:202511` | 1.8 GB | 0.85 GB | 76 s |
-
-The other candidates:
-
-- **A local registry on the server.** A new service to install, secure and keep, every image
-  pushed into it (a second copy on the server, compressed on the way), and the VMs would need an
-  address to pull from.
-- **A shared read-only disk.** Docker cannot run from a read-only image store, so each VM would
-  still load the image onto its own disk; the shared disk would save only the stream, and it needs
-  a builder.
-
-`docker load` over the API needs nothing new on the server, uses the authenticated channel the
-VM already has, and its cost is the copy each node's disk holds.
-
 ## Links
 
-Each data interface of the node is a virtio NIC whose host side is a tap named like the node's
-link end (the name a container's host veth has). libvirt makes the taps when it starts the
+Each data interface of the node on a link or bridge is a virtio NIC whose host side is a tap
+named like the node's link end (the name a container's host veth has). Its other data interfaces
+are made in the VM: each NIC adds a PCIe device that QEMU starts and the kernel probes, which
+cost a 52-interface cEOS about 30 s of boot (nested). libvirt makes the taps when it starts the
 domain, so a node VM's links are attached in phase 11b with the VMs' (`attach_vm_links`), and
 re-attached after a cold boot or a redeploy as a domain's are (`RecreatedEnd::Domain`). The eBPF
 redirect, netem impairment and carrier handling are those of every P2p link
@@ -155,7 +200,12 @@ In the VM, `sherpa-nics.service` runs `move-nics.sh`: at start and on every `sta
 node's container, it renames each data NIC, found by its MAC in `/etc/sherpa/interfaces`, to a
 temporary name, moves it into the container's network namespace and names it as the network OS
 expects (`eth1`, `e1-1`, ...). When the container's namespace goes, the kernel hands its NICs back
-to the VM, and the next start moves them again. The script then runs `/opt/sherpa/on-start` when
+to the VM, and the next start moves them again. For each data interface on no link, listed in
+`/etc/sherpa/placeholders` with a MAC sherpad picked, it makes a veth with that MAC, moves that
+end into the container under the interface's name, and leaves the other down in the VM, so the
+interface is there without carrier, as a disabled interface of a container on the server is. The
+MAC stays the same across starts: cEOS makes new SSH host keys when its interfaces' MACs change.
+The script then runs `/opt/sherpa/on-start` when
 the model has one: SR Linux's flushes Docker's copy of the management address once SR Linux has
 moved management into its own namespace, which Docker sets again at every start.
 
@@ -178,16 +228,17 @@ gives the line a size, and runs `docker exec -it` of the model's CLI in the cont
 ## Lifecycle
 
 - **Up.** Phase 11 creates each node VM, in parallel with the other VMs
-  (`create_node_vms`): certificates, config drive, overlay disk, domain. Readiness (phase 13)
-  starts each node's container in the background (`start_node_container`): wait for the VM's
-  Docker, copy the image, make the management network, create the container with Docker's
+  (`create_node_vms`): the image's Docker store when there is none, certificates, config drive,
+  the two overlay disks, domain. Readiness (phase 13) starts each node's container in the
+  background (`start_node_container`): wait for the VM's Docker, drop `flatcar.first_boot` from
+  the domain, make the management network, create the container with Docker's
   `unless-stopped` restart policy, copy the node's files from its volumes into it, and start it.
   The node is ready once SSH answers on its management address (`ModelKind::ready_port`).
 - **Status, down, resume, scanner, console.** `NodeConfig::runtime_kind` is `VirtualMachine` for
   these nodes, so they follow the VM paths: `down` shuts the domain down over ACPI, which stops
   Docker and the container cleanly; `resume` starts the domain, Docker starts the container
   again, the mover moves its NICs, and the links are re-attached.
-- **Redeploy.** Removes the VM, its disk, its config drive and its certificates, and the server
+- **Redeploy.** Removes the VM, its two disks, its config drive and its certificates, and the server
   container of the same name if one is left, then creates the VM again
   (`redeploy_node_vm`).
 - **Destroy and rollback.** The domain and its volumes go with the lab's other domains and
@@ -201,17 +252,18 @@ A node VM gets the manifest's or the image's `memory` with 1024 MiB on top, and 
 image's `cpu.count` (`planned_resources`); admission counts that. In the VM the container has no
 limits: the VM is its limit.
 
-Measured in a nested guest, lab up with the three models and an Alpine VM:
+Measured in a nested guest, lab up with the three models and an Alpine VM, Docker stores made:
 
-| Node | VM memory | QEMU PSS on the host | Used in the VM | Container | On runc (cgroup) | Domain start to SSH-ready | runc: container start to SSH |
+| Node | VM memory | QEMU PSS on the host | Used in the VM | Page cache in the VM | Disks on the server | Domain start to SSH-ready | runc: container start to SSH |
 |---|---|---|---|---|---|---|---|
-| cEOS | 5120 MiB | 5163 MiB | 1711 MiB | 1112 MiB | 1768 MiB | 343 s | 71 s |
-| SR Linux | 5120 MiB | 5188 MiB | 2171 MiB | 1617 MiB | 2448 MiB | 248 s | not reached |
-| SONiC | 2048 MiB | 2115 MiB | 875 MiB | 241 MiB | 259 MiB | 232 s | 65 s |
+| cEOS | 5120 MiB | 3070 MiB | 1591 MiB | 1519 MiB | 354 MiB | 133 s | 71 s |
+| SR Linux | 5120 MiB | 3781 MiB | 1962 MiB | 1747 MiB | 342 MiB | 51 s | not reached |
+| SONiC | 2048 MiB | 1628 MiB | 768 MiB | 791 MiB | 346 MiB | 101 s | 65 s |
 
-The VM's page cache fills its memory while the image loads, so on the host a node VM holds all
-the memory it was given. The time to ready is the VM's boot (about 95 to 125 s here, three at
-once), the image copy, and the network OS's own boot.
+The whole lab is up in about 150 s. A node VM's time to ready is about 45 s from domain start to
+its Docker answering, 2 s to start its container, and then the network OS's own boot. The
+first up with an image adds making its store: about 140 s with the three made at once. A store
+takes 1.8 to 3.6 GB once on the server; each node's disks hold only what it writes.
 
 ## Limits
 
@@ -222,3 +274,5 @@ once), the image copy, and the network OS's own boot.
 - The config drive, with the VM's server key, stays in the storage pool until destroy or
   redeploy.
 - `frr_linux` and the `juniper_evolved` container still run privileged on the server.
+- A Docker store stays in the storage pool when its image is deleted or imported again; nothing
+  removes stores yet.

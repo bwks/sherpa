@@ -261,6 +261,7 @@ impl Readiness<'_, '_> {
         let qemu = self.build.qemu.clone();
         let lab_id = self.build.lab_id.to_owned();
         let lab_dir = self.build.lab_dir.to_owned();
+        let images_dir = self.build.config.images_dir.clone();
         let node_name = container.name.clone();
         let mgmt_net = self.inputs.mgmt_net.clone();
         let _ = self.build.progress.send_status(
@@ -276,6 +277,7 @@ impl Readiness<'_, '_> {
                     NodeContainerStart {
                         lab_id: &lab_id,
                         lab_dir: &lab_dir,
+                        images_dir: &images_dir,
                         node_name: &node_name,
                         mgmt_net: &mgmt_net,
                         spec,

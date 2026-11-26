@@ -58,13 +58,13 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `node_vm`: a privileged network OS container runs in a VM of its own
 
-**Statement:** an `arista_eos`, `nokia_srlinux` or `sonic_linux` container node runs privileged on the Docker of a Flatcar VM of its own, which sherpad alone can drive, with its links, management address, console, saved config and lifecycle as a node's.
+**Statement:** an `arista_eos`, `nokia_srlinux` or `sonic_linux` container node runs privileged on the Docker of a Flatcar VM of its own, which sherpad alone can drive, boots on an overlay of its image's Docker store instead of copying the image, and has its links, management address, console, saved config and lifecycle as a node's.
 **Relied on by:** the server's owner (a node's privileges reach its VM, not the server), the user. **Priority:** P0.
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | The node VM boots its overlay disk, with its Ignition config drive read-only | unit |
-| 002 | Each data interface is a tap named like its link end, down when the interface is disabled, and the management NIC is on the lab's management network | unit |
+| 001 | The node VM boots the base image's kernel with its command line, on its overlay disk and its Docker store overlay, with its Ignition config drive read-only | unit |
+| 002 | Each data interface on a link or bridge is a tap named like its link end, and the management NIC is on the lab's management network | unit |
 | 003 | The node VM has a vsock device and its serial console on the node's console socket | unit |
 | 004 | The vsock ID is read from the running domain's XML, and a domain without one has none | unit |
 | 005 | Values in the domain XML are escaped | unit |
@@ -80,8 +80,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 015 | The model's start step is installed for the NIC mover to run after each start | unit |
 | 016 | A node VM gets its container's memory, the manifest's or the image's, with 1024 MB on top, and its vCPUs | unit |
 | 017 | libvirt runs the containers of the three models, as VMs; other containers stay Docker's | unit |
-| 018 | A lab with a node VM is refused before anything is created when the base image is missing | unit |
-| 019 | A node VM boots, its Docker answers sherpad over vsock and refuses a client of another CA, and removing it leaves no domain, volume or certificate | integration |
+| 018 | A lab with a node VM is refused before anything is created when the base image or its kernel is missing | unit |
+| 019 | A node VM boots on its image's Docker store, its Docker has the image and answers sherpad over vsock and refuses a client of another CA, and removing it leaves no domain, volume or certificate | integration |
 | 020 | The three models come up in node VMs and answer SSH with the owner's keys (no test yet) | e2e |
 | 021 | A P2p link between two node VMs, and between a node VM and a VM, passes traffic both ways (no test yet) | e2e |
 | 022 | An impairment set on a node VM's link applies, and clearing it removes it (no test yet) | e2e |
@@ -92,6 +92,15 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 027 | An up that fails while creating node VMs removes what it created (no test yet) | e2e |
 | 028 | A restart of sherpad leaves the node VMs running (no test yet) | e2e |
 | 029 | SR Linux's management address answers once after every start of its container (no test yet) | e2e |
+| 030 | A Docker store is named by the image's ID, and an ID that is not a SHA-256 gets none | unit |
+| 031 | The VM that makes a Docker store has no NICs and no console | unit |
+| 032 | The kernel command line of a domain is replaced and the rest of its XML kept; XML without one is refused | unit |
+| 033 | The `/usr` hash is read from the kernel's header, and a header without one is refused | unit |
+| 034 | A node VM boots without a kernel console, and runs Ignition on its first boot only | unit |
+| 035 | Data interfaces on no link are listed with a fixed MAC for the NIC mover, which gives the container a veth with that MAC and without carrier for each | unit |
+| 036 | Docker keeps its data on the Docker store disk, which the store's VM formats and a node VM mounts | unit |
+| 037 | Destroy takes a node VM's Docker disk and never a Docker store | unit |
+| 038 | A second lab with the same image boots on the store the first made, with no image copy (no test yet) | e2e |
 
 ## `node_ready`: a node is running only once its ready check passes
 

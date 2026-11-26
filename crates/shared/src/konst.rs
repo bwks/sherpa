@@ -251,7 +251,7 @@ pub const IGNITION_VERSION: &str = "3.3.0";
 pub const CONTAINER_DISK_NAME: &str = "disk.img";
 /// The endings of a node's disks in the storage pool, after `<node>-<lab_id>`. Destroy deletes
 /// only volumes named this way, so a new kind of disk needs its ending here.
-pub const LAB_VOLUME_SUFFIXES: [&str; 7] = [
+pub const LAB_VOLUME_SUFFIXES: [&str; 8] = [
     ".qcow2",
     ".iso",
     ".elf",
@@ -259,6 +259,7 @@ pub const LAB_VOLUME_SUFFIXES: [&str; 7] = [
     "-cfg.img",
     "-cfg.ign",
     "-disk.img",
+    "-docker.qcow2",
 ];
 
 pub const CONTAINER_WEBDIR_NAME: &str = "webdir";

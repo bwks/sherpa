@@ -31,4 +31,10 @@ pub enum LibvirtError {
 
     #[error("Cannot write the domain XML")]
     DomainXmlWrite,
+
+    #[error("The domain XML has no kernel command line")]
+    DomainXmlNoCmdline,
+
+    #[error("Domain {name} did not shut down within {seconds} seconds")]
+    ShutdownTimedOut { name: String, seconds: u64 },
 }

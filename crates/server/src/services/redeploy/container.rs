@@ -177,6 +177,7 @@ pub(super) async fn redeploy_node_vm(
     let volumes = with_secret_mount(redeploy, mem::take(&mut ztp_result.volumes))?;
 
     node_vm::create_node_vm(
+        &redeploy.state.docker,
         &redeploy.state.qemu,
         &NodeVmCreate {
             lab_id,
@@ -185,6 +186,7 @@ pub(super) async fn redeploy_node_vm(
             node_name,
             node_index: redeploy.db_node.index,
             model_kind,
+            image: container::image_reference(&ztp_result.image, &redeploy.node_image.version),
             memory_mib: redeploy
                 .db_node
                 .memory
@@ -205,6 +207,7 @@ pub(super) async fn redeploy_node_vm(
         NodeContainerStart {
             lab_id,
             lab_dir: &redeploy.lab_dir,
+            images_dir: &redeploy.state.config.images_dir,
             node_name,
             mgmt_net: &redeploy.mgmt_net,
             spec: node_vm_container_spec(redeploy, ztp_result, volumes),
