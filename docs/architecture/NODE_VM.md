@@ -132,12 +132,22 @@ the lab's console folder: `NODE_INDEX.status` for a node VM, `store-ID.status` f
 store VM. `report.sh` writes one line to it: `started`, `loaded` or `failed: REASON`, newlines
 flattened. A guest's write waits until a reader is connected, for up to 60 s.
 
-sherpad connects as soon as it has started the domain (`status::connect`) and reads the first
-status (`status::read_status`). `failed: REASON` fails the node with that reason
+sherpad connects as soon as it has started the domain (`StatusWatch::connect`) and reads up to
+the first status (`StatusWatch::next`). `failed: REASON` fails the node with that reason
 (`ServiceError::NodeVmFailed`): each step of `links.sh`, `node.sh` and `store.sh` that fails
 reports, with Docker's or the command's own message. A VM that stops before it reports fails
 with `ServiceError::NodeVmStatusClosed`. On later boots, after down and resume, nobody reads the
 channel, and the report gives up.
+
+The channel is the guest's, and a privileged container can write to it, so sherpad reads it as
+untrusted input:
+
+- A line longer than 4 KiB fails the node (`ServiceError::NodeVmStatusTooLong`) once that much
+  has arrived without a newline; more than 64 KiB without a status fails it
+  (`ServiceError::NodeVmStatusFlood`).
+- Control characters are dropped from every line, and a failure's reason is cut to 512
+  characters, before it reaches a log, an error or the CLI.
+- Only the first line that is no status is logged, cut to 80 characters.
 
 ## Docker stores
 

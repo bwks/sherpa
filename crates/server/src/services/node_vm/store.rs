@@ -21,7 +21,7 @@ use template::{NodeVmDomainTemplate, store_vm_ignition_json};
 use super::base::{NODE_VM_IMAGE_DIR, base_image, base_kernel, kernel_cmdline, kernel_usr_hash};
 use super::create::{NodeVmHost, start_domain};
 use super::guest::write_config_drive;
-use super::status::{self, Status};
+use super::status::{Status, StatusWatch};
 use crate::services::console;
 
 /// The size of a Docker store: the image, and what each node of it writes.
@@ -170,8 +170,8 @@ async fn make_store(host: &NodeVmHost, lab_id: &str, image: &str, store: &Store)
     })
     .await?;
     let vm = store.vm();
-    let stream = status::connect(&status_socket, &vm).await?;
-    time::timeout(STORE_VM_LOAD, status::read_status(stream, &vm))
+    let mut watch = StatusWatch::connect(&status_socket, &vm).await?;
+    time::timeout(STORE_VM_LOAD, watch.next())
         .await
         .with_context(|| {
             format!(

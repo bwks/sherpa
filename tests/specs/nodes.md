@@ -122,6 +122,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 057 | A first boot whose copy of the writable volumes into the container fails removes the container, starts nothing and reports why | unit |
 | 058 | A container that a first boot left without its writable volumes is removed and created again with them at the next boot | unit |
 | 059 | A boot after the container was made with its volumes only starts it | unit |
+| 060 | A status line longer than 4 KiB fails the VM once that much has arrived, without reading the rest | unit |
+| 061 | More than 64 KiB of lines that are no status fails the VM | unit |
+| 062 | A failure's reason has its control characters dropped and is cut to 512 characters | unit |
 
 ## `node_ready`: a node is running only once its ready check passes
 

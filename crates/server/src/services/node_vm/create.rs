@@ -24,7 +24,7 @@ use super::guest::{
     console_command, guest_create_args, guest_nics, guest_volumes, management_addresses,
     write_config_drive,
 };
-use super::status::{self, Status};
+use super::status::{self, Status, StatusWatch};
 use super::store::ensure_docker_store;
 use crate::daemon::docker_stores::DockerStoreLocks;
 use crate::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
@@ -143,11 +143,11 @@ pub(crate) async fn create_node_vm(host: &NodeVmHost, create: NodeVmCreate) -> R
         libvirt::create_overlay(conn, &store, &domain.docker_disk, None)
     })
     .await?;
-    let stream = status::connect(&status_socket, &device).await?;
+    let mut watch = StatusWatch::connect(&status_socket, &device).await?;
     let qemu = Arc::clone(&host.qemu);
     let cmdline = kernel_cmdline(&usr_hash, false);
     Ok(task::spawn(async move {
-        let status = status::read_status(stream, &device).await?;
+        let status = watch.next().await?;
         // Any status comes from a unit Ignition installed, so later boots skip Ignition.
         status::set_cmdline(&qemu, &device, cmdline).await?;
         Ok(status.expect(&Status::Started, &device)?)

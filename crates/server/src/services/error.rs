@@ -253,6 +253,12 @@ pub enum ServiceError {
     #[error("Node VM {name} closed its status channel without reporting")]
     NodeVmStatusClosed { name: String },
 
+    #[error("Node VM {name} sent a status line longer than {limit} bytes")]
+    NodeVmStatusTooLong { name: String, limit: usize },
+
+    #[error("Node VM {name} sent more than {limit} bytes on its status channel without a status")]
+    NodeVmStatusFlood { name: String, limit: usize },
+
     #[error(
         "{prefix}: Version validation failed for node: {node} (model: {model}): {}",
         version_refusal(*model_kind, version, available),
@@ -818,6 +824,8 @@ impl ServiceError {
             | Self::NodeVmKernelNoUsrHash { .. }
             | Self::NodeVmFailed { .. }
             | Self::NodeVmStatusClosed { .. }
+            | Self::NodeVmStatusTooLong { .. }
+            | Self::NodeVmStatusFlood { .. }
             | Self::VaultInitialisedOutside { .. }
             | Self::VaultInitResponseLost { .. }
             | Self::VaultInitUnknown { .. } => None,
