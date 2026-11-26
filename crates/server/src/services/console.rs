@@ -28,7 +28,7 @@ use libvirt::{
     ConsoleSockets, SerialConsole, VncConsole, move_consoles_to_sockets, serial_console,
     vnc_console,
 };
-use shared::data::NodeKind;
+use shared::data::{ModelKind, NodeKind};
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_owner;
@@ -177,36 +177,38 @@ pub async fn console_target(
         .context("Failed to read the node's image")?
         .ok_or_else(|| anyhow!("Node '{node_name}' has no image"))?;
     let model_kind = image.model_kind()?;
-    match (model_kind.kind(), kind) {
-        (NodeKind::Container, ConsoleKind::Serial) if model_kind.runs_in_node_vm() => {}
-        (NodeKind::Container, ConsoleKind::Vnc) if model_kind.runs_in_node_vm() => {
-            return Err(ServiceError::Invalid(format!(
-                "{node_name} runs in a node VM, which has a serial console only. Use 'sherpa \
-                 console {node_name}' instead."
-            ))
-            .into());
-        }
-        (NodeKind::Container, _) => {
-            return Err(ServiceError::Invalid(format!(
-                "{node_name} is a container, and containers have no {kind}. Connect with \
-                 'sherpa ssh {node_name}' instead."
-            ))
-            .into());
-        }
-        (NodeKind::Unikernel, ConsoleKind::Vnc) => {
-            return Err(ServiceError::Invalid(format!(
-                "{node_name} is a unikernel, and unikernels have no VNC console. Use 'sherpa \
-                 console {node_name}' instead."
-            ))
-            .into());
-        }
-        (NodeKind::VirtualMachine | NodeKind::Unikernel, _) => {}
+    if let Some(refusal) = console_refusal(node_name, model_kind, kind) {
+        return Err(refusal.into());
     }
     Ok(ConsoleTarget {
         lab_id: lab_id.to_owned(),
         node_name: node_name.to_owned(),
         domain: format!("{node_name}-{lab_id}"),
     })
+}
+
+/// Why node `node_name` of `model_kind` has no `kind` console, or `None` when it has one.
+fn console_refusal(
+    node_name: &str,
+    model_kind: ModelKind,
+    kind: ConsoleKind,
+) -> Option<ServiceError> {
+    let reason = match (model_kind.runs_as(), kind) {
+        (NodeKind::VirtualMachine, ConsoleKind::Vnc) if model_kind.runs_in_node_vm() => format!(
+            "{node_name} runs in a node VM, which has a serial console only. Use 'sherpa \
+             console {node_name}' instead."
+        ),
+        (NodeKind::Container, _) => format!(
+            "{node_name} is a container, and containers have no {kind}. Connect with 'sherpa \
+             ssh {node_name}' instead."
+        ),
+        (NodeKind::Unikernel, ConsoleKind::Vnc) => format!(
+            "{node_name} is a unikernel, and unikernels have no VNC console. Use 'sherpa \
+             console {node_name}' instead."
+        ),
+        _ => return None,
+    };
+    Some(ServiceError::Invalid(reason))
 }
 
 /// The socket of `target`'s `kind` console, as its running domain was started with it.
@@ -418,7 +420,24 @@ mod tests {
     use crate::services::node_lifecycle::tests::lab_of;
     use db::{DefaultRequest, upsert_node_image};
     use nix::unistd::{self, Group};
-    use shared::data::{ModelKind, NodeModel};
+    use shared::data::NodeModel;
+
+    #[test]
+    fn console_refusal_011_a_node_vms_vnc_console_is_refused_pointing_to_sherpa_console_and_its_serial_console_is_not()
+     {
+        let ceos = ModelKind::new(NodeModel::AristaEos, Some(NodeKind::Container)).unwrap();
+        assert_eq!(
+            console_refusal("ceos1", ceos, ConsoleKind::Vnc),
+            Some(ServiceError::Invalid(
+                "ceos1 runs in a node VM, which has a serial console only. Use 'sherpa console \
+                 ceos1' instead."
+                    .to_owned()
+            ))
+        );
+        assert_eq!(console_refusal("ceos1", ceos, ConsoleKind::Serial), None);
+        let frr = ModelKind::new(NodeModel::FrrLinux, Some(NodeKind::Container)).unwrap();
+        assert!(console_refusal("frr1", frr, ConsoleKind::Serial).is_some());
+    }
 
     #[test]
     fn console_sockets_006_destroy_removes_the_console_folder_and_a_folder_already_gone_is_no_error()
