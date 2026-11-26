@@ -58,7 +58,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `node_vm`: a privileged network OS container runs in a VM of its own
 
-**Statement:** an `arista_eos`, `nokia_srlinux` or `sonic_linux` container node runs privileged on the Docker of a Flatcar VM of its own, which sherpad alone can drive, boots on an overlay of its image's Docker store instead of copying the image, and has its links, management address, console, saved config and lifecycle as a node's.
+**Statement:** an `arista_eos`, `nokia_srlinux` or `sonic_linux` container node runs privileged on the Docker of a Flatcar VM of its own, which sherpad alone can drive, boots on an overlay of its image's Docker store instead of copying the image, and has its links, management addresses, console, saved config and lifecycle as a node's.
 **Relied on by:** the server's owner (a node's privileges reach its VM, not the server), the user. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -107,6 +107,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 042 | A node VM mounts its root filesystem without zeroing its inode tables, so its disk holds only what it writes | unit |
 | 043 | A SONiC container sets its management address, IPv6 when the node has one, and default routes on `eth0` before its network OS starts | unit |
 | 044 | A node VM's container runs in the VM's network namespace, with no Docker network, the lab's name servers and domain, and its hostname resolving | unit |
+| 045 | A node VM's management NIC is given the node's IPv4 address, and its IPv6 address when the node and the lab's network have one, each with the network's prefix length and its gateway, as Docker gives a container on the network | unit |
+| 046 | Before Docker starts, the guest sets the management addresses and a default route through each gateway on `eth0` | unit |
+| 047 | A node in a node VM answers SSH on its management IPv4 and IPv6 addresses with ZTP on, with ZTP off, and with a config of its own that sets no management address, after up, resume and redeploy (no test yet) | e2e |
 
 ## `node_ready`: a node is running only once its ready check passes
 

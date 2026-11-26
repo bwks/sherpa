@@ -718,6 +718,7 @@ impl LabUp<'_> {
             &records.container_nodes,
             &records.lab_node_data,
             &links.p2p_container_veths,
+            &network.mgmt_net,
         )
         .await?;
         self.phase_done("VmCreation");

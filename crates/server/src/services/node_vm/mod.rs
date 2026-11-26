@@ -9,6 +9,7 @@ mod store;
 
 use std::fs::{self, File};
 use std::io::{ErrorKind, Read};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::str;
@@ -23,11 +24,11 @@ use thiserror::Error;
 use tokio::{task, time};
 use tracing::instrument;
 
-use shared::data::{Dns, ModelKind, NodeModel};
+use shared::data::{Dns, ModelKind, NodeModel, SherpaNetwork};
 use shared::konst::{KVM_OUI, SHERPA_STORAGE_POOL_PATH};
 use shared::util;
 
-use self::ignition::{GuestConfig, ignition_json};
+use self::ignition::{GuestAddress, GuestConfig, ignition_json};
 use self::store::ensure_docker_store;
 use crate::konst::{NODE_CONFIG_DIR_MODE, NODE_CONFIG_FILE_MODE, SHERPA_MANAGEMENT_NETWORK_NAME};
 use crate::services::console;
@@ -114,6 +115,9 @@ pub(crate) struct NodeVmCreate<'a> {
     pub(crate) memory_mib: u64,
     pub(crate) vcpus: u8,
     pub(crate) veths: Vec<&'a ContainerVeth>,
+    pub(crate) mgmt_net: &'a SherpaNetwork,
+    pub(crate) ipv4: Ipv4Addr,
+    pub(crate) ipv6: Option<Ipv6Addr>,
 }
 
 /// The domain name of node `node_name`'s VM in lab `lab_id`: its device name.
@@ -265,6 +269,29 @@ fn guest_interfaces(
     Ok(guest)
 }
 
+/// The addresses of a node VM's management NIC: the node's IPv4 address, and its IPv6 address
+/// when it has one and the lab's management network has IPv6, each with the network's prefix
+/// length and its gateway for the default route, as Docker gives a container on the network.
+fn management_addresses(
+    mgmt_net: &SherpaNetwork,
+    ipv4: Ipv4Addr,
+    ipv6: Option<Ipv6Addr>,
+) -> Vec<GuestAddress> {
+    let mut addresses = vec![GuestAddress {
+        address: IpAddr::V4(ipv4),
+        prefix_length: mgmt_net.v4.prefix_length,
+        gateway: IpAddr::V4(mgmt_net.v4.first),
+    }];
+    if let Some((address, v6)) = ipv6.zip(mgmt_net.v6.as_ref()) {
+        addresses.push(GuestAddress {
+            address: IpAddr::V6(address),
+            prefix_length: v6.prefix_length,
+            gateway: IpAddr::V6(v6.first),
+        });
+    }
+    addresses
+}
+
 /// The certificates of a node VM's Docker API: a CA of the VM's own, the server certificate
 /// its Docker presents, and the client certificate sherpad presents. The CA's key is dropped
 /// once both are issued, so nothing else can be signed for the VM.
@@ -385,11 +412,13 @@ pub(crate) async fn create_node_vm(
         placeholders,
         nics,
     } = guest_interfaces(create.model_kind, &management_mac, &create.veths)?;
+    let management = management_addresses(create.mgmt_net, create.ipv4, create.ipv6);
     let ignition = ignition_json(&GuestConfig {
         hostname: create.node_name,
         container: &device,
         interfaces: &interfaces,
         placeholders: &placeholders,
+        management: &management,
         tls: ignition::DockerTls {
             ca: &certs.ca,
             server_cert: &certs.server_cert,
@@ -678,9 +707,8 @@ pub(crate) async fn remove_node_vm(
 mod tests {
     use super::*;
 
-    use std::net::Ipv4Addr;
-
-    use shared::data::NodeKind;
+    use ipnet::{Ipv4Net, Ipv6Net};
+    use shared::data::{NetworkV4, NetworkV6, NodeKind};
     use shared::konst::SHERPA_IMAGES_PATH;
     use tempfile::TempDir;
     use virt::network::Network;
@@ -767,6 +795,59 @@ mod tests {
         assert!(require_base_image(images, &[frr, ceos]).is_ok());
     }
 
+    /// A lab's management network, `172.31.0.0/24` with IPv6 `fd00:b0d1:0:1::/64` when `v6`.
+    fn mgmt_net(v6: bool) -> SherpaNetwork {
+        let v4_prefix: Ipv4Net = "172.31.0.0/24".parse().unwrap();
+        let v6_prefix: Ipv6Net = "fd00:b0d1:0:1::/64".parse().unwrap();
+        SherpaNetwork {
+            v4: NetworkV4 {
+                prefix: v4_prefix,
+                first: Ipv4Addr::new(172, 31, 0, 1),
+                last: v4_prefix.broadcast(),
+                boot_server: Ipv4Addr::new(172, 31, 0, 2),
+                network: v4_prefix.network(),
+                subnet_mask: v4_prefix.netmask(),
+                hostmask: v4_prefix.hostmask(),
+                prefix_length: v4_prefix.prefix_len(),
+            },
+            v6: v6.then(|| NetworkV6 {
+                prefix: v6_prefix,
+                first: "fd00:b0d1:0:1::1".parse().unwrap(),
+                last: v6_prefix.broadcast(),
+                boot_server: "fd00:b0d1:0:1::2".parse().unwrap(),
+                network: v6_prefix.network(),
+                prefix_length: v6_prefix.prefix_len(),
+            }),
+        }
+    }
+
+    #[test]
+    fn node_vm_045_the_management_nic_gets_the_nodes_addresses_with_the_labs_gateways() {
+        let ipv4 = Ipv4Addr::new(172, 31, 0, 23);
+        let ipv6: Ipv6Addr = "fd00:b0d1:0:1::17".parse().unwrap();
+        let shown = |addresses: Vec<GuestAddress>| -> Vec<String> {
+            addresses
+                .iter()
+                .map(|a| format!("{}/{} {}", a.address, a.prefix_length, a.gateway))
+                .collect()
+        };
+        assert_eq!(
+            shown(management_addresses(&mgmt_net(true), ipv4, Some(ipv6))),
+            [
+                "172.31.0.23/24 172.31.0.1",
+                "fd00:b0d1:0:1::17/64 fd00:b0d1:0:1::1"
+            ]
+        );
+        assert_eq!(
+            shown(management_addresses(&mgmt_net(true), ipv4, None)),
+            ["172.31.0.23/24 172.31.0.1"]
+        );
+        assert_eq!(
+            shown(management_addresses(&mgmt_net(false), ipv4, Some(ipv6))),
+            ["172.31.0.23/24 172.31.0.1"]
+        );
+    }
+
     /// A lab management network for a node VM of lab `lab_id`, removed when dropped.
     struct TestNetwork {
         qemu: Arc<Qemu>,
@@ -823,6 +904,9 @@ mod tests {
             memory_mib: 1024,
             vcpus: 1,
             veths: vec![],
+            mgmt_net: &mgmt_net(false),
+            ipv4: Ipv4Addr::new(172, 31, 0, 23),
+            ipv6: None,
         };
         let host = Docker::connect_with_local_defaults().unwrap();
         create_node_vm(&host, &qemu, &create).await.unwrap();

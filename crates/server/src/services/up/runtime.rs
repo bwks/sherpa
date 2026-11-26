@@ -52,6 +52,7 @@ pub(super) async fn create_node_vms(
     container_nodes: &[topology::NodeExpanded],
     lab_node_data: &[data::LabNodeData],
     veths: &[P2pContainerVeth],
+    mgmt_net: &data::SherpaNetwork,
 ) -> Result<()> {
     let nodes: Vec<&data::LabNodeData> = lab_node_data
         .iter()
@@ -97,6 +98,11 @@ pub(super) async fn create_node_vms(
                     .filter(|veth| veth.node_name == node.name)
                     .map(|veth| &veth.veth)
                     .collect(),
+                mgmt_net,
+                ipv4: container
+                    .ipv4_address
+                    .with_context(|| format!("Node '{}' has no management address", node.name))?,
+                ipv6: container.ipv6_address,
             })
         })
         .collect::<Result<Vec<_>>>()?;

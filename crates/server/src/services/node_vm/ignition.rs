@@ -1,10 +1,12 @@
 //! The Ignition config a node VM boots with the first time: Flatcar with updates and reboots
 //! off, no login, Docker's data on the VM's Docker store disk, Docker's API on vsock behind
 //! mutual TLS, the NICs named for the network OS of the node's container, which runs in the
-//! VM's network namespace, and the network OS CLI on the serial console. The VM that makes a
+//! VM's network namespace, the node's management addresses on its management NIC, and the
+//! network OS CLI on the serial console. The VM that makes a
 //! Docker store boots with the Docker part alone.
 
 use std::fmt::Write as _;
+use std::net::IpAddr;
 
 use anyhow::Result;
 
@@ -13,7 +15,7 @@ use template::{
     FileMode, IgnitionConfig, IgnitionFile, IgnitionFileContents, IgnitionFileSystem, IgnitionUnit,
 };
 
-use super::NODE_VM_DOCKER_PORT;
+use super::{NODE_VM_DOCKER_PORT, NODE_VM_MANAGEMENT_INTERFACE};
 
 /// Where dockerd's TLS files go in the VM.
 const DOCKER_TLS_DIR: &str = "/etc/docker/tls";
@@ -22,8 +24,8 @@ const DOCKER_TLS_LOCAL_PORT: u16 = 2376;
 /// containerd's config in the VM, and where it goes.
 const CONTAINERD_CONFIG: &str = include_str!("containerd.toml");
 const CONTAINERD_CONFIG_PATH: &str = "/etc/containerd/config.toml";
-/// The script that names the NICs and makes the interfaces on no link, before the container
-/// starts.
+/// The script that names the NICs, makes the interfaces on no link and addresses the
+/// management NIC, before the container starts.
 const LINKS_SCRIPT: &str = include_str!("links.sh");
 /// The script that runs the network OS CLI on the serial console.
 const CONSOLE_SCRIPT: &str = include_str!("console.sh");
@@ -64,12 +66,21 @@ pub(super) struct DockerTls<'a> {
     pub(super) server_key: &'a str,
 }
 
+/// An address of the node's management NIC with its prefix length, and the gateway of the
+/// default route of its address family.
+pub(super) struct GuestAddress {
+    pub(super) address: IpAddr,
+    pub(super) prefix_length: u8,
+    pub(super) gateway: IpAddr,
+}
+
 /// What a node VM's first boot sets up.
 pub(super) struct GuestConfig<'a> {
     pub(super) hostname: &'a str,
     pub(super) container: &'a str,
     pub(super) interfaces: &'a [(String, String)],
     pub(super) placeholders: &'a [(String, String)],
+    pub(super) management: &'a [GuestAddress],
     pub(super) tls: DockerTls<'a>,
     pub(super) console_command: &'a [&'a str],
 }
@@ -104,6 +115,23 @@ fn interfaces_file(interfaces: &[(String, String)]) -> String {
     let mut file = String::new();
     for (mac, name) in interfaces {
         let _ = writeln!(file, "{} {name}", mac.to_ascii_lowercase());
+    }
+    file
+}
+
+/// The node's management addresses, one `interface address/prefix gateway` per line.
+fn management_file(addresses: &[GuestAddress]) -> String {
+    let mut file = String::new();
+    for GuestAddress {
+        address,
+        prefix_length,
+        gateway,
+    } in addresses
+    {
+        let _ = writeln!(
+            file,
+            "{NODE_VM_MANAGEMENT_INTERFACE} {address}/{prefix_length} {gateway}"
+        );
     }
     file
 }
@@ -170,6 +198,11 @@ fn files(config: &GuestConfig<'_>) -> Vec<IgnitionFile> {
             0o644,
             &interfaces_file(config.placeholders),
         ),
+        file(
+            "/etc/sherpa/management",
+            0o644,
+            &management_file(config.management),
+        ),
         file("/opt/sherpa/links", 0o755, LINKS_SCRIPT),
         file("/opt/sherpa/console", 0o755, CONSOLE_SCRIPT),
     ]);
@@ -229,8 +262,8 @@ fn units(config: &GuestConfig<'_>) -> Vec<IgnitionUnit> {
     units.push(unit(
         "sherpa-links.service",
         true,
-        "[Unit]\nDescription=Name the NICs for the network OS\nBefore=docker.service\n\n\
-         [Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/opt/sherpa/links\n\n\
+        "[Unit]\nDescription=Name and address the NICs for the network OS\n\
+         Before=docker.service\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/opt/sherpa/links\n\n\
          [Install]\nWantedBy=docker.service\n"
             .to_owned(),
     ));
@@ -301,6 +334,18 @@ mod tests {
             placeholders: &[
                 ("52:54:00:AB:00:03".to_owned(), "eth2".to_owned()),
                 ("52:54:00:AB:00:04".to_owned(), "eth3".to_owned()),
+            ],
+            management: &[
+                GuestAddress {
+                    address: "172.31.0.23".parse().unwrap(),
+                    prefix_length: 24,
+                    gateway: "172.31.0.1".parse().unwrap(),
+                },
+                GuestAddress {
+                    address: "fd00:b0d1:0:1::17".parse().unwrap(),
+                    prefix_length: 64,
+                    gateway: "fd00:b0d1:0:1::1".parse().unwrap(),
+                },
             ],
             tls: DockerTls {
                 ca: "CA",
@@ -445,6 +490,27 @@ mod tests {
                     .unwrap()
                     .starts_with("/etc/systemd/network/"))
         );
+    }
+
+    #[test]
+    fn node_vm_046_before_docker_the_guest_sets_the_management_addresses_and_default_routes() {
+        let config = config();
+        assert_eq!(
+            file_text(&config, "/etc/sherpa/management"),
+            "eth0 172.31.0.23/24 172.31.0.1\neth0 fd00:b0d1:0:1::17/64 fd00:b0d1:0:1::1\n"
+        );
+        let links = file_text(&config, "/opt/sherpa/links");
+        for line in [
+            r#"ip addr replace "$address" dev "$dev" &&"#,
+            r#"ip route replace default via "$gateway" dev "$dev""#,
+            r#"ip -6 addr replace "$address" dev "$dev" nodad &&"#,
+            r#"ip -6 route replace default via "$gateway" dev "$dev""#,
+            "done < /etc/sherpa/management",
+        ] {
+            assert!(links.contains(line), "{line}");
+        }
+        let named = links.find("done < /etc/sherpa/interfaces").unwrap();
+        assert!(named < links.find("done < /etc/sherpa/management").unwrap());
     }
 
     #[test]

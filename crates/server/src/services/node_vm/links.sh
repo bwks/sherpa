@@ -1,7 +1,9 @@
 #!/bin/bash
 # Names this node VM's NICs as the network OS expects, each found by its MAC in
-# /etc/sherpa/interfaces, and gives each data interface on no link a veth with the interface's
-# fixed MAC, whose peer stays down in a namespace of its own, so the interface has no carrier.
+# /etc/sherpa/interfaces, gives each data interface on no link a veth with the interface's
+# fixed MAC, whose peer stays down in a namespace of its own, so the interface has no carrier,
+# and gives the management NIC the node's addresses and default routes in
+# /etc/sherpa/management, as Docker gives a container its network's.
 # Runs once per boot, before Docker starts the node's container: the container runs in the VM's
 # network namespace, and its network OS owns the interfaces from then on.
 set -u
@@ -43,6 +45,19 @@ while read -r mac want; do
   index=$((index + 1))
   ip link set dev "sln$index" name "$want" && ip link set dev "$want" up
 done < /etc/sherpa/interfaces
+
+while read -r dev address gateway; do
+  case "$address" in
+    *:*)
+      ip -6 addr replace "$address" dev "$dev" nodad &&
+        ip -6 route replace default via "$gateway" dev "$dev"
+      ;;
+    *)
+      ip addr replace "$address" dev "$dev" &&
+        ip route replace default via "$gateway" dev "$dev"
+      ;;
+  esac
+done < /etc/sherpa/management
 
 ip netns add "$UNWIRED_NETNS" 2>/dev/null
 index=0

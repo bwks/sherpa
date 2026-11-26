@@ -197,6 +197,9 @@ pub(super) async fn redeploy_node_vm(
                 .cpu_count
                 .context("The node has no vCPUs recorded")?,
             veths: veths.iter().collect(),
+            mgmt_net: &redeploy.mgmt_net,
+            ipv4: redeploy.ipv4,
+            ipv6: redeploy.target_node.ipv6_address,
         },
     )
     .await?;
