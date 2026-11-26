@@ -102,6 +102,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 037 | Destroy takes a node VM's Docker disk and never a Docker store | unit |
 | 038 | A second lab with the same image boots on the store the first made, with no image copy (no test yet) | e2e |
 | 039 | A node VM's first boot does not rebuild the library cache or the hardware database | unit |
+| 040 | Docker in a node VM sets up no iptables rules | unit |
 
 ## `node_ready`: a node is running only once its ready check passes
 

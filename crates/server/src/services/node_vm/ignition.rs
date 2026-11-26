@@ -101,12 +101,15 @@ fn interfaces_file(interfaces: &[(String, String)]) -> String {
     file
 }
 
-/// The files of Docker on its store disk with its API behind TLS, and of updates off.
+/// The files of Docker on its store disk with its API behind TLS, and of updates off. Docker
+/// sets up no iptables rules: the node's container has no default bridge and publishes no
+/// ports, and the rules take Docker's start time.
 fn docker_files(tls: &DockerTls<'_>) -> Vec<IgnitionFile> {
     let docker_options = format!(
         "[Service]\nEnvironment=\"DOCKER_OPTS=--host=tcp://127.0.0.1:{DOCKER_TLS_LOCAL_PORT} \
          --tlsverify --tlscacert={DOCKER_TLS_DIR}/ca.pem --tlscert={DOCKER_TLS_DIR}/server.pem \
-         --tlskey={DOCKER_TLS_DIR}/server-key.pem --bridge=none\"\n"
+         --tlskey={DOCKER_TLS_DIR}/server-key.pem --bridge=none --iptables=false \
+         --ip6tables=false\"\n"
     );
     vec![
         file(
@@ -365,6 +368,15 @@ mod tests {
             assert_eq!(unit_of(&config, name)["mask"], true, "{name}");
         }
         assert_eq!(config["passwd"]["users"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn node_vm_040_docker_in_the_node_vm_sets_up_no_iptables_rules() {
+        let options = file_text(
+            &config(),
+            "/etc/systemd/system/docker.service.d/10-sherpa.conf",
+        );
+        assert!(options.contains(" --iptables=false --ip6tables=false"));
     }
 
     #[test]
