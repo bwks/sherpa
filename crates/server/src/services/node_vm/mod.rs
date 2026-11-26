@@ -175,10 +175,12 @@ fn kernel_usr_hash(images_dir: &str) -> Result<String> {
 
 /// The kernel command line of a node VM: Flatcar's from its GRUB config, without a console, as
 /// the serial console is the network OS's and printing the kernel's messages there is slow.
-/// `first_boot` makes Ignition run.
+/// The root filesystem's inode tables are not zeroed in the background, which would write
+/// about 300 MB into every node's overlay. `first_boot` makes Ignition run.
 fn kernel_cmdline(usr_hash: &str, first_boot: bool) -> String {
     let mut cmdline = format!(
-        "mount.usr=/dev/mapper/usr verity.usr=PARTUUID={FLATCAR_USR_A_PARTUUID} rootflags=rw \
+        "mount.usr=/dev/mapper/usr verity.usr=PARTUUID={FLATCAR_USR_A_PARTUUID} \
+         rootflags=rw,noinit_itable \
          mount.usrflags=ro consoleblank=0 root=LABEL=ROOT flatcar.oem.id=openstack \
          verity.usrhash={usr_hash}"
     );
@@ -726,6 +728,11 @@ mod tests {
         assert_eq!(usr_hash(&header[..100]), None);
         header[KERNEL_USR_HASH_OFFSET] = b'G';
         assert_eq!(usr_hash(&header), None);
+    }
+
+    #[test]
+    fn node_vm_042_the_root_filesystem_is_mounted_without_zeroing_its_inode_tables() {
+        assert!(kernel_cmdline("abc", true).contains(" rootflags=rw,noinit_itable "));
     }
 
     #[test]
