@@ -300,6 +300,7 @@ Cases 001 to 014 render the model's config with device passwords that between th
 | 018 | A redeploy onto another method removes the node's TFTP and HTTP files, and no other node's | unit |
 | 019 | A redeploy keeps the files of the method the node has | unit |
 | 020 | After the boot server is recreated, the lab's nodes keep their addresses and resolve each other (no test yet) | e2e |
+| 021 | The boot server answers a name without a domain that is not a node's as not found itself and never forwards it, so a node's lookup of it does not wait on the server's resolver, which may not answer one: SR Linux looks up `matelink` at each rsyslogd start | unit |
 
 ## `config_privacy`: a node's config on the server is read only by Sherpa
 

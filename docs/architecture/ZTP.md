@@ -62,6 +62,12 @@ lab's NAT router and runs dnsmasq (DHCP, DNS, TFTP) and `webdir`, which serves e
 network can fetch the TFTP configs only by name, through TFTP, and nothing else. What is served
 is open to the whole management network by design, so it carries password hashes only.
 
+dnsmasq answers the names of the lab's nodes and forwards other names to the lab's gateway,
+libvirt's dnsmasq, which asks the server's resolver. A name without a domain that is not a node's
+is answered as not found and never forwarded (`domain-needed`): on a server with
+systemd-resolved, which does not look up such a name, the gateway never answers it, and a node's
+lookup would wait out its resolver's timeouts.
+
 ## Redeploy and the boot server
 
 dnsmasq reads its config only when it starts (`SIGHUP` rereads host files, not the config). A VM

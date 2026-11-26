@@ -221,7 +221,12 @@ Sherpa generates and an SR Linux node with a config of its own, which are ready 
 reports the container started, unless `ready_check.port` says otherwise (`node_ready_036`).
 
 The VM has no resolver, so the container gets the lab's name servers and domain (`--dns`,
-`--dns-search`), and its hostname resolves to `127.0.1.1` (`--add-host`).
+`--dns-search`), and its hostname resolves to `127.0.1.1` (`--add-host`). The lab's name server,
+its boot server, answers a name without a domain that is not a node's as not found and never
+forwards it (`domain-needed`, `boot_server_021`): the server's resolver may never answer one.
+SR Linux looks up `matelink` at each rsyslogd start, three of them in the commit of its startup
+config, and the commit fails with `Unacceptable syslog configuration` when it takes over about
+60 s.
 
 ## Console
 
@@ -283,7 +288,8 @@ The measurements behind each are on #683.
   only that its ready port stops answering.
 - A failure before the VM's units run, such as Ignition failing in the initrd, sends no status:
   the node is not ready when the readiness wait ends.
-- SR Linux's first commit of its startup config sometimes fails with `Unacceptable syslog
-  configuration` (nested guest); it then falls back to the next config.
+- SR Linux's commit of its startup config fails with `Unacceptable syslog configuration` when
+  its rsyslogd restarts take over about 60 s, as when the lab's name server does not answer; it
+  then falls back to the next config, and the node has no `dev` login.
 - `frr_linux` and the `juniper_evolved` container still run privileged on the server.
 - Nothing removes a Docker store when its image is deleted or imported again.
