@@ -5,6 +5,8 @@ log-facility=/var/log/dnsmasq.log
 
 port=53
 server={{ gateway_ipv4 }}
+# A name without a domain that is not a node's is not found, never forwarded
+domain-needed
 domain={{ SHERPA_DOMAIN_NAME }}
 
 # DHCP
