@@ -3,8 +3,9 @@
 The container models that need root-like privileges to boot, `arista_ceos` (`arista_eos`
 container), `nokia_srlinux` and the `sonic_linux` container, each run in a Flatcar Container
 Linux VM of their own. Inside it, a normal Docker runs the node's image unmodified with
-`--privileged` and the settings a container on the server gets. A privileged container that
-escapes reaches that VM's kernel, not the server's.
+`--privileged` and the settings a container on the server gets, in the VM's network namespace,
+so the network OS has the VM's NICs as its own interfaces. A privileged container that escapes
+reaches that VM's kernel, not the server's.
 
 `ModelKind::runs_in_node_vm` (`crates/shared/src/data/model_kind.rs`) is the one list of these
 models. Every other container model runs on the server's Docker as before.
@@ -26,16 +27,15 @@ flowchart LR
   end
   subgraph V[Flatcar VM NODE-LAB]
     P[docker-vsock.socket: vsock 2376 to 127.0.0.1:2376] --> DK[dockerd, TLS, client certificate required]
-    DK --> C[node container, --privileged]
-    MV[sherpa-nics.service: moves data NICs into the container on each start] --> C
+    DK --> C[node container, --privileged, --network host]
+    LK[sherpa-links.service at boot: names the NICs, makes the interfaces on no link] --> C
     CON[sherpa-console.service on ttyS0: docker exec CLI] --> C
-    MAC[macvlan on sherpa0, node's management addresses] --> C
   end
   O --> V
   OD -->|/var/lib/docker| V
   ISO[(NODE-LAB.iso, label config-2, Ignition)] --> V
   V ---|virtio NIC| T1
-  V ---|virtio NIC sherpa0| M
+  V ---|virtio NIC eth0| M
   V ---|serial| SOCK
 ```
 
@@ -117,7 +117,7 @@ The alternatives measured, and why they were not taken:
   `flatcar-reset --keep-paths /var/lib/docker /var/lib/containerd` so the next boot is a first
   boot again, and the disk is flattened to stand alone; each node boots one overlay of it.
   Without the reset, a node's Ignition writes its files but enables none of its units (presets
-  apply only on a first boot), so the NIC mover and the console never run. Measured with the
+  apply only on a first boot), so the NICs are not named and the console never runs. Measured with the
   test lab, three runs each: lab up 134 to 144 s against 138 to 139 s, Docker answering 2 to
   3 s sooner, the same memory, about 70 MiB per node against 50 MiB once the root filesystem
   skips its inode table zeroing (see Boot), and 2.6 to 4.3 GB per image on the server against
@@ -165,8 +165,9 @@ in. It sets:
   `systemd-hwdb-update.service` are masked. Both run on every boot of a node VM and hold up
   Docker (see Boot time). Flatcar's default confext ships the `/etc/ld.so.cache` that
   `ldconfig` would write, and udev needs no hardware database for the VM's virtio devices.
-- Networking: the management NIC is renamed `sherpa0` by MAC and kept up with no address; every
-  other NIC is unmanaged.
+- Networking: none of the VM's own. `systemd-networkd`, its socket and its varlink sockets are
+  masked, so nothing in the VM addresses, raises or renames an interface after
+  `sherpa-links.service` (see Links): the network OS owns every interface.
 - Docker: its data on the Docker disk (see Docker stores); it listens on `127.0.0.1:2376` with `--tlsverify`, its server certificate and the VM's CA,
   besides its local socket, with no default bridge and no iptables rules (`--iptables=false
   --ip6tables=false`): the container publishes no ports. containerd runs with
@@ -175,8 +176,8 @@ in. It sets:
   which Docker does not use and whose start held up containerd's. `docker-vsock.socket` listens
   on vsock port 2376 and hands each connection to `systemd-socket-proxyd`, which connects it to
   that listener.
-- The NIC mover, the console, and for SR Linux the start step (below), as scripts in
-  `/opt/sherpa` with their units.
+- The interface naming (see Links) and the console, as scripts in `/opt/sherpa` with their
+  units.
 
 ## Boot time
 
@@ -211,10 +212,11 @@ either way, and sherpad is the only client.
 
 sherpad reaches each VM's Docker over vsock with mutual TLS. The other candidates:
 
-- **TLS over TCP on the management network.** The VM would need a management address of its own
-  besides its container's. A lab's management `/24` gives every host offset from 21 to 254 to a
-  node index, so there is no spare address without shrinking the largest lab or adding a second
-  network with its own addressing.
+- **TLS over TCP on the management network.** The VM's one management address is the network
+  OS's, which its config sets, or not, and which is not there until the network OS has booted.
+  An address of the VM's own would need a spare one: a lab's management `/24` gives every host
+  offset from 21 to 254 to a node index, so there is none without shrinking the largest lab or
+  adding a second network with its own addressing.
 - **SSH.** bollard's SSH transport needs the `openssh` crate, which is not in `Cargo.lock`, and it
   still needs an address to reach.
 - **vsock.** It needs no address and no network: only the host reaches a guest's vsock, and
@@ -244,26 +246,36 @@ redirect, netem impairment and carrier handling are those of every P2p link
 ([P2P-ARCHITECTURE.md](P2P-ARCHITECTURE.md)). A node on no link gets no data NICs, as a
 container on the server gets no veths.
 
-In the VM, `sherpa-nics.service` runs `move-nics.sh`: at start and on every `start` event of the
-node's container, it renames each data NIC, found by its MAC in `/etc/sherpa/interfaces`, to a
-temporary name, moves it into the container's network namespace and names it as the network OS
-expects (`eth1`, `e1-1`, ...). When the container's namespace goes, the kernel hands its NICs back
-to the VM, and the next start moves them again. For each data interface on no link, listed in
-`/etc/sherpa/placeholders` with a MAC sherpad picked, it makes a veth with that MAC, moves that
-end into the container under the interface's name, and leaves the other down in the VM, so the
-interface is there without carrier, as a disabled interface of a container on the server is. The
-MAC stays the same across starts: cEOS makes new SSH host keys when its interfaces' MACs change.
-The script then runs `/opt/sherpa/on-start` when
-the model has one: SR Linux's flushes Docker's copy of the management address once SR Linux has
-moved management into its own namespace, which Docker sets again at every start.
+The container runs with Docker's host network mode: its network namespace is the VM's, so the
+VM's NICs are the network OS's interfaces, with the names and MACs it expects. On every boot,
+before Docker starts, `sherpa-links.service` runs `links.sh` once:
+
+- It names each NIC, found by its MAC in `/etc/sherpa/interfaces`: the management NIC `eth0`,
+  each data NIC as the network OS expects (`eth1`, `e1-1`, ...). Each goes through a temporary
+  name first, so no NIC takes a name another still has. It flushes any address the initrd left,
+  and sets the NIC up; the network OS owns it from then on.
+- For each data interface on no link, listed in `/etc/sherpa/placeholders` with a MAC sherpad
+  picked, it makes a veth with that MAC under the interface's name, whose peer is down in the
+  namespace `sherpa-unwired`, so the network OS sees only its own interfaces, and each of these
+  is there without carrier, as a disabled interface of a container on the server is. A PCIe NIC
+  per interface would cost the boot time above; the veth costs none.
+
+Every MAC is fixed per node: cEOS makes new SSH host keys when its interfaces' MACs change. The
+interfaces live as long as the VM, so a restart of the container in the VM finds them as it left
+them, and so do the network OS's own (cEOS's `cpu` and `fabric`, SR Linux's `mgmt0` and its
+namespaces, SONiC's `Ethernet` taps).
 
 ## Management
 
-The VM's Docker has a macvlan network on `sherpa0` named like the lab's management network, with
-the lab's subnets. The container gets the node's IPv4 address and, when the lab has IPv6, the
-IPv6 address recorded for the node: the VM's Docker knows none of the lab's other addresses, so
-an address it picked could be the router's. The container's management MAC is random per
-creation.
+The management NIC is `eth0` on the lab's libvirt management network, with a MAC fixed per node.
+The network OS sets its addresses itself, as Docker does not: cEOS from `Management0` in its
+startup config, SR Linux on `mgmt0.0` in its `mgmt` network instance, and the SONiC container's
+start script (`sonic/container_init.jinja`) on `eth0`, with the default routes, at every start.
+Each uses the node's IPv4 address and, when the lab has IPv6, the IPv6 address recorded for the
+node. The VM has no address on the network.
+
+The VM has no resolver, so Docker gives the container the lab's name servers and domain
+(`--dns`, `--dns-search`), and the node's hostname resolves to `127.0.1.1` (`--add-host`).
 
 ## Console
 
@@ -279,13 +291,12 @@ gives the line a size, and runs `docker exec -it` of the model's CLI in the cont
   (`create_node_vms`): the image's Docker store when there is none, certificates, config drive,
   the two overlay disks, domain. Readiness (phase 13) starts each node's container in the
   background (`start_node_container`): wait for the VM's Docker, drop `flatcar.first_boot` from
-  the domain, make the management network, create the container with Docker's
-  `unless-stopped` restart policy, copy the node's files from its volumes into it, and start it.
+  the domain, create the container with Docker's `unless-stopped` restart policy, copy the node's files from its volumes into it, and start it.
   The node is ready once SSH answers on its management address (`ModelKind::ready_port`).
 - **Status, down, resume, scanner, console.** `NodeConfig::runtime_kind` is `VirtualMachine` for
   these nodes, so they follow the VM paths: `down` shuts the domain down over ACPI, which stops
   Docker and the container cleanly; `resume` starts the domain, Docker starts the container
-  again, the mover moves its NICs, and the links are re-attached.
+  again on its interfaces, and the links are re-attached.
 - **Redeploy.** Removes the VM, its two disks, its config drive and its certificates, and the server
   container of the same name if one is left, then creates the VM again
   (`redeploy_node_vm`).
@@ -305,16 +316,17 @@ mean of three ups, a minute after ready:
 
 | Node | VM memory | QEMU PSS on the host | Used in the VM | Page cache in the VM | Disks on the server | Domain start to SSH-ready | runc: container start to SSH |
 |---|---|---|---|---|---|---|---|
-| cEOS | 5120 MiB | 3027 MiB | 1571 MiB | 1431 MiB | 51 MiB | 117 to 125 s | 71 s |
-| SR Linux | 5120 MiB | 3659 MiB | 1962 MiB | 1647 MiB | 38 MiB | 45 s | not reached |
-| SONiC | 2048 MiB | 1506 MiB | 772 MiB | 692 MiB | 44 MiB | 96 s | 65 s |
+| cEOS | 5120 MiB | 2947 MiB | 1547 MiB | 1374 MiB | 51 MiB | 120 to 123 s | 71 s |
+| SR Linux | 5120 MiB | 3726 MiB | 1952 MiB | 1641 MiB | 37 MiB | 91 to 93 s | not reached |
+| SONiC | 2048 MiB | 1457 MiB | 772 MiB | 631 MiB | 44 MiB | 93 to 104 s | 65 s |
 
-The whole lab is up in 128 to 138 s, which is cEOS's own boot. A node VM's time to ready is 37
-to 40 s from domain start to its Docker answering (see Boot time), 2 s to start its container,
-and then the network OS's own boot. The first up with an image adds making its store: about
-120 s for one, about 140 s with the three made at once. A store takes 1.8 to 3.6 GB once on the
-server; each node's disks hold only what it writes, 11 MiB of it on its overlay of the base
-image.
+The whole lab is up in 129 to 140 s, which is cEOS's own boot. A node VM's time to ready is 37
+to 40 s from domain start to its Docker answering (see Boot time), under 2 s to create and start
+its container, and then the network OS's own boot. SR Linux answers SSH once it has set its
+management address, about 50 s after its container starts. The first up with an image adds
+making its store: about 120 s for one, about 140 s with the three made at once. A store takes
+1.8 to 3.6 GB once on the server; each node's disks hold only what it writes, 11 MiB of it on
+its overlay of the base image.
 
 ## Limits
 
@@ -324,6 +336,10 @@ image.
 - Secret files are copied into the container, on the node's disk, not mounted from RAM.
 - The config drive, with the VM's server key, stays in the storage pool until destroy or
   redeploy.
+- The management address is the network OS's: a cEOS or SR Linux node whose own config (`ztp`
+  off, or a custom config) has no management address has none.
+- The network OS shares the VM's loopback with Docker's TLS listener, `127.0.0.1:2376`. A client
+  there still needs a certificate of the VM's CA; the network OS is privileged in the VM anyway.
 - `frr_linux` and the `juniper_evolved` container still run privileged on the server.
 - A Docker store stays in the storage pool when its image is deleted or imported again; nothing
   removes stores yet.
