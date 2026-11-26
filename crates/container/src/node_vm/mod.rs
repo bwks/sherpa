@@ -6,24 +6,22 @@
 mod tar;
 mod transport;
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use anyhow::{Context, Result};
 use bollard::Docker;
 use bollard::body_full;
 use bollard::errors::Error as DockerError;
-use bollard::models::{Ipam, IpamConfig, NetworkCreateRequest};
 use bollard::query_parameters::{
-    CreateContainerOptions, ImportImageOptionsBuilder, InspectNetworkOptions,
-    UploadToContainerOptions,
+    CreateContainerOptions, ImportImageOptionsBuilder, UploadToContainerOptions,
 };
 use futures_util::StreamExt;
 use futures_util::future;
 use tracing::instrument;
 
+use shared::data::Dns;
+
 use crate::container::{ContainerSpec, node_vm_create_body, remove_container, start_and_attach};
-use crate::network::BridgeSubnet;
 use crate::status::is_missing;
 
 pub use tar::NodeVmFile;
@@ -81,82 +79,25 @@ pub async fn copy_image_to_node_vm(host: &Docker, vm: &Docker, image: &str) -> R
     Ok(true)
 }
 
-/// Create the macvlan network `name` on the VM's interface `parent`, with the lab's management
-/// subnets, unless the VM has it already. The container's management address is then on the
-/// lab's management network, as a container on the server's is.
-///
-/// # Errors
-///
-/// Fails when the VM's Docker cannot be asked about the network or cannot create it.
-#[instrument(skip(vm), level = "debug")]
-pub async fn ensure_node_vm_management_network(
-    vm: &Docker,
-    name: &str,
-    parent: &str,
-    ipv4: BridgeSubnet,
-    ipv6: Option<BridgeSubnet>,
-) -> Result<()> {
-    match vm
-        .inspect_network(name, None::<InspectNetworkOptions>)
-        .await
-    {
-        Ok(_) => return Ok(()),
-        Err(error) if is_missing(&error) => {}
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("Cannot look for network {name} in the node VM"));
-        }
-    }
-    let enable_ipv6 = ipv6.is_some();
-    let config = [Some(ipv4), ipv6]
-        .into_iter()
-        .flatten()
-        .map(|subnet| IpamConfig {
-            subnet: Some(subnet.subnet),
-            gateway: subnet.gateway,
-            ..Default::default()
-        })
-        .collect();
-    let request = NetworkCreateRequest {
-        name: name.to_owned(),
-        driver: Some("macvlan".to_owned()),
-        options: Some(HashMap::from([
-            ("parent".to_owned(), parent.to_owned()),
-            ("macvlan_mode".to_owned(), "bridge".to_owned()),
-        ])),
-        ipam: Some(Ipam {
-            driver: Some("default".to_owned()),
-            config: Some(config),
-            ..Default::default()
-        }),
-        enable_ipv6: Some(enable_ipv6),
-        ..Default::default()
-    };
-    vm.create_network(request)
-        .await
-        .with_context(|| format!("Cannot create network {name} in the node VM"))?;
-    Ok(())
-}
-
-/// Create the node's container in its VM from `spec`, with `mac_address` on its management
-/// interface, copy `files` into it, and start it. A container of that name already there is
+/// Create the node's container in its VM from `spec`, in the VM's network namespace with the
+/// lab's `dns`, copy `files` into it, and start it. A container of that name already there is
 /// replaced. Returns whether it runs; one that cannot be set up is removed again.
 ///
 /// # Errors
 ///
 /// Fails when a file path is not absolute, or the VM's Docker cannot create, fill, start or
 /// inspect the container.
-#[instrument(skip(vm, spec, files), fields(container_name = %spec.name), level = "debug")]
+#[instrument(skip(vm, spec, dns, files), fields(container_name = %spec.name), level = "debug")]
 pub async fn run_node_vm_container(
     vm: &Docker,
     spec: ContainerSpec,
-    mac_address: &str,
+    dns: &Dns,
     files: &[NodeVmFile],
 ) -> Result<bool> {
     let name = spec.name.clone();
     let archive = tar::archive(files)?;
     remove_container(vm, &name).await?;
-    let body = node_vm_create_body(spec, mac_address)
+    let body = node_vm_create_body(spec, dns)
         .with_context(|| format!("Invalid resource limits for container {name}"))?;
     let created = vm
         .create_container(

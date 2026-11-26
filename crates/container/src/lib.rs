@@ -39,8 +39,7 @@ pub use image::{
 
 // Re-export node VM operations
 pub use node_vm::{
-    NodeVmFile, NodeVmTls, copy_image_to_node_vm, ensure_node_vm_management_network,
-    node_vm_docker, run_node_vm_container,
+    NodeVmFile, NodeVmTls, copy_image_to_node_vm, node_vm_docker, run_node_vm_container,
 };
 
 // Re-export Docker type for convenience

@@ -1,7 +1,8 @@
 //! The Ignition config a node VM boots with the first time: Flatcar with updates and reboots
 //! off, no login, Docker's data on the VM's Docker store disk, Docker's API on vsock behind
-//! mutual TLS, the data NICs moved into the node's container, and the network OS CLI on the
-//! serial console. The VM that makes a Docker store boots with the Docker part alone.
+//! mutual TLS, the NICs named for the network OS of the node's container, which runs in the
+//! VM's network namespace, and the network OS CLI on the serial console. The VM that makes a
+//! Docker store boots with the Docker part alone.
 
 use std::fmt::Write as _;
 
@@ -12,7 +13,7 @@ use template::{
     FileMode, IgnitionConfig, IgnitionFile, IgnitionFileContents, IgnitionFileSystem, IgnitionUnit,
 };
 
-use super::{NODE_VM_DOCKER_PORT, NODE_VM_MANAGEMENT_INTERFACE};
+use super::NODE_VM_DOCKER_PORT;
 
 /// Where dockerd's TLS files go in the VM.
 const DOCKER_TLS_DIR: &str = "/etc/docker/tls";
@@ -21,6 +22,9 @@ const DOCKER_TLS_LOCAL_PORT: u16 = 2376;
 /// containerd's config in the VM, and where it goes.
 const CONTAINERD_CONFIG: &str = include_str!("containerd.toml");
 const CONTAINERD_CONFIG_PATH: &str = "/etc/containerd/config.toml";
+/// The script that names the NICs and makes the interfaces on no link, before the container
+/// starts.
+const LINKS_SCRIPT: &str = include_str!("links.sh");
 /// The script that moves the data NICs into the container.
 const MOVE_NICS_SCRIPT: &str = include_str!("move-nics.sh");
 /// The script that runs the network OS CLI on the serial console.
@@ -32,10 +36,11 @@ const DOCKER_STORE_LABEL: &str = "sherpa-docker";
 /// The Docker store disk, the VM's second disk.
 const DOCKER_STORE_DEVICE: &str = "/dev/vdb";
 /// Units a node VM never runs: updates and their reboots, SSH logins, the serial login, the
-/// image's cloud metadata units, which wait for a network the VM does not have, and the first
-/// boot's rebuilds of the library cache and the hardware database, which hold up Docker: the
-/// image ships the library cache, and udev needs no hardware database for the VM's devices.
-const MASKED_UNITS: [&str; 13] = [
+/// image's cloud metadata units, which wait for a network the VM does not have, its network
+/// manager and its sockets, as the network OS owns every interface, and the first boot's
+/// rebuilds of the library cache and the hardware database, which hold up Docker: the image
+/// ships the library cache, and udev needs no hardware database for the VM's devices.
+const MASKED_UNITS: [&str; 18] = [
     "update-engine.service",
     "locksmithd.service",
     "sshd.socket",
@@ -47,6 +52,11 @@ const MASKED_UNITS: [&str; 13] = [
     "flatcar-openstack-hostname.service",
     "coreos-metadata.service",
     "systemd-networkd-wait-online.service",
+    "systemd-networkd.service",
+    "systemd-networkd.socket",
+    "systemd-networkd-varlink.socket",
+    "systemd-networkd-varlink-metrics.socket",
+    "systemd-networkd-resolve-hook.socket",
     "ldconfig.service",
     "systemd-hwdb-update.service",
 ];
@@ -62,7 +72,6 @@ pub(super) struct DockerTls<'a> {
 pub(super) struct GuestConfig<'a> {
     pub(super) hostname: &'a str,
     pub(super) container: &'a str,
-    pub(super) management_mac: &'a str,
     pub(super) interfaces: &'a [(String, String)],
     pub(super) placeholders: &'a [(String, String)],
     pub(super) tls: DockerTls<'a>,
@@ -94,7 +103,7 @@ fn unit(name: &str, enabled: bool, contents: String) -> IgnitionUnit {
     }
 }
 
-/// The guest's data interfaces, NICs or the veths made for interfaces on no link, one
+/// The guest's interfaces, its NICs or the veths made for interfaces on no link, one
 /// `mac name` per line, the MAC in the lowercase form the guest's kernel reports.
 fn interfaces_file(interfaces: &[(String, String)]) -> String {
     let mut file = String::new();
@@ -148,33 +157,9 @@ fn docker_files(tls: &DockerTls<'_>) -> Vec<IgnitionFile> {
 
 /// The files of the guest's first boot.
 fn files(config: &GuestConfig<'_>) -> Vec<IgnitionFile> {
-    let management_link = format!(
-        "[Match]\nMACAddress={}\n\n[Link]\nName={NODE_VM_MANAGEMENT_INTERFACE}\n",
-        config.management_mac.to_ascii_lowercase()
-    );
-    // Up without an address: it carries only the container's macvlan.
-    let management_network = format!(
-        "[Match]\nName={NODE_VM_MANAGEMENT_INTERFACE}\n\n[Link]\nActivationPolicy=always-up\n\
-         RequiredForOnline=no\n\n[Network]\nLinkLocalAddressing=no\nIPv6AcceptRA=no\n"
-    );
     let mut files = docker_files(&config.tls);
     files.extend([
         file("/etc/hostname", 0o644, &format!("{}\n", config.hostname)),
-        file(
-            "/etc/systemd/network/00-sherpa-management.link",
-            0o644,
-            &management_link,
-        ),
-        file(
-            "/etc/systemd/network/00-sherpa-management.network",
-            0o644,
-            &management_network,
-        ),
-        file(
-            "/etc/systemd/network/01-sherpa-unmanaged.network",
-            0o644,
-            "[Match]\nName=*\n\n[Link]\nUnmanaged=yes\n",
-        ),
         file(
             "/etc/sherpa/container",
             0o644,
@@ -190,6 +175,7 @@ fn files(config: &GuestConfig<'_>) -> Vec<IgnitionFile> {
             0o644,
             &interfaces_file(config.placeholders),
         ),
+        file("/opt/sherpa/links", 0o755, LINKS_SCRIPT),
         file("/opt/sherpa/move-nics", 0o755, MOVE_NICS_SCRIPT),
         file("/opt/sherpa/console", 0o755, CONSOLE_SCRIPT),
     ]);
@@ -251,6 +237,14 @@ fn docker_units() -> Vec<IgnitionUnit> {
 /// The units of the guest's first boot.
 fn units(config: &GuestConfig<'_>) -> Vec<IgnitionUnit> {
     let mut units = docker_units();
+    units.push(unit(
+        "sherpa-links.service",
+        true,
+        "[Unit]\nDescription=Name the NICs for the network OS\nBefore=docker.service\n\n\
+         [Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/opt/sherpa/links\n\n\
+         [Install]\nWantedBy=docker.service\n"
+            .to_owned(),
+    ));
     units.push(unit(
         "sherpa-nics.service",
         true,
@@ -316,11 +310,13 @@ mod tests {
     use shared::util::base64_decode;
 
     fn config() -> Value {
-        let interfaces = [("52:54:00:AB:00:02".to_owned(), "eth1".to_owned())];
+        let interfaces = [
+            ("52:54:00:AB:00:01".to_owned(), "eth0".to_owned()),
+            ("52:54:00:AB:00:02".to_owned(), "eth1".to_owned()),
+        ];
         let json = ignition_json(&GuestConfig {
             hostname: "ceos1",
             container: "ceos1-abc12345",
-            management_mac: "52:54:00:AB:00:01",
             interfaces: &interfaces,
             placeholders: &[
                 ("52:54:00:AB:00:03".to_owned(), "eth2".to_owned()),
@@ -442,19 +438,33 @@ mod tests {
     }
 
     #[test]
-    fn node_vm_010_data_nics_are_named_by_their_lowercase_mac_and_the_management_nic_is_up() {
+    fn node_vm_010_the_nics_are_named_by_their_lowercase_mac_before_docker_and_nothing_manages_them()
+     {
         let config = config();
         assert_eq!(
             file_text(&config, "/etc/sherpa/interfaces"),
-            "52:54:00:ab:00:02 eth1\n"
+            "52:54:00:ab:00:01 eth0\n52:54:00:ab:00:02 eth1\n"
         );
+        let links = unit_of(&config, "sherpa-links.service")["contents"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(links.contains("Before=docker.service\n"));
+        assert!(links.contains("Type=oneshot\n"));
+        assert!(links.contains("WantedBy=docker.service\n"));
+        assert!(file_text(&config, "/opt/sherpa/links").contains("done < /etc/sherpa/interfaces"));
+        for name in ["systemd-networkd.service", "systemd-networkd.socket"] {
+            assert_eq!(unit_of(&config, name)["mask"], true, "{name}");
+        }
         assert!(
-            file_text(&config, "/etc/systemd/network/00-sherpa-management.link")
-                .contains("MACAddress=52:54:00:ab:00:01\n")
-        );
-        assert!(
-            file_text(&config, "/etc/systemd/network/00-sherpa-management.network")
-                .contains("ActivationPolicy=always-up")
+            config["storage"]["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|file| !file["path"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("/etc/systemd/network/"))
         );
     }
 
@@ -469,15 +479,16 @@ mod tests {
     }
 
     #[test]
-    fn node_vm_035_interfaces_on_no_link_are_listed_with_a_fixed_mac_for_the_mover_to_make() {
+    fn node_vm_035_interfaces_on_no_link_are_veths_with_a_fixed_mac_and_a_peer_down_elsewhere() {
         let config = config();
         assert_eq!(
             file_text(&config, "/etc/sherpa/placeholders"),
             "52:54:00:ab:00:03 eth2\n52:54:00:ab:00:04 eth3\n"
         );
-        let mover = file_text(&config, "/opt/sherpa/move-nics");
-        assert!(mover.contains("type veth peer name"));
-        assert!(mover.contains("done < /etc/sherpa/placeholders"));
+        let links = file_text(&config, "/opt/sherpa/links");
+        assert!(links.contains(r#"ip link add "$want" address "$mac" mtu 9600 type veth"#));
+        assert!(links.contains(r#"peer name "unw$index" mtu 9600 netns "$UNWIRED_NETNS""#));
+        assert!(links.contains("done < /etc/sherpa/placeholders"));
     }
 
     #[test]
@@ -507,7 +518,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .all(|unit| unit["name"] != "sherpa-nics.service")
+                .all(|unit| unit["name"] != "sherpa-links.service")
         );
     }
 

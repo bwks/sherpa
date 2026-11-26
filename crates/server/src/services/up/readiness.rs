@@ -51,7 +51,7 @@ pub(super) struct ReadinessInputs<'a> {
     pub(super) links_detailed: &'a [topology::LinkDetailed],
     pub(super) node_secrets: &'a BTreeMap<String, Vec<data::SecretFile>>,
     pub(super) talos_clusters: &'a [topology::TalosCluster],
-    pub(super) mgmt_net: &'a data::SherpaNetwork,
+    pub(super) dns: &'a data::Dns,
     pub(super) timeout: Duration,
 }
 
@@ -263,7 +263,7 @@ impl Readiness<'_, '_> {
         let lab_dir = self.build.lab_dir.to_owned();
         let images_dir = self.build.config.images_dir.clone();
         let node_name = container.name.clone();
-        let mgmt_net = self.inputs.mgmt_net.clone();
+        let dns = self.inputs.dns.clone();
         let _ = self.build.progress.send_status(
             format!("Node {} - Starting its container in its VM", container.name),
             StatusKind::Progress,
@@ -279,7 +279,7 @@ impl Readiness<'_, '_> {
                         lab_dir: &lab_dir,
                         images_dir: &images_dir,
                         node_name: &node_name,
-                        mgmt_net: &mgmt_net,
+                        dns: &dns,
                         spec,
                     },
                 )

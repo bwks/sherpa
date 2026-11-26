@@ -13,7 +13,7 @@ use bollard::query_parameters::{
 };
 use tracing::instrument;
 
-use shared::data::ContainerNetworkAttachment;
+use shared::data::{ContainerNetworkAttachment, Dns};
 use shared::konst::DOCKER_ENDPOINT_IFNAME_OPT;
 
 use super::delete::remove_container;
@@ -26,6 +26,10 @@ const DATA_INTERFACE_SCRIPT: &str = r#"ip link set "$1" promisc on && ip link se
 const DATA_INTERFACE_RETRIES: u32 = 3;
 /// The pause between data interface command attempts.
 const DATA_INTERFACE_RETRY_DELAY: Duration = Duration::from_secs(2);
+/// The network mode of a node VM's container: the VM's own network namespace.
+const NODE_VM_NETWORK_MODE: &str = "host";
+/// The address a node VM's container resolves its own hostname to.
+const NODE_VM_HOSTNAME_ADDRESS: &str = "127.0.1.1";
 /// Bytes in a MiB, the unit of a node's memory.
 const BYTES_PER_MIB: u64 = 1024 * 1024;
 /// Docker's CPU quota unit, `NanoCpus`, in billionths of a CPU.
@@ -212,26 +216,34 @@ fn create_body(spec: ContainerSpec) -> Result<ContainerCreateBody> {
 
 /// The body a node VM's container is created from: as `run_container` creates it, without bind
 /// mounts, since its files are copied into it, with Docker restarting it whenever its VM's
-/// Docker starts unless it was stopped, and with `mac_address` on its management interface.
-pub(crate) fn node_vm_create_body(
-    spec: ContainerSpec,
-    mac_address: &str,
-) -> Result<ContainerCreateBody> {
+/// Docker starts unless it was stopped, and in the VM's network namespace, so the network OS
+/// has the VM's NICs as its own interfaces. The VM has no resolver of its own, so the
+/// container gets the lab's name servers and domain, and its hostname resolves to loopback.
+pub(crate) fn node_vm_create_body(spec: ContainerSpec, dns: &Dns) -> Result<ContainerCreateBody> {
+    let hostname = spec.hostname.clone();
     let mut body = create_body(spec)?;
+    body.networking_config = None;
     if let Some(host_config) = body.host_config.as_mut() {
         host_config.binds = None;
+        host_config.network_mode = Some(NODE_VM_NETWORK_MODE.to_owned());
+        host_config.dns = Some(
+            dns.name_servers
+                .iter()
+                .flat_map(|server| {
+                    [Some(server.ipv4_address.to_string())]
+                        .into_iter()
+                        .chain([server.ipv6_address.map(|address| address.to_string())])
+                        .flatten()
+                })
+                .collect(),
+        );
+        host_config.dns_search = Some(vec![dns.domain.clone()]);
+        host_config.extra_hosts =
+            hostname.map(|hostname| vec![format!("{hostname}:{NODE_VM_HOSTNAME_ADDRESS}")]);
         host_config.restart_policy = Some(RestartPolicy {
             name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
             maximum_retry_count: None,
         });
-    }
-    for endpoint in body
-        .networking_config
-        .iter_mut()
-        .filter_map(|config| config.endpoints_config.as_mut())
-        .flat_map(HashMap::values_mut)
-    {
-        endpoint.mac_address = Some(mac_address.to_owned());
     }
     Ok(body)
 }
@@ -294,6 +306,8 @@ fn data_interface_command(attachment: &ContainerNetworkAttachment) -> Option<Vec
 mod tests {
     use super::*;
 
+    use shared::data::NameServer;
+
     fn attachment(
         linux_interface_name: Option<&str>,
         admin_down: bool,
@@ -345,5 +359,47 @@ mod tests {
             None
         );
         assert_eq!(data_interface_command(&attachment(None, false)), None);
+    }
+
+    #[test]
+    fn node_vm_044_a_node_vm_container_runs_in_the_vms_network_namespace_with_the_labs_dns() {
+        let spec = ContainerSpec {
+            name: "sonic1-abc12345".to_owned(),
+            hostname: Some("sonic1".to_owned()),
+            image: "docker-sonic-vs:202511".to_owned(),
+            env_vars: Vec::new(),
+            volumes: vec!["/lab/init.sh:/mnt/init.sh:ro".to_owned()],
+            capabilities: Vec::new(),
+            management_network: attachment(None, false),
+            additional_networks: Vec::new(),
+            commands: Vec::new(),
+            privileged: true,
+            shm_size: None,
+            user: None,
+            memory_mib: None,
+            cpu_count: None,
+        };
+        let dns = Dns {
+            domain: "sherpa.lab.local".to_owned(),
+            name_servers: vec![NameServer {
+                ipv4_address: "172.31.0.2".parse().unwrap(),
+                ipv6_address: Some("fd00::2".parse().unwrap()),
+            }],
+        };
+        let body = node_vm_create_body(spec, &dns).unwrap();
+        assert!(body.networking_config.is_none());
+        let host = body.host_config.unwrap();
+        assert_eq!(host.network_mode.as_deref(), Some("host"));
+        assert_eq!(host.binds, None);
+        assert_eq!(
+            host.dns,
+            Some(vec!["172.31.0.2".to_owned(), "fd00::2".to_owned()])
+        );
+        assert_eq!(host.dns_search, Some(vec!["sherpa.lab.local".to_owned()]));
+        assert_eq!(host.extra_hosts, Some(vec!["sonic1:127.0.1.1".to_owned()]));
+        assert_eq!(
+            host.restart_policy.and_then(|policy| policy.name),
+            Some(RestartPolicyNameEnum::UNLESS_STOPPED)
+        );
     }
 }

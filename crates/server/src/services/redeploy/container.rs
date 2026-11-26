@@ -209,7 +209,7 @@ pub(super) async fn redeploy_node_vm(
             lab_dir: &redeploy.lab_dir,
             images_dir: &redeploy.state.config.images_dir,
             node_name,
-            mgmt_net: &redeploy.mgmt_net,
+            dns: &redeploy.dns,
             spec: node_vm_container_spec(redeploy, ztp_result, volumes),
         },
     )

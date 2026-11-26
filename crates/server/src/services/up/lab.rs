@@ -803,7 +803,7 @@ impl LabUp<'_> {
                 links_detailed: &self.plan.links_detailed,
                 node_secrets: self.node_secrets,
                 talos_clusters,
-                mgmt_net: &network.mgmt_net,
+                dns: &network.dns,
                 timeout: Duration::from_secs(ready_timeout_secs),
             },
             &mut built.p2p,

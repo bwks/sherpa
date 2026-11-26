@@ -1,8 +1,8 @@
 //! Node VMs: the container models that need root-like privileges run in a Flatcar VM of their
 //! own, on that VM's Docker, so the privileges reach the VM's kernel and not the server's. The
 //! VM is a libvirt domain with the node's device name; its data interfaces are taps named like
-//! the node's link ends, which the guest moves into the container. See
-//! `docs/architecture/NODE_VM.md`.
+//! the node's link ends, and the container runs in the VM's network namespace, where the guest
+//! names the NICs as the network OS expects. See `docs/architecture/NODE_VM.md`.
 
 mod ignition;
 mod store;
@@ -17,13 +17,13 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use bollard::Docker;
-use container::{BridgeSubnet, ContainerSpec, NodeVmFile, NodeVmTls};
+use container::{ContainerSpec, NodeVmFile, NodeVmTls};
 use libvirt::{NodeVm, NodeVmManagement, NodeVmNic, Qemu};
 use thiserror::Error;
 use tokio::{task, time};
 use tracing::instrument;
 
-use shared::data::{ModelKind, NodeModel, SherpaNetwork};
+use shared::data::{Dns, ModelKind, NodeModel};
 use shared::konst::{KVM_OUI, SHERPA_STORAGE_POOL_PATH};
 use shared::util;
 
@@ -45,8 +45,8 @@ pub(crate) const FLATCAR_NODE_VM_VERSION: &str = "4757.2.4";
 pub(crate) const NODE_VM_IMAGE_DIR: &str = "node_vm";
 /// The vsock port of a node VM's Docker API.
 pub(crate) const NODE_VM_DOCKER_PORT: u32 = 2376;
-/// The name of a node VM's management NIC in the VM, the parent of the container's macvlan.
-pub(crate) const NODE_VM_MANAGEMENT_INTERFACE: &str = "sherpa0";
+/// The name of a node VM's management NIC, the management interface of each of its models.
+const NODE_VM_MANAGEMENT_INTERFACE: &str = "eth0";
 /// The memory a node VM needs beyond its container's: Flatcar, Docker and the page cache of
 /// the image.
 pub(crate) const NODE_VM_MEMORY_OVERHEAD_MIB: u16 = 1024;
@@ -92,6 +92,14 @@ pub(crate) enum NodeVmError {
 
     #[error("The node VM kernel {path} has no /usr hash")]
     KernelUsrHash { path: String },
+}
+
+/// A node VM's interfaces, each `(mac, name)`: the NICs, management's first, the data
+/// interfaces on no link, which the guest makes, and the data NICs of the domain.
+struct GuestInterfaces {
+    interfaces: Vec<(String, String)>,
+    placeholders: Vec<(String, String)>,
+    nics: Vec<NodeVmNic>,
 }
 
 /// What a node VM is created from.
@@ -229,6 +237,43 @@ fn console_command(model_kind: ModelKind) -> &'static [&'static str] {
     }
 }
 
+/// The interfaces of a node VM of `model_kind`: the management NIC with `management_mac`,
+/// named `eth0`, a NIC with a MAC of its own for each data interface on a link or bridge, and
+/// each data interface on no link with a MAC of its own, which the guest makes; each data
+/// interface named as the model expects.
+///
+/// # Errors
+///
+/// Fails when an interface index has no name for the model.
+fn guest_interfaces(
+    model_kind: ModelKind,
+    management_mac: &str,
+    veths: &[&ContainerVeth],
+) -> Result<GuestInterfaces> {
+    let mut guest = GuestInterfaces {
+        interfaces: vec![(
+            management_mac.to_owned(),
+            NODE_VM_MANAGEMENT_INTERFACE.to_owned(),
+        )],
+        placeholders: Vec::new(),
+        nics: Vec::new(),
+    };
+    for veth in veths {
+        let name = util::container_interface_name(model_kind, veth.interface_idx)?;
+        let mac = util::random_mac(KVM_OUI);
+        if veth.admin_down {
+            guest.placeholders.push((mac, name));
+            continue;
+        }
+        guest.interfaces.push((mac.clone(), name));
+        guest.nics.push(NodeVmNic {
+            tap: veth.host_veth.clone(),
+            mac,
+        });
+    }
+    Ok(guest)
+}
+
 /// The certificates of a node VM's Docker API: a CA of the VM's own, the server certificate
 /// its Docker presents, and the client certificate sherpad presents. The CA's key is dropped
 /// once both are issued, so nothing else can be signed for the VM.
@@ -344,26 +389,14 @@ pub(crate) async fn create_node_vm(
     }
 
     let management_mac = util::random_mac(KVM_OUI);
-    let mut interfaces = Vec::new();
-    let mut placeholders = Vec::new();
-    let mut nics = Vec::new();
-    for veth in &create.veths {
-        let name = util::container_interface_name(create.model_kind, veth.interface_idx)?;
-        let mac = util::random_mac(KVM_OUI);
-        if veth.admin_down {
-            placeholders.push((mac, name));
-            continue;
-        }
-        interfaces.push((mac.clone(), name));
-        nics.push(NodeVmNic {
-            tap: veth.host_veth.clone(),
-            mac,
-        });
-    }
+    let GuestInterfaces {
+        interfaces,
+        placeholders,
+        nics,
+    } = guest_interfaces(create.model_kind, &management_mac, &create.veths)?;
     let ignition = ignition_json(&GuestConfig {
         hostname: create.node_name,
         container: &device,
-        management_mac: &management_mac,
         interfaces: &interfaces,
         placeholders: &placeholders,
         tls: ignition::DockerTls {
@@ -568,42 +601,26 @@ fn add_files(source: &Path, destination: &str, files: &mut Vec<NodeVmFile>) -> R
     Ok(())
 }
 
-/// The lab's management subnets as the VM's macvlan network takes them: IPv4, and IPv6 when
-/// the lab has it.
-fn management_subnets(mgmt_net: &SherpaNetwork) -> (BridgeSubnet, Option<BridgeSubnet>) {
-    (
-        BridgeSubnet {
-            subnet: mgmt_net.v4.prefix.to_string(),
-            gateway: Some(mgmt_net.v4.first.to_string()),
-        },
-        mgmt_net.v6.as_ref().map(|v6| BridgeSubnet {
-            subnet: v6.prefix.to_string(),
-            gateway: Some(v6.first.to_string()),
-        }),
-    )
-}
-
 /// What the node's container in its VM is started from.
 pub(crate) struct NodeContainerStart<'a> {
     pub(crate) lab_id: &'a str,
     pub(crate) lab_dir: &'a str,
     pub(crate) images_dir: &'a str,
     pub(crate) node_name: &'a str,
-    pub(crate) mgmt_net: &'a SherpaNetwork,
+    pub(crate) dns: &'a Dns,
     pub(crate) spec: ContainerSpec,
 }
 
 /// Start the node's container in its VM, once the VM's Docker answers: boot the VM without
-/// Ignition from then on, copy the node's image into the VM unless its store has it, make the
-/// management network, copy the node's files from its
-/// volumes into the container, and start it with the settings a container on the server gets.
-/// The VM is the limit of its memory and CPUs. The VM runs the model's own step after each
-/// start (`on_start_script`). Returns whether it runs.
+/// Ignition from then on, copy the node's image into the VM unless its store has it, copy the
+/// node's files from its volumes into the container, and start it with the settings a
+/// container on the server gets, in the VM's network namespace with the lab's `dns`. The VM is
+/// the limit of its memory and CPUs. Returns whether it runs.
 ///
 /// # Errors
 ///
 /// Fails when the VM's Docker does not answer in time, a volume cannot be read, or Docker
-/// cannot copy the image, make the network or run the container.
+/// cannot copy the image or run the container.
 #[instrument(skip(host, qemu, start), fields(lab_id = %start.lab_id, node_name = %start.node_name))]
 pub(crate) async fn start_node_container(
     host: &Docker,
@@ -615,15 +632,6 @@ pub(crate) async fn start_node_container(
     let vm = wait_for_docker(qemu, &device, &tls).await?;
     end_first_boot(qemu, &device, &kernel_usr_hash(start.images_dir)?).await?;
     container::copy_image_to_node_vm(host, &vm, &start.spec.image).await?;
-    let (ipv4, ipv6) = management_subnets(start.mgmt_net);
-    container::ensure_node_vm_management_network(
-        &vm,
-        &start.spec.management_network.name,
-        NODE_VM_MANAGEMENT_INTERFACE,
-        ipv4,
-        ipv6,
-    )
-    .await?;
     let files = volume_files(&start.spec.volumes)?;
     let spec = ContainerSpec {
         volumes: Vec::new(),
@@ -632,7 +640,7 @@ pub(crate) async fn start_node_container(
         cpu_count: None,
         ..start.spec
     };
-    container::run_node_vm_container(&vm, spec, &util::random_mac(KVM_OUI), &files).await
+    container::run_node_vm_container(&vm, spec, start.dns, &files).await
 }
 
 /// Stop and undefine node `node_name`'s VM, delete its disks and config drive, and remove

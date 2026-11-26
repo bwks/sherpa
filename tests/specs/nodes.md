@@ -72,7 +72,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 007 | A long path goes into the header's prefix, and a relative or climbing path is refused | unit |
 | 008 | Updates, update reboots, SSH (on the network and on vsock) and console logins are off in the node VM | unit |
 | 009 | The VM's Docker listens on loopback only, requires a client certificate of the VM's CA, and is reached through vsock | unit |
-| 010 | The data NICs are named by their lowercase MAC, and the management NIC is renamed and kept up without an address | unit |
+| 010 | Before Docker starts, the guest names each NIC, the management NIC `eth0`, by its lowercase MAC, and the VM runs no network manager | unit |
 | 011 | The serial console runs the network OS CLI | unit |
 | 012 | Volume files land at their destination in the container, a folder's files recursively | unit |
 | 013 | The console runs each model's CLI | unit |
@@ -97,7 +97,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 032 | The kernel command line of a domain is replaced and the rest of its XML kept; XML without one is refused | unit |
 | 033 | The `/usr` hash is read from the kernel's header, and a header without one is refused | unit |
 | 034 | A node VM boots without a kernel console, and runs Ignition on its first boot only | unit |
-| 035 | Data interfaces on no link are listed with a fixed MAC for the NIC mover, which gives the container a veth with that MAC and without carrier for each | unit |
+| 035 | Each data interface on no link is a veth in the VM with its fixed MAC and its peer down in a namespace of its own, so it has no carrier | unit |
 | 036 | Docker keeps its data on the Docker store disk, which the store's VM formats and a node VM mounts | unit |
 | 037 | Destroy takes a node VM's Docker disk and never a Docker store | unit |
 | 038 | A second lab with the same image boots on the store the first made, with no image copy (no test yet) | e2e |
@@ -106,6 +106,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 041 | containerd in a node VM runs without the CRI plugins, on its usual socket | unit |
 | 042 | A node VM mounts its root filesystem without zeroing its inode tables, so its disk holds only what it writes | unit |
 | 043 | A SONiC container sets its management address, IPv6 when the node has one, and default routes on `eth0` before its network OS starts | unit |
+| 044 | A node VM's container runs in the VM's network namespace, with no Docker network, the lab's name servers and domain, and its hostname resolving | unit |
 
 ## `node_ready`: a node is running only once its ready check passes
 
