@@ -65,19 +65,12 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 |---|---|---|
 | 001 | The node VM boots the base image's kernel with its command line, on its overlay disk and its Docker store overlay, with its config drive read-only | unit |
 | 002 | Each data interface on a link or bridge is a tap named like its link end, and the management NIC is on the lab's management network | unit |
-| 003 | Retired: the node VM has no vsock; see 048 | — |
-| 004 | Retired: sherpad reads no vsock ID; see 048 | — |
 | 005 | Values in the domain XML are escaped | unit |
-| 006 | Retired: no files are archived into a container; see 012 | — |
-| 007 | Retired: no files are archived into a container; see 012 | — |
 | 008 | Updates, update reboots, SSH and console logins are off in the node VM and the Docker store VM | unit |
-| 009 | Retired: sherpad drives no Docker in the VM; see 040 and 049 | — |
 | 010 | Before Docker starts, the guest names each NIC, the management NIC `eth0`, by its lowercase MAC, and the VM runs no network manager | unit |
 | 011 | The serial console runs the network OS CLI | unit |
 | 012 | The container's volumes go on the config drive: a read-only one is mounted from the drive, a writable one is copied into the container when it is created | unit |
 | 013 | The console runs each model's CLI | unit |
-| 014 | Retired: the VM has no certificates; see 049 | — |
-| 015 | Retired: no model has a step of its own after its container starts; see 044 | — |
 | 016 | A node VM gets its container's memory, the manifest's or the image's, with 1024 MB on top, and its vCPUs | unit |
 | 017 | The containers of the three models run in node VMs and are handled as VMs; other containers stay Docker's | unit |
 | 018 | A lab with a node VM is refused before anything is created when the base image or its kernel is missing | unit |
@@ -105,7 +98,6 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 040 | Docker in a node VM listens on its local socket only and sets up no iptables rules | unit |
 | 041 | containerd in a node VM runs without the CRI plugins, on its usual socket | unit |
 | 042 | A node VM mounts its root filesystem without zeroing its inode tables, so its disk holds only what it writes | unit |
-| 043 | Retired: the node VM gives every model its management addresses; see 045 and 046 | — |
 | 044 | A node VM's container is created in the VM's network namespace, with no Docker network, the lab's name servers and domain, its hostname resolving, its mounts, privileges and command, Docker's `unless-stopped` restart policy and no image pull | unit |
 | 045 | A node VM's management NIC is given the node's IPv4 address, and its IPv6 address when the node and the lab's network have one, each with the network's prefix length and its gateway, as Docker gives a container on the network | unit |
 | 046 | Before Docker starts, the guest is given the management addresses and a default route through each gateway on `eth0` | unit |

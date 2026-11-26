@@ -287,23 +287,6 @@ A node VM gets the manifest's or the image's `memory` with 1024 MiB on top
 (`planned_resources`); admission counts that. In the VM the container has no limits: the VM is
 its limit.
 
-## Rejected alternatives
-
-The measurements behind each are on #683.
-
-- Docker's API over vsock with mutual TLS: a host kernel module, a CA per VM and a custom client
-  for what a unit and a config drive do.
-- Docker's API over TCP on the management network or over SSH: the VM has no address of its own.
-- A read-only Docker store shared by every node: dockerd refuses a read-only or overlayfs data
-  root; the qcow2 backing file shares the store instead.
-- The image baked into one disk per image with the base: more disk per image, a flattening copy,
-  and a new bake per Flatcar release.
-- Copying the image into each VM at start: minutes per node and a copy per node on disk.
-- Restoring a saved VM state: the state file is the VM's memory, and it keeps another node's MACs.
-- A PCIe NIC per unwired interface: each costs boot time; a veth costs none.
-- Ignition from `fw_cfg` with the QEMU image, a balloon with free page reporting, and kernel and
-  unit tweaks beyond those above: no gain measured.
-
 ## Limits
 
 - A shared bridge (`[[bridges]]` with Docker networks) does not reach a node VM's container.
@@ -319,5 +302,5 @@ The measurements behind each are on #683.
 - SR Linux's commit of its startup config fails with `Unacceptable syslog configuration` when
   its rsyslogd restarts take over about 60 s, as when the lab's name server does not answer; it
   then falls back to the next config, and the node has no `dev` login.
-- `frr_linux` and the `juniper_evolved` container still run privileged on the server.
+- `frr_linux` and the `juniper_evolved` container run privileged on the server's Docker.
 - Nothing removes a Docker store when its image is deleted or imported again.
