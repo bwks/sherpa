@@ -417,15 +417,6 @@ remove_systemd_service() {
         fi
     fi
     
-    # Remove the node VM module load, which only node VMs need
-    if [ -f /etc/modules-load.d/sherpa-node-vm.conf ]; then
-        if rm -f /etc/modules-load.d/sherpa-node-vm.conf; then
-            print_success "Node VM module load removed"
-        else
-            print_warning "Failed to remove /etc/modules-load.d/sherpa-node-vm.conf"
-        fi
-    fi
-
     # Remove logrotate config
     print_info "Removing logrotate configuration..."
     if [ -f /etc/logrotate.d/sherpad ]; then
