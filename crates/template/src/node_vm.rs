@@ -37,6 +37,7 @@ const MANAGEMENT_FILE: &str = "/etc/sherpa/management";
 const CONSOLE_COMMAND_FILE: &str = "/etc/sherpa/console";
 const CREATE_FILE: &str = "/etc/sherpa/create";
 const WRITABLE_FILE: &str = "/etc/sherpa/writable";
+const CREATED_MARKER: &str = "/var/lib/sherpa/created";
 const LINKS_SCRIPT_PATH: &str = "/opt/sherpa/links";
 const NODE_SCRIPT_PATH: &str = "/opt/sherpa/node";
 const CONSOLE_SCRIPT_PATH: &str = "/opt/sherpa/console";
@@ -113,6 +114,7 @@ pub struct NodeScript<'a> {
     pub create: &'a str,
     pub writable: &'a str,
     pub report: &'a str,
+    pub created: &'a str,
 }
 
 /// Docker's drop-in in a node VM.
@@ -227,6 +229,7 @@ impl NodeScript<'static> {
             create: CREATE_FILE,
             writable: WRITABLE_FILE,
             report: REPORT_SCRIPT_PATH,
+            created: CREATED_MARKER,
         }
     }
 }

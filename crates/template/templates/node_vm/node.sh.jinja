@@ -1,9 +1,10 @@
 #!/bin/bash
-# Starts the node's container, and reports to sherpad that it started or why it did not. The
-# first time, it creates the container from the arguments sherpad listed, separated by NUL
-# bytes, and copies the files of each writable volume into it, each line of the writable list a
-# file or folder on the config drive and its path in the container.
-# Later boots start the container it created, with what it wrote.
+# Starts the node's container, and reports to sherpad that it started or why it did not. Until
+# the container is created with its writable volumes in it, which a marker file records, each
+# boot creates the container afresh from the arguments sherpad listed, separated by NUL bytes,
+# and copies the files of each writable volume into it, each line of the writable list a file
+# or folder on the config drive and its path in the container. Later boots start the container
+# it created, with what it wrote.
 set -eEuo pipefail
 
 fail() {
@@ -13,7 +14,10 @@ fail() {
 trap 'fail "line $LINENO: $BASH_COMMAND"' ERR
 
 name=$(cat "{{ container }}")
-if ! docker container inspect "$name" > /dev/null 2>&1; then
+if [ ! -e "{{ created }}" ]; then
+  if docker container inspect "$name" > /dev/null 2>&1; then
+    output=$(docker rm -f "$name" 2>&1) || fail "cannot remove the unfinished container: $output"
+  fi
   mapfile -d '' args < "{{ create }}"
   output=$(docker create "${args[@]}" 2>&1) || fail "cannot create the container: $output"
   # The files only, made writable: the folders they go into keep their owner and mode, and
@@ -24,10 +28,17 @@ if ! docker container inspect "$name" > /dev/null 2>&1; then
     cp -R "$source" "$stage$destination"
   done < "{{ writable }}"
   chmod -R u+w "$stage"
-  output=$( (cd "$stage" && find . -type f -print0 |
+  if ! output=$( (cd "$stage" && find . -type f -print0 |
     tar --null --no-recursion --owner=0 --group=0 -cf - -T - |
-    docker cp - "$name:/") 2>&1) || fail "cannot copy the writable volumes into the container: $output"
+    docker cp - "$name:/") 2>&1); then
+    rm -rf "$stage"
+    docker rm -f "$name" > /dev/null 2>&1 || true
+    fail "cannot copy the writable volumes into the container: $output"
+  fi
   rm -rf "$stage"
+  mkdir -p "$(dirname "{{ created }}")"
+  touch "{{ created }}"
+  sync
 fi
 output=$(docker start "$name" 2>&1) || fail "cannot start the container: $output"
 "{{ report }}" started || true

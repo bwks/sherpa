@@ -1,10 +1,16 @@
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
 use askama::Template;
 use serde_json::Value;
+use tempfile::TempDir;
 
 use shared::util::base64_decode;
 use template::{
-    GuestAddress, GuestInterface, NODE_VM_CONFIG_DRIVE_MOUNT, NodeVmDomainTemplate, NodeVmGuest,
-    NodeVmManagement, NodeVmNic, WritableVolume, store_vm_ignition_json,
+    GuestAddress, GuestInterface, NODE_VM_CONFIG_DRIVE_MOUNT, NodeScript, NodeVmDomainTemplate,
+    NodeVmGuest, NodeVmManagement, NodeVmNic, WritableVolume, store_vm_ignition_json,
 };
 
 // ============================================================================
@@ -135,6 +141,113 @@ fn setting(config: &Value, unit_name: &str, section: &str, key: &str) -> String 
         section,
         key,
     )
+}
+
+/// A stand-in for Docker in the guest: it logs each command, has a container once `create` has
+/// made it until `rm` removes it, keeps what `cp` reads, and fails `cp` while `FAIL_CP` is set.
+const FAKE_DOCKER: &str = r#"#!/bin/bash
+echo "$*" >> "$SANDBOX/docker.log"
+case "$1" in
+  container) [ -e "$SANDBOX/container" ] ;;
+  create) touch "$SANDBOX/container" ;;
+  rm) rm -f "$SANDBOX/container" ;;
+  cp)
+    cat > "$SANDBOX/copied.tar"
+    if [ -n "${FAIL_CP:-}" ]; then
+      echo "no space left on device" >&2
+      exit 1
+    fi
+    ;;
+esac
+"#;
+
+/// A stand-in for the status report: it keeps each status line.
+const FAKE_REPORT: &str = r#"#!/bin/bash
+echo "$*" >> "$SANDBOX/reports"
+"#;
+
+/// The node script, run in a folder of its own with Docker and the report stubbed, as a node
+/// VM's boots run it.
+struct NodeSandbox {
+    dir: TempDir,
+}
+
+impl NodeSandbox {
+    fn new() -> Self {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path();
+        fs::create_dir(path.join("bin")).unwrap();
+        fs::write(path.join("container-name"), "srl1-abc12345\n").unwrap();
+        fs::write(path.join("create"), "--name\0srl1-abc12345\0srl:26\0").unwrap();
+        fs::write(path.join("config.json"), "{}").unwrap();
+        fs::write(
+            path.join("writable"),
+            format!(
+                "{} /etc/opt/srlinux/config.json\n",
+                path.join("config.json").display()
+            ),
+        )
+        .unwrap();
+        let sandbox = Self { dir };
+        sandbox.executable("bin/docker", FAKE_DOCKER);
+        sandbox.executable("report", FAKE_REPORT);
+        let script = NodeScript {
+            container: &sandbox.path("container-name"),
+            create: &sandbox.path("create"),
+            writable: &sandbox.path("writable"),
+            report: &sandbox.path("report"),
+            created: &sandbox.path("state/created"),
+        }
+        .render()
+        .unwrap();
+        sandbox.executable("node", &script);
+        sandbox
+    }
+
+    fn path(&self, name: &str) -> String {
+        self.dir.path().join(name).display().to_string()
+    }
+
+    fn executable(&self, name: &str, contents: &str) {
+        let path: PathBuf = self.dir.path().join(name);
+        fs::write(&path, contents).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// Boot once: run the script, with `cp` failing when `fail_cp`, and return whether it
+    /// succeeded.
+    fn boot(&self, fail_cp: bool) -> bool {
+        fs::write(self.dir.path().join("docker.log"), "").unwrap();
+        let mut command = Command::new("bash");
+        command
+            .arg(self.path("node"))
+            .env("SANDBOX", self.dir.path())
+            .env("PATH", format!("{}:/usr/bin:/bin", self.path("bin")));
+        if fail_cp {
+            command.env("FAIL_CP", "1");
+        }
+        command.status().unwrap().success()
+    }
+
+    fn docker_commands(&self) -> Vec<String> {
+        fs::read_to_string(self.dir.path().join("docker.log"))
+            .unwrap()
+            .lines()
+            .map(|line| line.split(' ').take(2).collect::<Vec<_>>().join(" "))
+            .collect()
+    }
+
+    fn reports(&self) -> Vec<String> {
+        fs::read_to_string(self.dir.path().join("reports"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    fn has(&self, name: &str) -> bool {
+        Path::new(&self.path(name)).exists()
+    }
 }
 
 fn domain() -> NodeVmDomainTemplate {
@@ -512,4 +625,65 @@ fn node_vm_051_both_vms_have_the_status_report_and_the_store_vm_loads_its_archiv
     );
     assert_eq!(unit(&store, "sherpa-store.service")["enabled"], true);
     assert!(!has_unit(&node, "sherpa-store.service"));
+}
+
+// ============================================================================
+// Node script
+// ============================================================================
+
+#[test]
+fn node_vm_057_a_copy_into_the_container_that_fails_removes_the_container_and_reports_why() {
+    let sandbox = NodeSandbox::new();
+    assert!(!sandbox.boot(true));
+    assert!(!sandbox.has("container"));
+    assert!(!sandbox.has("state/created"));
+    assert!(
+        !sandbox
+            .docker_commands()
+            .contains(&"start srl1-abc12345".to_owned())
+    );
+    let reports = sandbox.reports();
+    assert_eq!(reports.len(), 1);
+    assert!(
+        reports[0].starts_with("failed: cannot copy the writable volumes into the container: ")
+            && reports[0].contains("no space left on device"),
+        "{reports:?}"
+    );
+}
+
+#[test]
+fn node_vm_058_a_container_a_first_boot_left_without_its_volumes_is_created_again_with_them() {
+    let sandbox = NodeSandbox::new();
+    fs::write(sandbox.path("container"), "").unwrap();
+    assert!(sandbox.boot(false));
+    assert_eq!(
+        sandbox.docker_commands(),
+        [
+            "container inspect",
+            "rm -f",
+            "create --name",
+            "cp -",
+            "start srl1-abc12345"
+        ]
+    );
+    let listing = Command::new("tar")
+        .arg("-tf")
+        .arg(sandbox.path("copied.tar"))
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(listing.stdout).unwrap(),
+        "./etc/opt/srlinux/config.json\n"
+    );
+    assert!(sandbox.has("state/created"));
+    assert_eq!(sandbox.reports(), ["started"]);
+}
+
+#[test]
+fn node_vm_059_a_boot_after_the_container_was_made_only_starts_it() {
+    let sandbox = NodeSandbox::new();
+    assert!(sandbox.boot(false));
+    assert!(sandbox.boot(false));
+    assert_eq!(sandbox.docker_commands(), ["start srl1-abc12345"]);
+    assert_eq!(sandbox.reports(), ["started", "started"]);
 }

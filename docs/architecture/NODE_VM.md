@@ -117,7 +117,7 @@ which take their paths, labels, port names and MTU from the constants in
 | Unit | Runs | Does |
 |---|---|---|
 | `sherpa-links.service` | once per boot, before Docker | `links.sh`: names the NICs, addresses `eth0`, makes the interfaces on no link |
-| `sherpa-node.service` | once per boot, after Docker and `sherpa-links` | `node.sh`: on the first boot creates the container and copies the writable volumes into it; on every boot starts it, and reports |
+| `sherpa-node.service` | once per boot, after Docker and `sherpa-links` | `node.sh`: until `/var/lib/sherpa/created` exists, removes any container an earlier boot left, creates the container, copies the writable volumes into it and then writes that marker, removing the container when the copy fails; on every boot starts it, and reports |
 | `sherpa-console.service` | on `ttyS0`, restarted when it exits | `console.sh`: the network OS CLI (see Console) |
 | `var-lib-docker.mount` | before containerd and Docker | mounts the Docker disk, `noinit_itable` |
 | `media-config.mount` | at boot | mounts the config drive |
