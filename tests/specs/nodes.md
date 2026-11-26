@@ -70,7 +70,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 005 | Values in the domain XML are escaped | unit |
 | 006 | A node file is archived at its path in the container, padded to whole blocks, with a valid header | unit |
 | 007 | A long path goes into the header's prefix, and a relative or climbing path is refused | unit |
-| 008 | Updates, update reboots, SSH and console logins are off in the node VM | unit |
+| 008 | Updates, update reboots, SSH (on the network and on vsock) and console logins are off in the node VM | unit |
 | 009 | The VM's Docker listens on loopback only, requires a client certificate of the VM's CA, and is reached through vsock | unit |
 | 010 | The data NICs are named by their lowercase MAC, and the management NIC is renamed and kept up without an address | unit |
 | 011 | The serial console runs the network OS CLI | unit |

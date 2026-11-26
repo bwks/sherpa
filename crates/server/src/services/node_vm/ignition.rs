@@ -23,10 +23,11 @@ const CONSOLE_SCRIPT: &str = include_str!("console.sh");
 const ON_START_PATH: &str = "/opt/sherpa/on-start";
 /// Units a node VM never runs: updates and their reboots, SSH logins, the serial login, and
 /// the image's cloud metadata units, which wait for a network the VM does not have.
-const MASKED_UNITS: [&str; 10] = [
+const MASKED_UNITS: [&str; 11] = [
     "update-engine.service",
     "locksmithd.service",
     "sshd.socket",
+    "sshd-vsock.socket",
     "sshd.service",
     "serial-getty@ttyS0.service",
     "coreos-metadata-sshkeys@core.service",
@@ -282,6 +283,7 @@ mod tests {
             "update-engine.service",
             "locksmithd.service",
             "sshd.socket",
+            "sshd-vsock.socket",
             "serial-getty@ttyS0.service",
         ] {
             assert_eq!(unit_of(&config, name)["mask"], true, "{name}");

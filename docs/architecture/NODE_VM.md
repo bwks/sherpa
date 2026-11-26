@@ -82,7 +82,7 @@ in. It sets:
 
 - Updates and reboots off: `/etc/flatcar/update.conf` (`SERVER=disabled`, `REBOOT_STRATEGY=off`),
   and `update-engine` and `locksmithd` masked.
-- No login: no users, `sshd` masked, the serial getty masked. The OpenStack metadata units of the
+- No login: no users, `sshd` and its vsock socket masked, the serial getty masked. The OpenStack metadata units of the
   image are masked: the VM has no network of its own.
 - Networking: the management NIC is renamed `sherpa0` by MAC and kept up with no address; every
   other NIC is unmanaged.
