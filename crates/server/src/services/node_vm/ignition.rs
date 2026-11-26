@@ -18,6 +18,9 @@ use super::{NODE_VM_DOCKER_PORT, NODE_VM_MANAGEMENT_INTERFACE};
 const DOCKER_TLS_DIR: &str = "/etc/docker/tls";
 /// The local port dockerd's TLS listener takes; the vsock proxy hands connections to it.
 const DOCKER_TLS_LOCAL_PORT: u16 = 2376;
+/// containerd's config in the VM, and where it goes.
+const CONTAINERD_CONFIG: &str = include_str!("containerd.toml");
+const CONTAINERD_CONFIG_PATH: &str = "/etc/containerd/config.toml";
 /// The script that moves the data NICs into the container.
 const MOVE_NICS_SCRIPT: &str = include_str!("move-nics.sh");
 /// The script that runs the network OS CLI on the serial console.
@@ -103,7 +106,8 @@ fn interfaces_file(interfaces: &[(String, String)]) -> String {
 
 /// The files of Docker on its store disk with its API behind TLS, and of updates off. Docker
 /// sets up no iptables rules: the node's container has no default bridge and publishes no
-/// ports, and the rules take Docker's start time.
+/// ports, and the rules take Docker's start time. containerd runs without the CRI plugins,
+/// whose start takes its time too.
 fn docker_files(tls: &DockerTls<'_>) -> Vec<IgnitionFile> {
     let docker_options = format!(
         "[Service]\nEnvironment=\"DOCKER_OPTS=--host=tcp://127.0.0.1:{DOCKER_TLS_LOCAL_PORT} \
@@ -132,6 +136,12 @@ fn docker_files(tls: &DockerTls<'_>) -> Vec<IgnitionFile> {
             "/etc/systemd/system/docker.service.d/10-sherpa.conf",
             0o644,
             &docker_options,
+        ),
+        file(CONTAINERD_CONFIG_PATH, 0o644, CONTAINERD_CONFIG),
+        file(
+            "/etc/systemd/system/containerd.service.d/10-sherpa.conf",
+            0o644,
+            &format!("[Service]\nEnvironment=CONTAINERD_CONFIG={CONTAINERD_CONFIG_PATH}\n"),
         ),
     ]
 }
@@ -377,6 +387,26 @@ mod tests {
             "/etc/systemd/system/docker.service.d/10-sherpa.conf",
         );
         assert!(options.contains(" --iptables=false --ip6tables=false"));
+    }
+
+    #[test]
+    fn node_vm_041_containerd_in_the_node_vm_runs_without_the_cri_plugins() {
+        let config = config();
+        assert_eq!(
+            file_text(
+                &config,
+                "/etc/systemd/system/containerd.service.d/10-sherpa.conf"
+            ),
+            "[Service]\nEnvironment=CONTAINERD_CONFIG=/etc/containerd/config.toml\n"
+        );
+        let containerd: toml::Value =
+            toml::from_str(&file_text(&config, "/etc/containerd/config.toml")).unwrap();
+        let disabled = containerd["disabled_plugins"].as_array().unwrap();
+        assert!(disabled.contains(&toml::Value::from("io.containerd.grpc.v1.cri")));
+        assert_eq!(
+            containerd["grpc"]["address"].as_str(),
+            Some("/run/containerd/containerd.sock")
+        );
     }
 
     #[test]

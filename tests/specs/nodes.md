@@ -103,6 +103,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 038 | A second lab with the same image boots on the store the first made, with no image copy (no test yet) | e2e |
 | 039 | A node VM's first boot does not rebuild the library cache or the hardware database | unit |
 | 040 | Docker in a node VM sets up no iptables rules | unit |
+| 041 | containerd in a node VM runs without the CRI plugins, on its usual socket | unit |
 
 ## `node_ready`: a node is running only once its ready check passes
 

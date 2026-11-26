@@ -1,0 +1,18 @@
+# containerd in a node VM: Flatcar's own settings without the Kubernetes CRI plugins and NRI,
+# which Docker does not use.
+version = 2
+root = "/var/lib/containerd"
+state = "/run/containerd"
+oom_score = -999
+disabled_plugins = [
+    "io.containerd.grpc.v1.cri",
+    "io.containerd.cri.v1.images",
+    "io.containerd.cri.v1.runtime",
+    "io.containerd.podsandbox.controller.v1.podsandbox",
+    "io.containerd.nri.v1.nri",
+]
+
+[grpc]
+address = "/run/containerd/containerd.sock"
+uid = 0
+gid = 0
