@@ -57,10 +57,9 @@ use template::{
 };
 use topology::{NodeReadyCheck, SystemdUnitData};
 use virt::domain::Domain;
-use virt::error::ErrorNumber;
 use virt::network::Network;
 use virt::storage_pool::StoragePool;
-use virt::sys::{VIR_DOMAIN_RUNNING, VIR_DOMAIN_UNDEFINE_NVRAM};
+use virt::sys::VIR_DOMAIN_RUNNING;
 
 const SHERPA_BLANK_DISK_FAT32: &str = "fat32.img";
 const SHERPA_BLANK_DISK_IOSV: &str = "iosv.img";
@@ -264,16 +263,18 @@ struct ContainerZtp<'a> {
     cert_paths: Option<&'a NodeCertPaths>,
 }
 
-/// A container's settings: the manifest's, then changed by its model's setup.
-struct ContainerSetup {
-    image: String,
-    env_vars: Vec<String>,
-    volumes: Vec<String>,
-    commands: Vec<String>,
-    capabilities: Vec<String>,
-    privileged: bool,
-    shm_size: Option<i64>,
-    user: Option<String>,
+/// A container node's image and the settings it starts with: the manifest's, then changed by
+/// its model's setup.
+#[derive(Clone, Debug)]
+pub struct ContainerSettings {
+    pub image: String,
+    pub env_vars: Vec<String>,
+    pub volumes: Vec<data::ContainerMount>,
+    pub commands: Vec<String>,
+    pub capabilities: Vec<String>,
+    pub privileged: bool,
+    pub shm_size: Option<i64>,
+    pub user: Option<String>,
 }
 
 /// A VM's configuration media, each a source in the lab folder and its destination in the
@@ -289,14 +290,7 @@ struct VmZtpMedia {
 // ============================================================================
 
 pub struct ContainerZtpResult {
-    pub image: String,
-    pub env_vars: Vec<String>,
-    pub volumes: Vec<String>,
-    pub commands: Vec<String>,
-    pub capabilities: Vec<String>,
-    pub privileged: bool,
-    pub shm_size: Option<i64>,
-    pub user: Option<String>,
+    pub settings: ContainerSettings,
     pub ztp_record: data::ZtpRecord,
 }
 
@@ -572,7 +566,7 @@ pub(crate) fn generate_container_ztp(
         cert_paths,
     };
     let container = node.container.clone().unwrap_or_default();
-    let mut setup = ContainerSetup {
+    let mut setup = ContainerSettings {
         image: node.image.clone().unwrap_or_default(),
         env_vars: node.environment_variables.clone().unwrap_or_default(),
         volumes: Vec::new(),
@@ -598,16 +592,38 @@ pub(crate) fn generate_container_ztp(
     };
 
     Ok(ContainerZtpResult {
-        image: setup.image,
-        env_vars: setup.env_vars,
-        volumes: setup.volumes,
-        commands: setup.commands,
-        capabilities: setup.capabilities,
-        privileged: setup.privileged,
-        shm_size: setup.shm_size,
-        user: setup.user,
+        settings: setup,
         ztp_record,
     })
+}
+
+/// The container of node `node_name` in lab `lab_id`, from its generated `settings` and its
+/// image at `version`, on management network `management_network`, with no data networks and
+/// no limits.
+pub fn container_spec(
+    lab_id: &str,
+    node_name: &str,
+    version: &str,
+    settings: ContainerSettings,
+    management_network: data::ContainerNetworkAttachment,
+) -> ContainerSpec {
+    ContainerSpec {
+        name: format!("{node_name}-{lab_id}"),
+        // The node name, as its own config names it; Docker's default is the ID.
+        hostname: Some(node_name.to_owned()),
+        image: container::image_reference(&settings.image, version),
+        env_vars: settings.env_vars,
+        volumes: settings.volumes,
+        capabilities: settings.capabilities,
+        management_network,
+        additional_networks: Vec::new(),
+        commands: settings.commands,
+        privileged: settings.privileged,
+        shm_size: settings.shm_size,
+        user: settings.user,
+        memory_mib: None,
+        cpu_count: None,
+    }
 }
 
 /// Apply the container's ZTP setting. With ZTP off a container gets its model's start
@@ -619,7 +635,7 @@ fn container_model_setup(
     node_image: &data::NodeConfig,
     ztp: &ContainerZtp<'_>,
     setting: data::Ztp,
-    setup: &mut ContainerSetup,
+    setup: &mut ContainerSettings,
 ) -> Result<()> {
     match setting {
         data::Ztp::Disabled => container_start_settings(node, node_image, ztp, setup),
@@ -648,7 +664,7 @@ fn container_start_settings(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
     ztp: &ContainerZtp<'_>,
-    setup: &mut ContainerSetup,
+    setup: &mut ContainerSettings,
 ) -> Result<()> {
     match node.model_kind.model() {
         data::NodeModel::AristaEos => arista_eos_container_start(node, setup),
@@ -686,7 +702,7 @@ fn container_volume_ztp(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
     ztp: &ContainerZtp<'_>,
-    setup: &mut ContainerSetup,
+    setup: &mut ContainerSettings,
 ) -> Result<()> {
     match node.model_kind.model() {
         data::NodeModel::AristaEos => arista_eos_container_volume_ztp(node, ztp, setup),
@@ -712,7 +728,7 @@ fn add_container_volumes(
     node: &topology::NodeExpanded,
     setting: data::Ztp,
     cert_paths: Option<&NodeCertPaths>,
-    volumes: &mut Vec<String>,
+    volumes: &mut Vec<data::ContainerMount>,
 ) {
     let drops_manifest_volumes = setting == data::Ztp::Volume
         || matches!(
@@ -727,21 +743,24 @@ fn add_container_volumes(
         .and_then(|container| container.volumes.as_ref())
         && !drops_manifest_volumes
     {
-        volumes.extend(node_volumes.iter().map(|v| format!("{}:{}", v.src, v.dst)));
+        volumes.extend(
+            node_volumes
+                .iter()
+                .map(|v| data::ContainerMount::writable(&v.src, &v.dst)),
+        );
     }
     // Add TLS certificate volume mounts if cert paths are provided
     if let Some(certs) = cert_paths {
-        volumes.push(format!("{}:{}/ca.crt:ro", certs.ca_cert, NODE_CERTS_DIR));
-        volumes.push(format!(
-            "{}:{}/node.crt:ro",
-            certs.node_cert, NODE_CERTS_DIR
-        ));
-        volumes.push(format!("{}:{}/node.key:ro", certs.node_key, NODE_CERTS_DIR));
+        volumes.extend([
+            data::ContainerMount::read_only(&certs.ca_cert, format!("{NODE_CERTS_DIR}/ca.crt")),
+            data::ContainerMount::read_only(&certs.node_cert, format!("{NODE_CERTS_DIR}/node.crt")),
+            data::ContainerMount::read_only(&certs.node_key, format!("{NODE_CERTS_DIR}/node.key")),
+        ]);
     }
 }
 
 /// cEOS start settings: privileged, its environment and the init command.
-fn arista_eos_container_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) {
+fn arista_eos_container_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSettings) {
     setup.privileged = true;
     setup.env_vars = CONTAINER_ARISTA_CEOS_ENV_VARS
         .iter()
@@ -762,7 +781,7 @@ fn arista_eos_container_start(node: &mut topology::NodeExpanded, setup: &mut Con
 fn arista_eos_container_volume_ztp(
     node: &mut topology::NodeExpanded,
     ztp: &ContainerZtp<'_>,
-    setup: &mut ContainerSetup,
+    setup: &mut ContainerSettings,
 ) -> Result<()> {
     let ContainerZtp {
         dir,
@@ -803,7 +822,10 @@ fn arista_eos_container_volume_ztp(
         NODE_CONFIG_FILE_MODE,
     )?;
 
-    setup.volumes = vec![format!("{}:{}:ro", ztp_volume.src, ztp_volume.dst)];
+    setup.volumes = vec![data::ContainerMount::read_only(
+        &ztp_volume.src,
+        &ztp_volume.dst,
+    )];
     setup.commands = ceos_startup_commands();
 
     node.container.get_or_insert_default().volumes = Some(vec![ztp_volume]);
@@ -812,7 +834,7 @@ fn arista_eos_container_volume_ztp(
 }
 
 /// SR Linux start settings: privileged, its own user, environment and command.
-fn srlinux_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) {
+fn srlinux_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSettings) {
     setup.privileged = true;
     setup.user = Some(CONTAINER_NOKIA_SRLINUX_USER.to_string());
     setup.env_vars = CONTAINER_NOKIA_SRLINUX_ENV_VARS
@@ -838,7 +860,7 @@ fn srlinux_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) 
 fn srlinux_volume_ztp(
     node: &mut topology::NodeExpanded,
     ztp: &ContainerZtp<'_>,
-    setup: &mut ContainerSetup,
+    setup: &mut ContainerSettings,
 ) -> Result<()> {
     let ContainerZtp {
         dir,
@@ -867,7 +889,10 @@ fn srlinux_volume_ztp(
         NODE_CONFIG_FILE_MODE,
     )?;
 
-    setup.volumes = vec![format!("{}:{}", ztp_volume.src, ztp_volume.dst)];
+    setup.volumes = vec![data::ContainerMount::writable(
+        &ztp_volume.src,
+        &ztp_volume.dst,
+    )];
     node.container.get_or_insert_default().volumes = Some(vec![ztp_volume]);
     Ok(())
 }
@@ -877,7 +902,7 @@ fn srlinux_volume_ztp(
 fn cevolved_start(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
-    setup: &mut ContainerSetup,
+    setup: &mut ContainerSettings,
 ) -> Result<()> {
     // The entrypoint waits for this many data interfaces before it starts the EVO VM.
     let data_interfaces =
@@ -904,7 +929,7 @@ fn cevolved_volume_ztp(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
     ztp: &ContainerZtp<'_>,
-    setup: &mut ContainerSetup,
+    setup: &mut ContainerSettings,
 ) -> Result<()> {
     let ContainerZtp {
         dir,
@@ -946,7 +971,10 @@ fn cevolved_volume_ztp(
         NODE_CONFIG_FILE_MODE,
     )?;
 
-    setup.volumes = vec![format!("{}:{}:ro", config_volume.src, config_volume.dst)];
+    setup.volumes = vec![data::ContainerMount::read_only(
+        &config_volume.src,
+        &config_volume.dst,
+    )];
     node.container.get_or_insert_default().volumes = Some(vec![config_volume]);
     Ok(())
 }
@@ -959,7 +987,7 @@ fn iol_start(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
     ztp: &ContainerZtp<'_>,
-    setup: &mut ContainerSetup,
+    setup: &mut ContainerSettings,
 ) -> Result<()> {
     let data_interfaces =
         effective_data_interface_count(&node.name, node.interfaces.data_count, node_image)?;
@@ -972,7 +1000,9 @@ fn iol_start(
 
     let run_dir = format!("{}/run", ztp.dir);
     util::create_dir_with_permissions(Path::new(&run_dir), NODE_CONFIG_DIR_MODE)?;
-    setup.volumes.push(format!("{run_dir}:{CISCO_IOL_RUN_DIR}"));
+    setup
+        .volumes
+        .push(data::ContainerMount::writable(&run_dir, CISCO_IOL_RUN_DIR));
 
     node.environment_variables = Some(setup.env_vars.clone());
     Ok(())
@@ -998,7 +1028,7 @@ fn iol_volume_ztp(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
     ztp: &ContainerZtp<'_>,
-    setup: &mut ContainerSetup,
+    setup: &mut ContainerSettings,
 ) -> Result<()> {
     let ContainerZtp {
         dir,
@@ -1041,9 +1071,10 @@ fn iol_volume_ztp(
         NODE_CONFIG_FILE_MODE,
     )?;
 
-    setup
-        .volumes
-        .push(format!("{}:{}:ro", config_volume.src, config_volume.dst));
+    setup.volumes.push(data::ContainerMount::read_only(
+        &config_volume.src,
+        &config_volume.dst,
+    ));
     let run_volume = topology::VolumeMount {
         src: format!("{dir}/run"),
         dst: CISCO_IOL_RUN_DIR.to_string(),
@@ -1054,7 +1085,7 @@ fn iol_volume_ztp(
 
 /// FRR start settings: privileged and its environment. The image's own entrypoint
 /// and `daemons` file run it.
-fn frr_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) {
+fn frr_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSettings) {
     setup.privileged = true;
     setup.env_vars = CONTAINER_FRR_ENV_VARS
         .iter()
@@ -1070,7 +1101,7 @@ fn frr_start(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup) {
 fn frr_volume_ztp(
     node: &mut topology::NodeExpanded,
     ztp: &ContainerZtp<'_>,
-    setup: &mut ContainerSetup,
+    setup: &mut ContainerSettings,
 ) -> Result<()> {
     let ContainerZtp {
         dir,
@@ -1138,11 +1169,10 @@ fn frr_volume_ztp(
         dst: FRR_ZTP_STARTUP_MOUNT.to_string(),
     };
 
-    setup.volumes = vec![
-        format!("{}:{}", daemons_volume.src, daemons_volume.dst),
-        format!("{}:{}", config_volume.src, config_volume.dst),
-        format!("{}:{}", startup_volume.src, startup_volume.dst),
-    ];
+    setup.volumes = [&daemons_volume, &config_volume, &startup_volume]
+        .into_iter()
+        .map(|volume| data::ContainerMount::writable(&volume.src, &volume.dst))
+        .collect();
     setup.commands = vec!["/bin/sh".to_string(), FRR_ZTP_STARTUP_MOUNT.to_string()];
 
     node.container.get_or_insert_default().volumes =
@@ -1159,7 +1189,7 @@ fn sonic_container_start(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
     ztp: &ContainerZtp<'_>,
-    setup: &mut ContainerSetup,
+    setup: &mut ContainerSettings,
 ) -> Result<()> {
     let dir = ztp.dir;
     let supervisord = template::SonicLinuxContainerSupervisordTemplate {
@@ -1179,8 +1209,8 @@ fn sonic_container_start(
     // Mounted with the manifest's, which a node with ZTP off keeps, so the node's own mounts
     // stay as the manifest has them.
     setup.volumes.extend([
-        format!("{supervisord_file}:{SONIC_CONTAINER_SUPERVISORD_MOUNT}:ro"),
-        format!("{init_file}:{SONIC_CONTAINER_INIT_MOUNT}:ro"),
+        data::ContainerMount::read_only(supervisord_file, SONIC_CONTAINER_SUPERVISORD_MOUNT),
+        data::ContainerMount::read_only(init_file, SONIC_CONTAINER_INIT_MOUNT),
     ]);
     setup.commands = CONTAINER_SONIC_COMMANDS
         .iter()
@@ -1200,7 +1230,7 @@ fn sonic_container_volume_ztp(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
     ztp: &ContainerZtp<'_>,
-    setup: &mut ContainerSetup,
+    setup: &mut ContainerSettings,
 ) -> Result<()> {
     let ContainerZtp {
         dir,
@@ -1241,8 +1271,9 @@ fn sonic_container_volume_ztp(
         Some(SONIC_CONTAINER_CONFIG_DB_MOUNT),
     )?;
 
-    setup.volumes.push(format!(
-        "{config_file}:{SONIC_CONTAINER_CONFIG_DB_MOUNT}:ro"
+    setup.volumes.push(data::ContainerMount::read_only(
+        &config_file,
+        SONIC_CONTAINER_CONFIG_DB_MOUNT,
     ));
     // `volume` drops the manifest's mounts, so the node's are Sherpa's three.
     node.container.get_or_insert_default().volumes = Some(vec![
@@ -1291,7 +1322,11 @@ fn write_sonic_container_init(
 }
 
 /// An application container: its model's command.
-fn app_container(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup, commands: &[&str]) {
+fn app_container(
+    node: &mut topology::NodeExpanded,
+    setup: &mut ContainerSettings,
+    commands: &[&str],
+) {
     setup.commands = commands.iter().map(ToString::to_string).collect();
     node.container.get_or_insert_default().commands = Some(setup.commands.clone());
 }
@@ -1301,7 +1336,7 @@ fn app_container(node: &mut topology::NodeExpanded, setup: &mut ContainerSetup, 
 fn vault_container(
     node: &mut topology::NodeExpanded,
     ztp: &ContainerZtp<'_>,
-    setup: &mut ContainerSetup,
+    setup: &mut ContainerSettings,
 ) -> Result<()> {
     let ContainerZtp {
         dir,
@@ -1349,7 +1384,10 @@ fn vault_container(
         }
         vault_env_vars(node_ipv4_address)
     };
-    setup.volumes = vec![format!("{}:{}", config_volume.src, config_volume.dst)];
+    setup.volumes = vec![data::ContainerMount::writable(
+        &config_volume.src,
+        &config_volume.dst,
+    )];
     setup.commands = CONTAINER_HASHICORP_VAULT_COMMANDS
         .iter()
         .map(ToString::to_string)
@@ -1367,7 +1405,7 @@ fn vault_container(
 fn keycloak_container(
     node: &mut topology::NodeExpanded,
     ztp: &ContainerZtp<'_>,
-    setup: &mut ContainerSetup,
+    setup: &mut ContainerSettings,
 ) -> Result<()> {
     if ztp.cert_paths.is_none() {
         bail!(
@@ -1405,7 +1443,7 @@ fn keycloak_container(
 fn surreal_db_container(
     node: &mut topology::NodeExpanded,
     ztp: &ContainerZtp<'_>,
-    setup: &mut ContainerSetup,
+    setup: &mut ContainerSettings,
 ) -> Result<()> {
     let admin = ensure_surreal_db_credentials(
         &Path::new(ztp.lab_dir).join(SURREAL_DB_DIR),
@@ -1907,31 +1945,23 @@ fn build_ignition_cert_files(
     let node_key_content = fs::read_to_string(&cert_paths.node_key)
         .with_context(|| format!("Failed to read node key: {}", cert_paths.node_key))?;
 
-    let ca_b64 = util::base64_encode(&ca_cert_content);
-    let cert_b64 = util::base64_encode(&node_cert_content);
-    let key_b64 = util::base64_encode(&node_key_content);
-
     Ok(vec![
         IgnitionFile {
             path: format!("{target_dir}/ca.crt"),
             mode: FileMode::new(0o644),
-            contents: Some(IgnitionFileContents::new(&format!("data:;base64,{ca_b64}"))),
+            contents: Some(IgnitionFileContents::base64(&ca_cert_content)),
             ..Default::default()
         },
         IgnitionFile {
             path: format!("{target_dir}/node.crt"),
             mode: FileMode::new(0o644),
-            contents: Some(IgnitionFileContents::new(&format!(
-                "data:;base64,{cert_b64}"
-            ))),
+            contents: Some(IgnitionFileContents::base64(&node_cert_content)),
             ..Default::default()
         },
         IgnitionFile {
             path: format!("{target_dir}/node.key"),
             mode: FileMode::new(0o600),
-            contents: Some(IgnitionFileContents::new(&format!(
-                "data:;base64,{key_b64}"
-            ))),
+            contents: Some(IgnitionFileContents::base64(&node_key_content)),
             ..Default::default()
         },
     ])
@@ -2120,15 +2150,13 @@ fn build_ignition_home_directories(
 /// loader to `~/.bash_profile`, which Flatcar copies from the skeleton for every user.
 fn build_ignition_user_env(env_vars: &[String], username: &str) -> Vec<IgnitionFile> {
     let home = format!("/home/{username}");
-    let env_b64 = util::base64_encode(&build_env_profile_script(env_vars));
-    let loader_b64 = util::base64_encode(&format!("\n{}\n", user_env_loader()));
     vec![
         IgnitionFile {
             path: format!("{home}/{NODE_USER_ENV_FILE}"),
             mode: FileMode::new(0o600),
             overwrite: Some(true),
-            contents: Some(IgnitionFileContents::new(&format!(
-                "data:;base64,{env_b64}"
+            contents: Some(IgnitionFileContents::base64(&build_env_profile_script(
+                env_vars,
             ))),
             user: Some(template::IgnitionFileParams {
                 name: username.to_owned(),
@@ -2141,8 +2169,9 @@ fn build_ignition_user_env(env_vars: &[String], username: &str) -> Vec<IgnitionF
         IgnitionFile {
             path: format!("{home}/.bash_profile"),
             mode: FileMode::new(0o644),
-            append: vec![IgnitionFileContents::new(&format!(
-                "data:;base64,{loader_b64}"
+            append: vec![IgnitionFileContents::base64(&format!(
+                "\n{}\n",
+                user_env_loader()
             ))],
             user: Some(template::IgnitionFileParams {
                 name: username.to_owned(),
@@ -3519,13 +3548,10 @@ fn generate_ignition_ztp(
 
 /// The files every Ignition node gets: its hostname, and updates off.
 fn ignition_base_files(node_name: &str) -> Vec<IgnitionFile> {
-    let hostname_file = IgnitionFile {
-        path: "/etc/hostname".to_owned(),
-        mode: FileMode::new(0o644),
-        contents: Some(IgnitionFileContents::new(&format!("data:,{node_name}"))),
-        ..Default::default()
-    };
-    vec![hostname_file, IgnitionFile::disable_updates()]
+    vec![
+        IgnitionFile::hostname(node_name),
+        IgnitionFile::disable_updates(),
+    ]
 }
 
 /// The manifest's text files as Ignition files, with their modes and owners.
@@ -4522,28 +4548,12 @@ pub async fn destroy_vm_node(
 ) -> Result<()> {
     let node_name_with_lab = format!("{node_name}-{lab_id}");
 
-    // Destroy and undefine VM domain
     let conn = qemu_conn.clone();
     let vm_name = node_name_with_lab.clone();
-    task::spawn_blocking(move || -> Result<()> {
-        match Domain::lookup_by_name(&conn, &vm_name) {
-            Ok(domain) => {
-                if domain.is_active()? {
-                    domain.destroy()?;
-                }
-                domain.undefine_flags(VIR_DOMAIN_UNDEFINE_NVRAM)?;
-                tracing::info!(vm_name = %vm_name, "VM destroyed and undefined");
-            }
-            Err(error) if error.code() == ErrorNumber::NoDomain => {}
-            Err(error) => {
-                return Err(error).context("Cannot determine VM existence; refusing disk removal");
-            }
-        }
-
-        Ok(())
-    })
-    .await
-    .map_err(|e| anyhow!("Task join error: {e:?}"))??;
+    task::spawn_blocking(move || libvirt::remove_domain(&conn, &vm_name))
+        .await
+        .context("The VM removal panicked")?
+        .context("Cannot remove the VM; refusing disk removal")?;
 
     // Delete VM disks from storage pool
     let conn = qemu_conn.clone();
@@ -6001,6 +6011,11 @@ echo "$*" >> '{}'
         }
     }
 
+    /// Docker's bind form of each of `volumes`.
+    fn binds(volumes: &[data::ContainerMount]) -> Vec<String> {
+        volumes.iter().map(data::ContainerMount::bind).collect()
+    }
+
     fn named_node(name: &str, model: data::NodeModel) -> topology::NodeExpanded {
         topology::NodeExpanded {
             name: name.to_owned(),
@@ -6441,10 +6456,10 @@ echo "$*" >> '{}'
         assert_eq!(result.ztp_record.ztp, data::Ztp::Volume);
         assert_eq!(lab.files(), ["ceos01/ceos01.conf"]);
         assert_eq!(
-            result.volumes,
+            binds(&result.settings.volumes),
             [format!("{config}:{ARISTA_CEOS_ZTP_VOLUME_MOUNT}:ro")]
         );
-        assert_eq!(result.commands, ceos_startup_commands());
+        assert_eq!(result.settings.commands, ceos_startup_commands());
         let with_ztp = result;
 
         let lab = ZtpLab::new();
@@ -6454,11 +6469,18 @@ echo "$*" >> '{}'
 
         assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled);
         assert!(lab.files().is_empty(), "{:?}", lab.files());
-        assert!(result.volumes.is_empty(), "{:?}", result.volumes);
-        assert_eq!(result.commands, strings(CONTAINER_ARISTA_CEOS_COMMANDS));
-        assert_eq!(result.image, with_ztp.image);
-        assert_eq!(result.env_vars, with_ztp.env_vars);
-        assert!(result.privileged);
+        assert!(
+            result.settings.volumes.is_empty(),
+            "{:?}",
+            result.settings.volumes
+        );
+        assert_eq!(
+            result.settings.commands,
+            strings(CONTAINER_ARISTA_CEOS_COMMANDS)
+        );
+        assert_eq!(result.settings.image, with_ztp.settings.image);
+        assert_eq!(result.settings.env_vars, with_ztp.settings.env_vars);
+        assert!(result.settings.privileged);
     }
 
     #[test]
@@ -6469,7 +6491,7 @@ echo "$*" >> '{}'
         let config = format!("{}/srl01/srl01.json", lab.root());
         assert_eq!(lab.files(), ["srl01/srl01.json"]);
         assert_eq!(
-            with_ztp.volumes,
+            binds(&with_ztp.settings.volumes),
             [format!("{config}:{NOKIA_SRLINUX_ZTP_VOLUME_MOUNT}")]
         );
 
@@ -6477,15 +6499,25 @@ echo "$*" >> '{}'
         let mut node = named_node("srl01", data::NodeModel::NokiaSrlinux);
         let off = lab.container(&mut node, Some(data::Ztp::Disabled)).unwrap();
         assert!(lab.files().is_empty(), "{:?}", lab.files());
-        assert!(off.volumes.is_empty(), "{:?}", off.volumes);
+        assert!(
+            off.settings.volumes.is_empty(),
+            "{:?}",
+            off.settings.volumes
+        );
         // The start settings are the same either way.
-        assert_eq!(off.image, with_ztp.image);
-        assert_eq!(off.env_vars, with_ztp.env_vars);
-        assert_eq!(off.commands, with_ztp.commands);
-        assert_eq!(off.commands, strings(CONTAINER_NOKIA_SRLINUX_COMMANDS));
-        assert_eq!(off.user, Some(CONTAINER_NOKIA_SRLINUX_USER.to_owned()));
-        assert_eq!(off.user, with_ztp.user);
-        assert!(off.privileged);
+        assert_eq!(off.settings.image, with_ztp.settings.image);
+        assert_eq!(off.settings.env_vars, with_ztp.settings.env_vars);
+        assert_eq!(off.settings.commands, with_ztp.settings.commands);
+        assert_eq!(
+            off.settings.commands,
+            strings(CONTAINER_NOKIA_SRLINUX_COMMANDS)
+        );
+        assert_eq!(
+            off.settings.user,
+            Some(CONTAINER_NOKIA_SRLINUX_USER.to_owned())
+        );
+        assert_eq!(off.settings.user, with_ztp.settings.user);
+        assert!(off.settings.privileged);
     }
 
     #[test]
@@ -6498,7 +6530,7 @@ echo "$*" >> '{}'
             [format!("ptx01/configdisk/{JUNIPER_ZTP_CONFIG}")]
         );
         assert_eq!(
-            with_ztp.volumes,
+            binds(&with_ztp.settings.volumes),
             [format!(
                 "{}/ptx01/configdisk:{JUNIPER_CEVOLVED_CONFIG_DIR}:ro",
                 lab.root()
@@ -6509,9 +6541,13 @@ echo "$*" >> '{}'
         let mut node = named_container("ptx01", data::NodeModel::JuniperEvolved);
         let off = lab.container(&mut node, Some(data::Ztp::Disabled)).unwrap();
         assert!(lab.files().is_empty(), "{:?}", lab.files());
-        assert!(off.volumes.is_empty(), "{:?}", off.volumes);
-        assert_eq!(off.image, with_ztp.image);
-        assert!(off.privileged);
+        assert!(
+            off.settings.volumes.is_empty(),
+            "{:?}",
+            off.settings.volumes
+        );
+        assert_eq!(off.settings.image, with_ztp.settings.image);
+        assert!(off.settings.privileged);
     }
 
     #[test]
@@ -6525,25 +6561,36 @@ echo "$*" >> '{}'
             ["frr01/daemons", "frr01/frr.conf", "frr01/sherpa-init.sh"]
         );
         assert_eq!(
-            with_ztp.volumes,
+            binds(&with_ztp.settings.volumes),
             [
                 format!("{dir}/daemons:{FRR_ZTP_DAEMONS_MOUNT}"),
                 format!("{dir}/frr.conf:{FRR_ZTP_CONFIG_MOUNT}"),
                 format!("{dir}/sherpa-init.sh:{FRR_ZTP_STARTUP_MOUNT}"),
             ]
         );
-        assert_eq!(with_ztp.commands, ["/bin/sh", FRR_ZTP_STARTUP_MOUNT]);
+        assert_eq!(
+            with_ztp.settings.commands,
+            ["/bin/sh", FRR_ZTP_STARTUP_MOUNT]
+        );
 
         let lab = ZtpLab::new();
         let mut node = named_node("frr01", data::NodeModel::FrrLinux);
         let off = lab.container(&mut node, Some(data::Ztp::Disabled)).unwrap();
         assert!(lab.files().is_empty(), "{:?}", lab.files());
-        assert!(off.volumes.is_empty(), "{:?}", off.volumes);
+        assert!(
+            off.settings.volumes.is_empty(),
+            "{:?}",
+            off.settings.volumes
+        );
         // The image's own entrypoint runs it.
-        assert!(off.commands.is_empty(), "{:?}", off.commands);
-        assert_eq!(off.image, with_ztp.image);
-        assert_eq!(off.env_vars, with_ztp.env_vars);
-        assert!(off.privileged);
+        assert!(
+            off.settings.commands.is_empty(),
+            "{:?}",
+            off.settings.commands
+        );
+        assert_eq!(off.settings.image, with_ztp.settings.image);
+        assert_eq!(off.settings.env_vars, with_ztp.settings.env_vars);
+        assert!(off.settings.privileged);
     }
 
     #[test]
@@ -6563,16 +6610,19 @@ echo "$*" >> '{}'
             ]
         );
         assert_eq!(
-            result.volumes,
+            binds(&result.settings.volumes),
             [
                 format!("{dir}/supervisord.conf:{SONIC_CONTAINER_SUPERVISORD_MOUNT}:ro"),
                 format!("{dir}/sherpa-init.sh:{SONIC_CONTAINER_INIT_MOUNT}:ro"),
                 format!("{dir}/config_db.json:{SONIC_CONTAINER_CONFIG_DB_MOUNT}:ro"),
             ]
         );
-        assert_eq!(result.commands, ["-c", "/mnt/sherpa-ztp/supervisord.conf"]);
-        assert!(result.privileged);
-        assert_eq!(result.image, "");
+        assert_eq!(
+            result.settings.commands,
+            ["-c", "/mnt/sherpa-ztp/supervisord.conf"]
+        );
+        assert!(result.settings.privileged);
+        assert_eq!(result.settings.image, "");
 
         let mounts = node.container.unwrap().volumes.unwrap();
         assert_eq!(mounts.len(), 3);
@@ -6591,14 +6641,14 @@ echo "$*" >> '{}'
             ["sonic01/sherpa-init.sh", "sonic01/supervisord.conf"]
         );
         assert_eq!(
-            off.volumes,
+            binds(&off.settings.volumes),
             [
                 format!("{dir}/supervisord.conf:{SONIC_CONTAINER_SUPERVISORD_MOUNT}:ro"),
                 format!("{dir}/sherpa-init.sh:{SONIC_CONTAINER_INIT_MOUNT}:ro"),
             ]
         );
-        assert_eq!(off.commands, strings(CONTAINER_SONIC_COMMANDS));
-        assert!(off.privileged);
+        assert_eq!(off.settings.commands, strings(CONTAINER_SONIC_COMMANDS));
+        assert!(off.settings.privileged);
         let init = fs::read_to_string(format!("{dir}/sherpa-init.sh")).unwrap();
         assert!(init.contains("DATA_COUNT=4\n"));
         assert!(!init.contains("useradd"));
@@ -6674,7 +6724,7 @@ echo "$*" >> '{}'
                 "{model}"
             );
             assert_eq!(
-                result.volumes,
+                binds(&result.settings.volumes),
                 [
                     format!("{dir}/run:{CISCO_IOL_RUN_DIR}"),
                     format!("{dir}/config:{CISCO_IOL_CONFIG_DIR}:ro"),
@@ -6693,15 +6743,23 @@ echo "$*" >> '{}'
 
             let result = lab.container(&mut node, None).unwrap();
 
-            assert!(!result.privileged, "{model}");
-            assert_eq!(result.capabilities, ["NET_ADMIN"], "{model}");
+            assert!(!result.settings.privileged, "{model}");
+            assert_eq!(result.settings.capabilities, ["NET_ADMIN"], "{model}");
             assert_eq!(
-                result.env_vars,
+                result.settings.env_vars,
                 ["IOL_ID=3", "IOL_MEMORY_MB=768", "IOL_ETH_PORTS=16"],
                 "{model}"
             );
-            assert!(result.commands.is_empty(), "{model}: {:?}", result.commands);
-            assert_eq!(node.environment_variables, Some(result.env_vars), "{model}");
+            assert!(
+                result.settings.commands.is_empty(),
+                "{model}: {:?}",
+                result.settings.commands
+            );
+            assert_eq!(
+                node.environment_variables,
+                Some(result.settings.env_vars),
+                "{model}"
+            );
         }
     }
 
@@ -6715,7 +6773,7 @@ echo "$*" >> '{}'
         let result = lab.container(&mut node, None).unwrap();
 
         assert_eq!(
-            result.env_vars,
+            result.settings.env_vars,
             ["IOL_ID=1", "IOL_MEMORY_MB=1024", "IOL_ETH_PORTS=6"]
         );
     }
@@ -6731,14 +6789,14 @@ echo "$*" >> '{}'
         assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled);
         assert!(lab.files().is_empty(), "{:?}", lab.files());
         assert_eq!(
-            result.volumes,
+            binds(&result.settings.volumes),
             [
                 format!("{}/r1/run:{CISCO_IOL_RUN_DIR}", lab.root()),
                 "/srv/own.conf:/etc/own.conf".to_owned(),
             ]
         );
         assert_eq!(
-            result.env_vars,
+            result.settings.env_vars,
             ["IOL_ID=2", "IOL_MEMORY_MB=768", "IOL_ETH_PORTS=16"]
         );
     }
@@ -6854,9 +6912,9 @@ echo "$*" >> '{}'
             node.environment_variables = Some(strings(&["KEY=value"]));
             let result = lab.container(&mut node, None).unwrap();
             assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled, "{model}");
-            assert_eq!(result.image, "example/app", "{model}");
-            assert_eq!(result.commands, ["serve"], "{model}");
-            assert_eq!(result.env_vars, ["KEY=value"], "{model}");
+            assert_eq!(result.settings.image, "example/app", "{model}");
+            assert_eq!(result.settings.commands, ["serve"], "{model}");
+            assert_eq!(result.settings.env_vars, ["KEY=value"], "{model}");
             assert!(lab.files().is_empty(), "{model}");
         }
     }
@@ -6872,10 +6930,13 @@ echo "$*" >> '{}'
         let config = format!("{}/vault01/config.hcl", lab.root());
         assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled);
         assert_eq!(
-            result.volumes,
+            binds(&result.settings.volumes),
             [format!("{config}:{VAULT_ZTP_CONFIG_MOUNT}")]
         );
-        assert_eq!(result.commands, strings(CONTAINER_HASHICORP_VAULT_COMMANDS));
+        assert_eq!(
+            result.settings.commands,
+            strings(CONTAINER_HASHICORP_VAULT_COMMANDS)
+        );
         assert_eq!(fs::read_to_string(config).unwrap(), "ui = true");
     }
 
@@ -6899,9 +6960,15 @@ echo "$*" >> '{}'
         .unwrap();
 
         assert_eq!(result.ztp_record.ztp, data::Ztp::Disabled);
-        assert_eq!(result.commands, strings(CONTAINER_KEYCLOAK_COMMANDS));
-        assert_eq!(result.user, Some(CONTAINER_KEYCLOAK_USER.to_owned()));
-        assert_eq!(result.volumes.len(), 3, "the certificate mounts");
+        assert_eq!(
+            result.settings.commands,
+            strings(CONTAINER_KEYCLOAK_COMMANDS)
+        );
+        assert_eq!(
+            result.settings.user,
+            Some(CONTAINER_KEYCLOAK_USER.to_owned())
+        );
+        assert_eq!(result.settings.volumes.len(), 3, "the certificate mounts");
         assert_eq!(lab.files(), ["keycloak/kc01.toml"]);
     }
 
@@ -6935,10 +7002,10 @@ echo "$*" >> '{}'
         let lab = ZtpLab::new();
         let kc01 = keycloak_settings(&lab, "kc01");
         assert_eq!(
-            env_value(&kc01.env_vars, "KC_BOOTSTRAP_ADMIN_USERNAME"),
+            env_value(&kc01.settings.env_vars, "KC_BOOTSTRAP_ADMIN_USERNAME"),
             Some("admin")
         );
-        let password = env_value(&kc01.env_vars, "KC_BOOTSTRAP_ADMIN_PASSWORD")
+        let password = env_value(&kc01.settings.env_vars, "KC_BOOTSTRAP_ADMIN_PASSWORD")
             .unwrap()
             .to_owned();
         assert_eq!(password.len(), 20);
@@ -6950,12 +7017,12 @@ echo "$*" >> '{}'
         // A second node gets its own; a redeploy keeps the node's.
         let kc02 = keycloak_settings(&lab, "kc02");
         assert_ne!(
-            env_value(&kc02.env_vars, "KC_BOOTSTRAP_ADMIN_PASSWORD"),
+            env_value(&kc02.settings.env_vars, "KC_BOOTSTRAP_ADMIN_PASSWORD"),
             Some(password.as_str())
         );
         let redeployed = keycloak_settings(&lab, "kc01");
         assert_eq!(
-            env_value(&redeployed.env_vars, "KC_BOOTSTRAP_ADMIN_PASSWORD"),
+            env_value(&redeployed.settings.env_vars, "KC_BOOTSTRAP_ADMIN_PASSWORD"),
             Some(password.as_str())
         );
     }
@@ -6977,8 +7044,8 @@ echo "$*" >> '{}'
 
         assert!(output.contains("db01"), "the setup was logged: {output}");
         for password in [
-            env_value(&keycloak.env_vars, "KC_BOOTSTRAP_ADMIN_PASSWORD").unwrap(),
-            env_value(&surreal_db.env_vars, "SURREAL_PASS").unwrap(),
+            env_value(&keycloak.settings.env_vars, "KC_BOOTSTRAP_ADMIN_PASSWORD").unwrap(),
+            env_value(&surreal_db.settings.env_vars, "SURREAL_PASS").unwrap(),
         ] {
             assert!(!output.contains(password), "{output}");
         }
@@ -6990,13 +7057,22 @@ echo "$*" >> '{}'
         let lab = ZtpLab::new();
         let mut db01 = named_node("db01", data::NodeModel::SurrealDb);
         let created = lab.container(&mut db01, None).unwrap();
-        assert_eq!(env_value(&created.env_vars, "SURREAL_USER"), Some("root"));
-        let password = env_value(&created.env_vars, "SURREAL_PASS")
+        assert_eq!(
+            env_value(&created.settings.env_vars, "SURREAL_USER"),
+            Some("root")
+        );
+        let password = env_value(&created.settings.env_vars, "SURREAL_PASS")
             .unwrap()
             .to_owned();
         assert_eq!(password.len(), 20);
         // Not on the command line, which every user of the host can read.
-        assert!(created.commands.iter().all(|arg| !arg.contains(&password)));
+        assert!(
+            created
+                .settings
+                .commands
+                .iter()
+                .all(|arg| !arg.contains(&password))
+        );
 
         let saved = format!("{}/{SURREAL_DB_DIR}/db01.toml", lab.root());
         assert!(fs::read_to_string(&saved).unwrap().contains(&password));
@@ -7004,13 +7080,13 @@ echo "$*" >> '{}'
         let mut db02 = named_node("db02", data::NodeModel::SurrealDb);
         let other = lab.container(&mut db02, None).unwrap();
         assert_ne!(
-            env_value(&other.env_vars, "SURREAL_PASS"),
+            env_value(&other.settings.env_vars, "SURREAL_PASS"),
             Some(password.as_str())
         );
         let mut db01 = named_node("db01", data::NodeModel::SurrealDb);
         let redeployed = lab.container(&mut db01, None).unwrap();
         assert_eq!(
-            env_value(&redeployed.env_vars, "SURREAL_PASS"),
+            env_value(&redeployed.settings.env_vars, "SURREAL_PASS"),
             Some(password.as_str())
         );
     }
@@ -7020,7 +7096,7 @@ echo "$*" >> '{}'
         // At `trace` SurrealDB logs request bodies, a `/signin` password among them.
         let lab = ZtpLab::new();
         let mut node = named_node("db01", data::NodeModel::SurrealDb);
-        let commands = lab.container(&mut node, None).unwrap().commands;
+        let commands = lab.container(&mut node, None).unwrap().settings.commands;
         assert!(
             commands.windows(2).any(|pair| pair == ["--log", "info"]),
             "{commands:?}"
@@ -7045,7 +7121,11 @@ echo "$*" >> '{}'
             let mut node = named_container("node1", model);
             node.container.get_or_insert_default().volumes = Some(manifest_volume());
             let off = lab.container(&mut node, Some(data::Ztp::Disabled)).unwrap();
-            assert_eq!(off.volumes, ["/srv/own.conf:/etc/own.conf"], "{model}");
+            assert_eq!(
+                binds(&off.settings.volumes),
+                ["/srv/own.conf:/etc/own.conf"],
+                "{model}"
+            );
 
             let lab = ZtpLab::new();
             let mut node = named_container("node1", model);
@@ -7053,13 +7133,14 @@ echo "$*" >> '{}'
             let with_ztp = lab.container(&mut node, None).unwrap();
             assert!(
                 !with_ztp
+                    .settings
                     .volumes
                     .iter()
-                    .any(|volume| volume.contains("own.conf")),
+                    .any(|volume| volume.source.contains("own.conf")),
                 "{model}: {:?}",
-                with_ztp.volumes
+                with_ztp.settings.volumes
             );
-            assert!(!with_ztp.volumes.is_empty(), "{model}");
+            assert!(!with_ztp.settings.volumes.is_empty(), "{model}");
         }
     }
 
@@ -7077,11 +7158,12 @@ echo "$*" >> '{}'
             let result = lab.container(&mut node, None).unwrap();
             assert!(
                 !result
+                    .settings
                     .volumes
                     .iter()
-                    .any(|volume| volume.contains("own.conf")),
+                    .any(|volume| volume.source.contains("own.conf")),
                 "{model}: {:?}",
-                result.volumes
+                result.settings.volumes
             );
         }
         // The other application containers take them, as before.
@@ -7089,7 +7171,10 @@ echo "$*" >> '{}'
         let mut node = named_node("db01", data::NodeModel::MongoDb);
         node.container.get_or_insert_default().volumes = Some(manifest_volume());
         let result = lab.container(&mut node, None).unwrap();
-        assert_eq!(result.volumes, ["/srv/own.conf:/etc/own.conf"]);
+        assert_eq!(
+            binds(&result.settings.volumes),
+            ["/srv/own.conf:/etc/own.conf"]
+        );
     }
 
     /// A lab folder with the network boot files of nodes `sw1` and `sw10`: each one's TFTP

@@ -16,7 +16,7 @@ use crate::konst::{
 use crate::services::boot_server;
 use crate::services::console;
 use crate::services::guest_account::GuestAccount;
-use crate::services::node_ops::{self, DomainParts, LabZtp};
+use crate::services::node_ops::{self, ContainerSettings, DomainParts, LabZtp};
 use crate::services::node_resources;
 use crate::services::talos;
 use crate::services::talos::LabCluster;
@@ -47,7 +47,7 @@ pub(super) struct NodeConfigs {
     pub(super) lab_ca: LabCa,
     pub(super) ztp_dir: String,
     pub(super) ztp_records: Vec<data::ZtpRecord>,
-    pub(super) container_volumes: HashMap<String, Vec<String>>,
+    pub(super) container_settings: HashMap<String, ContainerSettings>,
     pub(super) clone_disks: Vec<data::CloneDisk>,
     pub(super) domains: Vec<template::DomainTemplate>,
     pub(super) unikernel_domains: Vec<template::UnikernelDomainTemplate>,
@@ -98,10 +98,10 @@ pub(super) async fn configure_nodes(
         ztp_records: Vec::new(),
         clone_disks: Vec::new(),
     };
-    let mut container_volumes = HashMap::new();
+    let mut container_settings = HashMap::new();
     for node in container_nodes.iter_mut() {
-        let volumes = configuring.configure_container(node).await?;
-        container_volumes.insert(node.name.clone(), volumes);
+        let settings = configuring.configure_container(node).await?;
+        container_settings.insert(node.name.clone(), settings);
     }
 
     tracing::info!(
@@ -128,7 +128,7 @@ pub(super) async fn configure_nodes(
         lab_ca,
         ztp_dir,
         ztp_records,
-        container_volumes,
+        container_settings,
         clone_disks,
         domains,
         unikernel_domains,
@@ -214,12 +214,12 @@ impl Configuring<'_, '_> {
         )
     }
 
-    /// Configure a container node. Returns the volumes it is created with: its own and the lab
-    /// certificate mounts.
+    /// Configure a container node. Returns the settings it is created with, its mounts with
+    /// the lab certificate mounts.
     async fn configure_container(
         &mut self,
         node: &mut topology::NodeExpanded,
-    ) -> Result<Vec<String>> {
+    ) -> Result<ContainerSettings> {
         decode_ztp_config(node)?;
         let node_image = self.image(node)?;
         let ipv4 = self.assign_addresses(node).await?;
@@ -232,7 +232,7 @@ impl Configuring<'_, '_> {
             Some(&cert_paths),
         )?;
         self.ztp_records.push(ztp_result.ztp_record);
-        Ok(ztp_result.volumes)
+        Ok(ztp_result.settings)
     }
 
     /// Plan the lab's Kubernetes clusters, store their plans and generate their secrets, before
@@ -568,6 +568,7 @@ mod tests {
     use libvirt::Qemu;
     use tokio::sync::mpsc;
 
+    use crate::daemon::docker_stores::DockerStoreLocks;
     use crate::konst::{LAB_CA_CERT_FILE, LAB_CA_KEY_FILE};
     use shared::data::{LabSubnets, ModelKind, NodeKind, NodeModel};
 
@@ -702,6 +703,7 @@ mod tests {
             qemu_conn: &Arc::new(qemu.connect().unwrap()),
             qemu: &qemu,
             config: &test_config(),
+            docker_store_locks: &DockerStoreLocks::default(),
             progress: &ProgressSender::new(tx),
         };
         let mgmt_net = management_network(&subnets()).unwrap();

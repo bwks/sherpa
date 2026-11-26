@@ -21,6 +21,7 @@ mod guest_yaml;
 mod ignition;
 mod juniper_junos;
 mod mikrotik_routeros;
+mod node_vm;
 mod nokia_srlinux;
 mod paloalto_panos;
 mod sonic_linux;
@@ -48,7 +49,10 @@ pub use cloudbase_init::{
 pub use crypt::{CryptHash, crypt_hash};
 pub use cumulus_linux::CumulusLinuxZtpTemplate;
 pub use dnsmasq::DnsmasqTemplate;
-pub use domain::{DomainTemplate, DomainTuning, UnikernelDomainTemplate};
+pub use domain::{
+    DomainTemplate, DomainTuning, NodeVmDomainTemplate, NodeVmManagement, NodeVmNic,
+    UnikernelDomainTemplate,
+};
 pub use frr::{FrrDaemonsTemplate, FrrStartupTemplate, FrrZtpTemplate};
 pub use ignition::{
     FileMode, IgnitionConfig, IgnitionDirectory, IgnitionFile, IgnitionFileContents,
@@ -56,6 +60,11 @@ pub use ignition::{
 };
 pub use juniper_junos::JunipervJunosZtpTemplate;
 pub use mikrotik_routeros::MikrotikRouterosZtpTemplate;
+pub use node_vm::{
+    GuestAddress, GuestInterface, NODE_VM_CONFIG_DRIVE_LABEL, NODE_VM_CONFIG_DRIVE_MOUNT,
+    NODE_VM_CONFIG_DRIVE_USER_DATA, NODE_VM_MANAGEMENT_INTERFACE, NodeVmGuest, WritableVolume,
+    store_vm_ignition_json,
+};
 pub use nokia_srlinux::build_srlinux_config;
 pub use paloalto_panos::{PaloAltoPanosBootstrapTemplate, PaloAltoPanosZtpTemplate};
 pub use sonic_linux::{

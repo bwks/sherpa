@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use shared::data::{
-    DbBridge, DbLab, DbNode, LabPhase, ModelKind, NodeConfig, NodeKind, NodeModel, NodeState,
-    Observation, Probe, RecordId, Runtime,
+    DbBridge, DbLab, DbNode, LabPhase, ModelKind, NodeKind, NodeModel, NodeState, Observation,
+    Probe, RecordId, Runtime,
 };
 use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
 use tokio::time;
@@ -526,7 +526,9 @@ async fn scanned_nodes<'a>(
                 .find(|img| img.id.as_ref() == Some(&node.image));
             ScannedNode {
                 node,
-                kind: image.map_or(NodeKind::VirtualMachine, NodeConfig::runtime_kind),
+                kind: image
+                    .and_then(|img| img.model_kind().ok())
+                    .map_or(NodeKind::VirtualMachine, ModelKind::runs_as),
                 model: image.map(|img| img.model),
                 runtime_name: format!("{}-{}", node.name, lab.lab_id),
             }

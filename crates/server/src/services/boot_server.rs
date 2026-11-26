@@ -267,9 +267,15 @@ fn boot_container_spec(
         image: CONTAINER_DNSMASQ_REPO.to_owned(),
         env_vars: vec![format!("DNS1={}", mgmt_net.v4.first), "DNS2=".to_owned()],
         volumes: vec![
-            format!("{ztp_dir}/{DNSMASQ_DIR}/{DNSMASQ_CONFIG_FILE}:/etc/{DNSMASQ_CONFIG_FILE}"),
-            format!("{ztp_dir}/{TFTP_DIR}:{BOOT_SERVER_TFTP_ROOT}"),
-            format!("{ztp_dir}/{NODE_CONFIGS_DIR}:{BOOT_SERVER_HTTP_ROOT}"),
+            data::ContainerMount::writable(
+                format!("{ztp_dir}/{DNSMASQ_DIR}/{DNSMASQ_CONFIG_FILE}"),
+                format!("/etc/{DNSMASQ_CONFIG_FILE}"),
+            ),
+            data::ContainerMount::writable(format!("{ztp_dir}/{TFTP_DIR}"), BOOT_SERVER_TFTP_ROOT),
+            data::ContainerMount::writable(
+                format!("{ztp_dir}/{NODE_CONFIGS_DIR}"),
+                BOOT_SERVER_HTTP_ROOT,
+            ),
         ],
         capabilities: BOOT_CONTAINER_CAPABILITIES
             .iter()
@@ -480,11 +486,11 @@ mod tests {
         let served: Vec<&str> = spec
             .volumes
             .iter()
-            .filter(|volume| served_over_http(volume.split(':').nth(1).unwrap()))
-            .map(String::as_str)
+            .filter(|volume| served_over_http(&volume.destination))
+            .map(|volume| volume.source.as_str())
             .collect();
 
-        assert_eq!(served, ["/labs/abcd1234/ztp/configs:/opt/ztp"]);
+        assert_eq!(served, ["/labs/abcd1234/ztp/configs"]);
     }
 
     #[test]

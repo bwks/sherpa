@@ -1,18 +1,13 @@
 use std::fs;
-use std::path::Path;
 use std::time::Instant;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use askama::Template;
 use tracing::instrument;
 use virt::connect::Connect;
-use virt::storage_pool::StoragePool;
-use virt::storage_vol::StorageVol;
 
 use crate::qcow2::read_qcow2_metadata;
-use crate::size::gib_to_bytes;
-use crate::storage::{ensure_destination_absent, refresh_pool};
-use shared::konst::SHERPA_STORAGE_POOL;
+use crate::storage::{create_volume, new_volume_name};
 
 #[derive(Template)]
 #[template(path = "overlay.xml", ext = "xml", escape = "xml")]
@@ -21,49 +16,6 @@ struct OverlayVolume<'a> {
     destination: &'a str,
     backing: &'a str,
     capacity: u64,
-}
-
-#[derive(Template)]
-#[template(path = "blank.xml", ext = "xml", escape = "xml")]
-struct BlankVolume<'a> {
-    name: &'a str,
-    destination: &'a str,
-    capacity: u64,
-}
-
-/// Create an empty sparse QCOW2 disk of `size_gb` GiB at `dst`, readable by everyone, so it can
-/// be the read-only base of other disks once it has been filled. The volume is created
-/// exclusively; an existing destination is never changed.
-///
-/// # Errors
-///
-/// Fails when `dst` exists, is relative or is not a UTF-8 file name, or libvirt cannot create
-/// the volume.
-#[instrument(level = "debug", skip(conn))]
-pub fn create_blank_qcow2(conn: &Connect, dst: &str, size_gb: u16) -> Result<()> {
-    ensure_destination_absent(dst)?;
-    let destination = Path::new(dst);
-    ensure!(
-        destination.is_absolute(),
-        "Blank disk destination must be absolute"
-    );
-    let name = destination
-        .file_name()
-        .and_then(|name| name.to_str())
-        .context("Invalid blank disk filename")?;
-    let xml = BlankVolume {
-        name,
-        destination: dst,
-        capacity: gib_to_bytes(size_gb),
-    }
-    .render()
-    .context("Cannot render blank volume XML")?;
-    let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)
-        .context("Cannot find the storage pool")?;
-    refresh_pool(&pool).context("Cannot refresh the storage pool")?;
-    StorageVol::create_xml(&pool, &xml, 0)
-        .with_context(|| format!("Cannot create blank QCOW2 disk {dst}"))?;
-    Ok(())
 }
 
 /// Create a sparse QCOW2 boot disk with an absolute, explicit QCOW2 backing store.
@@ -79,16 +31,7 @@ pub fn create_overlay(conn: &Connect, src: &str, dst: &str, size_gb: Option<u16>
     let start = Instant::now();
     let backing = fs::canonicalize(src).context("Cannot resolve overlay base")?;
     let capacity = read_qcow2_metadata(&backing)?.overlay_capacity(size_gb)?;
-    ensure_destination_absent(dst)?;
-    let destination = Path::new(dst);
-    ensure!(
-        destination.is_absolute(),
-        "Overlay destination must be absolute"
-    );
-    let name = destination
-        .file_name()
-        .and_then(|name| name.to_str())
-        .context("Invalid overlay filename")?;
+    let name = new_volume_name(dst)?;
     let backing = backing.to_str().context("Overlay base path is not UTF-8")?;
     let xml = OverlayVolume {
         name,
@@ -98,12 +41,7 @@ pub fn create_overlay(conn: &Connect, src: &str, dst: &str, size_gb: Option<u16>
     }
     .render()
     .context("Cannot render overlay volume XML")?;
-    let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)
-        .context("Cannot find overlay storage pool")?;
-    refresh_pool(&pool).context("Cannot refresh overlay storage pool")?;
-    // Libvirt rejects a duplicate volume name atomically. Never delete a volume
-    // after create_xml fails: it may belong to a concurrent or previous attempt.
-    StorageVol::create_xml(&pool, &xml, 0)
+    create_volume(conn, &xml)
         .with_context(|| format!("Cannot create QCOW2 overlay {dst} backed by {backing}"))?;
     tracing::info!(
         disk_creation_seconds = start.elapsed().as_secs_f64(),
@@ -117,10 +55,14 @@ pub fn create_overlay(conn: &Connect, src: &str, dst: &str, size_gb: Option<u16>
 mod tests {
     use std::env;
     use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
     use std::process::{self, Command, Output};
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use shared::konst::SHERPA_STORAGE_POOL_PATH;
+    use anyhow::ensure;
+    use shared::konst::{SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH};
+    use virt::storage_pool::StoragePool;
+    use virt::storage_vol::StorageVol;
     use virt::stream::Stream;
 
     use super::*;

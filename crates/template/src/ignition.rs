@@ -201,6 +201,29 @@ impl IgnitionFile {
         }
     }
 
+    /// The hostname file of a node named `name`.
+    #[must_use]
+    pub fn hostname(name: &str) -> Self {
+        Self {
+            path: "/etc/hostname".to_owned(),
+            mode: FileMode::new(0o644),
+            contents: Some(IgnitionFileContents::new(&format!("data:,{name}"))),
+            ..Default::default()
+        }
+    }
+
+    /// A root-owned file at `path` with `mode` and `contents`, replacing any file there.
+    #[must_use]
+    pub fn root(path: &str, mode: u32, contents: &str) -> Self {
+        Self {
+            path: path.to_owned(),
+            mode: FileMode::new(mode),
+            overwrite: Some(true),
+            contents: Some(IgnitionFileContents::base64(contents)),
+            ..Default::default()
+        }
+    }
+
     /// The networkd configuration of the management interface, `eth0`.
     #[must_use]
     pub fn ztp_interface(
@@ -232,14 +255,11 @@ Domains={domain}
             dns = mgmt_ipv4.boot_server,
             domain = SHERPA_DOMAIN_NAME,
         );
-        let encoded_contents = base64_encode(&contents);
         Self {
             path: "/etc/systemd/network/00-eth0.network".to_owned(),
             mode: FileMode::new(0o644),
             overwrite: Some(true),
-            contents: Some(IgnitionFileContents::new(&format!(
-                "data:;base64,{encoded_contents}"
-            ))),
+            contents: Some(IgnitionFileContents::base64(&contents)),
             user: Some(IgnitionFileParams {
                 name: "root".to_owned(),
             }),
@@ -274,6 +294,12 @@ impl IgnitionFileContents {
             compression: None,
             verification: Verification::default(),
         }
+    }
+
+    /// The contents `contents`, carried as base64 in a data URL.
+    #[must_use]
+    pub fn base64(contents: &str) -> Self {
+        Self::new(&format!("data:;base64,{}", base64_encode(contents)))
     }
 }
 

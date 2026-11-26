@@ -66,26 +66,29 @@ pub fn console_dir(root: &Path, lab_id: &str) -> PathBuf {
 /// the domain.
 pub fn console_sockets(lab_id: &str, node_index: u16) -> Result<ConsoleSockets> {
     Ok(ConsoleSockets {
-        serial: socket_path(lab_id, node_index, ConsoleKind::Serial)?,
-        vnc: socket_path(lab_id, node_index, ConsoleKind::Vnc)?,
+        serial: lab_socket(
+            lab_id,
+            &format!("{node_index}.{}", ConsoleKind::Serial.suffix()),
+        )?,
+        vnc: lab_socket(
+            lab_id,
+            &format!("{node_index}.{}", ConsoleKind::Vnc.suffix()),
+        )?,
     })
 }
 
-/// The `kind` console socket of the node with index `node_index` in lab `lab_id`.
+/// The socket `file` in lab `lab_id`'s console folder, where a domain of the lab binds it.
 ///
 /// # Errors
 ///
-/// Fails when the path is longer than a UNIX socket path can be.
-fn socket_path(lab_id: &str, node_index: u16, kind: ConsoleKind) -> Result<String> {
-    let path = format!(
-        "{SHERPA_CONSOLE_DIR}/{lab_id}/{node_index}.{}",
-        kind.suffix()
-    );
+/// Fails when the path is longer than a UNIX socket path can be, as libvirt would refuse to
+/// start the domain.
+pub fn lab_socket(lab_id: &str, file: &str) -> Result<String> {
+    let path = format!("{SHERPA_CONSOLE_DIR}/{lab_id}/{file}");
     if path.len() > UNIX_SOCKET_PATH_MAX {
         bail!(
-            "The {kind} socket of node {node_index} in lab '{lab_id}' would be {path}, {} bytes, \
-             longer than the {UNIX_SOCKET_PATH_MAX} a UNIX socket path can be. Use a shorter lab \
-             ID.",
+            "The socket {path} in lab '{lab_id}' would be {} bytes, longer than the \
+             {UNIX_SOCKET_PATH_MAX} a UNIX socket path can be. Use a shorter lab ID.",
             path.len()
         );
     }
@@ -173,8 +176,10 @@ pub async fn console_target(
         .await
         .context("Failed to read the node's image")?
         .ok_or_else(|| anyhow!("Node '{node_name}' has no image"))?;
-    match (image.runtime_kind(), kind) {
-        (NodeKind::VirtualMachine, ConsoleKind::Vnc) if image.kind() == NodeKind::Container => {
+    let model_kind = image.model_kind()?;
+    match (model_kind.kind(), kind) {
+        (NodeKind::Container, ConsoleKind::Serial) if model_kind.runs_in_node_vm() => {}
+        (NodeKind::Container, ConsoleKind::Vnc) if model_kind.runs_in_node_vm() => {
             return Err(ServiceError::Invalid(format!(
                 "{node_name} runs in a node VM, which has a serial console only. Use 'sherpa \
                  console {node_name}' instead."

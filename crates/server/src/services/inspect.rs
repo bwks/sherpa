@@ -193,7 +193,7 @@ async fn devices(
         let mut device = device_info(node, node_image, volumes, lab_info);
         device.state = reported_state(
             node,
-            node_image.runtime_kind(),
+            node_image.model_kind()?.runs_as(),
             &lab_info.id,
             containers.as_ref(),
         );

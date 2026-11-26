@@ -72,7 +72,6 @@ pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> N
         },
         NodeKind::Container if image.model_kind().is_ok_and(ModelKind::runs_in_node_vm) => {
             NodeResources {
-                // The node VM's: the container's memory and its VM's overhead.
                 cpu_count: Some(node.cpu.count.unwrap_or(image.cpu.count)),
                 memory: Some(
                     node.memory

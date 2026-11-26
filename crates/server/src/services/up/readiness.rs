@@ -5,9 +5,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
-use bollard::Docker;
 use bollard::secret::ContainerStateStatusEnum;
-use tokio::task::{self, JoinHandle};
 use tracing::instrument;
 
 use super::context::LabBuild;
@@ -17,9 +15,9 @@ use super::links::{
 use crate::konst::{READINESS_SLEEP, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR};
 use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle;
-use crate::services::node_ops::{self, VmReadiness};
+use crate::services::node_ops::{self, ContainerSettings, VmReadiness};
 use crate::services::node_secrets::write_node_secrets;
-use crate::services::node_vm::{self, NodeContainerStart};
+use crate::services::node_vm::NodeVmStart;
 use crate::services::p2p_links::{KernelHost, LinkHost, make_veth};
 use crate::services::talos;
 
@@ -44,14 +42,13 @@ pub(super) struct ReadinessInputs<'a> {
     pub(super) unikernel_nodes: &'a [topology::NodeExpanded],
     pub(super) lab_node_data: &'a [data::LabNodeData],
     pub(super) ztp_records: &'a [data::ZtpRecord],
-    pub(super) container_volumes: &'a HashMap<String, Vec<String>>,
+    pub(super) container_settings: &'a HashMap<String, ContainerSettings>,
+    pub(super) secret_mounts: &'a HashMap<String, data::ContainerMount>,
     pub(super) container_link_networks: &'a HashMap<String, Vec<data::ContainerNetworkAttachment>>,
     pub(super) p2p_container_veths: &'a [P2pContainerVeth],
     pub(super) p2p_links: &'a [&'a data::LabLinkData],
     pub(super) links_detailed: &'a [topology::LinkDetailed],
-    pub(super) node_secrets: &'a BTreeMap<String, Vec<data::SecretFile>>,
     pub(super) talos_clusters: &'a [topology::TalosCluster],
-    pub(super) dns: &'a data::Dns,
     pub(super) timeout: Duration,
 }
 
@@ -78,6 +75,7 @@ pub(super) async fn wait_for_nodes(
     operation: &LabOperation,
     inputs: &ReadinessInputs<'_>,
     p2p: &mut P2pAttachment,
+    node_vm_starts: HashMap<String, NodeVmStart>,
 ) -> Result<NodesReady> {
     let started = Instant::now();
     let all_nodes: Vec<&topology::NodeExpanded> = inputs
@@ -101,14 +99,13 @@ pub(super) async fn wait_for_nodes(
         operation,
         inputs,
         p2p,
-        secret_mounts: write_secret_mounts(build, inputs.node_secrets)?,
         connected: HashSet::new(),
         settling: HashMap::new(),
         waiting_for_port: HashSet::new(),
         nodes: Vec::new(),
         errors: Vec::new(),
-        node_vm_starts: HashMap::new(),
-        node_vm_dockers: HashMap::new(),
+        node_vm_starts,
+        node_vm_started: HashSet::new(),
     };
     readiness.skip_unpolled_nodes(&all_nodes).await?;
     tracing::info!(
@@ -120,6 +117,10 @@ pub(super) async fn wait_for_nodes(
     while started.elapsed() < inputs.timeout && readiness.connected.len() < all_nodes.len() {
         for container in inputs.container_nodes {
             if readiness.connected.contains(&container.name) {
+                continue;
+            }
+            if container.model_kind.runs_in_node_vm() {
+                readiness.check_node_vm(container).await?;
                 continue;
             }
             match readiness.settling.get(&container.name) {
@@ -153,7 +154,7 @@ pub(super) async fn wait_for_nodes(
     }
 
     for (name, start) in readiness.node_vm_starts.drain() {
-        tracing::warn!(container_name = %name, "Node VM container still starting when polling ended");
+        tracing::warn!(node_name = %name, "Node VM still starting its container when polling ended");
         start.abort();
     }
     readiness.recheck_containers().await?;
@@ -175,10 +176,10 @@ pub(super) async fn wait_for_nodes(
 
 /// Write each container's secret files once, to RAM, and return the mount each is started
 /// with, by node name.
-fn write_secret_mounts<'a>(
+pub(super) fn write_secret_mounts(
     build: &LabBuild<'_>,
-    node_secrets: &'a BTreeMap<String, Vec<data::SecretFile>>,
-) -> Result<HashMap<&'a str, String>> {
+    node_secrets: &BTreeMap<String, Vec<data::SecretFile>>,
+) -> Result<HashMap<String, data::ContainerMount>> {
     let mut mounts = HashMap::new();
     for (node_name, files) in node_secrets {
         let dir = write_node_secrets(
@@ -196,11 +197,52 @@ fn write_secret_mounts<'a>(
             StatusKind::Progress,
         );
         mounts.insert(
-            node_name.as_str(),
-            format!("{}:{CONTAINER_SECRETS_DIR}:ro", dir.display()),
+            node_name.clone(),
+            data::ContainerMount::read_only(dir.display().to_string(), CONTAINER_SECRETS_DIR),
         );
     }
     Ok(mounts)
+}
+
+/// What container node `container` of lab `lab_id` is created from: its generated `settings`,
+/// with its mount of `secret_mounts`, on the lab's management network.
+///
+/// # Errors
+///
+/// Fails when the node has no image, version or generated settings.
+pub(super) fn container_spec(
+    lab_id: &str,
+    container: &topology::NodeExpanded,
+    settings: &HashMap<String, ContainerSettings>,
+    secret_mounts: &HashMap<String, data::ContainerMount>,
+) -> Result<ContainerSpec> {
+    if container.image.is_none() {
+        bail!("Container image not set for node: {}", container.name);
+    }
+    let version = container
+        .version
+        .as_deref()
+        .ok_or_else(|| anyhow!("Container version not set for node: {}", container.name))?;
+    let mut settings = settings
+        .get(&container.name)
+        .cloned()
+        .with_context(|| format!("Container node '{}' has no generated ZTP", container.name))?;
+    settings
+        .volumes
+        .extend(secret_mounts.get(&container.name).cloned());
+    Ok(node_ops::container_spec(
+        lab_id,
+        &container.name,
+        version,
+        settings,
+        data::ContainerNetworkAttachment {
+            name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
+            ipv4_address: container.ipv4_address.map(|ip| ip.to_string()),
+            ipv6_address: None,
+            linux_interface_name: None,
+            admin_down: false,
+        },
+    ))
 }
 
 /// Readiness polling in progress: which nodes are done, what they report, and what failed.
@@ -209,86 +251,16 @@ struct Readiness<'a, 'b> {
     operation: &'a LabOperation,
     inputs: &'a ReadinessInputs<'a>,
     p2p: &'a mut P2pAttachment,
-    secret_mounts: HashMap<&'a str, String>,
     connected: HashSet<String>,
     settling: HashMap<String, Instant>,
     waiting_for_port: HashSet<String>,
     nodes: Vec<data::NodeInfo>,
     errors: Vec<data::UpError>,
-    node_vm_starts: HashMap<String, JoinHandle<Result<bool>>>,
-    node_vm_dockers: HashMap<String, Docker>,
+    node_vm_starts: HashMap<String, NodeVmStart>,
+    node_vm_started: HashSet<String>,
 }
 
 impl Readiness<'_, '_> {
-    /// The Docker that runs the container `container_name`: its node VM's, or the server's.
-    fn docker_for(&self, container_name: &str) -> &Docker {
-        self.node_vm_dockers
-            .get(container_name)
-            .unwrap_or(self.build.docker_conn)
-    }
-
-    /// Start the container of a node that runs in a node VM, in the background, as its VM's
-    /// Docker may take minutes to answer and to load the image. Returns whether it runs once
-    /// the start has finished, or `None` while it goes on.
-    async fn start_in_node_vm(
-        &mut self,
-        container: &topology::NodeExpanded,
-        spec: ContainerSpec,
-    ) -> Result<Option<bool>> {
-        let container_name = spec.name.clone();
-        if let Some(start) = self.node_vm_starts.get(&container_name) {
-            if !start.is_finished() {
-                return Ok(None);
-            }
-            let start = self
-                .node_vm_starts
-                .remove(&container_name)
-                .context("A finished node VM start is gone")?;
-            let running = start
-                .await
-                .context("The node VM container start panicked")??;
-            let docker = node_vm::node_vm_docker(
-                self.build.qemu,
-                self.build.lab_dir,
-                &container.name,
-                self.build.lab_id,
-            )
-            .await?;
-            self.node_vm_dockers.insert(container_name, docker);
-            return Ok(Some(running));
-        }
-        let host = Docker::clone(self.build.docker_conn);
-        let qemu = self.build.qemu.clone();
-        let lab_id = self.build.lab_id.to_owned();
-        let lab_dir = self.build.lab_dir.to_owned();
-        let images_dir = self.build.config.images_dir.clone();
-        let node_name = container.name.clone();
-        let dns = self.inputs.dns.clone();
-        let _ = self.build.progress.send_status(
-            format!("Node {} - Starting its container in its VM", container.name),
-            StatusKind::Progress,
-        );
-        self.node_vm_starts.insert(
-            container_name,
-            task::spawn(async move {
-                node_vm::start_node_container(
-                    &host,
-                    &qemu,
-                    NodeContainerStart {
-                        lab_id: &lab_id,
-                        lab_dir: &lab_dir,
-                        images_dir: &images_dir,
-                        node_name: &node_name,
-                        dns: &dns,
-                        spec,
-                    },
-                )
-                .await
-            }),
-        );
-        Ok(None)
-    }
-
     /// Mark the nodes that are not polled as done: VMs and unikernels with `ready_check.skip`,
     /// and Talos cluster workers, which are checked as Kubernetes nodes once their cluster is
     /// bootstrapped. Skipped containers are handled when they start.
@@ -385,91 +357,38 @@ impl Readiness<'_, '_> {
         Ok(state)
     }
 
-    /// What container `container` is created from: its image, its generated and secret
-    /// mounts, its management and data networks, its model's settings and its recorded limits.
-    fn container_spec(&self, container: &topology::NodeExpanded) -> Result<ContainerSpec> {
-        let lab_id = self.build.lab_id;
-        let image_name = container
-            .image
-            .as_ref()
-            .ok_or_else(|| anyhow!("Container image not set for node: {}", container.name))?;
-        let version = container
-            .version
-            .as_ref()
-            .ok_or_else(|| anyhow!("Container version not set for node: {}", container.name))?;
-        let mut volumes = self
-            .inputs
-            .container_volumes
-            .get(&container.name)
-            .cloned()
-            .with_context(|| format!("Container node '{}' has no generated ZTP", container.name))?;
-        if let Some(mount) = self.secret_mounts.get(container.name.as_str()) {
-            volumes.push(mount.clone());
-        }
-        let management_network = data::ContainerNetworkAttachment {
-            name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
-            ipv4_address: container.ipv4_address.map(|ip| ip.to_string()),
-            // A node VM's Docker knows none of the lab's other addresses, so its container
-            // takes the one recorded for it rather than one Docker picks.
-            ipv6_address: container
-                .ipv6_address
-                .filter(|_| container.model_kind.runs_in_node_vm())
-                .map(|ip| ip.to_string()),
-            linux_interface_name: None,
-            admin_down: false,
-        };
-        let data_networks = self
-            .inputs
-            .container_link_networks
-            .get(&container.name)
-            .cloned()
-            .unwrap_or_default();
-        let settings = container.container.clone().unwrap_or_default();
-        // Its limits are the resources recorded for it.
-        let record = &self.node_data(&container.name)?.record;
-
-        Ok(ContainerSpec {
-            name: format!("{}-{lab_id}", container.name),
-            // The node name, as its own config names it; Docker's default is the ID.
-            hostname: Some(container.name.clone()),
-            image: container::image_reference(image_name, version),
-            env_vars: container.environment_variables.clone().unwrap_or_default(),
-            volumes,
-            capabilities: node_ops::model_capabilities(container.model_kind),
-            management_network,
-            additional_networks: data_networks,
-            commands: settings.commands.unwrap_or_default(),
-            privileged: settings.privileged.unwrap_or(false),
-            shm_size: settings.shm_size,
-            user: settings.user,
-            memory_mib: record.memory.map(u64::from),
-            cpu_count: record.cpu_count,
-        })
-    }
-
     /// Start a container, then create its P2p interfaces in its network namespace and attach
     /// the links that now have both ends. It is then waited for in `check_container`, unless
     /// its check is skipped.
     async fn start_container(&mut self, container: &topology::NodeExpanded) -> Result<()> {
         let mgmt_ipv4 = container.ipv4_address.map(|ip| ip.to_string());
         let container_name = format!("{}-{}", container.name, self.build.lab_id);
-        let spec = self.container_spec(container)?;
-        let in_node_vm = container.model_kind.runs_in_node_vm();
-        let is_running = if in_node_vm {
-            match self.start_in_node_vm(container, spec).await? {
-                Some(running) => running,
-                None => return Ok(()),
-            }
-        } else {
-            node_ops::start_container_node(
-                self.build.docker_conn,
-                self.build.qemu,
-                spec,
-                container.model_kind,
-                self.build.progress,
-            )
-            .await?
+        // Its limits are the resources recorded for it.
+        let record = &self.node_data(&container.name)?.record;
+        let spec = ContainerSpec {
+            additional_networks: self
+                .inputs
+                .container_link_networks
+                .get(&container.name)
+                .cloned()
+                .unwrap_or_default(),
+            memory_mib: record.memory.map(u64::from),
+            cpu_count: record.cpu_count,
+            ..container_spec(
+                self.build.lab_id,
+                container,
+                self.inputs.container_settings,
+                self.inputs.secret_mounts,
+            )?
         };
+        let is_running = node_ops::start_container_node(
+            self.build.docker_conn,
+            self.build.qemu,
+            spec,
+            container.model_kind,
+            self.build.progress,
+        )
+        .await?;
 
         if !is_running {
             tracing::warn!(node_name = %container.name, "Container exited right after starting");
@@ -482,10 +401,7 @@ impl Readiness<'_, '_> {
             return Ok(());
         }
 
-        // A node VM's link ends are taps, attached when its domain was created.
-        if !in_node_vm
-            && let Err(error) = self.create_p2p_interfaces(container, &container_name).await
-        {
+        if let Err(error) = self.create_p2p_interfaces(container, &container_name).await {
             // Its namespace goes with its process, so a container that exited meanwhile fails
             // here; that is the container's failure, not the lab's.
             if self.is_running(&container_name).await {
@@ -535,11 +451,7 @@ impl Readiness<'_, '_> {
         let ready_port =
             node_ops::container_ready_port(&self.node_data(&container.name)?.record.ready_check);
         let ready_label = ready_port.map(node_ops::ready_port_label);
-        let status = match container::container_state(
-            self.docker_for(&container_name),
-            &container_name,
-        )
-        .await
+        let status = match container::container_state(self.build.docker_conn, &container_name).await
         {
             Ok(state) => state.and_then(|state| state.status),
             Err(error) => {
@@ -612,7 +524,7 @@ impl Readiness<'_, '_> {
     /// inspect is not.
     async fn is_running(&self, container_name: &str) -> bool {
         matches!(
-            container::container_status(self.docker_for(container_name), container_name).await,
+            container::container_status(self.build.docker_conn, container_name).await,
             Ok(Some(ContainerStateStatusEnum::RUNNING))
         )
     }
@@ -629,7 +541,7 @@ impl Readiness<'_, '_> {
                 self.p2p.ready_ends.remove(&veth.veth.host_veth);
             }
         }
-        let docker = self.docker_for(container_name);
+        let docker = self.build.docker_conn;
         let exit_code = match container::container_state(docker, container_name).await {
             Ok(state) => state.and_then(|state| state.exit_code),
             Err(error) => {
@@ -765,6 +677,114 @@ impl Readiness<'_, '_> {
         Ok(())
     }
 
+    /// Check a node that runs in a node VM: launched once its VM reports its container
+    /// started, then ready once its ready port answers on its management address, or at once
+    /// without one. A failure the VM reports fails the node with its reason.
+    async fn check_node_vm(&mut self, node: &topology::NodeExpanded) -> Result<()> {
+        if !self.node_vm_started.contains(&node.name) {
+            return self.check_node_vm_start(node).await;
+        }
+        let ready_check = self.node_data(&node.name)?.record.ready_check.clone();
+        let mgmt_ipv4 = node.ipv4_address.map(|ip| ip.to_string());
+        let (host_key, reason) = match (ready_check.port, mgmt_ipv4.as_deref()) {
+            (None, _) => (None, "container running".to_owned()),
+            (Some(port), Some(ip)) => {
+                match node_ops::check_vm_ready(ip, port, ready_check.sshd_marker).await? {
+                    VmReadiness::Ready { host_key } => (
+                        host_key,
+                        format!("{} reachable", node_ops::ready_port_label(port)),
+                    ),
+                    VmReadiness::NotReady => {
+                        let _ = self.build.progress.send_status(
+                            format!(
+                                "Node {} - Waiting for {}",
+                                node.name,
+                                node_ops::ready_port_label(port)
+                            ),
+                            StatusKind::Waiting,
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+            (Some(_), None) => return Ok(()),
+        };
+        tracing::info!(node_name = %node.name, %reason, "Node VM ready");
+        let _ = self.build.progress.send_status(
+            format!("Node {} - Ready ({reason})", node.name),
+            StatusKind::Done,
+        );
+        let state = self
+            .record(&node.name, &[OperationEvent::Ready], host_key.as_deref())
+            .await?;
+        self.connected(node, state, mgmt_ipv4, Some(SSH_PORT));
+        Ok(())
+    }
+
+    /// Check whether node `node`'s VM has reported its container started: record it launched,
+    /// or ready at once with its check skipped; or failed, with the reason the VM reported.
+    async fn check_node_vm_start(&mut self, node: &topology::NodeExpanded) -> Result<()> {
+        let start = self
+            .node_vm_starts
+            .get(&node.name)
+            .with_context(|| format!("Node {} has no node VM start to wait for", node.name))?;
+        if !start.is_finished() {
+            let _ = self.build.progress.send_status(
+                format!(
+                    "Node {} - Waiting for its VM to start its container",
+                    node.name
+                ),
+                StatusKind::Waiting,
+            );
+            return Ok(());
+        }
+        let start = self
+            .node_vm_starts
+            .remove(&node.name)
+            .with_context(|| format!("Node {} has no node VM start to wait for", node.name))?;
+        let mgmt_ipv4 = node.ipv4_address.map(|ip| ip.to_string());
+        if let Err(error) = start.await.context("The node VM start watch panicked")? {
+            tracing::warn!(node_name = %node.name, error = %format!("{error:#}"), "Node VM did not start its container");
+            let _ = self.build.progress.send_status(
+                format!("Node {} - {error:#}", node.name),
+                StatusKind::Waiting,
+            );
+            self.errors.push(data::UpError {
+                phase: "NodeReadiness".to_string(),
+                message: format!("Node {}: {error:#}", node.name),
+                is_critical: true,
+            });
+            let state = self
+                .record(&node.name, &[OperationEvent::Failed], None)
+                .await?;
+            self.connected(node, state, mgmt_ipv4, None);
+            return Ok(());
+        }
+        let _ = self.build.progress.send_status(
+            format!("Node {} - Container started in its VM", node.name),
+            StatusKind::Progress,
+        );
+        self.node_vm_started.insert(node.name.clone());
+        if node.ready_check.skip.unwrap_or(false) {
+            let _ = self.build.progress.send_status(
+                format!("Node {} - Ready check skipped", node.name),
+                StatusKind::Done,
+            );
+            let state = self
+                .record(
+                    &node.name,
+                    &[OperationEvent::Launched, OperationEvent::Ready],
+                    None,
+                )
+                .await?;
+            self.connected(node, state, mgmt_ipv4, Some(SSH_PORT));
+            return Ok(());
+        }
+        self.record(&node.name, &[OperationEvent::Launched], None)
+            .await?;
+        Ok(())
+    }
+
     /// Check a VM's readiness port; once it answers, and a Windows node's SSH server runs with
     /// Sherpa's config, record the SSH host key it offered.
     async fn check_vm(&mut self, vm: &topology::NodeExpanded) -> Result<()> {
@@ -859,7 +879,8 @@ impl Readiness<'_, '_> {
     /// settled: one that exited since is reported here and recorded failed.
     async fn recheck_containers(&mut self) -> Result<()> {
         for container in self.inputs.container_nodes {
-            if container.ready_check.skip.unwrap_or(false) {
+            if container.ready_check.skip.unwrap_or(false) || container.model_kind.runs_in_node_vm()
+            {
                 continue;
             }
             let running = self
@@ -870,9 +891,7 @@ impl Readiness<'_, '_> {
                 continue;
             }
             let container_name = format!("{}-{}", container.name, self.build.lab_id);
-            match container::container_status(self.docker_for(&container_name), &container_name)
-                .await
-            {
+            match container::container_status(self.build.docker_conn, &container_name).await {
                 Ok(Some(ContainerStateStatusEnum::RUNNING)) => {
                     tracing::debug!(node_name = %container.name, "Container still running");
                 }

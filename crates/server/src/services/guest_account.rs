@@ -609,10 +609,7 @@ pub(crate) fn sudoers_file(account: &GuestAccount) -> IgnitionFile {
     IgnitionFile {
         path: format!("/etc/sudoers.d/{}", account.username),
         mode: FileMode::new(0o440),
-        contents: Some(IgnitionFileContents::new(&format!(
-            "data:;base64,{}",
-            base64_encode(&content)
-        ))),
+        contents: Some(IgnitionFileContents::base64(&content)),
         ..Default::default()
     }
 }

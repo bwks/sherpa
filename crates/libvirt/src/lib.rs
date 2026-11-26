@@ -25,16 +25,13 @@ pub use host::{
 pub use interface::{interface_link_up, set_interface_link};
 pub use names::{is_device_volume, is_lab_volume};
 pub use network::{BridgeNetwork, IsolatedNetwork, NatNetwork, ReservedNetwork};
-pub use node_vm::{
-    NodeVm, NodeVmManagement, NodeVmNic, create_node_vm, delete_volume_if_present, node_vm_cid,
-    remove_node_vm, set_node_vm_cmdline, shut_down_node_vm, vsock_cid, with_cmdline,
-};
-pub use overlay::{create_blank_qcow2, create_overlay};
+pub use node_vm::{set_node_vm_cmdline, wait_until_stopped};
+pub use overlay::create_overlay;
 pub use qcow2::{Qcow2Metadata, read_qcow2_metadata};
 pub use qemu::{Qemu, QemuConnection};
 pub use storage::{
-    BackedVolume, SherpaStoragePool, list_lab_volumes, overlay_on_image, pool_backed_volumes,
-    refresh_pool,
+    BackedVolume, SherpaStoragePool, create_blank_qcow2, list_lab_volumes, overlay_on_image,
+    pool_backed_volumes, refresh_pool,
 };
-pub use vm::{clone_disk, create_vm, delete_disk, get_mgmt_ip, resize_disk};
+pub use vm::{clone_disk, create_vm, delete_disk, get_mgmt_ip, remove_domain, resize_disk};
 pub use vnc::{VncConsole, vnc_console};

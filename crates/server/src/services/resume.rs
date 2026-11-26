@@ -148,7 +148,7 @@ pub async fn start_lab_nodes(
     for node in &target_nodes {
         let device_name = format!("{}-{}", node.name, lab_id);
         let (kind, model) = match startable_image(node, &node_images) {
-            Ok(image) => (image.runtime_kind(), image.model),
+            Ok((image, model_kind)) => (model_kind.runs_as(), image.model),
             Err(refused) => {
                 immediate_results.push(refused);
                 continue;
@@ -662,7 +662,7 @@ fn start_step(runtime: Runtime, what: &str) -> Result<StartStep, String> {
 fn startable_image<'a>(
     node: &data::DbNode,
     node_images: &'a [data::NodeConfig],
-) -> Result<&'a data::NodeConfig, NodeActionResult> {
+) -> Result<(&'a data::NodeConfig, data::ModelKind), NodeActionResult> {
     let refused = |message: String| NodeActionResult {
         name: node.name.clone(),
         success: false,
@@ -673,10 +673,13 @@ fn startable_image<'a>(
         .iter()
         .find(|image| image.id.as_ref() == Some(&node.image))
         .ok_or_else(|| refused("Node image not found in database".to_string()))?;
+    let model_kind = image
+        .model_kind()
+        .map_err(|error| refused(format!("Cannot start: {error:#}")))?;
     node.state
         .on_operation(OperationEvent::Launched)
         .map_err(|refusal| refused(format!("Cannot start: {refusal}")))?;
-    Ok(image)
+    Ok((image, model_kind))
 }
 
 /// Record what starting each node did, add each node's result to `results`, and return the

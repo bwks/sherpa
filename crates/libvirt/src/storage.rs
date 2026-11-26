@@ -15,8 +15,18 @@ use tracing::instrument;
 use virt::connect::Connect;
 use virt::error::ErrorNumber;
 use virt::storage_pool::StoragePool;
+use virt::storage_vol::StorageVol;
 
 use crate::names::is_lab_volume;
+use crate::size::gib_to_bytes;
+
+#[derive(Template)]
+#[template(path = "blank.xml", ext = "xml", escape = "xml")]
+struct BlankVolume<'a> {
+    name: &'a str,
+    destination: &'a str,
+    capacity: u64,
+}
 
 /// A storage volume's XML, as far as its name and backing file.
 #[derive(Debug, Deserialize)]
@@ -217,6 +227,59 @@ pub fn overlay_on_image<'a>(
         }
     }
     Ok(None)
+}
+
+/// Create an empty sparse QCOW2 disk of `size_gb` GiB at `dst`, readable by everyone, so it can
+/// be the read-only base of other disks once it has been filled. The volume is created
+/// exclusively; an existing destination is never changed.
+///
+/// # Errors
+///
+/// Fails when `dst` exists, is relative or is not a UTF-8 file name, or libvirt cannot create
+/// the volume.
+#[instrument(level = "debug", skip(conn))]
+pub fn create_blank_qcow2(conn: &Connect, dst: &str, size_gb: u16) -> Result<()> {
+    let xml = BlankVolume {
+        name: new_volume_name(dst)?,
+        destination: dst,
+        capacity: gib_to_bytes(size_gb),
+    }
+    .render()
+    .context("Cannot render blank volume XML")?;
+    create_volume(conn, &xml).with_context(|| format!("Cannot create blank QCOW2 disk {dst}"))
+}
+
+/// The file name of a new volume at absolute path `dst`, where nothing exists yet.
+///
+/// # Errors
+///
+/// Fails when `dst` exists, is relative or has no UTF-8 file name.
+pub(crate) fn new_volume_name(dst: &str) -> Result<&str> {
+    ensure_destination_absent(dst)?;
+    let destination = Path::new(dst);
+    ensure!(
+        destination.is_absolute(),
+        "Disk destination must be absolute: {dst}"
+    );
+    destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .with_context(|| format!("Invalid disk file name: {dst}"))
+}
+
+/// Create the volume of volume XML `xml` in the Sherpa storage pool, refreshed first. libvirt
+/// refuses a duplicate name atomically, and a volume is never deleted after a refusal: it may
+/// belong to a concurrent or previous attempt.
+///
+/// # Errors
+///
+/// Fails when the pool cannot be found or refreshed, or libvirt cannot create the volume.
+pub(crate) fn create_volume(conn: &Connect, xml: &str) -> Result<()> {
+    let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)
+        .with_context(|| format!("Cannot find storage pool '{SHERPA_STORAGE_POOL}'"))?;
+    refresh_pool(&pool)?;
+    StorageVol::create_xml(&pool, xml, 0)?;
+    Ok(())
 }
 
 /// Fail unless nothing exists at `path`. Disks are created exclusively and never replace a file.

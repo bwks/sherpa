@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use bollard::Docker;
 
+use crate::daemon::docker_stores::DockerStoreLocks;
 use crate::services::progress::ProgressSender;
 
 use db::Database;
@@ -20,5 +21,6 @@ pub(super) struct LabBuild<'a> {
     pub(super) qemu_conn: &'a Arc<QemuConnection>,
     pub(super) qemu: &'a Arc<Qemu>,
     pub(super) config: &'a Config,
+    pub(super) docker_store_locks: &'a DockerStoreLocks,
     pub(super) progress: &'a ProgressSender,
 }

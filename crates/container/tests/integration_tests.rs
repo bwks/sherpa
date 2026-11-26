@@ -25,7 +25,7 @@ use container::{
     list_container_memory, list_containers, list_networks, load_image, remove_container,
     run_container,
 };
-use shared::data::ContainerNetworkAttachment;
+use shared::data::{ContainerMount, ContainerNetworkAttachment};
 
 // ============================================================================
 // Constants
@@ -486,7 +486,10 @@ async fn container_run_013_a_cisco_iol_container_runs_unprivileged_holds_its_add
                     "IOL_MEMORY_MB=768".to_string(),
                     "IOL_ETH_PORTS=4".to_string(),
                 ],
-                volumes: vec![format!("{}:/config:ro", config_dir.display())],
+                volumes: vec![ContainerMount::read_only(
+                    config_dir.display().to_string(),
+                    "/config",
+                )],
                 capabilities: vec!["NET_ADMIN".to_string()],
                 management_network: ContainerNetworkAttachment {
                     ipv4_address: Some("192.168.240.10".to_string()),

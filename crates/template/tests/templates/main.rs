@@ -19,6 +19,7 @@ mod frr;
 mod ignition;
 mod juniper_junos;
 mod mikrotik_routeros;
+mod node_vm;
 mod nokia_srlinux;
 mod owner_accounts;
 mod paloalto_panos;

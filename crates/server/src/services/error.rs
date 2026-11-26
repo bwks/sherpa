@@ -238,8 +238,20 @@ pub enum ServiceError {
     )]
     NodeImageNotFound { node: String, model_kind: ModelKind },
 
-    #[error("Node VM base image {path} is missing; the install and update scripts download it")]
-    NodeVmBaseImageMissing { path: String },
+    #[error(
+        "Node VM base image {} is missing; the install and update scripts download it",
+        path.display()
+    )]
+    NodeVmBaseImageMissing { path: PathBuf },
+
+    #[error("The node VM kernel {} has no /usr hash", path.display())]
+    NodeVmKernelNoUsrHash { path: PathBuf },
+
+    #[error("Node VM {name} failed: {reason}")]
+    NodeVmFailed { name: String, reason: String },
+
+    #[error("Node VM {name} closed its status channel without reporting")]
+    NodeVmStatusClosed { name: String },
 
     #[error(
         "{prefix}: Version validation failed for node: {node} (model: {model}): {}",
@@ -803,6 +815,9 @@ impl ServiceError {
             | Self::GrpcStatus { .. }
             | Self::LinkEndGone { .. }
             | Self::TasksFailed { .. }
+            | Self::NodeVmKernelNoUsrHash { .. }
+            | Self::NodeVmFailed { .. }
+            | Self::NodeVmStatusClosed { .. }
             | Self::VaultInitialisedOutside { .. }
             | Self::VaultInitResponseLost { .. }
             | Self::VaultInitUnknown { .. } => None,

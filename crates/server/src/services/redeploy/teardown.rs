@@ -9,7 +9,6 @@ use tracing::instrument;
 use super::context::Redeploy;
 use crate::services::error::ServiceError;
 use crate::services::node_ops;
-use crate::services::node_vm;
 
 use shared::data;
 use shared::data::StatusKind;
@@ -24,8 +23,11 @@ pub(super) async fn destroy_node(redeploy: &Redeploy<'_>) -> Result<()> {
         StatusKind::Progress,
     );
 
-    match redeploy.node_image.kind() {
-        data::NodeKind::VirtualMachine => {
+    match (
+        redeploy.node_image.kind(),
+        redeploy.target_node.model_kind.runs_in_node_vm(),
+    ) {
+        (data::NodeKind::VirtualMachine, _) | (data::NodeKind::Container, true) => {
             node_ops::destroy_vm_node(
                 redeploy.qemu_conn.clone(),
                 node_name,
@@ -35,17 +37,10 @@ pub(super) async fn destroy_node(redeploy: &Redeploy<'_>) -> Result<()> {
             )
             .await?;
         }
-        data::NodeKind::Container
-            if redeploy.node_image.runtime_kind() != data::NodeKind::Container =>
-        {
-            node_vm::remove_node_vm(&redeploy.state.qemu, &redeploy.lab_dir, node_name, lab_id)
-                .await?;
+        (data::NodeKind::Container, false) => {
             node_ops::destroy_container_node(&redeploy.state.docker, node_name, lab_id).await?;
         }
-        data::NodeKind::Container => {
-            node_ops::destroy_container_node(&redeploy.state.docker, node_name, lab_id).await?;
-        }
-        data::NodeKind::Unikernel => {
+        (data::NodeKind::Unikernel, _) => {
             return Err(ServiceError::Invalid(
                 "Redeploy not supported for unikernel nodes".to_owned(),
             )

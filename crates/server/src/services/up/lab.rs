@@ -19,9 +19,9 @@ use super::networks::{
     lab_id_taken, management_network, reserve_lab, set_isolated_bridges_down,
 };
 use super::plan::{CheckedNodes, LabPlan, check_node_images, plan_lab};
-use super::readiness::{NodesReady, ReadinessInputs, wait_for_nodes};
+use super::readiness::{NodesReady, ReadinessInputs, wait_for_nodes, write_secret_mounts};
 use super::records::{NodeRecords, create_node_records, store_ssh_usernames};
-use super::runtime::{create_node_vms, create_unikernels, create_vms};
+use super::runtime::{NodeVmNodes, create_node_vms, create_unikernels, create_vms};
 use super::services::{LabServices, ServiceInputs, record_ready_workers, start_lab_services};
 use super::ztp::{ConfigInputs, NodeConfigs, configure_nodes, start_boot_container};
 use crate::auth::context::AuthContext;
@@ -34,8 +34,8 @@ use crate::services::guest_account::{self, GuestAccount};
 use crate::services::lab_definition;
 use crate::services::lab_lifecycle;
 use crate::services::lab_operations::{self, LabHold, LabOperation, Operation, StopReason};
-use crate::services::node_ops;
-use crate::services::node_vm;
+use crate::services::node_ops::{self, ContainerSettings};
+use crate::services::node_vm::{self, NodeVmHost, NodeVmStart};
 use crate::services::progress::ProgressSender;
 use crate::services::ssh_config::{self, LabSshFiles};
 use crate::services::surreal_db;
@@ -93,9 +93,11 @@ struct LabNetwork {
 struct BuiltNodes {
     lab_ca: LabCa,
     ztp_records: Vec<data::ZtpRecord>,
-    container_volumes: HashMap<String, Vec<String>>,
+    container_settings: HashMap<String, ContainerSettings>,
+    secret_mounts: HashMap<String, data::ContainerMount>,
     lab_clusters: Vec<LabCluster>,
     p2p: P2pAttachment,
+    node_vm_starts: HashMap<String, NodeVmStart>,
 }
 
 /// What phases 12 and 13 leave for the response.
@@ -192,6 +194,7 @@ pub async fn up_lab(
         qemu_conn: &qemu_conn,
         qemu: &state.qemu,
         config: &state.config,
+        docker_store_locks: &state.docker_store_locks,
         progress: &progress,
     };
     let mut plan = validate(
@@ -426,10 +429,11 @@ fn ensure_no_earlier_attempt(
     lab_id: &str,
     selected_images: &[data::NodeConfig],
 ) -> Result<()> {
-    if selected_images
-        .iter()
-        .all(|image| image.runtime_kind() == data::NodeKind::Container)
-    {
+    if selected_images.iter().all(|image| {
+        image
+            .model_kind()
+            .is_ok_and(|kind| kind.runs_as() == data::NodeKind::Container)
+    }) {
         return Ok(());
     }
     if !libvirt::list_lab_volumes(qemu_conn, lab_id)?.is_empty() {
@@ -663,7 +667,7 @@ impl LabUp<'_> {
             lab_ca,
             ztp_dir,
             ztp_records,
-            container_volumes,
+            container_settings,
             clone_disks,
             domains,
             unikernel_domains,
@@ -712,13 +716,25 @@ impl LabUp<'_> {
         self.phase_done("DiskCloning");
 
         self.start_phase(data::UpPhase::VmCreation, "Creating VMs".to_string())?;
+        let secret_mounts = write_secret_mounts(&self.build, self.node_secrets)?;
         create_vms(&self.build, domains).await?;
-        create_node_vms(
+        let node_vm_starts = create_node_vms(
             &self.build,
-            &records.container_nodes,
-            &records.lab_node_data,
-            &links.p2p_container_veths,
-            &network.mgmt_net,
+            &NodeVmNodes {
+                host: NodeVmHost {
+                    docker: Arc::clone(self.build.docker_conn),
+                    qemu: Arc::clone(self.build.qemu),
+                    images_dir: self.build.config.images_dir.clone(),
+                    store_locks: self.build.docker_store_locks.clone(),
+                },
+                container_nodes: &records.container_nodes,
+                lab_node_data: &records.lab_node_data,
+                container_settings: &container_settings,
+                secret_mounts: &secret_mounts,
+                veths: &links.p2p_container_veths,
+                mgmt_net: &network.mgmt_net,
+                dns: &network.dns,
+            },
         )
         .await?;
         self.phase_done("VmCreation");
@@ -746,9 +762,11 @@ impl LabUp<'_> {
         Ok(BuiltNodes {
             lab_ca,
             ztp_records,
-            container_volumes,
+            container_settings,
+            secret_mounts,
             lab_clusters,
             p2p,
+            node_vm_starts,
         })
     }
 
@@ -797,17 +815,17 @@ impl LabUp<'_> {
                 unikernel_nodes: &records.unikernel_nodes,
                 lab_node_data: &records.lab_node_data,
                 ztp_records: &built.ztp_records,
-                container_volumes: &built.container_volumes,
+                container_settings: &built.container_settings,
+                secret_mounts: &built.secret_mounts,
                 container_link_networks: &container_link_networks,
                 p2p_container_veths: &links.p2p_container_veths,
                 p2p_links,
                 links_detailed: &self.plan.links_detailed,
-                node_secrets: self.node_secrets,
                 talos_clusters,
-                dns: &network.dns,
                 timeout: Duration::from_secs(ready_timeout_secs),
             },
             &mut built.p2p,
+            mem::take(&mut built.node_vm_starts),
         )
         .await?;
         self.errors.extend(readiness_errors);

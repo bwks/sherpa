@@ -9,9 +9,11 @@ use tracing::instrument;
 
 use virt::connect::Connect;
 use virt::domain::Domain;
+use virt::error::ErrorNumber;
 use virt::storage_pool::StoragePool;
 use virt::storage_vol::StorageVol;
 use virt::stream::Stream;
+use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
 use shared::konst::{SHERPA_STORAGE_POOL, STORAGE_VOLUME_MODE};
 
@@ -173,19 +175,51 @@ pub fn resize_disk(conn: &Connect, path: &str, size_gb: u16) -> Result<()> {
     Ok(())
 }
 
-/// Delete the volume `disk_name` from the storage pool.
+/// Delete the volume `disk_name` from the storage pool, refreshed first so a file written
+/// outside libvirt is seen. A volume already gone counts as deleted.
 ///
 /// # Errors
 ///
-/// Fails when the pool or the volume cannot be found, or libvirt cannot delete the volume.
+/// Fails when the pool cannot be found or refreshed, or libvirt cannot look the volume up or
+/// delete it.
 #[instrument(level = "debug", skip(conn))]
 pub fn delete_disk(conn: &Connect, disk_name: &str) -> Result<()> {
     let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)
         .with_context(|| format!("Cannot find storage pool '{SHERPA_STORAGE_POOL}'"))?;
-    let vol = StorageVol::lookup_by_name(&pool, disk_name)
-        .with_context(|| format!("Cannot find volume '{disk_name}'"))?;
-    vol.delete(0)
-        .with_context(|| format!("Cannot delete volume '{disk_name}'"))?;
+    refresh_pool(&pool)?;
+    match StorageVol::lookup_by_name(&pool, disk_name) {
+        Ok(volume) => volume
+            .delete(0)
+            .with_context(|| format!("Cannot delete volume '{disk_name}'")),
+        Err(error) if error.code() == ErrorNumber::NoStorageVolume => Ok(()),
+        Err(error) => Err(error).with_context(|| format!("Cannot look up volume '{disk_name}'")),
+    }
+}
+
+/// Stop domain `name` if it runs and undefine it with its NVRAM. A domain already gone counts
+/// as removed, so a retried teardown succeeds.
+///
+/// # Errors
+///
+/// Fails when libvirt cannot look the domain up, stop it or undefine it.
+#[instrument(level = "debug", skip(conn))]
+pub fn remove_domain(conn: &Connect, name: &str) -> Result<()> {
+    let domain = match Domain::lookup_by_name(conn, name) {
+        Ok(domain) => domain,
+        Err(error) if error.code() == ErrorNumber::NoDomain => return Ok(()),
+        Err(error) => return Err(error).with_context(|| format!("Cannot look up domain {name}")),
+    };
+    if domain
+        .is_active()
+        .with_context(|| format!("Cannot read whether domain {name} runs"))?
+    {
+        domain
+            .destroy()
+            .with_context(|| format!("Cannot stop domain {name}"))?;
+    }
+    domain
+        .undefine_flags(VIR_DOMAIN_UNDEFINE_NVRAM)
+        .with_context(|| format!("Cannot undefine domain {name}"))?;
     Ok(())
 }
 

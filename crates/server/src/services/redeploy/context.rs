@@ -380,8 +380,9 @@ async fn load_node(
             ))
             .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
 
-    node_vm::require_base_image(&state.config.images_dir, &[node_image.model_kind()?])?;
-    let image_guard = lease_image(node_image.model_kind()?, &node_image.version).await;
+    let model_kind = node_image.model_kind()?;
+    node_vm::require_base_image(&state.config.images_dir, &[model_kind])?;
+    let image_guard = lease_image(model_kind, &node_image.version).await;
     if node_image.kind() == data::NodeKind::Container {
         let repo = validate_container_repo(
             node_name,

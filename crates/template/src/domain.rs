@@ -127,6 +127,40 @@ pub struct UnikernelDomainTemplate {
     pub reserved_network: String,
 }
 
+/// A node VM's management NIC: a virtio NIC on the lab's management network.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeVmManagement {
+    pub network: String,
+    pub mac: String,
+}
+
+/// A node VM's data interface: a virtio NIC whose host side is the tap `tap`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeVmNic {
+    pub tap: String,
+    pub mac: String,
+}
+
+/// The domain of a node VM, or of a VM that makes a Docker store, which has an image archive
+/// and no NICs or console.
+#[derive(Debug, Template)]
+#[template(path = "libvirt/node_vm_domain.jinja", ext = "xml", escape = "xml")]
+pub struct NodeVmDomainTemplate {
+    pub name: String,
+    pub memory_mib: u64,
+    pub vcpus: u8,
+    pub kernel: String,
+    pub cmdline: String,
+    pub disk: String,
+    pub docker_disk: String,
+    pub image_archive: Option<String>,
+    pub config_drive: String,
+    pub management: Option<NodeVmManagement>,
+    pub nics: Vec<NodeVmNic>,
+    pub status_socket: String,
+    pub serial_socket: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

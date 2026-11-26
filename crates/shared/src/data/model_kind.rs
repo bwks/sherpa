@@ -332,6 +332,17 @@ impl ModelKind {
             )
     }
 
+    /// The kind of node sherpad runs a node of this model and kind as: a container that runs in
+    /// a node VM runs as its VM's domain, every other node as its own kind.
+    #[must_use]
+    pub fn runs_as(self) -> NodeKind {
+        if self.runs_in_node_vm() {
+            NodeKind::VirtualMachine
+        } else {
+            self.kind
+        }
+    }
+
     /// Whether the host must finish the checksums of packets it sends to a container of this
     /// model, so transmit checksum offload goes off on the host end of its veths. IOL reads its
     /// interfaces through packet sockets, which hand it a packet whose checksum a veth left for
@@ -408,6 +419,27 @@ mod tests {
     use serde_json::error::Category;
 
     use super::*;
+
+    #[test]
+    fn node_vm_017_the_three_models_containers_run_in_node_vms_and_run_as_vms() {
+        for model in [
+            NodeModel::AristaEos,
+            NodeModel::NokiaSrlinux,
+            NodeModel::SonicLinux,
+        ] {
+            let container = ModelKind::new(model, Some(NodeKind::Container)).unwrap();
+            assert!(container.runs_in_node_vm(), "{model}");
+            assert_eq!(container.runs_as(), NodeKind::VirtualMachine, "{model}");
+        }
+        for model in [NodeModel::FrrLinux, NodeModel::CiscoIol, NodeModel::Generic] {
+            let container = ModelKind::new(model, Some(NodeKind::Container)).unwrap();
+            assert!(!container.runs_in_node_vm(), "{model}");
+            assert_eq!(container.runs_as(), NodeKind::Container, "{model}");
+        }
+        let veos = ModelKind::default_for(NodeModel::AristaEos);
+        assert!(!veos.runs_in_node_vm());
+        assert_eq!(veos.runs_as(), NodeKind::VirtualMachine);
+    }
 
     #[test]
     fn node_kind_004_a_model_and_kind_from_json_are_refused_when_the_model_does_not_take_it() {

@@ -5,15 +5,14 @@ use anyhow::{Context, Result};
 use bollard::Docker;
 use bollard::models::{
     ContainerCreateBody, ContainerCreateResponse, ContainerStateStatusEnum, EndpointIpamConfig,
-    EndpointSettings, HostConfig, NetworkConnectRequest, NetworkingConfig, RestartPolicy,
-    RestartPolicyNameEnum,
+    EndpointSettings, HostConfig, NetworkConnectRequest, NetworkingConfig,
 };
 use bollard::query_parameters::{
     CreateContainerOptions, InspectContainerOptions, StartContainerOptions,
 };
 use tracing::instrument;
 
-use shared::data::{ContainerNetworkAttachment, Dns};
+use shared::data::{ContainerMount, ContainerNetworkAttachment, Dns};
 use shared::konst::DOCKER_ENDPOINT_IFNAME_OPT;
 
 use super::delete::remove_container;
@@ -30,6 +29,8 @@ const DATA_INTERFACE_RETRY_DELAY: Duration = Duration::from_secs(2);
 const NODE_VM_NETWORK_MODE: &str = "host";
 /// The address a node VM's container resolves its own hostname to.
 const NODE_VM_HOSTNAME_ADDRESS: &str = "127.0.1.1";
+/// Docker's restart policy of a node VM's container.
+const NODE_VM_RESTART_POLICY: &str = "unless-stopped";
 /// Bytes in a MiB, the unit of a node's memory.
 const BYTES_PER_MIB: u64 = 1024 * 1024;
 /// Docker's CPU quota unit, `NanoCpus`, in billionths of a CPU.
@@ -42,7 +43,7 @@ pub struct ContainerSpec {
     pub hostname: Option<String>,
     pub image: String,
     pub env_vars: Vec<String>,
-    pub volumes: Vec<String>,
+    pub volumes: Vec<ContainerMount>,
     pub capabilities: Vec<String>,
     pub management_network: ContainerNetworkAttachment,
     pub additional_networks: Vec<ContainerNetworkAttachment>,
@@ -95,7 +96,7 @@ pub async fn run_container(docker: &Docker, spec: ContainerSpec) -> Result<bool>
 
 /// Start the container `id`, attach its data networks in order and set their interfaces up,
 /// then report whether it is running.
-pub(crate) async fn start_and_attach(
+async fn start_and_attach(
     docker: &Docker,
     id: &str,
     name: &str,
@@ -196,7 +197,7 @@ fn create_body(spec: ContainerSpec) -> Result<ContainerCreateBody> {
         image: Some(image),
         env: Some(env_vars),
         host_config: Some(HostConfig {
-            binds: Some(volumes),
+            binds: Some(volumes.iter().map(ContainerMount::bind).collect()),
             cap_add: Some(capabilities),
             auto_remove: Some(false),
             privileged: Some(privileged),
@@ -214,38 +215,88 @@ fn create_body(spec: ContainerSpec) -> Result<ContainerCreateBody> {
     })
 }
 
-/// The body a node VM's container is created from: as `run_container` creates it, without bind
-/// mounts, since its files are copied into it, with Docker restarting it whenever its VM's
-/// Docker starts unless it was stopped, and in the VM's network namespace, so the network OS
-/// has the VM's NICs as its own interfaces. The VM has no resolver of its own, so the
-/// container gets the lab's name servers and domain, and its hostname resolves to loopback.
-pub(crate) fn node_vm_create_body(spec: ContainerSpec, dns: &Dns) -> Result<ContainerCreateBody> {
-    let hostname = spec.hostname.clone();
-    let mut body = create_body(spec)?;
-    body.networking_config = None;
-    if let Some(host_config) = body.host_config.as_mut() {
-        host_config.binds = None;
-        host_config.network_mode = Some(NODE_VM_NETWORK_MODE.to_owned());
-        host_config.dns = Some(
-            dns.name_servers
-                .iter()
-                .flat_map(|server| {
-                    [Some(server.ipv4_address.to_string())]
-                        .into_iter()
-                        .chain([server.ipv6_address.map(|address| address.to_string())])
-                        .flatten()
-                })
-                .collect(),
-        );
-        host_config.dns_search = Some(vec![dns.domain.clone()]);
-        host_config.extra_hosts =
-            hostname.map(|hostname| vec![format!("{hostname}:{NODE_VM_HOSTNAME_ADDRESS}")]);
-        host_config.restart_policy = Some(RestartPolicy {
-            name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
-            maximum_retry_count: None,
-        });
+/// The `docker create` arguments of a node VM's container, its image and command last: the
+/// settings `run_container` gives a container, in the VM's network namespace instead of on a
+/// Docker network, with the lab's name servers and domain, as the VM has no resolver, its
+/// hostname resolving to loopback, and Docker restarting it unless it was stopped. Docker never
+/// pulls the image: the VM has it in its store.
+#[must_use]
+pub fn node_vm_create_args(spec: &ContainerSpec, dns: &Dns) -> Vec<String> {
+    let mut args = vec![
+        "--name".to_owned(),
+        spec.name.clone(),
+        format!("--network={NODE_VM_NETWORK_MODE}"),
+        format!("--restart={NODE_VM_RESTART_POLICY}"),
+        "--pull=never".to_owned(),
+        "--tty".to_owned(),
+        "--interactive".to_owned(),
+    ];
+    if let Some(hostname) = &spec.hostname {
+        args.extend([
+            format!("--hostname={hostname}"),
+            format!("--add-host={hostname}:{NODE_VM_HOSTNAME_ADDRESS}"),
+        ]);
     }
-    Ok(body)
+    if spec.privileged {
+        args.push("--privileged".to_owned());
+    }
+    for server in &dns.name_servers {
+        args.push(format!("--dns={}", server.ipv4_address));
+        if let Some(address) = server.ipv6_address {
+            args.push(format!("--dns={address}"));
+        }
+    }
+    args.push(format!("--dns-search={}", dns.domain));
+    for env in &spec.env_vars {
+        args.extend(["--env".to_owned(), env.clone()]);
+    }
+    for capability in &spec.capabilities {
+        args.push(format!("--cap-add={capability}"));
+    }
+    for mount in &spec.volumes {
+        args.extend(["--mount".to_owned(), bind_mount(mount)]);
+    }
+    if let Some(size) = spec.shm_size {
+        args.push(format!("--shm-size={size}b"));
+    }
+    if let Some(user) = &spec.user {
+        args.push(format!("--user={user}"));
+    }
+    if let Some(memory_mib) = spec.memory_mib {
+        args.extend([
+            format!("--memory={memory_mib}m"),
+            format!("--memory-swap={memory_mib}m"),
+        ]);
+    }
+    if let Some(cpu_count) = spec.cpu_count {
+        args.push(format!("--cpus={cpu_count}"));
+    }
+    args.push(spec.image.clone());
+    args.extend(spec.commands.iter().cloned());
+    args
+}
+
+/// The `--mount` value of bind mount `mount`, each field quoted as CSV when it holds a comma or
+/// a quote.
+fn bind_mount(mount: &ContainerMount) -> String {
+    let mut fields = vec![
+        "type=bind".to_owned(),
+        csv_field(&format!("source={}", mount.source)),
+        csv_field(&format!("target={}", mount.destination)),
+    ];
+    if mount.read_only {
+        fields.push("readonly".to_owned());
+    }
+    fields.join(",")
+}
+
+/// `field` as a CSV field: quoted, its quotes doubled, when it holds a comma or a quote.
+fn csv_field(field: &str) -> String {
+    if field.contains([',', '"']) {
+        format!(r#""{}""#, field.replace('"', r#""""#))
+    } else {
+        field.to_owned()
+    }
 }
 
 /// The host config of a container's limits: `memory_mib` as a hard limit in bytes, with the
@@ -367,15 +418,18 @@ mod tests {
             name: "sonic1-abc12345".to_owned(),
             hostname: Some("sonic1".to_owned()),
             image: "docker-sonic-vs:202511".to_owned(),
-            env_vars: Vec::new(),
-            volumes: vec!["/lab/init.sh:/mnt/init.sh:ro".to_owned()],
-            capabilities: Vec::new(),
+            env_vars: vec!["A=b c".to_owned()],
+            volumes: vec![
+                ContainerMount::read_only("/media/config/sherpa/volumes/0", "/mnt/init.sh"),
+                ContainerMount::writable("/srv/data", "/etc/a,b"),
+            ],
+            capabilities: vec!["NET_ADMIN".to_owned()],
             management_network: attachment(None, false),
             additional_networks: Vec::new(),
-            commands: Vec::new(),
+            commands: vec!["/usr/bin/start".to_owned(), "--x".to_owned()],
             privileged: true,
             shm_size: None,
-            user: None,
+            user: Some("0:0".to_owned()),
             memory_mib: None,
             cpu_count: None,
         };
@@ -386,20 +440,34 @@ mod tests {
                 ipv6_address: Some("fd00::2".parse().unwrap()),
             }],
         };
-        let body = node_vm_create_body(spec, &dns).unwrap();
-        assert!(body.networking_config.is_none());
-        let host = body.host_config.unwrap();
-        assert_eq!(host.network_mode.as_deref(), Some("host"));
-        assert_eq!(host.binds, None);
         assert_eq!(
-            host.dns,
-            Some(vec!["172.31.0.2".to_owned(), "fd00::2".to_owned()])
-        );
-        assert_eq!(host.dns_search, Some(vec!["sherpa.lab.local".to_owned()]));
-        assert_eq!(host.extra_hosts, Some(vec!["sonic1:127.0.1.1".to_owned()]));
-        assert_eq!(
-            host.restart_policy.and_then(|policy| policy.name),
-            Some(RestartPolicyNameEnum::UNLESS_STOPPED)
+            node_vm_create_args(&spec, &dns),
+            [
+                "--name",
+                "sonic1-abc12345",
+                "--network=host",
+                "--restart=unless-stopped",
+                "--pull=never",
+                "--tty",
+                "--interactive",
+                "--hostname=sonic1",
+                "--add-host=sonic1:127.0.1.1",
+                "--privileged",
+                "--dns=172.31.0.2",
+                "--dns=fd00::2",
+                "--dns-search=sherpa.lab.local",
+                "--env",
+                "A=b c",
+                "--cap-add=NET_ADMIN",
+                "--mount",
+                "type=bind,source=/media/config/sherpa/volumes/0,target=/mnt/init.sh,readonly",
+                "--mount",
+                r#"type=bind,source=/srv/data,"target=/etc/a,b""#,
+                "--user=0:0",
+                "docker-sonic-vs:202511",
+                "/usr/bin/start",
+                "--x",
+            ]
         );
     }
 }

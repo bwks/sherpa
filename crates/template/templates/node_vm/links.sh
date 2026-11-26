@@ -1,0 +1,74 @@
+#!/bin/bash
+# Names this node VM's NICs as the network OS expects, each found by its MAC in
+# /etc/sherpa/interfaces, gives the management NIC the node's addresses and default routes in
+# /etc/sherpa/management, and gives each data interface on no link a veth with the interface's
+# fixed MAC, whose peer stays down in a namespace of its own, so the interface has no carrier.
+# Runs once per boot, before Docker starts: the node's container runs in the VM's network
+# namespace, and its network OS owns the interfaces from then on. A failure is reported to
+# sherpad, and Docker does not start the container.
+set -eEu
+
+WAIT_SECONDS=60
+UNWIRED_NETNS=sherpa-unwired
+
+fail() {
+  /opt/sherpa/report "failed: interfaces: $1" || true
+  exit 1
+}
+trap 'fail "line $LINENO: $BASH_COMMAND"' ERR
+
+# The name of the NIC with MAC $1, once the kernel has it.
+nic_of() {
+  local dev waited=0
+  while [ "$waited" -lt "$WAIT_SECONDS" ]; do
+    for dev in /sys/class/net/*; do
+      if [ "$(cat "$dev/address")" = "$1" ]; then
+        echo "${dev##*/}"
+        return 0
+      fi
+    done
+    sleep 1
+    waited=$((waited + 1))
+  done
+  return 1
+}
+
+# A temporary name first, so a NIC never takes a name another NIC still has.
+index=0
+while read -r mac want; do
+  index=$((index + 1))
+  dev=$(nic_of "$mac") || fail "no NIC with MAC $mac for $want after $WAIT_SECONDS seconds"
+  ip link set dev "$dev" down
+  ip addr flush dev "$dev"
+  ip link set dev "$dev" name "sln$index"
+done < /etc/sherpa/interfaces
+index=0
+while read -r mac want; do
+  index=$((index + 1))
+  ip link set dev "sln$index" name "$want"
+  ip link set dev "$want" up
+done < /etc/sherpa/interfaces
+
+while read -r dev address gateway; do
+  case "$address" in
+    *:*)
+      ip -6 addr replace "$address" dev "$dev" nodad
+      ip -6 route replace default via "$gateway" dev "$dev"
+      ;;
+    *)
+      ip addr replace "$address" dev "$dev"
+      ip route replace default via "$gateway" dev "$dev"
+      ;;
+  esac
+done < /etc/sherpa/management
+
+if [ ! -e "/run/netns/$UNWIRED_NETNS" ]; then
+  ip netns add "$UNWIRED_NETNS"
+fi
+index=0
+while read -r mac want; do
+  index=$((index + 1))
+  ip link add "$want" address "$mac" mtu 9600 type veth \
+    peer name "unw$index" mtu 9600 netns "$UNWIRED_NETNS"
+  ip link set dev "$want" up
+done < /etc/sherpa/placeholders

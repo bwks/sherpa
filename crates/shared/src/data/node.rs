@@ -1105,18 +1105,6 @@ impl NodeConfig {
         self.settings.kind()
     }
 
-    /// What runs a node of this image: libvirt runs VMs, unikernels and the containers that run
-    /// in a node VM, whose domain is the node; Docker runs other containers.
-    #[must_use]
-    pub fn runtime_kind(&self) -> NodeKind {
-        let kind = self.kind();
-        if ModelKind::new(self.model, Some(kind)).is_ok_and(ModelKind::runs_in_node_vm) {
-            NodeKind::VirtualMachine
-        } else {
-            kind
-        }
-    }
-
     /// The model and kind of this image.
     ///
     /// # Errors
@@ -2313,29 +2301,6 @@ mod tests {
     use toml::de::Error as TomlError;
 
     use super::*;
-
-    #[test]
-    fn node_vm_017_libvirt_runs_the_containers_of_the_privileged_network_os_models() {
-        for model in [
-            NodeModel::AristaEos,
-            NodeModel::NokiaSrlinux,
-            NodeModel::SonicLinux,
-        ] {
-            let image = ModelKind::new(model, Some(NodeKind::Container))
-                .unwrap()
-                .node_config();
-            assert_eq!(image.runtime_kind(), NodeKind::VirtualMachine, "{model}");
-            assert_eq!(image.kind(), NodeKind::Container, "{model}");
-        }
-        for model in [NodeModel::FrrLinux, NodeModel::CiscoIol, NodeModel::Generic] {
-            let image = ModelKind::new(model, Some(NodeKind::Container))
-                .unwrap()
-                .node_config();
-            assert_eq!(image.runtime_kind(), NodeKind::Container, "{model}");
-        }
-        let veos = ModelKind::default_for(NodeModel::AristaEos).node_config();
-        assert_eq!(veos.runtime_kind(), NodeKind::VirtualMachine);
-    }
 
     #[test]
     fn node_state_015_an_unknown_node_state_reads_as_unknown_and_known_ones_read_back() {

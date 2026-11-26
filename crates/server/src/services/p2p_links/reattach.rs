@@ -97,7 +97,7 @@ impl LabLinks {
                 let image = images
                     .iter()
                     .find(|image| image.id.as_ref() == Some(&node.image))?;
-                Some((node.id.clone()?, image.runtime_kind()))
+                Some((node.id.clone()?, image.model_kind().ok()?.runs_as()))
             })
             .collect();
         Ok(Self::new(lab_id, links, &nodes, kinds))
