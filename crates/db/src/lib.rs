@@ -18,7 +18,6 @@ pub mod node;
 pub mod node_image;
 mod persistence;
 mod queries;
-pub mod sandbox_node;
 pub mod schema;
 pub mod secret;
 pub mod seed;
@@ -26,17 +25,18 @@ pub mod session;
 mod sql;
 pub mod talos;
 pub mod user;
+pub mod vm_sandbox;
 
 pub use connect::{Database, open, open_in_memory};
 pub use cpu_pin::{CpuPinTaken, claim_cpu_pins, list_cpu_pins, retain_cpu_pins};
 pub use definition::{read_lab_definition, store_lab_definition, store_redeployed_node};
 pub use error::DbError;
-pub use sandbox_node::{create_sandbox_node, find_sandbox_node, list_sandbox_nodes};
 pub use secret::{SecretKey, secret_key_registered, verify_secret_key};
 pub use shared::data::{
     DbBridge, DbCpuPins, DbLab, DbLink, DbLoginAttempt, DbNode, DbSession, DbSessionUser, DbUser,
     NodeConfig, SessionChannel,
 };
+pub use vm_sandbox::{create_vm_sandbox, find_vm_sandbox, list_vm_sandboxes};
 
 // Helper functions for extracting IDs safely
 pub use helpers::{get_image_id, get_lab_id, get_node_id, get_user_id};

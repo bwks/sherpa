@@ -117,7 +117,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 066 | At its start sherpad removes what an unfinished store build left (the store VM, its volumes, staging folder and status socket) and keeps the stores | integration |
 | 067 | A sandbox on a private bridge has its taps on the bridge again after down and resume | integration |
 | 068 | The update installs `bzip2`, which unpacks the `flatcar_sandbox` image, when `bunzip2` is missing, and nothing otherwise | unit (bats) |
-| 069 | A sandbox node, the sandbox's own address and MAC, is recorded once per node, read back by node and by lab in node index order, and deleted with the node's lab | unit |
+| 069 | A `vm_sandbox` row, the sandbox's own address and MAC, is recorded once per sandbox node, read back by node and by lab in node index order, and deleted with the node's lab | unit |
 | 070 | The sandbox has a NIC of its own on the lab's management network | unit |
 | 071 | Before its other NICs are named, the guest moves the sandbox's own NIC, found by its MAC, into a network namespace of its own and gives it the sandbox's addresses and default routes | unit |
 | 072 | A sandbox's own address answers ping from the server and from another node of the lab, keeps its address and MAC across down, resume and redeploy, and the network OS lists no interface of it (no test yet) | e2e |

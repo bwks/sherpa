@@ -1,9 +1,9 @@
-//! The records sandboxes have of their own, in the `sandbox_node` table: one row per node that runs
-//! in a sandbox, with the sandbox's own management addresses and MAC, recorded with the node at
-//! `up` and deleted with it.
+//! The records sandboxes have of their own, in the `vm_sandbox` table: one row per sandbox node,
+//! with the sandbox's own management addresses and MAC, recorded with the node at `up` and
+//! deleted with it.
 
 use anyhow::{Context, Result};
-use shared::data::{DbSandboxNode, RecordId};
+use shared::data::{DbVmSandbox, RecordId};
 use tracing::instrument;
 use turso::{Row, Value};
 
@@ -12,10 +12,10 @@ use crate::persistence::{Cells, LAB_TABLE, NODE_TABLE, key_of};
 use crate::queries;
 use crate::sql::{execute, query_all, query_optional};
 
-/// A row of the `sandbox_node` table.
-fn sandbox_node_from_row(row: &Row) -> Result<DbSandboxNode> {
+/// A row of the `vm_sandbox` table.
+fn vm_sandbox_from_row(row: &Row) -> Result<DbVmSandbox> {
     let mut cells = Cells::new(row);
-    Ok(DbSandboxNode {
+    Ok(DbVmSandbox {
         node: cells.record(NODE_TABLE, "node")?,
         ipv4: cells.ipv4("ipv4")?,
         ipv6: cells.optional_ipv6("ipv6")?,
@@ -27,14 +27,14 @@ fn sandbox_node_from_row(row: &Row) -> Result<DbSandboxNode> {
 ///
 /// # Errors
 ///
-/// Fails when the node is not a node record, already has a sandbox node row, or the database
+/// Fails when the node is not a node record, already has a `vm_sandbox` row, or the database
 /// cannot be written.
 #[instrument(skip(db), fields(node = %sandbox.node), level = "debug")]
-pub async fn create_sandbox_node(db: &Database, sandbox: &DbSandboxNode) -> Result<()> {
+pub async fn create_vm_sandbox(db: &Database, sandbox: &DbVmSandbox) -> Result<()> {
     let writer = db.writer().await?;
     execute(
         &writer.conn,
-        queries::sandbox_node::CREATE.bind([
+        queries::vm_sandbox::CREATE.bind([
             key_of(&sandbox.node, NODE_TABLE)?.into(),
             sandbox.ipv4.to_string().into(),
             sandbox
@@ -54,12 +54,12 @@ pub async fn create_sandbox_node(db: &Database, sandbox: &DbSandboxNode) -> Resu
 ///
 /// Fails when `node` is not a node record or the database cannot be read.
 #[instrument(skip(db), level = "debug")]
-pub async fn find_sandbox_node(db: &Database, node: &RecordId) -> Result<Option<DbSandboxNode>> {
+pub async fn find_vm_sandbox(db: &Database, node: &RecordId) -> Result<Option<DbVmSandbox>> {
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        queries::sandbox_node::FIND_BY_NODE.bind([key_of(node, NODE_TABLE)?.into()]),
-        sandbox_node_from_row,
+        queries::vm_sandbox::FIND_BY_NODE.bind([key_of(node, NODE_TABLE)?.into()]),
+        vm_sandbox_from_row,
     )
     .await
     .with_context(|| format!("Failed to read the sandbox of node {node}"))
@@ -71,12 +71,12 @@ pub async fn find_sandbox_node(db: &Database, node: &RecordId) -> Result<Option<
 ///
 /// Fails when `lab` is not a lab record or the database cannot be read.
 #[instrument(skip(db), level = "debug")]
-pub async fn list_sandbox_nodes(db: &Database, lab: &RecordId) -> Result<Vec<DbSandboxNode>> {
+pub async fn list_vm_sandboxes(db: &Database, lab: &RecordId) -> Result<Vec<DbVmSandbox>> {
     let conn = db.reader().await?;
     query_all(
         &conn,
-        queries::sandbox_node::LIST_BY_LAB.bind([key_of(lab, LAB_TABLE)?.into()]),
-        sandbox_node_from_row,
+        queries::vm_sandbox::LIST_BY_LAB.bind([key_of(lab, LAB_TABLE)?.into()]),
+        vm_sandbox_from_row,
     )
     .await
     .with_context(|| format!("Failed to list the sandboxes of lab {lab}"))
@@ -93,7 +93,7 @@ mod tests {
     };
 
     #[tokio::test]
-    async fn sandbox_069_a_sandbox_node_is_kept_with_its_node_and_goes_with_its_lab() {
+    async fn sandbox_069_a_vm_sandbox_row_is_kept_with_its_node_and_goes_with_its_lab() {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
         let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![])
@@ -132,22 +132,22 @@ mod tests {
             let node = create_node(&db, name, index, image.id.clone().unwrap(), lab_id.clone())
                 .await
                 .unwrap();
-            let sandbox = DbSandboxNode {
+            let sandbox = DbVmSandbox {
                 node: node.id.unwrap(),
                 ipv4: format!("172.31.1.{}", 22 + index).parse().unwrap(),
                 ipv6: (index == 1).then(|| "fd00::17".parse().unwrap()),
                 mac: format!("52:54:00:00:00:0{index}"),
             };
-            create_sandbox_node(&db, &sandbox).await.unwrap();
+            create_vm_sandbox(&db, &sandbox).await.unwrap();
             sandboxes.push(sandbox);
         }
-        assert!(create_sandbox_node(&db, &sandboxes[0]).await.is_err());
+        assert!(create_vm_sandbox(&db, &sandboxes[0]).await.is_err());
         assert_eq!(
-            find_sandbox_node(&db, &sandboxes[1].node).await.unwrap(),
+            find_vm_sandbox(&db, &sandboxes[1].node).await.unwrap(),
             Some(sandboxes[1].clone())
         );
         assert_eq!(
-            list_sandbox_nodes(&db, &lab_id).await.unwrap(),
+            list_vm_sandboxes(&db, &lab_id).await.unwrap(),
             vec![sandboxes[1].clone(), sandboxes[0].clone()]
         );
 
@@ -157,7 +157,7 @@ mod tests {
                 .unwrap()
         );
         assert_eq!(
-            find_sandbox_node(&db, &sandboxes[0].node).await.unwrap(),
+            find_vm_sandbox(&db, &sandboxes[0].node).await.unwrap(),
             None
         );
     }

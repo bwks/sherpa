@@ -59,7 +59,7 @@ pub(super) struct NodeConfigs {
 #[derive(Clone, Debug)]
 pub(super) struct SandboxRecord {
     pub(super) node_name: String,
-    pub(super) record: data::DbSandboxNode,
+    pub(super) record: data::DbVmSandbox,
 }
 
 /// The lab's node configuration in progress: the CA that signs node certificates, and the
@@ -235,7 +235,7 @@ impl Configuring<'_, '_> {
     async fn assign_sandbox(&mut self, name: &str, rank: u16) -> Result<()> {
         let mgmt_net = self.inputs.mgmt_net;
         let offset = util::sandbox_management_host_offset(self.node_count, rank)?;
-        let record = data::DbSandboxNode {
+        let record = data::DbVmSandbox {
             node: self
                 .record_id(name)?
                 .with_context(|| format!("Node '{name}' has no record"))?,
@@ -247,7 +247,7 @@ impl Configuring<'_, '_> {
                 .transpose()?,
             mac: util::random_mac(KVM_OUI),
         };
-        db::create_sandbox_node(self.build.db, &record).await?;
+        db::create_vm_sandbox(self.build.db, &record).await?;
         self.sandbox_records.push(SandboxRecord {
             node_name: name.to_owned(),
             record,

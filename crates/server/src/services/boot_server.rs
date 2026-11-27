@@ -97,7 +97,7 @@ pub(crate) fn render_dnsmasq_config(
 /// `node_name`.
 pub(crate) fn sandbox_host_record(
     node_name: &str,
-    sandbox: &data::DbSandboxNode,
+    sandbox: &data::DbVmSandbox,
 ) -> template::SandboxHostRecord {
     template::SandboxHostRecord {
         node_name: node_name.to_owned(),
@@ -201,7 +201,7 @@ pub(crate) fn rewrite_dnsmasq_config(path: &str, config: &str) -> Result<bool> {
 }
 
 /// Bring the boot server of lab `lab_id` up to date after its node `redeployed.node_name` was
-/// configured again: render the dnsmasq config from the lab's nodes and sandbox nodes, with
+/// configured again: render the dnsmasq config from the lab's nodes and `vm_sandbox` rows, with
 /// the redeployed node's new record, and when it differs from the one in the lab folder `lab_dir` (the node's boot
 /// options changed with its ZTP method, or the lab was made by an older release) write it and
 /// create the lab's boot container again. Returns whether it was recreated.
@@ -260,9 +260,9 @@ pub(crate) async fn refresh_boot_server(
         .iter()
         .filter_map(|node| Some((node.record.id.as_ref()?, node.record.name.as_str())))
         .collect();
-    let sandbox_hosts: Vec<template::SandboxHostRecord> = db::list_sandbox_nodes(db, lab_record_id)
+    let sandbox_hosts: Vec<template::SandboxHostRecord> = db::list_vm_sandboxes(db, lab_record_id)
         .await
-        .context("Failed to list the lab's sandbox nodes")?
+        .context("Failed to list the lab's VM sandboxes")?
         .iter()
         .filter_map(|address| Some(sandbox_host_record(names.get(&address.node)?, address)))
         .collect();

@@ -105,7 +105,7 @@ pub(super) struct SandboxNodes<'a> {
 /// # Errors
 ///
 /// Fails when the node has no record, recorded resources, settings, management address or
-/// sandbox node row.
+/// `vm_sandbox` row.
 fn sandbox_create(
     build: &LabBuild<'_>,
     nodes: &SandboxNodes<'_>,

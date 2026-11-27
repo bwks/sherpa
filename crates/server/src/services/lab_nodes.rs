@@ -55,7 +55,7 @@ pub(crate) async fn refuse_nodes_without_sandbox(
     nodes: Vec<DbNode>,
     node_images: &[NodeConfig],
 ) -> Result<(Vec<DbNode>, Vec<NodeActionResult>)> {
-    let sandboxes: HashSet<RecordId> = db::list_sandbox_nodes(db, lab_record_id)
+    let sandboxes: HashSet<RecordId> = db::list_vm_sandboxes(db, lab_record_id)
         .await?
         .into_iter()
         .map(|sandbox| sandbox.node)
