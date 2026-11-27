@@ -66,6 +66,7 @@ pub(crate) struct SandboxCreate {
     pub(crate) ipv4: Ipv4Addr,
     pub(crate) ipv6: Option<Ipv6Addr>,
     pub(crate) own_address: DbVmSandbox,
+    pub(crate) ssh_keys: Vec<String>,
 }
 
 /// A disk a sandbox's domain boots with, made before the domain is defined.
@@ -131,6 +132,7 @@ pub(crate) async fn create_sandbox(
                 create.own_address.ipv6,
             ),
         },
+        ssh_keys: &create.ssh_keys,
         console_command: console_command(create.model_kind),
         docker_api_version: &docker_api_version,
         writable: &volumes.writable,
@@ -391,6 +393,7 @@ mod tests {
                         ipv6: None,
                         mac: "52:54:00:5b:00:01".to_owned(),
                     },
+                    ssh_keys: Vec::new(),
                 },
             )
             .await

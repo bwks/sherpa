@@ -58,7 +58,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `sandbox`: a privileged network OS container runs in a VM of its own
 
-**Statement:** an `arista_eos`, `nokia_srlinux` or `sonic_linux` container node runs privileged on the Docker of a Flatcar VM of its own, which a unit in the VM starts from what sherpad put on the VM's config drive, boots on an overlay of the base image's boot disk, which has the sandboxes' kernel arguments from the first boot on, and on an overlay of its image's Docker store instead of copying the image, reports a failure with its reason, and has its links, management addresses, console, saved config and lifecycle as a node's.
+**Statement:** an `arista_eos`, `nokia_srlinux` or `sonic_linux` container node runs privileged on the Docker of a Flatcar VM of its own, which a unit in the VM starts from what sherpad put on the VM's config drive, boots on an overlay of the base image's boot disk, which has the sandboxes' kernel arguments from the first boot on, and on an overlay of its image's Docker store instead of copying the image, reports a failure with its reason, has its links, management addresses, console, saved config and lifecycle as a node's, and gives the lab owner an SSH login of its own on the sandbox's own address, which the network OS does not see.
 **Relied on by:** the server's owner (a node's privileges reach its VM, not the server), the user. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -66,7 +66,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 001 | The sandbox boots its overlay disk on the boot disk through the image's own bootloader, with its Docker store overlay and its config drive read-only | unit |
 | 002 | Each data interface on a link or bridge is a tap named like its link end, and the management NIC is on the lab's management network | unit |
 | 005 | Values in the domain XML are escaped | unit |
-| 008 | Updates, update reboots, SSH and console logins are off in the sandbox and the Docker store VM | unit |
+| 008 | Retired: the sandbox has an SSH login of its own; see 085, 086 and 087 | — |
 | 010 | Before Docker starts, the guest names each NIC, the management NIC `eth0`, by its lowercase MAC, and the VM runs no network manager | unit |
 | 011 | The serial console runs the network OS CLI | unit |
 | 012 | The container's volumes go on the config drive: a read-only one is mounted from the drive, a writable one is copied into the container when it is created | unit |
@@ -133,6 +133,10 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 082 | A boot whose container Docker's restart policy has already started reports it started | unit |
 | 083 | The guest calls Docker's Engine API at the version sherpad's Docker client uses, on the VM's Docker socket | unit |
 | 084 | A redeploy whose sandbox fails is answered with the reason its VM reported, Docker's message, and the node is failed | integration |
+| 085 | Updates, update reboots, Flatcar's SSH sockets and the serial getty are off in the sandbox and the Docker store VM, and the store VM has no SSH server and no login | unit |
+| 086 | The sandbox's own sshd runs in the sandbox's own network namespace once `sherpa-links` has set it up, listens on port 22 of the sandbox's own addresses only, and takes `core` by key only, never root | unit |
+| 087 | The sandbox's `core` login has the lab owner's keys and no password | unit |
+| 088 | `ssh core@<node>-sbx`, and `core@` each of the sandbox's own addresses, reaches the sandbox with the owner's key and runs `docker ps` and `journalctl` after up, down and resume, and redeploy, a password and root are refused, `ssh` to the node reaches the network OS, and the network OS sees no sshd or NIC of the sandbox (no test yet) | e2e |
 | 089 | A boot disk or Docker store build whose operation stops waiting for it holds the disk's lock until it ends, so the next build of the disk waits for it | unit |
 | 090 | Up and redeploy refuse a sandbox node's volume whose source is or holds a symlink, naming it, before any VM is made | unit |
 | 091 | Up and redeploy refuse a sandbox node's volume whose source holds a special file, naming it, before any VM is made | unit |

@@ -752,6 +752,7 @@ impl LabUp<'_> {
                 mgmt_net: &network.mgmt_net,
                 dns: &network.dns,
                 sandbox_records: &sandbox_records,
+                ssh_keys: &self.plan.owner_account.ssh_keys,
             },
         )
         .await?;

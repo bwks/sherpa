@@ -146,8 +146,10 @@ which take their paths, labels, port names and MTU from the constants in
 `crates/template/src/sandbox.rs`. It sets:
 
 - Updates and reboots off (`IgnitionFile::disable_updates`, `update-engine` and `locksmithd`
-  masked); no login (no users, `sshd` and its sockets and the serial getty masked); none of the
-  image's OpenStack metadata units.
+  masked); no console login (the serial getty masked) and no SSH but the sandbox's own sshd
+  (see Debug SSH): Flatcar's `sshd.socket` and `sshd-vsock.socket` are masked, and the Docker
+  store VM masks `sshd.service` too and has no login; none of the image's OpenStack metadata
+  units.
 - No network of the VM's own: `systemd-networkd`, its socket and its varlink sockets are masked,
   so nothing addresses, raises or renames an interface after `sherpa-links` (see Links): the
   network OS owns every interface.
@@ -167,6 +169,7 @@ which take their paths, labels, port names and MTU from the constants in
 | `sherpa-links.service` | once per boot, before Docker | `links.sh`: names the NICs, addresses `eth0`, makes the interfaces on no link |
 | `sherpa-node.service` | once per boot, after Docker and `sherpa-links` | `node.sh`: until `/var/lib/sherpa/created` exists, removes any container an earlier boot left, creates the container, copies the writable volumes into it and then writes that marker, removing the container when the copy fails; on every boot starts it, and reports (see Container) |
 | `sherpa-console.service` | on `ttyS0`, restarted when it exits | `console.sh`: the network OS CLI (see Console) |
+| `sshd.service` | Flatcar's, after `sherpa-links`, in the namespace `sherpa-sandbox` | the sandbox's own sshd (see Debug SSH) |
 | `var-lib-docker.mount` | before containerd and Docker | mounts the Docker disk, `noinit_itable` |
 | `media-config.mount` | at boot | mounts the config drive |
 
@@ -355,7 +358,32 @@ Before `sbx0` is up it turns off router advertisements and SLAAC on it (`accept_
 - **Named** `<node>-sbx` and `<node>-sbx.<lab domain>` on the lab's boot server, IPv4 and IPv6,
   and its IPv4 address is reserved for the NIC's MAC with a DHCP host entry, so the boot server
   never leases it to another client, while the sandbox is down too (`boot_server_022`). A node named so is refused (`TopologyError::SandboxNameTaken`).
-- Nothing listens on the address yet; it answers ping from the server and from the lab's nodes.
+- It answers ping from the server and from the lab's nodes, and SSH (see Debug SSH).
+
+### Debug SSH
+
+The sandbox's own sshd is for people debugging the sandbox: `ssh core@<node>-sbx` from the server
+or anywhere the lab's management network is reached. `ssh <node>` still reaches the network OS on
+the node's address. Nothing in sherpad uses it.
+
+- **Where.** Flatcar's `sshd.service`, enabled, with a drop-in
+  (`templates/sandbox/sshd.service.conf.jinja`) that orders it after `sherpa-links` and runs it in
+  `sherpa-sandbox` (`NetworkNamespacePath=`), the namespace of `sbx0`. It listens on port 22 of
+  the sandbox's own IPv4 and IPv6 addresses only (`ListenAddress`): nothing else listens in that
+  namespace, so the port is the usual one, and the network OS, in the VM's first namespace, keeps
+  its own port 22 on `eth0`. A failure of `sherpa-links` after it has set up `sbx0` still lets
+  sshd start; before that, there is no namespace, and sshd does not start.
+- **Who.** `core` only (`AllowUsers`), by key only (`AuthenticationMethods publickey`, password
+  and keyboard-interactive off, the latter as Flatcar's PAM would otherwise take one), never
+  root, from `/etc/ssh/sshd_config.d/00-sherpa.conf` (`templates/sandbox/sshd.conf.jinja`), which
+  sshd reads before Flatcar's own drop-ins there, and the first value of a setting wins.
+  Ignition gives `core`, which has no password, the lab owner's keys
+  (`SandboxCreate::ssh_keys`): Sherpa has no lab key. `core` is in Flatcar's `docker`, `systemd-journal` and `wheel` groups, so `docker ps`,
+  `journalctl` and `sudo` work.
+- **Host keys.** sshd makes them at its first start, on the sandbox's disk, so they last across
+  down and resume and are new after a redeploy. sherpad records none.
+- **Unseen by the network OS.** The container has its own PID namespace and runs in the VM's first
+  network namespace, so it sees neither sshd nor `sbx0`.
 
 ## Console
 

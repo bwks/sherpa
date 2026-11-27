@@ -1,13 +1,15 @@
 //! The Ignition configs of sandboxes, the Flatcar VMs that each run one container node, and of
 //! the VMs that make their boot disks and Docker stores (`docs/architecture/SANDBOX.md`).
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use anyhow::Result;
 use askama::Template;
 
+use shared::konst::SSH_PORT;
+
 use crate::ignition::{
-    IgnitionConfig, IgnitionFile, IgnitionFileSystem, IgnitionUnit, KernelArguments,
+    IgnitionConfig, IgnitionFile, IgnitionFileSystem, IgnitionUnit, IgnitionUser, KernelArguments,
 };
 
 /// The volume label Flatcar's Ignition looks for on a config drive.
@@ -33,6 +35,8 @@ pub const SANDBOX_NIC: &str = "sbx0";
 /// The kernel arguments a sandbox boots with beyond those of Flatcar's bootloader: the kernel
 /// prints only errors on the serial console, the network OS's.
 pub const SANDBOX_KERNEL_ARGUMENTS: [&str; 1] = ["quiet"];
+/// The only login on the sandbox's own sshd.
+pub const SANDBOX_LOGIN: &str = "core";
 
 const CONTAINERD_CONFIG: &str = include_str!("../templates/sandbox/containerd.toml");
 const CONTAINERD_CONFIG_PATH: &str = "/etc/containerd/config.toml";
@@ -59,14 +63,17 @@ const LINKS_UNIT: &str = "sherpa-links.service";
 const NODE_UNIT: &str = "sherpa-node.service";
 const CONSOLE_UNIT: &str = "sherpa-console.service";
 const STORE_UNIT: &str = "sherpa-store.service";
+const SSHD_UNIT: &str = "sshd.service";
+const SSHD_CONFIG_PATH: &str = "/etc/ssh/sshd_config.d/00-sherpa.conf";
+const SSHD_DROP_IN_PATH: &str = "/etc/systemd/system/sshd.service.d/10-sherpa.conf";
+const SSHD_CONFIG_MODE: u32 = 0o600;
 const FILE_MODE: u32 = 0o644;
 const SCRIPT_MODE: u32 = 0o755;
-const MASKED_UNITS: [&str; 17] = [
+const MASKED_UNITS: [&str; 16] = [
     "update-engine.service",
     "locksmithd.service",
     "sshd.socket",
     "sshd-vsock.socket",
-    "sshd.service",
     "coreos-metadata-sshkeys@core.service",
     "sshkeys.service",
     "flatcar-openstack-hostname.service",
@@ -120,6 +127,7 @@ pub struct SandboxGuest<'a> {
     pub placeholders: &'a [GuestInterface],
     pub management: &'a [GuestAddress],
     pub own_nic: &'a SandboxOwnNic,
+    pub ssh_keys: &'a [String],
     pub console_command: &'a [&'a str],
     pub docker_api_version: &'a str,
     pub writable: &'a [WritableVolume],
@@ -177,6 +185,19 @@ struct ConsoleUnit;
 #[derive(Template)]
 #[template(path = "sandbox/sherpa-store.service.jinja", ext = "txt")]
 struct StoreUnit;
+
+/// The config of the sandbox's own sshd, listening on `listen` only.
+#[derive(Template)]
+#[template(path = "sandbox/sshd.conf.jinja", ext = "txt")]
+struct SshdConfig<'a> {
+    listen: &'a [SocketAddr],
+}
+
+/// sshd's drop-in, which runs it in the sandbox's own network namespace once that has its
+/// addresses.
+#[derive(Template)]
+#[template(path = "sandbox/sshd.service.conf.jinja", ext = "txt")]
+struct SshdOptions;
 
 /// The script that names and addresses the NICs.
 #[derive(Template)]
@@ -334,6 +355,7 @@ impl SandboxGuest<'_> {
             ),
             IgnitionFile::root(CONSOLE_SCRIPT_PATH, SCRIPT_MODE, &ConsoleScript.render()?),
         ]);
+        files.extend(self.sshd_files()?);
         let mut units = docker_units()?;
         units.extend([
             IgnitionUnit::enabled(
@@ -343,8 +365,44 @@ impl SandboxGuest<'_> {
             IgnitionUnit::enabled(LINKS_UNIT, &LinksUnit.render()?),
             IgnitionUnit::enabled(NODE_UNIT, &NodeUnit.render()?),
             IgnitionUnit::enabled(CONSOLE_UNIT, &ConsoleUnit.render()?),
+            IgnitionUnit {
+                name: SSHD_UNIT.to_owned(),
+                enabled: Some(true),
+                ..Default::default()
+            },
         ]);
-        IgnitionConfig::new(vec![], files, vec![], units, vec![], vec![]).to_json_pretty()
+        IgnitionConfig::new(vec![self.login()], files, vec![], units, vec![], vec![])
+            .to_json_pretty()
+    }
+
+    /// The config and drop-in of the sandbox's own sshd, on port 22 of its own addresses.
+    fn sshd_files(&self) -> Result<[IgnitionFile; 2]> {
+        let listen: Vec<SocketAddr> = self
+            .own_nic
+            .addresses
+            .iter()
+            .map(|address| SocketAddr::new(address.address, SSH_PORT))
+            .collect();
+        Ok([
+            IgnitionFile::root(
+                SSHD_CONFIG_PATH,
+                SSHD_CONFIG_MODE,
+                &SshdConfig { listen: &listen }.render()?,
+            ),
+            IgnitionFile::root(SSHD_DROP_IN_PATH, FILE_MODE, &SshdOptions.render()?),
+        ])
+    }
+
+    /// The sandbox's `core` login, with the owner's keys and no password.
+    fn login(&self) -> IgnitionUser {
+        IgnitionUser {
+            name: SANDBOX_LOGIN.to_owned(),
+            password_hash: None,
+            home_dir: None,
+            shell: None,
+            ssh_authorized_keys: self.ssh_keys.to_vec(),
+            groups: vec![],
+        }
     }
 }
 
@@ -362,7 +420,10 @@ pub fn store_vm_ignition_json() -> Result<String> {
         &StoreScript.render()?,
     ));
     let mut units = docker_units()?;
-    units.push(IgnitionUnit::enabled(STORE_UNIT, &StoreUnit.render()?));
+    units.extend([
+        IgnitionUnit::masked(SSHD_UNIT),
+        IgnitionUnit::enabled(STORE_UNIT, &StoreUnit.render()?),
+    ]);
     IgnitionConfig::new(
         vec![],
         files,
@@ -410,8 +471,8 @@ fn docker_files() -> Result<Vec<IgnitionFile>> {
     ])
 }
 
-/// The units of Docker on its store disk, with updates, logins, metadata, networking and the
-/// first boot's cache rebuilds off.
+/// The units of Docker on its store disk, with updates, Flatcar's SSH sockets, the serial getty,
+/// metadata, networking and the first boot's cache rebuilds off.
 fn docker_units() -> Result<Vec<IgnitionUnit>> {
     let mut units: Vec<IgnitionUnit> = MASKED_UNITS
         .iter()

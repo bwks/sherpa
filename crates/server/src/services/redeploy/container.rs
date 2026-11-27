@@ -190,6 +190,7 @@ pub(super) async fn redeploy_sandbox(
                     node: node_name.clone(),
                 })
             })?,
+            ssh_keys: redeploy.owner_account.ssh_keys.clone(),
         },
     )
     .await?;

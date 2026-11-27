@@ -97,10 +97,12 @@ pub(super) struct SandboxNodes<'a> {
     pub(super) mgmt_net: &'a data::SherpaNetwork,
     pub(super) dns: &'a data::Dns,
     pub(super) sandbox_records: &'a [SandboxRecord],
+    pub(super) ssh_keys: &'a [String],
 }
 
 /// What container node `container`'s VM is created from: its container, its recorded
-/// resources, its link ends, its management addresses and its sandbox's own.
+/// resources, its link ends, its management addresses, its sandbox's own and the owner's SSH
+/// keys.
 ///
 /// # Errors
 ///
@@ -156,6 +158,7 @@ fn sandbox_create(
             .find(|sandbox| sandbox.node_name == *name)
             .map(|sandbox| sandbox.record.clone())
             .with_context(|| format!("The sandbox of node '{name}' has no management address"))?,
+        ssh_keys: nodes.ssh_keys.to_vec(),
     })
 }
 

@@ -66,8 +66,8 @@ pub use paloalto_panos::{PaloAltoPanosBootstrapTemplate, PaloAltoPanosZtpTemplat
 pub use sandbox::{
     GuestAddress, GuestInterface, NodeScript, SANDBOX_CONFIG_DRIVE_LABEL,
     SANDBOX_CONFIG_DRIVE_MOUNT, SANDBOX_CONFIG_DRIVE_USER_DATA, SANDBOX_CONTAINER_BODY,
-    SANDBOX_KERNEL_ARGUMENTS, SANDBOX_MANAGEMENT_INTERFACE, SandboxGuest, SandboxOwnNic,
-    WritableVolume, boot_vm_ignition_json, store_vm_ignition_json,
+    SANDBOX_KERNEL_ARGUMENTS, SANDBOX_LOGIN, SANDBOX_MANAGEMENT_INTERFACE, SandboxGuest,
+    SandboxOwnNic, WritableVolume, boot_vm_ignition_json, store_vm_ignition_json,
 };
 pub use sonic_linux::{
     SonicLinuxContainerInitTemplate, SonicLinuxContainerSupervisordTemplate,
