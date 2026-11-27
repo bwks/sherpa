@@ -6,7 +6,10 @@ use shared::data::{
     MachineType, NodeBootDisk, NodeCpu, NodeDisk, NodeInterfaces, NodeNuma, NumaMemoryMode,
     QemuCommand, WatchdogAction,
 };
-use template::{DomainTemplate, DomainTuning};
+use template::{
+    BootDevice, Channel, DomainTemplate, DomainTuning, MemballoonModel, RebootAction, SmbiosSerial,
+    UsbController, VideoModel,
+};
 
 // ============================================================================
 // Helpers
@@ -23,6 +26,9 @@ fn base_domain_template() -> DomainTemplate {
         vmx_enabled: false,
         qemu_bin: "/usr/bin/qemu-system-x86_64".to_string(),
         bios: BiosTypes::SeaBios,
+        boot_devices: vec![BootDevice::Cdrom, BootDevice::Hd],
+        on_reboot: RebootAction::Restart,
+        smbios_serial: Some(SmbiosSerial::NoCloud),
         disks: vec![NodeDisk {
             disk_device: DiskDevices::File,
             driver_name: DiskDrivers::Qemu,
@@ -30,6 +36,8 @@ fn base_domain_template() -> DomainTemplate {
             src_file: "/opt/sherpa/labs/a10736e8/dev01.qcow2".to_string(),
             target_dev: DiskTargets::Vda,
             target_bus: DiskBuses::Virtio,
+            serial: None,
+            read_only: false,
         }],
         interfaces: vec![Interface {
             name: "mgmt".to_string(),
@@ -37,11 +45,16 @@ fn base_domain_template() -> DomainTemplate {
             mtu: 1500,
             mac_address: "52:54:00:aa:bb:cc".to_string(),
             connection_type: ConnectionTypes::Management,
+            tap: None,
         }],
+        sandbox_nic_mac: None,
         interface_type: InterfaceType::Virtio,
         management_interface_type: InterfaceType::Virtio,
         reserved_interface_type: InterfaceType::Virtio,
-        serial_socket: "/opt/sherpa/run/console/a10736e8/1.serial".to_string(),
+        serial_socket: Some("/opt/sherpa/run/console/a10736e8/1.serial".to_string()),
+        channels: vec![Channel::GuestAgent],
+        usb_controller: UsbController::QemuXhci,
+        rng: None,
         qemu_commands: vec![],
         ignition_config: None,
         lab_id: "a10736e8".to_string(),
@@ -49,10 +62,11 @@ fn base_domain_template() -> DomainTemplate {
         isolated_network: String::new(),
         reserved_network: String::new(),
         is_windows: false,
-        video_model: "cirrus".to_owned(),
+        video_model: VideoModel::Cirrus,
         video_vram: Some(16384),
+        memballoon: MemballoonModel::Virtio,
         cpu_features: vec![],
-        vnc_socket: "/opt/sherpa/run/console/a10736e8/1.vnc".to_string(),
+        vnc_socket: Some("/opt/sherpa/run/console/a10736e8/1.vnc".to_string()),
         tuning: DomainTuning::default(),
         watchdog: None,
     }
@@ -65,6 +79,7 @@ fn p2p_interface() -> Interface {
         mtu: 9600,
         mac_address: "52:54:00:aa:bb:01".to_string(),
         connection_type: ConnectionTypes::P2p,
+        tap: None,
     }
 }
 
@@ -188,6 +203,7 @@ fn node_interfaces_005_an_unused_interface_of_a_vm_has_its_link_down() {
         mtu: 1500,
         mac_address: "52:54:00:dd:ee:ff".to_string(),
         connection_type: ConnectionTypes::Disabled,
+        tap: None,
     });
 
     let output = domain
@@ -218,6 +234,7 @@ fn p2p_link_004_a_vm_is_told_its_links_mtu() {
         mtu: 9600,
         mac_address: "52:54:00:dd:ee:ff".to_string(),
         connection_type: ConnectionTypes::P2p,
+        tap: None,
     });
 
     let xml = domain.render().expect("renders domain XML");

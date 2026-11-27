@@ -130,15 +130,15 @@ fn sandbox_create(
             nodes.secret_mounts,
         )?,
         dns: nodes.dns.clone(),
-        memory_mib: node
+        memory: node
             .record
             .memory
-            .map(u64::from)
             .with_context(|| format!("Node '{name}' has no memory recorded"))?,
         vcpus: node
             .record
             .cpu_count
             .with_context(|| format!("Node '{name}' has no vCPUs recorded"))?,
+        tuning: sandbox::sandbox_tuning(container),
         veths: nodes
             .veths
             .iter()

@@ -227,6 +227,7 @@ fn vm_interfaces(
         mtu: image_mtu,
         mac_address: mgmt_mac.to_owned(),
         connection_type: data::ConnectionTypes::Management,
+        tap: None,
     }];
 
     for idx in 1..*data_indices.start() {
@@ -236,6 +237,7 @@ fn vm_interfaces(
             mtu: image_mtu,
             mac_address: util::random_mac(KVM_OUI),
             connection_type: data::ConnectionTypes::Reserved,
+            tap: None,
         });
     }
 
@@ -270,6 +272,7 @@ fn vm_interfaces(
             mtu,
             mac_address: util::random_mac(KVM_OUI),
             connection_type,
+            tap: None,
         });
     }
     Ok(interfaces)

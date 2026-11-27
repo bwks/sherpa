@@ -11,13 +11,15 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 
 use container::ContainerSpec;
-use shared::data::{ContainerMount, Dns, ModelKind, NodeModel, SherpaNetwork};
-use shared::konst::{KVM_OUI, SHERPA_STORAGE_POOL_PATH};
+use shared::data::{
+    ConnectionTypes, ContainerMount, Dns, Interface, ModelKind, NodeModel, SherpaNetwork,
+};
+use shared::konst::{KVM_OUI, MTU_JUMBO_NET, MTU_STD, SHERPA_STORAGE_POOL_PATH};
 use shared::util;
 use template::{
     GuestAddress, GuestInterface, SANDBOX_CONFIG_DRIVE_LABEL, SANDBOX_CONFIG_DRIVE_MOUNT,
     SANDBOX_CONFIG_DRIVE_USER_DATA, SANDBOX_CONTAINER_BODY, SANDBOX_MANAGEMENT_INTERFACE,
-    SandboxNic, WritableVolume,
+    WritableVolume,
 };
 
 use crate::konst::{NODE_CONFIG_DIR_MODE, NODE_CONFIG_FILE_MODE};
@@ -29,12 +31,12 @@ const DRIVE_VOLUMES_DIR: &str = "sherpa/volumes";
 pub(crate) const DRIVE_VOLUME_DEPTH: usize = 4;
 
 /// The interfaces of a sandbox: its NICs, the management NIC first, the data interfaces on no
-/// link, which the guest makes, and the data NICs of the domain.
+/// link, which the guest makes, and the domain's NICs, the management NIC first, each with the
+/// MAC the guest finds it by.
 pub(super) struct GuestNics {
-    pub(super) management_mac: String,
     pub(super) interfaces: Vec<GuestInterface>,
     pub(super) placeholders: Vec<GuestInterface>,
-    pub(super) nics: Vec<SandboxNic>,
+    pub(super) domain: Vec<Interface>,
 }
 
 /// A volume of the container on the config drive: its source on the server and its folder or
@@ -66,9 +68,15 @@ pub(super) fn guest_nics(model_kind: ModelKind, veths: &[ContainerVeth]) -> Resu
             mac: management_mac.clone(),
             name: SANDBOX_MANAGEMENT_INTERFACE.to_owned(),
         }],
-        management_mac,
         placeholders: Vec::new(),
-        nics: Vec::new(),
+        domain: vec![Interface {
+            name: SANDBOX_MANAGEMENT_INTERFACE.to_owned(),
+            num: 0,
+            mac_address: management_mac,
+            mtu: MTU_STD,
+            connection_type: ConnectionTypes::Management,
+            tap: None,
+        }],
     };
     for veth in veths {
         let interface = GuestInterface {
@@ -79,10 +87,21 @@ pub(super) fn guest_nics(model_kind: ModelKind, veths: &[ContainerVeth]) -> Resu
             guest.placeholders.push(interface);
             continue;
         }
-        guest.nics.push(SandboxNic {
-            tap: veth.host_veth.clone(),
-            mac: interface.mac.clone(),
-            bridge: veth.bridge.clone(),
+        let (name, connection_type, tap) = match &veth.bridge {
+            Some(bridge) => (
+                bridge.clone(),
+                ConnectionTypes::PrivateBridge,
+                Some(veth.host_veth.clone()),
+            ),
+            None => (veth.host_veth.clone(), ConnectionTypes::P2p, None),
+        };
+        guest.domain.push(Interface {
+            name,
+            num: veth.interface_idx,
+            mac_address: interface.mac.clone(),
+            mtu: MTU_JUMBO_NET,
+            connection_type,
+            tap,
         });
         guest.interfaces.push(interface);
     }
@@ -309,6 +328,68 @@ mod tests {
                 prefix_length: v6_prefix.prefix_len(),
             }),
         }
+    }
+
+    #[test]
+    fn sandbox_103_each_wired_data_interface_is_a_domain_nic_with_the_mac_the_guest_names_it_by() {
+        let model_kind = ModelKind::new(NodeModel::AristaEos, Some(NodeKind::Container)).unwrap();
+        let veth = |host_veth: &str, interface_idx: u8, admin_down: bool, bridge: Option<&str>| {
+            ContainerVeth {
+                host_veth: host_veth.to_owned(),
+                host_alias: String::new(),
+                interface_idx,
+                model_kind,
+                admin_down,
+                bridge: bridge.map(str::to_owned),
+            }
+        };
+        let nics = guest_nics(
+            model_kind,
+            &[
+                veth("tpa1-lab1", 1, false, None),
+                veth("cb3i2-lab1", 2, false, Some("brs0-lab1")),
+                veth("cd3i3-lab1", 3, true, None),
+            ],
+        )
+        .unwrap();
+        let domain: Vec<(&str, &ConnectionTypes, Option<&str>, u16)> = nics
+            .domain
+            .iter()
+            .map(|nic| {
+                (
+                    nic.name.as_str(),
+                    &nic.connection_type,
+                    nic.tap.as_deref(),
+                    nic.mtu,
+                )
+            })
+            .collect();
+        assert_eq!(
+            domain,
+            [
+                ("eth0", &ConnectionTypes::Management, None, MTU_STD),
+                ("tpa1-lab1", &ConnectionTypes::P2p, None, MTU_JUMBO_NET),
+                (
+                    "brs0-lab1",
+                    &ConnectionTypes::PrivateBridge,
+                    Some("cb3i2-lab1"),
+                    MTU_JUMBO_NET
+                ),
+            ]
+        );
+        let domain_macs: Vec<&str> = nics
+            .domain
+            .iter()
+            .map(|nic| nic.mac_address.as_str())
+            .collect();
+        let guest_macs: Vec<&str> = nics
+            .interfaces
+            .iter()
+            .map(|interface| interface.mac.as_str())
+            .collect();
+        assert_eq!(domain_macs, guest_macs);
+        assert_eq!(nics.placeholders.len(), 1);
+        assert!(!domain_macs.contains(&nics.placeholders[0].mac.as_str()));
     }
 
     #[test]

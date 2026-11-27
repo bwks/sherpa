@@ -87,29 +87,28 @@
   {% endif %}
 
   <on_poweroff>destroy</on_poweroff>
-  <on_reboot>restart</on_reboot>
+  <on_reboot>{{ on_reboot }}</on_reboot>
   <on_crash>destroy</on_crash>
 
   <os>
     <type arch='{{ cpu_architecture }}' machine='{{ machine_type }}'>hvm</type>
-    <bootmenu enable='no'/>
-    <smbios mode='sysinfo'/>
-    <boot dev='cdrom'/>
-    <boot dev='hd'/>
-    {% match bios %}
+    <bootmenu enable='no'/>{% if smbios_serial.is_some() %}
+    <smbios mode='sysinfo'/>{% endif %}
+{% for device in boot_devices %}    <boot dev='{{ device }}'/>
+{% endfor %}    {% match bios %}
     {%   when BiosTypes::Uefi %}
     <loader readonly='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE_4M.fd</loader>
     <nvram>/var/lib/libvirt/qemu/nvram/{{ name|uppercase }}_VARS.fd</nvram>
     {%   when BiosTypes::SeaBios %}
     <!-- SeaBios - No stanza required -->
     {% endmatch %}
-  </os>
+  </os>{% if let Some(serial) = smbios_serial %}
 
   <sysinfo type='smbios'>
     <system>
-      <entry name='serial'>ds=nocloud</entry>
+      <entry name='serial'>{{ serial }}</entry>
     </system>
-  </sysinfo>
+  </sysinfo>{% endif %}
   {% if let Some(path) = ignition_config %}
 
   <sysinfo type='fwcfg'>
@@ -156,15 +155,19 @@
     <disk type='file' device='disk'>
       <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'{% if let Some(cache) = tuning.disk_cache %} cache='{{ cache }}'{% endif %}{% if let Some(io) = tuning.disk_io %} io='{{ io }}'{% endif %}{% if tuning.io_thread_cpuset.is_some() && disk.target_bus == DiskBuses::Virtio %} iothread='1'{% endif %}/>
       <source file='{{ disk.src_file }}'/>
-      <target dev='{{ disk.target_dev }}' bus='{{ disk.target_bus }}'/>
+      <target dev='{{ disk.target_dev }}' bus='{{ disk.target_bus }}'/>{% if let Some(serial) = disk.serial %}
+      <serial>{{ serial }}</serial>{% endif %}{% if disk.read_only %}
+      <readonly/>{% endif %}
     </disk>
     {%      endmatch %}
     {%   endmatch %}
-    {% endfor %}
+    {% endfor %}{% match usb_controller %}{% when UsbController::QemuXhci %}
 
     <controller type='usb' index='0' model='qemu-xhci'>
       <alias name='usb'/>
-    </controller>
+    </controller>{% when UsbController::None %}
+
+    <controller type='usb' model='none'/>{% endmatch %}
     {% if self.has_scsi_disk() %}
     {%   if tuning.io_thread_cpuset.is_some() %}
     <controller type='scsi' index='0' model='virtio-scsi'>
@@ -173,13 +176,13 @@
     {%   else %}
     <controller type='scsi' index='0' model='virtio-scsi'/>
     {%   endif %}
-    {% endif %}
+    {% endif %}{% if let Some(socket) = vnc_socket %}
 
     <graphics type='vnc'>
-      <listen type='socket' socket='{{ vnc_socket }}'/>
-    </graphics>
+      <listen type='socket' socket='{{ socket }}'/>
+    </graphics>{% endif %}
     <video>
-      <model type='{{ video_model }}'{% if let Some(vram) = video_vram %} vram='{{ vram }}'{% endif %} heads='1'/>
+      <model type='{{ video_model }}'{% if let Some(vram) = video_vram %} vram='{{ vram }}'{% endif %}{% if video_model != VideoModel::None %} heads='1'{% endif %}/>
     </video>
 
     {% for interface in interfaces %}
@@ -224,7 +227,9 @@
     <interface type='bridge'>
       <alias name='ua-net-{{ name }}-shared-bridge-{{ interface.name }}'/>
       <mac address='{{ interface.mac_address }}'/>
-      <source bridge='{{ interface.name }}'/>
+      <source bridge='{{ interface.name }}'/>{% if let Some(tap) = interface.tap %}
+      <mtu size='{{ interface.mtu }}'/>
+      <target dev='{{ tap }}'/>{% endif %}
       <model type='{{ interface_type }}'/>
       {% if let Some(queues) = tuning.interface_queues %}
       <driver queues='{{ queues }}'/>
@@ -245,7 +250,14 @@
     </interface>
 
     {%   endmatch %}
-    {% endfor %}
+    {% endfor %}{% if let Some(mac) = sandbox_nic_mac %}
+
+    <interface type='network'>
+      <alias name='ua-net-{{ name }}-sandbox'/>
+      <mac address='{{ mac }}'/>
+      <source network='{{ management_network }}'/>
+      <model type='virtio'/>
+    </interface>{% endif %}{% if let Some(serial_socket) = serial_socket %}
 
     <serial type='unix'>
       <source mode='bind' path='{{ serial_socket }}'/>
@@ -259,20 +271,28 @@
       <source mode='bind' path='{{ serial_socket }}'/>
       <target type='serial' port='0'/>
       <alias name='serial0'/>
-    </console>
+    </console>{% endif %}{% for channel in channels %}{% match channel %}{% when Channel::GuestAgent %}
 
     <channel type='unix'>
       <target type='virtio' name='org.qemu.guest_agent.0'/>
-    </channel>
+    </channel>{% when Channel::Status(socket) %}
+
+    <channel type='unix'>
+      <source mode='bind' path='{{ socket }}'/>
+      <target type='virtio' name='{{ crate::sandbox::SANDBOX_STATUS_CHANNEL }}'/>
+    </channel>{% endmatch %}{% endfor %}
 {% if let Some(action) = watchdog %}
     <watchdog model='i6300esb' action='{{ action }}'/>
-{% endif %}
+{% endif %}{% if let Some(backend) = rng %}
+    <rng model='virtio'>
+      <backend model='random'>{{ backend }}</backend>
+    </rng>{% endif %}
 
     {# <input type='mouse' bus='ps2'/>
     <input type='keyboard' bus='ps2'/> #}
 
-    <memballoon model='virtio'>
-    </memballoon>
+    {% match memballoon %}{% when MemballoonModel::Virtio %}<memballoon model='virtio'>
+    </memballoon>{% when MemballoonModel::None %}<memballoon model='none'/>{% endmatch %}
 
   </devices>
 </domain>

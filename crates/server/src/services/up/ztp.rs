@@ -565,6 +565,7 @@ fn domain_interfaces(
             mtu,
             mac_address: mac,
             connection_type,
+            tap: None,
         });
     }
     Ok(interfaces)

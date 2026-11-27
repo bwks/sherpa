@@ -272,12 +272,22 @@ Docker data has the image loaded, which every sandbox of the image boots an over
 The two overlays hold everything the node writes, so a saved config survives `down` and
 `resume`. Redeploy and destroy delete them.
 
-The domain is `template::SandboxDomainTemplate` (`templates/libvirt/sandbox_domain.jinja`): q35,
-`host-passthrough` CPU, no video and no balloon; SeaBIOS booting the first disk; the two overlays
-on virtio; the config drive on SATA; the management NIC and the sandbox's own NIC on the lab's
-management network; one virtio NIC per data interface on a link or bridge, its tap named like the
-node's link end; a virtio RNG; the status channel; and the serial console on the node's console
-socket.
+The domain is rendered from `template::DomainTemplate` (`templates/libvirt/libvirt_domain.jinja`),
+the VM nodes' template, as is the domain of the boot disk VM and of a Docker store VM.
+`template::FlatcarDomain` builds all three (`sandbox`, `store_vm`, `boot_vm`): q35,
+`host-passthrough` CPU, SeaBIOS booting the first disk only, so it never tries the config drive
+(`sandbox_102`); the disks on virtio; the config drive on SATA, read-only; a virtio RNG; no VNC,
+guest agent channel, USB controller (a controller of model `none`, without which libvirt adds
+one), `ds=nocloud` sysinfo, video or memory balloon (`sandbox_101`). A sandbox adds its Docker disk; the management NIC and the sandbox's own NIC on
+the lab's management network; one NIC per data interface on a link, the tap named like the
+node's link end, and one bridge NIC per data interface on a bridge, its tap named the same way,
+each told MTU 9600; the status channel; the serial console on the node's console socket; and
+its node's `DomainTuning` (`sandbox::sandbox_tuning`, `sandbox_100`), from the same settings a
+VM's comes from. A container node refuses the VM tuning settings
+(`check_node_kind_settings`), so a sandbox has no tuning today. Every NIC keeps the MAC the guest
+names it by (`sandbox_103`). A Docker store VM adds the empty store disk and the image archive, a
+read-only disk with the serial `sherpa-image`, and the status channel; the boot disk VM adds
+nothing, and its `on_reboot` is `destroy`.
 
 ## Links
 

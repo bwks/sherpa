@@ -21,6 +21,8 @@ pub struct NodeDisk {
     pub src_file: String,
     pub target_dev: DiskTargets,
     pub target_bus: DiskBuses,
+    pub serial: Option<String>,
+    pub read_only: bool,
 }
 
 /// A QEMU command-line argument.

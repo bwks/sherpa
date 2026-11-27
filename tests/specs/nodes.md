@@ -142,6 +142,10 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 095 | A writable volume's empty folders are made in the container with its files | unit |
 | 096 | Down and resume refuse a node whose model runs in a sandbox but which was made before it ran in one, saying to destroy the lab and bring it up again | integration |
 | 099 | A blank disk, which a Docker store is made in, is a QCOW2 volume of its size with no backing store, mode `0640`, so sherpad, in its owner's group, reads its header to put each node's overlay on it | unit |
+| 100 | A sandbox's domain carries the CPU pins, NUMA node, disk cache and I/O and interface queues of its node's tuning, as a VM's does, with no queues on the sandbox's own NIC, and no tuning when the node has none | unit |
+| 101 | The sandbox, the Docker store VM and the boot disk VM have no VNC, guest agent channel, USB controller, `ds=nocloud` sysinfo, video or memory balloon | unit |
+| 102 | The sandbox, the Docker store VM and the boot disk VM boot their disk only, so the firmware never tries the config drive | unit |
+| 103 | Each data interface on a link is a domain NIC on its tap, each on a bridge a bridge NIC of the domain on its tap, each with the MAC the guest names it by, and one on no link is no NIC of the domain | unit |
 
 ## `node_ready`: a node is running only once its ready check passes
 

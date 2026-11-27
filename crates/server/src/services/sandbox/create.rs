@@ -14,9 +14,9 @@ use tokio::task;
 use tracing::instrument;
 
 use container::ContainerSpec;
-use shared::data::{DbVmSandbox, Dns, ModelKind, SherpaNetwork};
+use shared::data::{DbVmSandbox, Dns, InterfaceType, ModelKind, SherpaNetwork};
 use shared::konst::SHERPA_STORAGE_POOL_PATH;
-use template::{SandboxDomainTemplate, SandboxGuest, SandboxManagement, SandboxOwnNic};
+use template::{DomainTuning, FlatcarDomain, SandboxDomain, SandboxGuest, SandboxOwnNic};
 
 use super::base::SandboxBase;
 use super::boot::ensure_boot_disk;
@@ -39,12 +39,13 @@ pub(crate) const SANDBOX_MEMORY_OVERHEAD_MIB: u16 = 1024;
 /// The folder in the node's lab folder its config drive is staged in.
 const CONFIG_DRIVE_STAGE: &str = "config-drive";
 
-/// What sandboxes are made with: the server's Docker and libvirt, the base image when the
-/// operation has a sandbox, the Docker store locks, and the operation's progress.
+/// What sandboxes are made with: the server's Docker, libvirt and QEMU binary, the base image
+/// when the operation has a sandbox, the Docker store locks, and the operation's progress.
 #[derive(Clone)]
 pub(crate) struct SandboxHost {
     pub(crate) docker: Arc<Docker>,
     pub(crate) qemu: Arc<Qemu>,
+    pub(crate) qemu_bin: String,
     pub(crate) base: Option<SandboxBase>,
     pub(crate) disk_locks: SandboxDiskLocks,
     pub(crate) progress: ProgressSender,
@@ -59,8 +60,9 @@ pub(crate) struct SandboxCreate {
     pub(crate) model_kind: ModelKind,
     pub(crate) spec: ContainerSpec,
     pub(crate) dns: Dns,
-    pub(crate) memory_mib: u64,
+    pub(crate) memory: u16,
     pub(crate) vcpus: u8,
+    pub(crate) tuning: DomainTuning,
     pub(crate) veths: Vec<ContainerVeth>,
     pub(crate) mgmt_net: SherpaNetwork,
     pub(crate) ipv4: Ipv4Addr,
@@ -92,6 +94,18 @@ fn docker_disk_name(device: &str) -> String {
 /// The storage pool volume of sandbox `device`'s config drive.
 fn config_drive_name(device: &str) -> String {
     format!("{device}.iso")
+}
+
+/// The domain tuning of sandbox node `node`: what a VM with its CPU, NUMA, boot disk and
+/// interface settings gets, its management NIC virtio.
+pub(crate) fn sandbox_tuning(node: &topology::NodeExpanded) -> DomainTuning {
+    DomainTuning::from_node_settings(
+        &node.cpu,
+        &node.numa,
+        &node.boot_disk,
+        &node.interfaces,
+        &InterfaceType::Virtio,
+    )
 }
 
 /// Create the node's VM and start it, and return the watch on the status it reports.
@@ -153,34 +167,36 @@ pub(crate) async fn create_sandbox(
     .context("The sandbox config drive write panicked")??;
     let status_socket =
         console::lab_socket(&create.lab_id, &format!("{}.status", create.node_index))?;
-    let domain = SandboxDomainTemplate {
+    let disk = pool_path(&disk_name(&device));
+    let docker_disk = pool_path(&docker_disk_name(&device));
+    let xml = FlatcarDomain {
         name: device.clone(),
-        memory_mib: create.memory_mib,
+        memory: create.memory,
         vcpus: create.vcpus,
-        disk: pool_path(&disk_name(&device)),
-        docker_disk: pool_path(&docker_disk_name(&device)),
-        image_archive: None,
+        qemu_bin: host.qemu_bin.clone(),
+        disk: disk.clone(),
         config_drive,
-        management: Some(SandboxManagement {
-            network: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{}", create.lab_id),
-            mac: nics.management_mac,
-            own_mac: create.own_address.mac.clone(),
-        }),
-        nics: nics.nics,
+    }
+    .sandbox(SandboxDomain {
+        docker_disk: docker_disk.clone(),
+        lab_id: create.lab_id.clone(),
+        management_network: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{}", create.lab_id),
+        interfaces: nics.domain,
+        own_mac: create.own_address.mac.clone(),
+        serial_socket: console::console_sockets(&create.lab_id, create.node_index)?.serial,
         status_socket: status_socket.clone(),
-        serial_socket: Some(console::console_sockets(&create.lab_id, create.node_index)?.serial),
-    };
-    let xml = domain
-        .render()
-        .with_context(|| format!("Cannot render the domain of sandbox {device}"))?;
+        tuning: create.tuning,
+    })
+    .render()
+    .with_context(|| format!("Cannot render the domain of sandbox {device}"))?;
     let disks = vec![
         DomainDisk::Overlay {
             base: boot_disk,
-            path: domain.disk.clone(),
+            path: disk,
         },
         DomainDisk::Overlay {
             base: store,
-            path: domain.docker_disk.clone(),
+            path: docker_disk,
         },
     ];
     start_domain(&host.qemu, &device, xml, disks).await?;
@@ -231,7 +247,7 @@ mod tests {
     use virt::network::Network;
 
     use shared::data::{ContainerNetworkAttachment, NetworkV4, NodeKind, NodeModel, RecordId};
-    use shared::konst::{SHERPA_IMAGES_PATH, VM_DISK_FILENAME};
+    use shared::konst::{QEMU_BIN, SHERPA_IMAGES_PATH, VM_DISK_FILENAME};
     use shared::util::default_dns;
 
     use super::*;
@@ -342,6 +358,7 @@ mod tests {
             let host = SandboxHost {
                 docker: Arc::new(Docker::connect_with_local_defaults().unwrap()),
                 qemu: Arc::clone(&self.qemu),
+                qemu_bin: QEMU_BIN.to_owned(),
                 base: Some(installed_base().await),
                 disk_locks: SandboxDiskLocks::default(),
                 progress: ProgressSender::new(mpsc::unbounded_channel().0),
@@ -379,8 +396,9 @@ mod tests {
                         .unwrap(),
                     spec,
                     dns: default_dns(&self.network.network),
-                    memory_mib: 1024,
+                    memory: 1024,
                     vcpus: 1,
+                    tuning: DomainTuning::default(),
                     veths: Vec::new(),
                     mgmt_net: self.network.network.clone(),
                     ipv4: Ipv4Addr::new(198, 18, 250, 23),

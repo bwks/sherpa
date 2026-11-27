@@ -52,9 +52,11 @@ use shared::konst::{
 use shared::util;
 use shared::validators::{effective_data_interface_count, effective_ztp, mode_from_octal_digits};
 use template::{
-    CiscoFxosFirewallMode, CloudInitNetwork, CloudInitResolvConf, CloudbaseInitNetwork, CryptHash,
-    DomainTuning, FileMode, IgnitionConfig, IgnitionFile, IgnitionFileContents, IgnitionFileSystem,
-    IgnitionUnit, MikrotikRouterosZtpTemplate, SonicLinuxZtp,
+    BootDevice, Channel, CiscoFxosFirewallMode, CloudInitNetwork, CloudInitResolvConf,
+    CloudbaseInitNetwork, CryptHash, DomainTuning, FileMode, IgnitionConfig, IgnitionFile,
+    IgnitionFileContents, IgnitionFileSystem, IgnitionUnit, MemballoonModel,
+    MikrotikRouterosZtpTemplate, RebootAction, SmbiosSerial, SonicLinuxZtp, UsbController,
+    VideoModel,
 };
 use topology::{NodeReadyCheck, SystemdUnitData};
 use virt::domain::Domain;
@@ -1712,6 +1714,8 @@ fn vm_disks(
             src_file: dst.clone(),
             target_dev: data::DiskTargets::target(cdrom_bus, disk_index(&disks)?)?,
             target_bus: cdrom_bus.clone(),
+            serial: None,
+            read_only: false,
         });
     }
 
@@ -1722,6 +1726,8 @@ fn vm_disks(
         src_file: dst_boot_disk,
         target_dev: data::DiskTargets::target(hdd_bus, disk_index(&disks)?)?,
         target_bus: hdd_bus.clone(),
+        serial: None,
+        read_only: false,
     });
 
     if let Some((src, dst)) = &media.config_disk {
@@ -1733,6 +1739,8 @@ fn vm_disks(
             src_file: dst.clone(),
             target_dev: data::DiskTargets::target(hdd_bus, disk_index(&disks)?)?,
             target_bus: hdd_bus.clone(),
+            serial: None,
+            read_only: false,
         });
     }
 
@@ -1754,6 +1762,8 @@ fn vm_disks(
                 u8::try_from(usb_target_index).context("Too many disks for one node")?,
             )?,
             target_bus: data::DiskBuses::Usb,
+            serial: None,
+            read_only: false,
         });
     }
 
@@ -3692,8 +3702,8 @@ pub fn build_domain_template(
 ) -> Result<template::DomainTemplate> {
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
     let (video_model, video_vram) = match node_image.model {
-        data::NodeModel::OmarchyLinux => ("virtio", None),
-        _ => ("cirrus", Some(16384)),
+        data::NodeModel::OmarchyLinux => (VideoModel::Virtio, None),
+        _ => (VideoModel::Cirrus, Some(16384)),
     };
     // The resources stored on the node, so the domain and the database agree.
     let memory = resources
@@ -3720,8 +3730,12 @@ pub fn build_domain_template(
         cpu_count,
         vmx_enabled: vm.cpu.vmx,
         bios: vm.machine.bios.clone(),
+        boot_devices: vec![BootDevice::Cdrom, BootDevice::Hd],
+        on_reboot: RebootAction::Restart,
+        smbios_serial: Some(SmbiosSerial::NoCloud),
         disks: parts.disks,
         interfaces: parts.interfaces,
+        sandbox_nic_mac: None,
         interface_type: vm.interfaces.kind.clone(),
         tuning: DomainTuning::from_node_settings(
             &node.cpu,
@@ -3735,8 +3749,11 @@ pub fn build_domain_template(
             node.model_kind,
             &vm.interfaces.kind,
         ),
-        serial_socket: parts.consoles.serial,
-        vnc_socket: parts.consoles.vnc,
+        serial_socket: Some(parts.consoles.serial),
+        channels: vec![Channel::GuestAgent],
+        usb_controller: UsbController::QemuXhci,
+        rng: None,
+        vnc_socket: Some(parts.consoles.vnc),
         qemu_commands: firmware.qemu_commands,
         ignition_config: firmware.ignition_config,
         lab_id: lab_id.to_string(),
@@ -3748,8 +3765,9 @@ pub fn build_domain_template(
             data::NodeModel::WindowsServer | data::NodeModel::DevboxWindows
         ),
         cpu_features: cpu_features_for_model(node.model_kind),
-        video_model: video_model.to_owned(),
+        video_model,
         video_vram,
+        memballoon: MemballoonModel::Virtio,
         watchdog: node.vm.as_ref().and_then(|vm| vm.watchdog),
     })
 }
@@ -4367,6 +4385,8 @@ pub fn generate_unikernel_setup(
                 target_dev: data::DiskTargets::Vda,
                 target_bus: data::DiskBuses::Virtio,
                 disk_device: data::DiskDevices::File,
+                serial: None,
+                read_only: false,
             };
 
             Ok(UnikernelSetupResult {
@@ -5318,7 +5338,7 @@ echo "$*" >> '{}'
         )
         .unwrap();
         let xml = domain.render().unwrap();
-        assert_eq!(domain.video_model, "virtio");
+        assert_eq!(domain.video_model, VideoModel::Virtio);
         assert!(domain.video_vram.is_none());
         assert!(xml.contains("<model type='virtio' heads='1'/>"));
         assert!(xml.contains("OVMF_CODE_4M.fd"));

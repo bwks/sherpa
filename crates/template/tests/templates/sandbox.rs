@@ -8,11 +8,15 @@ use serde_json::Value;
 use tempfile::TempDir;
 use toml::Value as TomlValue;
 
+use shared::data::{
+    ConnectionTypes, DiskCache, DiskIo, Interface, InterfaceType, NodeBootDisk, NodeCpu,
+    NodeInterfaces, NodeNuma,
+};
 use shared::util::base64_decode;
 use template::{
-    GuestAddress, GuestInterface, NodeScript, SANDBOX_CONFIG_DRIVE_MOUNT, SANDBOX_CONTAINER_BODY,
-    SandboxBootDomainTemplate, SandboxDomainTemplate, SandboxGuest, SandboxManagement, SandboxNic,
-    SandboxOwnNic, WritableVolume, boot_vm_ignition_json, store_vm_ignition_json,
+    DomainTemplate, DomainTuning, FlatcarDomain, GuestAddress, GuestInterface, NodeScript,
+    SANDBOX_CONFIG_DRIVE_MOUNT, SANDBOX_CONTAINER_BODY, SandboxDomain, SandboxGuest, SandboxOwnNic,
+    WritableVolume, boot_vm_ignition_json, store_vm_ignition_json,
 };
 
 // ============================================================================
@@ -313,40 +317,107 @@ impl FakeGuest {
     }
 }
 
-fn domain() -> SandboxDomainTemplate {
-    SandboxDomainTemplate {
-        name: "ceos1-abc12345".to_owned(),
-        memory_mib: 6144,
-        vcpus: 2,
-        disk: "/opt/sherpa/libvirt/images/ceos1-abc12345-hdd.qcow2".to_owned(),
-        docker_disk: "/opt/sherpa/libvirt/images/ceos1-abc12345-docker.qcow2".to_owned(),
-        image_archive: None,
-        config_drive: "/opt/sherpa/libvirt/images/ceos1-abc12345.iso".to_owned(),
-        management: Some(SandboxManagement {
-            network: "sherpa-management-abc12345".to_owned(),
-            mac: "52:54:00:00:00:01".to_owned(),
-            own_mac: "52:54:00:00:00:09".to_owned(),
-        }),
-        nics: vec![
-            SandboxNic {
-                tap: "tpa1-abc12345".to_owned(),
-                mac: "52:54:00:00:00:02".to_owned(),
-                bridge: None,
-            },
-            SandboxNic {
-                tap: "tpb2-abc12345".to_owned(),
-                mac: "52:54:00:00:00:03".to_owned(),
-                bridge: None,
-            },
-            SandboxNic {
-                tap: "bra3-abc12345".to_owned(),
-                mac: "52:54:00:00:00:04".to_owned(),
-                bridge: Some("brs-lan-abc12345".to_owned()),
-            },
-        ],
-        status_socket: "/opt/sherpa/run/console/abc12345/1.status".to_owned(),
-        serial_socket: Some("/opt/sherpa/run/console/abc12345/1.serial".to_owned()),
+fn domain_interface(
+    name: &str,
+    mac: &str,
+    connection_type: ConnectionTypes,
+    tap: Option<&str>,
+) -> Interface {
+    Interface {
+        name: name.to_owned(),
+        num: 0,
+        mac_address: mac.to_owned(),
+        mtu: if connection_type == ConnectionTypes::Management {
+            1500
+        } else {
+            9600
+        },
+        connection_type,
+        tap: tap.map(str::to_owned),
     }
+}
+
+fn flatcar_vm(name: &str, disk: &str, config_drive: &str) -> FlatcarDomain {
+    FlatcarDomain {
+        name: name.to_owned(),
+        memory: 2048,
+        vcpus: 2,
+        qemu_bin: "/usr/bin/qemu-system-x86_64".to_owned(),
+        disk: disk.to_owned(),
+        config_drive: config_drive.to_owned(),
+    }
+}
+
+fn sandbox_domain(tuning: DomainTuning) -> DomainTemplate {
+    FlatcarDomain {
+        name: "ceos1-abc12345".to_owned(),
+        memory: 6144,
+        vcpus: 2,
+        qemu_bin: "/usr/bin/qemu-system-x86_64".to_owned(),
+        disk: "/opt/sherpa/libvirt/images/ceos1-abc12345-hdd.qcow2".to_owned(),
+        config_drive: "/opt/sherpa/libvirt/images/ceos1-abc12345.iso".to_owned(),
+    }
+    .sandbox(SandboxDomain {
+        docker_disk: "/opt/sherpa/libvirt/images/ceos1-abc12345-docker.qcow2".to_owned(),
+        lab_id: "abc12345".to_owned(),
+        management_network: "sherpa-management-abc12345".to_owned(),
+        interfaces: vec![
+            domain_interface(
+                "eth0",
+                "52:54:00:00:00:01",
+                ConnectionTypes::Management,
+                None,
+            ),
+            domain_interface(
+                "tpa1-abc12345",
+                "52:54:00:00:00:02",
+                ConnectionTypes::P2p,
+                None,
+            ),
+            domain_interface(
+                "tpb2-abc12345",
+                "52:54:00:00:00:03",
+                ConnectionTypes::P2p,
+                None,
+            ),
+            domain_interface(
+                "brs-lan-abc12345",
+                "52:54:00:00:00:04",
+                ConnectionTypes::PrivateBridge,
+                Some("bra3-abc12345"),
+            ),
+        ],
+        own_mac: "52:54:00:00:00:09".to_owned(),
+        serial_socket: "/opt/sherpa/run/console/abc12345/1.serial".to_owned(),
+        status_socket: "/opt/sherpa/run/console/abc12345/1.status".to_owned(),
+        tuning,
+    })
+}
+
+fn domain() -> DomainTemplate {
+    sandbox_domain(DomainTuning::default())
+}
+
+fn store_vm_domain() -> DomainTemplate {
+    flatcar_vm(
+        "sherpa-store-0123",
+        "/opt/sherpa/libvirt/images/flatcar-docker-0123-vm.qcow2",
+        "/opt/sherpa/libvirt/images/flatcar-docker-0123.iso",
+    )
+    .store_vm(
+        "/opt/sherpa/libvirt/images/flatcar-docker-0123.qcow2.part".to_owned(),
+        "/opt/sherpa/libvirt/images/flatcar-docker-0123.tar".to_owned(),
+        "/opt/sherpa/run/sandbox/flatcar-docker-0123.status".to_owned(),
+    )
+}
+
+fn boot_vm_domain() -> DomainTemplate {
+    flatcar_vm(
+        "sherpa-flatcar-sandbox.4757.2.4",
+        "/opt/sherpa/libvirt/images/flatcar-sandbox.4757.2.4.qcow2.part",
+        "/opt/sherpa/libvirt/images/flatcar-sandbox.4757.2.4.iso",
+    )
+    .boot_vm()
 }
 
 /// The domain XML with whitespace between elements removed, so elements read as one string.
@@ -361,9 +432,8 @@ fn compact(xml: &str) -> String {
 #[test]
 fn sandbox_001_the_domain_boots_its_disk_with_its_docker_disk_and_the_ignition_config_disk() {
     let xml = compact(&domain().render().unwrap());
-    assert!(xml.contains(
-        "<type arch='x86_64' machine='q35'>hvm</type><bootmenu enable='no'/><boot dev='hd'/></os>"
-    ));
+    assert!(xml.contains("<type arch='x86_64' machine='q35'>hvm</type>"));
+    assert!(xml.contains("<cpu mode='host-passthrough'>"));
     assert!(!xml.contains("<kernel>"));
     assert!(!xml.contains("<loader"));
     assert!(xml.contains(
@@ -385,14 +455,16 @@ fn sandbox_001_the_domain_boots_its_disk_with_its_docker_disk_and_the_ignition_c
 fn sandbox_002_each_data_interface_is_a_tap_named_like_its_link_end() {
     let xml = compact(&domain().render().unwrap());
     assert!(xml.contains(
-        "<interface type='ethernet'><mtu size='9600'/><mac address='52:54:00:00:00:02'/>\
-         <target dev='tpa1-abc12345'/>"
+        "<interface type='ethernet'><alias name='ua-net-ceos1-abc12345-p2p-tpa1-abc12345'/>\
+         <mtu size='9600'/><mac address='52:54:00:00:00:02'/><target dev='tpa1-abc12345'/>\
+         <script path=''/><model type='virtio'/>"
     ));
     assert!(xml.contains("<target dev='tpb2-abc12345'/>"));
     assert_eq!(xml.matches("<interface ").count(), 5);
     assert!(xml.contains(
-        "<interface type='network'><mac address='52:54:00:00:00:01'/>\
-         <source network='sherpa-management-abc12345'/>"
+        "<interface type='network'><alias name='ua-net-ceos1-abc12345-mgmt-eth0'/>\
+         <mtu size='1500'/><mac address='52:54:00:00:00:01'/>\
+         <source network='sherpa-management-abc12345'/><model type='virtio'/></interface>"
     ));
 }
 
@@ -400,8 +472,9 @@ fn sandbox_002_each_data_interface_is_a_tap_named_like_its_link_end() {
 fn sandbox_070_the_sandbox_has_a_nic_of_its_own_on_the_management_network() {
     let xml = compact(&domain().render().unwrap());
     assert!(xml.contains(
-        "<interface type='network'><mac address='52:54:00:00:00:09'/>\
-         <source network='sherpa-management-abc12345'/><model type='virtio'/></interface>"
+        "<interface type='network'><alias name='ua-net-ceos1-abc12345-sandbox'/>\
+         <mac address='52:54:00:00:00:09'/><source network='sherpa-management-abc12345'/>\
+         <model type='virtio'/></interface>"
     ));
 }
 
@@ -450,8 +523,9 @@ fn sandbox_079_the_guest_turns_off_router_advertisements_on_the_sandboxs_own_nic
 fn sandbox_056_a_bridge_member_is_a_bridge_interface_so_libvirt_enslaves_it_on_every_start() {
     let xml = compact(&domain().render().unwrap());
     assert!(xml.contains(
-        "<interface type='bridge'><mtu size='9600'/><mac address='52:54:00:00:00:04'/>\
-         <source bridge='brs-lan-abc12345'/><target dev='bra3-abc12345'/>"
+        "<interface type='bridge'><alias name='ua-net-ceos1-abc12345-shared-bridge-brs-lan-abc12345'/>\
+         <mac address='52:54:00:00:00:04'/><source bridge='brs-lan-abc12345'/>\
+         <mtu size='9600'/><target dev='bra3-abc12345'/><model type='virtio'/>"
     ));
     assert_eq!(xml.matches("<interface type='ethernet'>").count(), 2);
 }
@@ -467,12 +541,7 @@ fn sandbox_005_values_are_escaped() {
 
 #[test]
 fn sandbox_031_a_docker_store_vm_has_no_nics_and_no_console_and_its_image_archive_read_only() {
-    let mut domain = domain();
-    domain.management = None;
-    domain.nics.clear();
-    domain.serial_socket = None;
-    domain.image_archive = Some("/opt/sherpa/libvirt/images/flatcar-docker-0123.tar".to_owned());
-    let xml = compact(&domain.render().unwrap());
+    let xml = compact(&store_vm_domain().render().unwrap());
     assert!(!xml.contains("<interface "));
     assert!(!xml.contains("<serial "));
     assert!(!xml.contains("<console "));
@@ -481,7 +550,11 @@ fn sandbox_031_a_docker_store_vm_has_no_nics_and_no_console_and_its_image_archiv
          <source file='/opt/sherpa/libvirt/images/flatcar-docker-0123.tar'/>\
          <target dev='vdc' bus='virtio'/><serial>sherpa-image</serial><readonly/>"
     ));
-    assert!(xml.contains("<channel type='unix'>"));
+    assert!(xml.contains(
+        "<channel type='unix'>\
+         <source mode='bind' path='/opt/sherpa/run/sandbox/flatcar-docker-0123.status'/>\
+         <target type='virtio' name='org.sherpa.status'/></channel>"
+    ));
 }
 
 #[test]
@@ -496,21 +569,12 @@ fn sandbox_076_the_boot_disk_vm_sets_only_the_kernel_arguments_and_its_first_reb
     assert_eq!(config["passwd"]["users"], serde_json::json!([]));
     assert!(node_config().get("kernelArguments").is_none());
 
-    let xml = compact(
-        &SandboxBootDomainTemplate {
-            name: "sherpa-flatcar-sandbox.4757.2.4".to_owned(),
-            memory_mib: 2048,
-            vcpus: 2,
-            disk: "/opt/sherpa/libvirt/images/flatcar-sandbox.4757.2.4.qcow2.part".to_owned(),
-            config_drive: "/opt/sherpa/libvirt/images/flatcar-sandbox.4757.2.4.iso".to_owned(),
-        }
-        .render()
-        .unwrap(),
-    );
-    assert!(xml.contains(
-        "<type arch='x86_64' machine='q35'>hvm</type><bootmenu enable='no'/><boot dev='hd'/></os>"
-    ));
+    let xml = compact(&boot_vm_domain().render().unwrap());
     assert!(xml.contains("<on_reboot>destroy</on_reboot>"));
+    assert!(
+        compact(&domain().render().unwrap()).contains("<on_reboot>restart</on_reboot>"),
+        "a sandbox's reboot restarts it"
+    );
     assert!(xml.contains(
         "<source file='/opt/sherpa/libvirt/images/flatcar-sandbox.4757.2.4.qcow2.part'/>\
          <target dev='vda' bus='virtio'/>"
@@ -541,9 +605,108 @@ fn sandbox_048_the_vm_has_its_serial_console_on_the_nodes_socket_and_its_status_
          <source mode='bind' path='/opt/sherpa/run/console/abc12345/1.status'/>\
          <target type='virtio' name='org.sherpa.status'/></channel>"
     ));
-    assert!(xml.contains("<model type='none'/>"));
-    assert!(xml.contains("<memballoon model='none'/>"));
-    assert!(!domain().render().unwrap().contains("<image_archive"));
+    assert!(!xml.contains("sherpa-image"));
+}
+
+#[test]
+fn sandbox_100_a_sandboxs_domain_carries_the_tuning_its_node_gives_it() {
+    let tuning = DomainTuning::from_node_settings(
+        &NodeCpu {
+            pinning: Some(vec![4, 5]),
+            emulator_pinning: Some(vec![6]),
+            ..NodeCpu::default()
+        },
+        &NodeNuma {
+            node: Some(0),
+            memory_mode: None,
+        },
+        &NodeBootDisk {
+            cache: Some(DiskCache::None),
+            io: Some(DiskIo::Native),
+            io_thread_cpus: Some(vec![7]),
+            ..NodeBootDisk::default()
+        },
+        &NodeInterfaces {
+            data_count: None,
+            queues: Some(2),
+        },
+        &InterfaceType::Virtio,
+    );
+    let xml = compact(&sandbox_domain(tuning).render().unwrap());
+    assert!(xml.contains(
+        "<cputune><vcpupin vcpu='0' cpuset='4'/><vcpupin vcpu='1' cpuset='5'/>\
+         <emulatorpin cpuset='6'/><iothreadpin iothread='1' cpuset='7'/></cputune>"
+    ));
+    assert!(xml.contains("<numatune><memory mode='strict' nodeset='0'/></numatune>"));
+    assert!(xml.contains(
+        "<driver name='qemu' type='qcow2' cache='none' io='native' iothread='1'/>\
+         <source file='/opt/sherpa/libvirt/images/ceos1-abc12345-hdd.qcow2'/>"
+    ));
+    // The management NIC and each data NIC take the queues; the sandbox's own NIC none.
+    assert_eq!(xml.matches("<driver queues='2'/>").count(), 4);
+    let own = &xml[xml
+        .find("<alias name='ua-net-ceos1-abc12345-sandbox'/>")
+        .unwrap()..];
+    assert!(!own[..own.find("</interface>").unwrap()].contains("queues"));
+
+    let untuned = compact(&domain().render().unwrap());
+    for absent in [
+        "<cputune>",
+        "<numatune>",
+        "<iothreads>",
+        "cache=",
+        "queues=",
+    ] {
+        assert!(!untuned.contains(absent), "{absent}");
+    }
+}
+
+#[test]
+fn sandbox_101_the_sandbox_store_and_boot_vms_have_no_vnc_guest_agent_usb_balloon_or_nocloud() {
+    for domain in [domain(), store_vm_domain(), boot_vm_domain()] {
+        let xml = compact(&domain.render().unwrap());
+        for absent in [
+            "<graphics",
+            "org.qemu.guest_agent.0",
+            "qemu-xhci",
+            "ds=nocloud",
+            "<smbios",
+        ] {
+            assert!(!xml.contains(absent), "{}: {absent}", domain.name);
+        }
+        assert!(
+            xml.contains("<video><model type='none'/></video>"),
+            "{}",
+            domain.name
+        );
+        assert!(
+            xml.contains("<memballoon model='none'/>"),
+            "{}",
+            domain.name
+        );
+        // Without a USB controller of model none, libvirt adds one of its own.
+        assert!(
+            xml.contains("<controller type='usb' model='none'/>"),
+            "{}",
+            domain.name
+        );
+    }
+}
+
+#[test]
+fn sandbox_102_the_sandbox_store_and_boot_vms_boot_their_disk_only_never_the_config_drive() {
+    for domain in [domain(), store_vm_domain(), boot_vm_domain()] {
+        let xml = compact(&domain.render().unwrap());
+        assert!(
+            xml.contains(
+                "<bootmenu enable='no'/><boot dev='hd'/><!-- SeaBios - No stanza required --></os>"
+            ),
+            "{}",
+            domain.name
+        );
+        assert!(!xml.contains("<boot dev='cdrom'/>"), "{}", domain.name);
+        assert!(!xml.contains("<loader"), "{}", domain.name);
+    }
 }
 
 // ============================================================================

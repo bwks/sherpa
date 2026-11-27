@@ -50,8 +50,9 @@ pub use crypt::{CryptHash, crypt_hash};
 pub use cumulus_linux::CumulusLinuxZtpTemplate;
 pub use dnsmasq::{DnsmasqTemplate, SandboxHostRecord};
 pub use domain::{
-    DomainTemplate, DomainTuning, SandboxBootDomainTemplate, SandboxDomainTemplate,
-    SandboxManagement, SandboxNic, UnikernelDomainTemplate,
+    BootDevice, Channel, DomainTemplate, DomainTuning, FlatcarDomain, MemballoonModel,
+    RebootAction, RngBackend, SandboxDomain, SmbiosSerial, UnikernelDomainTemplate, UsbController,
+    VideoModel,
 };
 pub use frr::{FrrDaemonsTemplate, FrrStartupTemplate, FrrZtpTemplate};
 pub use ignition::{
@@ -66,8 +67,8 @@ pub use paloalto_panos::{PaloAltoPanosBootstrapTemplate, PaloAltoPanosZtpTemplat
 pub use sandbox::{
     GuestAddress, GuestInterface, NodeScript, SANDBOX_CONFIG_DRIVE_LABEL,
     SANDBOX_CONFIG_DRIVE_MOUNT, SANDBOX_CONFIG_DRIVE_USER_DATA, SANDBOX_CONTAINER_BODY,
-    SANDBOX_KERNEL_ARGUMENTS, SANDBOX_MANAGEMENT_INTERFACE, SandboxGuest, SandboxOwnNic,
-    WritableVolume, boot_vm_ignition_json, store_vm_ignition_json,
+    SANDBOX_IMAGE_ARCHIVE_SERIAL, SANDBOX_KERNEL_ARGUMENTS, SANDBOX_MANAGEMENT_INTERFACE,
+    SandboxGuest, SandboxOwnNic, WritableVolume, boot_vm_ignition_json, store_vm_ignition_json,
 };
 pub use sonic_linux::{
     SonicLinuxContainerInitTemplate, SonicLinuxContainerSupervisordTemplate,
