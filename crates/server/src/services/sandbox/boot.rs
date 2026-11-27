@@ -1,18 +1,15 @@
-//! The boot disk of sandboxes: the base image with one change, the kernel arguments sandboxes
-//! boot with, in Flatcar's OEM partition, so a sandbox boots with them from its first boot on.
-//! It is made once per base image version: a Flatcar VM boots an overlay of the base image whose
-//! Ignition sets only the kernel arguments, which Flatcar writes to the OEM partition and reboots
-//! before anything else on the disk changes, and that reboot stops the VM. The overlay is then
-//! copied with its base into a standalone disk, which sandboxes boot overlays of.
+//! The boot disk of sandboxes: the base image with the sandboxes' kernel arguments in Flatcar's
+//! OEM partition, made once per base image version by a VM that boots an overlay of it and is
+//! then copied with its base into a standalone disk.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use askama::Template;
-use tokio::task;
+use libvirt::Qemu;
+use tokio::{fs, task};
 use tracing::instrument;
 
 use shared::data::StatusKind;
@@ -23,6 +20,7 @@ use super::create::{DomainDisk, SandboxHost, pool_path, start_domain};
 use super::guest::write_config_drive;
 use crate::daemon::storage::restrict_dir;
 use crate::konst::{CONSOLE_GROUP, CONSOLE_LAB_DIR_MODE, SHERPA_SANDBOX_RUN_DIR};
+use crate::services::progress::ProgressSender;
 
 /// The memory of the VM that makes a boot disk.
 const BOOT_VM_MEMORY_MIB: u64 = 2048;
@@ -30,8 +28,7 @@ const BOOT_VM_MEMORY_MIB: u64 = 2048;
 const BOOT_VM_VCPUS: u8 = 2;
 /// How long the VM that makes a boot disk has to boot and stop at its first reboot.
 const BOOT_VM_STOP: Duration = Duration::from_mins(10);
-/// The start of the name of a boot disk and of a partial one. A node's volume has no `.` before
-/// its suffix, as a node name has none.
+/// The start of the name of a boot disk and of a partial one, whose `.` no node's volume has.
 const BOOT_PREFIX: &str = "flatcar-sandbox.";
 /// The start of the domain name of a boot disk's VM, and of its disk and config drive.
 const BOOT_VM_PREFIX: &str = "sherpa-flatcar-sandbox.";
@@ -109,25 +106,45 @@ pub(super) fn is_build_file(name: &str) -> bool {
 #[instrument(skip(host, base), fields(version = %base.version), level = "debug")]
 pub(super) async fn ensure_boot_disk(host: &SandboxHost, base: &SandboxBase) -> Result<String> {
     let boot = BootDisk::of(&base.version);
-    let path = pool_path(&boot.volume());
-    let lock = host.disk_locks.of(&boot.volume());
-    let _guard = if let Ok(guard) = lock.try_lock() {
-        guard
-    } else {
-        let _ = host.progress.send_status(
-            format!(
-                "Waiting for the sandbox boot disk of flatcar_sandbox {} to be made",
-                base.version
+    host.disk_locks
+        .build(
+            &boot.volume(),
+            || {
+                let _ = host.progress.send_status(
+                    format!(
+                        "Waiting for the sandbox boot disk of flatcar_sandbox {} to be made",
+                        base.version
+                    ),
+                    StatusKind::Waiting,
+                );
+            },
+            build_boot_disk(
+                Arc::clone(&host.qemu),
+                host.progress.clone(),
+                base.clone(),
+                boot,
             ),
-            StatusKind::Waiting,
-        );
-        lock.lock().await
-    };
-    if Path::new(&path).is_file() {
+        )
+        .await
+}
+
+/// The path of `boot`, made from base image `base` when there is none, run while its lock is
+/// held.
+async fn build_boot_disk(
+    qemu: Arc<Qemu>,
+    progress: ProgressSender,
+    base: SandboxBase,
+    boot: BootDisk,
+) -> Result<String> {
+    let path = pool_path(&boot.volume());
+    if fs::metadata(&path)
+        .await
+        .is_ok_and(|metadata| metadata.is_file())
+    {
         return Ok(path);
     }
     tracing::info!(version = %base.version, disk = %boot.volume(), "Making the sandbox boot disk");
-    let _ = host.progress.send_status(
+    let _ = progress.send_status(
         format!(
             "Making the sandbox boot disk of flatcar_sandbox {}: a VM sets Flatcar's kernel \
              arguments, once per image version",
@@ -135,14 +152,16 @@ pub(super) async fn ensure_boot_disk(host: &SandboxHost, base: &SandboxBase) -> 
         ),
         StatusKind::Progress,
     );
-    let made = make_boot_disk(host, base, &boot).await;
-    if let Err(removal) = remove_boot_vm(host, &boot, made.is_err()).await {
+    let made = make_boot_disk(&qemu, &base, &boot).await;
+    if let Err(removal) = remove_boot_vm(&qemu, &boot, made.is_err()).await {
         tracing::warn!(disk = %boot.volume(), error = %removal, "Cannot remove the VM that made a sandbox boot disk");
     }
     made?;
     let partial = pool_path(&boot.partial());
-    fs::rename(&partial, &path).with_context(|| format!("Cannot rename {partial} to {path}"))?;
-    let _ = host.progress.send_status(
+    fs::rename(&partial, &path)
+        .await
+        .with_context(|| format!("Cannot rename {partial} to {path}"))?;
+    let _ = progress.send_status(
         format!(
             "Made the sandbox boot disk of flatcar_sandbox {}",
             base.version
@@ -155,20 +174,21 @@ pub(super) async fn ensure_boot_disk(host: &SandboxHost, base: &SandboxBase) -> 
 /// Make `boot` from base image `base`: boot a Flatcar VM on an overlay of the base image whose
 /// Ignition sets only the sandboxes' kernel arguments, wait until the reboot Flatcar makes to
 /// apply them has stopped it, and copy its disk with the base image into the partial boot disk.
-async fn make_boot_disk(host: &SandboxHost, base: &SandboxBase, boot: &BootDisk) -> Result<()> {
-    remove_boot_vm(host, boot, true).await?;
-    restrict_dir(
-        Path::new(SHERPA_SANDBOX_RUN_DIR),
-        CONSOLE_LAB_DIR_MODE,
-        Some(CONSOLE_GROUP),
-    )?;
-    let config_drive = write_config_drive(
-        &boot.stage(Path::new(SHERPA_SANDBOX_RUN_DIR)),
-        &boot.config_drive(),
-        &boot_vm_ignition_json()?,
-        None,
-        &[],
-    )?;
+async fn make_boot_disk(qemu: &Arc<Qemu>, base: &SandboxBase, boot: &BootDisk) -> Result<()> {
+    remove_boot_vm(qemu, boot, true).await?;
+    let stage = boot.stage(Path::new(SHERPA_SANDBOX_RUN_DIR));
+    let drive = boot.config_drive();
+    let ignition = boot_vm_ignition_json()?;
+    let config_drive = task::spawn_blocking(move || {
+        restrict_dir(
+            Path::new(SHERPA_SANDBOX_RUN_DIR),
+            CONSOLE_LAB_DIR_MODE,
+            Some(CONSOLE_GROUP),
+        )?;
+        write_config_drive(&stage, &drive, &ignition, None, &[])
+    })
+    .await
+    .context("The sandbox boot disk config drive write panicked")??;
     let vm = boot.vm();
     let domain = SandboxBootDomainTemplate {
         name: vm.clone(),
@@ -184,8 +204,8 @@ async fn make_boot_disk(host: &SandboxHost, base: &SandboxBase, boot: &BootDisk)
         base: base.disk.clone(),
         path: domain.disk.clone(),
     }];
-    start_domain(&host.qemu, &vm, xml, disks).await?;
-    let qemu = Arc::clone(&host.qemu);
+    start_domain(qemu, &vm, xml, disks).await?;
+    let qemu = Arc::clone(qemu);
     let vm_disk = pool_path(&boot.vm_disk());
     let partial = pool_path(&boot.partial());
     task::spawn_blocking(move || {
@@ -204,8 +224,8 @@ async fn make_boot_disk(host: &SandboxHost, base: &SandboxBase, boot: &BootDisk)
 
 /// Remove the VM that makes `boot`, its disk and config drive, and with `delete_partial` the
 /// partial boot disk, where they are.
-async fn remove_boot_vm(host: &SandboxHost, boot: &BootDisk, delete_partial: bool) -> Result<()> {
-    let qemu = Arc::clone(&host.qemu);
+async fn remove_boot_vm(qemu: &Arc<Qemu>, boot: &BootDisk, delete_partial: bool) -> Result<()> {
+    let qemu = Arc::clone(qemu);
     let vm = boot.vm();
     let mut volumes = vec![boot.vm_disk(), boot.config_drive()];
     if delete_partial {

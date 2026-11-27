@@ -25,6 +25,7 @@ use super::{boot, store};
 #[instrument(skip(qemu))]
 pub(crate) async fn remove_unfinished_builds(qemu: &Arc<Qemu>, run_dir: &Path) -> Result<()> {
     let qemu = Arc::clone(qemu);
+    let run_dir = run_dir.to_owned();
     let removed = task::spawn_blocking(move || {
         let conn = qemu.connect()?;
         let mut removed = Vec::new();
@@ -40,14 +41,13 @@ pub(crate) async fn remove_unfinished_builds(qemu: &Arc<Qemu>, run_dir: &Path) -
                 removed.push(volume);
             }
         }
+        removed.extend(remove_build_files(&run_dir)?);
         Ok::<_, anyhow::Error>(removed)
     })
     .await
     .context("The sandbox build sweep panicked")??;
-    let mut files = removed;
-    files.extend(remove_build_files(run_dir)?);
-    if !files.is_empty() {
-        tracing::warn!(?files, "Removed what unfinished sandbox disk builds left");
+    if !removed.is_empty() {
+        tracing::warn!(?removed, "Removed what unfinished sandbox disk builds left");
     }
     Ok(())
 }

@@ -1,8 +1,8 @@
 //! The Docker store of an image for sandboxes: a disk that holds Docker's data with the image
-//! loaded, which each sandbox of the image boots an overlay of. A Flatcar VM of its own, on the
-//! boot disk, makes it once per image, loading the image's archive from a disk of its own.
+//! loaded, made once per image by a Flatcar VM, which each sandbox of the image boots an overlay
+//! of.
 
-use std::fs;
+use std::fs::Permissions;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -11,7 +11,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use askama::Template;
 use futures_util::StreamExt;
-use tokio::fs::File;
+use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
 use tokio::{task, time};
 use tracing::instrument;
@@ -163,18 +163,33 @@ pub(super) async fn ensure_docker_store(
         .id
         .with_context(|| format!("Image {image} has no ID"))?;
     let store = Store::of(&id).with_context(|| format!("Image {image} has ID '{id}'"))?;
+    host.disk_locks
+        .build(
+            &store.volume(),
+            || {
+                let _ = host.progress.send_status(
+                    format!("Waiting for the sandbox Docker store of image {image} to be made"),
+                    StatusKind::Waiting,
+                );
+            },
+            build_store(host.clone(), boot_disk.to_owned(), image.to_owned(), store),
+        )
+        .await
+}
+
+/// The path of `store` of image `image`, made by a VM on boot disk `boot_disk` when there is
+/// none, run while its lock is held.
+async fn build_store(
+    host: SandboxHost,
+    boot_disk: String,
+    image: String,
+    store: Store,
+) -> Result<String> {
     let path = pool_path(&store.volume());
-    let lock = host.disk_locks.of(&store.volume());
-    let _guard = if let Ok(guard) = lock.try_lock() {
-        guard
-    } else {
-        let _ = host.progress.send_status(
-            format!("Waiting for the sandbox Docker store of image {image} to be made"),
-            StatusKind::Waiting,
-        );
-        lock.lock().await
-    };
-    if Path::new(&path).is_file() {
+    if fs::metadata(&path)
+        .await
+        .is_ok_and(|metadata| metadata.is_file())
+    {
         return Ok(path);
     }
     tracing::info!(%image, store = %store.volume(), "Making the sandbox Docker store of the image");
@@ -185,13 +200,15 @@ pub(super) async fn ensure_docker_store(
         ),
         StatusKind::Progress,
     );
-    let made = make_store(host, boot_disk, image, &store).await;
-    if let Err(removal) = remove_store_vm(host, &store, made.is_err()).await {
+    let made = make_store(&host, &boot_disk, &image, &store).await;
+    if let Err(removal) = remove_store_vm(&host, &store, made.is_err()).await {
         tracing::warn!(store = %store.volume(), error = %removal, "Cannot remove the VM that made a Docker store");
     }
     made?;
     let partial = pool_path(&store.partial());
-    fs::rename(&partial, &path).with_context(|| format!("Cannot rename {partial} to {path}"))?;
+    fs::rename(&partial, &path)
+        .await
+        .with_context(|| format!("Cannot rename {partial} to {path}"))?;
     let _ = host.progress.send_status(
         format!("Made the sandbox Docker store of image {image}"),
         StatusKind::Done,
@@ -203,20 +220,21 @@ pub(super) async fn ensure_docker_store(
 /// `boot_disk` that loads it into an empty disk and powers off, and wait until it has.
 async fn make_store(host: &SandboxHost, boot_disk: &str, image: &str, store: &Store) -> Result<()> {
     remove_store_vm(host, store, true).await?;
-    restrict_dir(
-        Path::new(SHERPA_SANDBOX_RUN_DIR),
-        CONSOLE_LAB_DIR_MODE,
-        Some(CONSOLE_GROUP),
-    )?;
     let archive = pool_path(&store.archive());
     write_image_archive(host, image, &archive).await?;
-    let config_drive = write_config_drive(
-        &store.vm_stage(Path::new(SHERPA_SANDBOX_RUN_DIR)),
-        &store.vm_config_drive(),
-        &store_vm_ignition_json()?,
-        None,
-        &[],
-    )?;
+    let stage = store.vm_stage(Path::new(SHERPA_SANDBOX_RUN_DIR));
+    let drive = store.vm_config_drive();
+    let ignition = store_vm_ignition_json()?;
+    let config_drive = task::spawn_blocking(move || {
+        restrict_dir(
+            Path::new(SHERPA_SANDBOX_RUN_DIR),
+            CONSOLE_LAB_DIR_MODE,
+            Some(CONSOLE_GROUP),
+        )?;
+        write_config_drive(&stage, &drive, &ignition, None, &[])
+    })
+    .await
+    .context("The Docker store config drive write panicked")??;
     let status_socket = store.status_socket();
     let vm = store.vm();
     let domain = SandboxDomainTemplate {
@@ -291,7 +309,8 @@ async fn write_image_archive(host: &SandboxHost, image: &str, path: &str) -> Res
     file.sync_all()
         .await
         .with_context(|| format!("Cannot write {path}"))?;
-    fs::set_permissions(path, fs::Permissions::from_mode(ARCHIVE_MODE))
+    fs::set_permissions(path, Permissions::from_mode(ARCHIVE_MODE))
+        .await
         .with_context(|| format!("Cannot set the mode of {path}"))
 }
 
@@ -319,6 +338,8 @@ async fn remove_store_vm(host: &SandboxHost, store: &Store, delete_partial: bool
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use libvirt::Qemu;
     use tempfile::TempDir;
     use virt::domain::Domain;
