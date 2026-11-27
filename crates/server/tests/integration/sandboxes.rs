@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail, ensure};
 use bollard::Docker;
-use db::DefaultRequest;
+use db::{DefaultRequest, LabDetails};
+use libvirt::Qemu;
 use serde_json::{Value, json};
 use shared::data::{
     ContainerSettings, KindSettings, LabPhase, ModelKind, NodeConfig, NodeKind, NodeModel,
@@ -593,7 +594,7 @@ async fn sandbox_077_sandboxes_boot_on_the_boot_disk_one_vm_made_from_the_base_i
             volume_identity(&boot_disk)? == boot_before,
             "the second lab replaced the boot disk {boot_disk}"
         );
-        let conn = libvirt::Qemu::default().connect()?;
+        let conn = Qemu::default().connect()?;
         let volumes = libvirt::pool_backed_volumes(&conn)?;
         let backing_of = |name: &str| {
             volumes
@@ -760,7 +761,7 @@ async fn sandbox_096_down_and_resume_refuse_a_node_made_before_its_model_ran_in_
             gateway_ipv6: None,
             router_ipv6: None,
         },
-        &db::LabDetails::default(),
+        &LabDetails::default(),
     )
     .await?
     .id
