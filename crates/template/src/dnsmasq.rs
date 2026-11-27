@@ -1,6 +1,6 @@
-use askama::Template;
-
 use std::net::{Ipv4Addr, Ipv6Addr};
+
+use askama::Template;
 
 use shared::data::{Ztp, ZtpRecord};
 use shared::konst::{
@@ -8,13 +8,14 @@ use shared::konst::{
     SHERPA_DOMAIN_NAME,
 };
 
-/// The own management addresses of the sandbox of node `node_name`, which the boot server names
-/// `<node_name>-sbx`.
+/// The own management and MAC addresses of the sandbox of node `node_name`, which the boot
+/// server names `<node_name>-sbx` and reserves.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SandboxHostRecord {
     pub node_name: String,
     pub ipv4: Ipv4Addr,
     pub ipv6: Option<Ipv6Addr>,
+    pub mac: String,
 }
 
 #[derive(Template)]

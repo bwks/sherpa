@@ -48,7 +48,8 @@ pub(crate) struct BootNode {
 }
 
 /// The lab's dnsmasq config: DHCP and DNS for the management network `mgmt_net`, a DHCP host
-/// entry, with its boot options, for each of `ztp_records`, and the names of `sandbox_hosts`.
+/// entry, with its boot options, for each of `ztp_records`, and the names and reservations of
+/// `sandbox_hosts`.
 ///
 /// # Errors
 ///
@@ -92,7 +93,8 @@ pub(crate) fn render_dnsmasq_config(
     Ok(template.render()?)
 }
 
-/// The boot server's name for the own addresses of the sandbox of node `node_name`.
+/// The boot server's names and DHCP reservation for the own addresses of the sandbox of node
+/// `node_name`.
 pub(crate) fn sandbox_host_record(
     node_name: &str,
     address: &data::DbSandboxAddress,
@@ -101,6 +103,7 @@ pub(crate) fn sandbox_host_record(
         node_name: node_name.to_owned(),
         ipv4: address.ipv4,
         ipv6: address.ipv6,
+        mac: address.mac.clone(),
     }
 }
 

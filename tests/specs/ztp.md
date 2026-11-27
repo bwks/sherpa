@@ -301,7 +301,7 @@ Cases 001 to 014 render the model's config with device passwords that between th
 | 019 | A redeploy keeps the files of the method the node has | unit |
 | 020 | After the boot server is recreated, the lab's nodes keep their addresses and resolve each other (no test yet) | e2e |
 | 021 | The boot server answers a name without a domain that is not a node's as not found itself and never forwards it, so a node's lookup of it does not wait on the server's resolver, which may not answer one: SR Linux looks up `matelink` at each rsyslogd start | unit |
-| 022 | A sandbox's own IPv4 and IPv6 addresses are named `<node>-sbx`, with and without the lab domain, and get no DHCP host entry | unit |
+| 022 | A sandbox's own IPv4 and IPv6 addresses are named `<node>-sbx`, with and without the lab domain, and its IPv4 address is reserved for its MAC address by a DHCP host entry | unit |
 
 ## `config_privacy`: a node's config on the server is read only by Sherpa
 

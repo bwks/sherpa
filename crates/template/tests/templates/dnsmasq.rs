@@ -131,7 +131,7 @@ fn boot_server_021_a_name_without_a_domain_is_answered_and_never_forwarded() {
 }
 
 #[test]
-fn boot_server_022_a_sandbox_s_own_addresses_are_named_after_its_node_with_sbx() {
+fn boot_server_022_a_sandbox_s_own_addresses_are_named_after_its_node_with_sbx_and_reserved() {
     let t = DnsmasqTemplate {
         tftp_server_ipv4: "172.20.0.1".to_string(),
         gateway_ipv4: "172.20.0.1".to_string(),
@@ -147,11 +147,13 @@ fn boot_server_022_a_sandbox_s_own_addresses_are_named_after_its_node_with_sbx()
                 node_name: "srl1".to_string(),
                 ipv4: Ipv4Addr::new(172, 20, 0, 23),
                 ipv6: Some("fd00::17".parse().unwrap()),
+                mac: "52:54:00:00:00:17".to_string(),
             },
             SandboxHostRecord {
                 node_name: "ceos1".to_string(),
                 ipv4: Ipv4Addr::new(172, 20, 0, 24),
                 ipv6: None,
+                mac: "52:54:00:00:00:18".to_string(),
             },
         ],
     };
@@ -171,5 +173,15 @@ fn boot_server_022_a_sandbox_s_own_addresses_are_named_after_its_node_with_sbx()
             "host-record=ceos1-sbx.sherpa.lab.local,172.20.0.24",
         ]
     );
-    assert!(!output.contains("dhcp-host="));
+    let hosts: Vec<&str> = output
+        .lines()
+        .filter(|line| line.starts_with("dhcp-host="))
+        .collect();
+    assert_eq!(
+        hosts,
+        [
+            "dhcp-host=52:54:00:00:00:17,172.20.0.23",
+            "dhcp-host=52:54:00:00:00:18,172.20.0.24",
+        ]
+    );
 }

@@ -609,9 +609,8 @@ pub(super) async fn start_boot_container(
     boot_server::run_boot_container(docker_conn, lab_id, ztp_dir, mgmt_net).await
 }
 
-/// Write the dnsmasq config, with a DHCP host entry for each node and the names of the
-/// sandboxes' own addresses. Only the config is mounted in the boot container: dnsmasq keeps its
-/// leases inside it.
+/// Write the dnsmasq config, with a DHCP host entry for each node and for the own address of each
+/// sandbox, as the only file mounted in the boot container, which keeps dnsmasq's leases.
 #[instrument(skip_all, level = "debug")]
 fn write_dnsmasq_config(
     dnsmasq_dir: &str,

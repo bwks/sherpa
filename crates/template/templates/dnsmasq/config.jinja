@@ -60,5 +60,6 @@ host-record={{ host.node_name }}{{ SANDBOX_HOST_SUFFIX }}.{{ SHERPA_DOMAIN_NAME 
 host-record={{ host.node_name }}{{ SANDBOX_HOST_SUFFIX }},{{ ipv6 }}
 host-record={{ host.node_name }}{{ SANDBOX_HOST_SUFFIX }}.{{ SHERPA_DOMAIN_NAME }},{{ ipv6 }}
 {%-   endif %}
+dhcp-host={{ host.mac }},{{ host.ipv4 }}
 {%- endfor %}
 {# END #}
