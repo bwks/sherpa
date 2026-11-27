@@ -819,6 +819,24 @@ install_blank_disk_tools() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${BLANK_DISK_PACKAGES[@]}"
 }
 
+# The tool the user unpacks the flatcar_sandbox image with, and the Ubuntu package that holds it.
+SANDBOX_IMAGE_TOOLS=(bunzip2)
+SANDBOX_IMAGE_PACKAGES=(bzip2)
+
+# Install the package of the sandbox image tool when it is missing: servers installed by a release
+# before sandboxes may lack it.
+install_sandbox_image_tools() {
+    local tool
+    for tool in "${SANDBOX_IMAGE_TOOLS[@]}"; do
+        if ! command -v "${tool}" >/dev/null 2>&1; then
+            print_info "Installing the sandbox image tools: ${SANDBOX_IMAGE_PACKAGES[*]}"
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${SANDBOX_IMAGE_PACKAGES[@]}"
+            return
+        fi
+    done
+}
+
 # Restrict the server config, the env files and sherpad's log. sherpa.toml and the env files can
 # hold secrets, so only sherpa may read them; releases before this left sherpa.toml at the umask
 # of whoever ran 'sherpad init', often 0664, and the env files 0640. Their folders are set by
@@ -1049,6 +1067,7 @@ main() {
 
     if [ "$needs_update" = false ]; then
         install_blank_disk_tools
+        install_sandbox_image_tools
         ensure_blank_disks
         pull_sherpa_router_image
         ensure_symlinks
@@ -1061,6 +1080,7 @@ main() {
     # Fill in missing blank disks and refresh the router image before sherpad stops: a failure
     # here leaves the server as it was.
     install_blank_disk_tools
+    install_sandbox_image_tools
     ensure_blank_disks
     pull_sherpa_router_image
 

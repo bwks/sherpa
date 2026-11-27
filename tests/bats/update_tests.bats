@@ -432,6 +432,17 @@ _stub_apt_get() {
     grep -qx "install -y -qq qemu-utils dosfstools e2fsprogs" "${WORK_DIR}/apt-get.args"
 }
 
+@test "sandbox_068_the_update_installs_bzip2_only_when_bunzip2_is_missing" {
+    _stub_apt_get
+    _run_function "SANDBOX_IMAGE_TOOLS=(bash); install_sandbox_image_tools"
+    [ "$status" -eq 0 ]
+    [ ! -e "${WORK_DIR}/apt-get.args" ]
+
+    _run_function "SANDBOX_IMAGE_TOOLS=(bash no-such-bunzip2); install_sandbox_image_tools"
+    [ "$status" -eq 0 ]
+    grep -qx "install -y -qq bzip2" "${WORK_DIR}/apt-get.args"
+}
+
 # ============================================================
 # Download first, back up, and go back on a failure
 # ============================================================

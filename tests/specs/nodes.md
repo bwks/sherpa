@@ -108,7 +108,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 051 | Both VMs report their status, and the store VM loads its image archive | unit |
 | 052 | The config drive holds the Ignition config and each volume's file or folder, and a missing volume source fails it | unit |
 | 053 | A failure the VM reports fails it with the reason, and a status other than the one awaited fails it | unit |
-| 054 | Retired: the server is not given the sandbox base image by the install and update scripts; it is imported as `flatcar_sandbox` | — |
+| 054 | Retired: the scripts download no sandbox base image; it is imported as `flatcar_sandbox`, and `bzip2` is `sandbox_068` | — |
 | 055 | A sandbox whose container cannot be started is failed by `up` with the reason the VM reports, well before the readiness wait ends | integration |
 | 056 | A data interface on a private bridge is a bridge interface of the domain, so libvirt puts its tap on the bridge at every start | unit |
 | 057 | A first boot whose copy of the writable volumes into the container fails removes the container, starts nothing and reports why | unit |
@@ -122,6 +122,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 065 | A store build's VM disk, config drive, image archive and partial store are the build's, a store is not, and the build's status socket is in no lab's folder | unit |
 | 066 | At its start sherpad removes what an unfinished store build left (the store VM, its volumes, staging folder and status socket) and keeps the stores | integration |
 | 067 | A sandbox on a private bridge has its taps on the bridge again after down and resume | integration |
+| 068 | The update installs `bzip2`, which unpacks the `flatcar_sandbox` image, when `bunzip2` is missing, and nothing otherwise | unit (bats) |
 
 ## `node_ready`: a node is running only once its ready check passes
 
