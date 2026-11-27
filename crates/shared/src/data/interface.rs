@@ -175,6 +175,7 @@ pub struct Interface {
     pub mac_address: String,
     pub mtu: u16,
     pub connection_type: ConnectionTypes,
+    pub tap: Option<String>,
 }
 
 interface_enum!(

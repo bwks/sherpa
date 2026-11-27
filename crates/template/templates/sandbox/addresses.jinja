@@ -1,4 +1,3 @@
-{{ mac.to_ascii_lowercase() }}
 {% for address in addresses -%}
 {{ address.address }}/{{ address.prefix_length }} {{ address.gateway }}
 {% endfor -%}

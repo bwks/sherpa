@@ -12,7 +12,9 @@ mod sweep;
 
 pub(crate) use base::{SandboxBase, sandbox_base};
 pub(crate) use boot::BootDisk;
-pub(crate) use create::{SANDBOX_MEMORY_OVERHEAD_MIB, SandboxCreate, SandboxHost, create_sandbox};
+pub(crate) use create::{
+    SANDBOX_MEMORY_OVERHEAD_MIB, SandboxCreate, SandboxHost, create_sandbox, sandbox_tuning,
+};
 pub(crate) use guest::DRIVE_VOLUME_DEPTH;
 pub(crate) use status::StatusWatch;
 pub(crate) use sweep::remove_unfinished_builds;

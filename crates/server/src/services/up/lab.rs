@@ -740,6 +740,7 @@ impl LabUp<'_> {
                 host: SandboxHost {
                     docker: Arc::clone(self.build.docker_conn),
                     qemu: Arc::clone(self.build.qemu),
+                    qemu_bin: self.build.config.qemu_bin.clone(),
                     base: self.plan.sandbox_base.take(),
                     disk_locks: self.build.sandbox_disk_locks.clone(),
                     progress: self.build.progress.clone(),

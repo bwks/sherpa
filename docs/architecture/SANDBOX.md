@@ -35,6 +35,7 @@ flowchart LR
     DK --> N[sherpa-node.service: creates the container once over the Engine API, starts it, reports]
     N --> C[node container, privileged, host network mode]
     CON[sherpa-console.service on ttyS0: docker exec CLI] --> C
+    LK --> SSH[sshd.service in netns sherpa-sandbox: core by key, port 22 of sbx0's addresses]
   end
   O --> V
   OD -->|/var/lib/docker| V
@@ -85,6 +86,24 @@ dev server.
 `flatcar-sandbox.VERSION.qcow2` in the storage pool: the base image with the sandboxes' kernel
 arguments in its OEM partition's `grub.cfg`, which GRUB reads before it builds the command line.
 A sandbox boots an overlay of it, so it boots with them from its first boot on, with no reboot.
+
+```mermaid
+sequenceDiagram
+  participant S as sherpad
+  participant L as libvirt
+  participant V as boot VM sherpa-flatcar-sandbox.VERSION
+  S->>S: take the version's lock (SandboxDiskLocks::build), done if the boot disk exists
+  S->>S: config drive with an Ignition config of only kernelArguments
+  S->>L: overlay -hdd.qcow2 on the base image, define and start the domain (on_reboot destroy)
+  L->>V: boot through Flatcar's GRUB
+  V->>V: Ignition in the initrd writes the kernel arguments to the OEM partition's grub.cfg
+  V->>L: reboot
+  L->>L: on_reboot destroy stops the domain
+  S->>L: wait_until_stopped, up to 10 minutes
+  S->>L: flatten_disk: the overlay with the base image into flatcar-sandbox.VERSION.qcow2.part
+  S->>L: remove the VM, its disk and its config drive
+  S->>S: rename the .part to flatcar-sandbox.VERSION.qcow2
+```
 
 - **Made** at the first `up` or `redeploy` with a sandbox after the version is imported
   (`boot::ensure_boot_disk`), before the Docker store, one at a time per version
@@ -161,8 +180,13 @@ which take their paths, labels, port names and MTU from the constants in
   (`containerd.toml`), its data on the Docker disk (see Docker stores).
 - The units below, the container's name (`/etc/sherpa/container`), the writable volumes to copy
   into it (`/etc/sherpa/writable`), the NICs (`/etc/sherpa/interfaces`, `/etc/sherpa/placeholders`), the
-  management addresses (`/etc/sherpa/management`) and the console command
-  (`/etc/sherpa/console`).
+  management addresses (`/etc/sherpa/management`), the sandbox's own NIC's MAC and addresses
+  (`/etc/sherpa/sandbox-nic`, `/etc/sherpa/sandbox-nic-addresses`) and the console command
+  (`/etc/sherpa/console`). Each address file has one `address/prefix gateway` line per address
+  (`addresses.jinja`), and `links.sh` applies both with one function, `add_addresses`.
+- `report.sh`, which the other scripts `source` for `fail`: it reports `failed: REASON`, after the
+  script's own prefix (`interfaces:` in `links.sh`), and exits, and its `ERR` trap calls it for
+  any step that fails.
 
 | Unit | Runs | Does |
 |---|---|---|
@@ -211,6 +235,23 @@ Each VM has a virtio-serial port, `org.sherpa.status`, whose host side is a sock
 store VM, which belongs to no lab. `report.sh` writes one line to it: `started`, `loaded` or `failed: REASON`, newlines
 flattened. A guest's write waits until a reader is connected, for up to 60 s.
 
+```mermaid
+sequenceDiagram
+  participant R as report.sh in the VM
+  participant P as virtio-serial port org.sherpa.status
+  participant Q as socket INDEX.status or store-ID.status
+  participant W as StatusWatch in sherpad
+  W->>Q: connect once the domain is started, retried every 200 ms for up to 10 s
+  R->>P: one line: started, loaded or failed: REASON, newlines flattened
+  Note over R,P: the write waits for a reader for up to 60 s, then gives up
+  P->>Q: the line, through QEMU
+  Q->>W: read in 1 KiB chunks, at each readiness poll or awaited
+  W->>W: a line over 4 KiB fails the VM (StatusTooLong), 64 KiB without a status too (StatusFlood)
+  W->>W: control characters dropped, a reason cut to 512 characters
+  W->>W: failed: REASON fails the node (Reported), the end of the stream before a status too (StatusClosed)
+  Note over W: the reader's own limit: the readiness timeout of up or redeploy, 30 minutes for a store VM
+```
+
 sherpad connects as soon as it has started the domain (`StatusWatch::connect`) and reads up to
 the first status (`StatusWatch::next`). `failed: REASON` fails the node with that reason
 (`SandboxFailure::Reported`): each step of `links.sh`, `node.sh` and `store.sh` that fails
@@ -234,6 +275,27 @@ untrusted input:
 
 The node's image is not copied into each sandbox. Each image has a Docker store: a disk whose
 Docker data has the image loaded, which every sandbox of the image boots an overlay of.
+
+```mermaid
+sequenceDiagram
+  participant S as sherpad
+  participant D as server Docker
+  participant L as libvirt
+  participant V as store VM sherpa-flatcar-docker-ID
+  S->>S: take the store's lock, done if flatcar-docker-ID.qcow2 exists
+  S->>D: docker save of the image
+  D-->>S: the archive, written to flatcar-docker-ID.tar, padded to whole sectors
+  S->>S: config drive: Docker, sherpa-store.service, the store disk to format
+  S->>L: overlay on the boot disk, empty 32 GiB .qcow2.part, archive disk (serial sherpa-image, read-only), define and start
+  S->>V: StatusWatch::connect on store-ID.status
+  V->>V: Ignition formats the store disk, mounted at /var/lib/docker, Docker starts
+  V->>V: sherpa-store: docker load from /dev/disk/by-id/virtio-sherpa-image
+  V->>S: loaded, on org.sherpa.status (awaited up to 30 minutes)
+  V->>V: systemctl poweroff
+  S->>L: wait_until_stopped, up to 120 s
+  S->>L: remove the VM, its disk, its config drive and the archive
+  S->>S: rename the .part to flatcar-docker-ID.qcow2
+```
 
 - **Name.** `flatcar-docker-ID.qcow2` in the storage pool, `ID` the first 16 hex digits of the
   image's ID on the server's Docker, so an image imported again gets a store of its own.
@@ -275,12 +337,22 @@ Docker data has the image loaded, which every sandbox of the image boots an over
 The two overlays hold everything the node writes, so a saved config survives `down` and
 `resume`. Redeploy and destroy delete them.
 
-The domain is `template::SandboxDomainTemplate` (`templates/libvirt/sandbox_domain.jinja`): q35,
-`host-passthrough` CPU, no video and no balloon; SeaBIOS booting the first disk; the two overlays
-on virtio; the config drive on SATA; the management NIC and the sandbox's own NIC on the lab's
-management network; one virtio NIC per data interface on a link or bridge, its tap named like the
-node's link end; a virtio RNG; the status channel; and the serial console on the node's console
-socket.
+The domain is rendered from `template::DomainTemplate` (`templates/libvirt/libvirt_domain.jinja`),
+the VM nodes' template, as is the domain of the boot disk VM and of a Docker store VM.
+`template::FlatcarDomain` builds all three (`sandbox`, `store_vm`, `boot_vm`): q35,
+`host-passthrough` CPU, SeaBIOS booting the first disk only, so it never tries the config drive
+(`sandbox_102`); the disks on virtio; the config drive on SATA, read-only; a virtio RNG; no VNC,
+guest agent channel, USB controller (a controller of model `none`, without which libvirt adds
+one), `ds=nocloud` sysinfo, video or memory balloon (`sandbox_101`). A sandbox adds its Docker disk; the management NIC and the sandbox's own NIC on
+the lab's management network; one NIC per data interface on a link, the tap named like the
+node's link end, and one bridge NIC per data interface on a bridge, its tap named the same way,
+each told MTU 9600; the status channel; the serial console on the node's console socket; and
+its node's `DomainTuning` (`sandbox::sandbox_tuning`, `sandbox_100`), from the same settings a
+VM's comes from. A container node refuses the VM tuning settings
+(`check_node_kind_settings`), so a sandbox has no tuning today. Every NIC keeps the MAC the guest
+names it by (`sandbox_103`). A Docker store VM adds the empty store disk and the image archive, a
+read-only disk with the serial `sherpa-image`, and the status channel; the boot disk VM adds
+nothing, and its `on_reboot` is `destroy`.
 
 ## Links
 
@@ -341,7 +413,8 @@ config, and the commit fails with `Unacceptable syslog configuration` when it ta
 The VM has a second NIC on the lab's management network, with a MAC of its own, which the network
 OS never sees. Before it names the other NICs, `links.sh` moves it into the network namespace
 `sherpa-sandbox` as `sbx0` and gives it the sandbox's own addresses and default routes through the
-lab's gateway, from `/etc/sherpa/sandbox-nic`; the container runs in the VM's first namespace.
+lab's gateway, from `/etc/sherpa/sandbox-nic` and `/etc/sherpa/sandbox-nic-addresses`; the
+container runs in the VM's first namespace.
 Before `sbx0` is up it turns off router advertisements and SLAAC on it (`accept_ra=0`,
 `autoconf=0`, set in `sherpa-sandbox`), so it has only those addresses and its link-local one
 (`sandbox_079`). The network OS's interfaces, in the first namespace, keep the kernel's settings.
@@ -403,6 +476,64 @@ for Enter, waits for the container to run, gives the line a size, and runs `dock
 the model's CLI (`Cli`, `sr_cli`, `bash` for SONiC). systemd starts it again when the CLI exits.
 
 ## Lifecycle
+
+Up, from the plan to a ready node:
+
+```mermaid
+sequenceDiagram
+  participant U as sherpa up
+  participant S as sherpad
+  participant L as libvirt
+  participant V as sandbox NODE-LAB
+  participant C as node container
+  U->>S: up
+  S->>S: plan: sandbox_base, refusals (no flatcar_sandbox image or disk, volumes a config drive cannot carry), admission
+  S->>S: phase 11, each sandbox in parallel: ensure_boot_disk and ensure_docker_store when missing
+  S->>S: config drive NODE-LAB.iso: Ignition, the container body, its volumes
+  S->>L: overlays NODE-LAB-hdd.qcow2 on the boot disk and NODE-LAB-docker.qcow2 on the store, define and start the domain
+  S->>V: StatusWatch::connect on INDEX.status
+  par the guest boots
+    V->>V: GRUB, first boot: Ignition writes the files and units
+    V->>V: sherpa-links: sbx0 into sherpa-sandbox, names the NICs, addresses eth0, unwired veths
+    V->>V: sshd starts in sherpa-sandbox, makes its host keys
+    V->>V: Docker starts on the store overlay
+    V->>C: sherpa-node: remove a leftover, create from the body, copy the writable volumes, write the marker, start
+    V->>S: started, or failed: REASON
+  and sherpad attaches the links
+    S->>L: phase 11b: attach_vm_links on the taps
+  end
+  S->>S: phase 13 readiness: reads the channel at each poll, then SSH on the management address, or started alone (node_ready_036)
+  S->>V: read sshd's host key on the sandbox's own address, all sandboxes at once, but a failed node's (sandbox_097, sandbox_098)
+  S->>S: record it in vm_sandbox.ssh_host_key, then the lab's SSH config and known hosts
+  S-->>U: the node is ready, or failed with the VM's reason
+```
+
+Down, resume and redeploy: what stays, and what runs again on every boot:
+
+```mermaid
+sequenceDiagram
+  participant U as user
+  participant S as sherpad
+  participant L as libvirt
+  participant V as sandbox NODE-LAB
+  U->>S: down
+  S->>L: ACPI shutdown
+  V->>V: Docker stops the container, the VM powers off
+  Note over L,V: kept: the domain, the config drive, both overlays (the container, what it wrote, the marker /var/lib/sherpa/created, sshd's host keys) and the vm_sandbox row with its ssh_host_key
+  U->>S: resume
+  S->>S: refuse a node with no vm_sandbox row (sandbox_096), admission
+  S->>L: start the domain
+  V->>V: no Ignition, again on every boot: sherpa-links, sshd with the same host keys, Docker, sherpa-node only starts the container, the console
+  V--)S: started, which nobody reads, and the report gives up after 60 s
+  S->>L: re-attach the links
+  S->>S: readiness on the node's ready check
+  U->>S: redeploy
+  S->>S: clear vm_sandbox.ssh_host_key
+  S->>L: remove the domain and its volumes (destroy_vm_node), the vm_sandbox row stays
+  S->>L: a new config drive and new overlays, define and start the domain, as up does
+  V->>S: started, awaited up to the ready_timeout
+  S->>V: read the new sshd's host key and record it
+```
 
 - **Up.** Phase 11 creates each sandbox, in parallel with the others (`create_sandboxes`, after
   the VMs): the base image's boot disk and the image's Docker store when there is none, the

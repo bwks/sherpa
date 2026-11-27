@@ -13,7 +13,7 @@ use tokio::{fs, task};
 use tracing::instrument;
 
 use shared::data::StatusKind;
-use template::{SandboxBootDomainTemplate, boot_vm_ignition_json};
+use template::{FlatcarDomain, boot_vm_ignition_json};
 
 use super::base::SandboxBase;
 use super::create::{DomainDisk, SandboxHost, pool_path, start_domain};
@@ -23,7 +23,7 @@ use crate::konst::{CONSOLE_GROUP, CONSOLE_LAB_DIR_MODE, SHERPA_SANDBOX_RUN_DIR};
 use crate::services::progress::ProgressSender;
 
 /// The memory of the VM that makes a boot disk.
-const BOOT_VM_MEMORY_MIB: u64 = 2048;
+const BOOT_VM_MEMORY_MIB: u16 = 2048;
 /// The vCPUs of the VM that makes a boot disk.
 const BOOT_VM_VCPUS: u8 = 2;
 /// How long the VM that makes a boot disk has to boot and stop at its first reboot.
@@ -120,6 +120,7 @@ pub(super) async fn ensure_boot_disk(host: &SandboxHost, base: &SandboxBase) -> 
             },
             build_boot_disk(
                 Arc::clone(&host.qemu),
+                host.qemu_bin.clone(),
                 host.progress.clone(),
                 base.clone(),
                 boot,
@@ -132,6 +133,7 @@ pub(super) async fn ensure_boot_disk(host: &SandboxHost, base: &SandboxBase) -> 
 /// held.
 async fn build_boot_disk(
     qemu: Arc<Qemu>,
+    qemu_bin: String,
     progress: ProgressSender,
     base: SandboxBase,
     boot: BootDisk,
@@ -152,7 +154,7 @@ async fn build_boot_disk(
         ),
         StatusKind::Progress,
     );
-    let made = make_boot_disk(&qemu, &base, &boot).await;
+    let made = make_boot_disk(&qemu, &qemu_bin, &base, &boot).await;
     if let Err(removal) = remove_boot_vm(&qemu, &boot, made.is_err()).await {
         tracing::warn!(disk = %boot.volume(), error = %removal, "Cannot remove the VM that made a sandbox boot disk");
     }
@@ -174,7 +176,12 @@ async fn build_boot_disk(
 /// Make `boot` from base image `base`: boot a Flatcar VM on an overlay of the base image whose
 /// Ignition sets only the sandboxes' kernel arguments, wait until the reboot Flatcar makes to
 /// apply them has stopped it, and copy its disk with the base image into the partial boot disk.
-async fn make_boot_disk(qemu: &Arc<Qemu>, base: &SandboxBase, boot: &BootDisk) -> Result<()> {
+async fn make_boot_disk(
+    qemu: &Arc<Qemu>,
+    qemu_bin: &str,
+    base: &SandboxBase,
+    boot: &BootDisk,
+) -> Result<()> {
     remove_boot_vm(qemu, boot, true).await?;
     let stage = boot.stage(Path::new(SHERPA_SANDBOX_RUN_DIR));
     let drive = boot.config_drive();
@@ -190,19 +197,21 @@ async fn make_boot_disk(qemu: &Arc<Qemu>, base: &SandboxBase, boot: &BootDisk) -
     .await
     .context("The sandbox boot disk config drive write panicked")??;
     let vm = boot.vm();
-    let domain = SandboxBootDomainTemplate {
+    let disk = pool_path(&boot.vm_disk());
+    let xml = FlatcarDomain {
         name: vm.clone(),
-        memory_mib: BOOT_VM_MEMORY_MIB,
+        memory: BOOT_VM_MEMORY_MIB,
         vcpus: BOOT_VM_VCPUS,
-        disk: pool_path(&boot.vm_disk()),
+        qemu_bin: qemu_bin.to_owned(),
+        disk: disk.clone(),
         config_drive,
-    };
-    let xml = domain
-        .render()
-        .with_context(|| format!("Cannot render the domain of VM {vm}"))?;
+    }
+    .boot_vm()
+    .render()
+    .with_context(|| format!("Cannot render the domain of VM {vm}"))?;
     let disks = vec![DomainDisk::Overlay {
         base: base.disk.clone(),
-        path: domain.disk.clone(),
+        path: disk,
     }];
     start_domain(qemu, &vm, xml, disks).await?;
     let qemu = Arc::clone(qemu);

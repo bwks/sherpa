@@ -162,6 +162,7 @@ pub(super) async fn redeploy_sandbox(
         &SandboxHost {
             docker: Arc::clone(&redeploy.state.docker),
             qemu: Arc::clone(&redeploy.state.qemu),
+            qemu_bin: redeploy.state.config.qemu_bin.clone(),
             base: redeploy.sandbox_base.clone(),
             disk_locks: redeploy.state.sandbox_disk_locks.clone(),
             progress: redeploy.progress.clone(),
@@ -174,15 +175,15 @@ pub(super) async fn redeploy_sandbox(
             model_kind: redeploy.target_node.model_kind,
             spec: redeployed_container_spec(redeploy, ztp_result.settings)?,
             dns: redeploy.dns.clone(),
-            memory_mib: redeploy
+            memory: redeploy
                 .db_node
                 .memory
-                .map(u64::from)
                 .context("The node has no memory recorded")?,
             vcpus: redeploy
                 .db_node
                 .cpu_count
                 .context("The node has no vCPUs recorded")?,
+            tuning: sandbox::sandbox_tuning(&redeploy.target_node),
             veths: sandbox_link_ends(redeploy, &lab_links).await?,
             mgmt_net: redeploy.mgmt_net.clone(),
             ipv4: redeploy.ipv4,

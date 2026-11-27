@@ -1,18 +1,12 @@
 #!/bin/bash
-# Loads the node image's archive, the disk sherpad attached with its serial, into this VM's
-# Docker, whose data is the Docker store being made, reports to sherpad that it loaded or why it
-# did not, and powers the VM off once it has.
+# Loads the node image's archive into this VM's Docker, the Docker store being made, and powers off.
 set -eEu
 
 ARCHIVE=/dev/disk/by-id/virtio-{{ crate::sandbox::SANDBOX_IMAGE_ARCHIVE_SERIAL }}
 
-fail() {
-  {{ crate::sandbox::REPORT_SCRIPT_PATH }} "failed: $1" || true
-  exit 1
-}
-trap 'fail "line $LINENO: $BASH_COMMAND"' ERR
+source {{ crate::sandbox::REPORT_SCRIPT_PATH }}
 
 output=$(docker load --input "$ARCHIVE" 2>&1) || fail "cannot load the image: $output"
-{{ crate::sandbox::REPORT_SCRIPT_PATH }} loaded
+report loaded
 systemctl --no-block poweroff
 

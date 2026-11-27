@@ -17,7 +17,7 @@ use tokio::{task, time};
 use tracing::instrument;
 
 use shared::data::StatusKind;
-use template::{SandboxDomainTemplate, store_vm_ignition_json};
+use template::{FlatcarDomain, store_vm_ignition_json};
 
 use super::create::{DomainDisk, SandboxHost, pool_path, start_domain};
 use super::guest::write_config_drive;
@@ -30,7 +30,7 @@ const STORE_DISK_GB: u16 = 32;
 /// The hex digits of the image ID a store is named by.
 const STORE_ID_LEN: usize = 16;
 /// The memory of the VM that makes a store.
-const STORE_VM_MEMORY_MIB: u64 = 2048;
+const STORE_VM_MEMORY_MIB: u16 = 2048;
 /// The vCPUs of the VM that makes a store.
 const STORE_VM_VCPUS: u8 = 2;
 /// How long the VM that makes a store has to boot and load the image.
@@ -237,29 +237,26 @@ async fn make_store(host: &SandboxHost, boot_disk: &str, image: &str, store: &St
     .context("The Docker store config drive write panicked")??;
     let status_socket = store.status_socket();
     let vm = store.vm();
-    let domain = SandboxDomainTemplate {
+    let disk = pool_path(&store.vm_disk());
+    let docker_disk = pool_path(&store.partial());
+    let xml = FlatcarDomain {
         name: vm.clone(),
-        memory_mib: STORE_VM_MEMORY_MIB,
+        memory: STORE_VM_MEMORY_MIB,
         vcpus: STORE_VM_VCPUS,
-        disk: pool_path(&store.vm_disk()),
-        docker_disk: pool_path(&store.partial()),
-        image_archive: Some(archive),
+        qemu_bin: host.qemu_bin.clone(),
+        disk: disk.clone(),
         config_drive,
-        management: None,
-        nics: Vec::new(),
-        status_socket: status_socket.clone(),
-        serial_socket: None,
-    };
-    let xml = domain
-        .render()
-        .with_context(|| format!("Cannot render the domain of VM {vm}"))?;
+    }
+    .store_vm(docker_disk.clone(), archive, status_socket.clone())
+    .render()
+    .with_context(|| format!("Cannot render the domain of VM {vm}"))?;
     let disks = vec![
         DomainDisk::Overlay {
             base: boot_disk.to_owned(),
-            path: domain.disk.clone(),
+            path: disk,
         },
         DomainDisk::Blank {
-            path: domain.docker_disk.clone(),
+            path: docker_disk,
             size_gb: STORE_DISK_GB,
         },
     ];

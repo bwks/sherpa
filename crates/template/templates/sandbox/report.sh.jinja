@@ -1,13 +1,28 @@
 #!/bin/bash
-# Sends the status line "$*" to sherpad on the VM's status channel, newlines flattened, and logs
-# it. Gives up after REPORT_SECONDS when sherpad is not listening, as when the VM boots again
-# after down and resume.
-set -eu
+# Sends a status line to sherpad on the VM's status channel, or, sourced, gives a script `fail`.
 
-CHANNEL=/dev/virtio-ports/{{ crate::sandbox::SANDBOX_STATUS_CHANNEL }}
+CHANNEL={{ channel }}
 REPORT_SECONDS=60
 
-line=$(printf '%s' "$*" | tr '\r\n' '  ')
-echo "$line" >&2
-timeout "$REPORT_SECONDS" bash -c 'printf "%s\n" "$1" > "$2"' _ "$line" "$CHANNEL"
+# Sends the status line "$*", newlines flattened, and logs it. Gives up after REPORT_SECONDS when
+# sherpad is not listening, as when the VM boots again after down and resume.
+report() {
+  local line
+  line=$(printf '%s' "$*" | tr '\r\n' '  ')
+  echo "$line" >&2
+  timeout "$REPORT_SECONDS" bash -c 'printf "%s\n" "$1" > "$2"' _ "$line" "$CHANNEL"
+}
+
+# Reports the failure $1, after the script's FAIL_PREFIX, and exits.
+fail() {
+  report "failed: ${FAIL_PREFIX:-}$1" || true
+  exit 1
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  set -eu
+  report "$@"
+else
+  trap 'fail "line $LINENO: $BASH_COMMAND"' ERR
+fi
 
