@@ -215,9 +215,10 @@ fn create_body(spec: ContainerSpec) -> Result<ContainerCreateBody> {
     })
 }
 
-/// The body Docker creates a sandbox's container from: `run_container`'s body of `spec`, in the
-/// VM's network namespace instead of on a Docker network, with the lab's `dns` name servers and
-/// domain, its hostname resolving to loopback, and Docker restarting it unless it was stopped.
+/// The body Docker creates a sandbox's container from: `run_container`'s body of `spec` with no
+/// resource limits, in the VM's network namespace instead of on a Docker network, with the lab's
+/// `dns` name servers and domain, its hostname resolving to loopback, and Docker restarting it
+/// unless it was stopped.
 ///
 /// # Errors
 ///
@@ -229,6 +230,9 @@ pub fn sandbox_create_body(spec: ContainerSpec, dns: &Dns) -> Result<ContainerCr
         .map(|hostname| vec![format!("{hostname}:{SANDBOX_HOSTNAME_ADDRESS}")]);
     let mut body = create_body(spec)?;
     let host_config = body.host_config.get_or_insert_default();
+    host_config.memory = None;
+    host_config.memory_swap = None;
+    host_config.nano_cpus = None;
     host_config.network_mode = Some(SANDBOX_NETWORK_MODE.to_owned());
     host_config.dns = Some(name_server_addresses(dns));
     host_config.dns_search = Some(vec![dns.domain.clone()]);
@@ -372,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn sandbox_044_a_sandbox_container_has_run_containers_body_in_the_vms_network_namespace_with_the_labs_dns()
+    fn sandbox_044_a_sandbox_container_has_run_containers_body_with_no_limits_in_the_vms_network_namespace_with_the_labs_dns()
      {
         let spec = ContainerSpec {
             name: "sonic1-abc12345".to_owned(),
@@ -405,6 +409,18 @@ mod tests {
 
         assert_eq!(sandbox.networking_config, None);
         let host_config = sandbox.host_config.as_mut().unwrap();
+        let runc_host_config = runc.host_config.as_ref().unwrap();
+        assert_eq!(
+            (
+                host_config.memory,
+                host_config.memory_swap,
+                host_config.nano_cpus
+            ),
+            (None, None, None)
+        );
+        host_config.memory = runc_host_config.memory;
+        host_config.memory_swap = runc_host_config.memory_swap;
+        host_config.nano_cpus = runc_host_config.nano_cpus;
         assert_eq!(host_config.network_mode.take().as_deref(), Some("host"));
         assert_eq!(host_config.dns.take().unwrap(), ["172.31.0.2", "fd00::2"]);
         assert_eq!(host_config.dns_search.take().unwrap(), ["sherpa.lab.local"]);
