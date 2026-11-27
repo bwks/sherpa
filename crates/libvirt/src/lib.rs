@@ -7,10 +7,10 @@ mod host;
 mod interface;
 mod names;
 mod network;
-mod node_vm;
 mod overlay;
 mod qcow2;
 mod qemu;
+mod sandbox;
 mod size;
 mod storage;
 mod vm;
@@ -25,10 +25,10 @@ pub use host::{
 pub use interface::{interface_link_up, set_interface_link};
 pub use names::{is_device_volume, is_lab_volume};
 pub use network::{BridgeNetwork, IsolatedNetwork, NatNetwork, ReservedNetwork};
-pub use node_vm::{set_node_vm_cmdline, wait_until_stopped};
 pub use overlay::create_overlay;
 pub use qcow2::{Qcow2Metadata, read_qcow2_metadata};
 pub use qemu::{Qemu, QemuConnection};
+pub use sandbox::{set_sandbox_cmdline, wait_until_stopped};
 pub use storage::{
     BackedVolume, SherpaStoragePool, create_blank_qcow2, list_lab_volumes, list_pool_volumes,
     overlay_on_image, pool_backed_volumes, refresh_pool,

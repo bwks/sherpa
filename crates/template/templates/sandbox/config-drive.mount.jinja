@@ -1,0 +1,12 @@
+[Unit]
+Description=Node config drive
+
+[Mount]
+What=/dev/disk/by-label/{{ crate::sandbox::SANDBOX_CONFIG_DRIVE_LABEL }}
+Where={{ crate::sandbox::SANDBOX_CONFIG_DRIVE_MOUNT }}
+Type=iso9660
+Options=ro
+
+[Install]
+WantedBy=local-fs.target
+

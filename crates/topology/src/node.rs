@@ -37,7 +37,7 @@ pub struct Node {
     pub ztp: NodeZtp,
     #[serde(default, skip_serializing_if = "is_default")]
     pub ready_check: NodeReadyCheck,
-    pub vm: Option<NodeVm>,
+    pub vm: Option<Sandbox>,
     pub container: Option<NodeContainer>,
     pub unikernel: Option<NodeUnikernel>,
     pub environment_variables: Option<Vec<String>>,
@@ -78,7 +78,7 @@ pub struct NodeReadyCheck {
 /// `[nodes.vm]`: settings only a virtual machine takes.
 #[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct NodeVm {
+pub struct Sandbox {
     pub watchdog: Option<WatchdogAction>,
 }
 
@@ -117,7 +117,7 @@ pub struct NodeExpanded {
     pub interfaces: NodeInterfaces,
     pub ztp: NodeZtp,
     pub ready_check: NodeReadyCheck,
-    pub vm: Option<NodeVm>,
+    pub vm: Option<Sandbox>,
     pub container: Option<NodeContainer>,
     pub unikernel: Option<NodeUnikernel>,
     pub ipv4_address: Option<Ipv4Addr>,

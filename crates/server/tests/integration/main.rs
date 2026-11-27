@@ -10,7 +10,7 @@ mod helpers;
 mod image_management;
 mod lab_authorization;
 mod lab_lifecycle;
-mod node_vms;
+mod sandboxes;
 mod security;
 mod user_management;
 mod websocket;

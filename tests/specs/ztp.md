@@ -203,9 +203,9 @@ Cases 001 to 024 are each the whole config of one model, for a lab with IPv4 onl
 | 007 | Arista vEOS in a lab with IPv6 has its IPv6 address and default route | unit |
 | 008 | Cisco IOSv in a lab with IPv6 | unit |
 | 009 | Cisco IOL in a lab with IPv6 | unit |
-| 010 | Retired: SR Linux's config sets no address, its DHCP client takes the ones the node VM gives `eth0`; see `generated_config_020` and `node_vm_046` | — |
+| 010 | Retired: SR Linux's config sets no address, its DHCP client takes the ones the sandbox gives `eth0`; see `generated_config_020` and `sandbox_046` | — |
 | 011 | The configs of AOS-CX, ASAv, cEOS, IOSvL2, IOS XE, IOS XR, ISE, NX-OS, Cumulus Linux, FRR, Junos, RouterOS and PAN-OS in a lab with IPv6 have the node's IPv6 address and default route (no test yet) | unit |
-| 012 | A SONiC container's config has no management port or address: the node VM gives `eth0` its addresses | unit |
+| 012 | A SONiC container's config has no management port or address: the sandbox gives `eth0` its addresses | unit |
 | 013 | An OpenBSD node's `network-config` has no IPv6 address in a lab with IPv6 (no test yet) | unit |
 | 014 | A VM answers on the management address Sherpa recorded for it once it has booted (no test yet) | e2e |
 | 015 | Cisco FTDv in a lab with IPv6 has its IPv6 address, prefix length and gateway, set manually | unit |

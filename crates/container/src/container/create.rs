@@ -25,12 +25,12 @@ const DATA_INTERFACE_SCRIPT: &str = r#"ip link set "$1" promisc on && ip link se
 const DATA_INTERFACE_RETRIES: u32 = 3;
 /// The pause between data interface command attempts.
 const DATA_INTERFACE_RETRY_DELAY: Duration = Duration::from_secs(2);
-/// The network mode of a node VM's container: the VM's own network namespace.
-const NODE_VM_NETWORK_MODE: &str = "host";
-/// The address a node VM's container resolves its own hostname to.
-const NODE_VM_HOSTNAME_ADDRESS: &str = "127.0.1.1";
-/// Docker's restart policy of a node VM's container.
-const NODE_VM_RESTART_POLICY: &str = "unless-stopped";
+/// The network mode of a sandbox's container: the VM's own network namespace.
+const SANDBOX_NETWORK_MODE: &str = "host";
+/// The address a sandbox's container resolves its own hostname to.
+const SANDBOX_HOSTNAME_ADDRESS: &str = "127.0.1.1";
+/// Docker's restart policy of a sandbox's container.
+const SANDBOX_RESTART_POLICY: &str = "unless-stopped";
 /// Bytes in a MiB, the unit of a node's memory.
 const BYTES_PER_MIB: u64 = 1024 * 1024;
 /// Docker's CPU quota unit, `NanoCpus`, in billionths of a CPU.
@@ -215,17 +215,17 @@ fn create_body(spec: ContainerSpec) -> Result<ContainerCreateBody> {
     })
 }
 
-/// The `docker create` arguments of a node VM's container, its image and command last: the
+/// The `docker create` arguments of a sandbox's container, its image and command last: the
 /// settings `run_container` gives a container, in the VM's network namespace instead of on a
 /// Docker network, with the lab's name servers and domain, its hostname resolving to loopback,
 /// Docker restarting it unless it was stopped, and no image pull, as the VM's store has it.
 #[must_use]
-pub fn node_vm_create_args(spec: &ContainerSpec, dns: &Dns) -> Vec<String> {
+pub fn sandbox_create_args(spec: &ContainerSpec, dns: &Dns) -> Vec<String> {
     let mut args = vec![
         "--name".to_owned(),
         spec.name.clone(),
-        format!("--network={NODE_VM_NETWORK_MODE}"),
-        format!("--restart={NODE_VM_RESTART_POLICY}"),
+        format!("--network={SANDBOX_NETWORK_MODE}"),
+        format!("--restart={SANDBOX_RESTART_POLICY}"),
         "--pull=never".to_owned(),
         "--tty".to_owned(),
         "--interactive".to_owned(),
@@ -233,7 +233,7 @@ pub fn node_vm_create_args(spec: &ContainerSpec, dns: &Dns) -> Vec<String> {
     if let Some(hostname) = &spec.hostname {
         args.extend([
             format!("--hostname={hostname}"),
-            format!("--add-host={hostname}:{NODE_VM_HOSTNAME_ADDRESS}"),
+            format!("--add-host={hostname}:{SANDBOX_HOSTNAME_ADDRESS}"),
         ]);
     }
     if spec.privileged {
@@ -412,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn node_vm_044_a_node_vm_container_runs_in_the_vms_network_namespace_with_the_labs_dns() {
+    fn sandbox_044_a_sandbox_container_runs_in_the_vms_network_namespace_with_the_labs_dns() {
         let spec = ContainerSpec {
             name: "sonic1-abc12345".to_owned(),
             hostname: Some("sonic1".to_owned()),
@@ -440,7 +440,7 @@ mod tests {
             }],
         };
         assert_eq!(
-            node_vm_create_args(&spec, &dns),
+            sandbox_create_args(&spec, &dns),
             [
                 "--name",
                 "sonic1-abc12345",

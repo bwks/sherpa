@@ -32,7 +32,7 @@ mod tests {
     const LAB_ID: &str = "fecb1a12";
 
     #[test]
-    fn node_vm_037_a_node_vms_docker_disk_is_the_labs_and_a_docker_store_is_no_labs() {
+    fn sandbox_037_a_sandboxes_docker_disk_is_the_labs_and_a_docker_store_is_no_labs() {
         assert!(is_lab_volume("ceos1-fecb1a12-docker.qcow2", LAB_ID));
         assert!(!is_lab_volume("flatcar-docker-0123fecb1a12.qcow2", LAB_ID));
         assert!(!is_lab_volume(

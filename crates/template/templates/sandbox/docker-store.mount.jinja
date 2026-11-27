@@ -3,8 +3,8 @@ Description=Docker store
 Before=containerd.service docker.service
 
 [Mount]
-What=/dev/disk/by-label/{{ crate::node_vm::DOCKER_STORE_LABEL }}
-Where={{ crate::node_vm::DOCKER_DATA_DIR }}
+What=/dev/disk/by-label/{{ crate::sandbox::DOCKER_STORE_LABEL }}
+Where={{ crate::sandbox::DOCKER_DATA_DIR }}
 Type=ext4
 Options=noinit_itable
 

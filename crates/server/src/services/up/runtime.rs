@@ -1,4 +1,4 @@
-//! Phases 10 and 11: creating the lab's VM, node VM and unikernel domains.
+//! Phases 10 and 11: creating the lab's VM, sandbox and unikernel domains.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -12,7 +12,7 @@ use super::links::P2pContainerVeth;
 use super::readiness::container_spec;
 use crate::services::error::ServiceError;
 use crate::services::node_ops::{self, ContainerSettings};
-use crate::services::node_vm::{self, NodeVmCreate, NodeVmHost, StatusWatch};
+use crate::services::sandbox::{self, SandboxCreate, SandboxHost, StatusWatch};
 
 use shared::data::{self, StatusKind};
 
@@ -48,16 +48,16 @@ pub(super) async fn create_vms(
 /// is built, wait for all of them, and return the watch on each VM's status by node name
 /// (phase 11, its links attached with the VMs' as its link ends are taps).
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
-pub(super) async fn create_node_vms(
+pub(super) async fn create_sandboxes(
     build: &LabBuild<'_>,
-    nodes: &NodeVmNodes<'_>,
+    nodes: &SandboxNodes<'_>,
 ) -> Result<HashMap<String, StatusWatch>> {
     let progress = build.progress;
     let creates = nodes
         .container_nodes
         .iter()
-        .filter(|container| container.model_kind.runs_in_node_vm())
-        .map(|container| node_vm_create(build, nodes, container))
+        .filter(|container| container.model_kind.runs_in_sandbox())
+        .map(|container| sandbox_create(build, nodes, container))
         .collect::<Result<Vec<_>>>()?;
     if creates.is_empty() {
         return Ok(HashMap::new());
@@ -70,24 +70,24 @@ pub(super) async fn create_node_vms(
         .into_iter()
         .map(|create| {
             let host = nodes.host.clone();
-            task::spawn(async move { node_vm::create_node_vm(&host, create).await })
+            task::spawn(async move { sandbox::create_sandbox(&host, create).await })
         })
         .collect();
     let _ = progress.send_status(
-        format!("Creating {} node VMs in parallel", tasks.len()),
+        format!("Creating {} sandboxes in parallel", tasks.len()),
         StatusKind::Progress,
     );
-    let starts = join_all_tasks(tasks, "Node VM creation").await?;
+    let starts = join_all_tasks(tasks, "Sandbox creation").await?;
     let _ = progress.send_status(
-        "All node VMs created successfully".to_string(),
+        "All sandboxes created successfully".to_string(),
         StatusKind::Done,
     );
     Ok(names.into_iter().zip(starts).collect())
 }
 
-/// What the lab's node VMs are created from besides the build.
-pub(super) struct NodeVmNodes<'a> {
-    pub(super) host: NodeVmHost,
+/// What the lab's sandboxes are created from besides the build.
+pub(super) struct SandboxNodes<'a> {
+    pub(super) host: SandboxHost,
     pub(super) container_nodes: &'a [topology::NodeExpanded],
     pub(super) lab_node_data: &'a [data::LabNodeData],
     pub(super) container_settings: &'a HashMap<String, ContainerSettings>,
@@ -103,18 +103,18 @@ pub(super) struct NodeVmNodes<'a> {
 /// # Errors
 ///
 /// Fails when the node has no record, recorded resources, settings or management address.
-fn node_vm_create(
+fn sandbox_create(
     build: &LabBuild<'_>,
-    nodes: &NodeVmNodes<'_>,
+    nodes: &SandboxNodes<'_>,
     container: &topology::NodeExpanded,
-) -> Result<NodeVmCreate> {
+) -> Result<SandboxCreate> {
     let name = &container.name;
     let node = nodes
         .lab_node_data
         .iter()
         .find(|node| node.name == *name)
         .with_context(|| format!("Node '{name}' has no record"))?;
-    Ok(NodeVmCreate {
+    Ok(SandboxCreate {
         lab_id: build.lab_id.to_owned(),
         lab_dir: build.lab_dir.to_owned(),
         node_name: name.clone(),

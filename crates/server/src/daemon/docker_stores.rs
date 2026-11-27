@@ -1,5 +1,5 @@
-//! One lock per node VM Docker store, so the nodes of one image wait for the one VM that makes
-//! its store. See `docs/architecture/NODE_VM.md`.
+//! One lock per sandbox Docker store, so the nodes of one image wait for the one VM that makes
+//! its store. See `docs/architecture/SANDBOX.md`.
 
 use std::sync::Arc;
 

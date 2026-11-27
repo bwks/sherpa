@@ -36,11 +36,11 @@ use crate::auth::session;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::pidfile::{SHERPAD_LOG_FILE_PATH, open_log_file};
 use crate::daemon::state::AppState;
-use crate::konst::{SHERPA_CONFIG_FILE_PATH, SHERPA_NODE_VM_RUN_DIR};
+use crate::konst::{SHERPA_CONFIG_FILE_PATH, SHERPA_SANDBOX_RUN_DIR};
 use crate::services::console;
 use crate::services::lab_lifecycle::{self, Recovery};
 use crate::services::node_resources;
-use crate::services::node_vm;
+use crate::services::sandbox;
 use crate::services::scanner::run_scanner;
 use crate::tls::{CertificateManager, server_addresses};
 use shared::data::{Config, OtelConfig};
@@ -207,19 +207,19 @@ fn init_meter_provider(otel_config: &OtelConfig) -> Result<SdkMeterProvider> {
 }
 
 /// Clear what an earlier run of sherpad left on the host that nothing will finish, logging any
-/// failure: unfinished node VM Docker store builds, and consoles of stopped nodes still on TCP.
+/// failure: unfinished sandbox Docker store builds, and consoles of stopped nodes still on TCP.
 async fn remove_stale_host_state(state: &AppState) {
-    // Nothing builds a node VM Docker store yet: remove what builds sherpad stopped during left.
-    if let Err(error) = node_vm::remove_unfinished_store_builds(
+    // Nothing builds a sandbox Docker store yet: remove what builds sherpad stopped during left.
+    if let Err(error) = sandbox::remove_unfinished_store_builds(
         &state.qemu,
         &state.config.images_dir,
-        Path::new(SHERPA_NODE_VM_RUN_DIR),
+        Path::new(SHERPA_SANDBOX_RUN_DIR),
     )
     .await
     {
         tracing::warn!(
             error = %format!("{error:#}"),
-            "Cannot remove what unfinished node VM Docker store builds left"
+            "Cannot remove what unfinished sandbox Docker store builds left"
         );
     }
 

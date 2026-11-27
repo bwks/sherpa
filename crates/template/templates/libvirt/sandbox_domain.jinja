@@ -38,7 +38,7 @@
       <driver name='qemu' type='raw'/>
       <source file='{{ archive }}'/>
       <target dev='vdc' bus='virtio'/>
-      <serial>{{ crate::node_vm::NODE_VM_IMAGE_ARCHIVE_SERIAL }}</serial>
+      <serial>{{ crate::sandbox::SANDBOX_IMAGE_ARCHIVE_SERIAL }}</serial>
       <readonly/>
     </disk>
     {% endif %}
@@ -80,7 +80,7 @@
 
     <channel type='unix'>
       <source mode='bind' path='{{ status_socket }}'/>
-      <target type='virtio' name='{{ crate::node_vm::NODE_VM_STATUS_CHANNEL }}'/>
+      <target type='virtio' name='{{ crate::sandbox::SANDBOX_STATUS_CHANNEL }}'/>
     </channel>
 
     {% if let Some(socket) = serial_socket %}

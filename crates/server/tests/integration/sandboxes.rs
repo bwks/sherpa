@@ -23,13 +23,13 @@ use crate::lab_lifecycle::{
 
 /// The repo of the test image: Alpine with an entrypoint that sleeps whatever arguments follow,
 /// as a `sonic_linux` container gets `-c` and its start files as its arguments.
-const TEST_IMAGE_REPO: &str = "sherpa-node-vm-test";
+const TEST_IMAGE_REPO: &str = "sherpa-sandbox-test";
 
 /// The version of the test image that starts.
 const TEST_IMAGE_VERSION: &str = "1";
 
 /// A volume source that does not exist on the server.
-const MISSING_VOLUME_SOURCE: &str = "/nonexistent/sherpa-node-vm-test";
+const MISSING_VOLUME_SOURCE: &str = "/nonexistent/sherpa-sandbox-test";
 
 /// The Dockerfile of the test image.
 const TEST_IMAGE_DOCKERFILE: &str = r#"FROM alpine:3.22
@@ -40,7 +40,7 @@ ENTRYPOINT ["/bin/sh", "-c", "exec sleep 100000"]
 /// given is taken as its program.
 const BROKEN_IMAGE_VERSION: &str = "broken";
 
-/// How long a lab of node VMs may take to come up, which includes making a Docker store.
+/// How long a lab of sandboxes may take to come up, which includes making a Docker store.
 const UP_TIMEOUT: Duration = Duration::from_mins(15);
 
 /// How long down, resume, redeploy and destroy may take.
@@ -53,12 +53,12 @@ const SETTLE_TIMEOUT: Duration = Duration::from_secs(60);
 const CONSOLE_DIR: &str = "/opt/sherpa/run/console";
 
 /// The folder of the status sockets of the VMs that make Docker stores.
-const NODE_VM_RUN_DIR: &str = "/opt/sherpa/run/node_vm";
+const SANDBOX_RUN_DIR: &str = "/opt/sherpa/run/sandbox";
 
 /// Report the checks and the cleanup together, after removing the store status folder when it
 /// is empty, as one these tests made as root would refuse sherpad, which makes it again.
 fn finish(checks: Result<()>, cleanup: Result<()>) -> Result<()> {
-    let _ = fs::remove_dir(NODE_VM_RUN_DIR);
+    let _ = fs::remove_dir(SANDBOX_RUN_DIR);
     with_cleanup(checks, cleanup)
 }
 
@@ -323,8 +323,8 @@ async fn host_leftovers(server: &TestServer, lab_id: &str) -> Result<Vec<String>
 }
 
 #[tokio::test]
-#[ignore = "requires KVM, libvirt, Docker, the node VM base image and root"]
-async fn node_vm_067_a_node_vm_on_a_private_bridge_is_on_it_again_after_down_and_resume()
+#[ignore = "requires KVM, libvirt, Docker, the sandbox base image and root"]
+async fn sandbox_067_a_sandbox_on_a_private_bridge_is_on_it_again_after_down_and_resume()
 -> Result<()> {
     let (server, mut ws, token) = start().await?;
     let lab = lab_id("nb");
@@ -356,8 +356,8 @@ async fn node_vm_067_a_node_vm_on_a_private_bridge_is_on_it_again_after_down_and
 }
 
 #[tokio::test]
-#[ignore = "requires KVM, libvirt, Docker, the node VM base image and root"]
-async fn node_vm_025_a_redeploy_gives_the_node_a_new_disk_and_config_drive_and_attaches_its_links()
+#[ignore = "requires KVM, libvirt, Docker, the sandbox base image and root"]
+async fn sandbox_025_a_redeploy_gives_the_node_a_new_disk_and_config_drive_and_attaches_its_links()
 -> Result<()> {
     let (server, mut ws, token) = start().await?;
     let lab = lab_id("nr");
@@ -396,8 +396,8 @@ async fn node_vm_025_a_redeploy_gives_the_node_a_new_disk_and_config_drive_and_a
 }
 
 #[tokio::test]
-#[ignore = "requires KVM, libvirt, Docker, the node VM base image and root"]
-async fn node_vm_026_destroy_leaves_no_domain_volume_tap_or_console_folder_and_keeps_the_docker_store()
+#[ignore = "requires KVM, libvirt, Docker, the sandbox base image and root"]
+async fn sandbox_026_destroy_leaves_no_domain_volume_tap_or_console_folder_and_keeps_the_docker_store()
 -> Result<()> {
     let (server, mut ws, token) = start().await?;
     let lab = lab_id("nd");
@@ -408,7 +408,7 @@ async fn node_vm_026_destroy_leaves_no_domain_volume_tap_or_console_folder_and_k
         lab_up(&mut ws, &token, &lab, &manifest, UP_TIMEOUT).await?;
         ensure!(
             !libvirt_leftovers(&lab)?.is_empty() && !lab_interfaces(&lab).await?.is_empty(),
-            "up made no node VM resources to destroy"
+            "up made no sandbox resources to destroy"
         );
         ensure!(
             Path::new(&format!("{CONSOLE_DIR}/{lab}")).exists(),
@@ -434,8 +434,8 @@ async fn node_vm_026_destroy_leaves_no_domain_volume_tap_or_console_folder_and_k
 }
 
 #[tokio::test]
-#[ignore = "requires KVM, libvirt, Docker, the node VM base image and root"]
-async fn node_vm_027_an_up_that_fails_creating_node_vms_is_rolled_back_with_nothing_of_the_lab_left()
+#[ignore = "requires KVM, libvirt, Docker, the sandbox base image and root"]
+async fn sandbox_027_an_up_that_fails_creating_sandboxes_is_rolled_back_with_nothing_of_the_lab_left()
 -> Result<()> {
     let (server, mut ws, token) = start().await?;
     let lab = lab_id("nf");
@@ -463,9 +463,9 @@ async fn node_vm_027_an_up_that_fails_creating_node_vms_is_rolled_back_with_noth
         };
         ensure!(
             response.get("error").is_some()
-                && said("Creating 2 node VMs in parallel")
-                && !said("All node VMs created"),
-            "the up did not fail while creating its node VMs: {response} {statuses:?}"
+                && said("Creating 2 sandboxes in parallel")
+                && !said("All sandboxes created"),
+            "the up did not fail while creating its sandboxes: {response} {statuses:?}"
         );
         let libvirt = libvirt_leftovers(&lab)?;
         ensure!(
@@ -482,8 +482,8 @@ async fn node_vm_027_an_up_that_fails_creating_node_vms_is_rolled_back_with_noth
 }
 
 #[tokio::test]
-#[ignore = "requires KVM, libvirt, Docker, the node VM base image and root"]
-async fn node_vm_038_a_second_lab_with_the_same_image_boots_on_the_store_the_first_made()
+#[ignore = "requires KVM, libvirt, Docker, the sandbox base image and root"]
+async fn sandbox_038_a_second_lab_with_the_same_image_boots_on_the_store_the_first_made()
 -> Result<()> {
     let (server, mut ws, token) = start().await?;
     let first = lab_id("na");
@@ -530,8 +530,8 @@ async fn node_vm_038_a_second_lab_with_the_same_image_boots_on_the_store_the_fir
 }
 
 #[tokio::test]
-#[ignore = "requires KVM, libvirt, Docker, the node VM base image and root"]
-async fn node_vm_055_a_node_vm_whose_container_cannot_start_fails_with_the_reason_before_the_ready_timeout()
+#[ignore = "requires KVM, libvirt, Docker, the sandbox base image and root"]
+async fn sandbox_055_a_sandbox_whose_container_cannot_start_fails_with_the_reason_before_the_ready_timeout()
 -> Result<()> {
     let (server, mut ws, token) = start().await?;
     let lab = lab_id("ns");

@@ -1,4 +1,4 @@
-//! Creating a node VM: its config drive, its disks on the base image and its image's Docker
+//! Creating a sandbox: its config drive, its disks on the base image and its image's Docker
 //! store, and its domain, and watching for the status it reports once it has started its
 //! container.
 
@@ -16,7 +16,7 @@ use tracing::instrument;
 use container::ContainerSpec;
 use shared::data::{Dns, ModelKind, SherpaNetwork};
 use shared::konst::SHERPA_STORAGE_POOL_PATH;
-use template::{NodeVmDomainTemplate, NodeVmGuest, NodeVmManagement};
+use template::{SandboxDomainTemplate, SandboxGuest, SandboxManagement};
 
 use super::base::{base_image, base_kernel, kernel_cmdline, kernel_usr_hash, require_base_image};
 use super::guest::{
@@ -32,15 +32,15 @@ use crate::services::node_resources::domain_name;
 use crate::services::p2p_links::ContainerVeth;
 use crate::services::progress::ProgressSender;
 
-/// The memory a node VM has beyond its container's.
-pub(crate) const NODE_VM_MEMORY_OVERHEAD_MIB: u16 = 1024;
+/// The memory a sandbox has beyond its container's.
+pub(crate) const SANDBOX_MEMORY_OVERHEAD_MIB: u16 = 1024;
 /// The folder in the node's lab folder its config drive is staged in.
 const CONFIG_DRIVE_STAGE: &str = "config-drive";
 
-/// What node VMs are made with: the server's Docker and libvirt, the images folder, the Docker
+/// What sandboxes are made with: the server's Docker and libvirt, the images folder, the Docker
 /// store locks, and the operation's progress.
 #[derive(Clone)]
-pub(crate) struct NodeVmHost {
+pub(crate) struct SandboxHost {
     pub(crate) docker: Arc<Docker>,
     pub(crate) qemu: Arc<Qemu>,
     pub(crate) images_dir: String,
@@ -48,8 +48,8 @@ pub(crate) struct NodeVmHost {
     pub(crate) progress: ProgressSender,
 }
 
-/// What a node VM is created from.
-pub(crate) struct NodeVmCreate {
+/// What a sandbox is created from.
+pub(crate) struct SandboxCreate {
     pub(crate) lab_id: String,
     pub(crate) lab_dir: String,
     pub(crate) node_name: String,
@@ -65,23 +65,23 @@ pub(crate) struct NodeVmCreate {
     pub(crate) ipv6: Option<Ipv6Addr>,
 }
 
-/// A disk a node VM's domain boots with, made before the domain is defined.
+/// A disk a sandbox's domain boots with, made before the domain is defined.
 pub(super) enum DomainDisk {
     Overlay { base: String, path: String },
     Blank { path: String, size_gb: u16 },
 }
 
-/// The storage pool volume of node VM `device`'s disk, an overlay on the base image.
+/// The storage pool volume of sandbox `device`'s disk, an overlay on the base image.
 fn disk_name(device: &str) -> String {
     format!("{device}-hdd.qcow2")
 }
 
-/// The storage pool volume of node VM `device`'s Docker disk, an overlay on its image's store.
+/// The storage pool volume of sandbox `device`'s Docker disk, an overlay on its image's store.
 fn docker_disk_name(device: &str) -> String {
     format!("{device}-docker.qcow2")
 }
 
-/// The storage pool volume of node VM `device`'s config drive.
+/// The storage pool volume of sandbox `device`'s config drive.
 fn config_drive_name(device: &str) -> String {
     format!("{device}.iso")
 }
@@ -93,7 +93,10 @@ fn config_drive_name(device: &str) -> String {
 /// Fails when the base image is missing, the image's store cannot be made, the config drive
 /// cannot be written, or libvirt cannot create the disks or define and start the domain.
 #[instrument(skip(host, create), fields(lab_id = %create.lab_id, node_name = %create.node_name))]
-pub(crate) async fn create_node_vm(host: &NodeVmHost, create: NodeVmCreate) -> Result<StatusWatch> {
+pub(crate) async fn create_sandbox(
+    host: &SandboxHost,
+    create: SandboxCreate,
+) -> Result<StatusWatch> {
     require_base_image(&host.images_dir, &[create.model_kind])?;
     let usr_hash = kernel_usr_hash(&host.images_dir)?;
     let store = ensure_docker_store(host, &create.spec.image).await?;
@@ -101,7 +104,7 @@ pub(crate) async fn create_node_vm(host: &NodeVmHost, create: NodeVmCreate) -> R
     let nics = guest_nics(create.model_kind, &create.veths)?;
     let volumes = guest_volumes(&create.spec.volumes);
     let create_args = guest_create_args(&create.spec, volumes.mounts, &create.dns);
-    let ignition = NodeVmGuest {
+    let ignition = SandboxGuest {
         hostname: &create.node_name,
         container: &create.spec.name,
         interfaces: &nics.interfaces,
@@ -122,7 +125,7 @@ pub(crate) async fn create_node_vm(host: &NodeVmHost, create: NodeVmCreate) -> R
     )?;
     let status_socket =
         console::lab_socket(&create.lab_id, &format!("{}.status", create.node_index))?;
-    let domain = NodeVmDomainTemplate {
+    let domain = SandboxDomainTemplate {
         name: device.clone(),
         memory_mib: create.memory_mib,
         vcpus: create.vcpus,
@@ -132,7 +135,7 @@ pub(crate) async fn create_node_vm(host: &NodeVmHost, create: NodeVmCreate) -> R
         docker_disk: format!("{SHERPA_STORAGE_POOL_PATH}/{}", docker_disk_name(&device)),
         image_archive: None,
         config_drive,
-        management: Some(NodeVmManagement {
+        management: Some(SandboxManagement {
             network: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{}", create.lab_id),
             mac: nics.management_mac,
         }),
@@ -164,13 +167,13 @@ pub(crate) async fn create_node_vm(host: &NodeVmHost, create: NodeVmCreate) -> R
 #[instrument(skip_all, fields(name = %domain.name), level = "debug")]
 pub(super) async fn start_domain(
     qemu: &Arc<Qemu>,
-    domain: NodeVmDomainTemplate,
+    domain: SandboxDomainTemplate,
     disks: Vec<DomainDisk>,
     next_cmdline: String,
 ) -> Result<()> {
     let xml = domain
         .render()
-        .with_context(|| format!("Cannot render the domain of node VM {}", domain.name))?;
+        .with_context(|| format!("Cannot render the domain of sandbox {}", domain.name))?;
     let qemu = Arc::clone(qemu);
     task::spawn_blocking(move || {
         let conn = qemu.connect()?;
@@ -185,10 +188,10 @@ pub(super) async fn start_domain(
             }
         }
         libvirt::create_vm(&conn, &xml)?;
-        libvirt::set_node_vm_cmdline(&conn, &domain.name, &next_cmdline)
+        libvirt::set_sandbox_cmdline(&conn, &domain.name, &next_cmdline)
     })
     .await
-    .context("The node VM start panicked")?
+    .context("The sandbox start panicked")?
 }
 
 #[cfg(test)]
@@ -210,7 +213,7 @@ mod tests {
     use super::*;
     use std::fs;
 
-    use crate::konst::{SHERPA_CONSOLE_DIR, SHERPA_NODE_VM_RUN_DIR};
+    use crate::konst::{SHERPA_CONSOLE_DIR, SHERPA_SANDBOX_RUN_DIR};
     use crate::services::node_ops;
 
     /// A lab's management network `198.18.250.0/24`, removed when dropped.
@@ -264,16 +267,16 @@ mod tests {
         }
     }
 
-    /// A node VM of a `sonic_linux` node on `busybox:1.37` in lab `lab_id`, with the lab's
+    /// A sandbox of a `sonic_linux` node on `busybox:1.37` in lab `lab_id`, with the lab's
     /// management network and console folder, all removed when dropped.
-    struct TestNodeVm {
+    struct TestSandbox {
         qemu: Arc<Qemu>,
         lab_id: &'static str,
         lab_dir: TempDir,
         network: TestNetwork,
     }
 
-    impl TestNodeVm {
+    impl TestSandbox {
         fn new(lab_id: &'static str) -> Self {
             let qemu = Arc::new(Qemu::default());
             let network = TestNetwork::create(&qemu, lab_id);
@@ -291,7 +294,7 @@ mod tests {
         }
 
         async fn create(&self) -> Result<StatusWatch> {
-            let host = NodeVmHost {
+            let host = SandboxHost {
                 docker: Arc::new(Docker::connect_with_local_defaults().unwrap()),
                 qemu: Arc::clone(&self.qemu),
                 images_dir: SHERPA_IMAGES_PATH.to_owned(),
@@ -320,9 +323,9 @@ mod tests {
                     admin_down: false,
                 },
             );
-            create_node_vm(
+            create_sandbox(
                 &host,
-                NodeVmCreate {
+                SandboxCreate {
                     lab_id: self.lab_id.to_owned(),
                     lab_dir: self.lab_dir.path().to_str().unwrap().to_owned(),
                     node_name: "sonic1".to_owned(),
@@ -354,7 +357,7 @@ mod tests {
         }
     }
 
-    impl Drop for TestNodeVm {
+    impl Drop for TestSandbox {
         fn drop(&mut self) {
             let conn = self.qemu.connect().unwrap();
             let _ = libvirt::remove_domain(&conn, &self.domain());
@@ -363,14 +366,14 @@ mod tests {
             }
             let _ = console::remove_console_dir(Path::new(SHERPA_CONSOLE_DIR), self.lab_id);
             // Made by root here, the folder would refuse sherpad later; empty, it is made again.
-            let _ = fs::remove_dir(SHERPA_NODE_VM_RUN_DIR);
+            let _ = fs::remove_dir(SHERPA_SANDBOX_RUN_DIR);
         }
     }
 
     #[tokio::test]
-    #[ignore = "Requires libvirt, sherpa-pool, Docker with busybox:1.37 and the node VM base image; run as root"]
-    async fn node_vm_019_a_node_vm_boots_on_its_store_and_its_unit_starts_the_container() {
-        let vm = TestNodeVm::new("nvtest19");
+    #[ignore = "Requires libvirt, sherpa-pool, Docker with busybox:1.37 and the sandbox base image; run as root"]
+    async fn sandbox_019_a_sandbox_boots_on_its_store_and_its_unit_starts_the_container() {
+        let vm = TestSandbox::new("nvtest19");
         let mut watch = vm.create().await.unwrap();
         time::timeout(Duration::from_secs(300), watch.wait_started())
             .await
@@ -389,10 +392,10 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires libvirt, sherpa-pool, Docker with busybox:1.37 and the node VM base image; run as root"]
-    async fn node_vm_063_a_started_node_vm_is_defined_for_later_boots_without_ignition_whether_or_not_its_status_is_read()
+    #[ignore = "Requires libvirt, sherpa-pool, Docker with busybox:1.37 and the sandbox base image; run as root"]
+    async fn sandbox_063_a_started_sandbox_is_defined_for_later_boots_without_ignition_whether_or_not_its_status_is_read()
      {
-        let vm = TestNodeVm::new("nvtest63");
+        let vm = TestSandbox::new("nvtest63");
         let watch = vm.create().await.unwrap();
         drop(watch);
         assert!(vm.domain_xml(0).contains("flatcar.first_boot=detected"));

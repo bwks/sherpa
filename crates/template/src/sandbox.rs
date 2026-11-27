@@ -1,5 +1,5 @@
-//! The Ignition configs of node VMs, the Flatcar VMs that each run one container node, and of
-//! the VMs that make their Docker stores. See `docs/architecture/NODE_VM.md`.
+//! The Ignition configs of sandboxes, the Flatcar VMs that each run one container node, and of
+//! the VMs that make their Docker stores. See `docs/architecture/SANDBOX.md`.
 
 use std::net::IpAddr;
 
@@ -9,21 +9,21 @@ use askama::Template;
 use crate::ignition::{IgnitionConfig, IgnitionFile, IgnitionFileSystem, IgnitionUnit};
 
 /// The volume label Flatcar's Ignition looks for on a config drive.
-pub const NODE_VM_CONFIG_DRIVE_LABEL: &str = "config-2";
+pub const SANDBOX_CONFIG_DRIVE_LABEL: &str = "config-2";
 /// Where Ignition reads its config on a config drive.
-pub const NODE_VM_CONFIG_DRIVE_USER_DATA: &str = "openstack/latest/user_data";
-/// Where a node VM mounts its config drive.
-pub const NODE_VM_CONFIG_DRIVE_MOUNT: &str = "/media/config";
+pub const SANDBOX_CONFIG_DRIVE_USER_DATA: &str = "openstack/latest/user_data";
+/// Where a sandbox mounts its config drive.
+pub const SANDBOX_CONFIG_DRIVE_MOUNT: &str = "/media/config";
 /// The serial of the disk that holds the image archive a Docker store VM loads.
-pub const NODE_VM_IMAGE_ARCHIVE_SERIAL: &str = "sherpa-image";
-/// The name of the virtio-serial port a node VM reports its status on.
-pub const NODE_VM_STATUS_CHANNEL: &str = "org.sherpa.status";
-/// The interface name of a node VM's management NIC.
-pub const NODE_VM_MANAGEMENT_INTERFACE: &str = "eth0";
-/// The terminal of a node VM's serial console.
-pub const NODE_VM_CONSOLE_TTY: &str = "ttyS0";
+pub const SANDBOX_IMAGE_ARCHIVE_SERIAL: &str = "sherpa-image";
+/// The name of the virtio-serial port a sandbox reports its status on.
+pub const SANDBOX_STATUS_CHANNEL: &str = "org.sherpa.status";
+/// The interface name of a sandbox's management NIC.
+pub const SANDBOX_MANAGEMENT_INTERFACE: &str = "eth0";
+/// The terminal of a sandbox's serial console.
+pub const SANDBOX_CONSOLE_TTY: &str = "ttyS0";
 
-const CONTAINERD_CONFIG: &str = include_str!("../templates/node_vm/containerd.toml");
+const CONTAINERD_CONFIG: &str = include_str!("../templates/sandbox/containerd.toml");
 const CONTAINERD_CONFIG_PATH: &str = "/etc/containerd/config.toml";
 const DOCKER_DROP_IN_PATH: &str = "/etc/systemd/system/docker.service.d/10-sherpa.conf";
 const CONTAINERD_DROP_IN_PATH: &str = "/etc/systemd/system/containerd.service.d/10-sherpa.conf";
@@ -70,14 +70,14 @@ const MASKED_UNITS: [&str; 17] = [
     "systemd-hwdb-update.service",
 ];
 
-/// A network interface of a node VM: a NIC found by its MAC, or a veth made with it.
+/// A network interface of a sandbox: a NIC found by its MAC, or a veth made with it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuestInterface {
     pub mac: String,
     pub name: String,
 }
 
-/// An address of a node VM's management NIC with its prefix length and its gateway.
+/// An address of a sandbox's management NIC with its prefix length and its gateway.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuestAddress {
     pub address: IpAddr,
@@ -85,7 +85,7 @@ pub struct GuestAddress {
     pub gateway: IpAddr,
 }
 
-/// A writable volume of a node VM's container: its source on the config drive and its path in
+/// A writable volume of a sandbox's container: its source on the config drive and its path in
 /// the container.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WritableVolume {
@@ -93,9 +93,9 @@ pub struct WritableVolume {
     pub destination: String,
 }
 
-/// What a node VM's first boot sets up.
+/// What a sandbox's first boot sets up.
 #[derive(Debug)]
-pub struct NodeVmGuest<'a> {
+pub struct SandboxGuest<'a> {
     pub hostname: &'a str,
     pub container: &'a str,
     pub interfaces: &'a [GuestInterface],
@@ -108,7 +108,7 @@ pub struct NodeVmGuest<'a> {
 
 /// The script that creates the node's container on its first boot and starts it on every boot.
 #[derive(Debug, Template)]
-#[template(path = "node_vm/node.sh.jinja", ext = "txt")]
+#[template(path = "sandbox/node.sh.jinja", ext = "txt")]
 pub struct NodeScript<'a> {
     pub container: &'a str,
     pub create: &'a str,
@@ -117,97 +117,97 @@ pub struct NodeScript<'a> {
     pub created: &'a str,
 }
 
-/// Docker's drop-in in a node VM.
+/// Docker's drop-in in a sandbox.
 #[derive(Template)]
-#[template(path = "node_vm/docker.conf.jinja", ext = "txt")]
+#[template(path = "sandbox/docker.conf.jinja", ext = "txt")]
 struct DockerOptions;
 
-/// containerd's drop-in in a node VM.
+/// containerd's drop-in in a sandbox.
 #[derive(Template)]
-#[template(path = "node_vm/containerd.conf.jinja", ext = "txt")]
+#[template(path = "sandbox/containerd.conf.jinja", ext = "txt")]
 struct ContainerdOptions;
 
 /// The mount unit of the Docker store disk.
 #[derive(Template)]
-#[template(path = "node_vm/docker-store.mount.jinja", ext = "txt")]
+#[template(path = "sandbox/docker-store.mount.jinja", ext = "txt")]
 struct DockerStoreMount;
 
 /// The mount unit of the config drive.
 #[derive(Template)]
-#[template(path = "node_vm/config-drive.mount.jinja", ext = "txt")]
+#[template(path = "sandbox/config-drive.mount.jinja", ext = "txt")]
 struct ConfigDriveMount;
 
 /// The unit that names and addresses the NICs.
 #[derive(Template)]
-#[template(path = "node_vm/sherpa-links.service.jinja", ext = "txt")]
+#[template(path = "sandbox/sherpa-links.service.jinja", ext = "txt")]
 struct LinksUnit;
 
 /// The unit that starts the node's container.
 #[derive(Template)]
-#[template(path = "node_vm/sherpa-node.service.jinja", ext = "txt")]
+#[template(path = "sandbox/sherpa-node.service.jinja", ext = "txt")]
 struct NodeUnit;
 
 /// The unit of the network OS CLI on the serial console.
 #[derive(Template)]
-#[template(path = "node_vm/sherpa-console.service.jinja", ext = "txt")]
+#[template(path = "sandbox/sherpa-console.service.jinja", ext = "txt")]
 struct ConsoleUnit;
 
 /// The unit that loads the image archive into a Docker store.
 #[derive(Template)]
-#[template(path = "node_vm/sherpa-store.service.jinja", ext = "txt")]
+#[template(path = "sandbox/sherpa-store.service.jinja", ext = "txt")]
 struct StoreUnit;
 
 /// The script that names and addresses the NICs.
 #[derive(Template)]
-#[template(path = "node_vm/links.sh.jinja", ext = "txt")]
+#[template(path = "sandbox/links.sh.jinja", ext = "txt")]
 struct LinksScript;
 
 /// The script of the serial console.
 #[derive(Template)]
-#[template(path = "node_vm/console.sh.jinja", ext = "txt")]
+#[template(path = "sandbox/console.sh.jinja", ext = "txt")]
 struct ConsoleScript;
 
 /// The script that writes a status line to the status channel.
 #[derive(Template)]
-#[template(path = "node_vm/report.sh.jinja", ext = "txt")]
+#[template(path = "sandbox/report.sh.jinja", ext = "txt")]
 struct ReportScript;
 
 /// The script that loads the image archive into a Docker store.
 #[derive(Template)]
-#[template(path = "node_vm/store.sh.jinja", ext = "txt")]
+#[template(path = "sandbox/store.sh.jinja", ext = "txt")]
 struct StoreScript;
 
 /// The node's container name, for the scripts that run it.
 #[derive(Template)]
-#[template(path = "node_vm/container.jinja", ext = "txt")]
+#[template(path = "sandbox/container.jinja", ext = "txt")]
 struct ContainerFile<'a> {
     name: &'a str,
 }
 
 /// The NICs or veths the guest names or makes, one `mac name` line each.
 #[derive(Template)]
-#[template(path = "node_vm/interfaces.jinja", ext = "txt")]
+#[template(path = "sandbox/interfaces.jinja", ext = "txt")]
 struct InterfacesFile<'a> {
     interfaces: &'a [GuestInterface],
 }
 
 /// The management addresses, one `interface address/prefix gateway` line each.
 #[derive(Template)]
-#[template(path = "node_vm/management.jinja", ext = "txt")]
+#[template(path = "sandbox/management.jinja", ext = "txt")]
 struct ManagementFile<'a> {
     addresses: &'a [GuestAddress],
 }
 
 /// The writable volumes to copy into the container, one `source destination` line each.
 #[derive(Template)]
-#[template(path = "node_vm/writable.jinja", ext = "txt")]
+#[template(path = "sandbox/writable.jinja", ext = "txt")]
 struct WritableFile<'a> {
     volumes: &'a [WritableVolume],
 }
 
 /// The console's command, one argument per line.
 #[derive(Template)]
-#[template(path = "node_vm/console-command.jinja", ext = "txt")]
+#[template(path = "sandbox/console-command.jinja", ext = "txt")]
 struct ConsoleCommandFile<'a> {
     command: &'a [&'a str],
 }
@@ -215,13 +215,13 @@ struct ConsoleCommandFile<'a> {
 /// The container's `docker create` arguments, each followed by a NUL byte, which no argument
 /// holds.
 #[derive(Template)]
-#[template(path = "node_vm/create.jinja", ext = "txt")]
+#[template(path = "sandbox/create.jinja", ext = "txt")]
 struct CreateFile<'a> {
     args: &'a [String],
 }
 
 impl NodeScript<'static> {
-    /// The script as a node VM runs it, with the files sherpad gives the guest.
+    /// The script as a sandbox runs it, with the files sherpad gives the guest.
     #[must_use]
     pub fn guest() -> Self {
         Self {
@@ -257,8 +257,8 @@ impl IgnitionUnit {
     }
 }
 
-impl NodeVmGuest<'_> {
-    /// The Ignition config of the node VM's first boot, as JSON.
+impl SandboxGuest<'_> {
+    /// The Ignition config of the sandbox's first boot, as JSON.
     ///
     /// # Errors
     ///
@@ -334,7 +334,7 @@ impl NodeVmGuest<'_> {
         let mut units = docker_units()?;
         units.extend([
             IgnitionUnit::enabled(
-                &mount_unit(NODE_VM_CONFIG_DRIVE_MOUNT),
+                &mount_unit(SANDBOX_CONFIG_DRIVE_MOUNT),
                 &ConfigDriveMount.render()?,
             ),
             IgnitionUnit::enabled(LINKS_UNIT, &LinksUnit.render()?),
@@ -345,7 +345,7 @@ impl NodeVmGuest<'_> {
     }
 }
 
-/// The Ignition config of the VM that makes a Docker store, as JSON: Docker as in a node VM, on
+/// The Ignition config of the VM that makes a Docker store, as JSON: Docker as in a sandbox, on
 /// its empty second disk, which it formats, and the unit that loads the image archive into it.
 ///
 /// # Errors
@@ -400,7 +400,7 @@ fn docker_units() -> Result<Vec<IgnitionUnit>> {
         .map(|name| IgnitionUnit::masked(name))
         .collect();
     units.push(IgnitionUnit::masked(&format!(
-        "serial-getty@{NODE_VM_CONSOLE_TTY}.service"
+        "serial-getty@{SANDBOX_CONSOLE_TTY}.service"
     )));
     units.push(IgnitionUnit {
         name: "docker.service".to_owned(),

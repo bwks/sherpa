@@ -9,7 +9,7 @@ root="$(git rev-parse --show-toplevel)"
 "${root}/dev/check-doc-code-blocks.sh"
 "${root}/dev/check-comment-issue-numbers.sh"
 "${root}/dev/check-ebpf-unwrap.sh"
-"${root}/dev/check-node-vm-image.sh"
+"${root}/dev/check-sandbox-image.sh"
 if command -v rusty-lints >/dev/null; then
     rusty-lints -C "${root}" scan
 else

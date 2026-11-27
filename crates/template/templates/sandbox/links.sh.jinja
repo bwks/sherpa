@@ -1,5 +1,5 @@
 #!/bin/bash
-# Names this node VM's NICs as the network OS expects, each found by its MAC in the interfaces
+# Names this sandbox's NICs as the network OS expects, each found by its MAC in the interfaces
 # sherpad listed, gives the management NIC the node's addresses and default routes, and gives
 # each data interface on no link a veth with the interface's fixed MAC, whose peer stays down in
 # a namespace of its own, so the interface has no carrier.
@@ -12,7 +12,7 @@ WAIT_SECONDS=60
 UNWIRED_NETNS=sherpa-unwired
 
 fail() {
-  {{ crate::node_vm::REPORT_SCRIPT_PATH }} "failed: interfaces: $1" || true
+  {{ crate::sandbox::REPORT_SCRIPT_PATH }} "failed: interfaces: $1" || true
   exit 1
 }
 trap 'fail "line $LINENO: $BASH_COMMAND"' ERR
@@ -41,13 +41,13 @@ while read -r mac want; do
   ip link set dev "$dev" down
   ip addr flush dev "$dev"
   ip link set dev "$dev" name "sln$index"
-done < {{ crate::node_vm::INTERFACES_FILE }}
+done < {{ crate::sandbox::INTERFACES_FILE }}
 index=0
 while read -r mac want; do
   index=$((index + 1))
   ip link set dev "sln$index" name "$want"
   ip link set dev "$want" up
-done < {{ crate::node_vm::INTERFACES_FILE }}
+done < {{ crate::sandbox::INTERFACES_FILE }}
 
 while read -r dev address gateway; do
   case "$address" in
@@ -60,7 +60,7 @@ while read -r dev address gateway; do
       ip route replace default via "$gateway" dev "$dev"
       ;;
   esac
-done < {{ crate::node_vm::MANAGEMENT_FILE }}
+done < {{ crate::sandbox::MANAGEMENT_FILE }}
 
 if [ ! -e "/run/netns/$UNWIRED_NETNS" ]; then
   ip netns add "$UNWIRED_NETNS"
@@ -71,5 +71,5 @@ while read -r mac want; do
   ip link add "$want" address "$mac" mtu {{ shared::konst::MTU_JUMBO_NET }} type veth \
     peer name "unw$index" mtu {{ shared::konst::MTU_JUMBO_NET }} netns "$UNWIRED_NETNS"
   ip link set dev "$want" up
-done < {{ crate::node_vm::PLACEHOLDERS_FILE }}
+done < {{ crate::sandbox::PLACEHOLDERS_FILE }}
 

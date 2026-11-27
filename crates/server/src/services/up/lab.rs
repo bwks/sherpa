@@ -21,7 +21,7 @@ use super::networks::{
 use super::plan::{CheckedNodes, LabPlan, check_node_images, plan_lab};
 use super::readiness::{NodesReady, ReadinessInputs, wait_for_nodes, write_secret_mounts};
 use super::records::{NodeRecords, create_node_records, store_ssh_usernames};
-use super::runtime::{NodeVmNodes, create_node_vms, create_unikernels, create_vms};
+use super::runtime::{SandboxNodes, create_sandboxes, create_unikernels, create_vms};
 use super::services::{LabServices, ServiceInputs, record_ready_workers, start_lab_services};
 use super::ztp::{ConfigInputs, NodeConfigs, configure_nodes, start_boot_container};
 use crate::auth::context::AuthContext;
@@ -35,8 +35,8 @@ use crate::services::lab_definition;
 use crate::services::lab_lifecycle;
 use crate::services::lab_operations::{self, LabHold, LabOperation, Operation, StopReason};
 use crate::services::node_ops::{self, ContainerSettings};
-use crate::services::node_vm::{self, NodeVmHost, StatusWatch};
 use crate::services::progress::ProgressSender;
+use crate::services::sandbox::{self, SandboxHost, StatusWatch};
 use crate::services::ssh_config::{self, LabSshFiles};
 use crate::services::surreal_db;
 use crate::services::tailscale;
@@ -97,7 +97,7 @@ struct BuiltNodes {
     secret_mounts: HashMap<String, data::ContainerMount>,
     lab_clusters: Vec<LabCluster>,
     p2p: P2pAttachment,
-    node_vm_watches: HashMap<String, StatusWatch>,
+    sandbox_watches: HashMap<String, StatusWatch>,
 }
 
 /// What phases 12 and 13 leave for the response.
@@ -415,7 +415,7 @@ async fn plan_and_check(
         .iter()
         .map(data::NodeConfig::model_kind)
         .collect::<Result<Vec<_>>>()?;
-    node_vm::require_base_image(&build.config.images_dir, &model_kinds)?;
+    sandbox::require_base_image(&build.config.images_dir, &model_kinds)?;
     ensure_no_earlier_attempt(build.qemu_conn, build.lab_id, &plan.selected_images)?;
     check_existing_docker_management_network(build.docker_conn, build.lab_id, subnets).await?;
     Ok(plan)
@@ -718,10 +718,10 @@ impl LabUp<'_> {
         self.start_phase(data::UpPhase::VmCreation, "Creating VMs".to_string())?;
         let secret_mounts = write_secret_mounts(&self.build, self.node_secrets)?;
         create_vms(&self.build, domains).await?;
-        let node_vm_watches = create_node_vms(
+        let sandbox_watches = create_sandboxes(
             &self.build,
-            &NodeVmNodes {
-                host: NodeVmHost {
+            &SandboxNodes {
+                host: SandboxHost {
                     docker: Arc::clone(self.build.docker_conn),
                     qemu: Arc::clone(self.build.qemu),
                     images_dir: self.build.config.images_dir.clone(),
@@ -767,7 +767,7 @@ impl LabUp<'_> {
             secret_mounts,
             lab_clusters,
             p2p,
-            node_vm_watches,
+            sandbox_watches,
         })
     }
 
@@ -826,7 +826,7 @@ impl LabUp<'_> {
                 timeout: Duration::from_secs(ready_timeout_secs),
             },
             &mut built.p2p,
-            mem::take(&mut built.node_vm_watches),
+            mem::take(&mut built.sandbox_watches),
         )
         .await?;
         self.errors.extend(readiness_errors);

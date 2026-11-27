@@ -5,7 +5,7 @@ use shared::data::{
 };
 use topology::{
     Bridge, ContainerProvisioner, ContainerSecretFile, Link2, Manifest, ManifestImpairment, Node,
-    NodeContainer, NodeReadyCheck, NodeUnikernel, NodeVm, NodeZtp, Provisioner, ProvisionerFile,
+    NodeContainer, NodeReadyCheck, NodeUnikernel, NodeZtp, Provisioner, ProvisionerFile, Sandbox,
     SshProvisioner, StartupScript, SystemdUnit, TailscaleConfig, TalosCluster, TextFile,
     VolumeMount,
 };
@@ -79,7 +79,7 @@ fn full_node() -> Node {
             port: Some(2222),
             skip: Some(false),
         },
-        vm: Some(NodeVm {
+        vm: Some(Sandbox {
             watchdog: Some(WatchdogAction::InjectNmi),
         }),
         container: Some(NodeContainer {
@@ -290,7 +290,7 @@ fn assert_every_node_field_set(node: &Node) {
     assert!(method.is_some() && config.is_some());
     let NodeReadyCheck { port, skip } = ready_check;
     assert!(port.is_some() && skip.is_some());
-    let NodeVm { watchdog } = vm.as_ref().unwrap();
+    let Sandbox { watchdog } = vm.as_ref().unwrap();
     assert!(watchdog.is_some());
     let NodeContainer {
         user,
@@ -460,7 +460,7 @@ async fn empty_lists_and_groups_read_back_as_absent() {
     manifest.links = Some(Vec::new());
     manifest.talos_clusters = Some(Vec::new());
     manifest.nodes[1].environment_variables = Some(Vec::new());
-    manifest.nodes[1].vm = Some(NodeVm::default());
+    manifest.nodes[1].vm = Some(Sandbox::default());
     manifest.nodes[1].container = Some(NodeContainer::default());
     let (db, lab) = lab_with_nodes().await;
     store_lab_definition(&db, &lab_id(&lab), &manifest)

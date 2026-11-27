@@ -25,7 +25,7 @@ pub(super) async fn destroy_node(redeploy: &Redeploy<'_>) -> Result<()> {
 
     match (
         redeploy.node_image.kind(),
-        redeploy.target_node.model_kind.runs_in_node_vm(),
+        redeploy.target_node.model_kind.runs_in_sandbox(),
     ) {
         (data::NodeKind::VirtualMachine, _) | (data::NodeKind::Container, true) => {
             node_ops::destroy_vm_node(

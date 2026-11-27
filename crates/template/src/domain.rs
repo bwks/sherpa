@@ -127,27 +127,27 @@ pub struct UnikernelDomainTemplate {
     pub reserved_network: String,
 }
 
-/// A node VM's management NIC: a virtio NIC on the lab's management network.
+/// A sandbox's management NIC: a virtio NIC on the lab's management network.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NodeVmManagement {
+pub struct SandboxManagement {
     pub network: String,
     pub mac: String,
 }
 
-/// A node VM's data interface: a virtio NIC whose host side is the tap `tap`, on private bridge
+/// A sandbox's data interface: a virtio NIC whose host side is the tap `tap`, on private bridge
 /// `bridge` when it is a bridge member.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NodeVmNic {
+pub struct SandboxNic {
     pub tap: String,
     pub mac: String,
     pub bridge: Option<String>,
 }
 
-/// The domain of a node VM, or of a VM that makes a Docker store, which has an image archive
+/// The domain of a sandbox, or of a VM that makes a Docker store, which has an image archive
 /// and no NICs or console.
 #[derive(Debug, Template)]
-#[template(path = "libvirt/node_vm_domain.jinja", ext = "xml", escape = "xml")]
-pub struct NodeVmDomainTemplate {
+#[template(path = "libvirt/sandbox_domain.jinja", ext = "xml", escape = "xml")]
+pub struct SandboxDomainTemplate {
     pub name: String,
     pub memory_mib: u64,
     pub vcpus: u8,
@@ -157,8 +157,8 @@ pub struct NodeVmDomainTemplate {
     pub docker_disk: String,
     pub image_archive: Option<String>,
     pub config_drive: String,
-    pub management: Option<NodeVmManagement>,
-    pub nics: Vec<NodeVmNic>,
+    pub management: Option<SandboxManagement>,
+    pub nics: Vec<SandboxNic>,
     pub status_socket: String,
     pub serial_socket: Option<String>,
 }

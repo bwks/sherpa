@@ -4,8 +4,8 @@
 # systemd starts it again when the CLI exits.
 set -eu
 
-name=$(cat {{ crate::node_vm::CONTAINER_FILE }})
-mapfile -t command < {{ crate::node_vm::CONSOLE_COMMAND_FILE }}
+name=$(cat {{ crate::sandbox::CONTAINER_FILE }})
+mapfile -t command < {{ crate::sandbox::CONSOLE_COMMAND_FILE }}
 echo
 echo "$(hostname) console: press Enter to open the network OS CLI"
 read -r _

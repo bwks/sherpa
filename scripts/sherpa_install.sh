@@ -749,27 +749,27 @@ ensure_blank_disks() {
 # END blank disks
 
 ################################################################################
-# Node VM Image
+# Sandbox Image
 ################################################################################
 # This section is the same in sherpa_install.sh and sherpa_update.sh, between the BEGIN and END
 # lines.
-# BEGIN node VM image
+# BEGIN sandbox image
 
-# The Flatcar Container Linux release node VMs boot, FLATCAR_NODE_VM_VERSION in sherpad: its
+# The Flatcar Container Linux release sandboxes boot, FLATCAR_SANDBOX_VERSION in sherpad: its
 # OpenStack image, whose Ignition reads its config from a config drive, and its kernel, which
-# node VMs boot directly, each with the SHA-512 Flatcar publishes for it.
-NODE_VM_FLATCAR_VERSION="4757.2.4"
-NODE_VM_FLATCAR_URL="https://stable.release.flatcar-linux.net/amd64-usr/${NODE_VM_FLATCAR_VERSION}"
-NODE_VM_IMAGE_SHA512="372d6fd9511e2227e9947d7f514b04b1f0cd6fdb4513aeecc709251ceb936284faf41476acfb09172fdb1ea16c0788bc1348b7e7d5afc721acfdb85ee61c46b3"
-NODE_VM_KERNEL_SHA512="335c321a05a563d921d47b04c772963ab5b37d140d3156cb5b236285d6dbc0d950535134fc1c58f6b1952d0e38f9dadacbc8d2bc18985958a3b9d1da0b645d6d"
-NODE_VM_IMAGE_DIR="${SHERPA_IMAGES_DIR}/node_vm"
-NODE_VM_IMAGE="${NODE_VM_IMAGE_DIR}/flatcar-${NODE_VM_FLATCAR_VERSION}.qcow2"
-NODE_VM_KERNEL="${NODE_VM_IMAGE_DIR}/flatcar-${NODE_VM_FLATCAR_VERSION}.vmlinuz"
+# sandboxes boot directly, each with the SHA-512 Flatcar publishes for it.
+SANDBOX_FLATCAR_VERSION="4757.2.4"
+SANDBOX_FLATCAR_URL="https://stable.release.flatcar-linux.net/amd64-usr/${SANDBOX_FLATCAR_VERSION}"
+SANDBOX_IMAGE_SHA512="372d6fd9511e2227e9947d7f514b04b1f0cd6fdb4513aeecc709251ceb936284faf41476acfb09172fdb1ea16c0788bc1348b7e7d5afc721acfdb85ee61c46b3"
+SANDBOX_KERNEL_SHA512="335c321a05a563d921d47b04c772963ab5b37d140d3156cb5b236285d6dbc0d950535134fc1c58f6b1952d0e38f9dadacbc8d2bc18985958a3b9d1da0b645d6d"
+SANDBOX_IMAGE_DIR="${SHERPA_IMAGES_DIR}/sandbox"
+SANDBOX_IMAGE="${SANDBOX_IMAGE_DIR}/flatcar-${SANDBOX_FLATCAR_VERSION}.qcow2"
+SANDBOX_KERNEL="${SANDBOX_IMAGE_DIR}/flatcar-${SANDBOX_FLATCAR_VERSION}.vmlinuz"
 
 # Download file $1 of the Flatcar release into folder $4 as sherpa, check it against SHA-512 $2,
 # unpack it when it is bzip2-compressed, and install it at $3, mode 644. A file at $3 is never
 # replaced.
-fetch_node_vm_file() {
+fetch_sandbox_file() {
     local name="$1"
     local sha512="$2"
     local dest="$3"
@@ -778,8 +778,8 @@ fetch_node_vm_file() {
     if [ -e "${dest}" ]; then
         return 0
     fi
-    if ! as_sherpa curl -fsSL -o "${file}" "${NODE_VM_FLATCAR_URL}/${name}"; then
-        print_error "Could not download ${NODE_VM_FLATCAR_URL}/${name}"
+    if ! as_sherpa curl -fsSL -o "${file}" "${SANDBOX_FLATCAR_URL}/${name}"; then
+        print_error "Could not download ${SANDBOX_FLATCAR_URL}/${name}"
         return 1
     fi
     if [ "$(sha512sum "${file}" | awk '{ print $1 }')" != "${sha512}" ]; then
@@ -799,35 +799,35 @@ fetch_node_vm_file() {
     fi
 }
 
-# Download the node VM base image and its kernel when they are missing, as sherpa. A file
-# already there is never changed: node VM disks are overlays on the image, and node VMs boot
+# Download the sandbox base image and its kernel when they are missing, as sherpa. A file
+# already there is never changed: sandbox disks are overlays on the image, and sandboxes boot
 # the kernel.
-ensure_node_vm_image() {
-    print_info "Setting up the node VM base image (Flatcar ${NODE_VM_FLATCAR_VERSION})..."
-    if [ -e "${NODE_VM_IMAGE}" ] && [ -e "${NODE_VM_KERNEL}" ]; then
-        print_info "Node VM base image exists; left as it is"
+ensure_sandbox_image() {
+    print_info "Setting up the sandbox base image (Flatcar ${SANDBOX_FLATCAR_VERSION})..."
+    if [ -e "${SANDBOX_IMAGE}" ] && [ -e "${SANDBOX_KERNEL}" ]; then
+        print_info "Sandbox base image exists; left as it is"
         return 0
     fi
-    if [ ! -d "${NODE_VM_IMAGE_DIR}" ]; then
-        as_sherpa mkdir -m 755 "${NODE_VM_IMAGE_DIR}" || return 1
+    if [ ! -d "${SANDBOX_IMAGE_DIR}" ]; then
+        as_sherpa mkdir -m 755 "${SANDBOX_IMAGE_DIR}" || return 1
     fi
 
     local tmp status=0
-    tmp="$(as_sherpa mktemp -d "${NODE_VM_IMAGE_DIR}/.download.XXXXXX")" || return 1
-    if ! fetch_node_vm_file flatcar_production_openstack_image.img.bz2 "${NODE_VM_IMAGE_SHA512}" \
-        "${NODE_VM_IMAGE}" "${tmp}" \
-        || ! fetch_node_vm_file flatcar_production_image.vmlinuz "${NODE_VM_KERNEL_SHA512}" \
-            "${NODE_VM_KERNEL}" "${tmp}"; then
+    tmp="$(as_sherpa mktemp -d "${SANDBOX_IMAGE_DIR}/.download.XXXXXX")" || return 1
+    if ! fetch_sandbox_file flatcar_production_openstack_image.img.bz2 "${SANDBOX_IMAGE_SHA512}" \
+        "${SANDBOX_IMAGE}" "${tmp}" \
+        || ! fetch_sandbox_file flatcar_production_image.vmlinuz "${SANDBOX_KERNEL_SHA512}" \
+            "${SANDBOX_KERNEL}" "${tmp}"; then
         status=1
     fi
     as_sherpa rm -rf "${tmp}"
     if [ "${status}" -ne 0 ]; then
         return 1
     fi
-    print_success "Node VM base image ready: ${NODE_VM_IMAGE}"
+    print_success "Sandbox base image ready: ${SANDBOX_IMAGE}"
 }
 
-# END node VM image
+# END sandbox image
 
 ################################################################################
 # Router Image
@@ -1355,7 +1355,7 @@ main() {
     setup_sherpa_user
     setup_directories
     ensure_blank_disks
-    ensure_node_vm_image
+    ensure_sandbox_image
     pull_sherpa_router_image
     
     # Install binaries and systemd service

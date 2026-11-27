@@ -19,12 +19,12 @@ use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle::{self, query_runtimes};
 use crate::services::node_ops::{self, ContainerSettings, ContainerZtpResult, LabZtp};
 use crate::services::node_secrets::secrets_for_redeploy;
-use crate::services::node_vm::{self, NodeVmCreate, NodeVmHost};
 use crate::services::p2p_links::{
     ContainerNode, ContainerVeth, KernelHost, LabLinks, RecreatedEnd, container_veths,
     data_interface_indices, follow_started_links, node_bridge_interfaces, node_links,
     reattach_node_links, report_links,
 };
+use crate::services::sandbox::{self, SandboxCreate, SandboxHost};
 use crate::services::talos;
 use crate::services::vault;
 use crate::tls::lab_ca::NodeCertPaths;
@@ -139,11 +139,11 @@ pub(super) async fn redeploy_container(
     Ok(link_reports)
 }
 
-/// Configure a container that runs in a node VM again, create its VM with its link ends as
+/// Configure a container that runs in a sandbox again, create its VM with its link ends as
 /// taps, wait for the VM to start its container, re-attach its links, and wait for it as
 /// `redeploy_container` does (stages 4 and 5), returning its links' states.
 #[instrument(skip_all, fields(lab_id = %redeploy.lab_id, node_name = %redeploy.node_name), level = "debug")]
-pub(super) async fn redeploy_node_vm(
+pub(super) async fn redeploy_sandbox(
     redeploy: &mut Redeploy<'_>,
     cert_paths: &NodeCertPaths,
 ) -> Result<Vec<LinkReport>> {
@@ -155,15 +155,15 @@ pub(super) async fn redeploy_node_vm(
     );
     let db = &redeploy.state.db;
     let lab_links = LabLinks::load(db, &redeploy.lab_id, &redeploy.lab_record_id).await?;
-    let mut watch = node_vm::create_node_vm(
-        &NodeVmHost {
+    let mut watch = sandbox::create_sandbox(
+        &SandboxHost {
             docker: Arc::clone(&redeploy.state.docker),
             qemu: Arc::clone(&redeploy.state.qemu),
             images_dir: redeploy.state.config.images_dir.clone(),
             store_locks: redeploy.state.docker_store_locks.clone(),
             progress: redeploy.progress.clone(),
         },
-        NodeVmCreate {
+        SandboxCreate {
             lab_id: redeploy.lab_id.clone(),
             lab_dir: redeploy.lab_dir.clone(),
             node_name: node_name.clone(),
@@ -180,7 +180,7 @@ pub(super) async fn redeploy_node_vm(
                 .db_node
                 .cpu_count
                 .context("The node has no vCPUs recorded")?,
-            veths: node_vm_link_ends(redeploy, &lab_links).await?,
+            veths: sandbox_link_ends(redeploy, &lab_links).await?,
             mgmt_net: redeploy.mgmt_net.clone(),
             ipv4: redeploy.ipv4,
             ipv6: redeploy.target_node.ipv6_address,
@@ -192,7 +192,7 @@ pub(super) async fn redeploy_node_vm(
         .await
         .with_context(|| {
             format!(
-                "Node VM {node_name} did not start its container within {} seconds",
+                "Sandbox {node_name} did not start its container within {} seconds",
                 timeout.as_secs()
             )
         })??;
@@ -258,9 +258,9 @@ fn redeployed_container_spec(
     ))
 }
 
-/// The link ends of a node VM being redeployed: a tap for each of its data interfaces when it
+/// The link ends of a sandbox being redeployed: a tap for each of its data interfaces when it
 /// is on a link or bridge, else none.
-async fn node_vm_link_ends(
+async fn sandbox_link_ends(
     redeploy: &Redeploy<'_>,
     lab_links: &LabLinks,
 ) -> Result<Vec<ContainerVeth>> {

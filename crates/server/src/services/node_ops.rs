@@ -1239,7 +1239,7 @@ fn sonic_container_volume_ztp(
         mgmt_net,
         ..
     } = *ztp;
-    // The node VM addresses `eth0`, so the config has no management entries.
+    // The sandbox addresses `eth0`, so the config has no management entries.
     let config_db = match custom_ztp {
         Some(config) => config.to_owned(),
         None => SonicLinuxZtp {
@@ -4248,8 +4248,8 @@ pub fn container_ready_port(ready_check: &data::ReadyCheck) -> Option<u16> {
 fn model_ready_port(model_kind: data::ModelKind, ztp: data::Ztp, own_config: bool) -> Option<u16> {
     let sherpa_config = ztp == data::Ztp::Volume && !own_config;
     match model_kind.model() {
-        data::NodeModel::AristaEos if model_kind.runs_in_node_vm() && !sherpa_config => None,
-        data::NodeModel::NokiaSrlinux if model_kind.runs_in_node_vm() && own_config => None,
+        data::NodeModel::AristaEos if model_kind.runs_in_sandbox() && !sherpa_config => None,
+        data::NodeModel::NokiaSrlinux if model_kind.runs_in_sandbox() && own_config => None,
         _ => model_kind.ready_port(),
     }
 }

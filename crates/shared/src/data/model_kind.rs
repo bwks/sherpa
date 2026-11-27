@@ -324,7 +324,7 @@ impl ModelKind {
     /// Whether a container of this model runs in a Flatcar VM of its own, on that VM's Docker,
     /// instead of on the server's: the built-in models that need root-like privileges to boot.
     #[must_use]
-    pub fn runs_in_node_vm(self) -> bool {
+    pub fn runs_in_sandbox(self) -> bool {
         self.kind == NodeKind::Container
             && matches!(
                 self.model,
@@ -333,10 +333,10 @@ impl ModelKind {
     }
 
     /// The kind of node sherpad runs a node of this model and kind as: a container that runs in
-    /// a node VM runs as its VM's domain, every other node as its own kind.
+    /// a sandbox runs as its VM's domain, every other node as its own kind.
     #[must_use]
     pub fn runs_as(self) -> NodeKind {
-        if self.runs_in_node_vm() {
+        if self.runs_in_sandbox() {
             NodeKind::VirtualMachine
         } else {
             self.kind
@@ -353,7 +353,7 @@ impl ModelKind {
     }
 
     /// The TCP port that shows a node of this model and kind is ready when the manifest sets
-    /// none: SSH for a virtual machine and a container that runs in a node VM, the Talos API for
+    /// none: SSH for a virtual machine and a container that runs in a sandbox, the Talos API for
     /// Talos Linux, which has no SSH, and `None` for any other container or a unikernel, which is
     /// ready once it runs.
     #[must_use]
@@ -363,7 +363,7 @@ impl ModelKind {
                 NodeModel::TalosLinux => TALOS_API_PORT,
                 _ => SSH_PORT,
             }),
-            NodeKind::Container if self.runs_in_node_vm() => Some(SSH_PORT),
+            NodeKind::Container if self.runs_in_sandbox() => Some(SSH_PORT),
             NodeKind::Container | NodeKind::Unikernel => None,
         }
     }
@@ -419,23 +419,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn node_vm_017_the_three_models_containers_run_in_node_vms_and_run_as_vms() {
+    fn sandbox_017_the_three_models_containers_run_in_sandboxes_and_run_as_vms() {
         for model in [
             NodeModel::AristaEos,
             NodeModel::NokiaSrlinux,
             NodeModel::SonicLinux,
         ] {
             let container = ModelKind::new(model, Some(NodeKind::Container)).unwrap();
-            assert!(container.runs_in_node_vm(), "{model}");
+            assert!(container.runs_in_sandbox(), "{model}");
             assert_eq!(container.runs_as(), NodeKind::VirtualMachine, "{model}");
         }
         for model in [NodeModel::FrrLinux, NodeModel::CiscoIol, NodeModel::Generic] {
             let container = ModelKind::new(model, Some(NodeKind::Container)).unwrap();
-            assert!(!container.runs_in_node_vm(), "{model}");
+            assert!(!container.runs_in_sandbox(), "{model}");
             assert_eq!(container.runs_as(), NodeKind::Container, "{model}");
         }
         let veos = ModelKind::default_for(NodeModel::AristaEos);
-        assert!(!veos.runs_in_node_vm());
+        assert!(!veos.runs_in_sandbox());
         assert_eq!(veos.runs_as(), NodeKind::VirtualMachine);
     }
 

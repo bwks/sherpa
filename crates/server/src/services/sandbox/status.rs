@@ -1,4 +1,4 @@
-//! What a node VM, or a Docker store VM, reports on its status channel: a virtio-serial port
+//! What a sandbox, or a Docker store VM, reports on its status channel: a virtio-serial port
 //! whose host side is a socket QEMU binds. The guest writes one line, `started`, `loaded` or
 //! `failed: REASON`, and sherpad reads it. A guest's write waits until sherpad has connected.
 
@@ -30,7 +30,7 @@ const MAX_LOGGED_CHARS: usize = 80;
 /// The bytes read from the socket at a time.
 const READ_CHUNK_BYTES: usize = 1024;
 
-/// A status a node VM or a Docker store VM reports.
+/// A status a sandbox or a Docker store VM reports.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Status {
     Started,
@@ -65,16 +65,16 @@ impl Status {
     ///
     /// # Errors
     ///
-    /// Fails with [`ServiceError::NodeVmFailed`] when the VM reported a failure or another
+    /// Fails with [`ServiceError::SandboxFailed`] when the VM reported a failure or another
     /// status.
     pub(super) fn expect(self, expected: &Self, name: &str) -> Result<(), ServiceError> {
         match self {
             status if status == *expected => Ok(()),
-            Self::Failed(reason) => Err(ServiceError::NodeVmFailed {
+            Self::Failed(reason) => Err(ServiceError::SandboxFailed {
                 name: name.to_owned(),
                 reason,
             }),
-            other => Err(ServiceError::NodeVmFailed {
+            other => Err(ServiceError::SandboxFailed {
                 name: name.to_owned(),
                 reason: format!("it reported {other:?}, not {expected:?}"),
             }),
@@ -140,7 +140,7 @@ impl StatusWatch {
         }
     }
 
-    /// Whether the node VM has reported its container started, from what it has sent by now,
+    /// Whether the sandbox has reported its container started, from what it has sent by now,
     /// without waiting.
     ///
     /// # Errors
@@ -164,7 +164,7 @@ impl StatusWatch {
         }
     }
 
-    /// Wait until the node VM reports its container started.
+    /// Wait until the sandbox reports its container started.
     ///
     /// # Errors
     ///
@@ -177,7 +177,7 @@ impl StatusWatch {
     /// Add `bytes` read from the stream; none means the stream ended.
     fn receive(&mut self, bytes: &[u8]) -> Result<(), ServiceError> {
         if bytes.is_empty() {
-            return Err(ServiceError::NodeVmStatusClosed {
+            return Err(ServiceError::SandboxStatusClosed {
                 name: self.name.clone(),
             });
         }
@@ -216,7 +216,7 @@ impl StatusWatch {
             return Err(self.too_long());
         }
         if self.received > MAX_BYTES_BEFORE_STATUS {
-            return Err(ServiceError::NodeVmStatusFlood {
+            return Err(ServiceError::SandboxStatusFlood {
                 name: self.name.clone(),
                 limit: MAX_BYTES_BEFORE_STATUS,
             });
@@ -226,7 +226,7 @@ impl StatusWatch {
 
     /// The error of a status line longer than `MAX_LINE_BYTES`.
     fn too_long(&self) -> ServiceError {
-        ServiceError::NodeVmStatusTooLong {
+        ServiceError::SandboxStatusTooLong {
             name: self.name.clone(),
             limit: MAX_LINE_BYTES,
         }
@@ -259,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn node_vm_053_a_failure_the_vm_reports_fails_it_with_the_reason() {
+    fn sandbox_053_a_failure_the_vm_reports_fails_it_with_the_reason() {
         assert_eq!(Status::parse("started\n"), Some(Status::Started));
         assert_eq!(Status::parse("loaded"), Some(Status::Loaded));
         assert_eq!(
@@ -275,13 +275,13 @@ mod tests {
             .unwrap_err();
         assert!(matches!(
             &failed,
-            ServiceError::NodeVmFailed { reason, .. } if reason == "cannot load the image: short read"
+            ServiceError::SandboxFailed { reason, .. } if reason == "cannot load the image: short read"
         ));
         assert!(Status::Loaded.expect(&Status::Started, "c1-lab").is_err());
     }
 
     #[tokio::test]
-    async fn node_vm_060_a_status_line_longer_than_the_limit_fails_the_vm_before_it_is_read_whole()
+    async fn sandbox_060_a_status_line_longer_than_the_limit_fails_the_vm_before_it_is_read_whole()
     {
         let (mut watch, mut guest) = pair();
         let writer = tokio::spawn(async move {
@@ -292,7 +292,7 @@ mod tests {
         assert!(
             matches!(
                 error.downcast_ref::<ServiceError>(),
-                Some(ServiceError::NodeVmStatusTooLong { limit: 4096, .. })
+                Some(ServiceError::SandboxStatusTooLong { limit: 4096, .. })
             ),
             "{error:#}"
         );
@@ -302,7 +302,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn node_vm_061_lines_that_are_no_status_beyond_the_limit_fail_the_vm() {
+    async fn sandbox_061_lines_that_are_no_status_beyond_the_limit_fail_the_vm() {
         let (mut watch, mut guest) = pair();
         let writer = tokio::spawn(async move {
             let lines = b"junk\n".repeat(100_000);
@@ -312,7 +312,7 @@ mod tests {
         assert!(
             matches!(
                 error.downcast_ref::<ServiceError>(),
-                Some(ServiceError::NodeVmStatusFlood { .. })
+                Some(ServiceError::SandboxStatusFlood { .. })
             ),
             "{error:#}"
         );
@@ -321,7 +321,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn node_vm_062_a_failure_reason_has_no_control_characters_and_is_capped() {
+    async fn sandbox_062_a_failure_reason_has_no_control_characters_and_is_capped() {
         let (mut watch, mut guest) = pair();
         let reason = format!("bad\x1b[31m\x07 {}", "y".repeat(2000));
         guest
@@ -338,7 +338,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn node_vm_064_up_reads_a_node_vms_status_as_it_polls_with_no_task_of_its_own() {
+    async fn sandbox_064_up_reads_a_sandboxes_status_as_it_polls_with_no_task_of_its_own() {
         let (mut watch, mut guest) = pair();
         assert!(!watch.started().unwrap());
         guest.write_all(b"started\n").await.unwrap();
@@ -358,7 +358,7 @@ mod tests {
         assert!(
             matches!(
                 error.downcast_ref::<ServiceError>(),
-                Some(ServiceError::NodeVmStatusClosed { .. })
+                Some(ServiceError::SandboxStatusClosed { .. })
             ),
             "{error:#}"
         );

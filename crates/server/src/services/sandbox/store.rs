@@ -1,5 +1,5 @@
-//! The Docker store of an image for node VMs: a disk that holds Docker's data with the image
-//! loaded, which each node VM of the image boots an overlay of. A Flatcar VM of its own makes
+//! The Docker store of an image for sandboxes: a disk that holds Docker's data with the image
+//! loaded, which each sandbox of the image boots an overlay of. A Flatcar VM of its own makes
 //! it once per image, loading the image's archive from a disk of its own.
 
 use std::fs;
@@ -19,14 +19,14 @@ use tracing::instrument;
 
 use shared::data::StatusKind;
 use shared::konst::SHERPA_STORAGE_POOL_PATH;
-use template::{NodeVmDomainTemplate, store_vm_ignition_json};
+use template::{SandboxDomainTemplate, store_vm_ignition_json};
 
-use super::base::{NODE_VM_IMAGE_DIR, base_image, base_kernel, kernel_cmdline, kernel_usr_hash};
-use super::create::{DomainDisk, NodeVmHost, start_domain};
+use super::base::{SANDBOX_IMAGE_DIR, base_image, base_kernel, kernel_cmdline, kernel_usr_hash};
+use super::create::{DomainDisk, SandboxHost, start_domain};
 use super::guest::write_config_drive;
 use super::status::{Status, StatusWatch};
 use crate::daemon::storage::restrict_dir;
-use crate::konst::{CONSOLE_GROUP, CONSOLE_LAB_DIR_MODE, SHERPA_NODE_VM_RUN_DIR};
+use crate::konst::{CONSOLE_GROUP, CONSOLE_LAB_DIR_MODE, SHERPA_SANDBOX_RUN_DIR};
 
 /// The size of a Docker store: the image, and what each node of it writes.
 const STORE_DISK_GB: u16 = 32;
@@ -102,13 +102,13 @@ impl Store {
     /// The folder in `images_dir` the VM's config drive is staged in.
     fn vm_stage(&self, images_dir: &str) -> PathBuf {
         Path::new(images_dir)
-            .join(NODE_VM_IMAGE_DIR)
+            .join(SANDBOX_IMAGE_DIR)
             .join(format!(".{}", self.vm()))
     }
 
     /// The VM's status socket.
     fn status_socket(&self) -> String {
-        format!("{SHERPA_NODE_VM_RUN_DIR}/store-{}.status", self.id)
+        format!("{SHERPA_SANDBOX_RUN_DIR}/store-{}.status", self.id)
     }
 }
 
@@ -132,7 +132,7 @@ fn pool_path(volume: &str) -> String {
 ///
 /// Fails when the server's Docker does not have the image, or the store cannot be made.
 #[instrument(skip(host), level = "debug")]
-pub(super) async fn ensure_docker_store(host: &NodeVmHost, image: &str) -> Result<String> {
+pub(super) async fn ensure_docker_store(host: &SandboxHost, image: &str) -> Result<String> {
     let id = host
         .docker
         .inspect_image(image)
@@ -147,7 +147,7 @@ pub(super) async fn ensure_docker_store(host: &NodeVmHost, image: &str) -> Resul
         guard
     } else {
         let _ = host.progress.send_status(
-            format!("Waiting for the node VM Docker store of image {image} to be made"),
+            format!("Waiting for the sandbox Docker store of image {image} to be made"),
             StatusKind::Waiting,
         );
         lock.lock().await
@@ -155,10 +155,10 @@ pub(super) async fn ensure_docker_store(host: &NodeVmHost, image: &str) -> Resul
     if Path::new(&path).is_file() {
         return Ok(path);
     }
-    tracing::info!(%image, store = %store.volume(), "Making the node VM Docker store of the image");
+    tracing::info!(%image, store = %store.volume(), "Making the sandbox Docker store of the image");
     let _ = host.progress.send_status(
         format!(
-            "Making the node VM Docker store of image {image}: a VM loads the image, which takes \
+            "Making the sandbox Docker store of image {image}: a VM loads the image, which takes \
              minutes, once per image"
         ),
         StatusKind::Progress,
@@ -171,7 +171,7 @@ pub(super) async fn ensure_docker_store(host: &NodeVmHost, image: &str) -> Resul
     let partial = pool_path(&store.partial());
     fs::rename(&partial, &path).with_context(|| format!("Cannot rename {partial} to {path}"))?;
     let _ = host.progress.send_status(
-        format!("Made the node VM Docker store of image {image}"),
+        format!("Made the sandbox Docker store of image {image}"),
         StatusKind::Done,
     );
     Ok(path)
@@ -179,10 +179,10 @@ pub(super) async fn ensure_docker_store(host: &NodeVmHost, image: &str) -> Resul
 
 /// Make `store` of image `image`: write the image's archive, boot a Flatcar VM that loads it
 /// into an empty disk and powers off, and wait until it has.
-async fn make_store(host: &NodeVmHost, image: &str, store: &Store) -> Result<()> {
+async fn make_store(host: &SandboxHost, image: &str, store: &Store) -> Result<()> {
     remove_store_vm(host, store, true).await?;
     restrict_dir(
-        Path::new(SHERPA_NODE_VM_RUN_DIR),
+        Path::new(SHERPA_SANDBOX_RUN_DIR),
         CONSOLE_LAB_DIR_MODE,
         Some(CONSOLE_GROUP),
     )?;
@@ -196,7 +196,7 @@ async fn make_store(host: &NodeVmHost, image: &str, store: &Store) -> Result<()>
     )?;
     let status_socket = store.status_socket();
     let usr_hash = kernel_usr_hash(&host.images_dir)?;
-    let domain = NodeVmDomainTemplate {
+    let domain = SandboxDomainTemplate {
         name: store.vm(),
         memory_mib: STORE_VM_MEMORY_MIB,
         vcpus: STORE_VM_VCPUS,
@@ -248,7 +248,7 @@ async fn make_store(host: &NodeVmHost, image: &str, store: &Store) -> Result<()>
 /// # Errors
 ///
 /// Fails when Docker cannot export the image or the archive cannot be written.
-async fn write_image_archive(host: &NodeVmHost, image: &str, path: &str) -> Result<()> {
+async fn write_image_archive(host: &SandboxHost, image: &str, path: &str) -> Result<()> {
     let mut file = File::create(path)
         .await
         .with_context(|| format!("Cannot create {path}"))?;
@@ -274,7 +274,7 @@ async fn write_image_archive(host: &NodeVmHost, image: &str, path: &str) -> Resu
 
 /// Remove the VM that makes `store`, its disk, config drive and image archive, and with
 /// `delete_partial` the store's partial volume, where they are.
-async fn remove_store_vm(host: &NodeVmHost, store: &Store, delete_partial: bool) -> Result<()> {
+async fn remove_store_vm(host: &SandboxHost, store: &Store, delete_partial: bool) -> Result<()> {
     let qemu = Arc::clone(&host.qemu);
     let vm = store.vm();
     let mut volumes = vec![store.vm_disk(), store.vm_config_drive(), store.archive()];
@@ -330,7 +330,7 @@ pub(crate) async fn remove_unfinished_store_builds(
     .context("The Docker store build sweep panicked")??;
     let mut files = removed;
     for dir in [
-        Path::new(images_dir).join(NODE_VM_IMAGE_DIR),
+        Path::new(images_dir).join(SANDBOX_IMAGE_DIR),
         run_dir.to_owned(),
     ] {
         files.extend(remove_build_files(&dir)?);
@@ -338,7 +338,7 @@ pub(crate) async fn remove_unfinished_store_builds(
     if !files.is_empty() {
         tracing::warn!(
             ?files,
-            "Removed what unfinished node VM Docker store builds left"
+            "Removed what unfinished sandbox Docker store builds left"
         );
     }
     Ok(())
@@ -382,7 +382,7 @@ mod tests {
     const TEST_ID: &str = "sha256:5ee75ee75ee75ee70000000000000000";
 
     #[test]
-    fn node_vm_030_a_store_is_named_by_the_images_id() {
+    fn sandbox_030_a_store_is_named_by_the_images_id() {
         let store = Store::of("sha256:0123456789abcdef0123456789abcdef").unwrap();
         assert_eq!(store.volume(), "flatcar-docker-0123456789abcdef.qcow2");
         assert_eq!(store.vm(), "sherpa-flatcar-docker-0123456789abcdef");
@@ -392,7 +392,7 @@ mod tests {
     }
 
     #[test]
-    fn node_vm_065_the_files_a_store_build_makes_are_its_own_and_a_store_is_not() {
+    fn sandbox_065_the_files_a_store_build_makes_are_its_own_and_a_store_is_not() {
         let store = Store::of(TEST_ID).unwrap();
         for volume in [
             store.vm_disk(),
@@ -412,13 +412,13 @@ mod tests {
         }
         assert_eq!(
             store.status_socket(),
-            "/opt/sherpa/run/node_vm/store-5ee75ee75ee75ee7.status"
+            "/opt/sherpa/run/sandbox/store-5ee75ee75ee75ee7.status"
         );
     }
 
     #[tokio::test]
     #[ignore = "Requires libvirt and sherpa-pool, and no store being made; run as root"]
-    async fn node_vm_066_sherpad_removes_what_an_unfinished_store_build_left_and_keeps_stores() {
+    async fn sandbox_066_sherpad_removes_what_an_unfinished_store_build_left_and_keeps_stores() {
         let qemu = Arc::new(Qemu::default());
         let conn = qemu.connect().unwrap();
         let store = Store::of(TEST_ID).unwrap();

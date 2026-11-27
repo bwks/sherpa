@@ -1,4 +1,4 @@
-# Node VMs
+# Sandboxes
 
 The container models that need root-like privileges to boot, `arista_ceos` (`arista_eos`
 container), `nokia_srlinux` and the `sonic_linux` container, each run in a Flatcar Container
@@ -7,7 +7,7 @@ the settings a container on the server gets, in the VM's network namespace, so t
 the VM's NICs as its own interfaces. A privileged container that escapes reaches that VM's
 kernel, not the server's.
 
-`ModelKind::runs_in_node_vm` (`crates/shared/src/data/model_kind.rs`) is the one list of these
+`ModelKind::runs_in_sandbox` (`crates/shared/src/data/model_kind.rs`) is the one list of these
 models; `ModelKind::runs_as` is the kind sherpad handles such a node as, a VM. Every other
 container model runs on the server's Docker.
 
@@ -21,9 +21,9 @@ flowchart LR
   subgraph host[Sherpa server]
     S[sherpad] -->|libvirt: domain, overlays, config drive| L[libvirtd]
     D[(server Docker: node image)] -->|docker save, once per image| ST[(flatcar-docker-ID.qcow2, the image's Docker store)]
-    B[(node_vm/flatcar-VERSION.qcow2, read-only base)] --> O[(NODE-LAB-hdd.qcow2 overlay)]
+    B[(sandbox/flatcar-VERSION.qcow2, read-only base)] --> O[(NODE-LAB-hdd.qcow2 overlay)]
     ST --> OD[(NODE-LAB-docker.qcow2 overlay)]
-    K[(node_vm/flatcar-VERSION.vmlinuz)] -->|direct kernel boot| V
+    K[(sandbox/flatcar-VERSION.vmlinuz)] -->|direct kernel boot| V
     T1[tap tpaN-LAB] <-->|eBPF redirect, netem| T2[tap of the peer node]
     M[brm-LAB bridge, lab management network]
     SOCK[/console folder: NODE-INDEX.serial, NODE-INDEX.status/]
@@ -47,17 +47,17 @@ flowchart LR
 
 - Flatcar stable, the OpenStack image (`flatcar_production_openstack_image.img.bz2`), whose
   Ignition reads its config from a config drive, and its kernel,
-  `flatcar_production_image.vmlinuz`, which node VMs boot directly.
-- The release is `FLATCAR_NODE_VM_VERSION` in `crates/server/src/services/node_vm/base.rs`, and
-  `NODE_VM_FLATCAR_VERSION` with the SHA-512s Flatcar publishes in the "node VM image" section of
-  `scripts/sherpa_install.sh` and `scripts/sherpa_update.sh`. `dev/check-node-vm-image.sh` fails
+  `flatcar_production_image.vmlinuz`, which sandboxes boot directly.
+- The release is `FLATCAR_SANDBOX_VERSION` in `crates/server/src/services/sandbox/base.rs`, and
+  `SANDBOX_FLATCAR_VERSION` with the SHA-512s Flatcar publishes in the "sandbox image" section of
+  `scripts/sherpa_install.sh` and `scripts/sherpa_update.sh`. `dev/check-sandbox-image.sh` fails
   when the two scripts' sections differ or their version is not sherpad's.
-- `ensure_node_vm_image` downloads both files as `sherpa`, checks each against its SHA-512, and
-  puts them at `/opt/sherpa/images/node_vm/flatcar-VERSION.qcow2` and `flatcar-VERSION.vmlinuz`,
+- `ensure_sandbox_image` downloads both files as `sherpa`, checks each against its SHA-512, and
+  puts them at `/opt/sherpa/images/sandbox/flatcar-VERSION.qcow2` and `flatcar-VERSION.vmlinuz`,
   mode `0644`. A file already there is never changed. The update installs `bzip2` when
   `bunzip2` is missing.
-- `up` and `redeploy` refuse a lab with a node VM before creating anything when either file is
-  missing (`ServiceError::NodeVmBaseImageMissing`).
+- `up` and `redeploy` refuse a lab with a sandbox before creating anything when either file is
+  missing (`ServiceError::SandboxBaseImageMissing`).
 
 ## Boot
 
@@ -72,7 +72,7 @@ Flatcar's GRUB builds (`base::kernel_cmdline`):
   node's overlay.
 - `flatcar.first_boot=detected` on the first boot only, so Ignition runs once. Right after it has
   started the domain, in the same libvirt call as the start (`create::start_domain`), sherpad
-  defines it again without it (`libvirt::set_node_vm_cmdline`); the running VM keeps the command
+  defines it again without it (`libvirt::set_sandbox_cmdline`); the running VM keeps the command
   line it booted with. Nothing redefines a domain later, so a teardown that removes it at any
   point is final.
 
@@ -93,10 +93,10 @@ container's layer, on the VM's Docker disk, across down and resume.
 
 ## First boot
 
-Ignition's JSON is generated at run time (`template::NodeVmGuest::ignition_json`). Its units,
-drop-ins, scripts and guest files are Askama templates in `crates/template/templates/node_vm/`,
+Ignition's JSON is generated at run time (`template::SandboxGuest::ignition_json`). Its units,
+drop-ins, scripts and guest files are Askama templates in `crates/template/templates/sandbox/`,
 which take their paths, labels, port names and MTU from the constants in
-`crates/template/src/node_vm.rs`. It sets:
+`crates/template/src/sandbox.rs`. It sets:
 
 - Updates and reboots off (`IgnitionFile::disable_updates`, `update-engine` and `locksmithd`
   masked); no login (no users, `sshd` and its sockets and the serial getty masked); none of the
@@ -111,7 +111,7 @@ which take their paths, labels, port names and MTU from the constants in
   --iptables=false --ip6tables=false`), and containerd without the CRI plugins and NRI
   (`containerd.toml`), its data on the Docker disk (see Docker stores).
 - The units below, the container's `docker create` arguments (`/etc/sherpa/create`, separated
-  by NUL bytes, from `container::node_vm_create_args`), the writable volumes to copy into it
+  by NUL bytes, from `container::sandbox_create_args`), the writable volumes to copy into it
   (`/etc/sherpa/writable`), the NICs (`/etc/sherpa/interfaces`, `/etc/sherpa/placeholders`), the
   management addresses (`/etc/sherpa/management`) and the console command
   (`/etc/sherpa/console`).
@@ -130,32 +130,32 @@ VM has the image in its store.
 ## Status
 
 Each VM has a virtio-serial port, `org.sherpa.status`, whose host side is a socket QEMU binds:
-`NODE_INDEX.status` in the lab's console folder for a node VM, and `store-ID.status` in
-`/opt/sherpa/run/node_vm` (`SHERPA_NODE_VM_RUN_DIR`, `sherpa:kvm`, mode `2770`) for a Docker
+`NODE_INDEX.status` in the lab's console folder for a sandbox, and `store-ID.status` in
+`/opt/sherpa/run/sandbox` (`SHERPA_SANDBOX_RUN_DIR`, `sherpa:kvm`, mode `2770`) for a Docker
 store VM, which belongs to no lab. `report.sh` writes one line to it: `started`, `loaded` or `failed: REASON`, newlines
 flattened. A guest's write waits until a reader is connected, for up to 60 s.
 
 sherpad connects as soon as it has started the domain (`StatusWatch::connect`) and reads up to
 the first status (`StatusWatch::next`). `failed: REASON` fails the node with that reason
-(`ServiceError::NodeVmFailed`): each step of `links.sh`, `node.sh` and `store.sh` that fails
+(`ServiceError::SandboxFailed`): each step of `links.sh`, `node.sh` and `store.sh` that fails
 reports, with Docker's or the command's own message. A VM that stops before it reports fails
-with `ServiceError::NodeVmStatusClosed`. On later boots, after down and resume, nobody reads the
+with `ServiceError::SandboxStatusClosed`. On later boots, after down and resume, nobody reads the
 channel, and the report gives up.
 
 The channel is the guest's, and a privileged container can write to it, so sherpad reads it as
 untrusted input:
 
-- A line longer than 4 KiB fails the node (`ServiceError::NodeVmStatusTooLong`) once that much
+- A line longer than 4 KiB fails the node (`ServiceError::SandboxStatusTooLong`) once that much
   has arrived without a newline; more than 64 KiB without a status fails it
-  (`ServiceError::NodeVmStatusFlood`).
+  (`ServiceError::SandboxStatusFlood`).
 - Control characters are dropped from every line, and a failure's reason is cut to 512
   characters, before it reaches a log, an error or the CLI.
 - Only the first line that is no status is logged, cut to 80 characters.
 
 ## Docker stores
 
-The node's image is not copied into each node VM. Each image has a Docker store: a disk whose
-Docker data has the image loaded, which every node VM of the image boots an overlay of.
+The node's image is not copied into each sandbox. Each image has a Docker store: a disk whose
+Docker data has the image loaded, which every sandbox of the image boots an overlay of.
 
 - **Name.** `flatcar-docker-ID.qcow2` in the storage pool, `ID` the first 16 hex digits of the
   image's ID on the server's Docker, so an image imported again gets a store of its own.
@@ -175,9 +175,9 @@ Docker data has the image loaded, which every node VM of the image boots an over
   domain, every pool volume a build makes (the VM's disk and config drive, `flatcar-docker-*.tar`
   and `flatcar-docker-*.qcow2.part`), the staging folders and the store status sockets
   (`store::remove_unfinished_store_builds`); stores are kept.
-- **Used.** A node VM's Docker disk is `NODE-LAB-docker.qcow2`, a qcow2 overlay on the store,
+- **Used.** A sandbox's Docker disk is `NODE-LAB-docker.qcow2`, a qcow2 overlay on the store,
   mounted at `/var/lib/docker` with `noinit_itable`.
-- **Kept.** Stores belong to no lab: destroy never deletes one (`node_vm_037`).
+- **Kept.** Stores belong to no lab: destroy never deletes one (`sandbox_037`).
 
 ## Per node
 
@@ -192,7 +192,7 @@ Docker data has the image loaded, which every node VM of the image boots an over
 The two overlays hold everything the node writes, so a saved config survives `down` and
 `resume`. Redeploy and destroy delete them.
 
-The domain is `template::NodeVmDomainTemplate` (`templates/libvirt/node_vm_domain.jinja`): q35,
+The domain is `template::SandboxDomainTemplate` (`templates/libvirt/sandbox_domain.jinja`): q35,
 `host-passthrough` CPU, no video and no balloon; the base image's kernel and its command line;
 the two overlays on virtio; the config drive on SATA; the management NIC on the lab's management
 network; one virtio NIC per data interface on a link or bridge, its tap named like the node's
@@ -201,7 +201,7 @@ link end; a virtio RNG; the status channel; and the serial console on the node's
 ## Links
 
 Each data interface of the node on a link or bridge is a virtio NIC whose host side is a tap
-named like the node's link end. libvirt makes the taps when it starts the domain, so a node VM's
+named like the node's link end. libvirt makes the taps when it starts the domain, so a sandbox's
 links are attached in phase 11b with the VMs' (`attach_vm_links`), and re-attached after a cold
 boot or a redeploy as a domain's are (`RecreatedEnd::Domain`). A data interface on a private
 bridge is a bridge interface of the domain (`<interface type='bridge'>`), so libvirt puts its
@@ -260,7 +260,7 @@ the model's CLI (`Cli`, `sr_cli`, `bash` for SONiC). systemd starts it again whe
 
 ## Lifecycle
 
-- **Up.** Phase 11 creates each node VM, in parallel with the others (`create_node_vms`, after
+- **Up.** Phase 11 creates each sandbox, in parallel with the others (`create_sandboxes`, after
   the VMs): the image's Docker store when there is none, the config drive with the node's
   container and secret files, the two overlays, the domain, and the connection to its status
   channel (`StatusWatch`). No task reads the channel: readiness (phase 13) reads what has arrived
@@ -282,8 +282,8 @@ the model's CLI (`Cli`, `sr_cli`, `bash` for SONiC). systemd starts it again whe
 
 ## Resources
 
-A node VM gets the manifest's or the image's `memory` with 1024 MiB on top
-(`NODE_VM_MEMORY_OVERHEAD_MIB`), and the manifest's or image's `cpu.count`
+A sandbox gets the manifest's or the image's `memory` with 1024 MiB on top
+(`SANDBOX_MEMORY_OVERHEAD_MIB`), and the manifest's or image's `cpu.count`
 (`planned_resources`); admission counts that. In the VM the container has no limits: the VM is
 its limit.
 
@@ -296,7 +296,7 @@ its limit.
   only that its ready port stops answering.
 - A failure before the VM's units run, such as Ignition failing in the initrd, sends no status:
   the node is not ready when the readiness wait ends.
-- A node VM stopped before its first boot finished Ignition boots without it the next time, and
+- A sandbox stopped before its first boot finished Ignition boots without it the next time, and
   its container is never made; redeploy the node.
 - SR Linux's commit of its startup config fails with `Unacceptable syslog configuration` when
   its rsyslogd restarts take over about 60 s, as when the lab's name server does not answer; it

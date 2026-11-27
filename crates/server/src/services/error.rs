@@ -239,25 +239,25 @@ pub enum ServiceError {
     NodeImageNotFound { node: String, model_kind: ModelKind },
 
     #[error(
-        "Node VM base image {} is missing; the install and update scripts download it",
+        "Sandbox base image {} is missing; the install and update scripts download it",
         path.display()
     )]
-    NodeVmBaseImageMissing { path: PathBuf },
+    SandboxBaseImageMissing { path: PathBuf },
 
-    #[error("The node VM kernel {} has no /usr hash", path.display())]
-    NodeVmKernelNoUsrHash { path: PathBuf },
+    #[error("The sandbox kernel {} has no /usr hash", path.display())]
+    SandboxKernelNoUsrHash { path: PathBuf },
 
-    #[error("Node VM {name} failed: {reason}")]
-    NodeVmFailed { name: String, reason: String },
+    #[error("Sandbox {name} failed: {reason}")]
+    SandboxFailed { name: String, reason: String },
 
-    #[error("Node VM {name} closed its status channel without reporting")]
-    NodeVmStatusClosed { name: String },
+    #[error("Sandbox {name} closed its status channel without reporting")]
+    SandboxStatusClosed { name: String },
 
-    #[error("Node VM {name} sent a status line longer than {limit} bytes")]
-    NodeVmStatusTooLong { name: String, limit: usize },
+    #[error("Sandbox {name} sent a status line longer than {limit} bytes")]
+    SandboxStatusTooLong { name: String, limit: usize },
 
-    #[error("Node VM {name} sent more than {limit} bytes on its status channel without a status")]
-    NodeVmStatusFlood { name: String, limit: usize },
+    #[error("Sandbox {name} sent more than {limit} bytes on its status channel without a status")]
+    SandboxStatusFlood { name: String, limit: usize },
 
     #[error(
         "{prefix}: Version validation failed for node: {node} (model: {model}): {}",
@@ -734,7 +734,7 @@ impl ServiceError {
         match self {
             Self::NotFound(_)
             | Self::NodeImageNotFound { .. }
-            | Self::NodeVmBaseImageMissing { .. }
+            | Self::SandboxBaseImageMissing { .. }
             | Self::VersionNotFound { .. }
             | Self::DiskImageNotFound { .. }
             | Self::ImageVersionNotFound { .. }
@@ -821,11 +821,11 @@ impl ServiceError {
             | Self::GrpcStatus { .. }
             | Self::LinkEndGone { .. }
             | Self::TasksFailed { .. }
-            | Self::NodeVmKernelNoUsrHash { .. }
-            | Self::NodeVmFailed { .. }
-            | Self::NodeVmStatusClosed { .. }
-            | Self::NodeVmStatusTooLong { .. }
-            | Self::NodeVmStatusFlood { .. }
+            | Self::SandboxKernelNoUsrHash { .. }
+            | Self::SandboxFailed { .. }
+            | Self::SandboxStatusClosed { .. }
+            | Self::SandboxStatusTooLong { .. }
+            | Self::SandboxStatusFlood { .. }
             | Self::VaultInitialisedOutside { .. }
             | Self::VaultInitResponseLost { .. }
             | Self::VaultInitUnknown { .. } => None,

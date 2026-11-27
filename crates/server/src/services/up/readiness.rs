@@ -17,8 +17,8 @@ use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle;
 use crate::services::node_ops::{self, ContainerSettings, VmReadiness};
 use crate::services::node_secrets::write_node_secrets;
-use crate::services::node_vm::StatusWatch;
 use crate::services::p2p_links::{KernelHost, LinkHost, make_veth};
+use crate::services::sandbox::StatusWatch;
 use crate::services::talos;
 
 use container::ContainerSpec;
@@ -75,7 +75,7 @@ pub(super) async fn wait_for_nodes(
     operation: &LabOperation,
     inputs: &ReadinessInputs<'_>,
     p2p: &mut P2pAttachment,
-    node_vm_watches: HashMap<String, StatusWatch>,
+    sandbox_watches: HashMap<String, StatusWatch>,
 ) -> Result<NodesReady> {
     let started = Instant::now();
     let all_nodes: Vec<&topology::NodeExpanded> = inputs
@@ -104,8 +104,8 @@ pub(super) async fn wait_for_nodes(
         waiting_for_port: HashSet::new(),
         nodes: Vec::new(),
         errors: Vec::new(),
-        node_vm_watches,
-        node_vm_started: HashSet::new(),
+        sandbox_watches,
+        sandbox_started: HashSet::new(),
     };
     readiness.skip_unpolled_nodes(&all_nodes).await?;
     tracing::info!(
@@ -119,8 +119,8 @@ pub(super) async fn wait_for_nodes(
             if readiness.connected.contains(&container.name) {
                 continue;
             }
-            if container.model_kind.runs_in_node_vm() {
-                readiness.check_node_vm(container).await?;
+            if container.model_kind.runs_in_sandbox() {
+                readiness.check_sandbox(container).await?;
                 continue;
             }
             match readiness.settling.get(&container.name) {
@@ -153,10 +153,10 @@ pub(super) async fn wait_for_nodes(
         }
     }
 
-    for name in readiness.node_vm_watches.keys() {
-        tracing::warn!(node_name = %name, "Node VM still starting its container when polling ended");
+    for name in readiness.sandbox_watches.keys() {
+        tracing::warn!(node_name = %name, "Sandbox still starting its container when polling ended");
     }
-    readiness.node_vm_watches.clear();
+    readiness.sandbox_watches.clear();
     readiness.recheck_containers().await?;
     for link in inputs.p2p_links {
         if !readiness.p2p.attached.contains(&link.index) {
@@ -256,8 +256,8 @@ struct Readiness<'a, 'b> {
     waiting_for_port: HashSet<String>,
     nodes: Vec<data::NodeInfo>,
     errors: Vec<data::UpError>,
-    node_vm_watches: HashMap<String, StatusWatch>,
-    node_vm_started: HashSet<String>,
+    sandbox_watches: HashMap<String, StatusWatch>,
+    sandbox_started: HashSet<String>,
 }
 
 impl Readiness<'_, '_> {
@@ -677,12 +677,12 @@ impl Readiness<'_, '_> {
         Ok(())
     }
 
-    /// Check a node that runs in a node VM: launched once its VM reports its container
+    /// Check a node that runs in a sandbox: launched once its VM reports its container
     /// started, failed with the reason the VM reports, and ready once its ready port answers on
     /// its management address, or at once without one.
-    async fn check_node_vm(&mut self, node: &topology::NodeExpanded) -> Result<()> {
-        if !self.node_vm_started.contains(&node.name) {
-            return self.check_node_vm_start(node).await;
+    async fn check_sandbox(&mut self, node: &topology::NodeExpanded) -> Result<()> {
+        if !self.sandbox_started.contains(&node.name) {
+            return self.check_sandbox_start(node).await;
         }
         let ready_check = self.node_data(&node.name)?.record.ready_check.clone();
         let mgmt_ipv4 = node.ipv4_address.map(|ip| ip.to_string());
@@ -709,7 +709,7 @@ impl Readiness<'_, '_> {
             }
             (Some(_), None) => return Ok(()),
         };
-        tracing::info!(node_name = %node.name, %reason, "Node VM ready");
+        tracing::info!(node_name = %node.name, %reason, "Sandbox ready");
         let _ = self.build.progress.send_status(
             format!("Node {} - Ready ({reason})", node.name),
             StatusKind::Done,
@@ -723,11 +723,11 @@ impl Readiness<'_, '_> {
 
     /// Check whether node `node`'s VM has reported its container started: record it launched,
     /// or ready at once with its check skipped; or failed, with the reason the VM reported.
-    async fn check_node_vm_start(&mut self, node: &topology::NodeExpanded) -> Result<()> {
+    async fn check_sandbox_start(&mut self, node: &topology::NodeExpanded) -> Result<()> {
         let watch = self
-            .node_vm_watches
+            .sandbox_watches
             .get_mut(&node.name)
-            .with_context(|| format!("Node {} has no node VM status to wait for", node.name))?;
+            .with_context(|| format!("Node {} has no sandbox status to wait for", node.name))?;
         let started = watch.started();
         if matches!(started, Ok(false)) {
             let _ = self.build.progress.send_status(
@@ -739,10 +739,10 @@ impl Readiness<'_, '_> {
             );
             return Ok(());
         }
-        self.node_vm_watches.remove(&node.name);
+        self.sandbox_watches.remove(&node.name);
         let mgmt_ipv4 = node.ipv4_address.map(|ip| ip.to_string());
         if let Err(error) = started {
-            tracing::warn!(node_name = %node.name, error = %format!("{error:#}"), "Node VM did not start its container");
+            tracing::warn!(node_name = %node.name, error = %format!("{error:#}"), "Sandbox did not start its container");
             let _ = self.build.progress.send_status(
                 format!("Node {} - {error:#}", node.name),
                 StatusKind::Waiting,
@@ -762,7 +762,7 @@ impl Readiness<'_, '_> {
             format!("Node {} - Container started in its VM", node.name),
             StatusKind::Progress,
         );
-        self.node_vm_started.insert(node.name.clone());
+        self.sandbox_started.insert(node.name.clone());
         if node.ready_check.skip.unwrap_or(false) {
             let _ = self.build.progress.send_status(
                 format!("Node {} - Ready check skipped", node.name),
@@ -877,7 +877,7 @@ impl Readiness<'_, '_> {
     /// settled: one that exited since is reported here and recorded failed.
     async fn recheck_containers(&mut self) -> Result<()> {
         for container in self.inputs.container_nodes {
-            if container.ready_check.skip.unwrap_or(false) || container.model_kind.runs_in_node_vm()
+            if container.ready_check.skip.unwrap_or(false) || container.model_kind.runs_in_sandbox()
             {
                 continue;
             }

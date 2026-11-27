@@ -84,10 +84,10 @@ leases are harmless, as every address is reserved by MAC. A failed recreate fail
 files, mounts and logins for `Volume`. Off means the image as shipped: no generated config, no
 Sherpa config mount and no owner login, because the login is written into the generated config.
 The management address is still reserved and given to `eth0`, by Docker for a container on the
-server and by the node VM for the models that run in one (see
-[NODE_VM.md](NODE_VM.md#management)), but most network OSes only use it when the generated
+server and by the sandbox for the models that run in one (see
+[SANDBOX.md](SANDBOX.md#management)), but most network OSes only use it when the generated
 config says so. A container on the server is ready when it is running, so its readiness does not
-depend on the setting. A container in a node VM waits for SSH on its management address where
+depend on the setting. A container in a sandbox waits for SSH on its management address where
 the address can answer: always for the `sonic_linux` container, for cEOS only with the config
 Sherpa generates, and for SR Linux unless the node has a config of its own
 (`node_ops::stored_ready_check`).
@@ -98,12 +98,12 @@ off: they are how a user mounts a config of their own.
 ### SONiC container
 
 The `sonic_linux` container runs upstream's `docker-sonic-vs`, whose `start.sh` reads the
-container's `ethN` interfaces once and maps them to ports. It runs in a node VM, whose interfaces
+container's `ethN` interfaces once and maps them to ports. It runs in a sandbox, whose interfaces
 are there before Docker starts the container. Its entrypoint, `supervisord`, is given Sherpa's
 config, whose only program is Sherpa's start script: it waits for the data interfaces, then hands
 over to the image's `supervisord`. These start files are mounted with ZTP off too, so the wait
 always applies; with ZTP off the script makes no account and loads no config, and still starts
-`sshd` last, as the readiness signal. Its config has no management port or address: the node VM
+`sshd` last, as the readiness signal. Its config has no management port or address: the sandbox
 gives `eth0` the node's addresses. Nothing is mounted at
 `/etc/sonic/config_db.json`, because `start.sh` renames a file over that path; the script merges
 Sherpa's config on the first start instead (see the templates in `template::sonic_linux`).

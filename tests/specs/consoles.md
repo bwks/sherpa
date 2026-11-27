@@ -90,7 +90,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 008 | The CLI tells a refusal in the server's own words, from its details when it gives them; a 401 as not logged in, saying to run `sherpa login`; and an answer with no words of the server's by its HTTP status | unit |
 | 009 | A server with no console route, one older than the client, is told as that for each console, saying to upgrade the server | unit |
 | 010 | Opening a console is refused as its check is, with the same status and the same words (no test yet) | integration |
-| 011 | A node VM's VNC console is refused, pointing to `sherpa console`, and its serial console is not | unit |
+| 011 | A sandbox's VNC console is refused, pointing to `sherpa console`, and its serial console is not | unit |
 
 ## `console_end`: an open console ends when its node stops or its login ends, and says why
 

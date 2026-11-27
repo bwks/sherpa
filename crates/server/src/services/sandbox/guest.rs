@@ -1,4 +1,4 @@
-//! What a node VM's guest is given: its interfaces and management addresses, its container's
+//! What a sandbox's guest is given: its interfaces and management addresses, its container's
 //! `docker create` arguments, and the config drive with its Ignition config and its container's
 //! volumes.
 
@@ -14,8 +14,8 @@ use shared::data::{ContainerMount, Dns, ModelKind, NodeModel, SherpaNetwork};
 use shared::konst::{KVM_OUI, SHERPA_STORAGE_POOL_PATH};
 use shared::util;
 use template::{
-    GuestAddress, GuestInterface, NODE_VM_CONFIG_DRIVE_LABEL, NODE_VM_CONFIG_DRIVE_MOUNT,
-    NODE_VM_CONFIG_DRIVE_USER_DATA, NODE_VM_MANAGEMENT_INTERFACE, NodeVmNic, WritableVolume,
+    GuestAddress, GuestInterface, SANDBOX_CONFIG_DRIVE_LABEL, SANDBOX_CONFIG_DRIVE_MOUNT,
+    SANDBOX_CONFIG_DRIVE_USER_DATA, SANDBOX_MANAGEMENT_INTERFACE, SandboxNic, WritableVolume,
 };
 
 use crate::konst::{NODE_CONFIG_DIR_MODE, NODE_CONFIG_FILE_MODE};
@@ -24,13 +24,13 @@ use crate::services::p2p_links::ContainerVeth;
 /// The folder on the config drive that holds the container's volumes, one per mount.
 const DRIVE_VOLUMES_DIR: &str = "sherpa/volumes";
 
-/// The interfaces of a node VM: its NICs, the management NIC first, the data interfaces on no
+/// The interfaces of a sandbox: its NICs, the management NIC first, the data interfaces on no
 /// link, which the guest makes, and the data NICs of the domain.
 pub(super) struct GuestNics {
     pub(super) management_mac: String,
     pub(super) interfaces: Vec<GuestInterface>,
     pub(super) placeholders: Vec<GuestInterface>,
-    pub(super) nics: Vec<NodeVmNic>,
+    pub(super) nics: Vec<SandboxNic>,
 }
 
 /// A volume of the container on the config drive: its source on the server and its folder or
@@ -48,7 +48,7 @@ pub(super) struct GuestVolumes {
     pub(super) writable: Vec<WritableVolume>,
 }
 
-/// The interfaces of a node VM of `model_kind`, each with a MAC of its own: the management NIC,
+/// The interfaces of a sandbox of `model_kind`, each with a MAC of its own: the management NIC,
 /// a NIC for each data interface on a link or bridge, and each data interface on no link, each
 /// named as the model expects.
 ///
@@ -60,7 +60,7 @@ pub(super) fn guest_nics(model_kind: ModelKind, veths: &[ContainerVeth]) -> Resu
     let mut guest = GuestNics {
         interfaces: vec![GuestInterface {
             mac: management_mac.clone(),
-            name: NODE_VM_MANAGEMENT_INTERFACE.to_owned(),
+            name: SANDBOX_MANAGEMENT_INTERFACE.to_owned(),
         }],
         management_mac,
         placeholders: Vec::new(),
@@ -75,7 +75,7 @@ pub(super) fn guest_nics(model_kind: ModelKind, veths: &[ContainerVeth]) -> Resu
             guest.placeholders.push(interface);
             continue;
         }
-        guest.nics.push(NodeVmNic {
+        guest.nics.push(SandboxNic {
             tap: veth.host_veth.clone(),
             mac: interface.mac.clone(),
             bridge: veth.bridge.clone(),
@@ -85,7 +85,7 @@ pub(super) fn guest_nics(model_kind: ModelKind, veths: &[ContainerVeth]) -> Resu
     Ok(guest)
 }
 
-/// The addresses of a node VM's management NIC: the node's IPv4 address, and its IPv6 address
+/// The addresses of a sandbox's management NIC: the node's IPv4 address, and its IPv6 address
 /// when the lab's management network has IPv6, each with the network's prefix length and its
 /// gateway.
 pub(super) fn management_addresses(
@@ -128,7 +128,7 @@ pub(super) fn guest_volumes(volumes: &[ContainerMount]) -> GuestVolumes {
     };
     for (index, volume) in volumes.iter().enumerate() {
         let on_drive = format!("{DRIVE_VOLUMES_DIR}/{index}");
-        let from_drive = format!("{NODE_VM_CONFIG_DRIVE_MOUNT}/{on_drive}");
+        let from_drive = format!("{SANDBOX_CONFIG_DRIVE_MOUNT}/{on_drive}");
         if volume.read_only {
             guest.mounts.push(ContainerMount {
                 source: from_drive,
@@ -155,7 +155,7 @@ pub(super) fn guest_create_args(
     mounts: Vec<ContainerMount>,
     dns: &Dns,
 ) -> Vec<String> {
-    container::node_vm_create_args(
+    container::sandbox_create_args(
         &ContainerSpec {
             volumes: mounts,
             ..spec.clone()
@@ -179,7 +179,7 @@ pub(super) fn write_config_drive(
     remove_stage(stage)?;
     let written = stage_config_drive(stage, user_data, volumes).and_then(|()| {
         let path = format!("{SHERPA_STORAGE_POOL_PATH}/{drive}");
-        iso::create_iso(stage, &path, NODE_VM_CONFIG_DRIVE_LABEL)
+        iso::create_iso(stage, &path, SANDBOX_CONFIG_DRIVE_LABEL)
             .with_context(|| format!("Cannot write config drive {path}"))?;
         Ok(path)
     });
@@ -200,7 +200,7 @@ fn remove_stage(stage: &Path) -> Result<()> {
 /// Stage the config drive's files in `stage`: the Ignition config, and each volume's file or
 /// folder.
 fn stage_config_drive(stage: &Path, user_data: &str, volumes: &[DriveVolume]) -> Result<()> {
-    let user_data_path = stage.join(NODE_VM_CONFIG_DRIVE_USER_DATA);
+    let user_data_path = stage.join(SANDBOX_CONFIG_DRIVE_USER_DATA);
     create_parent(&user_data_path)?;
     util::write_file_with_permissions(
         &user_data_path,
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn node_vm_045_the_management_nic_gets_the_nodes_addresses_with_the_labs_gateways() {
+    fn sandbox_045_the_management_nic_gets_the_nodes_addresses_with_the_labs_gateways() {
         let ipv4 = Ipv4Addr::new(172, 31, 0, 23);
         let ipv6: Ipv6Addr = "fd00:b0d1:0:1::17".parse().unwrap();
         let shown = |addresses: Vec<GuestAddress>| -> Vec<String> {
@@ -321,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn node_vm_013_the_console_runs_each_models_cli() {
+    fn sandbox_013_the_console_runs_each_models_cli() {
         let kind = |model| ModelKind::new(model, Some(NodeKind::Container)).unwrap();
         assert_eq!(console_command(kind(NodeModel::AristaEos)), ["Cli"]);
         assert_eq!(console_command(kind(NodeModel::NokiaSrlinux)), ["sr_cli"]);
@@ -329,7 +329,7 @@ mod tests {
     }
 
     #[test]
-    fn node_vm_012_volumes_go_on_the_config_drive_read_only_mounted_from_it_writable_copied() {
+    fn sandbox_012_volumes_go_on_the_config_drive_read_only_mounted_from_it_writable_copied() {
         let volumes = [
             ContainerMount::read_only("/lab/r1.conf", "/mnt/flash/startup-config"),
             ContainerMount::writable("/lab/certs", "/etc/a:b"),
@@ -364,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn node_vm_052_the_config_drive_holds_ignition_and_each_volume_file_and_folder() {
+    fn sandbox_052_the_config_drive_holds_ignition_and_each_volume_file_and_folder() {
         let dir = TempDir::new().unwrap();
         let config = dir.path().join("r1.conf");
         fs::write(&config, "hostname r1\n").unwrap();

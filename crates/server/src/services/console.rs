@@ -194,8 +194,8 @@ fn console_refusal(
     kind: ConsoleKind,
 ) -> Option<ServiceError> {
     let reason = match (model_kind.runs_as(), kind) {
-        (NodeKind::VirtualMachine, ConsoleKind::Vnc) if model_kind.runs_in_node_vm() => format!(
-            "{node_name} runs in a node VM, which has a serial console only. Use 'sherpa \
+        (NodeKind::VirtualMachine, ConsoleKind::Vnc) if model_kind.runs_in_sandbox() => format!(
+            "{node_name} runs in a sandbox, which has a serial console only. Use 'sherpa \
              console {node_name}' instead."
         ),
         (NodeKind::Container, _) => format!(
@@ -423,13 +423,13 @@ mod tests {
     use shared::data::NodeModel;
 
     #[test]
-    fn console_refusal_011_a_node_vms_vnc_console_is_refused_pointing_to_sherpa_console_and_its_serial_console_is_not()
+    fn console_refusal_011_a_sandboxes_vnc_console_is_refused_pointing_to_sherpa_console_and_its_serial_console_is_not()
      {
         let ceos = ModelKind::new(NodeModel::AristaEos, Some(NodeKind::Container)).unwrap();
         assert_eq!(
             console_refusal("ceos1", ceos, ConsoleKind::Vnc),
             Some(ServiceError::Invalid(
-                "ceos1 runs in a node VM, which has a serial console only. Use 'sherpa console \
+                "ceos1 runs in a sandbox, which has a serial console only. Use 'sherpa console \
                  ceos1' instead."
                     .to_owned()
             ))

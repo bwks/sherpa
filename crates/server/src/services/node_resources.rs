@@ -17,7 +17,7 @@ use virt::connect::Connect;
 
 use crate::auth::context::AuthContext;
 use crate::services::error::ServiceError;
-use crate::services::node_vm::NODE_VM_MEMORY_OVERHEAD_MIB;
+use crate::services::sandbox::SANDBOX_MEMORY_OVERHEAD_MIB;
 use crate::validate::check_host_resources;
 
 /// The memory, in MiB, an IOL container needs beyond IOL's own (its `-m`) for the launcher and
@@ -49,7 +49,7 @@ struct PinOverlap {
 }
 
 /// The vCPUs and memory a node gets: the manifest's values, else the image's, for a VM, a
-/// unikernel or a container that runs in a node VM, which gets the VM's overhead on top; and for
+/// unikernel or a container that runs in a sandbox, which gets the VM's overhead on top; and for
 /// any other container the manifest's alone as Docker limits, but the manifest's or image's
 /// memory with the launcher's overhead for `juniper_evolved`, with no CPU quota, and for IOL.
 pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> NodeResources {
@@ -67,13 +67,13 @@ pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> N
             ),
             ..NodeResources::default()
         },
-        NodeKind::Container if image.model_kind().is_ok_and(ModelKind::runs_in_node_vm) => {
+        NodeKind::Container if image.model_kind().is_ok_and(ModelKind::runs_in_sandbox) => {
             NodeResources {
                 cpu_count: Some(node.cpu.count.unwrap_or(image.cpu.count)),
                 memory: Some(
                     node.memory
                         .unwrap_or(image.memory)
-                        .saturating_add(NODE_VM_MEMORY_OVERHEAD_MIB),
+                        .saturating_add(SANDBOX_MEMORY_OVERHEAD_MIB),
                 ),
             }
         }
@@ -518,7 +518,7 @@ mod tests {
     }
 
     #[test]
-    fn node_vm_016_a_node_vm_gets_its_containers_memory_and_1024_mb_and_its_vcpus() {
+    fn sandbox_016_a_sandbox_gets_its_containers_memory_and_1024_mb_and_its_vcpus() {
         for model in [
             NodeModel::AristaEos,
             NodeModel::NokiaSrlinux,

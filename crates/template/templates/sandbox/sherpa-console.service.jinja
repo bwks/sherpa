@@ -5,10 +5,10 @@ After=docker.service
 StartLimitIntervalSec=0
 
 [Service]
-ExecStart={{ crate::node_vm::CONSOLE_SCRIPT_PATH }}
+ExecStart={{ crate::sandbox::CONSOLE_SCRIPT_PATH }}
 StandardInput=tty
 StandardOutput=tty
-TTYPath=/dev/{{ crate::node_vm::NODE_VM_CONSOLE_TTY }}
+TTYPath=/dev/{{ crate::sandbox::SANDBOX_CONSOLE_TTY }}
 TTYReset=yes
 TTYVHangup=yes
 Restart=always

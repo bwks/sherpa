@@ -4,7 +4,7 @@
 # after down and resume.
 set -eu
 
-CHANNEL=/dev/virtio-ports/{{ crate::node_vm::NODE_VM_STATUS_CHANNEL }}
+CHANNEL=/dev/virtio-ports/{{ crate::sandbox::SANDBOX_STATUS_CHANNEL }}
 REPORT_SECONDS=60
 
 line=$(printf '%s' "$*" | tr '\r\n' '  ')

@@ -9,8 +9,8 @@ use tempfile::TempDir;
 
 use shared::util::base64_decode;
 use template::{
-    GuestAddress, GuestInterface, NODE_VM_CONFIG_DRIVE_MOUNT, NodeScript, NodeVmDomainTemplate,
-    NodeVmGuest, NodeVmManagement, NodeVmNic, WritableVolume, store_vm_ignition_json,
+    GuestAddress, GuestInterface, NodeScript, SANDBOX_CONFIG_DRIVE_MOUNT, SandboxDomainTemplate,
+    SandboxGuest, SandboxManagement, SandboxNic, WritableVolume, store_vm_ignition_json,
 };
 
 // ============================================================================
@@ -32,7 +32,7 @@ fn node_config() -> Value {
         "A=b c".to_owned(),
         "ceos:4.34".to_owned(),
     ];
-    let json = NodeVmGuest {
+    let json = SandboxGuest {
         hostname: "ceos1",
         container: "ceos1-abc12345",
         interfaces: &[
@@ -146,13 +146,13 @@ fn setting(config: &Value, unit_name: &str, section: &str, key: &str) -> String 
 /// A stand-in for Docker in the guest: it logs each command, has a container once `create` has
 /// made it until `rm` removes it, keeps what `cp` reads, and fails `cp` while `FAIL_CP` is set.
 const FAKE_DOCKER: &str = r#"#!/bin/bash
-echo "$*" >> "$SANDBOX/docker.log"
+echo "$*" >> "$FAKE_GUEST/docker.log"
 case "$1" in
-  container) [ -e "$SANDBOX/container" ] ;;
-  create) touch "$SANDBOX/container" ;;
-  rm) rm -f "$SANDBOX/container" ;;
+  container) [ -e "$FAKE_GUEST/container" ] ;;
+  create) touch "$FAKE_GUEST/container" ;;
+  rm) rm -f "$FAKE_GUEST/container" ;;
   cp)
-    cat > "$SANDBOX/copied.tar"
+    cat > "$FAKE_GUEST/copied.tar"
     if [ -n "${FAIL_CP:-}" ]; then
       echo "no space left on device" >&2
       exit 1
@@ -163,16 +163,16 @@ esac
 
 /// A stand-in for the status report: it keeps each status line.
 const FAKE_REPORT: &str = r#"#!/bin/bash
-echo "$*" >> "$SANDBOX/reports"
+echo "$*" >> "$FAKE_GUEST/reports"
 "#;
 
 /// The node script, run in a folder of its own with Docker and the report stubbed, as a node
 /// VM's boots run it.
-struct NodeSandbox {
+struct FakeGuest {
     dir: TempDir,
 }
 
-impl NodeSandbox {
+impl FakeGuest {
     fn new() -> Self {
         let dir = TempDir::new().unwrap();
         let path = dir.path();
@@ -188,20 +188,20 @@ impl NodeSandbox {
             ),
         )
         .unwrap();
-        let sandbox = Self { dir };
-        sandbox.executable("bin/docker", FAKE_DOCKER);
-        sandbox.executable("report", FAKE_REPORT);
+        let guest = Self { dir };
+        guest.executable("bin/docker", FAKE_DOCKER);
+        guest.executable("report", FAKE_REPORT);
         let script = NodeScript {
-            container: &sandbox.path("container-name"),
-            create: &sandbox.path("create"),
-            writable: &sandbox.path("writable"),
-            report: &sandbox.path("report"),
-            created: &sandbox.path("state/created"),
+            container: &guest.path("container-name"),
+            create: &guest.path("create"),
+            writable: &guest.path("writable"),
+            report: &guest.path("report"),
+            created: &guest.path("state/created"),
         }
         .render()
         .unwrap();
-        sandbox.executable("node", &script);
-        sandbox
+        guest.executable("node", &script);
+        guest
     }
 
     fn path(&self, name: &str) -> String {
@@ -221,7 +221,7 @@ impl NodeSandbox {
         let mut command = Command::new("bash");
         command
             .arg(self.path("node"))
-            .env("SANDBOX", self.dir.path())
+            .env("FAKE_GUEST", self.dir.path())
             .env("PATH", format!("{}:/usr/bin:/bin", self.path("bin")));
         if fail_cp {
             command.env("FAIL_CP", "1");
@@ -250,33 +250,33 @@ impl NodeSandbox {
     }
 }
 
-fn domain() -> NodeVmDomainTemplate {
-    NodeVmDomainTemplate {
+fn domain() -> SandboxDomainTemplate {
+    SandboxDomainTemplate {
         name: "ceos1-abc12345".to_owned(),
         memory_mib: 6144,
         vcpus: 2,
-        kernel: "/opt/sherpa/images/node_vm/flatcar-1.2.3.vmlinuz".to_owned(),
+        kernel: "/opt/sherpa/images/sandbox/flatcar-1.2.3.vmlinuz".to_owned(),
         cmdline: "root=LABEL=ROOT flatcar.first_boot=detected".to_owned(),
         disk: "/opt/sherpa/libvirt/images/ceos1-abc12345-hdd.qcow2".to_owned(),
         docker_disk: "/opt/sherpa/libvirt/images/ceos1-abc12345-docker.qcow2".to_owned(),
         image_archive: None,
         config_drive: "/opt/sherpa/libvirt/images/ceos1-abc12345.iso".to_owned(),
-        management: Some(NodeVmManagement {
+        management: Some(SandboxManagement {
             network: "sherpa-management-abc12345".to_owned(),
             mac: "52:54:00:00:00:01".to_owned(),
         }),
         nics: vec![
-            NodeVmNic {
+            SandboxNic {
                 tap: "tpa1-abc12345".to_owned(),
                 mac: "52:54:00:00:00:02".to_owned(),
                 bridge: None,
             },
-            NodeVmNic {
+            SandboxNic {
                 tap: "tpb2-abc12345".to_owned(),
                 mac: "52:54:00:00:00:03".to_owned(),
                 bridge: None,
             },
-            NodeVmNic {
+            SandboxNic {
                 tap: "bra3-abc12345".to_owned(),
                 mac: "52:54:00:00:00:04".to_owned(),
                 bridge: Some("brs-lan-abc12345".to_owned()),
@@ -297,10 +297,10 @@ fn compact(xml: &str) -> String {
 // ============================================================================
 
 #[test]
-fn node_vm_001_the_domain_boots_its_kernel_with_its_disks_and_the_ignition_config_disk() {
+fn sandbox_001_the_domain_boots_its_kernel_with_its_disks_and_the_ignition_config_disk() {
     let xml = compact(&domain().render().unwrap());
     assert!(xml.contains(
-        "<kernel>/opt/sherpa/images/node_vm/flatcar-1.2.3.vmlinuz</kernel>\
+        "<kernel>/opt/sherpa/images/sandbox/flatcar-1.2.3.vmlinuz</kernel>\
          <cmdline>root=LABEL=ROOT flatcar.first_boot=detected</cmdline>"
     ));
     assert!(!xml.contains("<boot "));
@@ -321,7 +321,7 @@ fn node_vm_001_the_domain_boots_its_kernel_with_its_disks_and_the_ignition_confi
 }
 
 #[test]
-fn node_vm_002_each_data_interface_is_a_tap_named_like_its_link_end() {
+fn sandbox_002_each_data_interface_is_a_tap_named_like_its_link_end() {
     let xml = compact(&domain().render().unwrap());
     assert!(xml.contains(
         "<interface type='ethernet'><mtu size='9600'/><mac address='52:54:00:00:00:02'/>\
@@ -336,7 +336,7 @@ fn node_vm_002_each_data_interface_is_a_tap_named_like_its_link_end() {
 }
 
 #[test]
-fn node_vm_056_a_bridge_member_is_a_bridge_interface_so_libvirt_enslaves_it_on_every_start() {
+fn sandbox_056_a_bridge_member_is_a_bridge_interface_so_libvirt_enslaves_it_on_every_start() {
     let xml = compact(&domain().render().unwrap());
     assert!(xml.contains(
         "<interface type='bridge'><mtu size='9600'/><mac address='52:54:00:00:00:04'/>\
@@ -346,7 +346,7 @@ fn node_vm_056_a_bridge_member_is_a_bridge_interface_so_libvirt_enslaves_it_on_e
 }
 
 #[test]
-fn node_vm_005_values_are_escaped() {
+fn sandbox_005_values_are_escaped() {
     let mut domain = domain();
     domain.name = "a<b".to_owned();
     let xml = domain.render().unwrap();
@@ -355,7 +355,7 @@ fn node_vm_005_values_are_escaped() {
 }
 
 #[test]
-fn node_vm_031_a_docker_store_vm_has_no_nics_and_no_console_and_its_image_archive_read_only() {
+fn sandbox_031_a_docker_store_vm_has_no_nics_and_no_console_and_its_image_archive_read_only() {
     let mut domain = domain();
     domain.management = None;
     domain.nics.clear();
@@ -374,7 +374,7 @@ fn node_vm_031_a_docker_store_vm_has_no_nics_and_no_console_and_its_image_archiv
 }
 
 #[test]
-fn node_vm_048_the_vm_has_its_serial_console_on_the_nodes_socket_and_its_status_channel() {
+fn sandbox_048_the_vm_has_its_serial_console_on_the_nodes_socket_and_its_status_channel() {
     let xml = compact(&domain().render().unwrap());
     assert!(xml.contains(
         "<serial type='unix'><source mode='bind' path='/opt/sherpa/run/console/abc12345/1.serial'/>"
@@ -394,7 +394,7 @@ fn node_vm_048_the_vm_has_its_serial_console_on_the_nodes_socket_and_its_status_
 // ============================================================================
 
 #[test]
-fn node_vm_008_updates_reboots_and_logins_are_off_in_the_node_vm() {
+fn sandbox_008_updates_reboots_and_logins_are_off_in_the_sandbox() {
     for config in [node_config(), store_config()] {
         assert_eq!(
             file(&config, "/etc/flatcar/update.conf")["contents"]["source"],
@@ -415,7 +415,7 @@ fn node_vm_008_updates_reboots_and_logins_are_off_in_the_node_vm() {
 }
 
 #[test]
-fn node_vm_039_the_first_boot_does_not_rebuild_the_library_cache_or_hardware_database() {
+fn sandbox_039_the_first_boot_does_not_rebuild_the_library_cache_or_hardware_database() {
     let config = node_config();
     for name in ["ldconfig.service", "systemd-hwdb-update.service"] {
         assert_eq!(unit(&config, name)["mask"], true, "{name}");
@@ -423,7 +423,7 @@ fn node_vm_039_the_first_boot_does_not_rebuild_the_library_cache_or_hardware_dat
 }
 
 #[test]
-fn node_vm_040_docker_in_the_node_vm_sets_up_no_iptables_rules_and_listens_on_its_socket_only() {
+fn sandbox_040_docker_in_the_sandbox_sets_up_no_iptables_rules_and_listens_on_its_socket_only() {
     let options = file_text(
         &node_config(),
         "/etc/systemd/system/docker.service.d/10-sherpa.conf",
@@ -440,7 +440,7 @@ fn node_vm_040_docker_in_the_node_vm_sets_up_no_iptables_rules_and_listens_on_it
 }
 
 #[test]
-fn node_vm_041_containerd_in_the_node_vm_runs_without_the_cri_plugins() {
+fn sandbox_041_containerd_in_the_sandbox_runs_without_the_cri_plugins() {
     let config = node_config();
     let options = file_text(
         &config,
@@ -462,7 +462,7 @@ fn node_vm_041_containerd_in_the_node_vm_runs_without_the_cri_plugins() {
 }
 
 #[test]
-fn node_vm_010_the_nics_are_named_by_their_lowercase_mac_before_docker_and_nothing_manages_them() {
+fn sandbox_010_the_nics_are_named_by_their_lowercase_mac_before_docker_and_nothing_manages_them() {
     let config = node_config();
     assert_eq!(
         file_text(&config, "/etc/sherpa/interfaces"),
@@ -497,7 +497,7 @@ fn node_vm_010_the_nics_are_named_by_their_lowercase_mac_before_docker_and_nothi
 }
 
 #[test]
-fn node_vm_046_before_docker_the_guest_sets_the_management_addresses_and_default_routes() {
+fn sandbox_046_before_docker_the_guest_sets_the_management_addresses_and_default_routes() {
     assert_eq!(
         file_text(&node_config(), "/etc/sherpa/management"),
         "eth0 172.31.0.23/24 172.31.0.1\neth0 fd00:b0d1:0:1::17/64 fd00:b0d1:0:1::1\n"
@@ -505,7 +505,7 @@ fn node_vm_046_before_docker_the_guest_sets_the_management_addresses_and_default
 }
 
 #[test]
-fn node_vm_035_interfaces_on_no_link_are_listed_with_their_fixed_mac_for_the_guest_to_make() {
+fn sandbox_035_interfaces_on_no_link_are_listed_with_their_fixed_mac_for_the_guest_to_make() {
     assert_eq!(
         file_text(&node_config(), "/etc/sherpa/placeholders"),
         "52:54:00:ab:00:03 eth2\n52:54:00:ab:00:04 eth3\n"
@@ -513,7 +513,7 @@ fn node_vm_035_interfaces_on_no_link_are_listed_with_their_fixed_mac_for_the_gue
 }
 
 #[test]
-fn node_vm_036_docker_keeps_its_data_on_the_store_disk_which_the_store_vm_formats() {
+fn sandbox_036_docker_keeps_its_data_on_the_store_disk_which_the_store_vm_formats() {
     let node = node_config();
     assert_eq!(
         setting(&node, "var-lib-docker.mount", "Mount", "What"),
@@ -542,7 +542,7 @@ fn node_vm_036_docker_keeps_its_data_on_the_store_disk_which_the_store_vm_format
 }
 
 #[test]
-fn node_vm_011_the_serial_console_runs_the_network_os_cli() {
+fn sandbox_011_the_serial_console_runs_the_network_os_cli() {
     let config = node_config();
     assert_eq!(file_text(&config, "/etc/sherpa/console"), "Cli\n");
     assert_eq!(
@@ -556,7 +556,7 @@ fn node_vm_011_the_serial_console_runs_the_network_os_cli() {
 }
 
 #[test]
-fn node_vm_049_a_unit_starts_the_container_after_docker_and_the_nics_from_sherpas_arguments() {
+fn sandbox_049_a_unit_starts_the_container_after_docker_and_the_nics_from_sherpas_arguments() {
     let config = node_config();
     assert_eq!(
         file_text(&config, "/etc/sherpa/create"),
@@ -578,7 +578,7 @@ fn node_vm_049_a_unit_starts_the_container_after_docker_and_the_nics_from_sherpa
     );
     assert_eq!(
         setting(&config, unit_name, "Unit", "RequiresMountsFor"),
-        NODE_VM_CONFIG_DRIVE_MOUNT
+        SANDBOX_CONFIG_DRIVE_MOUNT
     );
     assert_eq!(
         setting(&config, unit_name, "Service", "ExecStart"),
@@ -588,7 +588,7 @@ fn node_vm_049_a_unit_starts_the_container_after_docker_and_the_nics_from_sherpa
 }
 
 #[test]
-fn node_vm_050_the_config_drive_is_mounted_and_writable_volumes_are_listed_for_copying_in() {
+fn sandbox_050_the_config_drive_is_mounted_and_writable_volumes_are_listed_for_copying_in() {
     let config = node_config();
     assert_eq!(
         setting(&config, "media-config.mount", "Mount", "What"),
@@ -596,7 +596,7 @@ fn node_vm_050_the_config_drive_is_mounted_and_writable_volumes_are_listed_for_c
     );
     assert_eq!(
         setting(&config, "media-config.mount", "Mount", "Where"),
-        NODE_VM_CONFIG_DRIVE_MOUNT
+        SANDBOX_CONFIG_DRIVE_MOUNT
     );
     assert_eq!(
         setting(&config, "media-config.mount", "Mount", "Options"),
@@ -609,7 +609,7 @@ fn node_vm_050_the_config_drive_is_mounted_and_writable_volumes_are_listed_for_c
 }
 
 #[test]
-fn node_vm_051_both_vms_have_the_status_report_and_the_store_vm_loads_its_archive() {
+fn sandbox_051_both_vms_have_the_status_report_and_the_store_vm_loads_its_archive() {
     let node = node_config();
     let store = store_config();
     for config in [&node, &store] {
@@ -632,17 +632,17 @@ fn node_vm_051_both_vms_have_the_status_report_and_the_store_vm_loads_its_archiv
 // ============================================================================
 
 #[test]
-fn node_vm_057_a_copy_into_the_container_that_fails_removes_the_container_and_reports_why() {
-    let sandbox = NodeSandbox::new();
-    assert!(!sandbox.boot(true));
-    assert!(!sandbox.has("container"));
-    assert!(!sandbox.has("state/created"));
+fn sandbox_057_a_copy_into_the_container_that_fails_removes_the_container_and_reports_why() {
+    let guest = FakeGuest::new();
+    assert!(!guest.boot(true));
+    assert!(!guest.has("container"));
+    assert!(!guest.has("state/created"));
     assert!(
-        !sandbox
+        !guest
             .docker_commands()
             .contains(&"start srl1-abc12345".to_owned())
     );
-    let reports = sandbox.reports();
+    let reports = guest.reports();
     assert_eq!(reports.len(), 1);
     assert!(
         reports[0].starts_with("failed: cannot copy the writable volumes into the container: ")
@@ -652,12 +652,12 @@ fn node_vm_057_a_copy_into_the_container_that_fails_removes_the_container_and_re
 }
 
 #[test]
-fn node_vm_058_a_container_a_first_boot_left_without_its_volumes_is_created_again_with_them() {
-    let sandbox = NodeSandbox::new();
-    fs::write(sandbox.path("container"), "").unwrap();
-    assert!(sandbox.boot(false));
+fn sandbox_058_a_container_a_first_boot_left_without_its_volumes_is_created_again_with_them() {
+    let guest = FakeGuest::new();
+    fs::write(guest.path("container"), "").unwrap();
+    assert!(guest.boot(false));
     assert_eq!(
-        sandbox.docker_commands(),
+        guest.docker_commands(),
         [
             "container inspect",
             "rm -f",
@@ -668,22 +668,22 @@ fn node_vm_058_a_container_a_first_boot_left_without_its_volumes_is_created_agai
     );
     let listing = Command::new("tar")
         .arg("-tf")
-        .arg(sandbox.path("copied.tar"))
+        .arg(guest.path("copied.tar"))
         .output()
         .unwrap();
     assert_eq!(
         String::from_utf8(listing.stdout).unwrap(),
         "./etc/opt/srlinux/config.json\n"
     );
-    assert!(sandbox.has("state/created"));
-    assert_eq!(sandbox.reports(), ["started"]);
+    assert!(guest.has("state/created"));
+    assert_eq!(guest.reports(), ["started"]);
 }
 
 #[test]
-fn node_vm_059_a_boot_after_the_container_was_made_only_starts_it() {
-    let sandbox = NodeSandbox::new();
-    assert!(sandbox.boot(false));
-    assert!(sandbox.boot(false));
-    assert_eq!(sandbox.docker_commands(), ["start srl1-abc12345"]);
-    assert_eq!(sandbox.reports(), ["started", "started"]);
+fn sandbox_059_a_boot_after_the_container_was_made_only_starts_it() {
+    let guest = FakeGuest::new();
+    assert!(guest.boot(false));
+    assert!(guest.boot(false));
+    assert_eq!(guest.docker_commands(), ["start srl1-abc12345"]);
+    assert_eq!(guest.reports(), ["started", "started"]);
 }

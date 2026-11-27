@@ -302,7 +302,7 @@ async fn stop_tailscale_gateway(
 /// How `down` stops a node, decided from its kind, model and Talos cluster role.
 fn shutdown_route(model_kind: ModelKind, role: Option<ClusterRole>) -> Route {
     match model_kind.kind() {
-        NodeKind::Container if model_kind.runs_in_node_vm() => Route::Acpi,
+        NodeKind::Container if model_kind.runs_in_sandbox() => Route::Acpi,
         NodeKind::Container => Route::Pause,
         NodeKind::Unikernel => Route::PowerOff(UNIKERNEL_POWER_OFF),
         NodeKind::VirtualMachine if model_kind.model() == NodeModel::TalosLinux => match role {

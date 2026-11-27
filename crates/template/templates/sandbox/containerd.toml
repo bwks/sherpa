@@ -1,4 +1,4 @@
-# containerd in a node VM: Flatcar's own settings without the Kubernetes CRI plugins and NRI,
+# containerd in a sandbox: Flatcar's own settings without the Kubernetes CRI plugins and NRI,
 # which Docker does not use.
 version = 2
 root = "/var/lib/containerd"

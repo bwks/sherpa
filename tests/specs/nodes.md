@@ -56,60 +56,60 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 012 | A container that cannot be attached to one of its networks is removed, and the error is reported | integration |
 | 013 | A `cisco_iol` container runs unprivileged, holds its management address and relays its interfaces | integration |
 
-## `node_vm`: a privileged network OS container runs in a VM of its own
+## `sandbox`: a privileged network OS container runs in a VM of its own
 
 **Statement:** an `arista_eos`, `nokia_srlinux` or `sonic_linux` container node runs privileged on the Docker of a Flatcar VM of its own, which a unit in the VM starts from what sherpad put on the VM's config drive, boots on an overlay of its image's Docker store instead of copying the image, reports a failure with its reason, and has its links, management addresses, console, saved config and lifecycle as a node's.
 **Relied on by:** the server's owner (a node's privileges reach its VM, not the server), the user. **Priority:** P0.
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | The node VM boots the base image's kernel with its command line, on its overlay disk and its Docker store overlay, with its config drive read-only | unit |
+| 001 | The sandbox boots the base image's kernel with its command line, on its overlay disk and its Docker store overlay, with its config drive read-only | unit |
 | 002 | Each data interface on a link or bridge is a tap named like its link end, and the management NIC is on the lab's management network | unit |
 | 005 | Values in the domain XML are escaped | unit |
-| 008 | Updates, update reboots, SSH and console logins are off in the node VM and the Docker store VM | unit |
+| 008 | Updates, update reboots, SSH and console logins are off in the sandbox and the Docker store VM | unit |
 | 010 | Before Docker starts, the guest names each NIC, the management NIC `eth0`, by its lowercase MAC, and the VM runs no network manager | unit |
 | 011 | The serial console runs the network OS CLI | unit |
 | 012 | The container's volumes go on the config drive: a read-only one is mounted from the drive, a writable one is copied into the container when it is created | unit |
 | 013 | The console runs each model's CLI | unit |
-| 016 | A node VM gets its container's memory, the manifest's or the image's, with 1024 MB on top, and its vCPUs | unit |
-| 017 | The containers of the three models run in node VMs and are handled as VMs; other containers stay Docker's | unit |
-| 018 | A lab with a node VM is refused before anything is created when the base image or its kernel is missing | unit |
-| 019 | A node VM boots on its image's Docker store, which a store VM makes from the image's archive, its unit starts the container and reports it started, and removing it leaves no domain or volume | integration |
-| 020 | The three models come up in node VMs and answer SSH with the owner's keys (no test yet) | e2e |
-| 021 | A P2p link between two node VMs, and between a node VM and a VM, passes traffic both ways (no test yet) | e2e |
-| 022 | An impairment set on a node VM's link applies, and clearing it removes it (no test yet) | e2e |
+| 016 | A sandbox gets its container's memory, the manifest's or the image's, with 1024 MB on top, and its vCPUs | unit |
+| 017 | The containers of the three models run in sandboxes and are handled as VMs; other containers stay Docker's | unit |
+| 018 | A lab with a sandbox is refused before anything is created when the base image or its kernel is missing | unit |
+| 019 | A sandbox boots on its image's Docker store, which a store VM makes from the image's archive, its unit starts the container and reports it started, and removing it leaves no domain or volume | integration |
+| 020 | The three models come up in sandboxes and answer SSH with the owner's keys (no test yet) | e2e |
+| 021 | A P2p link between two sandboxes, and between a sandbox and a VM, passes traffic both ways (no test yet) | e2e |
+| 022 | An impairment set on a sandbox's link applies, and clearing it removes it (no test yet) | e2e |
 | 023 | `sherpa console` reaches each model's CLI (no test yet) | e2e |
 | 024 | A config saved on the node survives down and resume, and its links are re-attached (no test yet) | e2e |
-| 025 | A redeploy gives the node VM a new disk and config drive, and its P2p link is attached again | integration |
-| 026 | Destroy leaves no domain, volume, network, tap, console folder, lab folder or record of a lab of node VMs, and keeps the image's Docker store | integration |
-| 027 | An up that fails while creating node VMs, one with a volume whose source is missing, is rolled back with nothing of the lab left | integration |
-| 028 | A restart of sherpad leaves the node VMs running (no test yet) | e2e |
+| 025 | A redeploy gives the sandbox a new disk and config drive, and its P2p link is attached again | integration |
+| 026 | Destroy leaves no domain, volume, network, tap, console folder, lab folder or record of a lab of sandboxes, and keeps the image's Docker store | integration |
+| 027 | An up that fails while creating sandboxes, one with a volume whose source is missing, is rolled back with nothing of the lab left | integration |
+| 028 | A restart of sherpad leaves the sandboxes running (no test yet) | e2e |
 | 029 | SR Linux's management address answers after up, after down and resume, and after a redeploy (no test yet) | e2e |
 | 030 | A Docker store is named by the image's ID, and an ID that is not a SHA-256 gets none | unit |
 | 031 | The VM that makes a Docker store has no NICs and no console, and its image archive is a read-only disk | unit |
 | 032 | The kernel command line of a domain is replaced and the rest of its XML kept; XML without one is refused | unit |
 | 033 | The `/usr` hash is read from the kernel's header, and a header without one is refused | unit |
-| 034 | A node VM boots without a kernel console, and runs Ignition on its first boot only | unit |
+| 034 | A sandbox boots without a kernel console, and runs Ignition on its first boot only | unit |
 | 035 | Each data interface on no link is listed with its fixed MAC, for the guest to make a veth whose peer is down in a namespace of its own | unit |
-| 036 | Docker keeps its data on the Docker store disk, which the store's VM formats and a node VM mounts | unit |
-| 037 | Destroy takes a node VM's Docker disk and never a Docker store | unit |
+| 036 | Docker keeps its data on the Docker store disk, which the store's VM formats and a sandbox mounts | unit |
+| 037 | Destroy takes a sandbox's Docker disk and never a Docker store | unit |
 | 038 | A second lab with the same image boots on the store the first made, which it neither makes again nor changes | integration |
-| 039 | A node VM's first boot does not rebuild the library cache or the hardware database | unit |
-| 040 | Docker in a node VM listens on its local socket only and sets up no iptables rules | unit |
-| 041 | containerd in a node VM runs without the CRI plugins, on its usual socket | unit |
-| 042 | A node VM mounts its root filesystem without zeroing its inode tables, so its disk holds only what it writes | unit |
-| 044 | A node VM's container is created in the VM's network namespace, with no Docker network, the lab's name servers and domain, its hostname resolving, its mounts, privileges and command, Docker's `unless-stopped` restart policy and no image pull | unit |
-| 045 | A node VM's management NIC is given the node's IPv4 address, and its IPv6 address when the node and the lab's network have one, each with the network's prefix length and its gateway, as Docker gives a container on the network | unit |
+| 039 | A sandbox's first boot does not rebuild the library cache or the hardware database | unit |
+| 040 | Docker in a sandbox listens on its local socket only and sets up no iptables rules | unit |
+| 041 | containerd in a sandbox runs without the CRI plugins, on its usual socket | unit |
+| 042 | A sandbox mounts its root filesystem without zeroing its inode tables, so its disk holds only what it writes | unit |
+| 044 | A sandbox's container is created in the VM's network namespace, with no Docker network, the lab's name servers and domain, its hostname resolving, its mounts, privileges and command, Docker's `unless-stopped` restart policy and no image pull | unit |
+| 045 | A sandbox's management NIC is given the node's IPv4 address, and its IPv6 address when the node and the lab's network have one, each with the network's prefix length and its gateway, as Docker gives a container on the network | unit |
 | 046 | Before Docker starts, the guest is given the management addresses and a default route through each gateway on `eth0` | unit |
-| 047 | A node in a node VM answers SSH on its management IPv4 and IPv6 addresses with ZTP on, with ZTP off, and with a config of its own that sets no management address, after up, resume and redeploy (no test yet) | e2e |
-| 048 | The node VM has its serial console on the node's console socket and its status channel on its status socket | unit |
+| 047 | A node in a sandbox answers SSH on its management IPv4 and IPv6 addresses with ZTP on, with ZTP off, and with a config of its own that sets no management address, after up, resume and redeploy (no test yet) | e2e |
+| 048 | The sandbox has its serial console on the node's console socket and its status channel on its status socket | unit |
 | 049 | A unit starts the container after Docker and the interface naming, from the arguments sherpad rendered | unit |
-| 050 | The node VM mounts its config drive, and lists its writable volumes to copy off it into the container | unit |
+| 050 | The sandbox mounts its config drive, and lists its writable volumes to copy off it into the container | unit |
 | 051 | Both VMs report their status, and the store VM loads its image archive | unit |
 | 052 | The config drive holds the Ignition config and each volume's file or folder, and a missing volume source fails it | unit |
 | 053 | A failure the VM reports fails it with the reason, and a status other than the one awaited fails it | unit |
 | 054 | The update installs `bzip2` when `bunzip2` is missing, and nothing otherwise | unit (bats) |
-| 055 | A node VM whose container cannot be started is failed by `up` with the reason the VM reports, well before the readiness wait ends | integration |
+| 055 | A sandbox whose container cannot be started is failed by `up` with the reason the VM reports, well before the readiness wait ends | integration |
 | 056 | A data interface on a private bridge is a bridge interface of the domain, so libvirt puts its tap on the bridge at every start | unit |
 | 057 | A first boot whose copy of the writable volumes into the container fails removes the container, starts nothing and reports why | unit |
 | 058 | A container that a first boot left without its writable volumes is removed and created again with them at the next boot | unit |
@@ -117,11 +117,11 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 060 | A status line longer than 4 KiB fails the VM once that much has arrived, without reading the rest | unit |
 | 061 | More than 64 KiB of lines that are no status fails the VM | unit |
 | 062 | A failure's reason has its control characters dropped and is cut to 512 characters | unit |
-| 063 | A started node VM is defined without `flatcar.first_boot` for its later boots, whether or not its status is ever read | integration |
-| 064 | Up reads a node VM's status as it polls, with no task of its own: a status sent is seen at a later poll, none yet is no status, and a closed channel fails the node | unit |
+| 063 | A started sandbox is defined without `flatcar.first_boot` for its later boots, whether or not its status is ever read | integration |
+| 064 | Up reads a sandbox's status as it polls, with no task of its own: a status sent is seen at a later poll, none yet is no status, and a closed channel fails the node | unit |
 | 065 | A store build's VM disk, config drive, image archive and partial store are the build's, a store is not, and the build's status socket is in no lab's folder | unit |
 | 066 | At its start sherpad removes what an unfinished store build left (the store VM, its volumes, staging folder and status socket) and keeps the stores | integration |
-| 067 | A node VM on a private bridge has its taps on the bridge again after down and resume | integration |
+| 067 | A sandbox on a private bridge has its taps on the bridge again after down and resume | integration |
 
 ## `node_ready`: a node is running only once its ready check passes
 

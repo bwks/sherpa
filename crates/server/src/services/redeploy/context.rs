@@ -22,8 +22,8 @@ use crate::services::image_lifecycle::{
 use crate::services::lab_definition;
 use crate::services::lab_info;
 use crate::services::lab_operations::LabOperation;
-use crate::services::node_vm;
 use crate::services::progress::ProgressSender;
+use crate::services::sandbox;
 use crate::services::talos;
 use crate::services::up::process_manifest_nodes;
 use crate::tls::lab_ca::{self, LabCa};
@@ -381,7 +381,7 @@ async fn load_node(
             .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
 
     let model_kind = node_image.model_kind()?;
-    node_vm::require_base_image(&state.config.images_dir, &[model_kind])?;
+    sandbox::require_base_image(&state.config.images_dir, &[model_kind])?;
     let image_guard = lease_image(model_kind, &node_image.version).await;
     if node_image.kind() == data::NodeKind::Container {
         let repo = validate_container_repo(

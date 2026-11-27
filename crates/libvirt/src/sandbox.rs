@@ -1,4 +1,4 @@
-//! Node VM domains: the kernel command line of a defined domain, and waiting for one to stop.
+//! Sandbox domains: the kernel command line of a defined domain, and waiting for one to stop.
 
 use std::io;
 use std::thread;
@@ -84,7 +84,7 @@ fn write_cmdline(writer: &mut Writer<Vec<u8>>, cmdline: &str, close: bool) -> io
 /// Fails when libvirt cannot find the domain, read its XML or define it again, or the XML has
 /// no kernel command line.
 #[instrument(level = "debug", skip(conn))]
-pub fn set_node_vm_cmdline(conn: &Connect, name: &str, cmdline: &str) -> Result<()> {
+pub fn set_sandbox_cmdline(conn: &Connect, name: &str, cmdline: &str) -> Result<()> {
     let domain = Domain::lookup_by_name(conn, name)
         .with_context(|| format!("Cannot look up domain {name}"))?;
     let xml = domain
@@ -131,7 +131,7 @@ mod tests {
         <devices><disk/></devices></domain>";
 
     #[test]
-    fn node_vm_032_the_kernel_command_line_is_replaced_and_the_rest_is_kept() {
+    fn sandbox_032_the_kernel_command_line_is_replaced_and_the_rest_is_kept() {
         let replaced = with_cmdline(DOMAIN, "root=LABEL=ROOT a&b").unwrap();
         assert_eq!(
             replaced,
