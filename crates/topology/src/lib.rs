@@ -22,7 +22,7 @@ pub use link::ManifestImpairment;
 pub use link::{Link2, LinkDetailed, LinkExpanded};
 pub use manifest::{Manifest, TailscaleConfig};
 pub use node::{
-    Node, NodeContainer, NodeExpanded, NodeReadyCheck, NodeUnikernel, NodeZtp, Sandbox,
+    Node, NodeContainer, NodeExpanded, NodeReadyCheck, NodeUnikernel, NodeVm, NodeZtp,
     StartupScript, SystemdUnit, SystemdUnitData, TextFile, TextFileData, VolumeMount,
 };
 pub use provisioner::{

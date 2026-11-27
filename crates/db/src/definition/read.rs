@@ -9,7 +9,7 @@ use turso::{Connection, Row};
 use shared::data::{CpuTopology, NodeKind, NodeModel, RecordId};
 use topology::{
     Bridge, ContainerProvisioner, ContainerSecretFile, Link2, Manifest, ManifestImpairment, Node,
-    NodeContainer, NodeUnikernel, Provisioner, ProvisionerFile, Sandbox, SshProvisioner,
+    NodeContainer, NodeUnikernel, NodeVm, Provisioner, ProvisionerFile, SshProvisioner,
     SystemdUnit, TailscaleConfig, TalosCluster, TextFile, VolumeMount,
 };
 
@@ -209,7 +209,7 @@ fn node_row(row: &Row) -> Result<NodeRow> {
     node.ready_check.skip = cells.optional_boolean("manifest_skip_ready_check")?;
     node.vm = cells
         .optional_enumeration("vm_watchdog")?
-        .map(|watchdog| Sandbox {
+        .map(|watchdog| NodeVm {
             watchdog: Some(watchdog),
         });
     let container = NodeContainer {
