@@ -18,7 +18,7 @@ use shared::data::{Dns, ModelKind, SherpaNetwork};
 use shared::konst::SHERPA_STORAGE_POOL_PATH;
 use template::{SandboxDomainTemplate, SandboxGuest, SandboxManagement};
 
-use super::base::{base_image, base_kernel, kernel_cmdline, kernel_usr_hash, require_base_image};
+use super::base::SandboxBase;
 use super::guest::{
     console_command, guest_create_args, guest_nics, guest_volumes, management_addresses,
     write_config_drive,
@@ -28,6 +28,7 @@ use super::store::ensure_docker_store;
 use crate::daemon::docker_stores::DockerStoreLocks;
 use crate::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
 use crate::services::console;
+use crate::services::error::ServiceError;
 use crate::services::node_resources::domain_name;
 use crate::services::p2p_links::ContainerVeth;
 use crate::services::progress::ProgressSender;
@@ -37,13 +38,13 @@ pub(crate) const SANDBOX_MEMORY_OVERHEAD_MIB: u16 = 1024;
 /// The folder in the node's lab folder its config drive is staged in.
 const CONFIG_DRIVE_STAGE: &str = "config-drive";
 
-/// What sandboxes are made with: the server's Docker and libvirt, the images folder, the Docker
-/// store locks, and the operation's progress.
+/// What sandboxes are made with: the server's Docker and libvirt, the base image when the
+/// operation has a sandbox, the Docker store locks, and the operation's progress.
 #[derive(Clone)]
 pub(crate) struct SandboxHost {
     pub(crate) docker: Arc<Docker>,
     pub(crate) qemu: Arc<Qemu>,
-    pub(crate) images_dir: String,
+    pub(crate) base: Option<SandboxBase>,
     pub(crate) store_locks: DockerStoreLocks,
     pub(crate) progress: ProgressSender,
 }
@@ -97,9 +98,11 @@ pub(crate) async fn create_sandbox(
     host: &SandboxHost,
     create: SandboxCreate,
 ) -> Result<StatusWatch> {
-    require_base_image(&host.images_dir, &[create.model_kind])?;
-    let usr_hash = kernel_usr_hash(&host.images_dir)?;
-    let store = ensure_docker_store(host, &create.spec.image).await?;
+    let base = host
+        .base
+        .as_ref()
+        .ok_or(ServiceError::SandboxBaseImageMissing)?;
+    let store = ensure_docker_store(host, base, &create.spec.image).await?;
     let device = domain_name(&create.node_name, &create.lab_id);
     let nics = guest_nics(create.model_kind, &create.veths)?;
     let volumes = guest_volumes(&create.spec.volumes);
@@ -129,8 +132,6 @@ pub(crate) async fn create_sandbox(
         name: device.clone(),
         memory_mib: create.memory_mib,
         vcpus: create.vcpus,
-        kernel: base_kernel(&host.images_dir),
-        cmdline: kernel_cmdline(&usr_hash, true),
         disk: format!("{SHERPA_STORAGE_POOL_PATH}/{}", disk_name(&device)),
         docker_disk: format!("{SHERPA_STORAGE_POOL_PATH}/{}", docker_disk_name(&device)),
         image_archive: None,
@@ -145,7 +146,7 @@ pub(crate) async fn create_sandbox(
     };
     let disks = vec![
         DomainDisk::Overlay {
-            base: base_image(&host.images_dir),
+            base: base.disk.clone(),
             path: domain.disk.clone(),
         },
         DomainDisk::Overlay {
@@ -153,23 +154,21 @@ pub(crate) async fn create_sandbox(
             path: domain.docker_disk.clone(),
         },
     ];
-    start_domain(&host.qemu, domain, disks, kernel_cmdline(&usr_hash, false)).await?;
+    start_domain(&host.qemu, domain, disks).await?;
     StatusWatch::connect(&status_socket, &device).await
 }
 
-/// Make `disks`, define and start `domain`, and define it again with `next_cmdline` for its
-/// later boots, so only the boot it starts now runs Ignition.
+/// Make `disks`, and define and start `domain`.
 ///
 /// # Errors
 ///
 /// Fails when the domain XML cannot be rendered, a disk cannot be made, or libvirt cannot
-/// define, start or redefine the domain.
+/// define or start the domain.
 #[instrument(skip_all, fields(name = %domain.name), level = "debug")]
 pub(super) async fn start_domain(
     qemu: &Arc<Qemu>,
     domain: SandboxDomainTemplate,
     disks: Vec<DomainDisk>,
-    next_cmdline: String,
 ) -> Result<()> {
     let xml = domain
         .render()
@@ -188,7 +187,7 @@ pub(super) async fn start_domain(
             }
         }
         libvirt::create_vm(&conn, &xml)?;
-        libvirt::set_sandbox_cmdline(&conn, &domain.name, &next_cmdline)
+        Ok(())
     })
     .await
     .context("The sandbox start panicked")?
@@ -202,18 +201,17 @@ mod tests {
     use tempfile::TempDir;
     use tokio::sync::mpsc;
     use tokio::time;
-    use virt::domain::Domain;
     use virt::network::Network;
-    use virt::sys::VIR_DOMAIN_XML_INACTIVE;
 
     use shared::data::{ContainerNetworkAttachment, NetworkV4, NodeKind, NodeModel};
-    use shared::konst::SHERPA_IMAGES_PATH;
+    use shared::konst::{SHERPA_IMAGES_PATH, VM_DISK_FILENAME};
     use shared::util::default_dns;
 
     use super::*;
     use std::fs;
 
     use crate::konst::{SHERPA_CONSOLE_DIR, SHERPA_SANDBOX_RUN_DIR};
+    use crate::services::image_lifecycle::lease_image;
     use crate::services::node_ops;
 
     /// A lab's management network `198.18.250.0/24`, removed when dropped.
@@ -267,6 +265,27 @@ mod tests {
         }
     }
 
+    /// The base image of the installed server: the latest `flatcar_sandbox` version in its
+    /// images folder.
+    async fn installed_base() -> SandboxBase {
+        let dir = Path::new(SHERPA_IMAGES_PATH).join(NodeModel::FlatcarSandbox.to_string());
+        let version = fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .max()
+            .unwrap();
+        let model_kind = ModelKind::default_for(NodeModel::FlatcarSandbox);
+        SandboxBase {
+            disk: dir
+                .join(&version)
+                .join(VM_DISK_FILENAME)
+                .to_str()
+                .unwrap()
+                .to_owned(),
+            _lease: lease_image(model_kind, &version).await,
+        }
+    }
+
     /// A sandbox of a `sonic_linux` node on `busybox:1.37` in lab `lab_id`, with the lab's
     /// management network and console folder, all removed when dropped.
     struct TestSandbox {
@@ -297,7 +316,7 @@ mod tests {
             let host = SandboxHost {
                 docker: Arc::new(Docker::connect_with_local_defaults().unwrap()),
                 qemu: Arc::clone(&self.qemu),
-                images_dir: SHERPA_IMAGES_PATH.to_owned(),
+                base: Some(installed_base().await),
                 store_locks: DockerStoreLocks::default(),
                 progress: ProgressSender::new(mpsc::unbounded_channel().0),
             };
@@ -345,13 +364,6 @@ mod tests {
             .await
         }
 
-        fn domain_xml(&self, flags: u32) -> String {
-            Domain::lookup_by_name(&self.qemu.connect().unwrap(), &self.domain())
-                .unwrap()
-                .get_xml_desc(flags)
-                .unwrap()
-        }
-
         fn lab_volumes(&self) -> Vec<String> {
             libvirt::list_lab_volumes(&self.qemu.connect().unwrap(), self.lab_id).unwrap()
         }
@@ -371,7 +383,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires libvirt, sherpa-pool, Docker with busybox:1.37 and the sandbox base image; run as root"]
+    #[ignore = "Requires libvirt, sherpa-pool, Docker with busybox:1.37 and a flatcar_sandbox image; run as root"]
     async fn sandbox_019_a_sandbox_boots_on_its_store_and_its_unit_starts_the_container() {
         let vm = TestSandbox::new("nvtest19");
         let mut watch = vm.create().await.unwrap();
@@ -389,18 +401,5 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(vm.lab_volumes(), Vec::<String>::new());
-    }
-
-    #[tokio::test]
-    #[ignore = "Requires libvirt, sherpa-pool, Docker with busybox:1.37 and the sandbox base image; run as root"]
-    async fn sandbox_063_a_started_sandbox_is_defined_for_later_boots_without_ignition_whether_or_not_its_status_is_read()
-     {
-        let vm = TestSandbox::new("nvtest63");
-        let watch = vm.create().await.unwrap();
-        drop(watch);
-        assert!(vm.domain_xml(0).contains("flatcar.first_boot=detected"));
-        let inactive = vm.domain_xml(VIR_DOMAIN_XML_INACTIVE);
-        assert!(inactive.contains("<cmdline>"), "{inactive}");
-        assert!(!inactive.contains("flatcar.first_boot"), "{inactive}");
     }
 }

@@ -14,6 +14,7 @@ use crate::services::image_lifecycle::{
     ImageLease, check_container_image, lease_image, validate_disk_method,
 };
 use crate::services::progress::ProgressSender;
+use crate::services::sandbox::{self, SandboxBase};
 use crate::validate::{validate_and_resolve_node_versions, validate_node_ztp};
 
 use shared::data;
@@ -37,6 +38,7 @@ pub(super) struct LabPlan {
     pub(super) nodes_expanded: Vec<topology::NodeExpanded>,
     pub(super) selected_images: Vec<data::NodeConfig>,
     pub(super) image_guards: Vec<ImageLease>,
+    pub(super) sandbox_base: Option<SandboxBase>,
     pub(super) container_image_guards: Vec<ImageLease>,
     pub(super) owner_account: GuestAccount,
     pub(super) ssh_usernames: Vec<NodeSshUsername>,
@@ -105,6 +107,11 @@ pub(super) async fn plan_lab(
         image_guards,
         container_image_guards,
     } = lease_images(db, &nodes_expanded, &node_images).await?;
+    let model_kinds = selected_images
+        .iter()
+        .map(data::NodeConfig::model_kind)
+        .collect::<Result<Vec<_>>>()?;
+    let sandbox_base = sandbox::sandbox_base(db, &config.images_dir, &model_kinds).await?;
     for node in &nodes_expanded {
         let image = get_node_image(node.model_kind, node.version.as_deref(), &node_images)?;
         validate_disk_method(
@@ -151,6 +158,7 @@ pub(super) async fn plan_lab(
         nodes_expanded,
         selected_images,
         image_guards,
+        sandbox_base,
         container_image_guards,
         owner_account,
         ssh_usernames,

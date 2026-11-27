@@ -63,7 +63,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | The sandbox boots the base image's kernel with its command line, on its overlay disk and its Docker store overlay, with its config drive read-only | unit |
+| 001 | The sandbox boots its overlay disk on the base image through the image's own bootloader, with its Docker store overlay and its config drive read-only | unit |
 | 002 | Each data interface on a link or bridge is a tap named like its link end, and the management NIC is on the lab's management network | unit |
 | 005 | Values in the domain XML are escaped | unit |
 | 008 | Updates, update reboots, SSH and console logins are off in the sandbox and the Docker store VM | unit |
@@ -73,7 +73,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 013 | The console runs each model's CLI | unit |
 | 016 | A sandbox gets its container's memory, the manifest's or the image's, with 1024 MB on top, and its vCPUs | unit |
 | 017 | The containers of the three models run in sandboxes and are handled as VMs; other containers stay Docker's | unit |
-| 018 | A lab with a sandbox is refused before anything is created when the base image or its kernel is missing | unit |
+| 018 | A lab with a sandbox is refused before anything is created when the server has no default `flatcar_sandbox` image, saying how to import one, or when its disk is missing; a sandbox boots the default image's disk | unit |
 | 019 | A sandbox boots on its image's Docker store, which a store VM makes from the image's archive, its unit starts the container and reports it started, and removing it leaves no domain or volume | integration |
 | 020 | The three models come up in sandboxes and answer SSH with the owner's keys (no test yet) | e2e |
 | 021 | A P2p link between two sandboxes, and between a sandbox and a VM, passes traffic both ways (no test yet) | e2e |
@@ -87,9 +87,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 029 | SR Linux's management address answers after up, after down and resume, and after a redeploy (no test yet) | e2e |
 | 030 | A Docker store is named by the image's ID, and an ID that is not a SHA-256 gets none | unit |
 | 031 | The VM that makes a Docker store has no NICs and no console, and its image archive is a read-only disk | unit |
-| 032 | The kernel command line of a domain is replaced and the rest of its XML kept; XML without one is refused | unit |
-| 033 | The `/usr` hash is read from the kernel's header, and a header without one is refused | unit |
-| 034 | A sandbox boots without a kernel console, and runs Ignition on its first boot only | unit |
+| 032 | Retired: sandboxes boot through Flatcar's bootloader, and sherpad sets no kernel command line | — |
+| 033 | Retired: sandboxes boot through Flatcar's bootloader, and sherpad reads no kernel | — |
+| 034 | Retired: Flatcar's bootloader sets the kernel console, and Flatcar runs Ignition on the first boot only | — |
 | 035 | Each data interface on no link is listed with its fixed MAC, for the guest to make a veth whose peer is down in a namespace of its own | unit |
 | 036 | Docker keeps its data on the Docker store disk, which the store's VM formats and a sandbox mounts | unit |
 | 037 | Destroy takes a sandbox's Docker disk and never a Docker store | unit |
@@ -97,7 +97,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 039 | A sandbox's first boot does not rebuild the library cache or the hardware database | unit |
 | 040 | Docker in a sandbox listens on its local socket only and sets up no iptables rules | unit |
 | 041 | containerd in a sandbox runs without the CRI plugins, on its usual socket | unit |
-| 042 | A sandbox mounts its root filesystem without zeroing its inode tables, so its disk holds only what it writes | unit |
+| 042 | Retired: Flatcar's bootloader sets the root filesystem's mount options | — |
 | 044 | A sandbox's container is created in the VM's network namespace, with no Docker network, the lab's name servers and domain, its hostname resolving, its mounts, privileges and command, Docker's `unless-stopped` restart policy and no image pull | unit |
 | 045 | A sandbox's management NIC is given the node's IPv4 address, and its IPv6 address when the node and the lab's network have one, each with the network's prefix length and its gateway, as Docker gives a container on the network | unit |
 | 046 | Before Docker starts, the guest is given the management addresses and a default route through each gateway on `eth0` | unit |
@@ -117,7 +117,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 060 | A status line longer than 4 KiB fails the VM once that much has arrived, without reading the rest | unit |
 | 061 | More than 64 KiB of lines that are no status fails the VM | unit |
 | 062 | A failure's reason has its control characters dropped and is cut to 512 characters | unit |
-| 063 | A started sandbox is defined without `flatcar.first_boot` for its later boots, whether or not its status is ever read | integration |
+| 063 | Retired: Flatcar runs Ignition on the first boot only, and sherpad never defines a sandbox's domain again | — |
 | 064 | Up reads a sandbox's status as it polls, with no task of its own: a status sent is seen at a later poll, none yet is no status, and a closed channel fails the node | unit |
 | 065 | A store build's VM disk, config drive, image archive and partial store are the build's, a store is not, and the build's status socket is in no lab's folder | unit |
 | 066 | At its start sherpad removes what an unfinished store build left (the store VM, its volumes, staging folder and status socket) and keeps the stores | integration |

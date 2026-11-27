@@ -21,9 +21,8 @@ flowchart LR
   subgraph host[Sherpa server]
     S[sherpad] -->|libvirt: domain, overlays, config drive| L[libvirtd]
     D[(server Docker: node image)] -->|docker save, once per image| ST[(flatcar-docker-ID.qcow2, the image's Docker store)]
-    B[(sandbox/flatcar-VERSION.qcow2, read-only base)] --> O[(NODE-LAB-hdd.qcow2 overlay)]
+    B[(flatcar_sandbox/VERSION/virtioa.qcow2, read-only base)] --> O[(NODE-LAB-hdd.qcow2 overlay)]
     ST --> OD[(NODE-LAB-docker.qcow2 overlay)]
-    K[(sandbox/flatcar-VERSION.vmlinuz)] -->|direct kernel boot| V
     T1[tap tpaN-LAB] <-->|eBPF redirect, netem| T2[tap of the peer node]
     M[brm-LAB bridge, lab management network]
     SOCK[/console folder: NODE-INDEX.serial, NODE-INDEX.status/]
@@ -45,31 +44,31 @@ flowchart LR
 
 ## Base image
 
-- Flatcar stable, the OpenStack image (`flatcar_production_openstack_image.img.bz2`), whose
-  Ignition reads its config from a config drive, and its kernel,
-  `flatcar_production_image.vmlinuz`, which sandboxes boot directly.
-- The release is `FLATCAR_SANDBOX_VERSION` in `crates/server/src/services/sandbox/base.rs`, and
-  the two files are `/opt/sherpa/images/sandbox/flatcar-VERSION.qcow2` and
-  `flatcar-VERSION.vmlinuz`.
-- `up` and `redeploy` refuse a lab with a sandbox before creating anything when either file is
-  missing (`ServiceError::SandboxBaseImageMissing`).
+- The base image is a node model of its own, `flatcar_sandbox`: Flatcar stable's OpenStack
+  image (`flatcar_production_openstack_image.img.bz2`, unpacked with `bunzip2`), whose Ignition
+  reads its config from a config drive. The user imports it as any VM image, with
+  `sherpa server image import --model flatcar_sandbox`, and sandboxes boot the default version,
+  `IMAGES/flatcar_sandbox/VERSION/virtioa.qcow2`. The install and update scripts install
+  `bzip2` for the unpacking and download no image.
+- `flatcar_sandbox` is no node model: a manifest node of it is refused
+  (`TopologyError::SandboxBaseModel`), pointing to `flatcar_linux` for a Flatcar VM.
+- `up` and `redeploy` look the image up while they plan (`base::sandbox_base`), before creating
+  anything, and refuse a lab with a sandbox when there is no default `flatcar_sandbox` image
+  (`ServiceError::SandboxBaseImageMissing`, which says how to import one) or its disk is missing
+  (`ServiceError::SandboxBaseDiskMissing`). The image is leased, as a node's image is, until the
+  sandboxes' disks exist; from then on their overlays keep it from being deleted.
 
 ## Boot
 
-The domain boots the kernel directly (`<os><kernel>`, `<cmdline>`), with the command line
-Flatcar's GRUB builds (`base::kernel_cmdline`):
+The domain boots its disk as the `flatcar_linux` VM does: a q35 machine with SeaBIOS, which
+starts Flatcar's GRUB from the overlay, and GRUB builds the kernel command line. On the first
+boot GRUB finds the first-boot flag in the image's EFI partition, and Ignition runs once and
+clears it, so a later boot (`resume`) does not run Ignition again. sherpad defines the domain
+once and never changes it.
 
-- `verity.usrhash` is read from the kernel's header, 64 hex digits at offset 64, and `/usr` is
-  the first `/usr` partition, which updates never change.
-- No `console=`: the serial console is the network OS's, and printing the kernel's messages
-  there is slow.
-- `rootflags=rw,noinit_itable`: ext4 does not zero the root filesystem's inode tables into the
-  node's overlay.
-- `flatcar.first_boot=detected` on the first boot only, so Ignition runs once. Right after it has
-  started the domain, in the same libvirt call as the start (`create::start_domain`), sherpad
-  defines it again without it (`libvirt::set_sandbox_cmdline`); the running VM keeps the command
-  line it booted with. Nothing redefines a domain later, so a teardown that removes it at any
-  point is final.
+GRUB gives the kernel `console=ttyS0`, the network OS's serial console. The kernel prints its
+boot messages there, before the network OS's console starts, and from then on only errors, at
+Flatcar's console log level 4.
 
 ## Config drive
 
@@ -168,7 +167,8 @@ Docker data has the image loaded, which every sandbox of the image boots an over
 - **Swept.** A build sherpad stopped during, or whose operation was dropped, leaves its VM and
   files. At its start, before it takes requests, sherpad removes every `sherpa-flatcar-docker-*`
   domain, every pool volume a build makes (the VM's disk and config drive, `flatcar-docker-*.tar`
-  and `flatcar-docker-*.qcow2.part`), the staging folders and the store status sockets
+  and `flatcar-docker-*.qcow2.part`), and the staging folders of their config drives and the
+  store status sockets in `/opt/sherpa/run/sandbox`
   (`store::remove_unfinished_store_builds`); stores are kept.
 - **Used.** A sandbox's Docker disk is `NODE-LAB-docker.qcow2`, a qcow2 overlay on the store,
   mounted at `/var/lib/docker` with `noinit_itable`.
@@ -188,7 +188,7 @@ The two overlays hold everything the node writes, so a saved config survives `do
 `resume`. Redeploy and destroy delete them.
 
 The domain is `template::SandboxDomainTemplate` (`templates/libvirt/sandbox_domain.jinja`): q35,
-`host-passthrough` CPU, no video and no balloon; the base image's kernel and its command line;
+`host-passthrough` CPU, no video and no balloon; SeaBIOS booting the first disk;
 the two overlays on virtio; the config drive on SATA; the management NIC on the lab's management
 network; one virtio NIC per data interface on a link or bridge, its tap named like the node's
 link end; a virtio RNG; the status channel; and the serial console on the node's console socket.

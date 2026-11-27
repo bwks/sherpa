@@ -5,8 +5,8 @@
 
   <os>
     <type arch='x86_64' machine='q35'>hvm</type>
-    <kernel>{{ kernel }}</kernel>
-    <cmdline>{{ cmdline }}</cmdline>
+    <bootmenu enable='no'/>
+    <boot dev='hd'/>
   </os>
 
   <features>

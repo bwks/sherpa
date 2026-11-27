@@ -9,7 +9,7 @@ mod guest;
 mod status;
 mod store;
 
-pub(crate) use base::require_base_image;
+pub(crate) use base::{SandboxBase, sandbox_base};
 pub(crate) use create::{SANDBOX_MEMORY_OVERHEAD_MIB, SandboxCreate, SandboxHost, create_sandbox};
 pub(crate) use status::StatusWatch;
 pub(crate) use store::remove_unfinished_store_builds;

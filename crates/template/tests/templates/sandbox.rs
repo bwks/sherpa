@@ -255,8 +255,6 @@ fn domain() -> SandboxDomainTemplate {
         name: "ceos1-abc12345".to_owned(),
         memory_mib: 6144,
         vcpus: 2,
-        kernel: "/opt/sherpa/images/sandbox/flatcar-1.2.3.vmlinuz".to_owned(),
-        cmdline: "root=LABEL=ROOT flatcar.first_boot=detected".to_owned(),
         disk: "/opt/sherpa/libvirt/images/ceos1-abc12345-hdd.qcow2".to_owned(),
         docker_disk: "/opt/sherpa/libvirt/images/ceos1-abc12345-docker.qcow2".to_owned(),
         image_archive: None,
@@ -297,14 +295,13 @@ fn compact(xml: &str) -> String {
 // ============================================================================
 
 #[test]
-fn sandbox_001_the_domain_boots_its_kernel_with_its_disks_and_the_ignition_config_disk() {
+fn sandbox_001_the_domain_boots_its_disk_with_its_docker_disk_and_the_ignition_config_disk() {
     let xml = compact(&domain().render().unwrap());
     assert!(xml.contains(
-        "<kernel>/opt/sherpa/images/sandbox/flatcar-1.2.3.vmlinuz</kernel>\
-         <cmdline>root=LABEL=ROOT flatcar.first_boot=detected</cmdline>"
+        "<type arch='x86_64' machine='q35'>hvm</type><bootmenu enable='no'/><boot dev='hd'/></os>"
     ));
-    assert!(!xml.contains("<boot "));
-    assert!(xml.contains("machine='q35'"));
+    assert!(!xml.contains("<kernel>"));
+    assert!(!xml.contains("<loader"));
     assert!(xml.contains(
         "<source file='/opt/sherpa/libvirt/images/ceos1-abc12345-hdd.qcow2'/>\
          <target dev='vda' bus='virtio'/>"

@@ -23,7 +23,7 @@ use crate::services::lab_definition;
 use crate::services::lab_info;
 use crate::services::lab_operations::LabOperation;
 use crate::services::progress::ProgressSender;
-use crate::services::sandbox;
+use crate::services::sandbox::{self, SandboxBase};
 use crate::services::talos;
 use crate::services::up::process_manifest_nodes;
 use crate::tls::lab_ca::{self, LabCa};
@@ -72,6 +72,7 @@ pub(super) struct Redeploy<'a> {
     pub(super) owner_account: GuestAccount,
     pub(super) secrets: Option<Vec<data::SecretFile>>,
     pub(super) image_guard: ImageLease,
+    pub(super) sandbox_base: Option<SandboxBase>,
     pub(super) admission: Admission,
 }
 
@@ -100,6 +101,7 @@ struct LoadedNode {
     node_image: data::NodeConfig,
     data_interface_count: u8,
     image_guard: ImageLease,
+    sandbox_base: Option<SandboxBase>,
 }
 
 /// The lab's directory, details, management network, DNS and CA.
@@ -151,6 +153,7 @@ pub(super) async fn load_redeploy<'a>(
         node_image,
         data_interface_count,
         image_guard,
+        sandbox_base,
     } = load_node(
         state,
         &lab_record_id,
@@ -220,6 +223,7 @@ pub(super) async fn load_redeploy<'a>(
         secrets,
         definition,
         image_guard,
+        sandbox_base,
         admission: admitted,
         lab_id,
         node_name,
@@ -381,7 +385,8 @@ async fn load_node(
             .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
 
     let model_kind = node_image.model_kind()?;
-    sandbox::require_base_image(&state.config.images_dir, &[model_kind])?;
+    let sandbox_base =
+        sandbox::sandbox_base(&state.db, &state.config.images_dir, &[model_kind]).await?;
     let image_guard = lease_image(model_kind, &node_image.version).await;
     if node_image.kind() == data::NodeKind::Container {
         let repo = validate_container_repo(
@@ -413,6 +418,7 @@ async fn load_node(
         node_image,
         data_interface_count,
         image_guard,
+        sandbox_base,
     })
 }
 

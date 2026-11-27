@@ -210,12 +210,9 @@ fn init_meter_provider(otel_config: &OtelConfig) -> Result<SdkMeterProvider> {
 /// failure: unfinished sandbox Docker store builds, and consoles of stopped nodes still on TCP.
 async fn remove_stale_host_state(state: &AppState) {
     // Nothing builds a sandbox Docker store yet: remove what builds sherpad stopped during left.
-    if let Err(error) = sandbox::remove_unfinished_store_builds(
-        &state.qemu,
-        &state.config.images_dir,
-        Path::new(SHERPA_SANDBOX_RUN_DIR),
-    )
-    .await
+    if let Err(error) =
+        sandbox::remove_unfinished_store_builds(&state.qemu, Path::new(SHERPA_SANDBOX_RUN_DIR))
+            .await
     {
         tracing::warn!(
             error = %format!("{error:#}"),

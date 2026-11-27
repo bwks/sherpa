@@ -238,11 +238,21 @@ pub enum ServiceError {
     )]
     NodeImageNotFound { node: String, model_kind: ModelKind },
 
-    #[error("Sandbox base image {} is missing", path.display())]
-    SandboxBaseImageMissing { path: PathBuf },
+    #[error(
+        "The arista_eos container, nokia_srlinux and the sonic_linux container run in a sandbox, \
+         which boots the flatcar_sandbox image, and the server has none. Download \
+         flatcar_production_openstack_image.img.bz2 from Flatcar's stable channel, unpack it with \
+         bunzip2 and import it with 'sherpa server image import --src \
+         flatcar_production_openstack_image.img --model flatcar_sandbox --version <version> \
+         --default'"
+    )]
+    SandboxBaseImageMissing,
 
-    #[error("The sandbox kernel {} has no /usr hash", path.display())]
-    SandboxKernelNoUsrHash { path: PathBuf },
+    #[error(
+        "The flatcar_sandbox image {version} has no disk at {}; import it again",
+        path.display()
+    )]
+    SandboxBaseDiskMissing { version: String, path: PathBuf },
 
     #[error("Sandbox {name} failed: {reason}")]
     SandboxFailed { name: String, reason: String },
@@ -731,7 +741,8 @@ impl ServiceError {
         match self {
             Self::NotFound(_)
             | Self::NodeImageNotFound { .. }
-            | Self::SandboxBaseImageMissing { .. }
+            | Self::SandboxBaseImageMissing
+            | Self::SandboxBaseDiskMissing { .. }
             | Self::VersionNotFound { .. }
             | Self::DiskImageNotFound { .. }
             | Self::ImageVersionNotFound { .. }
@@ -818,7 +829,6 @@ impl ServiceError {
             | Self::GrpcStatus { .. }
             | Self::LinkEndGone { .. }
             | Self::TasksFailed { .. }
-            | Self::SandboxKernelNoUsrHash { .. }
             | Self::SandboxFailed { .. }
             | Self::SandboxStatusClosed { .. }
             | Self::SandboxStatusTooLong { .. }

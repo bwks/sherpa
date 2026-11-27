@@ -151,8 +151,6 @@ pub struct SandboxDomainTemplate {
     pub name: String,
     pub memory_mib: u64,
     pub vcpus: u8,
-    pub kernel: String,
-    pub cmdline: String,
     pub disk: String,
     pub docker_disk: String,
     pub image_archive: Option<String>,

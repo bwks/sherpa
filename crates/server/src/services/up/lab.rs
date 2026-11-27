@@ -36,7 +36,7 @@ use crate::services::lab_lifecycle;
 use crate::services::lab_operations::{self, LabHold, LabOperation, Operation, StopReason};
 use crate::services::node_ops::{self, ContainerSettings};
 use crate::services::progress::ProgressSender;
-use crate::services::sandbox::{self, SandboxHost, StatusWatch};
+use crate::services::sandbox::{SandboxHost, StatusWatch};
 use crate::services::ssh_config::{self, LabSshFiles};
 use crate::services::surreal_db;
 use crate::services::tailscale;
@@ -410,12 +410,6 @@ async fn plan_and_check(
     subnets: &LabSubnets,
 ) -> Result<LabPlan> {
     let plan = plan_lab(build, requester, manifest, owner_account, checked).await?;
-    let model_kinds = plan
-        .selected_images
-        .iter()
-        .map(data::NodeConfig::model_kind)
-        .collect::<Result<Vec<_>>>()?;
-    sandbox::require_base_image(&build.config.images_dir, &model_kinds)?;
     ensure_no_earlier_attempt(build.qemu_conn, build.lab_id, &plan.selected_images)?;
     check_existing_docker_management_network(build.docker_conn, build.lab_id, subnets).await?;
     Ok(plan)
@@ -724,7 +718,7 @@ impl LabUp<'_> {
                 host: SandboxHost {
                     docker: Arc::clone(self.build.docker_conn),
                     qemu: Arc::clone(self.build.qemu),
-                    images_dir: self.build.config.images_dir.clone(),
+                    base: self.plan.sandbox_base.clone(),
                     store_locks: self.build.docker_store_locks.clone(),
                     progress: self.build.progress.clone(),
                 },
@@ -742,6 +736,7 @@ impl LabUp<'_> {
         create_unikernels(&self.build, unikernel_domains).await?;
         // Every disk and domain exists; stop holding the disk images.
         self.plan.image_guards.clear();
+        self.plan.sandbox_base = None;
 
         // Now that libvirt has created the tap devices, attach eBPF redirect programs to wire
         // up P2p links between VMs. A link with a container end is attached once that

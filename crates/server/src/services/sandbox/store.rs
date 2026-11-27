@@ -21,7 +21,7 @@ use shared::data::StatusKind;
 use shared::konst::SHERPA_STORAGE_POOL_PATH;
 use template::{SandboxDomainTemplate, store_vm_ignition_json};
 
-use super::base::{SANDBOX_IMAGE_DIR, base_image, base_kernel, kernel_cmdline, kernel_usr_hash};
+use super::base::SandboxBase;
 use super::create::{DomainDisk, SandboxHost, start_domain};
 use super::guest::write_config_drive;
 use super::status::{Status, StatusWatch};
@@ -99,11 +99,9 @@ impl Store {
         format!("{}.iso", self.vm())
     }
 
-    /// The folder in `images_dir` the VM's config drive is staged in.
-    fn vm_stage(&self, images_dir: &str) -> PathBuf {
-        Path::new(images_dir)
-            .join(SANDBOX_IMAGE_DIR)
-            .join(format!(".{}", self.vm()))
+    /// The folder in run folder `run_dir` the VM's config drive is staged in.
+    fn vm_stage(&self, run_dir: &Path) -> PathBuf {
+        run_dir.join(format!(".{}", self.vm()))
     }
 
     /// The VM's status socket.
@@ -131,8 +129,12 @@ fn pool_path(volume: &str) -> String {
 /// # Errors
 ///
 /// Fails when the server's Docker does not have the image, or the store cannot be made.
-#[instrument(skip(host), level = "debug")]
-pub(super) async fn ensure_docker_store(host: &SandboxHost, image: &str) -> Result<String> {
+#[instrument(skip(host, base), level = "debug")]
+pub(super) async fn ensure_docker_store(
+    host: &SandboxHost,
+    base: &SandboxBase,
+    image: &str,
+) -> Result<String> {
     let id = host
         .docker
         .inspect_image(image)
@@ -163,7 +165,7 @@ pub(super) async fn ensure_docker_store(host: &SandboxHost, image: &str) -> Resu
         ),
         StatusKind::Progress,
     );
-    let made = make_store(host, image, &store).await;
+    let made = make_store(host, base, image, &store).await;
     if let Err(removal) = remove_store_vm(host, &store, made.is_err()).await {
         tracing::warn!(store = %store.volume(), error = %removal, "Cannot remove the VM that made a Docker store");
     }
@@ -179,7 +181,12 @@ pub(super) async fn ensure_docker_store(host: &SandboxHost, image: &str) -> Resu
 
 /// Make `store` of image `image`: write the image's archive, boot a Flatcar VM that loads it
 /// into an empty disk and powers off, and wait until it has.
-async fn make_store(host: &SandboxHost, image: &str, store: &Store) -> Result<()> {
+async fn make_store(
+    host: &SandboxHost,
+    base: &SandboxBase,
+    image: &str,
+    store: &Store,
+) -> Result<()> {
     remove_store_vm(host, store, true).await?;
     restrict_dir(
         Path::new(SHERPA_SANDBOX_RUN_DIR),
@@ -189,19 +196,16 @@ async fn make_store(host: &SandboxHost, image: &str, store: &Store) -> Result<()
     let archive = pool_path(&store.archive());
     write_image_archive(host, image, &archive).await?;
     let config_drive = write_config_drive(
-        &store.vm_stage(&host.images_dir),
+        &store.vm_stage(Path::new(SHERPA_SANDBOX_RUN_DIR)),
         &store.vm_config_drive(),
         &store_vm_ignition_json()?,
         &[],
     )?;
     let status_socket = store.status_socket();
-    let usr_hash = kernel_usr_hash(&host.images_dir)?;
     let domain = SandboxDomainTemplate {
         name: store.vm(),
         memory_mib: STORE_VM_MEMORY_MIB,
         vcpus: STORE_VM_VCPUS,
-        kernel: base_kernel(&host.images_dir),
-        cmdline: kernel_cmdline(&usr_hash, true),
         disk: pool_path(&store.vm_disk()),
         docker_disk: pool_path(&store.partial()),
         image_archive: Some(archive),
@@ -213,7 +217,7 @@ async fn make_store(host: &SandboxHost, image: &str, store: &Store) -> Result<()
     };
     let disks = vec![
         DomainDisk::Overlay {
-            base: base_image(&host.images_dir),
+            base: base.disk.clone(),
             path: domain.disk.clone(),
         },
         DomainDisk::Blank {
@@ -221,7 +225,7 @@ async fn make_store(host: &SandboxHost, image: &str, store: &Store) -> Result<()
             size_gb: STORE_DISK_GB,
         },
     ];
-    start_domain(&host.qemu, domain, disks, kernel_cmdline(&usr_hash, false)).await?;
+    start_domain(&host.qemu, domain, disks).await?;
     let vm = store.vm();
     let mut watch = StatusWatch::connect(&status_socket, &vm).await?;
     time::timeout(STORE_VM_LOAD, watch.next())
@@ -295,19 +299,15 @@ async fn remove_store_vm(host: &SandboxHost, store: &Store, delete_partial: bool
 }
 
 /// Remove what unfinished store builds left, run at sherpad's start before anything can build a
-/// store: each store VM, its disk and config drive, each image archive and partial store, each
-/// staging folder in `images_dir` and status socket in `run_dir`, but no store.
+/// store: each store VM, its disk and config drive, each image archive and partial store, and
+/// each staging folder and status socket in `run_dir`, but no store.
 ///
 /// # Errors
 ///
 /// Fails when libvirt cannot list or remove the domains or volumes, or a file cannot be
 /// removed.
 #[instrument(skip(qemu))]
-pub(crate) async fn remove_unfinished_store_builds(
-    qemu: &Arc<Qemu>,
-    images_dir: &str,
-    run_dir: &Path,
-) -> Result<()> {
+pub(crate) async fn remove_unfinished_store_builds(qemu: &Arc<Qemu>, run_dir: &Path) -> Result<()> {
     let qemu = Arc::clone(qemu);
     let removed = task::spawn_blocking(move || {
         let conn = qemu.connect()?;
@@ -329,12 +329,7 @@ pub(crate) async fn remove_unfinished_store_builds(
     .await
     .context("The Docker store build sweep panicked")??;
     let mut files = removed;
-    for dir in [
-        Path::new(images_dir).join(SANDBOX_IMAGE_DIR),
-        run_dir.to_owned(),
-    ] {
-        files.extend(remove_build_files(&dir)?);
-    }
+    files.extend(remove_build_files(run_dir)?);
     if !files.is_empty() {
         tracing::warn!(
             ?files,
@@ -439,16 +434,13 @@ mod tests {
             ),
         )
         .unwrap();
-        let images = TempDir::new().unwrap();
-        let stage = store.vm_stage(images.path().to_str().unwrap());
-        fs::create_dir_all(stage.join("openstack")).unwrap();
         let run = TempDir::new().unwrap();
+        let stage = store.vm_stage(run.path());
+        fs::create_dir_all(stage.join("openstack")).unwrap();
         let socket = run.path().join("store-5ee75ee75ee75ee7.status");
         fs::write(&socket, "").unwrap();
 
-        let swept =
-            remove_unfinished_store_builds(&qemu, images.path().to_str().unwrap(), run.path())
-                .await;
+        let swept = remove_unfinished_store_builds(&qemu, run.path()).await;
 
         let volumes = libvirt::list_pool_volumes(&conn).unwrap();
         let domains = libvirt::list_domain_names(&conn).unwrap();
