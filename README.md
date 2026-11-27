@@ -73,8 +73,8 @@ lint exceptions, `check-doc-code-blocks.sh` code blocks in doc comments,
 `.unwrap()` and `.expect(` in `crates/ebpf-redirect`, which Clippy does not check, and
 `check-template-text-decisions.sh` web UI template tags that decide from an enum's text. It also
 runs `rusty-lints scan`, configured in `rusty-lints.toml`, which refuses among others code in a
-`mod.rs` and comments on struct fields and enum variants, when `mise install` has put `rusty-lints`
-on the PATH. CI runs the same checks.
+`mod.rs` and comments on struct fields and enum variants. The hook refuses the commit when
+`rusty-lints` is not on the PATH; `mise install` installs it. CI runs the same checks.
 
 ### Dev Scripts
 
