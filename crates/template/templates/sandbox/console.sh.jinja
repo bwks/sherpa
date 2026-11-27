@@ -1,7 +1,5 @@
 #!/bin/bash
-# Opens the node's network OS CLI, the command sherpad listed, on the VM's serial console when
-# Enter is pressed, once its container runs, so the CLI starts with someone at the console.
-# systemd starts it again when the CLI exits.
+# Opens the node's network OS CLI on the VM's serial console once Enter is pressed.
 set -eu
 
 name=$(cat {{ crate::sandbox::CONTAINER_FILE }})

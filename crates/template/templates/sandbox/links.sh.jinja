@@ -1,24 +1,13 @@
 #!/bin/bash
-# Moves the sandbox's own NIC into a network namespace the network OS does not see and gives it
-# the sandbox's addresses and default routes, and no address from a router advertisement, names
-# this sandbox's other NICs as the network OS expects, each found by its MAC in the interfaces
-# sherpad listed, gives the management NIC the node's addresses and default routes, and gives each
-# data interface on no link a veth with the interface's fixed MAC, whose peer stays down in a
-# namespace of its own, so the interface has no carrier.
-# Runs once per boot, before Docker starts: the node's container runs in the VM's network
-# namespace, and its network OS owns the interfaces from then on. A failure is reported to
-# sherpad, and Docker does not start the container.
+# Names and addresses the VM's NICs for the network OS, before Docker starts the container.
 set -eEu
 
 WAIT_SECONDS=60
 UNWIRED_NETNS=sherpa-unwired
 SANDBOX_NETNS={{ crate::sandbox::SANDBOX_NETNS }}
 
-fail() {
-  {{ crate::sandbox::REPORT_SCRIPT_PATH }} "failed: interfaces: $1" || true
-  exit 1
-}
-trap 'fail "line $LINENO: $BASH_COMMAND"' ERR
+FAIL_PREFIX="interfaces: "
+source {{ crate::sandbox::REPORT_SCRIPT_PATH }}
 
 # The name of the NIC with MAC $1, once the kernel has it.
 nic_of() {
@@ -36,35 +25,40 @@ nic_of() {
   return 1
 }
 
-# Before the other NICs are named, so none takes the name the kernel gave this one.
-{
-  read -r mac
-  dev=$(nic_of "$mac") || fail "no NIC with MAC $mac for the sandbox after $WAIT_SECONDS seconds"
-  if [ ! -e "/run/netns/$SANDBOX_NETNS" ]; then
-    ip netns add "$SANDBOX_NETNS"
+# Gives NIC $2, in network namespace $1 or the VM's own when $1 is empty, each address and default
+# route of the `address/prefix gateway` lines on its input.
+add_addresses() {
+  local netns=() address gateway family nodad
+  if [ -n "$1" ]; then
+    netns=(-n "$1")
   fi
-  ip link set dev "$dev" down
-  ip link set dev "$dev" netns "$SANDBOX_NETNS"
-  ip -n "$SANDBOX_NETNS" link set dev "$dev" name {{ crate::sandbox::SANDBOX_NIC }}
-  ip -n "$SANDBOX_NETNS" link set dev lo up
-  # Before it is up, so it never takes an address from a router advertisement.
-  ip netns exec "$SANDBOX_NETNS" sysctl -q -w \
-    net.ipv6.conf.{{ crate::sandbox::SANDBOX_NIC }}.accept_ra=0 \
-    net.ipv6.conf.{{ crate::sandbox::SANDBOX_NIC }}.autoconf=0
-  ip -n "$SANDBOX_NETNS" link set dev {{ crate::sandbox::SANDBOX_NIC }} up
   while read -r address gateway; do
     case "$address" in
-      *:*)
-        ip -n "$SANDBOX_NETNS" -6 addr replace "$address" dev {{ crate::sandbox::SANDBOX_NIC }} nodad
-        ip -n "$SANDBOX_NETNS" -6 route replace default via "$gateway" dev {{ crate::sandbox::SANDBOX_NIC }}
-        ;;
-      *)
-        ip -n "$SANDBOX_NETNS" addr replace "$address" dev {{ crate::sandbox::SANDBOX_NIC }}
-        ip -n "$SANDBOX_NETNS" route replace default via "$gateway" dev {{ crate::sandbox::SANDBOX_NIC }}
-        ;;
+      *:*) family=-6 nodad=nodad ;;
+      *) family=-4 nodad= ;;
     esac
+    ip "${netns[@]}" "$family" addr replace "$address" dev "$2" ${nodad:+"$nodad"}
+    ip "${netns[@]}" "$family" route replace default via "$gateway" dev "$2"
   done
-} < {{ crate::sandbox::SANDBOX_NIC_FILE }}
+}
+
+# The sandbox's own NIC goes into a namespace the network OS does not see, before the other NICs
+# are named, so none takes the name the kernel gave it.
+read -r mac < {{ crate::sandbox::SANDBOX_NIC_FILE }}
+dev=$(nic_of "$mac") || fail "no NIC with MAC $mac for the sandbox after $WAIT_SECONDS seconds"
+if [ ! -e "/run/netns/$SANDBOX_NETNS" ]; then
+  ip netns add "$SANDBOX_NETNS"
+fi
+ip link set dev "$dev" down
+ip link set dev "$dev" netns "$SANDBOX_NETNS"
+ip -n "$SANDBOX_NETNS" link set dev "$dev" name {{ crate::sandbox::SANDBOX_NIC }}
+ip -n "$SANDBOX_NETNS" link set dev lo up
+# Before it is up, so it never takes an address from a router advertisement.
+ip netns exec "$SANDBOX_NETNS" sysctl -q -w \
+  net.ipv6.conf.{{ crate::sandbox::SANDBOX_NIC }}.accept_ra=0 \
+  net.ipv6.conf.{{ crate::sandbox::SANDBOX_NIC }}.autoconf=0
+ip -n "$SANDBOX_NETNS" link set dev {{ crate::sandbox::SANDBOX_NIC }} up
+add_addresses "$SANDBOX_NETNS" {{ crate::sandbox::SANDBOX_NIC }} < {{ crate::sandbox::SANDBOX_NIC_ADDRESSES_FILE }}
 
 # A temporary name first, so a NIC never takes a name another NIC still has.
 index=0
@@ -82,19 +76,10 @@ while read -r mac want; do
   ip link set dev "$want" up
 done < {{ crate::sandbox::INTERFACES_FILE }}
 
-while read -r dev address gateway; do
-  case "$address" in
-    *:*)
-      ip -6 addr replace "$address" dev "$dev" nodad
-      ip -6 route replace default via "$gateway" dev "$dev"
-      ;;
-    *)
-      ip addr replace "$address" dev "$dev"
-      ip route replace default via "$gateway" dev "$dev"
-      ;;
-  esac
-done < {{ crate::sandbox::MANAGEMENT_FILE }}
+add_addresses "" {{ crate::sandbox::SANDBOX_MANAGEMENT_INTERFACE }} < {{ crate::sandbox::MANAGEMENT_FILE }}
 
+# A data interface on no link is a veth whose peer stays down in a namespace of its own, so it
+# has no carrier.
 if [ ! -e "/run/netns/$UNWIRED_NETNS" ]; then
   ip netns add "$UNWIRED_NETNS"
 fi

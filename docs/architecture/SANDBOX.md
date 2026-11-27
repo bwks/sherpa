@@ -159,8 +159,13 @@ which take their paths, labels, port names and MTU from the constants in
   (`containerd.toml`), its data on the Docker disk (see Docker stores).
 - The units below, the container's name (`/etc/sherpa/container`), the writable volumes to copy
   into it (`/etc/sherpa/writable`), the NICs (`/etc/sherpa/interfaces`, `/etc/sherpa/placeholders`), the
-  management addresses (`/etc/sherpa/management`) and the console command
-  (`/etc/sherpa/console`).
+  management addresses (`/etc/sherpa/management`), the sandbox's own NIC's MAC and addresses
+  (`/etc/sherpa/sandbox-nic`, `/etc/sherpa/sandbox-nic-addresses`) and the console command
+  (`/etc/sherpa/console`). Each address file has one `address/prefix gateway` line per address
+  (`addresses.jinja`), and `links.sh` applies both with one function, `add_addresses`.
+- `report.sh`, which the other scripts `source` for `fail`: it reports `failed: REASON`, after the
+  script's own prefix (`interfaces:` in `links.sh`), and exits, and its `ERR` trap calls it for
+  any step that fails.
 
 | Unit | Runs | Does |
 |---|---|---|
@@ -348,7 +353,8 @@ config, and the commit fails with `Unacceptable syslog configuration` when it ta
 The VM has a second NIC on the lab's management network, with a MAC of its own, which the network
 OS never sees. Before it names the other NICs, `links.sh` moves it into the network namespace
 `sherpa-sandbox` as `sbx0` and gives it the sandbox's own addresses and default routes through the
-lab's gateway, from `/etc/sherpa/sandbox-nic`; the container runs in the VM's first namespace.
+lab's gateway, from `/etc/sherpa/sandbox-nic` and `/etc/sherpa/sandbox-nic-addresses`; the
+container runs in the VM's first namespace.
 Before `sbx0` is up it turns off router advertisements and SLAAC on it (`accept_ra=0`,
 `autoconf=0`, set in `sherpa-sandbox`), so it has only those addresses and its link-local one
 (`sandbox_079`). The network OS's interfaces, in the first namespace, keep the kernel's settings.

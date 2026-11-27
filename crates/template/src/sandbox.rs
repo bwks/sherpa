@@ -34,7 +34,6 @@ pub const SANDBOX_NIC: &str = "sbx0";
 /// prints only errors on the serial console, the network OS's.
 pub const SANDBOX_KERNEL_ARGUMENTS: [&str; 1] = ["quiet"];
 
-const CONTAINERD_CONFIG: &str = include_str!("../templates/sandbox/containerd.toml");
 const CONTAINERD_CONFIG_PATH: &str = "/etc/containerd/config.toml";
 const DOCKER_DROP_IN_PATH: &str = "/etc/systemd/system/docker.service.d/10-sherpa.conf";
 const CONTAINERD_DROP_IN_PATH: &str = "/etc/systemd/system/containerd.service.d/10-sherpa.conf";
@@ -46,6 +45,7 @@ const INTERFACES_FILE: &str = "/etc/sherpa/interfaces";
 const PLACEHOLDERS_FILE: &str = "/etc/sherpa/placeholders";
 const MANAGEMENT_FILE: &str = "/etc/sherpa/management";
 const SANDBOX_NIC_FILE: &str = "/etc/sherpa/sandbox-nic";
+const SANDBOX_NIC_ADDRESSES_FILE: &str = "/etc/sherpa/sandbox-nic-addresses";
 const CONSOLE_COMMAND_FILE: &str = "/etc/sherpa/console";
 const WRITABLE_FILE: &str = "/etc/sherpa/writable";
 const DOCKER_SOCKET: &str = "/run/docker.sock";
@@ -143,6 +143,11 @@ pub struct NodeScript {
 #[template(path = "sandbox/docker.conf.jinja", ext = "txt")]
 struct DockerOptions;
 
+/// containerd's config in a sandbox.
+#[derive(Template)]
+#[template(path = "sandbox/containerd.toml.jinja", ext = "txt")]
+struct ContainerdConfig;
+
 /// containerd's drop-in in a sandbox.
 #[derive(Template)]
 #[template(path = "sandbox/containerd.conf.jinja", ext = "txt")]
@@ -188,22 +193,18 @@ struct LinksScript;
 #[template(path = "sandbox/console.sh.jinja", ext = "txt")]
 struct ConsoleScript;
 
-/// The script that writes a status line to the status channel.
-#[derive(Template)]
+/// The script that writes a status line to the status channel `channel`, and that the other
+/// scripts source for `fail`.
+#[derive(Debug, Template)]
 #[template(path = "sandbox/report.sh.jinja", ext = "txt")]
-struct ReportScript;
+pub struct ReportScript {
+    pub channel: String,
+}
 
 /// The script that loads the image archive into a Docker store.
 #[derive(Template)]
 #[template(path = "sandbox/store.sh.jinja", ext = "txt")]
 struct StoreScript;
-
-/// The node's container name, for the scripts that run it.
-#[derive(Template)]
-#[template(path = "sandbox/container.jinja", ext = "txt")]
-struct ContainerFile<'a> {
-    name: &'a str,
-}
 
 /// The NICs or veths the guest names or makes, one `mac name` line each.
 #[derive(Template)]
@@ -212,34 +213,21 @@ struct InterfacesFile<'a> {
     interfaces: &'a [GuestInterface],
 }
 
-/// The management addresses, one `interface address/prefix gateway` line each.
+/// The addresses of a NIC, one `address/prefix gateway` line each.
 #[derive(Template)]
-#[template(path = "sandbox/management.jinja", ext = "txt")]
-struct ManagementFile<'a> {
+#[template(path = "sandbox/addresses.jinja", ext = "txt")]
+struct AddressesFile<'a> {
     addresses: &'a [GuestAddress],
 }
 
-/// The sandbox's own NIC: its MAC on the first line, then one `address/prefix gateway` line per
-/// address.
-#[derive(Template)]
-#[template(path = "sandbox/sandbox-nic.jinja", ext = "txt")]
-struct SandboxNicFile<'a> {
-    mac: &'a str,
-    addresses: &'a [GuestAddress],
-}
-
-/// The writable volumes to copy into the container, one `source destination` line each.
-#[derive(Template)]
-#[template(path = "sandbox/writable.jinja", ext = "txt")]
-struct WritableFile<'a> {
-    volumes: &'a [WritableVolume],
-}
-
-/// The console's command, one argument per line.
-#[derive(Template)]
-#[template(path = "sandbox/console-command.jinja", ext = "txt")]
-struct ConsoleCommandFile<'a> {
-    command: &'a [&'a str],
+impl ReportScript {
+    /// The script as a sandbox or a Docker store VM runs it, on the VM's status channel.
+    #[must_use]
+    pub fn guest() -> Self {
+        Self {
+            channel: format!("/dev/virtio-ports/{SANDBOX_STATUS_CHANNEL}"),
+        }
+    }
 }
 
 impl NodeScript {
@@ -269,14 +257,7 @@ impl SandboxGuest<'_> {
         let mut files = docker_files()?;
         files.extend([
             IgnitionFile::hostname(self.hostname),
-            IgnitionFile::root(
-                CONTAINER_FILE,
-                FILE_MODE,
-                &ContainerFile {
-                    name: self.container,
-                }
-                .render()?,
-            ),
+            IgnitionFile::root(CONTAINER_FILE, FILE_MODE, &format!("{}\n", self.container)),
             IgnitionFile::root(
                 INTERFACES_FILE,
                 FILE_MODE,
@@ -296,7 +277,7 @@ impl SandboxGuest<'_> {
             IgnitionFile::root(
                 MANAGEMENT_FILE,
                 FILE_MODE,
-                &ManagementFile {
+                &AddressesFile {
                     addresses: self.management,
                 }
                 .render()?,
@@ -304,8 +285,12 @@ impl SandboxGuest<'_> {
             IgnitionFile::root(
                 SANDBOX_NIC_FILE,
                 FILE_MODE,
-                &SandboxNicFile {
-                    mac: &self.own_nic.mac,
+                &format!("{}\n", self.own_nic.mac.to_ascii_lowercase()),
+            ),
+            IgnitionFile::root(
+                SANDBOX_NIC_ADDRESSES_FILE,
+                FILE_MODE,
+                &AddressesFile {
                     addresses: &self.own_nic.addresses,
                 }
                 .render()?,
@@ -313,18 +298,16 @@ impl SandboxGuest<'_> {
             IgnitionFile::root(
                 CONSOLE_COMMAND_FILE,
                 FILE_MODE,
-                &ConsoleCommandFile {
-                    command: self.console_command,
-                }
-                .render()?,
+                &lines(self.console_command.iter().map(|arg| (*arg).to_owned())),
             ),
             IgnitionFile::root(
                 WRITABLE_FILE,
                 FILE_MODE,
-                &WritableFile {
-                    volumes: self.writable,
-                }
-                .render()?,
+                &lines(
+                    self.writable
+                        .iter()
+                        .map(|volume| format!("{} {}", volume.source, volume.destination)),
+                ),
             ),
             IgnitionFile::root(LINKS_SCRIPT_PATH, SCRIPT_MODE, &LinksScript.render()?),
             IgnitionFile::root(
@@ -400,13 +383,21 @@ fn docker_files() -> Result<Vec<IgnitionFile>> {
     Ok(vec![
         IgnitionFile::disable_updates(),
         IgnitionFile::root(DOCKER_DROP_IN_PATH, FILE_MODE, &DockerOptions.render()?),
-        IgnitionFile::root(CONTAINERD_CONFIG_PATH, FILE_MODE, CONTAINERD_CONFIG),
+        IgnitionFile::root(
+            CONTAINERD_CONFIG_PATH,
+            FILE_MODE,
+            &ContainerdConfig.render()?,
+        ),
         IgnitionFile::root(
             CONTAINERD_DROP_IN_PATH,
             FILE_MODE,
             &ContainerdOptions.render()?,
         ),
-        IgnitionFile::root(REPORT_SCRIPT_PATH, SCRIPT_MODE, &ReportScript.render()?),
+        IgnitionFile::root(
+            REPORT_SCRIPT_PATH,
+            SCRIPT_MODE,
+            &ReportScript::guest().render()?,
+        ),
     ])
 }
 
@@ -430,6 +421,11 @@ fn docker_units() -> Result<Vec<IgnitionUnit>> {
         &DockerStoreMount.render()?,
     ));
     Ok(units)
+}
+
+/// `items`, each on a line of its own.
+fn lines(items: impl Iterator<Item = String>) -> String {
+    items.map(|item| item + "\n").collect()
 }
 
 /// The name of the mount unit of absolute path `path`, which holds no character systemd

@@ -1,20 +1,10 @@
 #!/bin/bash
-# Starts the node's container through the Docker Engine API on the VM's Docker socket, and
-# reports to sherpad that it started or why it did not. Until the container is created with its
-# writable volumes in it, which a marker file records, each boot removes any container an earlier
-# boot left, creates the container from the body sherpad wrote on the config drive, and uploads
-# the files of each writable volume into it as a tar archive, each line of the writable list a
-# file or folder on the config drive and its path in the container. Later boots start the
-# container it created, with what it wrote.
+# Creates the node's container, starts it on every boot, and reports to sherpad how that went.
 set -eEuo pipefail
 
 API="http://docker/v{{ api_version }}"
 
-fail() {
-  "{{ report }}" "failed: $1" || true
-  exit 1
-}
-trap 'fail "line $LINENO: $BASH_COMMAND"' ERR
+source "{{ report }}"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -43,6 +33,7 @@ elapsed_ms() {
 }
 
 name=$(cat "{{ container }}")
+# Until the marker records a container made with its writable volumes, each boot makes it again.
 if [ ! -e "{{ created }}" ]; then
   output=$(docker_api "204 404" DELETE "/containers/$name?force=true") ||
     fail "cannot remove the unfinished container: $output"
@@ -76,4 +67,4 @@ fi
 # Docker answers 304 when its restart policy has already started the container.
 output=$(docker_api "204 304" POST "/containers/$name/start") ||
   fail "cannot start the container: $output"
-"{{ report }}" started || true
+report started || true

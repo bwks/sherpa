@@ -1,7 +1,8 @@
 use std::fs;
+use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use askama::Template;
 use serde_json::Value;
@@ -15,8 +16,8 @@ use shared::data::{
 use shared::util::base64_decode;
 use template::{
     DomainTemplate, DomainTuning, FlatcarDomain, GuestAddress, GuestInterface, NodeScript,
-    SANDBOX_CONFIG_DRIVE_MOUNT, SANDBOX_CONTAINER_BODY, SandboxDomain, SandboxGuest, SandboxOwnNic,
-    WritableVolume, boot_vm_ignition_json, store_vm_ignition_json,
+    ReportScript, SANDBOX_CONFIG_DRIVE_MOUNT, SANDBOX_CONTAINER_BODY, SandboxDomain, SandboxGuest,
+    SandboxOwnNic, WritableVolume, boot_vm_ignition_json, store_vm_ignition_json,
 };
 
 // ============================================================================
@@ -210,16 +211,11 @@ case "$method $url" in
 esac
 "#;
 
-/// A stand-in for the status report: it keeps each status line.
-const FAKE_REPORT: &str = r#"#!/bin/bash
-echo "$*" >> "$FAKE_GUEST/reports"
-"#;
-
 /// The Engine API version the fake guest's script is given.
 const API_VERSION: &str = "1.49";
 
-/// The node script, run in a folder of its own with curl and the report stubbed, as a node VM's
-/// boots run it.
+/// The node script, run in a folder of its own with curl stubbed and the status channel a file,
+/// as a node VM's boots run it.
 struct FakeGuest {
     dir: TempDir,
 }
@@ -242,7 +238,14 @@ impl FakeGuest {
         .unwrap();
         let guest = Self { dir };
         guest.executable("bin/curl", FAKE_CURL);
-        guest.executable("report", FAKE_REPORT);
+        guest.executable(
+            "report",
+            &ReportScript {
+                channel: guest.path("channel"),
+            }
+            .render()
+            .unwrap(),
+        );
         let script = NodeScript {
             api_version: API_VERSION.to_owned(),
             socket: guest.path("docker.sock"),
@@ -268,10 +271,11 @@ impl FakeGuest {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
-    /// Boot once with the fake Docker's settings `env`, and return whether the script
-    /// succeeded.
+    /// Boot once with the fake Docker's settings `env`, keep the status it reported, and return
+    /// whether the script succeeded.
     fn boot(&self, env: &[&str]) -> bool {
         fs::write(self.dir.path().join("requests"), "").unwrap();
+        fs::write(self.dir.path().join("channel"), "").unwrap();
         let mut command = Command::new("bash");
         command
             .arg(self.path("node"))
@@ -280,7 +284,12 @@ impl FakeGuest {
         for name in env {
             command.env(name, "1");
         }
-        command.status().unwrap().success()
+        let succeeded = command.status().unwrap().success();
+        let reported = fs::read_to_string(self.dir.path().join("channel")).unwrap();
+        let mut reports = fs::read_to_string(self.dir.path().join("reports")).unwrap_or_default();
+        reports.push_str(&reported);
+        fs::write(self.dir.path().join("reports"), reports).unwrap();
+        succeeded
     }
 
     /// The requests of the last boot, each its method and URL.
@@ -315,6 +324,40 @@ impl FakeGuest {
     fn has(&self, name: &str) -> bool {
         Path::new(&self.path(name)).exists()
     }
+}
+
+/// The `ip` commands `add_addresses` of the guest's `links` script runs for NIC `dev` in
+/// namespace `netns`, empty for the VM's own, from the address lines `addresses`.
+fn add_addresses_commands(netns: &str, dev: &str, addresses: &str) -> Vec<String> {
+    let links = file_text(&node_config(), "/opt/sherpa/links");
+    let start = links.find("add_addresses() {").unwrap();
+    let function = &links[start..start + links[start..].find("\n}\n").unwrap() + 3];
+    let dir = TempDir::new().unwrap();
+    let log = dir.path().join("ip");
+    let script = format!(
+        r#"set -eEu
+ip() {{ echo "$*" >> "{}"; }}
+{function}
+add_addresses "$1" "$2""#,
+        log.display()
+    );
+    let mut child = Command::new("bash")
+        .args(["-c", &script, "add_addresses", netns, dev])
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(addresses.as_bytes())
+        .unwrap();
+    assert!(child.wait().unwrap().success());
+    fs::read_to_string(log)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect()
 }
 
 fn domain_interface(
@@ -484,19 +527,33 @@ fn sandbox_071_before_its_other_nics_are_named_the_guest_moves_its_own_nic_out_o
     let config = node_config();
     assert_eq!(
         file_text(&config, "/etc/sherpa/sandbox-nic"),
-        "52:54:00:ab:00:09\n172.31.0.30/24 172.31.0.1\nfd00:b0d1:0:1::1e/64 fd00:b0d1:0:1::1\n"
+        "52:54:00:ab:00:09\n"
+    );
+    let addresses = file_text(&config, "/etc/sherpa/sandbox-nic-addresses");
+    assert_eq!(
+        addresses,
+        "172.31.0.30/24 172.31.0.1\nfd00:b0d1:0:1::1e/64 fd00:b0d1:0:1::1\n"
     );
     let links = file_text(&config, "/opt/sherpa/links");
+    assert!(links.contains("read -r mac < /etc/sherpa/sandbox-nic\n"));
     let moved = links
         .find(r#"ip link set dev "$dev" netns "$SANDBOX_NETNS""#)
         .unwrap();
     assert!(moved < links.find(r#"name "sln$index""#).unwrap());
     assert!(links.contains("SANDBOX_NETNS=sherpa-sandbox\n"));
-    assert!(links.contains(r#"ip -n "$SANDBOX_NETNS" addr replace "$address" dev sbx0"#));
     assert!(
-        links.contains(r#"ip -n "$SANDBOX_NETNS" route replace default via "$gateway" dev sbx0"#)
+        links
+            .contains(r#"add_addresses "$SANDBOX_NETNS" sbx0 < /etc/sherpa/sandbox-nic-addresses"#)
     );
-    assert!(links.contains("done\n} < /etc/sherpa/sandbox-nic\n"));
+    assert_eq!(
+        add_addresses_commands("sherpa-sandbox", "sbx0", &addresses),
+        [
+            "-n sherpa-sandbox -4 addr replace 172.31.0.30/24 dev sbx0",
+            "-n sherpa-sandbox -4 route replace default via 172.31.0.1 dev sbx0",
+            "-n sherpa-sandbox -6 addr replace fd00:b0d1:0:1::1e/64 dev sbx0 nodad",
+            "-n sherpa-sandbox -6 route replace default via fd00:b0d1:0:1::1 dev sbx0",
+        ]
+    );
 }
 
 #[test]
@@ -505,8 +562,8 @@ fn sandbox_079_the_guest_turns_off_router_advertisements_on_the_sandboxs_own_nic
     let off = links
         .find(
             r#"ip netns exec "$SANDBOX_NETNS" sysctl -q -w \
-    net.ipv6.conf.sbx0.accept_ra=0 \
-    net.ipv6.conf.sbx0.autoconf=0
+  net.ipv6.conf.sbx0.accept_ra=0 \
+  net.ipv6.conf.sbx0.autoconf=0
 "#,
         )
         .unwrap();
@@ -818,9 +875,29 @@ fn sandbox_010_the_nics_are_named_by_their_lowercase_mac_before_docker_and_nothi
 
 #[test]
 fn sandbox_046_before_docker_the_guest_sets_the_management_addresses_and_default_routes() {
+    let config = node_config();
+    let addresses = file_text(&config, "/etc/sherpa/management");
     assert_eq!(
-        file_text(&node_config(), "/etc/sherpa/management"),
-        "eth0 172.31.0.23/24 172.31.0.1\neth0 fd00:b0d1:0:1::17/64 fd00:b0d1:0:1::1\n"
+        addresses,
+        "172.31.0.23/24 172.31.0.1\nfd00:b0d1:0:1::17/64 fd00:b0d1:0:1::1\n"
+    );
+    let links = file_text(&config, "/opt/sherpa/links");
+    assert!(links.contains(r#"add_addresses "" eth0 < /etc/sherpa/management"#));
+    assert!(
+        links.find("add_addresses \"\" eth0").unwrap()
+            > links
+                .find(r#"ip link set dev "sln$index" name "$want""#)
+                .unwrap(),
+        "eth0 is addressed once it has its name"
+    );
+    assert_eq!(
+        add_addresses_commands("", "eth0", &addresses),
+        [
+            "-4 addr replace 172.31.0.23/24 dev eth0",
+            "-4 route replace default via 172.31.0.1 dev eth0",
+            "-6 addr replace fd00:b0d1:0:1::17/64 dev eth0 nodad",
+            "-6 route replace default via fd00:b0d1:0:1::1 dev eth0",
+        ]
     );
 }
 
@@ -945,6 +1022,54 @@ fn sandbox_051_both_vms_have_the_status_report_and_the_store_vm_loads_its_archiv
     );
     assert_eq!(unit(&store, "sherpa-store.service")["enabled"], true);
     assert!(!has_unit(&node, "sherpa-store.service"));
+    for (config, script) in [
+        (&node, "/opt/sherpa/links"),
+        (&node, "/opt/sherpa/node"),
+        (&store, "/opt/sherpa/store"),
+    ] {
+        assert!(
+            file_text(config, script).contains("source /opt/sherpa/report\n")
+                || file_text(config, script).contains(r#"source "/opt/sherpa/report""#),
+            "{script}"
+        );
+    }
+
+    // Run as a command it sends its arguments; sourced, `fail` sends the reason and exits.
+    let dir = TempDir::new().unwrap();
+    let channel = dir.path().join("channel");
+    let report = dir.path().join("report");
+    fs::write(
+        &report,
+        ReportScript {
+            channel: channel.display().to_string(),
+        }
+        .render()
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        Command::new("bash")
+            .arg(&report)
+            .args(["started", "now"])
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert_eq!(fs::read_to_string(&channel).unwrap(), "started now\n");
+    let sourced = format!(
+        r#"set -eEu; FAIL_PREFIX="interfaces: "; source "{}"; fail "no NIC"; echo after"#,
+        report.display()
+    );
+    let output = Command::new("bash")
+        .args(["-c", &sourced])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(!String::from_utf8(output.stdout).unwrap().contains("after"));
+    assert_eq!(
+        fs::read_to_string(&channel).unwrap(),
+        "failed: interfaces: no NIC\n"
+    );
 }
 
 // ============================================================================
