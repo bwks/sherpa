@@ -1,17 +1,34 @@
-//! Sandbox domains: waiting for one to stop.
+//! Sandbox domains and disks: waiting for a domain to stop, and copying a disk with its
+//! backing chain into a standalone one.
 
+use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
+use askama::Template;
+use shared::konst::SHERPA_STORAGE_POOL;
 use tracing::instrument;
 use virt::connect::Connect;
 use virt::domain::Domain;
+use virt::storage_pool::StoragePool;
+use virt::storage_vol::StorageVol;
 
 use crate::error::LibvirtError;
+use crate::qcow2::read_qcow2_metadata;
+use crate::storage::{new_volume_name, refresh_pool};
 
 /// The pause between two checks of whether a domain has stopped.
 const STOPPED_POLL: Duration = Duration::from_secs(1);
+
+/// A standalone QCOW2 volume copied from another, defined from `templates/flat.xml`.
+#[derive(Template)]
+#[template(path = "flat.xml", ext = "xml", escape = "xml")]
+struct FlatVolume<'a> {
+    name: &'a str,
+    destination: &'a str,
+    capacity: u64,
+}
 
 /// Wait until domain `name` has stopped, for up to `timeout`.
 ///
@@ -37,5 +54,47 @@ pub fn wait_until_stopped(conn: &Connect, name: &str, timeout: Duration) -> Resu
         }
         thread::sleep(STOPPED_POLL);
     }
+    Ok(())
+}
+
+/// Copy pool volume `src` with what its backing chain holds into the new standalone QCOW2
+/// volume `dst`, which the group can read, as sherpad builds overlays on it. The volume is
+/// created exclusively; an existing destination is never changed.
+///
+/// # Errors
+///
+/// Fails when `dst` exists, is relative or is not a UTF-8 file name, libvirt cannot find `src`
+/// or copy it, or the copy still has a backing file.
+#[instrument(level = "debug", skip(conn))]
+pub fn flatten_disk(conn: &Connect, src: &str, dst: &str) -> Result<()> {
+    let start = Instant::now();
+    let name = new_volume_name(dst)?;
+    let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)
+        .with_context(|| format!("Cannot find storage pool '{SHERPA_STORAGE_POOL}'"))?;
+    refresh_pool(&pool)?;
+    let source = StorageVol::lookup_by_path(conn, src)
+        .with_context(|| format!("Cannot find volume {src}"))?;
+    let capacity = source
+        .get_info()
+        .with_context(|| format!("Cannot read the size of volume {src}"))?
+        .capacity;
+    let xml = FlatVolume {
+        name,
+        destination: dst,
+        capacity,
+    }
+    .render()
+    .context("Cannot render standalone volume XML")?;
+    StorageVol::create_xml_from(&pool, &xml, &source, 0)
+        .with_context(|| format!("Cannot copy volume {src} to {dst}"))?;
+    ensure!(
+        read_qcow2_metadata(Path::new(dst))?.backing_file.is_none(),
+        "The copy {dst} of {src} still has a backing file"
+    );
+    tracing::info!(
+        disk_creation_seconds = start.elapsed().as_secs_f64(),
+        method = "flatten",
+        "Standalone disk provisioned"
+    );
     Ok(())
 }

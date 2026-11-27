@@ -161,7 +161,7 @@ pub(super) async fn redeploy_sandbox(
             docker: Arc::clone(&redeploy.state.docker),
             qemu: Arc::clone(&redeploy.state.qemu),
             base: redeploy.sandbox_base.clone(),
-            store_locks: redeploy.state.docker_store_locks.clone(),
+            disk_locks: redeploy.state.sandbox_disk_locks.clone(),
             progress: redeploy.progress.clone(),
         },
         SandboxCreate {

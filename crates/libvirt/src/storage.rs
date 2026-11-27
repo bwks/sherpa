@@ -28,18 +28,26 @@ struct BlankVolume<'a> {
     capacity: u64,
 }
 
-/// A storage volume's XML, as far as its name and backing file.
+/// A storage volume's XML, as far as its name, path and backing file.
 #[derive(Debug, Deserialize)]
 struct VolumeXml {
     name: String,
+    target: VolumeTargetXml,
     #[serde(rename = "backingStore")]
     backing_store: Option<BackingStoreXml>,
+}
+
+/// A volume's `<target>`: the path of its file.
+#[derive(Debug, Deserialize)]
+struct VolumeTargetXml {
+    path: String,
 }
 
 /// A volume in the Sherpa storage pool built on a backing file: an overlay disk and its base.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BackedVolume {
     pub name: String,
+    pub path: PathBuf,
     pub backing_file: PathBuf,
 }
 
@@ -201,6 +209,7 @@ fn backed_volume(xml: &str) -> Result<Option<BackedVolume>> {
         .and_then(|backing| backing.path)
         .map(|path| BackedVolume {
             name: volume.name,
+            path: PathBuf::from(volume.target.path),
             backing_file: PathBuf::from(path),
         }))
 }
@@ -315,6 +324,7 @@ mod tests {
             backed_volume(overlay).unwrap(),
             Some(BackedVolume {
                 name: "srx1-lab-hdd.qcow2".to_owned(),
+                path: PathBuf::from("/opt/sherpa/libvirt/images/srx1-lab-hdd.qcow2"),
                 backing_file: PathBuf::from("/opt/sherpa/images/juniper_vsrxv3/23.2/virtioa.qcow2"),
             })
         );

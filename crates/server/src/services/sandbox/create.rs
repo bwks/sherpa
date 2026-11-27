@@ -1,4 +1,4 @@
-//! Creating a sandbox: its config drive, its disks on the base image and its image's Docker
+//! Creating a sandbox: its config drive, its disks on the boot disk and its image's Docker
 //! store, and its domain, and watching for the status it reports once it has started its
 //! container.
 
@@ -19,13 +19,14 @@ use shared::konst::SHERPA_STORAGE_POOL_PATH;
 use template::{SandboxDomainTemplate, SandboxGuest, SandboxManagement, SandboxOwnNic};
 
 use super::base::SandboxBase;
+use super::boot::ensure_boot_disk;
 use super::guest::{
     console_command, guest_create_args, guest_nics, guest_volumes, management_addresses,
     write_config_drive,
 };
 use super::status::StatusWatch;
 use super::store::ensure_docker_store;
-use crate::daemon::docker_stores::DockerStoreLocks;
+use crate::daemon::sandbox_disks::SandboxDiskLocks;
 use crate::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
 use crate::services::console;
 use crate::services::error::ServiceError;
@@ -45,7 +46,7 @@ pub(crate) struct SandboxHost {
     pub(crate) docker: Arc<Docker>,
     pub(crate) qemu: Arc<Qemu>,
     pub(crate) base: Option<SandboxBase>,
-    pub(crate) store_locks: DockerStoreLocks,
+    pub(crate) disk_locks: SandboxDiskLocks,
     pub(crate) progress: ProgressSender,
 }
 
@@ -73,7 +74,12 @@ pub(super) enum DomainDisk {
     Blank { path: String, size_gb: u16 },
 }
 
-/// The storage pool volume of sandbox `device`'s disk, an overlay on the base image.
+/// The storage pool path of volume `volume`.
+pub(super) fn pool_path(volume: &str) -> String {
+    format!("{SHERPA_STORAGE_POOL_PATH}/{volume}")
+}
+
+/// The storage pool volume of sandbox `device`'s disk, an overlay on the boot disk.
 fn disk_name(device: &str) -> String {
     format!("{device}-hdd.qcow2")
 }
@@ -92,8 +98,9 @@ fn config_drive_name(device: &str) -> String {
 ///
 /// # Errors
 ///
-/// Fails when the base image is missing, the image's store cannot be made, the config drive
-/// cannot be written, or libvirt cannot create the disks or define and start the domain.
+/// Fails when the base image is missing, the boot disk or the image's store cannot be made, the
+/// config drive cannot be written, or libvirt cannot create the disks or define and start the
+/// domain.
 #[instrument(skip(host, create), fields(lab_id = %create.lab_id, node_name = %create.node_name))]
 pub(crate) async fn create_sandbox(
     host: &SandboxHost,
@@ -103,7 +110,8 @@ pub(crate) async fn create_sandbox(
         .base
         .as_ref()
         .ok_or(ServiceError::SandboxBaseImageMissing)?;
-    let store = ensure_docker_store(host, base, &create.spec.image).await?;
+    let boot_disk = ensure_boot_disk(host, base).await?;
+    let store = ensure_docker_store(host, &boot_disk, &create.spec.image).await?;
     let device = domain_name(&create.node_name, &create.lab_id);
     let nics = guest_nics(create.model_kind, &create.veths)?;
     let volumes = guest_volumes(&create.spec.volumes);
@@ -141,8 +149,8 @@ pub(crate) async fn create_sandbox(
         name: device.clone(),
         memory_mib: create.memory_mib,
         vcpus: create.vcpus,
-        disk: format!("{SHERPA_STORAGE_POOL_PATH}/{}", disk_name(&device)),
-        docker_disk: format!("{SHERPA_STORAGE_POOL_PATH}/{}", docker_disk_name(&device)),
+        disk: pool_path(&disk_name(&device)),
+        docker_disk: pool_path(&docker_disk_name(&device)),
         image_archive: None,
         config_drive,
         management: Some(SandboxManagement {
@@ -154,9 +162,12 @@ pub(crate) async fn create_sandbox(
         status_socket: status_socket.clone(),
         serial_socket: Some(console::console_sockets(&create.lab_id, create.node_index)?.serial),
     };
+    let xml = domain
+        .render()
+        .with_context(|| format!("Cannot render the domain of sandbox {device}"))?;
     let disks = vec![
         DomainDisk::Overlay {
-            base: base.disk.clone(),
+            base: boot_disk,
             path: domain.disk.clone(),
         },
         DomainDisk::Overlay {
@@ -164,25 +175,22 @@ pub(crate) async fn create_sandbox(
             path: domain.docker_disk.clone(),
         },
     ];
-    start_domain(&host.qemu, domain, disks).await?;
+    start_domain(&host.qemu, &device, xml, disks).await?;
     StatusWatch::connect(&status_socket, &device).await
 }
 
-/// Make `disks`, and define and start `domain`.
+/// Make `disks`, and define and start domain `name` from its XML `xml`.
 ///
 /// # Errors
 ///
-/// Fails when the domain XML cannot be rendered, a disk cannot be made, or libvirt cannot
-/// define or start the domain.
-#[instrument(skip_all, fields(name = %domain.name), level = "debug")]
+/// Fails when a disk cannot be made, or libvirt cannot define or start the domain.
+#[instrument(skip(qemu, xml, disks), level = "debug")]
 pub(super) async fn start_domain(
     qemu: &Arc<Qemu>,
-    domain: SandboxDomainTemplate,
+    name: &str,
+    xml: String,
     disks: Vec<DomainDisk>,
 ) -> Result<()> {
-    let xml = domain
-        .render()
-        .with_context(|| format!("Cannot render the domain of sandbox {}", domain.name))?;
     let qemu = Arc::clone(qemu);
     task::spawn_blocking(move || {
         let conn = qemu.connect()?;
@@ -293,6 +301,7 @@ mod tests {
                 .unwrap()
                 .to_owned(),
             _lease: lease_image(model_kind, &version).await,
+            version,
         }
     }
 
@@ -327,7 +336,7 @@ mod tests {
                 docker: Arc::new(Docker::connect_with_local_defaults().unwrap()),
                 qemu: Arc::clone(&self.qemu),
                 base: Some(installed_base().await),
-                store_locks: DockerStoreLocks::default(),
+                disk_locks: SandboxDiskLocks::default(),
                 progress: ProgressSender::new(mpsc::unbounded_channel().0),
             };
             let spec = node_ops::container_spec(

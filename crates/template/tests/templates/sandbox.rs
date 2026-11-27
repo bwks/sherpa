@@ -10,9 +10,9 @@ use toml::Value as TomlValue;
 
 use shared::util::base64_decode;
 use template::{
-    GuestAddress, GuestInterface, NodeScript, SANDBOX_CONFIG_DRIVE_MOUNT, SandboxDomainTemplate,
-    SandboxGuest, SandboxManagement, SandboxNic, SandboxOwnNic, WritableVolume,
-    store_vm_ignition_json,
+    GuestAddress, GuestInterface, NodeScript, SANDBOX_CONFIG_DRIVE_MOUNT,
+    SandboxBootDomainTemplate, SandboxDomainTemplate, SandboxGuest, SandboxManagement, SandboxNic,
+    SandboxOwnNic, WritableVolume, boot_vm_ignition_json, store_vm_ignition_json,
 };
 
 // ============================================================================
@@ -416,6 +416,52 @@ fn sandbox_031_a_docker_store_vm_has_no_nics_and_no_console_and_its_image_archiv
          <target dev='vdc' bus='virtio'/><serial>sherpa-image</serial><readonly/>"
     ));
     assert!(xml.contains("<channel type='unix'>"));
+}
+
+#[test]
+fn sandbox_076_the_boot_disk_vm_sets_only_the_kernel_arguments_and_its_first_reboot_stops_it() {
+    let config: Value = serde_json::from_str(&boot_vm_ignition_json().unwrap()).unwrap();
+    assert_eq!(
+        config["kernelArguments"]["shouldExist"],
+        serde_json::json!(["quiet"])
+    );
+    assert_eq!(config["storage"]["files"], serde_json::json!([]));
+    assert_eq!(config["systemd"]["units"], serde_json::json!([]));
+    assert_eq!(config["passwd"]["users"], serde_json::json!([]));
+    assert!(node_config().get("kernelArguments").is_none());
+
+    let xml = compact(
+        &SandboxBootDomainTemplate {
+            name: "sherpa-flatcar-sandbox.4757.2.4".to_owned(),
+            memory_mib: 2048,
+            vcpus: 2,
+            disk: "/opt/sherpa/libvirt/images/flatcar-sandbox.4757.2.4.qcow2.part".to_owned(),
+            config_drive: "/opt/sherpa/libvirt/images/flatcar-sandbox.4757.2.4.iso".to_owned(),
+        }
+        .render()
+        .unwrap(),
+    );
+    assert!(xml.contains(
+        "<type arch='x86_64' machine='q35'>hvm</type><bootmenu enable='no'/><boot dev='hd'/></os>"
+    ));
+    assert!(xml.contains("<on_reboot>destroy</on_reboot>"));
+    assert!(xml.contains(
+        "<source file='/opt/sherpa/libvirt/images/flatcar-sandbox.4757.2.4.qcow2.part'/>\
+         <target dev='vda' bus='virtio'/>"
+    ));
+    assert!(xml.contains(
+        "<source file='/opt/sherpa/libvirt/images/flatcar-sandbox.4757.2.4.iso'/>\
+         <target dev='sda' bus='sata'/><readonly/>"
+    ));
+    for absent in [
+        "<interface ",
+        "<serial ",
+        "<console ",
+        "<channel ",
+        "<kernel>",
+    ] {
+        assert!(!xml.contains(absent), "{absent}");
+    }
 }
 
 #[test]

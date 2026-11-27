@@ -1,12 +1,14 @@
 //! The Ignition configs of sandboxes, the Flatcar VMs that each run one container node, and of
-//! the VMs that make their Docker stores. See `docs/architecture/SANDBOX.md`.
+//! the VMs that make their boot disks and Docker stores. See `docs/architecture/SANDBOX.md`.
 
 use std::net::IpAddr;
 
 use anyhow::Result;
 use askama::Template;
 
-use crate::ignition::{IgnitionConfig, IgnitionFile, IgnitionFileSystem, IgnitionUnit};
+use crate::ignition::{
+    IgnitionConfig, IgnitionFile, IgnitionFileSystem, IgnitionUnit, KernelArguments,
+};
 
 /// The volume label Flatcar's Ignition looks for on a config drive.
 pub const SANDBOX_CONFIG_DRIVE_LABEL: &str = "config-2";
@@ -26,6 +28,9 @@ pub const SANDBOX_CONSOLE_TTY: &str = "ttyS0";
 pub const SANDBOX_NETNS: &str = "sherpa-sandbox";
 /// The name of the sandbox's own NIC in its network namespace.
 pub const SANDBOX_NIC: &str = "sbx0";
+/// The kernel arguments a sandbox boots with beyond those of Flatcar's bootloader: the kernel
+/// prints only errors on the serial console, the network OS's.
+pub const SANDBOX_KERNEL_ARGUMENTS: [&str; 1] = ["quiet"];
 
 const CONTAINERD_CONFIG: &str = include_str!("../templates/sandbox/containerd.toml");
 const CONTAINERD_CONFIG_PATH: &str = "/etc/containerd/config.toml";
@@ -405,6 +410,21 @@ pub fn store_vm_ignition_json() -> Result<String> {
         }],
     )
     .to_json_pretty()
+}
+
+/// The Ignition config of the VM that makes the sandboxes' boot disk, as JSON: only the
+/// sandboxes' kernel arguments. Flatcar writes them to the disk's OEM partition and reboots
+/// before Ignition changes anything else, and that reboot stops the VM.
+///
+/// # Errors
+///
+/// Fails when the config cannot be serialized.
+pub fn boot_vm_ignition_json() -> Result<String> {
+    let mut config = IgnitionConfig::new(vec![], vec![], vec![], vec![], vec![], vec![]);
+    config.kernel_arguments = Some(KernelArguments {
+        should_exist: SANDBOX_KERNEL_ARGUMENTS.map(str::to_owned).to_vec(),
+    });
+    config.to_json_pretty()
 }
 
 /// The files of Docker and containerd, of updates off, and of the status report, in every

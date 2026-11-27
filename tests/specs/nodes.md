@@ -58,12 +58,12 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `sandbox`: a privileged network OS container runs in a VM of its own
 
-**Statement:** an `arista_eos`, `nokia_srlinux` or `sonic_linux` container node runs privileged on the Docker of a Flatcar VM of its own, which a unit in the VM starts from what sherpad put on the VM's config drive, boots on an overlay of its image's Docker store instead of copying the image, reports a failure with its reason, and has its links, management addresses, console, saved config and lifecycle as a node's.
+**Statement:** an `arista_eos`, `nokia_srlinux` or `sonic_linux` container node runs privileged on the Docker of a Flatcar VM of its own, which a unit in the VM starts from what sherpad put on the VM's config drive, boots on an overlay of the base image's boot disk, which has the sandboxes' kernel arguments from the first boot on, and on an overlay of its image's Docker store instead of copying the image, reports a failure with its reason, and has its links, management addresses, console, saved config and lifecycle as a node's.
 **Relied on by:** the server's owner (a node's privileges reach its VM, not the server), the user. **Priority:** P0.
 
 | Case | What it shows | Level |
 |---|---|---|
-| 001 | The sandbox boots its overlay disk on the base image through the image's own bootloader, with its Docker store overlay and its config drive read-only | unit |
+| 001 | The sandbox boots its overlay disk on the boot disk through the image's own bootloader, with its Docker store overlay and its config drive read-only | unit |
 | 002 | Each data interface on a link or bridge is a tap named like its link end, and the management NIC is on the lab's management network | unit |
 | 005 | Values in the domain XML are escaped | unit |
 | 008 | Updates, update reboots, SSH and console logins are off in the sandbox and the Docker store VM | unit |
@@ -127,6 +127,12 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 070 | The sandbox has a NIC of its own on the lab's management network | unit |
 | 071 | Before its other NICs are named, the guest moves the sandbox's own NIC, found by its MAC, into a network namespace of its own and gives it the sandbox's addresses and default routes | unit |
 | 072 | A sandbox's own address answers ping from the server and from another node of the lab, keeps its address and MAC across down, resume and redeploy, and the network OS lists no interface of it (no test yet) | e2e |
+| 073 | A boot disk is named by the base image's version, and no node's volume or domain is taken for one or for what its build makes | unit |
+| 074 | At its start sherpad keeps a node's domain and volumes whose names start like a Docker store build's | integration |
+| 075 | At its start sherpad removes what an unfinished boot disk build left (its VM, the VM's disk and config drive, the partial boot disk and the staging folder) and keeps boot disks | integration |
+| 076 | The VM that makes a boot disk has an Ignition config with only the sandboxes' kernel arguments, no NICs, console or status channel, and its first reboot stops it; a sandbox's Ignition config sets no kernel arguments | unit |
+| 077 | Sandboxes boot on overlays of the boot disk, a standalone disk that one VM made from the base image, and a second lab boots on the same boot disk without making it again | integration |
+| 078 | A sandbox boots once, with no reboot, and its serial console shows only kernel errors until the network OS's console prompt, the same prompt after down and resume and after a redeploy (no test yet) | e2e |
 
 ## `node_ready`: a node is running only once its ready check passes
 

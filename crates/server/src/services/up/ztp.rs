@@ -634,7 +634,7 @@ mod tests {
     use libvirt::Qemu;
     use tokio::sync::mpsc;
 
-    use crate::daemon::docker_stores::DockerStoreLocks;
+    use crate::daemon::sandbox_disks::SandboxDiskLocks;
     use crate::konst::{LAB_CA_CERT_FILE, LAB_CA_KEY_FILE};
     use shared::data::{LabSubnets, ModelKind, NodeKind, NodeModel};
 
@@ -770,7 +770,7 @@ mod tests {
             qemu_conn: &Arc::new(qemu.connect().unwrap()),
             qemu: &qemu,
             config: &test_config(),
-            docker_store_locks: &DockerStoreLocks::default(),
+            sandbox_disk_locks: &SandboxDiskLocks::default(),
             progress: &ProgressSender::new(tx),
         };
         let mgmt_net = management_network(&subnets()).unwrap();

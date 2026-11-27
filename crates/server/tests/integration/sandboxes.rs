@@ -6,7 +6,9 @@ use shared::data::{
     ContainerSettings, KindSettings, ModelKind, NodeConfig, NodeKind, NodeModel, NodeState,
     ZtpSettings,
 };
-use shared::konst::{SHERPA_LABS_PATH, SHERPA_STORAGE_POOL_PATH};
+use shared::konst::{
+    SHERPA_IMAGES_PATH, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL_PATH, VM_DISK_FILENAME,
+};
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::MetadataExt;
@@ -117,6 +119,34 @@ async fn register_image(
     Ok(())
 }
 
+/// Register the newest `flatcar_sandbox` version in the server's images folder as the default,
+/// the base image sandboxes boot.
+async fn register_base_image(server: &TestServer) -> Result<()> {
+    let dir = Path::new(SHERPA_IMAGES_PATH).join(NodeModel::FlatcarSandbox.to_string());
+    let mut versions = Vec::new();
+    for entry in fs::read_dir(&dir).with_context(|| {
+        format!(
+            "Cannot list {}: import a flatcar_sandbox image",
+            dir.display()
+        )
+    })? {
+        let entry = entry?;
+        if entry.path().join(VM_DISK_FILENAME).is_file() {
+            versions.push(entry.file_name().to_string_lossy().into_owned());
+        }
+    }
+    let version = versions
+        .into_iter()
+        .max()
+        .with_context(|| format!("{} holds no flatcar_sandbox disk", dir.display()))?;
+    let image = NodeConfig {
+        version,
+        ..ModelKind::default_for(NodeModel::FlatcarSandbox).node_config()
+    };
+    db::upsert_node_image(&server.db, image, DefaultRequest::Make).await?;
+    Ok(())
+}
+
 /// A test server with the images the tests use registered, and an admin logged in.
 async fn start() -> Result<(TestServer, TestWsClient, String)> {
     require_kvm()?;
@@ -126,6 +156,7 @@ async fn start() -> Result<(TestServer, TestWsClient, String)> {
     let token = ws.login_lab_admin(&server).await?;
     register_image(&server, TEST_IMAGE_REPO, TEST_IMAGE_VERSION, true).await?;
     register_image(&server, TEST_IMAGE_REPO, BROKEN_IMAGE_VERSION, false).await?;
+    register_base_image(&server).await?;
     Ok((server, ws, token))
 }
 
@@ -520,6 +551,101 @@ async fn sandbox_038_a_second_lab_with_the_same_image_boots_on_the_store_the_fir
         ensure!(
             building == 0,
             "the second up reported a store: {statuses:?}"
+        );
+        wait_for_states(&server, &second, NodeState::Running).await
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &first, &checks).await;
+    let cleanup_second = cleanup_lab(&mut ws, &server, &token, &second, &checks).await;
+    finish(checks, cleanup.and(cleanup_second))
+}
+
+#[tokio::test]
+#[ignore = "requires KVM, libvirt, Docker, the sandbox base image and root"]
+async fn sandbox_077_sandboxes_boot_on_the_boot_disk_one_vm_made_from_the_base_image_and_a_second_lab_reuses_it()
+-> Result<()> {
+    let (server, mut ws, token) = start().await?;
+    let first = lab_id("nk");
+    let second = lab_id("nl");
+    let base = db::find_default_node_image(
+        &server.db,
+        &NodeModel::FlatcarSandbox,
+        &NodeKind::VirtualMachine,
+    )
+    .await?
+    .context("the server has no default flatcar_sandbox image")?;
+    let boot_disk = format!("flatcar-sandbox.{}.qcow2", base.version);
+    let boot_path = format!("{SHERPA_STORAGE_POOL_PATH}/{boot_disk}");
+
+    let checks: Result<()> = async {
+        lab_up(
+            &mut ws,
+            &token,
+            &first,
+            &lab_manifest(&first, &json!({})),
+            UP_TIMEOUT,
+        )
+        .await?;
+        let boot_before = volume_identity(&boot_disk)?;
+        let statuses = lab_up(
+            &mut ws,
+            &token,
+            &second,
+            &lab_manifest(&second, &json!({})),
+            UP_TIMEOUT,
+        )
+        .await?;
+
+        ensure!(
+            volume_identity(&boot_disk)? == boot_before,
+            "the second lab replaced the boot disk {boot_disk}"
+        );
+        let building: Vec<_> = statuses
+            .iter()
+            .filter(|status| status.to_string().contains("sandbox boot disk"))
+            .collect();
+        ensure!(
+            building.is_empty(),
+            "the second up made a boot disk: {building:?}"
+        );
+        let conn = libvirt::Qemu::default().connect()?;
+        let volumes = libvirt::pool_backed_volumes(&conn)?;
+        let backing_of = |name: &str| {
+            volumes
+                .iter()
+                .find(|volume| volume.name == name)
+                .map(|volume| volume.backing_file.clone())
+        };
+        let boot_backing = libvirt::read_qcow2_metadata(Path::new(&boot_path))?.backing_file;
+        ensure!(
+            boot_backing.is_none() && backing_of(&boot_disk).is_none(),
+            "{boot_disk} is not standalone: it is backed by {boot_backing:?}"
+        );
+        for lab in [&first, &second] {
+            for node in ["n1", "n2"] {
+                let disk = format!("{node}-{lab}-hdd.qcow2");
+                ensure!(
+                    backing_of(&disk).as_deref() == Some(Path::new(&boot_path)),
+                    "{disk} is not an overlay on {boot_path}: {:?}",
+                    backing_of(&disk)
+                );
+            }
+        }
+        let vm = format!("sherpa-flatcar-sandbox.{}", base.version);
+        let build = [
+            format!("{vm}-hdd.qcow2"),
+            format!("{vm}.iso"),
+            format!("{boot_disk}.part"),
+            vm,
+        ];
+        let present: Vec<String> = libvirt::list_pool_volumes(&conn)?
+            .into_iter()
+            .chain(libvirt::list_domain_names(&conn)?)
+            .collect();
+        let build_left: Vec<&String> = build.iter().filter(|name| present.contains(name)).collect();
+        ensure!(
+            build_left.is_empty(),
+            "the boot disk build left {build_left:?}"
         );
         wait_for_states(&server, &second, NodeState::Running).await
     }

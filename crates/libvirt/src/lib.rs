@@ -28,7 +28,7 @@ pub use network::{BridgeNetwork, IsolatedNetwork, NatNetwork, ReservedNetwork};
 pub use overlay::create_overlay;
 pub use qcow2::{Qcow2Metadata, read_qcow2_metadata};
 pub use qemu::{Qemu, QemuConnection};
-pub use sandbox::wait_until_stopped;
+pub use sandbox::{flatten_disk, wait_until_stopped};
 pub use storage::{
     BackedVolume, SherpaStoragePool, create_blank_qcow2, list_lab_volumes, list_pool_volumes,
     overlay_on_image, pool_backed_volumes, refresh_pool,

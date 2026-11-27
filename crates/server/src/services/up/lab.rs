@@ -196,7 +196,7 @@ pub async fn up_lab(
         qemu_conn: &qemu_conn,
         qemu: &state.qemu,
         config: &state.config,
-        docker_store_locks: &state.docker_store_locks,
+        sandbox_disk_locks: &state.sandbox_disk_locks,
         progress: &progress,
     };
     let mut plan = validate(
@@ -743,7 +743,7 @@ impl LabUp<'_> {
                     docker: Arc::clone(self.build.docker_conn),
                     qemu: Arc::clone(self.build.qemu),
                     base: self.plan.sandbox_base.take(),
-                    store_locks: self.build.docker_store_locks.clone(),
+                    disk_locks: self.build.sandbox_disk_locks.clone(),
                     progress: self.build.progress.clone(),
                 },
                 container_nodes: &records.container_nodes,

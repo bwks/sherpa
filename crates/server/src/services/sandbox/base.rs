@@ -14,10 +14,11 @@ use crate::services::error::ServiceError;
 use crate::services::image_lifecycle::{ImageLease, lease_image};
 use crate::services::image_store::ImagePaths;
 
-/// The disk of the base image sandboxes boot, with a lease that keeps it from being replaced or
-/// deleted while disks are made on it.
+/// The version and disk of the base image sandboxes boot, with a lease that keeps it from being
+/// replaced or deleted while disks are made on it.
 #[derive(Clone)]
 pub(crate) struct SandboxBase {
+    pub(crate) version: String,
     pub(crate) disk: String,
     pub(crate) _lease: ImageLease,
 }
@@ -53,6 +54,7 @@ pub(crate) async fn sandbox_base(
         .into());
     }
     Ok(Some(SandboxBase {
+        version: image.version,
         disk: disk
             .to_str()
             .with_context(|| {
@@ -135,6 +137,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+        assert_eq!(base.version, "4757.2.4");
         assert_eq!(
             base.disk,
             format!("{images}/flatcar_sandbox/4757.2.4/{VM_DISK_FILENAME}")

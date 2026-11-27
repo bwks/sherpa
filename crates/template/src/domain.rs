@@ -163,6 +163,23 @@ pub struct SandboxDomainTemplate {
     pub serial_socket: Option<String>,
 }
 
+/// The domain of the VM that makes the sandboxes' boot disk: the disk, booted through Flatcar's
+/// bootloader, and its config drive, with no NICs, console or status channel. Its first reboot
+/// stops it.
+#[derive(Debug, Template)]
+#[template(
+    path = "libvirt/sandbox_boot_domain.jinja",
+    ext = "xml",
+    escape = "xml"
+)]
+pub struct SandboxBootDomainTemplate {
+    pub name: String,
+    pub memory_mib: u64,
+    pub vcpus: u8,
+    pub disk: String,
+    pub config_drive: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

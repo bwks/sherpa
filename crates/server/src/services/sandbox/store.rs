@@ -1,28 +1,25 @@
 //! The Docker store of an image for sandboxes: a disk that holds Docker's data with the image
-//! loaded, which each sandbox of the image boots an overlay of. A Flatcar VM of its own makes
-//! it once per image, loading the image's archive from a disk of its own.
+//! loaded, which each sandbox of the image boots an overlay of. A Flatcar VM of its own, on the
+//! boot disk, makes it once per image, loading the image's archive from a disk of its own.
 
 use std::fs;
-use std::io::ErrorKind;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use askama::Template;
 use futures_util::StreamExt;
-use libvirt::Qemu;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::{task, time};
 use tracing::instrument;
 
 use shared::data::StatusKind;
-use shared::konst::SHERPA_STORAGE_POOL_PATH;
 use template::{SandboxDomainTemplate, store_vm_ignition_json};
 
-use super::base::SandboxBase;
-use super::create::{DomainDisk, SandboxHost, start_domain};
+use super::create::{DomainDisk, SandboxHost, pool_path, start_domain};
 use super::guest::write_config_drive;
 use super::status::{Status, StatusWatch};
 use crate::daemon::storage::restrict_dir;
@@ -54,6 +51,10 @@ const STORE_SUFFIX: &str = ".qcow2";
 const PARTIAL_SUFFIX: &str = ".qcow2.part";
 /// The end of an image archive's volume name.
 const ARCHIVE_SUFFIX: &str = ".tar";
+/// The end of the volume name of a store VM's disk.
+const VM_DISK_SUFFIX: &str = "-hdd.qcow2";
+/// The end of the volume name of a store VM's config drive.
+const VM_CONFIG_DRIVE_SUFFIX: &str = ".iso";
 
 /// The names of the Docker store of one image ID and of what makes it.
 struct Store {
@@ -89,14 +90,14 @@ impl Store {
         format!("{STORE_VM_PREFIX}{}", self.id)
     }
 
-    /// The VM's disk, an overlay on the base image.
+    /// The VM's disk, an overlay on the boot disk.
     fn vm_disk(&self) -> String {
-        format!("{}-hdd.qcow2", self.vm())
+        format!("{}{VM_DISK_SUFFIX}", self.vm())
     }
 
     /// The VM's config drive.
     fn vm_config_drive(&self) -> String {
-        format!("{}.iso", self.vm())
+        format!("{}{VM_CONFIG_DRIVE_SUFFIX}", self.vm())
     }
 
     /// The folder in run folder `run_dir` the VM's config drive is staged in.
@@ -110,29 +111,48 @@ impl Store {
     }
 }
 
+/// Whether `name` is `prefix`, a store's ID and one of `suffixes`, so a node whose name starts
+/// like a store's is never taken for one.
+fn is_named_by_id(name: &str, prefix: &str, suffixes: &[&str]) -> bool {
+    name.strip_prefix(prefix)
+        .and_then(|rest| rest.split_at_checked(STORE_ID_LEN))
+        .is_some_and(|(id, end)| {
+            id.bytes().all(|byte| byte.is_ascii_hexdigit()) && suffixes.contains(&end)
+        })
+}
+
 /// Whether pool volume `volume` is one a store build makes and removes again, the VM's disk or
 /// config drive, the image archive or the partial store, and not a store.
-fn is_build_volume(volume: &str) -> bool {
-    volume.starts_with(STORE_VM_PREFIX)
-        || volume
-            .strip_prefix(STORE_PREFIX)
-            .is_some_and(|rest| rest.ends_with(ARCHIVE_SUFFIX) || rest.ends_with(PARTIAL_SUFFIX))
+pub(super) fn is_build_volume(volume: &str) -> bool {
+    is_named_by_id(
+        volume,
+        STORE_VM_PREFIX,
+        &[VM_DISK_SUFFIX, VM_CONFIG_DRIVE_SUFFIX],
+    ) || is_named_by_id(volume, STORE_PREFIX, &[ARCHIVE_SUFFIX, PARTIAL_SUFFIX])
 }
 
-/// The storage pool path of volume `volume`.
-fn pool_path(volume: &str) -> String {
-    format!("{SHERPA_STORAGE_POOL_PATH}/{volume}")
+/// Whether domain `name` is the VM of a store build.
+pub(super) fn is_build_domain(name: &str) -> bool {
+    is_named_by_id(name, STORE_VM_PREFIX, &[""])
 }
 
-/// The path of the Docker store of image `image`, made first when there is none.
+/// Whether `name`, in the sandbox run folder, is the staging folder or status socket of a store
+/// build.
+pub(super) fn is_build_file(name: &str) -> bool {
+    name.starts_with(&format!(".{STORE_VM_PREFIX}"))
+        || (name.starts_with("store-") && name.ends_with(".status"))
+}
+
+/// The path of the Docker store of image `image`, made first, by a VM on boot disk `boot_disk`,
+/// when there is none.
 ///
 /// # Errors
 ///
 /// Fails when the server's Docker does not have the image, or the store cannot be made.
-#[instrument(skip(host, base), level = "debug")]
+#[instrument(skip(host), level = "debug")]
 pub(super) async fn ensure_docker_store(
     host: &SandboxHost,
-    base: &SandboxBase,
+    boot_disk: &str,
     image: &str,
 ) -> Result<String> {
     let id = host
@@ -144,7 +164,7 @@ pub(super) async fn ensure_docker_store(
         .with_context(|| format!("Image {image} has no ID"))?;
     let store = Store::of(&id).with_context(|| format!("Image {image} has ID '{id}'"))?;
     let path = pool_path(&store.volume());
-    let lock = host.store_locks.of(&store.volume());
+    let lock = host.disk_locks.of(&store.volume());
     let _guard = if let Ok(guard) = lock.try_lock() {
         guard
     } else {
@@ -165,7 +185,7 @@ pub(super) async fn ensure_docker_store(
         ),
         StatusKind::Progress,
     );
-    let made = make_store(host, base, image, &store).await;
+    let made = make_store(host, boot_disk, image, &store).await;
     if let Err(removal) = remove_store_vm(host, &store, made.is_err()).await {
         tracing::warn!(store = %store.volume(), error = %removal, "Cannot remove the VM that made a Docker store");
     }
@@ -179,14 +199,9 @@ pub(super) async fn ensure_docker_store(
     Ok(path)
 }
 
-/// Make `store` of image `image`: write the image's archive, boot a Flatcar VM that loads it
-/// into an empty disk and powers off, and wait until it has.
-async fn make_store(
-    host: &SandboxHost,
-    base: &SandboxBase,
-    image: &str,
-    store: &Store,
-) -> Result<()> {
+/// Make `store` of image `image`: write the image's archive, boot a Flatcar VM on boot disk
+/// `boot_disk` that loads it into an empty disk and powers off, and wait until it has.
+async fn make_store(host: &SandboxHost, boot_disk: &str, image: &str, store: &Store) -> Result<()> {
     remove_store_vm(host, store, true).await?;
     restrict_dir(
         Path::new(SHERPA_SANDBOX_RUN_DIR),
@@ -202,8 +217,9 @@ async fn make_store(
         &[],
     )?;
     let status_socket = store.status_socket();
+    let vm = store.vm();
     let domain = SandboxDomainTemplate {
-        name: store.vm(),
+        name: vm.clone(),
         memory_mib: STORE_VM_MEMORY_MIB,
         vcpus: STORE_VM_VCPUS,
         disk: pool_path(&store.vm_disk()),
@@ -215,9 +231,12 @@ async fn make_store(
         status_socket: status_socket.clone(),
         serial_socket: None,
     };
+    let xml = domain
+        .render()
+        .with_context(|| format!("Cannot render the domain of VM {vm}"))?;
     let disks = vec![
         DomainDisk::Overlay {
-            base: base.disk.clone(),
+            base: boot_disk.to_owned(),
             path: domain.disk.clone(),
         },
         DomainDisk::Blank {
@@ -225,8 +244,7 @@ async fn make_store(
             size_gb: STORE_DISK_GB,
         },
     ];
-    start_domain(&host.qemu, domain, disks).await?;
-    let vm = store.vm();
+    start_domain(&host.qemu, &vm, xml, disks).await?;
     let mut watch = StatusWatch::connect(&status_socket, &vm).await?;
     time::timeout(STORE_VM_LOAD, watch.next())
         .await
@@ -298,81 +316,14 @@ async fn remove_store_vm(host: &SandboxHost, store: &Store, delete_partial: bool
     .context("The Docker store VM removal panicked")?
 }
 
-/// Remove what unfinished store builds left, run at sherpad's start before anything can build a
-/// store: each store VM, its disk and config drive, each image archive and partial store, and
-/// each staging folder and status socket in `run_dir`, but no store.
-///
-/// # Errors
-///
-/// Fails when libvirt cannot list or remove the domains or volumes, or a file cannot be
-/// removed.
-#[instrument(skip(qemu))]
-pub(crate) async fn remove_unfinished_store_builds(qemu: &Arc<Qemu>, run_dir: &Path) -> Result<()> {
-    let qemu = Arc::clone(qemu);
-    let removed = task::spawn_blocking(move || {
-        let conn = qemu.connect()?;
-        let mut removed = Vec::new();
-        for name in libvirt::list_domain_names(&conn)? {
-            if name.starts_with(STORE_VM_PREFIX) {
-                libvirt::remove_domain(&conn, &name)?;
-                removed.push(name);
-            }
-        }
-        for volume in libvirt::list_pool_volumes(&conn)? {
-            if is_build_volume(&volume) {
-                libvirt::delete_disk(&conn, &volume)?;
-                removed.push(volume);
-            }
-        }
-        Ok::<_, anyhow::Error>(removed)
-    })
-    .await
-    .context("The Docker store build sweep panicked")??;
-    let mut files = removed;
-    files.extend(remove_build_files(run_dir)?);
-    if !files.is_empty() {
-        tracing::warn!(
-            ?files,
-            "Removed what unfinished sandbox Docker store builds left"
-        );
-    }
-    Ok(())
-}
-
-/// Remove the staging folders and status sockets of store builds in `dir`, and return their
-/// names; a missing folder holds none.
-fn remove_build_files(dir: &Path) -> Result<Vec<String>> {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => {
-            return Err(error).with_context(|| format!("Cannot read {}", dir.display()));
-        }
-    };
-    let mut removed = Vec::new();
-    for entry in entries {
-        let entry = entry.with_context(|| format!("Cannot read {}", dir.display()))?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let path = entry.path();
-        if name.starts_with(&format!(".{STORE_VM_PREFIX}")) {
-            fs::remove_dir_all(&path)
-                .with_context(|| format!("Cannot remove {}", path.display()))?;
-        } else if name.starts_with("store-") && name.ends_with(".status") {
-            fs::remove_file(&path).with_context(|| format!("Cannot remove {}", path.display()))?;
-        } else {
-            continue;
-        }
-        removed.push(path.display().to_string());
-    }
-    Ok(removed)
-}
-
 #[cfg(test)]
 mod tests {
+    use libvirt::Qemu;
     use tempfile::TempDir;
     use virt::domain::Domain;
 
     use super::*;
+    use crate::services::sandbox::remove_unfinished_builds;
 
     const TEST_ID: &str = "sha256:5ee75ee75ee75ee70000000000000000";
 
@@ -440,7 +391,7 @@ mod tests {
         let socket = run.path().join("store-5ee75ee75ee75ee7.status");
         fs::write(&socket, "").unwrap();
 
-        let swept = remove_unfinished_store_builds(&qemu, run.path()).await;
+        let swept = remove_unfinished_builds(&qemu, run.path()).await;
 
         let volumes = libvirt::list_pool_volumes(&conn).unwrap();
         let domains = libvirt::list_domain_names(&conn).unwrap();

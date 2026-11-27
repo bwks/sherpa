@@ -14,6 +14,8 @@ pub struct IgnitionConfig {
     pub storage: Storage,
     pub systemd: Systemd,
     pub networkd: Networkd,
+    #[serde(rename = "kernelArguments", skip_serializing_if = "Option::is_none")]
+    pub kernel_arguments: Option<KernelArguments>,
 }
 
 impl IgnitionConfig {
@@ -42,6 +44,7 @@ impl IgnitionConfig {
             networkd: Networkd {
                 units: networkd_units,
             },
+            kernel_arguments: None,
         }
     }
 
@@ -53,6 +56,14 @@ impl IgnitionConfig {
     pub fn to_json_pretty(&self) -> Result<String> {
         serde_json::to_string_pretty(self).context("Failed to serialize the Ignition config")
     }
+}
+
+/// The kernel arguments Ignition makes the kernel command line have, which Flatcar adds to the
+/// command line its bootloader builds, rebooting once to boot with them.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct KernelArguments {
+    #[serde(rename = "shouldExist")]
+    pub should_exist: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -15,9 +15,9 @@ use crate::auth::jwt;
 use crate::auth::session::{self, SessionLookup};
 use crate::daemon::console_sessions::ConsoleSessions;
 use crate::daemon::db_key::load_or_create_db_key;
-use crate::daemon::docker_stores::DockerStoreLocks;
 use crate::daemon::link_states::LinkStates;
 use crate::daemon::metrics::Metrics;
+use crate::daemon::sandbox_disks::SandboxDiskLocks;
 use crate::daemon::storage::secure_storage;
 use crate::daemon::unreadable_ends::UnreadableEnds;
 use crate::daemon::vault_seals::VaultSeals;
@@ -88,7 +88,7 @@ pub struct AppState {
     pub unreadable_ends: UnreadableEnds,
     pub vault_seals: VaultSeals,
     pub console_sessions: ConsoleSessions,
-    pub docker_store_locks: DockerStoreLocks,
+    pub sandbox_disk_locks: SandboxDiskLocks,
 }
 
 impl AppState {
@@ -160,7 +160,7 @@ impl AppState {
             unreadable_ends: UnreadableEnds::default(),
             vault_seals: VaultSeals::default(),
             console_sessions: ConsoleSessions::default(),
-            docker_store_locks: DockerStoreLocks::default(),
+            sandbox_disk_locks: SandboxDiskLocks::default(),
         })
     }
 }
