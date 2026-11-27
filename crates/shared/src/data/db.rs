@@ -126,10 +126,10 @@ pub struct DbCpuPins {
     pub pins: NodeCpuPins,
 }
 
-/// A sandbox's own management address, as the `sandbox_address` table stores it: its node, its
+/// A sandbox's own record, as the `sandbox_node` table stores it: its node, its own management
 /// addresses and the MAC of its NIC.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DbSandboxAddress {
+pub struct DbSandboxNode {
     pub node: RecordId,
     pub ipv4: Ipv4Addr,
     pub ipv6: Option<Ipv6Addr>,

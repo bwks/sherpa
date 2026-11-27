@@ -52,14 +52,14 @@ pub(super) struct NodeConfigs {
     pub(super) domains: Vec<template::DomainTemplate>,
     pub(super) unikernel_domains: Vec<template::UnikernelDomainTemplate>,
     pub(super) lab_clusters: Vec<LabCluster>,
-    pub(super) sandbox_addresses: Vec<SandboxAddress>,
+    pub(super) sandbox_records: Vec<SandboxRecord>,
 }
 
-/// The own management addresses of the sandbox of node `node_name`.
+/// The record of the sandbox of node `node_name`.
 #[derive(Clone, Debug)]
-pub(super) struct SandboxAddress {
+pub(super) struct SandboxRecord {
     pub(super) node_name: String,
-    pub(super) address: data::DbSandboxAddress,
+    pub(super) record: data::DbSandboxNode,
 }
 
 /// The lab's node configuration in progress: the CA that signs node certificates, and the
@@ -73,7 +73,7 @@ struct Configuring<'a, 'b> {
     clone_disks: Vec<data::CloneDisk>,
     node_count: u16,
     sandbox_ranks: HashMap<String, u16>,
-    sandbox_addresses: Vec<SandboxAddress>,
+    sandbox_records: Vec<SandboxRecord>,
 }
 
 /// Give every node its management addresses, every container and VM its TLS certificate, and
@@ -111,7 +111,7 @@ pub(super) async fn configure_nodes(
         node_count: u16::try_from(inputs.node_setup_data.len())
             .context("The lab has more nodes than it can number")?,
         sandbox_ranks: sandbox_ranks(container_nodes),
-        sandbox_addresses: Vec::new(),
+        sandbox_records: Vec::new(),
     };
     let mut container_settings = HashMap::new();
     for node in container_nodes.iter_mut() {
@@ -137,7 +137,7 @@ pub(super) async fn configure_nodes(
         lab_ca,
         ztp_records,
         clone_disks,
-        sandbox_addresses,
+        sandbox_records,
         ..
     } = configuring;
     Ok(NodeConfigs {
@@ -149,7 +149,7 @@ pub(super) async fn configure_nodes(
         domains,
         unikernel_domains,
         lab_clusters,
-        sandbox_addresses,
+        sandbox_records,
     })
 }
 
@@ -232,10 +232,10 @@ impl Configuring<'_, '_> {
 
     /// Give the sandbox of node `name`, the `rank`th of the lab, its own management addresses,
     /// after the nodes' addresses, and its NIC's MAC, and record them.
-    async fn assign_sandbox_address(&mut self, name: &str, rank: u16) -> Result<()> {
+    async fn assign_sandbox(&mut self, name: &str, rank: u16) -> Result<()> {
         let mgmt_net = self.inputs.mgmt_net;
         let offset = util::sandbox_management_host_offset(self.node_count, rank)?;
-        let address = data::DbSandboxAddress {
+        let record = data::DbSandboxNode {
             node: self
                 .record_id(name)?
                 .with_context(|| format!("Node '{name}' has no record"))?,
@@ -247,10 +247,10 @@ impl Configuring<'_, '_> {
                 .transpose()?,
             mac: util::random_mac(KVM_OUI),
         };
-        db::create_sandbox_address(self.build.db, &address).await?;
-        self.sandbox_addresses.push(SandboxAddress {
+        db::create_sandbox_node(self.build.db, &record).await?;
+        self.sandbox_records.push(SandboxRecord {
             node_name: name.to_owned(),
-            address,
+            record,
         });
         Ok(())
     }
@@ -280,7 +280,7 @@ impl Configuring<'_, '_> {
         let node_image = self.image(node)?;
         let ipv4 = self.assign_addresses(node).await?;
         if let Some(&rank) = self.sandbox_ranks.get(&node.name) {
-            self.assign_sandbox_address(&node.name, rank).await?;
+            self.assign_sandbox(&node.name, rank).await?;
         }
         let cert_paths = self.issue_certificate(node, ipv4)?;
         let ztp_result = node_ops::generate_container_ztp(
@@ -578,7 +578,7 @@ pub(super) async fn start_boot_container(
     ztp_dir: &str,
     mgmt_net: &data::SherpaNetwork,
     ztp_records: &[data::ZtpRecord],
-    sandbox_addresses: &[SandboxAddress],
+    sandbox_records: &[SandboxRecord],
 ) -> Result<()> {
     let LabBuild {
         lab_id,
@@ -601,9 +601,9 @@ pub(super) async fn start_boot_container(
         "Created ZTP directories"
     );
 
-    let sandbox_hosts: Vec<template::SandboxHostRecord> = sandbox_addresses
+    let sandbox_hosts: Vec<template::SandboxHostRecord> = sandbox_records
         .iter()
-        .map(|sandbox| boot_server::sandbox_host_record(&sandbox.node_name, &sandbox.address))
+        .map(|sandbox| boot_server::sandbox_host_record(&sandbox.node_name, &sandbox.record))
         .collect();
     write_dnsmasq_config(&dnsmasq_dir, mgmt_net, ztp_records, &sandbox_hosts)?;
     boot_server::run_boot_container(docker_conn, lab_id, ztp_dir, mgmt_net).await

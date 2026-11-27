@@ -348,9 +348,9 @@ Before `sbx0` is up it turns off router advertisements and SLAAC on it (`accept_
   (`util::sandbox_management_host_offset`): the sandboxes' addresses follow the nodes'. A lab
   whose nodes and sandboxes together need more than the block's 234 addresses is refused
   (`TopologyError::TooManyAddresses`).
-- **Recorded** in `sandbox_address` with the NIC's MAC when `up` gives the node its addresses,
+- **Recorded** in `sandbox_node` with the NIC's MAC when `up` gives the node its addresses,
   before the boot server's config is written; `down`, `resume` and `redeploy` keep them, and
-  `redeploy` refuses a sandbox node without one before it tears anything down
+  `redeploy` refuses a node without a row before it tears anything down
   (`SandboxRefusal::AddressMissing`). Destroy gives them back with the node.
 - **Named** `<node>-sbx` and `<node>-sbx.<lab domain>` on the lab's boot server, IPv4 and IPv6,
   and its IPv4 address is reserved for the NIC's MAC with a DHCP host entry, so the boot server
@@ -379,7 +379,7 @@ the model's CLI (`Cli`, `sr_cli`, `bash` for SONiC). systemd starts it again whe
 - **Down, resume, status, scanner, console.** These nodes run as VMs (`ModelKind::runs_as`):
   `down` shuts the domain down over ACPI, which stops Docker and the container cleanly; `resume`
   starts the domain, `sherpa-node` starts the container again with what it wrote, and the links
-  are re-attached. A node of these models that has no recorded sandbox address was made before
+  are re-attached. A node of these models that has no `sandbox_node` row was made before
   its model ran in a sandbox, as a container on the server's Docker: `down` and `resume` refuse
   it with `SandboxRefusal::AddressMissing`, which says to destroy the lab and bring it up
   again (`sandbox_096`).

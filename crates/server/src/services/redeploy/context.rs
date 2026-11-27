@@ -74,7 +74,7 @@ pub(super) struct Redeploy<'a> {
     pub(super) secrets: Option<Vec<data::SecretFile>>,
     pub(super) image_guard: ImageLease,
     pub(super) sandbox_base: Option<SandboxBase>,
-    pub(super) sandbox_address: Option<data::DbSandboxAddress>,
+    pub(super) sandbox_node: Option<data::DbSandboxNode>,
     pub(super) admission: Admission,
 }
 
@@ -104,7 +104,7 @@ struct LoadedNode {
     data_interface_count: u8,
     image_guard: ImageLease,
     sandbox_base: Option<SandboxBase>,
-    sandbox_address: Option<data::DbSandboxAddress>,
+    sandbox_node: Option<data::DbSandboxNode>,
 }
 
 /// The lab's directory, details, management network, DNS and CA.
@@ -157,7 +157,7 @@ pub(super) async fn load_redeploy<'a>(
         data_interface_count,
         image_guard,
         sandbox_base,
-        sandbox_address,
+        sandbox_node,
     } = load_node(
         state,
         &lab_record_id,
@@ -228,7 +228,7 @@ pub(super) async fn load_redeploy<'a>(
         definition,
         image_guard,
         sandbox_base,
-        sandbox_address,
+        sandbox_node,
         admission: admitted,
         lab_id,
         node_name,
@@ -393,9 +393,9 @@ async fn load_node(
     let model_kind = node_image.model_kind()?;
     let sandbox_base =
         sandbox::sandbox_base(&state.db, &state.config.images_dir, &[model_kind]).await?;
-    let sandbox_address = if model_kind.runs_in_sandbox() {
+    let sandbox_node = if model_kind.runs_in_sandbox() {
         Some(
-            db::find_sandbox_address(db, &node_record_id)
+            db::find_sandbox_node(db, &node_record_id)
                 .await?
                 .ok_or_else(|| {
                     ServiceError::Sandbox(SandboxRefusal::AddressMissing {
@@ -439,7 +439,7 @@ async fn load_node(
         data_interface_count,
         image_guard,
         sandbox_base,
-        sandbox_address,
+        sandbox_node,
     })
 }
 

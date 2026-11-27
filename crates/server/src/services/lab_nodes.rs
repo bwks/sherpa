@@ -55,10 +55,10 @@ pub(crate) async fn refuse_nodes_without_sandbox(
     nodes: Vec<DbNode>,
     node_images: &[NodeConfig],
 ) -> Result<(Vec<DbNode>, Vec<NodeActionResult>)> {
-    let sandboxes: HashSet<RecordId> = db::list_sandbox_addresses(db, lab_record_id)
+    let sandboxes: HashSet<RecordId> = db::list_sandbox_nodes(db, lab_record_id)
         .await?
         .into_iter()
-        .map(|address| address.node)
+        .map(|sandbox| sandbox.node)
         .collect();
     let (refused, kept): (Vec<DbNode>, Vec<DbNode>) = nodes.into_iter().partition(|node| {
         node_images

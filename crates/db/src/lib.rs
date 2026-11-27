@@ -18,7 +18,7 @@ pub mod node;
 pub mod node_image;
 mod persistence;
 mod queries;
-pub mod sandbox_address;
+pub mod sandbox_node;
 pub mod schema;
 pub mod secret;
 pub mod seed;
@@ -31,7 +31,7 @@ pub use connect::{Database, open, open_in_memory};
 pub use cpu_pin::{CpuPinTaken, claim_cpu_pins, list_cpu_pins, retain_cpu_pins};
 pub use definition::{read_lab_definition, store_lab_definition, store_redeployed_node};
 pub use error::DbError;
-pub use sandbox_address::{create_sandbox_address, find_sandbox_address, list_sandbox_addresses};
+pub use sandbox_node::{create_sandbox_node, find_sandbox_node, list_sandbox_nodes};
 pub use secret::{SecretKey, secret_key_registered, verify_secret_key};
 pub use shared::data::{
     DbBridge, DbCpuPins, DbLab, DbLink, DbLoginAttempt, DbNode, DbSession, DbSessionUser, DbUser,

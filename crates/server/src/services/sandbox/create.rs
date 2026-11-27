@@ -14,7 +14,7 @@ use tokio::task;
 use tracing::instrument;
 
 use container::ContainerSpec;
-use shared::data::{DbSandboxAddress, Dns, ModelKind, SherpaNetwork};
+use shared::data::{DbSandboxNode, Dns, ModelKind, SherpaNetwork};
 use shared::konst::SHERPA_STORAGE_POOL_PATH;
 use template::{SandboxDomainTemplate, SandboxGuest, SandboxManagement, SandboxOwnNic};
 
@@ -65,7 +65,7 @@ pub(crate) struct SandboxCreate {
     pub(crate) mgmt_net: SherpaNetwork,
     pub(crate) ipv4: Ipv4Addr,
     pub(crate) ipv6: Option<Ipv6Addr>,
-    pub(crate) own_address: DbSandboxAddress,
+    pub(crate) own_address: DbSandboxNode,
 }
 
 /// A disk a sandbox's domain boots with, made before the domain is defined.
@@ -385,7 +385,7 @@ mod tests {
                     mgmt_net: self.network.network.clone(),
                     ipv4: Ipv4Addr::new(198, 18, 250, 23),
                     ipv6: None,
-                    own_address: DbSandboxAddress {
+                    own_address: DbSandboxNode {
                         node: RecordId::new("node", "sonic1"),
                         ipv4: Ipv4Addr::new(198, 18, 250, 24),
                         ipv6: None,

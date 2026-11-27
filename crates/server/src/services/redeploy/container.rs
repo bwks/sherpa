@@ -185,7 +185,7 @@ pub(super) async fn redeploy_sandbox(
             mgmt_net: redeploy.mgmt_net.clone(),
             ipv4: redeploy.ipv4,
             ipv6: redeploy.target_node.ipv6_address,
-            own_address: redeploy.sandbox_address.clone().ok_or_else(|| {
+            own_address: redeploy.sandbox_node.clone().ok_or_else(|| {
                 ServiceError::Sandbox(SandboxRefusal::AddressMissing {
                     node: node_name.clone(),
                 })

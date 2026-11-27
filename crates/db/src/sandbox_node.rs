@@ -1,8 +1,9 @@
-//! The management addresses sandboxes have of their own, in the `sandbox_address` table: one row
-//! per sandbox node, recorded with the node at `up` and deleted with it.
+//! The records sandboxes have of their own, in the `sandbox_node` table: one row per node that runs
+//! in a sandbox, with the sandbox's own management addresses and MAC, recorded with the node at
+//! `up` and deleted with it.
 
 use anyhow::{Context, Result};
-use shared::data::{DbSandboxAddress, RecordId};
+use shared::data::{DbSandboxNode, RecordId};
 use tracing::instrument;
 use turso::{Row, Value};
 
@@ -11,10 +12,10 @@ use crate::persistence::{Cells, LAB_TABLE, NODE_TABLE, key_of};
 use crate::queries;
 use crate::sql::{execute, query_all, query_optional};
 
-/// A row of the `sandbox_address` table.
-fn sandbox_address_from_row(row: &Row) -> Result<DbSandboxAddress> {
+/// A row of the `sandbox_node` table.
+fn sandbox_node_from_row(row: &Row) -> Result<DbSandboxNode> {
     let mut cells = Cells::new(row);
-    Ok(DbSandboxAddress {
+    Ok(DbSandboxNode {
         node: cells.record(NODE_TABLE, "node")?,
         ipv4: cells.ipv4("ipv4")?,
         ipv6: cells.optional_ipv6("ipv6")?,
@@ -22,74 +23,63 @@ fn sandbox_address_from_row(row: &Row) -> Result<DbSandboxAddress> {
     })
 }
 
-/// Record the management address of the sandbox of `address.node`.
+/// Record the sandbox of `sandbox.node`.
 ///
 /// # Errors
 ///
-/// Fails when the node is not a node record, already has a sandbox address, or the database
+/// Fails when the node is not a node record, already has a sandbox node row, or the database
 /// cannot be written.
-#[instrument(skip(db), fields(node = %address.node), level = "debug")]
-pub async fn create_sandbox_address(db: &Database, address: &DbSandboxAddress) -> Result<()> {
+#[instrument(skip(db), fields(node = %sandbox.node), level = "debug")]
+pub async fn create_sandbox_node(db: &Database, sandbox: &DbSandboxNode) -> Result<()> {
     let writer = db.writer().await?;
     execute(
         &writer.conn,
-        queries::sandbox_address::CREATE.bind([
-            key_of(&address.node, NODE_TABLE)?.into(),
-            address.ipv4.to_string().into(),
-            address
+        queries::sandbox_node::CREATE.bind([
+            key_of(&sandbox.node, NODE_TABLE)?.into(),
+            sandbox.ipv4.to_string().into(),
+            sandbox
                 .ipv6
                 .map_or(Value::Null, |ipv6| ipv6.to_string().into()),
-            address.mac.as_str().into(),
+            sandbox.mac.as_str().into(),
         ]),
     )
     .await
-    .with_context(|| {
-        format!(
-            "Failed to record the sandbox address of node {}",
-            address.node
-        )
-    })?;
+    .with_context(|| format!("Failed to record the sandbox of node {}", sandbox.node))?;
     Ok(())
 }
 
-/// The management address of the sandbox of node `node`, if it has one.
+/// The record of the sandbox of node `node`, if it has one.
 ///
 /// # Errors
 ///
 /// Fails when `node` is not a node record or the database cannot be read.
 #[instrument(skip(db), level = "debug")]
-pub async fn find_sandbox_address(
-    db: &Database,
-    node: &RecordId,
-) -> Result<Option<DbSandboxAddress>> {
+pub async fn find_sandbox_node(db: &Database, node: &RecordId) -> Result<Option<DbSandboxNode>> {
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        queries::sandbox_address::FIND_BY_NODE.bind([key_of(node, NODE_TABLE)?.into()]),
-        sandbox_address_from_row,
+        queries::sandbox_node::FIND_BY_NODE.bind([key_of(node, NODE_TABLE)?.into()]),
+        sandbox_node_from_row,
     )
     .await
-    .with_context(|| format!("Failed to read the sandbox address of node {node}"))
+    .with_context(|| format!("Failed to read the sandbox of node {node}"))
 }
 
-/// The management addresses of the sandboxes of lab `lab`, in node index order.
+/// The records of the sandboxes of lab `lab`, in node index order.
 ///
 /// # Errors
 ///
 /// Fails when `lab` is not a lab record or the database cannot be read.
 #[instrument(skip(db), level = "debug")]
-pub async fn list_sandbox_addresses(
-    db: &Database,
-    lab: &RecordId,
-) -> Result<Vec<DbSandboxAddress>> {
+pub async fn list_sandbox_nodes(db: &Database, lab: &RecordId) -> Result<Vec<DbSandboxNode>> {
     let conn = db.reader().await?;
     query_all(
         &conn,
-        queries::sandbox_address::LIST_BY_LAB.bind([key_of(lab, LAB_TABLE)?.into()]),
-        sandbox_address_from_row,
+        queries::sandbox_node::LIST_BY_LAB.bind([key_of(lab, LAB_TABLE)?.into()]),
+        sandbox_node_from_row,
     )
     .await
-    .with_context(|| format!("Failed to list the sandbox addresses of lab {lab}"))
+    .with_context(|| format!("Failed to list the sandboxes of lab {lab}"))
 }
 
 #[cfg(test)]
@@ -103,7 +93,7 @@ mod tests {
     };
 
     #[tokio::test]
-    async fn sandbox_069_a_sandbox_address_is_kept_with_its_node_and_goes_with_its_lab() {
+    async fn sandbox_069_a_sandbox_node_is_kept_with_its_node_and_goes_with_its_lab() {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
         let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![])
@@ -137,28 +127,28 @@ mod tests {
         )
         .await
         .unwrap();
-        let mut addresses = Vec::new();
+        let mut sandboxes = Vec::new();
         for (index, name) in [(2, "srl2"), (1, "srl1")] {
             let node = create_node(&db, name, index, image.id.clone().unwrap(), lab_id.clone())
                 .await
                 .unwrap();
-            let address = DbSandboxAddress {
+            let sandbox = DbSandboxNode {
                 node: node.id.unwrap(),
                 ipv4: format!("172.31.1.{}", 22 + index).parse().unwrap(),
                 ipv6: (index == 1).then(|| "fd00::17".parse().unwrap()),
                 mac: format!("52:54:00:00:00:0{index}"),
             };
-            create_sandbox_address(&db, &address).await.unwrap();
-            addresses.push(address);
+            create_sandbox_node(&db, &sandbox).await.unwrap();
+            sandboxes.push(sandbox);
         }
-        assert!(create_sandbox_address(&db, &addresses[0]).await.is_err());
+        assert!(create_sandbox_node(&db, &sandboxes[0]).await.is_err());
         assert_eq!(
-            find_sandbox_address(&db, &addresses[1].node).await.unwrap(),
-            Some(addresses[1].clone())
+            find_sandbox_node(&db, &sandboxes[1].node).await.unwrap(),
+            Some(sandboxes[1].clone())
         );
         assert_eq!(
-            list_sandbox_addresses(&db, &lab_id).await.unwrap(),
-            vec![addresses[1].clone(), addresses[0].clone()]
+            list_sandbox_nodes(&db, &lab_id).await.unwrap(),
+            vec![sandboxes[1].clone(), sandboxes[0].clone()]
         );
 
         assert!(
@@ -167,7 +157,7 @@ mod tests {
                 .unwrap()
         );
         assert_eq!(
-            find_sandbox_address(&db, &addresses[0].node).await.unwrap(),
+            find_sandbox_node(&db, &sandboxes[0].node).await.unwrap(),
             None
         );
     }

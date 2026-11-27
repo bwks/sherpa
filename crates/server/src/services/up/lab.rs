@@ -23,9 +23,7 @@ use super::readiness::{NodesReady, ReadinessInputs, wait_for_nodes, write_secret
 use super::records::{NodeRecords, create_node_records, store_ssh_usernames};
 use super::runtime::{SandboxNodes, create_sandboxes, create_unikernels, create_vms};
 use super::services::{LabServices, ServiceInputs, record_ready_workers, start_lab_services};
-use super::ztp::{
-    ConfigInputs, NodeConfigs, SandboxAddress, configure_nodes, start_boot_container,
-};
+use super::ztp::{ConfigInputs, NodeConfigs, SandboxRecord, configure_nodes, start_boot_container};
 use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_host_access, require_lab_starter};
 use crate::daemon::state::AppState;
@@ -652,7 +650,7 @@ impl LabUp<'_> {
         ztp_dir: &str,
         network: &LabNetwork,
         ztp_records: &[data::ZtpRecord],
-        sandbox_addresses: &[SandboxAddress],
+        sandbox_records: &[SandboxRecord],
     ) -> Result<()> {
         self.start_phase(
             data::UpPhase::BootContainers,
@@ -663,7 +661,7 @@ impl LabUp<'_> {
             ztp_dir,
             &network.mgmt_net,
             ztp_records,
-            sandbox_addresses,
+            sandbox_records,
         )
         .await?;
         self.phase_done("Sherpa Router");
@@ -693,7 +691,7 @@ impl LabUp<'_> {
             domains,
             unikernel_domains,
             lab_clusters,
-            sandbox_addresses,
+            sandbox_records,
         } = configure_nodes(
             &self.build,
             &ConfigInputs {
@@ -713,7 +711,7 @@ impl LabUp<'_> {
         .await?;
         self.phase_done("ZtpGeneration");
 
-        self.start_boot_server(&ztp_dir, network, &ztp_records, &sandbox_addresses)
+        self.start_boot_server(&ztp_dir, network, &ztp_records, &sandbox_records)
             .await?;
 
         self.start_phase(data::UpPhase::DiskCloning, "Cloning disks".to_string())?;
@@ -753,7 +751,7 @@ impl LabUp<'_> {
                 veths: &links.p2p_container_veths,
                 mgmt_net: &network.mgmt_net,
                 dns: &network.dns,
-                sandbox_addresses: &sandbox_addresses,
+                sandbox_records: &sandbox_records,
             },
         )
         .await?;
