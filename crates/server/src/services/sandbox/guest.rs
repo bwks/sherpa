@@ -1,9 +1,10 @@
-//! What a sandbox's guest is given: its interfaces and management addresses, its container's
-//! `docker create` arguments, and the config drive with its Ignition config and its container's
-//! volumes.
+//! What a sandbox's guest is given: its interfaces and management addresses, and the config
+//! drive with its Ignition config, the body Docker creates its container from, and its
+//! container's volumes.
 
 use std::fs;
 use std::io::ErrorKind;
+use std::iter;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 
@@ -15,7 +16,8 @@ use shared::konst::{KVM_OUI, SHERPA_STORAGE_POOL_PATH};
 use shared::util;
 use template::{
     GuestAddress, GuestInterface, SANDBOX_CONFIG_DRIVE_LABEL, SANDBOX_CONFIG_DRIVE_MOUNT,
-    SANDBOX_CONFIG_DRIVE_USER_DATA, SANDBOX_MANAGEMENT_INTERFACE, SandboxNic, WritableVolume,
+    SANDBOX_CONFIG_DRIVE_USER_DATA, SANDBOX_CONTAINER_BODY, SANDBOX_MANAGEMENT_INTERFACE,
+    SandboxNic, WritableVolume,
 };
 
 use crate::konst::{NODE_CONFIG_DIR_MODE, NODE_CONFIG_FILE_MODE};
@@ -148,23 +150,31 @@ pub(super) fn guest_volumes(volumes: &[ContainerMount]) -> GuestVolumes {
     guest
 }
 
-/// The `docker create` arguments of the container `spec` in the guest, with its volumes mounted
-/// as `mounts` and the lab's `dns`.
-pub(super) fn guest_create_args(
+/// The JSON body Docker in the guest creates the container `spec` from, with its volumes
+/// mounted as `mounts` and the lab's `dns`.
+///
+/// # Errors
+///
+/// Fails when the spec's resource limits do not fit Docker's or the body cannot be serialized.
+pub(super) fn guest_container_body(
     spec: &ContainerSpec,
     mounts: Vec<ContainerMount>,
     dns: &Dns,
-) -> Vec<String> {
-    container::sandbox_create_args(
-        &ContainerSpec {
+) -> Result<String> {
+    let body = container::sandbox_create_body(
+        ContainerSpec {
             volumes: mounts,
             ..spec.clone()
         },
         dns,
     )
+    .with_context(|| format!("Invalid container {}", spec.name))?;
+    serde_json::to_string(&body)
+        .with_context(|| format!("Cannot serialize the body of container {}", spec.name))
 }
 
-/// Write config drive `drive` in the storage pool with Ignition config `user_data` and
+/// Write config drive `drive` in the storage pool with Ignition config `user_data`, the body
+/// `container_body` Docker creates the node's container from, when the VM runs one, and
 /// `volumes`, staged in `stage`, and return its path.
 ///
 /// # Errors
@@ -174,10 +184,11 @@ pub(super) fn write_config_drive(
     stage: &Path,
     drive: &str,
     user_data: &str,
+    container_body: Option<&str>,
     volumes: &[DriveVolume],
 ) -> Result<String> {
     remove_stage(stage)?;
-    let written = stage_config_drive(stage, user_data, volumes).and_then(|()| {
+    let written = stage_config_drive(stage, user_data, container_body, volumes).and_then(|()| {
         let path = format!("{SHERPA_STORAGE_POOL_PATH}/{drive}");
         iso::create_iso(stage, &path, SANDBOX_CONFIG_DRIVE_LABEL)
             .with_context(|| format!("Cannot write config drive {path}"))?;
@@ -197,16 +208,21 @@ fn remove_stage(stage: &Path) -> Result<()> {
     }
 }
 
-/// Stage the config drive's files in `stage`: the Ignition config, and each volume's file or
-/// folder.
-fn stage_config_drive(stage: &Path, user_data: &str, volumes: &[DriveVolume]) -> Result<()> {
-    let user_data_path = stage.join(SANDBOX_CONFIG_DRIVE_USER_DATA);
-    create_parent(&user_data_path)?;
-    util::write_file_with_permissions(
-        &user_data_path,
-        user_data.as_bytes(),
-        NODE_CONFIG_FILE_MODE,
-    )?;
+/// Stage the config drive's files in `stage`: the Ignition config, the container's body when
+/// there is one, and each volume's file or folder.
+fn stage_config_drive(
+    stage: &Path,
+    user_data: &str,
+    container_body: Option<&str>,
+    volumes: &[DriveVolume],
+) -> Result<()> {
+    let files = iter::once((SANDBOX_CONFIG_DRIVE_USER_DATA, user_data))
+        .chain(container_body.map(|body| (SANDBOX_CONTAINER_BODY, body)));
+    for (on_drive, contents) in files {
+        let path = stage.join(on_drive);
+        create_parent(&path)?;
+        util::write_file_with_permissions(&path, contents.as_bytes(), NODE_CONFIG_FILE_MODE)?;
+    }
     for volume in volumes {
         let destination = stage.join(&volume.on_drive);
         create_parent(&destination)?;
@@ -364,7 +380,8 @@ mod tests {
     }
 
     #[test]
-    fn sandbox_052_the_config_drive_holds_ignition_and_each_volume_file_and_folder() {
+    fn sandbox_052_the_config_drive_holds_ignition_the_container_body_and_each_volume_file_and_folder()
+     {
         let dir = TempDir::new().unwrap();
         let config = dir.path().join("r1.conf");
         fs::write(&config, "hostname r1\n").unwrap();
@@ -376,10 +393,14 @@ mod tests {
             ContainerMount::read_only(config.to_str().unwrap(), "/a"),
             ContainerMount::writable(certs.to_str().unwrap(), "/b"),
         ]);
-        stage_config_drive(&stage, "{}", &volumes.drive).unwrap();
+        stage_config_drive(&stage, "{}", Some(r#"{"Image":"a"}"#), &volumes.drive).unwrap();
         assert_eq!(
             fs::read_to_string(stage.join("openstack/latest/user_data")).unwrap(),
             "{}"
+        );
+        assert_eq!(
+            fs::read_to_string(stage.join("sherpa/container.json")).unwrap(),
+            r#"{"Image":"a"}"#
         );
         assert_eq!(
             fs::read_to_string(stage.join("sherpa/volumes/0")).unwrap(),
@@ -390,6 +411,6 @@ mod tests {
             "CA"
         );
         let missing = guest_volumes(&[ContainerMount::read_only("/no/such/file", "/c")]);
-        assert!(stage_config_drive(&dir.path().join("other"), "{}", &missing.drive).is_err());
+        assert!(stage_config_drive(&dir.path().join("other"), "{}", None, &missing.drive).is_err());
     }
 }

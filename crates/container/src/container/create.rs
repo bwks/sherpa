@@ -1,15 +1,17 @@
 use std::collections::HashMap;
+use std::iter;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use bollard::Docker;
 use bollard::models::{
     ContainerCreateBody, ContainerCreateResponse, ContainerStateStatusEnum, EndpointIpamConfig,
-    EndpointSettings, HostConfig, NetworkConnectRequest, NetworkingConfig,
+    EndpointSettings, HostConfig, NetworkConnectRequest, NetworkingConfig, RestartPolicy,
+    RestartPolicyNameEnum,
 };
 use bollard::query_parameters::{
     CreateContainerOptions, InspectContainerOptions, StartContainerOptions,
 };
+use bollard::{API_DEFAULT_VERSION, Docker};
 use tracing::instrument;
 
 use shared::data::{ContainerMount, ContainerNetworkAttachment, Dns};
@@ -29,8 +31,6 @@ const DATA_INTERFACE_RETRY_DELAY: Duration = Duration::from_secs(2);
 const SANDBOX_NETWORK_MODE: &str = "host";
 /// The address a sandbox's container resolves its own hostname to.
 const SANDBOX_HOSTNAME_ADDRESS: &str = "127.0.1.1";
-/// Docker's restart policy of a sandbox's container.
-const SANDBOX_RESTART_POLICY: &str = "unless-stopped";
 /// Bytes in a MiB, the unit of a node's memory.
 const BYTES_PER_MIB: u64 = 1024 * 1024;
 /// Docker's CPU quota unit, `NanoCpus`, in billionths of a CPU.
@@ -215,87 +215,47 @@ fn create_body(spec: ContainerSpec) -> Result<ContainerCreateBody> {
     })
 }
 
-/// The `docker create` arguments of a sandbox's container, its image and command last: the
-/// settings `run_container` gives a container, in the VM's network namespace instead of on a
-/// Docker network, with the lab's name servers and domain, its hostname resolving to loopback,
-/// Docker restarting it unless it was stopped, and no image pull, as the VM's store has it.
+/// The body Docker creates a sandbox's container from: `run_container`'s body of `spec`, in the
+/// VM's network namespace instead of on a Docker network, with the lab's `dns` name servers and
+/// domain, its hostname resolving to loopback, and Docker restarting it unless it was stopped.
+///
+/// # Errors
+///
+/// Fails when the spec's resource limits do not fit Docker's.
+pub fn sandbox_create_body(spec: ContainerSpec, dns: &Dns) -> Result<ContainerCreateBody> {
+    let extra_hosts = spec
+        .hostname
+        .as_ref()
+        .map(|hostname| vec![format!("{hostname}:{SANDBOX_HOSTNAME_ADDRESS}")]);
+    let mut body = create_body(spec)?;
+    let host_config = body.host_config.get_or_insert_default();
+    host_config.network_mode = Some(SANDBOX_NETWORK_MODE.to_owned());
+    host_config.dns = Some(name_server_addresses(dns));
+    host_config.dns_search = Some(vec![dns.domain.clone()]);
+    host_config.extra_hosts = extra_hosts;
+    host_config.restart_policy = Some(RestartPolicy {
+        name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
+        maximum_retry_count: None,
+    });
+    body.networking_config = None;
+    Ok(body)
+}
+
+/// The Docker Engine API version `run_container` talks to Docker with, such as `1.49`.
 #[must_use]
-pub fn sandbox_create_args(spec: &ContainerSpec, dns: &Dns) -> Vec<String> {
-    let mut args = vec![
-        "--name".to_owned(),
-        spec.name.clone(),
-        format!("--network={SANDBOX_NETWORK_MODE}"),
-        format!("--restart={SANDBOX_RESTART_POLICY}"),
-        "--pull=never".to_owned(),
-        "--tty".to_owned(),
-        "--interactive".to_owned(),
-    ];
-    if let Some(hostname) = &spec.hostname {
-        args.extend([
-            format!("--hostname={hostname}"),
-            format!("--add-host={hostname}:{SANDBOX_HOSTNAME_ADDRESS}"),
-        ]);
-    }
-    if spec.privileged {
-        args.push("--privileged".to_owned());
-    }
-    for server in &dns.name_servers {
-        args.push(format!("--dns={}", server.ipv4_address));
-        if let Some(address) = server.ipv6_address {
-            args.push(format!("--dns={address}"));
-        }
-    }
-    args.push(format!("--dns-search={}", dns.domain));
-    for env in &spec.env_vars {
-        args.extend(["--env".to_owned(), env.clone()]);
-    }
-    for capability in &spec.capabilities {
-        args.push(format!("--cap-add={capability}"));
-    }
-    for mount in &spec.volumes {
-        args.extend(["--mount".to_owned(), bind_mount(mount)]);
-    }
-    if let Some(size) = spec.shm_size {
-        args.push(format!("--shm-size={size}b"));
-    }
-    if let Some(user) = &spec.user {
-        args.push(format!("--user={user}"));
-    }
-    if let Some(memory_mib) = spec.memory_mib {
-        args.extend([
-            format!("--memory={memory_mib}m"),
-            format!("--memory-swap={memory_mib}m"),
-        ]);
-    }
-    if let Some(cpu_count) = spec.cpu_count {
-        args.push(format!("--cpus={cpu_count}"));
-    }
-    args.push(spec.image.clone());
-    args.extend(spec.commands.iter().cloned());
-    args
+pub fn docker_api_version() -> String {
+    API_DEFAULT_VERSION.to_string()
 }
 
-/// The `--mount` value of bind mount `mount`, each field quoted as CSV when it holds a comma or
-/// a quote.
-fn bind_mount(mount: &ContainerMount) -> String {
-    let mut fields = vec![
-        "type=bind".to_owned(),
-        csv_field(&format!("source={}", mount.source)),
-        csv_field(&format!("target={}", mount.destination)),
-    ];
-    if mount.read_only {
-        fields.push("readonly".to_owned());
-    }
-    fields.join(",")
-}
-
-/// `field` as a CSV field: quoted, its quotes doubled, when it holds a comma or a quote.
-fn csv_field(field: &str) -> String {
-    if field.contains([',', '"']) {
-        format!(r#""{}""#, field.replace('"', r#""""#))
-    } else {
-        field.to_owned()
-    }
+/// The addresses of the lab's name servers, each IPv4 address followed by its IPv6 one.
+fn name_server_addresses(dns: &Dns) -> Vec<String> {
+    dns.name_servers
+        .iter()
+        .flat_map(|server| {
+            iter::once(server.ipv4_address.to_string())
+                .chain(server.ipv6_address.map(|address| address.to_string()))
+        })
+        .collect()
 }
 
 /// The host config of a container's limits: `memory_mib` as a hard limit in bytes, with the
@@ -412,7 +372,8 @@ mod tests {
     }
 
     #[test]
-    fn sandbox_044_a_sandbox_container_runs_in_the_vms_network_namespace_with_the_labs_dns() {
+    fn sandbox_044_a_sandbox_container_has_run_containers_body_in_the_vms_network_namespace_with_the_labs_dns()
+     {
         let spec = ContainerSpec {
             name: "sonic1-abc12345".to_owned(),
             hostname: Some("sonic1".to_owned()),
@@ -427,10 +388,10 @@ mod tests {
             additional_networks: Vec::new(),
             commands: vec!["/usr/bin/start".to_owned(), "--x".to_owned()],
             privileged: true,
-            shm_size: None,
+            shm_size: Some(1 << 30),
             user: Some("0:0".to_owned()),
-            memory_mib: None,
-            cpu_count: None,
+            memory_mib: Some(2048),
+            cpu_count: Some(2),
         };
         let dns = Dns {
             domain: "sherpa.lab.local".to_owned(),
@@ -439,34 +400,28 @@ mod tests {
                 ipv6_address: Some("fd00::2".parse().unwrap()),
             }],
         };
+        let runc = create_body(spec.clone()).unwrap();
+        let mut sandbox = sandbox_create_body(spec, &dns).unwrap();
+
+        assert_eq!(sandbox.networking_config, None);
+        let host_config = sandbox.host_config.as_mut().unwrap();
+        assert_eq!(host_config.network_mode.take().as_deref(), Some("host"));
+        assert_eq!(host_config.dns.take().unwrap(), ["172.31.0.2", "fd00::2"]);
+        assert_eq!(host_config.dns_search.take().unwrap(), ["sherpa.lab.local"]);
         assert_eq!(
-            sandbox_create_args(&spec, &dns),
-            [
-                "--name",
-                "sonic1-abc12345",
-                "--network=host",
-                "--restart=unless-stopped",
-                "--pull=never",
-                "--tty",
-                "--interactive",
-                "--hostname=sonic1",
-                "--add-host=sonic1:127.0.1.1",
-                "--privileged",
-                "--dns=172.31.0.2",
-                "--dns=fd00::2",
-                "--dns-search=sherpa.lab.local",
-                "--env",
-                "A=b c",
-                "--cap-add=NET_ADMIN",
-                "--mount",
-                "type=bind,source=/media/config/sherpa/volumes/0,target=/mnt/init.sh,readonly",
-                "--mount",
-                r#"type=bind,source=/srv/data,"target=/etc/a,b""#,
-                "--user=0:0",
-                "docker-sonic-vs:202511",
-                "/usr/bin/start",
-                "--x",
-            ]
+            host_config.extra_hosts.take().unwrap(),
+            ["sonic1:127.0.1.1"]
         );
+        assert_eq!(
+            host_config.restart_policy.take(),
+            Some(RestartPolicy {
+                name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
+                maximum_retry_count: None,
+            })
+        );
+        sandbox
+            .networking_config
+            .clone_from(&runc.networking_config);
+        assert_eq!(sandbox, runc);
     }
 }

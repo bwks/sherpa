@@ -1,11 +1,14 @@
 #!/bin/bash
-# Starts the node's container, and reports to sherpad that it started or why it did not. Until
-# the container is created with its writable volumes in it, which a marker file records, each
-# boot creates the container afresh from the arguments sherpad listed, separated by NUL bytes,
-# and copies the files of each writable volume into it, each line of the writable list a file
-# or folder on the config drive and its path in the container. Later boots start the container
-# it created, with what it wrote.
+# Starts the node's container through the Docker Engine API on the VM's Docker socket, and
+# reports to sherpad that it started or why it did not. Until the container is created with its
+# writable volumes in it, which a marker file records, each boot removes any container an earlier
+# boot left, creates the container from the body sherpad wrote on the config drive, and uploads
+# the files of each writable volume into it as a tar archive, each line of the writable list a
+# file or folder on the config drive and its path in the container. Later boots start the
+# container it created, with what it wrote.
 set -eEuo pipefail
+
+API="http://docker/v{{ api_version }}"
 
 fail() {
   "{{ report }}" "failed: $1" || true
@@ -13,33 +16,64 @@ fail() {
 }
 trap 'fail "line $LINENO: $BASH_COMMAND"' ERR
 
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+# Sends a request with method $2 to path $3 of the Engine API, with curl's arguments after it,
+# and succeeds when Docker answers with one of the status codes in $1. Otherwise it prints
+# Docker's message, or curl's when Docker did not answer, and fails.
+docker_api() {
+  local codes=$1 method=$2 path=$3 code message
+  shift 3
+  if ! code=$(curl --silent --show-error --unix-socket "{{ socket }}" --request "$method" \
+    --output "$work/answer" --write-out '%{http_code}' "$@" "$API$path" 2> "$work/error"); then
+    cat "$work/error"
+    return 1
+  fi
+  if [[ " $codes " != *" $code "* ]]; then
+    message=$(jq -r '.message // empty' "$work/answer" 2> /dev/null) || message=$(cat "$work/answer")
+    echo "${message:-Docker answered $code}"
+    return 1
+  fi
+}
+
+# The milliseconds since $1, a value of EPOCHREALTIME.
+elapsed_ms() {
+  echo $(((${EPOCHREALTIME/./} - ${1/./}) / 1000))
+}
+
 name=$(cat "{{ container }}")
 if [ ! -e "{{ created }}" ]; then
-  if docker container inspect "$name" > /dev/null 2>&1; then
-    output=$(docker rm -f "$name" 2>&1) || fail "cannot remove the unfinished container: $output"
-  fi
-  mapfile -d '' args < "{{ create }}"
-  output=$(docker create "${args[@]}" 2>&1) || fail "cannot create the container: $output"
+  output=$(docker_api "204 404" DELETE "/containers/$name?force=true") ||
+    fail "cannot remove the unfinished container: $output"
+  begin=$EPOCHREALTIME
+  output=$(docker_api 201 POST "/containers/create?name=$name" \
+    --header "Content-Type: application/json" --data-binary "@{{ body }}") ||
+    fail "cannot create the container: $output"
+  echo "created the container in $(elapsed_ms "$begin") ms" >&2
   # The files only, made writable: the folders they go into keep their owner and mode, and
   # Docker makes any that are missing.
-  stage=$(mktemp -d)
+  stage="$work/stage"
+  mkdir "$stage"
   while read -r source destination; do
     mkdir -p "$stage$(dirname "$destination")"
     cp -R "$source" "$stage$destination"
   done < "{{ writable }}"
   chmod -R u+w "$stage"
+  begin=$EPOCHREALTIME
   if ! output=$( (cd "$stage" && find . -type f -print0 |
     tar --null --no-recursion --owner=0 --group=0 -cf - -T - |
-    docker cp - "$name:/") 2>&1); then
-    rm -rf "$stage"
-    docker rm -f "$name" > /dev/null 2>&1 || true
+    docker_api 200 PUT "/containers/$name/archive?path=/" \
+      --header "Content-Type: application/x-tar" --data-binary @-) 2>&1); then
+    docker_api "204 404" DELETE "/containers/$name?force=true" > /dev/null 2>&1 || true
     fail "cannot copy the writable volumes into the container: $output"
   fi
-  rm -rf "$stage"
+  echo "copied the writable volumes into the container in $(elapsed_ms "$begin") ms" >&2
   mkdir -p "$(dirname "{{ created }}")"
   touch "{{ created }}"
   sync
 fi
-output=$(docker start "$name" 2>&1) || fail "cannot start the container: $output"
+# Docker answers 304 when its restart policy has already started the container.
+output=$(docker_api "204 304" POST "/containers/$name/start") ||
+  fail "cannot start the container: $output"
 "{{ report }}" started || true
-

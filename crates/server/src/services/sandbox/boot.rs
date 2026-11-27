@@ -166,6 +166,7 @@ async fn make_boot_disk(host: &SandboxHost, base: &SandboxBase, boot: &BootDisk)
         &boot.stage(Path::new(SHERPA_SANDBOX_RUN_DIR)),
         &boot.config_drive(),
         &boot_vm_ignition_json()?,
+        None,
         &[],
     )?;
     let vm = boot.vm();

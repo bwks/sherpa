@@ -98,15 +98,15 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 040 | Docker in a sandbox listens on its local socket only and sets up no iptables rules | unit |
 | 041 | containerd in a sandbox runs without the CRI plugins, on its usual socket | unit |
 | 042 | Retired: Flatcar's bootloader sets the root filesystem's mount options | — |
-| 044 | A sandbox's container is created in the VM's network namespace, with no Docker network, the lab's name servers and domain, its hostname resolving, its mounts, privileges and command, Docker's `unless-stopped` restart policy and no image pull | unit |
+| 044 | A sandbox's container is created from the Engine API body a container on the server's Docker gets for the same spec, with only these changed: the VM's network namespace, no Docker network endpoints, the lab's name servers and domain, its hostname resolving to loopback and Docker's `unless-stopped` restart policy | unit |
 | 045 | A sandbox's management NIC is given the node's IPv4 address, and its IPv6 address when the node and the lab's network have one, each with the network's prefix length and its gateway, as Docker gives a container on the network | unit |
 | 046 | Before Docker starts, the guest is given the management addresses and a default route through each gateway on `eth0` | unit |
 | 047 | A node in a sandbox answers SSH on its management IPv4 and IPv6 addresses with ZTP on, with ZTP off, and with a config of its own that sets no management address, after up, resume and redeploy (no test yet) | e2e |
 | 048 | The sandbox has its serial console on the node's console socket and its status channel on its status socket | unit |
-| 049 | A unit starts the container after Docker and the interface naming, from the arguments sherpad rendered | unit |
+| 049 | A unit starts the container after Docker and the interface naming, from the body sherpad wrote on the config drive | unit |
 | 050 | The sandbox mounts its config drive, and lists its writable volumes to copy off it into the container | unit |
 | 051 | Both VMs report their status, and the store VM loads its image archive | unit |
-| 052 | The config drive holds the Ignition config and each volume's file or folder, and a missing volume source fails it | unit |
+| 052 | The config drive holds the Ignition config, the container's body and each volume's file or folder, and a missing volume source fails it | unit |
 | 053 | A failure the VM reports fails it with the reason, and a status other than the one awaited fails it | unit |
 | 054 | Retired: the scripts download no sandbox base image; it is imported as `flatcar_sandbox`, and `bzip2` is `sandbox_068` | — |
 | 055 | A sandbox whose container cannot be started is failed by `up` with the reason the VM reports, well before the readiness wait ends | integration |
@@ -135,6 +135,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 078 | A sandbox boots once, with no reboot, and its serial console shows only kernel errors until the network OS's console prompt, the same prompt after down and resume and after a redeploy (no test yet) | e2e |
 | 079 | The guest turns off router advertisements and SLAAC on the sandbox's own NIC, in its namespace, before the NIC is up, and leaves the network OS's interfaces as the kernel has them | unit |
 | 080 | After up, after down and resume and after a redeploy, the sandbox's own NIC has only the sandbox's recorded addresses and its link-local address, and `<node>-sbx` answers ping on IPv4 and IPv6 (no test yet) | e2e |
+| 081 | A first boot whose create Docker refuses reports Docker's message, and copies nothing into a container and starts none | unit |
+| 082 | A boot whose container Docker's restart policy has already started reports it started | unit |
+| 083 | The guest calls Docker's Engine API at the version sherpad's Docker client uses, on the VM's Docker socket | unit |
 
 ## `node_ready`: a node is running only once its ready check passes
 

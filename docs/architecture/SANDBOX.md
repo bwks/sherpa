@@ -31,13 +31,13 @@ flowchart LR
   end
   subgraph V[Flatcar VM NODE-LAB]
     LK[sherpa-links.service: moves sbx0 into netns sherpa-sandbox, names the NICs, addresses eth0, makes the interfaces on no link] --> DK[dockerd]
-    DK --> N[sherpa-node.service: creates the container once, starts it, reports]
-    N --> C[node container, --privileged, --network host]
+    DK --> N[sherpa-node.service: creates the container once over the Engine API, starts it, reports]
+    N --> C[node container, privileged, host network mode]
     CON[sherpa-console.service on ttyS0: docker exec CLI] --> C
   end
   O --> V
   OD -->|/var/lib/docker| V
-  ISO[(NODE-LAB.iso, label config-2: Ignition and the container's volumes)] --> V
+  ISO[(NODE-LAB.iso, label config-2: Ignition, the container body and its volumes)] --> V
   V ---|virtio NIC| T1
   V ---|virtio NIC eth0| M
   V ---|virtio NIC sbx0, netns sherpa-sandbox| M
@@ -116,11 +116,13 @@ A sandbox boots an overlay of it, so it boots with them from its first boot on, 
 staged in `LAB_DIR/NODE/config-drive` and removed again):
 
 - `openstack/latest/user_data`: the Ignition config (see First boot).
+- `sherpa/container.json`: the body Docker's Engine API creates the container from (see
+  Container), as serde writes bollard's `ContainerCreateBody`.
 - `sherpa/volumes/N`: the file or folder of the container's Nth volume, copied from the server:
   the generated config, startup files, certificates and secret files.
 
 The VM mounts the drive read-only at `/media/config`. A read-only volume is mounted into the
-container from the drive. A writable one is copied into the container with `docker cp` when the
+container from the drive. A writable one is uploaded into the container as a tar archive when the
 container is created, as a network OS may replace the file, which it cannot do to a bind-mounted
 file (SR Linux saves its config by renaming a new file over it). What it writes stays in the
 container's layer, on the VM's Docker disk, across down and resume.
@@ -144,22 +146,47 @@ which take their paths, labels, port names and MTU from the constants in
 - Docker on its socket only, with no default bridge and no iptables rules (`--bridge=none
   --iptables=false --ip6tables=false`), and containerd without the CRI plugins and NRI
   (`containerd.toml`), its data on the Docker disk (see Docker stores).
-- The units below, the container's `docker create` arguments (`/etc/sherpa/create`, separated
-  by NUL bytes, from `container::sandbox_create_args`), the writable volumes to copy into it
-  (`/etc/sherpa/writable`), the NICs (`/etc/sherpa/interfaces`, `/etc/sherpa/placeholders`), the
+- The units below, the container's name (`/etc/sherpa/container`), the writable volumes to copy
+  into it (`/etc/sherpa/writable`), the NICs (`/etc/sherpa/interfaces`, `/etc/sherpa/placeholders`), the
   management addresses (`/etc/sherpa/management`) and the console command
   (`/etc/sherpa/console`).
 
 | Unit | Runs | Does |
 |---|---|---|
 | `sherpa-links.service` | once per boot, before Docker | `links.sh`: names the NICs, addresses `eth0`, makes the interfaces on no link |
-| `sherpa-node.service` | once per boot, after Docker and `sherpa-links` | `node.sh`: until `/var/lib/sherpa/created` exists, removes any container an earlier boot left, creates the container, copies the writable volumes into it and then writes that marker, removing the container when the copy fails; on every boot starts it, and reports |
+| `sherpa-node.service` | once per boot, after Docker and `sherpa-links` | `node.sh`: until `/var/lib/sherpa/created` exists, removes any container an earlier boot left, creates the container, copies the writable volumes into it and then writes that marker, removing the container when the copy fails; on every boot starts it, and reports (see Container) |
 | `sherpa-console.service` | on `ttyS0`, restarted when it exits | `console.sh`: the network OS CLI (see Console) |
 | `var-lib-docker.mount` | before containerd and Docker | mounts the Docker disk, `noinit_itable` |
 | `media-config.mount` | at boot | mounts the config drive |
 
-The container is created with Docker's `unless-stopped` restart policy and `--pull=never`: the
-VM has the image in its store.
+## Container
+
+sherpad describes the container to the guest's Docker as an Engine API body, not as CLI flags:
+`container::sandbox_create_body` takes the body `run_container` creates a container on the
+server's Docker from (`create_body`), for the same `ContainerSpec` with its read-only volumes
+mounted from the config drive, and sets only:
+
+- `HostConfig.NetworkMode` `host`: the VM's network namespace, with the NICs `sherpa-links` named;
+- `HostConfig.Dns` and `DnsSearch`: the lab's name servers, IPv4 then IPv6, and its domain;
+- `HostConfig.ExtraHosts`: the hostname at `127.0.1.1`;
+- `HostConfig.RestartPolicy` `unless-stopped`;
+- no `NetworkingConfig`: no Docker network endpoints.
+
+`node.sh` sends the body to the VM's Docker socket, `/run/docker.sock`, with `curl`, at the
+Engine API version bollard uses (`container::docker_api_version`, `v1.49`), which the Docker of
+the base image supports:
+
+| Step | Request | Docker answers |
+|---|---|---|
+| Remove a container an unfinished first boot left | `DELETE /containers/NAME?force=true` | `204`, or `404` when there is none |
+| Create | `POST /containers/create?name=NAME`, the body from the config drive | `201` |
+| Copy the writable volumes in | `PUT /containers/NAME/archive?path=/`, a tar of their files, owned by root | `200` |
+| Start | `POST /containers/NAME/start` | `204`, or `304` when its restart policy started it already |
+
+Any other answer fails the boot with Docker's `message` (read with `jq`), as `failed: REASON` on
+the status channel. A create never pulls: the VM has the image in its store, and a missing image
+fails with Docker's `No such image`. `node.sh` logs how long the create and the copy took to the
+journal.
 
 ## Status
 

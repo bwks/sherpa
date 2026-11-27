@@ -10,7 +10,7 @@ use toml::Value as TomlValue;
 
 use shared::util::base64_decode;
 use template::{
-    GuestAddress, GuestInterface, NodeScript, SANDBOX_CONFIG_DRIVE_MOUNT,
+    GuestAddress, GuestInterface, NodeScript, SANDBOX_CONFIG_DRIVE_MOUNT, SANDBOX_CONTAINER_BODY,
     SandboxBootDomainTemplate, SandboxDomainTemplate, SandboxGuest, SandboxManagement, SandboxNic,
     SandboxOwnNic, WritableVolume, boot_vm_ignition_json, store_vm_ignition_json,
 };
@@ -27,13 +27,6 @@ fn interface(mac: &str, name: &str) -> GuestInterface {
 }
 
 fn node_config() -> Value {
-    let create_args = [
-        "--name".to_owned(),
-        "ceos1-abc12345".to_owned(),
-        "--env".to_owned(),
-        "A=b c".to_owned(),
-        "ceos:4.34".to_owned(),
-    ];
     let json = SandboxGuest {
         hostname: "ceos1",
         container: "ceos1-abc12345",
@@ -73,7 +66,7 @@ fn node_config() -> Value {
             ],
         },
         console_command: &["Cli"],
-        create_args: &create_args,
+        docker_api_version: "1.49",
         writable: &[WritableVolume {
             source: "/media/config/sherpa/volumes/1".to_owned(),
             destination: "/etc/opt/srlinux/config.json".to_owned(),
@@ -160,20 +153,56 @@ fn setting(config: &Value, unit_name: &str, section: &str, key: &str) -> String 
     )
 }
 
-/// A stand-in for Docker in the guest: it logs each command, has a container once `create` has
-/// made it until `rm` removes it, keeps what `cp` reads, and fails `cp` while `FAIL_CP` is set.
-const FAKE_DOCKER: &str = r#"#!/bin/bash
-echo "$*" >> "$FAKE_GUEST/docker.log"
-case "$1" in
-  container) [ -e "$FAKE_GUEST/container" ] ;;
-  create) touch "$FAKE_GUEST/container" ;;
-  rm) rm -f "$FAKE_GUEST/container" ;;
-  cp)
-    cat > "$FAKE_GUEST/copied.tar"
-    if [ -n "${FAIL_CP:-}" ]; then
-      echo "no space left on device" >&2
-      exit 1
+/// A stand-in for curl talking to the guest's Docker: it logs each request's method and URL,
+/// keeps the body a create sends and the archive an upload sends, has a container once `create`
+/// has made it until a `DELETE` removes it, and answers as Docker does. While `FAIL_CREATE` or
+/// `FAIL_ARCHIVE` is set, Docker refuses that request with a message; while `RUNNING` is set,
+/// Docker's restart policy has already started the container.
+const FAKE_CURL: &str = r#"#!/bin/bash
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --request) method=$2; shift 2 ;;
+    --output) output=$2; shift 2 ;;
+    --unix-socket) echo "$2" >> "$FAKE_GUEST/sockets"; shift 2 ;;
+    --data-binary) data=$2; shift 2 ;;
+    --header|--write-out) shift 2 ;;
+    --*) shift ;;
+    *) url=$1; shift ;;
+  esac
+done
+echo "$method $url" >> "$FAKE_GUEST/requests"
+answer() {
+  printf '%s' "$2" > "$output"
+  printf '%s' "$1"
+}
+case "$method $url" in
+  "DELETE "*)
+    if [ -e "$FAKE_GUEST/container" ]; then
+      rm "$FAKE_GUEST/container"
+      answer 204 ""
+    else
+      answer 404 '{"message":"No such container"}'
     fi
+    ;;
+  "POST "*/containers/create*)
+    if [ -n "${FAIL_CREATE:-}" ]; then
+      answer 404 '{"message":"No such image: srl:26"}'
+    else
+      cp "${data#@}" "$FAKE_GUEST/created-from.json"
+      touch "$FAKE_GUEST/container"
+      answer 201 '{"Id":"0123"}'
+    fi
+    ;;
+  "PUT "*/archive*)
+    cat > "$FAKE_GUEST/copied.tar"
+    if [ -n "${FAIL_ARCHIVE:-}" ]; then
+      answer 500 '{"message":"no space left on device"}'
+    else
+      answer 200 ""
+    fi
+    ;;
+  "POST "*/start)
+    if [ -n "${RUNNING:-}" ]; then answer 304 ""; else answer 204 ""; fi
     ;;
 esac
 "#;
@@ -183,8 +212,11 @@ const FAKE_REPORT: &str = r#"#!/bin/bash
 echo "$*" >> "$FAKE_GUEST/reports"
 "#;
 
-/// The node script, run in a folder of its own with Docker and the report stubbed, as a node
-/// VM's boots run it.
+/// The Engine API version the fake guest's script is given.
+const API_VERSION: &str = "1.49";
+
+/// The node script, run in a folder of its own with curl and the report stubbed, as a node VM's
+/// boots run it.
 struct FakeGuest {
     dir: TempDir,
 }
@@ -195,7 +227,7 @@ impl FakeGuest {
         let path = dir.path();
         fs::create_dir(path.join("bin")).unwrap();
         fs::write(path.join("container-name"), "srl1-abc12345\n").unwrap();
-        fs::write(path.join("create"), "--name\0srl1-abc12345\0srl:26\0").unwrap();
+        fs::write(path.join("container.json"), r#"{"Image":"srl:26"}"#).unwrap();
         fs::write(path.join("config.json"), "{}").unwrap();
         fs::write(
             path.join("writable"),
@@ -206,14 +238,16 @@ impl FakeGuest {
         )
         .unwrap();
         let guest = Self { dir };
-        guest.executable("bin/docker", FAKE_DOCKER);
+        guest.executable("bin/curl", FAKE_CURL);
         guest.executable("report", FAKE_REPORT);
         let script = NodeScript {
-            container: &guest.path("container-name"),
-            create: &guest.path("create"),
-            writable: &guest.path("writable"),
-            report: &guest.path("report"),
-            created: &guest.path("state/created"),
+            api_version: API_VERSION.to_owned(),
+            socket: guest.path("docker.sock"),
+            container: guest.path("container-name"),
+            body: guest.path("container.json"),
+            writable: guest.path("writable"),
+            report: guest.path("report"),
+            created: guest.path("state/created"),
         }
         .render()
         .unwrap();
@@ -231,31 +265,44 @@ impl FakeGuest {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
-    /// Boot once: run the script, with `cp` failing when `fail_cp`, and return whether it
+    /// Boot once with the fake Docker's settings `env`, and return whether the script
     /// succeeded.
-    fn boot(&self, fail_cp: bool) -> bool {
-        fs::write(self.dir.path().join("docker.log"), "").unwrap();
+    fn boot(&self, env: &[&str]) -> bool {
+        fs::write(self.dir.path().join("requests"), "").unwrap();
         let mut command = Command::new("bash");
         command
             .arg(self.path("node"))
             .env("FAKE_GUEST", self.dir.path())
             .env("PATH", format!("{}:/usr/bin:/bin", self.path("bin")));
-        if fail_cp {
-            command.env("FAIL_CP", "1");
+        for name in env {
+            command.env(name, "1");
         }
         command.status().unwrap().success()
     }
 
-    fn docker_commands(&self) -> Vec<String> {
-        fs::read_to_string(self.dir.path().join("docker.log"))
-            .unwrap()
-            .lines()
-            .map(|line| line.split(' ').take(2).collect::<Vec<_>>().join(" "))
+    /// The requests of the last boot, each its method and URL.
+    fn requests(&self) -> Vec<String> {
+        self.lines("requests")
+    }
+
+    /// The requests of the last boot, each its method and the path after the API version.
+    fn api_calls(&self) -> Vec<String> {
+        let prefix = format!("http://docker/v{API_VERSION}");
+        self.requests()
+            .iter()
+            .map(|request| {
+                let (method, url) = request.split_once(' ').unwrap();
+                format!("{method} {}", url.strip_prefix(&prefix).unwrap_or(url))
+            })
             .collect()
     }
 
     fn reports(&self) -> Vec<String> {
-        fs::read_to_string(self.dir.path().join("reports"))
+        self.lines("reports")
+    }
+
+    fn lines(&self, name: &str) -> Vec<String> {
+        fs::read_to_string(self.dir.path().join(name))
             .unwrap_or_default()
             .lines()
             .map(str::to_owned)
@@ -667,16 +714,16 @@ fn sandbox_011_the_serial_console_runs_the_network_os_cli() {
 }
 
 #[test]
-fn sandbox_049_a_unit_starts_the_container_after_docker_and_the_nics_from_sherpas_arguments() {
+fn sandbox_049_a_unit_starts_the_container_after_docker_and_the_nics_from_the_body_on_the_config_drive()
+ {
     let config = node_config();
-    assert_eq!(
-        file_text(&config, "/etc/sherpa/create"),
-        "--name\0ceos1-abc12345\0--env\0A=b c\0ceos:4.34\0"
-    );
     assert_eq!(
         file_text(&config, "/etc/sherpa/container"),
         "ceos1-abc12345\n"
     );
+    assert!(file_text(&config, "/opt/sherpa/node").contains(&format!(
+        "@{SANDBOX_CONFIG_DRIVE_MOUNT}/{SANDBOX_CONTAINER_BODY}"
+    )));
     let unit_name = "sherpa-node.service";
     assert_eq!(unit(&config, unit_name)["enabled"], true);
     assert_eq!(
@@ -745,19 +792,19 @@ fn sandbox_051_both_vms_have_the_status_report_and_the_store_vm_loads_its_archiv
 #[test]
 fn sandbox_057_a_copy_into_the_container_that_fails_removes_the_container_and_reports_why() {
     let guest = FakeGuest::new();
-    assert!(!guest.boot(true));
+    assert!(!guest.boot(&["FAIL_ARCHIVE"]));
     assert!(!guest.has("container"));
     assert!(!guest.has("state/created"));
-    assert!(
-        !guest
-            .docker_commands()
-            .contains(&"start srl1-abc12345".to_owned())
+    let calls = guest.api_calls();
+    assert_eq!(
+        calls.last().map(String::as_str),
+        Some("DELETE /containers/srl1-abc12345?force=true")
     );
+    assert!(!calls.iter().any(|call| call.ends_with("/start")));
     let reports = guest.reports();
     assert_eq!(reports.len(), 1);
     assert!(
-        reports[0].starts_with("failed: cannot copy the writable volumes into the container: ")
-            && reports[0].contains("no space left on device"),
+        reports[0].starts_with("failed: ") && reports[0].ends_with("no space left on device"),
         "{reports:?}"
     );
 }
@@ -766,16 +813,19 @@ fn sandbox_057_a_copy_into_the_container_that_fails_removes_the_container_and_re
 fn sandbox_058_a_container_a_first_boot_left_without_its_volumes_is_created_again_with_them() {
     let guest = FakeGuest::new();
     fs::write(guest.path("container"), "").unwrap();
-    assert!(guest.boot(false));
+    assert!(guest.boot(&[]));
     assert_eq!(
-        guest.docker_commands(),
+        guest.api_calls(),
         [
-            "container inspect",
-            "rm -f",
-            "create --name",
-            "cp -",
-            "start srl1-abc12345"
+            "DELETE /containers/srl1-abc12345?force=true",
+            "POST /containers/create?name=srl1-abc12345",
+            "PUT /containers/srl1-abc12345/archive?path=/",
+            "POST /containers/srl1-abc12345/start",
         ]
+    );
+    assert_eq!(
+        fs::read_to_string(guest.path("created-from.json")).unwrap(),
+        fs::read_to_string(guest.path("container.json")).unwrap()
     );
     let listing = Command::new("tar")
         .arg("-tf")
@@ -793,8 +843,59 @@ fn sandbox_058_a_container_a_first_boot_left_without_its_volumes_is_created_agai
 #[test]
 fn sandbox_059_a_boot_after_the_container_was_made_only_starts_it() {
     let guest = FakeGuest::new();
-    assert!(guest.boot(false));
-    assert!(guest.boot(false));
-    assert_eq!(guest.docker_commands(), ["start srl1-abc12345"]);
+    assert!(guest.boot(&[]));
+    assert!(guest.boot(&[]));
+    assert_eq!(guest.api_calls(), ["POST /containers/srl1-abc12345/start"]);
     assert_eq!(guest.reports(), ["started", "started"]);
+}
+
+#[test]
+fn sandbox_081_a_create_docker_refuses_reports_dockers_message_and_copies_and_starts_nothing() {
+    let guest = FakeGuest::new();
+    assert!(!guest.boot(&["FAIL_CREATE"]));
+    assert!(!guest.has("container"));
+    assert!(!guest.has("state/created"));
+    assert_eq!(
+        guest.api_calls(),
+        [
+            "DELETE /containers/srl1-abc12345?force=true",
+            "POST /containers/create?name=srl1-abc12345",
+        ]
+    );
+    let reports = guest.reports();
+    assert_eq!(reports.len(), 1);
+    assert!(
+        reports[0].starts_with("failed: ") && reports[0].ends_with("No such image: srl:26"),
+        "{reports:?}"
+    );
+}
+
+#[test]
+fn sandbox_082_a_boot_whose_container_docker_already_restarted_reports_it_started() {
+    let guest = FakeGuest::new();
+    assert!(guest.boot(&[]));
+    assert!(guest.boot(&["RUNNING"]));
+    assert_eq!(guest.reports(), ["started", "started"]);
+}
+
+#[test]
+fn sandbox_083_the_guest_calls_the_engine_api_version_it_is_given_on_the_vms_docker_socket() {
+    let guest = FakeGuest::new();
+    assert!(guest.boot(&[]));
+    let prefix = format!("http://docker/v{API_VERSION}/containers/");
+    let requests = guest.requests();
+    assert_eq!(requests.len(), 4);
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.split_once(' ').unwrap().1.starts_with(&prefix)),
+        "{requests:?}"
+    );
+    assert_eq!(guest.lines("sockets"), vec![guest.path("docker.sock"); 4]);
+    assert!(
+        NodeScript::guest(API_VERSION)
+            .render()
+            .unwrap()
+            .contains(r#"--unix-socket "/run/docker.sock""#)
+    );
 }

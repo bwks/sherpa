@@ -21,7 +21,7 @@ use template::{SandboxDomainTemplate, SandboxGuest, SandboxManagement, SandboxOw
 use super::base::SandboxBase;
 use super::boot::ensure_boot_disk;
 use super::guest::{
-    console_command, guest_create_args, guest_nics, guest_volumes, management_addresses,
+    console_command, guest_container_body, guest_nics, guest_volumes, management_addresses,
     write_config_drive,
 };
 use super::status::StatusWatch;
@@ -115,7 +115,8 @@ pub(crate) async fn create_sandbox(
     let device = domain_name(&create.node_name, &create.lab_id);
     let nics = guest_nics(create.model_kind, &create.veths)?;
     let volumes = guest_volumes(&create.spec.volumes);
-    let create_args = guest_create_args(&create.spec, volumes.mounts, &create.dns);
+    let container_body = guest_container_body(&create.spec, volumes.mounts, &create.dns)?;
+    let docker_api_version = container::docker_api_version();
     let ignition = SandboxGuest {
         hostname: &create.node_name,
         container: &create.spec.name,
@@ -131,7 +132,7 @@ pub(crate) async fn create_sandbox(
             ),
         },
         console_command: console_command(create.model_kind),
-        create_args: &create_args,
+        docker_api_version: &docker_api_version,
         writable: &volumes.writable,
     }
     .ignition_json()?;
@@ -141,6 +142,7 @@ pub(crate) async fn create_sandbox(
             .join(CONFIG_DRIVE_STAGE),
         &config_drive_name(&device),
         &ignition,
+        Some(&container_body),
         &volumes.drive,
     )?;
     let status_socket =

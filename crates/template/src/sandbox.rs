@@ -16,6 +16,8 @@ pub const SANDBOX_CONFIG_DRIVE_LABEL: &str = "config-2";
 pub const SANDBOX_CONFIG_DRIVE_USER_DATA: &str = "openstack/latest/user_data";
 /// Where a sandbox mounts its config drive.
 pub const SANDBOX_CONFIG_DRIVE_MOUNT: &str = "/media/config";
+/// Where the body Docker creates a sandbox's container from is on its config drive.
+pub const SANDBOX_CONTAINER_BODY: &str = "sherpa/container.json";
 /// The serial of the disk that holds the image archive a Docker store VM loads.
 pub const SANDBOX_IMAGE_ARCHIVE_SERIAL: &str = "sherpa-image";
 /// The name of the virtio-serial port a sandbox reports its status on.
@@ -45,8 +47,8 @@ const PLACEHOLDERS_FILE: &str = "/etc/sherpa/placeholders";
 const MANAGEMENT_FILE: &str = "/etc/sherpa/management";
 const SANDBOX_NIC_FILE: &str = "/etc/sherpa/sandbox-nic";
 const CONSOLE_COMMAND_FILE: &str = "/etc/sherpa/console";
-const CREATE_FILE: &str = "/etc/sherpa/create";
 const WRITABLE_FILE: &str = "/etc/sherpa/writable";
+const DOCKER_SOCKET: &str = "/run/docker.sock";
 const CREATED_MARKER: &str = "/var/lib/sherpa/created";
 const LINKS_SCRIPT_PATH: &str = "/opt/sherpa/links";
 const NODE_SCRIPT_PATH: &str = "/opt/sherpa/node";
@@ -57,7 +59,6 @@ const LINKS_UNIT: &str = "sherpa-links.service";
 const NODE_UNIT: &str = "sherpa-node.service";
 const CONSOLE_UNIT: &str = "sherpa-console.service";
 const STORE_UNIT: &str = "sherpa-store.service";
-const NUL: char = '\0';
 const FILE_MODE: u32 = 0o644;
 const SCRIPT_MODE: u32 = 0o755;
 const MASKED_UNITS: [&str; 17] = [
@@ -120,19 +121,21 @@ pub struct SandboxGuest<'a> {
     pub management: &'a [GuestAddress],
     pub own_nic: &'a SandboxOwnNic,
     pub console_command: &'a [&'a str],
-    pub create_args: &'a [String],
+    pub docker_api_version: &'a str,
     pub writable: &'a [WritableVolume],
 }
 
 /// The script that creates the node's container on its first boot and starts it on every boot.
 #[derive(Debug, Template)]
 #[template(path = "sandbox/node.sh.jinja", ext = "txt")]
-pub struct NodeScript<'a> {
-    pub container: &'a str,
-    pub create: &'a str,
-    pub writable: &'a str,
-    pub report: &'a str,
-    pub created: &'a str,
+pub struct NodeScript {
+    pub api_version: String,
+    pub socket: String,
+    pub container: String,
+    pub body: String,
+    pub writable: String,
+    pub report: String,
+    pub created: String,
 }
 
 /// Docker's drop-in in a sandbox.
@@ -239,24 +242,19 @@ struct ConsoleCommandFile<'a> {
     command: &'a [&'a str],
 }
 
-/// The container's `docker create` arguments, each followed by a NUL byte, which no argument
-/// holds.
-#[derive(Template)]
-#[template(path = "sandbox/create.jinja", ext = "txt")]
-struct CreateFile<'a> {
-    args: &'a [String],
-}
-
-impl NodeScript<'static> {
-    /// The script as a sandbox runs it, with the files sherpad gives the guest.
+impl NodeScript {
+    /// The script as a sandbox runs it, with the files sherpad gives the guest, calling the
+    /// Engine API at `api_version`.
     #[must_use]
-    pub fn guest() -> Self {
+    pub fn guest(api_version: &str) -> Self {
         Self {
-            container: CONTAINER_FILE,
-            create: CREATE_FILE,
-            writable: WRITABLE_FILE,
-            report: REPORT_SCRIPT_PATH,
-            created: CREATED_MARKER,
+            api_version: api_version.to_owned(),
+            socket: DOCKER_SOCKET.to_owned(),
+            container: CONTAINER_FILE.to_owned(),
+            body: format!("{SANDBOX_CONFIG_DRIVE_MOUNT}/{SANDBOX_CONTAINER_BODY}"),
+            writable: WRITABLE_FILE.to_owned(),
+            report: REPORT_SCRIPT_PATH.to_owned(),
+            created: CREATED_MARKER.to_owned(),
         }
     }
 }
@@ -344,14 +342,6 @@ impl SandboxGuest<'_> {
                 .render()?,
             ),
             IgnitionFile::root(
-                CREATE_FILE,
-                FILE_MODE,
-                &CreateFile {
-                    args: self.create_args,
-                }
-                .render()?,
-            ),
-            IgnitionFile::root(
                 WRITABLE_FILE,
                 FILE_MODE,
                 &WritableFile {
@@ -363,7 +353,7 @@ impl SandboxGuest<'_> {
             IgnitionFile::root(
                 NODE_SCRIPT_PATH,
                 SCRIPT_MODE,
-                &NodeScript::guest().render()?,
+                &NodeScript::guest(self.docker_api_version).render()?,
             ),
             IgnitionFile::root(CONSOLE_SCRIPT_PATH, SCRIPT_MODE, &ConsoleScript.render()?),
         ]);

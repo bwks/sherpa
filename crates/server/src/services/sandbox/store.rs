@@ -214,6 +214,7 @@ async fn make_store(host: &SandboxHost, boot_disk: &str, image: &str, store: &St
         &store.vm_stage(Path::new(SHERPA_SANDBOX_RUN_DIR)),
         &store.vm_config_drive(),
         &store_vm_ignition_json()?,
+        None,
         &[],
     )?;
     let status_socket = store.status_socket();
