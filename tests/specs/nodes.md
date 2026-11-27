@@ -98,8 +98,9 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 033 | A node with a skipped check is `running` as soon as the scanner sees it run, whatever its port | unit |
 | 034 | The scanner does not probe a node that is not running, or one already recorded `running` | unit |
 | 035 | The scanner waits for a Windows node's ready marker, as up does | integration |
+| 037 | Port checks of several nodes that do not answer run at the same time: together they take about one check's 100 ms timeout, not one timeout per node | unit |
 
-Cases 001 to 020 are up, 021 to 026 resume, 027 and 028 redeploy, 029 to 035 the server's scanner.
+Cases 001 to 020 are up, 021 to 026 resume, 027 and 028 redeploy, 029 to 035 the server's scanner; 037 holds for every port check up, resume, redeploy and the scanner make.
 
 ## `node_state`: a node's state follows its VM or container
 
