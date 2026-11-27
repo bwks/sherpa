@@ -452,7 +452,7 @@ async fn load_lab_files(db: &db::Database, db_lab: &DbLab) -> Result<LabFiles> {
     let lab_id = db_lab.lab_id.as_str();
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
     let lab_info = lab_info::load_lab_info(db, db_lab).await?;
-    let mgmt_net = lab_management_network(&lab_info);
+    let mgmt_net = lab_info::management_network(&lab_info);
     let dns = util::default_dns(&mgmt_net);
     let certs_dir = format!("{lab_dir}/{LAB_CERTS_DIR}");
     let lab_ca = lab_ca::load_lab_ca(Path::new(&certs_dir), lab_id)?;
@@ -584,37 +584,6 @@ fn manifest_node(manifest: &topology::Manifest, node_name: &str) -> Result<topol
         node.ztp.config = Some(decoded);
     }
     Ok(node)
-}
-
-/// The lab's management network, from its lab info. IPv6 only when the lab has it.
-fn lab_management_network(lab_info: &data::LabInfo) -> data::SherpaNetwork {
-    data::SherpaNetwork {
-        v4: data::NetworkV4 {
-            prefix: lab_info.ipv4_network,
-            first: lab_info.ipv4_gateway,
-            last: lab_info.ipv4_network.broadcast(),
-            boot_server: lab_info.ipv4_router,
-            network: lab_info.ipv4_network.network(),
-            subnet_mask: lab_info.ipv4_network.netmask(),
-            hostmask: lab_info.ipv4_network.hostmask(),
-            prefix_length: lab_info.ipv4_network.prefix_len(),
-        },
-        v6: match (
-            lab_info.ipv6_network,
-            lab_info.ipv6_gateway,
-            lab_info.ipv6_router,
-        ) {
-            (Some(v6_net), Some(v6_gw), Some(v6_rtr)) => Some(data::NetworkV6 {
-                prefix: v6_net,
-                first: v6_gw,
-                last: util::get_ipv6_addr(&v6_net, u32::MAX).unwrap_or(v6_net.network()),
-                boot_server: v6_rtr,
-                network: v6_net.network(),
-                prefix_length: v6_net.prefix_len(),
-            }),
-            _ => None,
-        },
-    }
 }
 
 /// The node's management addresses. Saved addresses win, so a node keeps the address the
@@ -1093,7 +1062,7 @@ workers = ["w1"]
 
         // The other nodes' accounts survive a redeploy of one node.
         assert_eq!(lab_info.ssh_username("vm1"), Some("alice"));
-        let network = lab_management_network(&lab_info);
+        let network = lab_info::management_network(&lab_info);
         let expected = mgmt_net(false);
         assert_eq!(network.v4.prefix, expected.v4.prefix);
         assert_eq!(network.v4.first, expected.v4.first);
