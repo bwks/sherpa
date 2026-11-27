@@ -6,6 +6,7 @@ use std::process::Command;
 use askama::Template;
 use serde_json::Value;
 use tempfile::TempDir;
+use toml::Value as TomlValue;
 
 use shared::util::base64_decode;
 use template::{
@@ -498,7 +499,7 @@ fn sandbox_041_containerd_in_the_sandbox_runs_without_the_cri_plugins() {
         .parse()
         .unwrap();
     let disabled = containerd["disabled_plugins"].as_array().unwrap();
-    assert!(disabled.contains(&toml::Value::from("io.containerd.grpc.v1.cri")));
+    assert!(disabled.contains(&TomlValue::from("io.containerd.grpc.v1.cri")));
     assert_eq!(
         containerd["grpc"]["address"].as_str(),
         Some("/run/containerd/containerd.sock")
