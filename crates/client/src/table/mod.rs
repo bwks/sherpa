@@ -12,7 +12,7 @@ pub use image::{
 };
 pub use lab::{
     render_bridges_table, render_devices_table, render_lab_info_table, render_links_table,
-    render_nodes_table, render_provision_table, render_tailnet_table,
+    render_nodes_table, render_provision_table, render_router_table, render_tailnet_table,
 };
 pub use server::{
     CertificateTableInfo, render_backup_table, render_certificates_table,

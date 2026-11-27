@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Upgrade notes
+
+- **Environment variables and env files:** `environment_variables` and an ssh provisioner's `env_files` now follow one rule. `${NAME}` anywhere in a value is replaced with `NAME` from the environment `sherpa` runs in, and `\$` is a literal `$`. Any other `$` is refused: `sherpa validate`, `up` and `redeploy` refuse it in `environment_variables`, and provisioning refuses it in an env file before anything on the node changes.
+  - Change `KEY=$NAME` to `KEY=${NAME}`.
+  - Change a literal `$`, as in `PASS=$ecret`, to `\$`: `PASS=\$ecret` in an env file, and `'PASS=\$ecret'` or `"PASS=\\$ecret"` in `manifest.toml`.
+  - Env files no longer pass shell expressions to the node. Each value is sent quoted, so `PATH=$HOME/bin:$PATH` is refused rather than expanded by the node's shell, and a line that is not `KEY=value`, a comment or blank is refused. Put shell expressions in a provisioner script instead.
+
 ## [0.9.4] - 2026-11-25
 
 ### Upgrade notes

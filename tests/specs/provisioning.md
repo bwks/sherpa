@@ -3,7 +3,7 @@
 What Sherpa puts on a node beyond its first config, and how. Two ways, on two sides:
 
 - **At first boot, by the server.** A manifest's `text_files`, `startup_scripts`, `systemd_units` and `environment_variables` are read by the `sherpa` CLI on the user's machine, sent to the server, and carried to a virtual machine in its cloud-init, cloudbase-init or Ignition config: `text_files` and `startup_scripts` on cloud-init and Windows nodes, `text_files` and `systemd_units` on Flatcar. A node whose config does not carry one of the three is refused (`node_settings_016` to `021` in [manifests.md](manifests.md)). The server keeps their contents with the lab, so they are not for secrets.
-- **Once the node is up, by provisioners.** The `ssh` provisioner is run by the CLI itself, over its own SSH connection to a Linux or BSD virtual machine: it copies files and env files and runs scripts as the node's owner, and nothing of them reaches the server. The `container` provisioner's secret files are sent to the server outside the manifest, kept in its memory and mounted in the container at `/run/secrets` before it starts.
+- **Once the node is up, by provisioners.** The `ssh` provisioner is run by the CLI itself, over its own SSH connection to one of the Linux and BSD virtual machines it can log in to (`manifest_provisioners_005` to `007` in [manifests.md](manifests.md)): it copies files and env files and runs scripts as the node's owner, and nothing of them reaches the server. The `container` provisioner's secret files are sent to the server outside the manifest, kept in its memory and mounted in the container at `/run/secrets` before it starts.
 
 How a first config reaches a node, and the certificates in it, are `config_delivery` in [ztp.md](ztp.md). The owner's account, which every step here runs as or writes for, is `owner_login` in [accounts-and-auth.md](accounts-and-auth.md). A container's `environment_variables` are `container_run_002` and `003` in [nodes.md](nodes.md). How the CLI reaches a node for a provisioner, directly or with `--ssh-jump`, a node with no route, and what it may ask for, are `ssh_access` in [client-lab-files.md](client-lab-files.md); the lab's known hosts are that area's too. Who may provision is `access_control_013` and `016`, and that the server opens no path a manifest names is `access_control_018`. Reading and validating these settings in `manifest.toml`, a provisioner's fields included, belongs to Manifests. The definition of a lab the server stores, which names a provisioner's paths and never its contents, and a redeploy from the web UI, which has no files to send, belong to Lab lifecycle.
 
@@ -11,7 +11,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `client_content`: the CLI reads what a manifest names for a node, on the user's machine
 
-**Statement:** at up and at redeploy the `sherpa` CLI reads every file a manifest names for a node's first boot and every `$VAR` in its `environment_variables` on the user's machine, and sends their contents and values; a manifest that lists files without their contents is refused by the server.
+**Statement:** at up and at redeploy the `sherpa` CLI reads every file a manifest names for a node's first boot and every `${NAME}` in its `environment_variables` on the user's machine, and sends their contents and values; a manifest that lists files without their contents is refused by the server.
 **Relied on by:** the user, whose paths and variables are their own machine's; the server, which opens no path a manifest names. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -23,8 +23,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 005 | A script that is empty is refused, and the error carries the node | unit |
 | 006 | A systemd unit is sent with its name, its contents and whether it is enabled | unit |
 | 007 | Retired: binary files are no longer a setting | — |
-| 008 | An `environment_variables` value that is `$NAME` is sent as the value `NAME` has where `sherpa` runs, and any other value as written | unit |
-| 009 | A `$NAME` that is not set where `sherpa` runs is refused, and the error carries the variable and the node | unit |
+| 008 | In an `environment_variables` value each `${NAME}`, the whole value or inside it, is sent as the value `NAME` has where `sherpa` runs, each `\$` as `$`, and the rest as written, by the rule env files follow (`provisioner_env_014` to `017`) | unit |
+| 009 | A `${NAME}` that is not set where `sherpa` runs is refused, and the error carries the key, the node and the variable | unit |
 | 010 | An `environment_variables` entry that is not `KEY=VALUE` is refused, and the error carries the node | unit |
 | 011 | An up whose manifest lists files with no contents, as one sent to the REST API is, is refused, and the error carries the node and the setting (no test at this level yet) | integration |
 | 012 | A systemd unit sent under a name that is not a plain file name, a path, `.`, `..` or one starting with `-`, is refused | unit |
@@ -93,7 +93,7 @@ That a Windows node disables every other account before its startup scripts run 
 
 ## `provision_run`: provisioners run on the nodes that have them, once each node takes its owner's login
 
-**Statement:** `sherpa up`, `sherpa redeploy` and `sherpa provision` run the ssh provisioners of the nodes that have them, several nodes at once, each once its node accepts its owner's login and has finished its first boot.
+**Statement:** `sherpa up`, `sherpa redeploy` and `sherpa provision` run the ssh provisioners of the nodes that have them, several nodes at once, each once its node accepts its owner's login and has finished its first boot, and fail a node that has not done both within the lab's ready timeout.
 **Relied on by:** the user. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -112,8 +112,9 @@ That a Windows node disables every other account before its startup scripts run 
 | 012 | A provisioner starts on a node only once its cloud-init has finished: a script finds what the node's last first-boot step wrote (no test yet) | e2e |
 | 013 | Up to `provision_concurrency` nodes are provisioned at once, eight when it is not set, and a node that finishes makes room for the next (no test yet) | unit |
 | 014 | A node's provisioners run in the order the manifest lists them, each its files, then its env files, then its scripts (no test yet) | e2e |
+| 015 | A node whose cloud-init has not finished when the ready timeout, counted from the first login attempt, has passed fails, and the error carries the node and the timeout; its place goes to the next node | unit |
 
-A node the CLI has no route to fails at once: `ssh_access_006`. A provisioner asks a node for a key's passphrase and never a password: `ssh_access_008`.
+A script has no time limit. A node the CLI has no route to fails at once: `ssh_access_006`. A provisioner asks a node for a key's passphrase and never a password: `ssh_access_008`.
 
 ## `provision_report`: a provisioning run reports each node's result and fails when a node was not provisioned
 
@@ -135,14 +136,14 @@ A node the CLI has no route to fails at once: `ssh_access_006`. A provisioner as
 
 ## `provisioner_files`: an ssh provisioner copies its files to the node as its owner, never more readable than their mode
 
-**Statement:** an ssh provisioner's `files` are copied to the node as its owner, each to its destination with its mode, replacing what was there in one step, and every client file the provisioner names is read before the node is changed.
+**Statement:** an ssh provisioner's `files` are copied to the node as its owner, each to its destination with its mode, replacing what was there in one step, and every client file of every provisioner of the node is read before the node is changed.
 **Relied on by:** the user, for credentials their tools on the node read. **Priority:** P1.
 
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | After up, a file with a `~/` destination is in the owner's home on the node with the client file's contents, its mode, and the owner as its owner (no test yet) | e2e |
 | 002 | Every client file of a provisioner is read before anything is done on the node, with where it goes: a file to its destination with its mode, an env file to `~/.env.d/` under its own name with mode `600`, a script as its contents | unit |
-| 003 | A client file that is missing fails the node, with an error that carries the file, before the node is changed | unit |
+| 003 | A client file that is missing, in any of the node's provisioners, fails the node, with an error that carries the file, before the node is changed: a first provisioner does not run | unit |
 | 004 | The missing folders on the way to a destination are made readable by the owner alone, and the file is not made by that step | unit |
 | 005 | A file already at the destination keeps its contents and its mode until the copy replaces it | unit |
 | 006 | A `~/` destination is under the login user's home, in the command and in the copy, and an absolute one is where it says | unit |
@@ -154,22 +155,28 @@ A file removed from the manifest stays on the node. That is documented; no case 
 
 ## `provisioner_env`: an ssh provisioner's env files are exported by the owner's login shells
 
-**Statement:** an ssh provisioner's `env_files` are copied to `~/.env.d/` on the node, readable by its owner alone, with each value that is exactly `$NAME` or `${NAME}` replaced by the value `NAME` has where `sherpa` runs, and the owner's login shells export them.
+**Statement:** an ssh provisioner's `env_files` are data, never shell: each `KEY=value` line is copied to `~/.env.d/` on the node, readable by its owner alone, with each `${NAME}` in its value replaced by the value `NAME` has where `sherpa` runs, each `\$` by `$`, and the value quoted so the node's shell expands nothing in it; any other `$` is refused, by the one rule `environment_variables` follow, and the owner's login shells export them.
 **Relied on by:** the user, for tokens that are in their own environment and must not be written to a file or sent to the server. **Priority:** P1.
 
 | Case | What it shows | Level |
 |---|---|---|
 | 001 | After up, the owner's login shell on the node has an env file's variables, one of them with the value it has on the user's machine (no test yet) | e2e |
-| 002 | A value that is exactly `$NAME` becomes the client's value, quoted so the node's shell reads it whole, a single quote and a `$` in it included | unit |
-| 003 | `${NAME}`, a line starting with `export`, and an indented line with spaces after the value are resolved the same way | unit |
-| 004 | A variable that is set and empty resolves to an empty value | unit |
-| 005 | Every other line is kept as written: comments, blank lines, plain and quoted values, and a value with a reference inside it, such as `$HOME/bin:$PATH`, which the node's shell expands | unit |
+| 002 | A `${NAME}`, the whole value or inside it, becomes the client's value, quoted so the node's shell reads it whole, a single quote and a `$` in it included, and a variable that is set and empty is an empty value | unit |
+| 003 | A line starting with `export`, an indented line, a value in single or double quotes, and one with spaces after it are resolved the same way | unit |
+| 004 | `\$` is a literal `$`, which the node's shell does not expand | unit |
+| 005 | Comments, blank lines and indentation are kept as written, and a plain value is sent as written, quoted | unit |
 | 006 | Line endings are kept, `\r\n` and a last line with none included | unit |
-| 007 | A reference to a variable that is not set fails before the node is changed, and the error carries the file, the line and the variable | unit |
+| 007 | A reference to a variable that is not set, in any of the node's provisioners, fails before the node is changed, and the error carries the file, the line, the key and the variable | unit |
 | 008 | An error never shows a value | unit |
 | 009 | The value is read from the environment `sherpa` itself runs in | unit |
 | 010 | The line that loads the env files is added once to the login file bash reads, however many times a node is provisioned | unit |
 | 011 | A login shell that reads that file exports the variables of every env file, to the programs it starts | unit |
+| 012 | A `$` that is not `${NAME}` or `\$`, as in `$NAME`, `$HOME/bin`, `$1` or a lone `$`, is refused, and the error carries the file, the line and the key | unit |
+| 013 | A line that is not `KEY=value`, a comment or blank, such as a shell command, is refused, and the error carries the file and the line | unit |
+| 014 | The one rule for env file and `environment_variables` values: a `${NAME}`, the whole value or inside it, is the client's value, and a set but empty variable an empty one | unit |
+| 015 | Under that rule `\$` is a literal `$`, and every other character, `\` and quotes included, is kept as written | unit |
+| 016 | Under that rule any other `$` is refused: `$NAME`, `$ecret`, `$HOME/bin`, `$1`, a lone `$`, and `${` with no `}`, no name or a name that is not one | unit |
+| 017 | Under that rule a reference to a variable that is not set is refused, and the error carries the variable and never a value | unit |
 
 ## `provisioner_scripts`: an ssh provisioner's scripts run on the node as its owner, as from a login
 

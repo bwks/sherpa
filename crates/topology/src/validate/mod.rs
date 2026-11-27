@@ -30,7 +30,7 @@ pub use bridge::check_bridges;
 pub use client_files::check_client_read_files;
 pub use description::check_lab_description;
 pub use device::{check_device_count, check_duplicate_device};
-pub use environment::validate_environment_variables;
+pub use environment::{validate_environment_variable_values, validate_environment_variables};
 pub use link::{
     check_duplicate_interface_link, check_interface_bounds, check_link_impairments,
     check_links_to_itself,

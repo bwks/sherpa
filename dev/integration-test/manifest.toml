@@ -7,8 +7,8 @@ model = "devbox_linux"
 memory = 16384
 
 environment_variables = [
-  "GH_TOKEN=$GH_TOKEN",
-  "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN",
+  "GH_TOKEN=${GH_TOKEN}",
+  "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}",
 ]
 text_files = [
   { src = "~/.claude.json", dst = "/home/sherpa/.claude.json", user = "sherpa", group = "sherpa", permissions = 600 },

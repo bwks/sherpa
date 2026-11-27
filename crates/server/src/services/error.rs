@@ -241,17 +241,8 @@ pub enum ServiceError {
     #[error(transparent)]
     Sandbox(#[from] SandboxRefusal),
 
-    #[error("Sandbox {name} failed: {reason}")]
-    SandboxFailed { name: String, reason: String },
-
-    #[error("Sandbox {name} closed its status channel without reporting")]
-    SandboxStatusClosed { name: String },
-
-    #[error("Sandbox {name} sent a status line longer than {limit} bytes")]
-    SandboxStatusTooLong { name: String, limit: usize },
-
-    #[error("Sandbox {name} sent more than {limit} bytes on its status channel without a status")]
-    SandboxStatusFlood { name: String, limit: usize },
+    #[error(transparent)]
+    SandboxFailure(#[from] SandboxFailure),
 
     #[error(
         "{prefix}: Version validation failed for node: {node} (model: {model}): {}",
@@ -546,6 +537,27 @@ pub enum ServiceError {
     )]
     LabIdCollision { lab_name: String, lab_id: String },
 
+    #[error("The lab's router {container} is {state}; resume the lab again shortly")]
+    LabRouterBusy { container: String, state: String },
+
+    #[error(
+        "The lab's router {container} could not be started, so no node was started; see the \
+         server log"
+    )]
+    LabRouterNotStarted { container: String },
+
+    #[error(
+        "The lab's router {container} is gone and cannot be created again, as its config {path} \
+         is gone too; destroy the lab and run up again"
+    )]
+    LabRouterConfigMissing { container: String, path: String },
+
+    #[error(
+        "The lab's Tailscale gateway {container} is gone, so no node was started; destroy the \
+         lab and run up again"
+    )]
+    TailscaleGatewayMissing { container: String },
+
     #[error("{what} failed: {}", failures.join("; "))]
     TasksFailed {
         what: &'static str,
@@ -659,6 +671,22 @@ pub enum SandboxVolumeRefusal {
     TooLarge,
     #[error("its name is longer than {limit} characters")]
     NameTooLong { limit: usize },
+}
+
+/// How a sandbox failed to run its node, from what it reported on its status channel.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum SandboxFailure {
+    #[error("Sandbox {name} failed: {reason}")]
+    Reported { name: String, reason: String },
+
+    #[error("Sandbox {name} closed its status channel without reporting")]
+    StatusClosed { name: String },
+
+    #[error("Sandbox {name} sent a status line longer than {limit} bytes")]
+    StatusTooLong { name: String, limit: usize },
+
+    #[error("Sandbox {name} sent more than {limit} bytes on its status channel without a status")]
+    StatusFlood { name: String, limit: usize },
 }
 
 /// Why `version` is not an image of `model_kind`: it has none, or the versions it has.
@@ -822,7 +850,11 @@ impl ServiceError {
             | Self::ControllerNotRedeployable { .. }
             | Self::ClusterMembershipChanged { .. }
             | Self::LabExists { .. }
-            | Self::LabIdCollision { .. } => Some(ServiceCategory::Conflict),
+            | Self::LabIdCollision { .. }
+            | Self::LabRouterBusy { .. }
+            | Self::LabRouterNotStarted { .. }
+            | Self::LabRouterConfigMissing { .. }
+            | Self::TailscaleGatewayMissing { .. } => Some(ServiceCategory::Conflict),
             Self::Invalid(_)
             | Self::DevicePasswordRefused { .. }
             | Self::DevicePasswordSameAsLogin
@@ -860,10 +892,7 @@ impl ServiceError {
             | Self::TalosVersionUnsupported { .. }
             | Self::RequestUnreadable { .. }
             | Self::ManifestCheckFailed { .. } => Some(ServiceCategory::Invalid),
-            Self::SandboxFailed { .. }
-            | Self::SandboxStatusClosed { .. }
-            | Self::SandboxStatusTooLong { .. }
-            | Self::SandboxStatusFlood { .. } => Some(ServiceCategory::Failed),
+            Self::SandboxFailure(_) => Some(ServiceCategory::Failed),
             Self::OvercommitPercentTooLow { .. }
             | Self::NotServiceAccount { .. }
             | Self::TailscaleImageInvalid

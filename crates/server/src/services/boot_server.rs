@@ -20,24 +20,49 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use anyhow::{Context, Result, ensure};
 use askama::Template;
 use bollard::Docker;
+use bollard::secret::{ContainerState, ContainerStateStatusEnum};
 use tracing::instrument;
 
 use container::ContainerSpec;
 use db::Database;
 use shared::data::{
-    self, ContainerNetworkAttachment, DbNode, NodeConfig, NodeKind, RecordId, Ztp, ZtpRecord,
+    self, ContainerNetworkAttachment, DbLab, DbNode, Halt, LabRouterState, LabRouterStatus,
+    NodeConfig, NodeKind, RecordId, Runtime, Ztp, ZtpRecord,
 };
 use shared::konst::{
     BOOT_SERVER_HTTP_ROOT, BOOT_SERVER_TFTP_ROOT, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
-    DNSMASQ_DIR, MANAGEMENT_NODE_HOST_OFFSETS, NODE_CONFIGS_DIR, SSH_PORT, TFTP_DIR, ZTP_DIR,
+    DNSMASQ_DIR, MANAGEMENT_NODE_HOST_OFFSETS, NODE_CONFIGS_DIR, SHERPA_LABS_PATH, SSH_PORT,
+    TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_ztp;
 
+use super::error::ServiceError;
+use super::lab_info;
+use super::node_lifecycle;
 use crate::konst::{DNSMASQ_CONFIG_FILE, SHERPA_MANAGEMENT_NETWORK_NAME};
 
 /// The capabilities the boot container needs: dnsmasq's DHCP, and the image's NAT rules.
 const BOOT_CONTAINER_CAPABILITIES: &[&str] = &["NET_ADMIN"];
+
+/// What a resume does to a lab's boot container, by what its runtime reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RouterStep {
+    Nothing,
+    Start,
+    Unpause,
+    Create,
+    Replace,
+}
+
+/// What a resume did to a lab's boot container.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RouterOutcome {
+    AlreadyRunning,
+    Started,
+    Unpaused,
+    Recreated,
+}
 
 /// A node of a lab as its boot server sees it: its record, its image, and the ZTP method its
 /// definition sets, if any.
@@ -45,6 +70,18 @@ pub(crate) struct BootNode {
     pub(crate) record: DbNode,
     pub(crate) image: NodeConfig,
     pub(crate) method: Option<Ztp>,
+}
+
+impl RouterOutcome {
+    /// What the resume reports of the router, or `None` when it was left as it was.
+    pub(crate) fn message(self) -> Option<&'static str> {
+        match self {
+            RouterOutcome::AlreadyRunning => None,
+            RouterOutcome::Started => Some("started"),
+            RouterOutcome::Unpaused => Some("unpaused"),
+            RouterOutcome::Recreated => Some("created again"),
+        }
+    }
 }
 
 /// The lab's dnsmasq config: DHCP and DNS for the management network `mgmt_net`, a DHCP host
@@ -275,7 +312,7 @@ pub(crate) async fn refresh_boot_server(
     if !rewrite_dnsmasq_config(&path, &config)? {
         return Ok(false);
     }
-    container::remove_container(docker, &format!("{CONTAINER_DNSMASQ_NAME}-{lab_id}"))
+    container::remove_container(docker, &router_name(lab_id))
         .await
         .context("Failed to remove the lab's boot server to start it with its new config")?;
     run_boot_container(docker, lab_id, &format!("{lab_dir}/{ZTP_DIR}"), mgmt_net)
@@ -293,7 +330,7 @@ fn boot_container_spec(
     mgmt_net: &data::SherpaNetwork,
 ) -> ContainerSpec {
     ContainerSpec {
-        name: format!("{CONTAINER_DNSMASQ_NAME}-{lab_id}"),
+        name: router_name(lab_id),
         hostname: None,
         image: CONTAINER_DNSMASQ_REPO.to_owned(),
         env_vars: vec![format!("DNS1={}", mgmt_net.v4.first), "DNS2=".to_owned()],
@@ -355,6 +392,145 @@ pub(crate) async fn run_boot_container(
         "Boot container {CONTAINER_DNSMASQ_NAME}-{lab_id} is not running after start"
     );
     Ok(())
+}
+
+/// The name of the boot container of lab `lab_id`, its router.
+pub(crate) fn router_name(lab_id: &str) -> String {
+    format!("{CONTAINER_DNSMASQ_NAME}-{lab_id}")
+}
+
+/// What a resume does to the router `container`, whose runtime is `runtime`: nothing when it
+/// runs, start or unpause it when it is stopped, create it when it is gone, and replace it when
+/// it is dead. A router between states is refused.
+fn router_step(runtime: Runtime, container: &str) -> Result<RouterStep, ServiceError> {
+    match runtime {
+        Runtime::Running => Ok(RouterStep::Nothing),
+        Runtime::Stopped(Halt::Off) => Ok(RouterStep::Start),
+        Runtime::Stopped(Halt::Paused) => Ok(RouterStep::Unpause),
+        Runtime::Absent => Ok(RouterStep::Create),
+        Runtime::Faulted(_) => Ok(RouterStep::Replace),
+        Runtime::Transitional(word) => Err(ServiceError::LabRouterBusy {
+            container: container.to_owned(),
+            state: word.to_owned(),
+        }),
+    }
+}
+
+/// Make sure the router of `lab` runs, before a resume starts any of its nodes: a running
+/// router is left as it is, a stopped one started, a paused one unpaused, and a missing or
+/// dead one created again from the lab's record and its config in the lab folder.
+///
+/// # Errors
+///
+/// Fails when Docker cannot be asked, the router is between states, its config is gone, or it
+/// cannot be started or created.
+#[instrument(skip(db, docker, lab), fields(lab_id = %lab.lab_id))]
+pub(crate) async fn ensure_router_running(
+    db: &Database,
+    docker: &Docker,
+    lab: &DbLab,
+) -> Result<RouterOutcome> {
+    let lab_id = lab.lab_id.as_str();
+    let name = router_name(lab_id);
+    let status = container::container_state(docker, &name)
+        .await
+        .context("Failed to check the lab's router")?
+        .and_then(|state| state.status);
+    let step = router_step(node_lifecycle::container_runtime(status), &name)?;
+    let not_started = || ServiceError::LabRouterNotStarted {
+        container: name.clone(),
+    };
+    let outcome = match step {
+        RouterStep::Nothing => return Ok(RouterOutcome::AlreadyRunning),
+        RouterStep::Start => container::start_container(docker, &name)
+            .await
+            .map(|()| RouterOutcome::Started),
+        RouterStep::Unpause => container::unpause_container(docker, &name)
+            .await
+            .map(|()| RouterOutcome::Unpaused),
+        RouterStep::Create => create_router(db, docker, lab)
+            .await
+            .map(|()| RouterOutcome::Recreated),
+        RouterStep::Replace => async {
+            container::remove_container(docker, &name).await?;
+            create_router(db, docker, lab).await
+        }
+        .await
+        .map(|()| RouterOutcome::Recreated),
+    };
+    let outcome = match outcome {
+        Ok(outcome) => outcome,
+        Err(error) if ServiceError::find(&error).is_some() => return Err(error),
+        Err(error) => {
+            tracing::error!(container = %name, error = ?error, "Failed to bring the lab's router back");
+            return Err(error.context(not_started()));
+        }
+    };
+    tracing::info!(container = %name, outcome = ?outcome, "Brought the lab's router back");
+    Ok(outcome)
+}
+
+/// Create and start the router of `lab` again from its record's management network and the
+/// config in its lab folder, as `up` started it.
+///
+/// # Errors
+///
+/// Fails when the config is gone, the lab's record cannot be read, or the container cannot be
+/// started.
+#[instrument(skip(db, docker, lab), fields(lab_id = %lab.lab_id), level = "debug")]
+async fn create_router(db: &Database, docker: &Docker, lab: &DbLab) -> Result<()> {
+    let lab_id = lab.lab_id.as_str();
+    let ztp_dir = format!("{SHERPA_LABS_PATH}/{lab_id}/{ZTP_DIR}");
+    let config = format!("{ztp_dir}/{DNSMASQ_DIR}/{DNSMASQ_CONFIG_FILE}");
+    match fs::metadata(&config) {
+        Ok(_) => {}
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            return Err(ServiceError::LabRouterConfigMissing {
+                container: router_name(lab_id),
+                path: config,
+            }
+            .into());
+        }
+        Err(error) => return Err(error).with_context(|| format!("Failed to read {config}")),
+    }
+    let lab_info = lab_info::load_lab_info(db, lab).await?;
+    run_boot_container(
+        docker,
+        lab_id,
+        &ztp_dir,
+        &lab_info::management_network(&lab_info),
+    )
+    .await
+}
+
+/// The router of lab `lab_id` and its state, from what Docker reported of its container:
+/// `state`, `None` when the container is gone, or the error Docker answered with.
+pub(crate) fn router_status(
+    lab_id: &str,
+    state: Result<Option<ContainerState>>,
+) -> LabRouterStatus {
+    let state = match state {
+        Ok(None) => LabRouterState::Missing,
+        Ok(Some(state)) => match state.status {
+            Some(ContainerStateStatusEnum::RUNNING) => LabRouterState::Running,
+            Some(ContainerStateStatusEnum::PAUSED) => LabRouterState::Paused,
+            Some(ContainerStateStatusEnum::EXITED) => LabRouterState::Exited {
+                exit_code: state.exit_code,
+            },
+            Some(status) => LabRouterState::Other {
+                status: status.to_string(),
+            },
+            None => LabRouterState::Unknown,
+        },
+        Err(error) => {
+            tracing::warn!(lab_id = %lab_id, error = ?error, "Cannot query Docker for the lab's router");
+            LabRouterState::Unknown
+        }
+    };
+    LabRouterStatus {
+        container: router_name(lab_id),
+        state,
+    }
 }
 
 #[cfg(test)]
@@ -436,6 +612,67 @@ mod tests {
 
     const EVO_TFTP: &str = "dhcp-option=tag:evo-tag,67,evo.conf";
     const SONIC_HTTP: &str = r#"dhcp-option=tag:sonic-tag,67,"http://172.31.1.2:8080/sonic.conf""#;
+
+    #[test]
+    fn lab_down_resume_008_resume_starts_unpauses_or_replaces_a_router_and_refuses_one_between_states()
+     {
+        let name = "sherpa-router-test1234";
+        assert_eq!(
+            router_step(Runtime::Stopped(Halt::Paused), name),
+            Ok(RouterStep::Unpause)
+        );
+        assert_eq!(
+            router_step(Runtime::Faulted("dead"), name),
+            Ok(RouterStep::Replace)
+        );
+        let busy = router_step(Runtime::Transitional("restarting"), name).unwrap_err();
+        assert_eq!(
+            busy.to_string(),
+            "The lab's router sherpa-router-test1234 is restarting; resume the lab again shortly"
+        );
+    }
+
+    #[test]
+    fn lab_details_008_the_labs_router_is_reported_with_its_containers_state() {
+        let reported = |status, exit_code| {
+            router_status(
+                "test1234",
+                Ok(Some(ContainerState {
+                    status: Some(status),
+                    exit_code,
+                    ..ContainerState::default()
+                })),
+            )
+            .state
+        };
+        assert_eq!(
+            reported(ContainerStateStatusEnum::EXITED, Some(255)),
+            LabRouterState::Exited {
+                exit_code: Some(255)
+            }
+        );
+        assert_eq!(
+            reported(ContainerStateStatusEnum::RUNNING, Some(0)),
+            LabRouterState::Running
+        );
+        assert_eq!(
+            reported(ContainerStateStatusEnum::PAUSED, Some(0)),
+            LabRouterState::Paused
+        );
+        assert_eq!(
+            reported(ContainerStateStatusEnum::DEAD, Some(137)),
+            LabRouterState::Other {
+                status: "dead".to_string()
+            }
+        );
+        let missing = router_status("test1234", Ok(None));
+        assert_eq!(missing.container, "sherpa-router-test1234");
+        assert_eq!(missing.state, LabRouterState::Missing);
+        assert_eq!(
+            router_status("test1234", Err(anyhow::anyhow!("Docker is down"))).state,
+            LabRouterState::Unknown
+        );
+    }
 
     #[test]
     fn boot_server_011_a_redeploy_onto_tftp_gives_the_node_its_boot_option() {

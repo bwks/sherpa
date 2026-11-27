@@ -4,13 +4,13 @@ use std::path::Path;
 use anyhow::{Context, Result, ensure};
 use tracing::instrument;
 
-use shared::data::{ModelKind, NodeKind, OsVariant};
+use shared::data::{ModelKind, NodeKind, NodeModel};
 use shared::validators::{mode_from_octal_digits, validate_secret_file};
 
 use crate::{ContainerProvisioner, Manifest, Provisioner, SshProvisioner, TopologyError};
 
-/// Check node provisioners: ssh provisioners run only on Linux and BSD VMs and container
-/// provisioners only on containers, and their paths, names and modes must be usable. At least
+/// Check node provisioners: ssh provisioners run only on the Linux and BSD VM models with an
+/// SSH login and container provisioners only on containers, and their paths, names and modes must be usable. At least
 /// one node must be provisioned at a time.
 ///
 /// # Errors
@@ -35,12 +35,10 @@ pub fn validate_provisioners(manifest: &Manifest) -> Result<()> {
             match provisioner {
                 Provisioner::Ssh(ssh) => {
                     ensure!(
-                        config.vm().is_some_and(|vm| matches!(
-                            vm.os_variant,
-                            OsVariant::Linux | OsVariant::Bsd
-                        )),
+                        config.vm().is_some() && runs_ssh_provisioner(node.model),
                         TopologyError::SshProvisionerNotSupported {
                             node: node.name.clone(),
+                            model: node.model,
                         }
                     );
                     validate_ssh(&node.name, ssh, &mut env_names)?;
@@ -58,6 +56,29 @@ pub fn validate_provisioners(manifest: &Manifest) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Whether `model`, as a VM, is a Linux or BSD system an ssh provisioner can log in to.
+fn runs_ssh_provisioner(model: NodeModel) -> bool {
+    matches!(
+        model,
+        NodeModel::AlmaLinux
+            | NodeModel::AlpineLinux
+            | NodeModel::CentosLinux
+            | NodeModel::DevboxLinux
+            | NodeModel::FedoraLinux
+            | NodeModel::FlatcarLinux
+            | NodeModel::KaliLinux
+            | NodeModel::NixosLinux
+            | NodeModel::OmarchyLinux
+            | NodeModel::OpensuseLinux
+            | NodeModel::RedhatLinux
+            | NodeModel::RockyLinux
+            | NodeModel::SuseLinux
+            | NodeModel::UbuntuLinux
+            | NodeModel::FreeBsd
+            | NodeModel::OpenBsd
+    )
 }
 
 fn validate_container(
@@ -276,7 +297,8 @@ mod tests {
     }
 
     #[test]
-    fn manifest_provisioners_005_an_ssh_provisioner_is_taken_on_linux_and_bsd_virtual_machines() {
+    fn manifest_provisioners_005_an_ssh_provisioner_is_taken_on_the_linux_and_bsd_virtual_machines_it_runs_on()
+     {
         let provisioner = format!(
             r#"
             env_files = ["~/a.env", "b.env"]
@@ -287,9 +309,20 @@ mod tests {
             file("/tmp/token", 640)
         );
         for model in [
-            "ubuntu_linux",
+            "alma_linux",
             "alpine_linux",
+            "centos_linux",
+            "devbox_linux",
+            "fedora_linux",
             "flatcar_linux",
+            "kali_linux",
+            "nixos_linux",
+            "omarchy_linux",
+            "opensuse_linux",
+            "redhat_linux",
+            "rocky_linux",
+            "suse_linux",
+            "ubuntu_linux",
             "free_bsd",
             "open_bsd",
         ] {
@@ -309,6 +342,34 @@ mod tests {
                 rejection(model, r#"scripts = ["./setup.sh"]"#),
                 TopologyError::SshProvisionerNotSupported {
                     node: "dev01".to_owned(),
+                    model: model.parse().unwrap(),
+                },
+                "{model}"
+            );
+        }
+    }
+
+    #[test]
+    fn manifest_provisioners_007_an_ssh_provisioner_on_a_linux_virtual_machine_with_no_ssh_login_for_it_is_refused()
+     {
+        for model in [
+            "talos_linux",
+            "sonic_linux",
+            "generic",
+            "jenkins_server",
+            "nautobot_server",
+            "netbox_server",
+            "infrahub_server",
+            "signoz_server",
+            "virt_server",
+        ] {
+            let mut manifest = manifest(model, r#"scripts = ["./setup.sh"]"#);
+            manifest.nodes[0].kind = Some(NodeKind::VirtualMachine);
+            assert_eq!(
+                refusal(&manifest),
+                TopologyError::SshProvisionerNotSupported {
+                    node: "dev01".to_owned(),
+                    model: model.parse().unwrap(),
                 },
                 "{model}"
             );

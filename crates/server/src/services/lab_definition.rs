@@ -377,7 +377,7 @@ ztp = { config = "configs/files01.yaml" }
             "provision_concurrency": 2,
             "nodes": { "dev01": {
                 "ztp_config": "configs/dev01.yaml",
-                "environment_variables": ["MODE=lab", "TOKEN=$LAB_TOKEN"],
+                "environment_variables": ["MODE=lab", "TOKEN=${LAB_TOKEN}"],
                 "provisioners": [{ "type": "ssh", "scripts": ["./setup.sh"] }],
             } },
         });
@@ -387,7 +387,7 @@ ztp = { config = "configs/files01.yaml" }
         assert_eq!(node.ztp.config.as_deref(), Some("configs/dev01.yaml"));
         assert_eq!(
             node.environment_variables.as_deref(),
-            Some(&["MODE=lab".to_owned(), "TOKEN=$LAB_TOKEN".to_owned()][..])
+            Some(&["MODE=lab".to_owned(), "TOKEN=${LAB_TOKEN}".to_owned()][..])
         );
         assert_eq!(stored.provision_concurrency, Some(2));
         assert!(!stored.has_file_contents());

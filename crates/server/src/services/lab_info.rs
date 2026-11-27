@@ -9,7 +9,8 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 
 use db::Database;
-use shared::data::{DbLab, DbNode, LabInfo, NodeSshUsername};
+use shared::data::{DbLab, DbNode, LabInfo, NetworkV4, NetworkV6, NodeSshUsername, SherpaNetwork};
+use shared::util;
 
 /// The owner named for a lab whose owner's record is gone.
 const UNKNOWN_OWNER: &str = "unknown";
@@ -101,6 +102,37 @@ pub(crate) fn lab_info_from_records(
         client_host: lab.client_host.clone(),
         client_folder: lab.client_folder.clone(),
     })
+}
+
+/// The lab's management network, from its lab info. IPv6 only when the lab has it.
+pub(crate) fn management_network(lab_info: &LabInfo) -> SherpaNetwork {
+    SherpaNetwork {
+        v4: NetworkV4 {
+            prefix: lab_info.ipv4_network,
+            first: lab_info.ipv4_gateway,
+            last: lab_info.ipv4_network.broadcast(),
+            boot_server: lab_info.ipv4_router,
+            network: lab_info.ipv4_network.network(),
+            subnet_mask: lab_info.ipv4_network.netmask(),
+            hostmask: lab_info.ipv4_network.hostmask(),
+            prefix_length: lab_info.ipv4_network.prefix_len(),
+        },
+        v6: match (
+            lab_info.ipv6_network,
+            lab_info.ipv6_gateway,
+            lab_info.ipv6_router,
+        ) {
+            (Some(v6_net), Some(v6_gw), Some(v6_rtr)) => Some(NetworkV6 {
+                prefix: v6_net,
+                first: v6_gw,
+                last: util::get_ipv6_addr(&v6_net, u32::MAX).unwrap_or(v6_net.network()),
+                boot_server: v6_rtr,
+                network: v6_net.network(),
+                prefix_length: v6_net.prefix_len(),
+            }),
+            _ => None,
+        },
+    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 use anyhow::{Context, Error, Result, bail, ensure};
 use bollard::Docker;
+use bollard::errors::Error as DockerError;
 use bollard::models::{Ipam, IpamConfig, NetworkCreateRequest};
 use bollard::query_parameters::{
     InspectContainerOptions, InspectNetworkOptions, ListNetworksOptions,
@@ -1050,7 +1051,7 @@ async fn scanned_alpine_lab(
     let lab_name = format!("{prefix}{:06}", process::id() % 1_000_000);
     let nodes: Vec<serde_json::Value> = (1..=count)
         .map(|index| {
-            json!({ "name": format!("live{index}"), "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] }, "interfaces": { "data_count": 0 } })
+            json!({ "name": format!("live{index}"), "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] } })
         })
         .collect();
     let manifest = json!({ "name": lab_name, "nodes": nodes });
@@ -1327,6 +1328,312 @@ async fn lab_down_resume_001_a_container_lab_goes_down_and_resumes_with_its_node
             ensure!(
                 lab_status(&server, &lab_name).await? == lab,
                 "after {method} the lab should be {lab}"
+            );
+        }
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+/// The router container of lab `lab_id` as Docker has it: its ID, status, when it last
+/// started, its restart policy and its address on the lab's management network.
+struct RouterContainer {
+    id: Option<String>,
+    status: Option<ContainerStateStatusEnum>,
+    started_at: Option<String>,
+    restart_policy: Option<String>,
+    ipv4: Option<String>,
+}
+
+/// The router of lab `lab_id`, or `None` when Docker has no container for it.
+async fn router_container(docker: &Docker, lab_id: &str) -> Result<Option<RouterContainer>> {
+    let name = format!("sherpa-router-{lab_id}");
+    let details = match docker
+        .inspect_container(&name, None::<InspectContainerOptions>)
+        .await
+    {
+        Ok(details) => details,
+        Err(DockerError::DockerResponseServerError {
+            status_code: 404, ..
+        }) => return Ok(None),
+        Err(error) => return Err(error).with_context(|| format!("failed to inspect {name}")),
+    };
+    let ipv4 = details
+        .network_settings
+        .and_then(|settings| settings.networks)
+        .and_then(|networks| {
+            networks
+                .into_iter()
+                .find(|(network, _)| network.ends_with(lab_id))
+                .and_then(|(_, endpoint)| endpoint.ip_address)
+        });
+    let (status, started_at) = details
+        .state
+        .map_or((None, None), |state| (state.status, state.started_at));
+    Ok(Some(RouterContainer {
+        id: details.id,
+        status,
+        started_at,
+        restart_policy: details
+            .host_config
+            .and_then(|config| config.restart_policy)
+            .and_then(|policy| policy.name)
+            .map(|name| name.to_string()),
+        ipv4,
+    }))
+}
+
+/// Run `method` (`down` or `resume`) on the whole of lab `lab_id`, and fail unless every node
+/// succeeds. Returns the progress statuses it streamed.
+async fn whole_lab(
+    ws: &mut TestWsClient,
+    token: &str,
+    lab_id: &str,
+    method: &str,
+) -> Result<Vec<Value>> {
+    let (statuses, response) = ws
+        .rpc_call_streaming(
+            method,
+            json!({ "token": token, "lab_id": lab_id }),
+            Duration::from_secs(300),
+        )
+        .await?;
+    ensure!(
+        response.get("error").is_none(),
+        "{method} failed: {response}"
+    );
+    let result: LabNodeActionResponse = serde_json::from_value(response["result"].clone())?;
+    ensure!(
+        result.results.iter().all(|node| node.success),
+        "{method} should succeed for every node: {response}"
+    );
+    Ok(statuses)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn lab_down_resume_005_resume_starts_a_lab_router_that_stopped_as_after_a_server_reboot()
+-> Result<()> {
+    let (server, mut ws, token, lab_name, manifest) = scanned_alpine_lab("rs", 1).await?;
+    let docker = Docker::connect_with_local_defaults()?;
+
+    let checks: Result<()> = async {
+        lab_up(
+            &mut ws,
+            &token,
+            &lab_name,
+            &manifest,
+            Duration::from_secs(180),
+        )
+        .await?;
+        // A reboot ends the router without a stop; the lab is then resumed, down or not.
+        for down_first in [true, false] {
+            container::kill_container(&docker, &format!("sherpa-router-{lab_name}")).await?;
+            let before = router_container(&docker, &lab_name)
+                .await?
+                .context("the killed router should still exist")?;
+            ensure!(
+                before.status == Some(ContainerStateStatusEnum::EXITED),
+                "the killed router should be exited: {:?}",
+                before.status
+            );
+            if down_first {
+                whole_lab(&mut ws, &token, &lab_name, "down").await?;
+            }
+            let statuses = whole_lab(&mut ws, &token, &lab_name, "resume").await?;
+            let after = router_container(&docker, &lab_name)
+                .await?
+                .context("the router should exist after resume")?;
+            ensure!(
+                after.status == Some(ContainerStateStatusEnum::RUNNING) && after.id == before.id,
+                "resume should start the same router again: {:?}",
+                after.status
+            );
+            let started = format!("Lab router sherpa-router-{lab_name} - started");
+            ensure!(
+                statuses
+                    .iter()
+                    .any(|status| status.to_string().contains(&started)),
+                "resume should report the router started: {statuses:?}"
+            );
+        }
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn lab_down_resume_006_resume_leaves_a_running_lab_router_as_it_is() -> Result<()> {
+    let (server, mut ws, token, lab_name, manifest) = scanned_alpine_lab("rr", 1).await?;
+    let docker = Docker::connect_with_local_defaults()?;
+
+    let checks: Result<()> = async {
+        lab_up(
+            &mut ws,
+            &token,
+            &lab_name,
+            &manifest,
+            Duration::from_secs(180),
+        )
+        .await?;
+        let before = router_container(&docker, &lab_name)
+            .await?
+            .context("up should create the router")?;
+        whole_lab(&mut ws, &token, &lab_name, "down").await?;
+        let statuses = whole_lab(&mut ws, &token, &lab_name, "resume").await?;
+        let after = router_container(&docker, &lab_name)
+            .await?
+            .context("the router should exist after resume")?;
+        ensure!(
+            after.status == Some(ContainerStateStatusEnum::RUNNING)
+                && after.id == before.id
+                && after.started_at == before.started_at,
+            "resume should leave the running router as it was"
+        );
+        ensure!(
+            !statuses
+                .iter()
+                .any(|status| status.to_string().contains("Lab router")),
+            "resume should report nothing of a router it left as it was: {statuses:?}"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn lab_down_resume_007_resume_creates_a_missing_lab_router_again_on_its_address() -> Result<()>
+{
+    let (server, mut ws, token, lab_name, manifest) = scanned_alpine_lab("rm", 1).await?;
+    let docker = Docker::connect_with_local_defaults()?;
+
+    let checks: Result<()> = async {
+        lab_up(
+            &mut ws,
+            &token,
+            &lab_name,
+            &manifest,
+            Duration::from_secs(180),
+        )
+        .await?;
+        let before = router_container(&docker, &lab_name)
+            .await?
+            .context("up should create the router")?;
+        whole_lab(&mut ws, &token, &lab_name, "down").await?;
+        container::remove_container(&docker, &format!("sherpa-router-{lab_name}")).await?;
+        let statuses = whole_lab(&mut ws, &token, &lab_name, "resume").await?;
+        let after = router_container(&docker, &lab_name)
+            .await?
+            .context("resume should create the router again")?;
+        let router_ipv4 = db::get_lab(&server.db, &lab_name).await?.router_ipv4;
+        ensure!(
+            after.status == Some(ContainerStateStatusEnum::RUNNING)
+                && after.id != before.id
+                && after.ipv4.as_deref() == Some(router_ipv4.as_str()),
+            "the router should be a new container running on {router_ipv4}: {:?} {:?}",
+            after.status,
+            after.ipv4
+        );
+        let created = format!("Lab router sherpa-router-{lab_name} - created again");
+        ensure!(
+            statuses
+                .iter()
+                .any(|status| status.to_string().contains(&created)),
+            "resume should report the router created again: {statuses:?}"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn lab_down_resume_009_resume_of_a_lab_whose_router_and_its_config_are_gone_fails_and_starts_no_node()
+-> Result<()> {
+    let (server, mut ws, token, lab_name, manifest) = scanned_alpine_lab("rc", 1).await?;
+    let docker = Docker::connect_with_local_defaults()?;
+
+    let checks: Result<()> = async {
+        lab_up(
+            &mut ws,
+            &token,
+            &lab_name,
+            &manifest,
+            Duration::from_secs(180),
+        )
+        .await?;
+        whole_lab(&mut ws, &token, &lab_name, "down").await?;
+        container::remove_container(&docker, &format!("sherpa-router-{lab_name}")).await?;
+        let config = format!("{SHERPA_LABS_PATH}/{lab_name}/ztp/dnsmasq/dnsmasq.conf");
+        fs::remove_file(&config).with_context(|| format!("failed to remove {config}"))?;
+        let (_s, response) = ws
+            .rpc_call_streaming(
+                "resume",
+                json!({ "token": token, "lab_id": lab_name }),
+                Duration::from_secs(60),
+            )
+            .await?;
+        let message = response["error"]["message"].as_str().unwrap_or_default();
+        ensure!(
+            message.contains(&format!("sherpa-router-{lab_name} is gone"))
+                && message.contains(&config),
+            "resume should fail saying the router and its config are gone: {response}"
+        );
+        let states = node_states(&server, &lab_name).await?;
+        ensure!(
+            states.values().all(|state| *state == NodeState::Stopped),
+            "no node should start: {states:?}"
+        );
+        ensure!(
+            router_container(&docker, &lab_name).await?.is_none(),
+            "no router should be created without its config"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
+async fn lab_down_resume_010_a_lab_router_has_no_restart_policy_as_up_and_resume_create_it()
+-> Result<()> {
+    let (server, mut ws, token, lab_name, manifest) = scanned_alpine_lab("rp", 1).await?;
+    let docker = Docker::connect_with_local_defaults()?;
+
+    let checks: Result<()> = async {
+        lab_up(
+            &mut ws,
+            &token,
+            &lab_name,
+            &manifest,
+            Duration::from_secs(180),
+        )
+        .await?;
+        let made = router_container(&docker, &lab_name)
+            .await?
+            .context("up should create the router")?;
+        container::remove_container(&docker, &format!("sherpa-router-{lab_name}")).await?;
+        whole_lab(&mut ws, &token, &lab_name, "resume").await?;
+        let remade = router_container(&docker, &lab_name)
+            .await?
+            .context("resume should create the router again")?;
+        for (when, router) in [("up", made), ("resume", remade)] {
+            ensure!(
+                matches!(router.restart_policy.as_deref(), None | Some("" | "no")),
+                "the router {when} creates should have no restart policy: {:?}",
+                router.restart_policy
             );
         }
         Ok(())

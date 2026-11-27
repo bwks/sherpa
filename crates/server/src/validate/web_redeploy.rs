@@ -6,8 +6,9 @@ use crate::services::error::ServiceError;
 /// needs what the server does not keep. The definition holds the manifest as the user wrote it,
 /// without file contents or resolved values, and only the `sherpa` CLI, in the lab folder, can
 /// read the files and variables these parts name: a `ztp.config`, `text_files`,
-/// `systemd_units`, `startup_scripts`, and `environment_variables` with a `$VAR`. Provisioners are refused too, as only the CLI runs them. A node with none of these
-/// is rebuilt from its definition alone.
+/// `systemd_units`, `startup_scripts`, and `environment_variables` with a `$`, which is a
+/// `${NAME}` reference or a `\$` literal the CLI resolves. Provisioners are refused too, as only
+/// the CLI runs them. A node with none of these is rebuilt from its definition alone.
 ///
 /// # Errors
 ///
@@ -23,9 +24,9 @@ pub fn check_web_redeployable(node: &topology::Node) -> Result<()> {
             node.environment_variables.iter().flatten().any(|entry| {
                 entry
                     .split_once('=')
-                    .is_some_and(|(_, value)| value.starts_with('$'))
+                    .is_some_and(|(_, value)| value.contains('$'))
             }),
-            "environment_variables with a $VAR",
+            "environment_variables with a $",
         ),
         (has_items(node.provisioners.as_ref()), "provisioners"),
     ];
@@ -119,9 +120,9 @@ enabled = true
                 "startup_scripts",
             ),
             (
-                r#"environment_variables = ["MODE=lab", "TOKEN=$LAB_TOKEN"]
+                r#"environment_variables = ["MODE=lab", "TOKEN=${LAB_TOKEN}", 'PASS=\$ecret']
 "#,
-                "environment_variables with a $VAR",
+                "environment_variables with a $",
             ),
             (
                 r#"[[nodes.provisioners]]

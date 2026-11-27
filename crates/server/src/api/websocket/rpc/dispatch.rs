@@ -433,6 +433,7 @@ mod tests {
     use shared::error::{CpuPinConflict, CpuPinRole};
     use std::collections::HashSet;
 
+    use crate::services::error::SandboxFailure;
     use crate::validate::MemoryShortage;
 
     #[test]
@@ -648,19 +649,19 @@ mod tests {
 
     #[test]
     fn api_errors_026_an_rpc_sandbox_failure_is_a_server_error_with_the_reason_the_vm_reported() {
-        let error = Error::new(ServiceError::SandboxFailed {
+        let error = Error::new(ServiceError::SandboxFailure(SandboxFailure::Reported {
             name: "srl1-abc12345".to_owned(),
             reason: "cannot create the container: No such image: srl:26".to_owned(),
-        })
+        }))
         .context("Failed to redeploy node srl1");
         let rpc = service_error(&error, "Redeploy operation failed");
         assert_eq!(rpc.code, RpcErrorCode::ServerError);
         assert_eq!(
             rpc.message,
-            ServiceError::SandboxFailed {
+            ServiceError::SandboxFailure(SandboxFailure::Reported {
                 name: "srl1-abc12345".to_owned(),
                 reason: "cannot create the container: No such image: srl:26".to_owned(),
-            }
+            })
             .to_string()
         );
         assert!(rpc.context.is_none());
