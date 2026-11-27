@@ -173,8 +173,12 @@ async fn tear_down_and_rebuild(redeploy: &mut Redeploy<'_>) -> Result<Vec<LinkRe
         }
         _ => error.context(format!("Cannot redeploy node '{}'", redeploy.node_name)),
     })?;
-    // The rebuilt node gets a new host key, recorded again once it is ready.
+    // The rebuilt node, and its sandbox's sshd, get new host keys, recorded again once ready.
     db::update_node_host_key(&redeploy.state.db, redeploy.node_record_id.clone(), None).await?;
+    if let Some(sandbox) = &mut redeploy.vm_sandbox {
+        db::update_vm_sandbox_host_key(&redeploy.state.db, &sandbox.node, None).await?;
+        sandbox.ssh_host_key = None;
+    }
     // A link that is not attached is reported with the result; it does not fail the node.
     match rebuild(redeploy).await {
         Ok(links) => Ok(links),

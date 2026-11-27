@@ -365,7 +365,7 @@ Before `sbx0` is up it turns off router advertisements and SLAAC on it (`accept_
 The sandbox's own sshd is for people debugging the sandbox: `ssh core@<node>-sbx` from the server
 or anywhere the lab's management network is reached, and through the `<node>-sbx.<lab id>` host
 of the lab's SSH config (`ssh_config_hosts_010`). `ssh <node>` still reaches the network OS on the
-node's address. Nothing in sherpad uses it.
+node's address. Nothing in sherpad logs in through it; sherpad only reads its host key.
 
 - **Where.** Flatcar's `sshd.service`, enabled, with a drop-in
   (`templates/sandbox/sshd.service.conf.jinja`) that orders it after `sherpa-links` and runs it in
@@ -382,8 +382,15 @@ node's address. Nothing in sherpad uses it.
   (`SandboxCreate::ssh_keys`): Sherpa has no lab key. `core` is in Flatcar's `docker`, `systemd-journal` and `wheel` groups, so `docker ps`,
   `journalctl` and `sudo` work.
 - **Host keys.** sshd makes them at its first start, on the sandbox's disk, so they last across
-  down and resume and are new after a redeploy. sherpad records none: the SSH config's
-  `<node>-sbx` host checks none.
+  down and resume and are new after a redeploy. sherpad reads the key sshd offers as it reads a
+  node's (`node_ops::check_node_ssh_ready`) and records it in `vm_sandbox.ssh_host_key`
+  (`ssh_config::capture_sandbox_host_key`): `up` once its nodes are ready, before it builds the
+  SSH files, and `redeploy`, which clears the key before it tears the VM down, once the new VM is
+  ready. A sandbox whose sshd has not answered by then is read by the scanner, once its node is
+  `Running` and its VM runs, until a key is recorded. `down` and `resume` keep the key. The lab's
+  known hosts file lists it by the sandbox's own IPv4 address, and the `<node>-sbx` host checks it
+  strictly, as a node's host does (`node_host_keys_018`); until a key is recorded, the host checks
+  none.
 - **Unseen by the network OS.** The container has its own PID namespace and runs in the VM's first
   network namespace, so it sees neither sshd nor `sbx0`.
 

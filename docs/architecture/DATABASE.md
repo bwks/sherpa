@@ -105,13 +105,14 @@ stopped and go only with the lab, or with a failed `up`. Admission's use of them
 
 ### VM sandboxes
 
-`vm_sandbox` is the record of each node's sandbox. It holds the management address the sandbox
-has of its own, beside its node's: its IPv4 address, its IPv6 address when the lab has IPv6, and
-the MAC of its NIC, one row per sandbox node, keyed on the node's record. `up` writes the row
-when it gives the node its addresses, `down`, `resume` and `redeploy` read it, and it goes with
-the node (`ON DELETE CASCADE`), so a destroyed or rolled-back lab gives its addresses back. It is
-a table of its own so that `DbNode` and the node queries do not carry columns only three models
-use. The addresses are in
+`vm_sandbox` is the record of each node's sandbox. It holds the management address the sandbox has
+of its own, beside its node's: its IPv4 address, its IPv6 address when the lab has IPv6, the MAC of
+its NIC and, once its sshd has answered, the SSH host key that sshd offers, one row per sandbox
+node, keyed on the node's record. `up` writes the row when it gives the node its addresses, `down`,
+`resume` and `redeploy` read it, `up`, `redeploy` and the scanner record the key, and `redeploy`
+clears it first, and it goes with the node (`ON DELETE CASCADE`), so a destroyed or rolled-back lab
+gives its addresses back. It is a table of its own so that `DbNode` and the node queries do not
+carry columns only three models use. The addresses are in
 [`SANDBOX.md`](SANDBOX.md#management).
 
 ### Talos cluster plans

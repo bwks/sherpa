@@ -392,6 +392,7 @@ mod tests {
                         ipv4: Ipv4Addr::new(198, 18, 250, 24),
                         ipv6: None,
                         mac: "52:54:00:5b:00:01".to_owned(),
+                        ssh_host_key: None,
                     },
                     ssh_keys: Vec::new(),
                 },

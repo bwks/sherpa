@@ -849,6 +849,15 @@ impl LabUp<'_> {
         .await?;
         self.errors.extend(readiness_errors);
 
+        let vm_sandboxes = db::list_vm_sandboxes(self.build.db, &records.lab_record_id)
+            .await
+            .context("Failed to list the lab's sandbox records")?;
+        for sandbox in &vm_sandboxes {
+            if let Err(error) = ssh_config::capture_sandbox_host_key(self.build.db, sandbox).await {
+                tracing::warn!(node = %sandbox.node, error = %format!("{error:#}"), "Failed to record the sandbox host key");
+            }
+        }
+
         // The SSH files for the response, with the host keys recorded as nodes became ready.
         let ssh_files =
             ssh_config::lab_ssh_files(self.build.db, &records.lab_record_id, &network.lab_info)
