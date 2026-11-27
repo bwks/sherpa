@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 use std::fs;
 use std::io::{self, ErrorKind};
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,7 +13,8 @@ use anyhow::{Context, Result, anyhow, bail};
 use askama::Template;
 use jato::{Auth, ConnectOptions, Hop, HostKeyPolicy, Node, Session};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
-use tokio::{net, task, time};
+use tokio::net::TcpStream;
+use tokio::{task, time};
 use tracing::instrument;
 
 use crate::konst::{
@@ -119,6 +120,8 @@ const NODE_DOAS_CONF_FILE: &str = "/etc/doas.conf";
 const NODE_STAGING_DIR: &str = "/opt/sherpa/staging";
 /// Guest account database, read at boot to find a user's home directory.
 const NODE_PASSWD_FILE: &str = "/etc/passwd";
+/// Milliseconds a readiness check waits for a node's readiness port to accept a TCP connection.
+const PORT_READY_CONNECT_TIMEOUT_MS: u64 = 100;
 /// Seconds a readiness check waits for a node's SSH server to finish the SSH handshake.
 const SSH_READY_HANDSHAKE_TIMEOUT: u64 = 5;
 /// The most an SSH server may send before its identification line: RFC 4253 lets it send
@@ -4094,12 +4097,17 @@ pub(crate) async fn finish_management_checksums(
 // ============================================================================
 
 /// Check if a node is ready by attempting a TCP connection to its readiness port.
-pub fn check_node_port_ready(ip: &str, port: u16) -> Result<bool> {
-    let address_port = format!("{ip}:{port}").parse()?;
-    match TcpStream::connect_timeout(&address_port, Duration::from_millis(100)) {
-        Ok(_) => Ok(true),
-        Err(_) => Ok(false),
-    }
+pub async fn check_node_port_ready(ip: &str, port: u16) -> Result<bool> {
+    let address: SocketAddr = format!("{ip}:{port}").parse()?;
+    let connect = TcpStream::connect(address);
+    Ok(matches!(
+        time::timeout(
+            Duration::from_millis(PORT_READY_CONNECT_TIMEOUT_MS),
+            connect
+        )
+        .await,
+        Ok(Ok(_))
+    ))
 }
 
 /// Check if a virtual machine is ready on its readiness port. On the SSH port an SSH server
@@ -4109,7 +4117,7 @@ pub fn check_node_port_ready(ip: &str, port: u16) -> Result<bool> {
 /// Sherpa gave it. Any other port, such as the Talos API, needs a TCP connection.
 pub async fn check_vm_ready(ip: &str, port: u16, sshd_marker: bool) -> Result<VmReadiness> {
     if port != SSH_PORT && !sshd_marker {
-        return Ok(if check_node_port_ready(ip, port)? {
+        return Ok(if check_node_port_ready(ip, port).await? {
             VmReadiness::Ready { host_key: None }
         } else {
             VmReadiness::NotReady
@@ -4163,7 +4171,7 @@ pub async fn ssh_identification(ip: &str, port: u16) -> Result<Option<String>> {
 /// Read lines from the SSH server at `address` until its identification line, the first that
 /// starts with `SSH-`.
 async fn read_ssh_identification(address: SocketAddr) -> io::Result<Option<String>> {
-    let stream = net::TcpStream::connect(address).await?;
+    let stream = TcpStream::connect(address).await?;
     let mut lines = BufReader::new(stream.take(SSH_IDENTIFICATION_MAX_BYTES)).lines();
     while let Some(line) = lines.next_line().await? {
         if line.starts_with("SSH-") {
@@ -4190,7 +4198,7 @@ fn identification_shows(line: &str, marker: &str) -> bool {
 /// allowed, as some network devices offer nothing else.
 #[instrument(level = "debug")]
 pub async fn check_node_ssh_ready(ip: &str, port: u16) -> Result<Option<String>> {
-    if !check_node_port_ready(ip, port)? {
+    if !check_node_port_ready(ip, port).await? {
         return Ok(None);
     }
     let hop = Hop::new(
@@ -4470,29 +4478,32 @@ pub async fn create_unikernel(
 
 /// Check if a unikernel is ready by verifying libvirt domain state, with optional TCP port probe.
 #[instrument(skip(qemu_conn), level = "debug")]
-pub fn check_unikernel_ready(
+pub async fn check_unikernel_ready(
     qemu_conn: &libvirt::QemuConnection,
     domain_name: &str,
     ready_port: Option<u16>,
     mgmt_ip: Option<&str>,
 ) -> Result<bool> {
-    // Check if domain is running via libvirt
+    if !unikernel_domain_running(qemu_conn, domain_name)? {
+        return Ok(false);
+    }
+    if let (Some(port), Some(ip)) = (ready_port, mgmt_ip) {
+        check_node_port_ready(ip, port).await
+    } else {
+        Ok(true)
+    }
+}
+
+/// Whether libvirt has the unikernel's domain `domain_name` and it is running.
+fn unikernel_domain_running(
+    qemu_conn: &libvirt::QemuConnection,
+    domain_name: &str,
+) -> Result<bool> {
     let Ok(domain) = Domain::lookup_by_name(qemu_conn, domain_name) else {
         return Ok(false);
     };
-
     let (state, _) = domain.get_state()?;
-    if state != VIR_DOMAIN_RUNNING {
-        return Ok(false);
-    }
-
-    // If ready_port specified, also do TCP probe
-    if let (Some(port), Some(ip)) = (ready_port, mgmt_ip) {
-        check_node_port_ready(ip, port)
-    } else {
-        // Domain running = ready (default for unikernels)
-        Ok(true)
-    }
+    Ok(state == VIR_DOMAIN_RUNNING)
 }
 
 // ============================================================================
@@ -4644,11 +4655,13 @@ pub(crate) mod tests {
     use crate::log_capture::capture_log;
     use crate::services::guest_account::tests::{RSA_4096_KEY, RSA_8192_KEY, test_account};
     use axum::extract::ws::Message;
+    use futures::future::join_all;
     use nix::sys::stat::{Mode, umask};
     use serde_json::{Value, from_str, json};
     use shared::data::{ModelKind, Ztp};
     use std::env;
     use std::net::TcpListener as StdTcpListener;
+    use std::net::TcpStream;
     use std::os::unix::fs::PermissionsExt;
     use std::process::{self, Command};
     use std::{slice, str, thread};
@@ -5779,7 +5792,7 @@ echo "$*" >> '{}'
     #[tokio::test]
     async fn node_ready_001_on_port_22_a_port_that_is_not_an_ssh_server_is_not_ready() {
         let (port, task) = listener_replying(b"HTTP/1.0 400 Bad Request\r\n\r\n").await;
-        assert!(check_node_port_ready("127.0.0.1", port).unwrap());
+        assert!(check_node_port_ready("127.0.0.1", port).await.unwrap());
         assert!(
             check_node_ssh_ready("127.0.0.1", port)
                 .await
@@ -5792,12 +5805,28 @@ echo "$*" >> '{}'
     #[tokio::test]
     async fn node_ready_003_a_closed_port_is_not_ready() {
         // Port 1 is almost certainly not listening.
-        assert!(!check_node_port_ready("127.0.0.1", 1).unwrap());
+        assert!(!check_node_port_ready("127.0.0.1", 1).await.unwrap());
         assert!(
             check_node_ssh_ready("127.0.0.1", 1)
                 .await
                 .unwrap()
                 .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn node_ready_037_port_checks_of_nodes_that_do_not_answer_run_at_the_same_time() {
+        // TEST-NET-1 (RFC 5737): a SYN sent there is never answered.
+        let checks = (1..=8).map(|host| async move {
+            check_node_port_ready(&format!("192.0.2.{host}"), SSH_PORT).await
+        });
+        let started = time::Instant::now();
+        let results = join_all(checks).await;
+        let elapsed = started.elapsed();
+        assert!(results.into_iter().all(|ready| !ready.unwrap()));
+        assert!(
+            elapsed < Duration::from_millis(PORT_READY_CONNECT_TIMEOUT_MS * 3),
+            "8 checks took {elapsed:?}"
         );
     }
 

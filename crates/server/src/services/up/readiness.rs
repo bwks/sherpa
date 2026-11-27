@@ -722,7 +722,8 @@ impl Readiness<'_, '_> {
             &domain_name,
             unikernel.ready_check.port,
             mgmt_ip.as_deref(),
-        )?;
+        )
+        .await?;
         if !ready {
             tracing::debug!(node_name = %unikernel.name, "Waiting for unikernel to become ready");
             let _ = self.build.progress.send_status(

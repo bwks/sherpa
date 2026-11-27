@@ -514,7 +514,9 @@ async fn probe(target: &ReadinessTarget, state: &AppState) -> VmReadiness {
         (ReadinessCheck::Port { .. }, None) => Ok(VmReadiness::NotReady),
         (ReadinessCheck::Unikernel { ready_port }, ip) => match state.qemu.connect() {
             Ok(conn) => {
-                match node_ops::check_unikernel_ready(&conn, &target.device_name, *ready_port, ip) {
+                match node_ops::check_unikernel_ready(&conn, &target.device_name, *ready_port, ip)
+                    .await
+                {
                     Ok(true) => Ok(VmReadiness::Ready { host_key: None }),
                     Ok(false) => Ok(VmReadiness::NotReady),
                     Err(error) => Err(error),
