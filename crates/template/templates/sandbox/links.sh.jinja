@@ -1,10 +1,10 @@
 #!/bin/bash
 # Moves the sandbox's own NIC into a network namespace the network OS does not see and gives it
-# the sandbox's addresses and default routes, names this sandbox's other NICs as the network OS
-# expects, each found by its MAC in the interfaces sherpad listed, gives the management NIC the
-# node's addresses and default routes, and gives each data interface on no link a veth with the
-# interface's fixed MAC, whose peer stays down in a namespace of its own, so the interface has no
-# carrier.
+# the sandbox's addresses and default routes, and no address from a router advertisement, names
+# this sandbox's other NICs as the network OS expects, each found by its MAC in the interfaces
+# sherpad listed, gives the management NIC the node's addresses and default routes, and gives each
+# data interface on no link a veth with the interface's fixed MAC, whose peer stays down in a
+# namespace of its own, so the interface has no carrier.
 # Runs once per boot, before Docker starts: the node's container runs in the VM's network
 # namespace, and its network OS owns the interfaces from then on. A failure is reported to
 # sherpad, and Docker does not start the container.
@@ -47,6 +47,10 @@ nic_of() {
   ip link set dev "$dev" netns "$SANDBOX_NETNS"
   ip -n "$SANDBOX_NETNS" link set dev "$dev" name {{ crate::sandbox::SANDBOX_NIC }}
   ip -n "$SANDBOX_NETNS" link set dev lo up
+  # Before it is up, so it never takes an address from a router advertisement.
+  ip netns exec "$SANDBOX_NETNS" sysctl -q -w \
+    net.ipv6.conf.{{ crate::sandbox::SANDBOX_NIC }}.accept_ra=0 \
+    net.ipv6.conf.{{ crate::sandbox::SANDBOX_NIC }}.autoconf=0
   ip -n "$SANDBOX_NETNS" link set dev {{ crate::sandbox::SANDBOX_NIC }} up
   while read -r address gateway; do
     case "$address" in

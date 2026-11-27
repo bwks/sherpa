@@ -381,6 +381,26 @@ fn sandbox_071_before_its_other_nics_are_named_the_guest_moves_its_own_nic_out_o
 }
 
 #[test]
+fn sandbox_079_the_guest_turns_off_router_advertisements_on_the_sandboxs_own_nic_before_it_is_up() {
+    let links = file_text(&node_config(), "/opt/sherpa/links");
+    let off = links
+        .find(
+            r#"ip netns exec "$SANDBOX_NETNS" sysctl -q -w \
+    net.ipv6.conf.sbx0.accept_ra=0 \
+    net.ipv6.conf.sbx0.autoconf=0
+"#,
+        )
+        .unwrap();
+    assert!(
+        off < links
+            .find(r#"ip -n "$SANDBOX_NETNS" link set dev sbx0 up"#)
+            .unwrap()
+    );
+    assert_eq!(links.matches("accept_ra").count(), 1);
+    assert_eq!(links.matches("autoconf").count(), 1);
+}
+
+#[test]
 fn sandbox_056_a_bridge_member_is_a_bridge_interface_so_libvirt_enslaves_it_on_every_start() {
     let xml = compact(&domain().render().unwrap());
     assert!(xml.contains(

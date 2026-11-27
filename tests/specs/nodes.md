@@ -133,6 +133,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 076 | The VM that makes a boot disk has an Ignition config with only the sandboxes' kernel arguments, no NICs, console or status channel, and its first reboot stops it; a sandbox's Ignition config sets no kernel arguments | unit |
 | 077 | Sandboxes boot on overlays of the boot disk, a standalone disk that one VM made from the base image, and a second lab boots on the same boot disk without making it again | integration |
 | 078 | A sandbox boots once, with no reboot, and its serial console shows only kernel errors until the network OS's console prompt, the same prompt after down and resume and after a redeploy (no test yet) | e2e |
+| 079 | The guest turns off router advertisements and SLAAC on the sandbox's own NIC, in its namespace, before the NIC is up, and leaves the network OS's interfaces as the kernel has them | unit |
+| 080 | After up, after down and resume and after a redeploy, the sandbox's own NIC has only the sandbox's recorded addresses and its link-local address, and `<node>-sbx` answers ping on IPv4 and IPv6 (no test yet) | e2e |
 
 ## `node_ready`: a node is running only once its ready check passes
 

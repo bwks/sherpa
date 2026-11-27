@@ -296,6 +296,9 @@ The VM has a second NIC on the lab's management network, with a MAC of its own, 
 OS never sees. Before it names the other NICs, `links.sh` moves it into the network namespace
 `sherpa-sandbox` as `sbx0` and gives it the sandbox's own addresses and default routes through the
 lab's gateway, from `/etc/sherpa/sandbox-nic`; the container runs in the VM's first namespace.
+Before `sbx0` is up it turns off router advertisements and SLAAC on it (`accept_ra=0`,
+`autoconf=0`, set in `sherpa-sandbox`), so it has only those addresses and its link-local one
+(`sandbox_079`). The network OS's interfaces, in the first namespace, keep the kernel's settings.
 
 - **Addresses.** In a lab of N nodes the kth sandbox, in node index order, takes the node block's
   address of node N + k, in IPv4 and in IPv6 when the lab has it
