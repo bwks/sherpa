@@ -77,8 +77,8 @@ Labs brought up at once getting distinct ranges is `lab_concurrency_003`. Whethe
 
 ## `lab_down_resume`: down stops a lab and resume brings it back as it was
 
-**Statement:** down stops every node and keeps the lab; resume starts them again with their disks, addresses and links as before, and waits until they are ready, as up does.
-**Relied on by:** the user. **Priority:** P0.
+**Statement:** down stops every node and keeps the lab; resume starts them again with their disks, addresses and links as before, and waits until they are ready, as up does. Before it starts any node, resume brings the lab's router back: it starts a stopped one, unpauses a paused one, creates a missing or dead one again from the lab's record and the config in its lab folder, and leaves a running one as it is; a router it cannot bring back fails the resume, and no node starts. Nothing else starts a lab's router: it has no restart policy, and sherpad does not start it when the server starts.
+**Relied on by:** the user; every node, for its address and the lab's names. **Priority:** P0.
 
 | Case | What it shows | Level |
 |---|---|---|
@@ -86,6 +86,13 @@ Labs brought up at once getting distinct ranges is `lab_concurrency_003`. Whethe
 | 002 | Resume waits for a VM to be ready and streams its progress | e2e |
 | 003 | A resumed VM keeps its guest's keys and the owner can still log in | e2e |
 | 004 | A VM's disk changes survive down and resume (no test yet) | e2e |
+| 005 | A lab router that stopped without a down, as after a server reboot, is started again by resume, after a down and without one, and resume says so | integration |
+| 006 | Resume leaves a running lab router as it is: the same container, not restarted, and says nothing of it | integration |
+| 007 | Resume creates a missing lab router again on the lab's router address, and says so | integration |
+| 008 | Resume unpauses a paused lab router, replaces a dead one, and refuses one between states, saying to resume again shortly | unit |
+| 009 | Resume of a lab whose router and its config are both gone fails, naming the router and the config, creates no router and starts no node | integration |
+| 010 | The router up creates and the one resume creates again have no restart policy | integration |
+| 011 | After the server reboots, or sherpad or Docker restarts, a lab's router stays stopped until the lab is resumed, and once resumed its nodes resolve each other's names and external names through it (no test yet) | e2e |
 
 ## `lab_destroy`: destroy removes everything the lab created
 

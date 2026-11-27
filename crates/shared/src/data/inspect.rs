@@ -19,6 +19,8 @@ pub struct InspectRequest {
 pub struct InspectResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tailscale: Option<TailnetStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub router: Option<LabRouterStatus>,
     pub lab_info: LabInfo,
     pub lab_state: LabState,
     #[serde(default)]
@@ -64,6 +66,41 @@ impl fmt::Display for VaultSealed {
                 write!(f, "Vault sealed: key file unreadable: {cause}")
             }
             VaultSealed::KeyRefused => write!(f, "Vault sealed: key refused"),
+        }
+    }
+}
+
+/// A lab's router container, which serves its DHCP, DNS and boot files, and its state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LabRouterStatus {
+    pub container: String,
+    pub state: LabRouterState,
+}
+
+/// The state of a lab's router container, as Docker reports it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum LabRouterState {
+    Running,
+    Paused,
+    Exited { exit_code: Option<i64> },
+    Missing,
+    Other { status: String },
+    Unknown,
+}
+
+impl fmt::Display for LabRouterState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LabRouterState::Running => write!(f, "running"),
+            LabRouterState::Paused => write!(f, "paused"),
+            LabRouterState::Exited {
+                exit_code: Some(code),
+            } => write!(f, "exited ({code})"),
+            LabRouterState::Exited { exit_code: None } => write!(f, "exited"),
+            LabRouterState::Missing => write!(f, "missing"),
+            LabRouterState::Other { status } => write!(f, "{status}"),
+            LabRouterState::Unknown => write!(f, "unknown: Docker did not answer"),
         }
     }
 }

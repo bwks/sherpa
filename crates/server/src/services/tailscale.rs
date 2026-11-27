@@ -1,5 +1,6 @@
 //! Tailnet orchestration; callers authenticate and authorize the lab first.
 use anyhow::{Context, Result};
+use bollard::Docker;
 use container::tailscale::{self, GatewayConfig};
 use shared::data::{DbLab, LabInfo, TailnetAuthKey, TailnetState, TailnetStatus};
 use shared::konst::TAILSCALE_GATEWAY_HOST_OFFSET;
@@ -102,6 +103,29 @@ pub(crate) async fn inspect(state: &AppState, lab: &DbLab) -> Option<TailnetStat
     }
 }
 
+/// Refuse to resume `lab` when the gateway container its record names is gone: a key cannot
+/// enroll it, and only a new `up` creates it with a fresh identity.
+///
+/// # Errors
+///
+/// Fails when the gateway is gone, or Docker cannot be asked.
+#[instrument(skip(docker, lab), fields(lab_id = %lab.lab_id), level = "debug")]
+pub(crate) async fn require_gateway(docker: &Docker, lab: &DbLab) -> Result<()> {
+    let Some(id) = lab.tailscale_container_id.as_deref() else {
+        return Ok(());
+    };
+    match container::container_state(docker, id)
+        .await
+        .context("Failed to check the lab's Tailscale gateway")?
+    {
+        Some(_) => Ok(()),
+        None => Err(ServiceError::TailscaleGatewayMissing {
+            container: tailscale::gateway_name(&lab.lab_id),
+        }
+        .into()),
+    }
+}
+
 /// The key a resume enrolls the lab's gateway with, from the gateway's live `gateway` state.
 #[instrument(skip(key), level = "debug")]
 pub(crate) fn resume_credential<'a>(
@@ -171,6 +195,50 @@ pub(crate) async fn resume(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::docker_mock::{DockerMock, Fault};
+    use serde_json::json;
+    use shared::data::{LabPhase, RecordId};
+
+    /// A lab `test1234` whose record names the gateway container `gateway-id`.
+    fn lab_with_gateway() -> DbLab {
+        DbLab {
+            id: Some(RecordId::new("lab", "l1")),
+            lab_id: "test1234".to_string(),
+            name: "core".to_string(),
+            user: RecordId::new("user", "alice"),
+            management_network: "172.31.1.0/24".to_string(),
+            gateway_ipv4: "172.31.1.1".to_string(),
+            router_ipv4: "172.31.1.2".to_string(),
+            tailscale_container_id: Some("gateway-id".to_string()),
+            management_network_v6: None,
+            gateway_ipv6: None,
+            router_ipv6: None,
+            loopback_network_v6: None,
+            phase: LabPhase::Ready,
+            client_host: None,
+            client_folder: None,
+            description: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn tailnet_suspend_027_a_whole_lab_resume_of_a_lab_whose_gateway_is_gone_is_refused_saying_so()
+     {
+        let gone = DockerMock::new(json!([]), None).await;
+        let refused = require_gateway(&gone.docker, &lab_with_gateway())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            refused.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::TailscaleGatewayMissing {
+                container: "sherpa-tailnet-test1234".to_string()
+            })
+        );
+        let stopped = DockerMock::new(json!([]), Some(Fault::Gateway)).await;
+        require_gateway(&stopped.docker, &lab_with_gateway())
+            .await
+            .unwrap();
+    }
 
     const TAILNET_MANIFEST: &str =
         "name='test'\nnodes=[]\n[tailscale]\nenabled=true\nauth_key_env='KEY'";
