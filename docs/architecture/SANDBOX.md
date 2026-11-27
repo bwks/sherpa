@@ -200,7 +200,9 @@ sherpad connects as soon as it has started the domain (`StatusWatch::connect`) a
 the first status (`StatusWatch::next`). `failed: REASON` fails the node with that reason
 (`ServiceError::SandboxFailed`): each step of `links.sh`, `node.sh` and `store.sh` that fails
 reports, with Docker's or the command's own message. A VM that stops before it reports fails
-with `ServiceError::SandboxStatusClosed`. On later boots, after down and resume, nobody reads the
+with `ServiceError::SandboxStatusClosed`. These failures, and the two status limits below, have
+the category `ServiceCategory::Failed`, so the caller is told the reason: `up` lists it with the
+node, and a `redeploy` over RPC, REST (`502`, `NODE_FAILED`) or the web UI answers with it. On later boots, after down and resume, nobody reads the
 channel, and the report gives up.
 
 The channel is the guest's, and a privileged container can write to it, so sherpad reads it as

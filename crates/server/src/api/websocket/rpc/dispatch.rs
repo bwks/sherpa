@@ -392,8 +392,11 @@ pub(super) fn service_error(error: &anyhow::Error, failure: &str) -> RpcError {
         Some(refusal) => match refusal.category() {
             Some(ServiceCategory::Denied) => (RpcErrorCode::AccessDenied, refusal.message(), None),
             Some(ServiceCategory::NotFound) => (RpcErrorCode::NotFound, refusal.message(), None),
-            // JSON-RPC has no conflict code; the message tells the caller what to change.
-            Some(ServiceCategory::Conflict) => (RpcErrorCode::ServerError, refusal.message(), None),
+            // JSON-RPC has no conflict or node failure code; the message tells the caller what
+            // to change, or why the node failed.
+            Some(ServiceCategory::Conflict | ServiceCategory::Failed) => {
+                (RpcErrorCode::ServerError, refusal.message(), None)
+            }
             Some(ServiceCategory::Invalid) => {
                 (RpcErrorCode::InvalidParams, refusal.message(), None)
             }
@@ -641,6 +644,27 @@ mod tests {
         assert_eq!(rpc.code, RpcErrorCode::InvalidParams);
         assert_eq!(rpc.message, "bad lab ID");
         assert!(rpc.context.is_none());
+    }
+
+    #[test]
+    fn api_errors_026_an_rpc_sandbox_failure_is_a_server_error_with_the_reason_the_vm_reported() {
+        let error = Error::new(ServiceError::SandboxFailed {
+            name: "srl1-abc12345".to_owned(),
+            reason: "cannot create the container: No such image: srl:26".to_owned(),
+        })
+        .context("Failed to redeploy node srl1");
+        let rpc = service_error(&error, "Redeploy operation failed");
+        assert_eq!(rpc.code, RpcErrorCode::ServerError);
+        assert_eq!(
+            rpc.message,
+            ServiceError::SandboxFailed {
+                name: "srl1-abc12345".to_owned(),
+                reason: "cannot create the container: No such image: srl:26".to_owned(),
+            }
+            .to_string()
+        );
+        assert!(rpc.context.is_none());
+        assert!(rpc.data.is_none());
     }
 
     #[test]

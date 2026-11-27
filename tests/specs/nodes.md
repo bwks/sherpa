@@ -138,6 +138,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 081 | A first boot whose create Docker refuses reports Docker's message, and copies nothing into a container and starts none | unit |
 | 082 | A boot whose container Docker's restart policy has already started reports it started | unit |
 | 083 | The guest calls Docker's Engine API at the version sherpad's Docker client uses, on the VM's Docker socket | unit |
+| 084 | A redeploy whose sandbox fails is answered with the reason its VM reported, Docker's message, and the node is failed | integration |
 
 ## `node_ready`: a node is running only once its ready check passes
 

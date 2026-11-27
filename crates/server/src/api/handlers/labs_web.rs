@@ -406,7 +406,8 @@ fn lab_error_page(
             }
             .into_response()
         }
-        Some(ServiceCategory::Conflict | ServiceCategory::Invalid) | None => Error404Template {
+        Some(ServiceCategory::Conflict | ServiceCategory::Invalid | ServiceCategory::Failed)
+        | None => Error404Template {
             username,
             is_admin,
             nav: NavPage::Other.into(),
@@ -429,7 +430,8 @@ fn lab_error_fragment(error: &anyhow::Error, failure_message: &str) -> Response 
     let status = match ServiceError::find(error).and_then(ServiceError::category) {
         Some(ServiceCategory::Denied) => StatusCode::FORBIDDEN,
         Some(ServiceCategory::NotFound) => StatusCode::NOT_FOUND,
-        Some(ServiceCategory::Conflict | ServiceCategory::Invalid) | None => StatusCode::OK,
+        Some(ServiceCategory::Conflict | ServiceCategory::Invalid | ServiceCategory::Failed)
+        | None => StatusCode::OK,
     };
     (status, ErrorTemplate { message }).into_response()
 }

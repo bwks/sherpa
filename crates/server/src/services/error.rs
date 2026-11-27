@@ -612,13 +612,15 @@ pub enum ServiceError {
     },
 }
 
-/// The kind of refusal a transport answers a [`ServiceError`] with.
+/// The kind of refusal, or of node failure the caller is told the reason of, a transport
+/// answers a [`ServiceError`] with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServiceCategory {
     NotFound,
     Denied,
     Conflict,
     Invalid,
+    Failed,
 }
 
 /// Why `version` is not an image of `model_kind`: it has none, or the versions it has.
@@ -719,7 +721,8 @@ pub fn caller_message(error: &anyhow::Error, failure: &str) -> String {
 }
 
 impl ServiceError {
-    /// Find a `ServiceError` that refuses the request anywhere in an error chain.
+    /// Find a `ServiceError` the caller is told of anywhere in an error chain: a refusal, or a
+    /// node failure with its reason.
     #[must_use]
     pub fn find(error: &anyhow::Error) -> Option<&ServiceError> {
         error
@@ -741,7 +744,8 @@ impl ServiceError {
         message
     }
 
-    /// The kind of refusal this is, or `None` for a failure the caller is not told of.
+    /// The kind of refusal this is, `Failed` for a node failure whose reason the caller is told,
+    /// or `None` for a failure the caller is not told of.
     #[must_use]
     pub fn category(&self) -> Option<ServiceCategory> {
         match self {
@@ -808,6 +812,10 @@ impl ServiceError {
             | Self::TalosVersionUnsupported { .. }
             | Self::RequestUnreadable { .. }
             | Self::ManifestCheckFailed { .. } => Some(ServiceCategory::Invalid),
+            Self::SandboxFailed { .. }
+            | Self::SandboxStatusClosed { .. }
+            | Self::SandboxStatusTooLong { .. }
+            | Self::SandboxStatusFlood { .. } => Some(ServiceCategory::Failed),
             Self::OvercommitPercentTooLow { .. }
             | Self::NotServiceAccount { .. }
             | Self::TailscaleImageInvalid
@@ -836,10 +844,6 @@ impl ServiceError {
             | Self::GrpcStatus { .. }
             | Self::LinkEndGone { .. }
             | Self::TasksFailed { .. }
-            | Self::SandboxFailed { .. }
-            | Self::SandboxStatusClosed { .. }
-            | Self::SandboxStatusTooLong { .. }
-            | Self::SandboxStatusFlood { .. }
             | Self::VaultInitialisedOutside { .. }
             | Self::VaultInitResponseLost { .. }
             | Self::VaultInitUnknown { .. } => None,

@@ -707,3 +707,44 @@ async fn sandbox_055_a_sandbox_whose_container_cannot_start_fails_with_the_reaso
     let cleanup = cleanup_lab(&mut ws, &server, &token, &lab, &checks).await;
     finish(checks, cleanup)
 }
+
+#[tokio::test]
+#[ignore = "requires KVM, libvirt, Docker, the sandbox base image and root"]
+async fn sandbox_084_a_redeploy_whose_sandbox_fails_is_answered_with_the_reason_the_vm_reported()
+-> Result<()> {
+    let (server, mut ws, token) = start().await?;
+    let lab = lab_id("nf");
+    let manifest = json!({ "name": lab, "nodes": [node("n1", TEST_IMAGE_VERSION)] });
+    let broken = json!({ "name": lab, "nodes": [node("n1", BROKEN_IMAGE_VERSION)] });
+
+    let checks: Result<()> = async {
+        lab_up(&mut ws, &token, &lab, &manifest, UP_TIMEOUT).await?;
+        let (_statuses, response) = ws
+            .rpc_call_streaming(
+                "redeploy",
+                json!({
+                    "token": token,
+                    "lab_id": lab,
+                    "node_name": "n1",
+                    "manifest": broken,
+                }),
+                UP_TIMEOUT,
+            )
+            .await?;
+        let message = response["error"]["message"].as_str().unwrap_or_default();
+        ensure!(
+            message.starts_with(&format!("Sandbox n1-{lab} failed: "))
+                && message.contains("executable file not found"),
+            "redeploy did not answer with why the container cannot start: {response}"
+        );
+        let states = node_states(&server, &lab).await?;
+        ensure!(
+            states.get("n1") == Some(&NodeState::Failed),
+            "the node is {states:?}, not failed"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab, &checks).await;
+    finish(checks, cleanup)
+}
