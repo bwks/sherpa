@@ -141,6 +141,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 094 | Up and redeploy refuse a sandbox node's volume whose source holds a name longer than 31 characters, naming it, before any VM is made | unit |
 | 095 | A writable volume's empty folders are made in the container with its files | unit |
 | 096 | Down and resume refuse a node whose model runs in a sandbox but which was made before it ran in one, saying to destroy the lab and bring it up again | integration |
+| 099 | A blank disk, which a Docker store is made in, is a QCOW2 volume of its size with no backing store, mode `0640`, so sherpad, in its owner's group, reads its header to put each node's overlay on it | unit |
 
 ## `node_ready`: a node is running only once its ready check passes
 

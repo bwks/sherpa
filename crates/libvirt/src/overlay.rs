@@ -3,22 +3,15 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use askama::Template;
+use shared::konst::STORAGE_VOLUME_MODE;
 use tracing::instrument;
 use virt::connect::Connect;
 
 use crate::qcow2::read_qcow2_metadata;
-use crate::storage::{create_volume, new_volume_name};
+use crate::storage::{QcowVolume, create_volume, new_volume_name};
 
-#[derive(Template)]
-#[template(path = "overlay.xml", ext = "xml", escape = "xml")]
-struct OverlayVolume<'a> {
-    name: &'a str,
-    destination: &'a str,
-    backing: &'a str,
-    capacity: u64,
-}
-
-/// Create a sparse QCOW2 boot disk with an absolute, explicit QCOW2 backing store.
+/// Create a sparse QCOW2 boot disk, mode `STORAGE_VOLUME_MODE`, with an absolute, explicit QCOW2
+/// backing store.
 /// The volume is created exclusively; existing destinations are never changed.
 ///
 /// # Errors
@@ -33,11 +26,12 @@ pub fn create_overlay(conn: &Connect, src: &str, dst: &str, size_gb: Option<u16>
     let capacity = read_qcow2_metadata(&backing)?.overlay_capacity(size_gb)?;
     let name = new_volume_name(dst)?;
     let backing = backing.to_str().context("Overlay base path is not UTF-8")?;
-    let xml = OverlayVolume {
+    let xml = QcowVolume {
         name,
         destination: dst,
-        backing,
         capacity,
+        mode: STORAGE_VOLUME_MODE,
+        backing: Some(backing),
     }
     .render()
     .context("Cannot render overlay volume XML")?;
