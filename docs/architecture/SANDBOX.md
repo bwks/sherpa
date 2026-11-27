@@ -72,7 +72,9 @@ once and never changes it.
 
 GRUB gives the kernel `console=ttyS0`, the network OS's serial console, and the sandboxes' kernel
 arguments, `quiet` (`template::SANDBOX_KERNEL_ARGUMENTS`), from the boot disk's OEM partition. The
-kernel prints only errors there, from its start on: console log level 4. The console's emulated
+kernel prints only errors there, from its start on and after boot too: console log level 4, so
+kernel info messages, such as interface renames and bridge port states, never mix into the
+network OS CLI; they are in the VM's kernel log. The console's emulated
 serial port takes VM exits for each character, which cost most in a nested VM: printing the
 kernel's boot messages there takes about 20 s of a sandbox's first boot and 15 s of a resume on a
 dev server.
