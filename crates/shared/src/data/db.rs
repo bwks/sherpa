@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
@@ -124,6 +124,16 @@ pub struct NodeResources {
 pub struct DbCpuPins {
     pub lab: RecordId,
     pub pins: NodeCpuPins,
+}
+
+/// A sandbox's own management address, as the `sandbox_address` table stores it: its node, its
+/// addresses and the MAC of its NIC.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DbSandboxAddress {
+    pub node: RecordId,
+    pub ipv4: Ipv4Addr,
+    pub ipv6: Option<Ipv6Addr>,
+    pub mac: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

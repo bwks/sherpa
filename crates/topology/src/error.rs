@@ -6,6 +6,7 @@ use shared::SharedError;
 use shared::data::{DiskBuses, InterfaceType, ModelKind, NodeKind, NodeModel, PtxPlatform, Ztp};
 use shared::konst::{
     CONTAINER_SECRETS_DIR, JUNIPER_EVOLVED_CONTAINER_OVERHEAD_MIB, NODE_USER_ENV_DIR,
+    SANDBOX_HOST_SUFFIX,
 };
 
 /// A manifest check's failure that a caller tells apart from the others.
@@ -32,6 +33,24 @@ pub enum TopologyError {
 
     #[error("Manifest - {count} nodes defined, but a lab supports at most {max} nodes")]
     TooManyNodes { count: usize, max: usize },
+
+    #[error(
+        "Manifest - {nodes} nodes defined, {sandboxes} of them in a sandbox with a management \
+         address of its own, which need {} addresses, but a lab has {max}",
+        nodes + sandboxes
+    )]
+    TooManyAddresses {
+        nodes: usize,
+        sandboxes: usize,
+        max: usize,
+    },
+
+    #[error(
+        "Manifest - node: '{node}' has the name '{sandbox}{suffix}' of the sandbox of node \
+         '{sandbox}' on the lab's boot server",
+        suffix = SANDBOX_HOST_SUFFIX
+    )]
+    SandboxNameTaken { node: String, sandbox: String },
 
     #[error(
         "Manifest - {what} name '{name}' is not allowed: use 1 to {max_len} letters, \

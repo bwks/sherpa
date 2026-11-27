@@ -10,6 +10,7 @@ use tracing::instrument;
 use super::context::LabBuild;
 use super::links::P2pContainerVeth;
 use super::readiness::container_spec;
+use super::ztp::SandboxAddress;
 use crate::services::error::ServiceError;
 use crate::services::node_ops::{self, ContainerSettings};
 use crate::services::sandbox::{self, SandboxCreate, SandboxHost, StatusWatch};
@@ -95,14 +96,16 @@ pub(super) struct SandboxNodes<'a> {
     pub(super) veths: &'a [P2pContainerVeth],
     pub(super) mgmt_net: &'a data::SherpaNetwork,
     pub(super) dns: &'a data::Dns,
+    pub(super) sandbox_addresses: &'a [SandboxAddress],
 }
 
 /// What container node `container`'s VM is created from: its container, its recorded
-/// resources, its link ends and its management addresses.
+/// resources, its link ends, its management addresses and its sandbox's own.
 ///
 /// # Errors
 ///
-/// Fails when the node has no record, recorded resources, settings or management address.
+/// Fails when the node has no record, recorded resources, settings, management address or
+/// sandbox address.
 fn sandbox_create(
     build: &LabBuild<'_>,
     nodes: &SandboxNodes<'_>,
@@ -147,6 +150,12 @@ fn sandbox_create(
             .ipv4_address
             .with_context(|| format!("Node '{name}' has no management address"))?,
         ipv6: container.ipv6_address,
+        own_address: nodes
+            .sandbox_addresses
+            .iter()
+            .find(|sandbox| sandbox.node_name == *name)
+            .map(|sandbox| sandbox.address.clone())
+            .with_context(|| format!("The sandbox of node '{name}' has no management address"))?,
     })
 }
 

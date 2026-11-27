@@ -39,6 +39,9 @@ pub const TAILSCALE_GATEWAY_NAME: &str = "sherpa-tailnet";
 /// Lab management host offsets for nodes and the DHCP range. Node `n` (1-based index) gets
 /// the offset `start + n - 1`.
 pub const MANAGEMENT_NODE_HOST_OFFSETS: RangeInclusive<u32> = 21..=254;
+/// What a sandbox's own management address is named on the lab's boot server, after its node's
+/// name.
+pub const SANDBOX_HOST_SUFFIX: &str = "-sbx";
 pub const SHERPA_USERNAME: &str = "sherpa";
 pub const ADMIN_USERNAME: &str = "sherpa-admin";
 /// User documentation on generating and registering SSH keys, linked from errors.

@@ -73,6 +73,7 @@ pub(super) struct Redeploy<'a> {
     pub(super) secrets: Option<Vec<data::SecretFile>>,
     pub(super) image_guard: ImageLease,
     pub(super) sandbox_base: Option<SandboxBase>,
+    pub(super) sandbox_address: Option<data::DbSandboxAddress>,
     pub(super) admission: Admission,
 }
 
@@ -102,6 +103,7 @@ struct LoadedNode {
     data_interface_count: u8,
     image_guard: ImageLease,
     sandbox_base: Option<SandboxBase>,
+    sandbox_address: Option<data::DbSandboxAddress>,
 }
 
 /// The lab's directory, details, management network, DNS and CA.
@@ -154,6 +156,7 @@ pub(super) async fn load_redeploy<'a>(
         data_interface_count,
         image_guard,
         sandbox_base,
+        sandbox_address,
     } = load_node(
         state,
         &lab_record_id,
@@ -224,6 +227,7 @@ pub(super) async fn load_redeploy<'a>(
         definition,
         image_guard,
         sandbox_base,
+        sandbox_address,
         admission: admitted,
         lab_id,
         node_name,
@@ -330,8 +334,9 @@ async fn stored_talos_clusters(
 /// disk method checked against it, and a container's image resolved and checked as `up` does:
 /// the target node's `image` is set to the repo it is created from. The image is found as `up`
 /// finds it, by the node's model, kind and manifest `version`, or else their default, so a
-/// node whose manifest names another version is rebuilt from that version. The model and kind
-/// cannot change, and unikernels cannot be redeployed.
+/// node whose manifest names another version is rebuilt from that version. A node in a sandbox
+/// gets the sandbox base image and its sandbox's own address. The model and kind cannot change,
+/// and unikernels cannot be redeployed.
 #[instrument(skip_all, fields(%lab_id, node_name = %target_node.name), level = "debug")]
 async fn load_node(
     state: &AppState,
@@ -387,6 +392,17 @@ async fn load_node(
     let model_kind = node_image.model_kind()?;
     let sandbox_base =
         sandbox::sandbox_base(&state.db, &state.config.images_dir, &[model_kind]).await?;
+    let sandbox_address = if model_kind.runs_in_sandbox() {
+        Some(
+            db::find_sandbox_address(db, &node_record_id)
+                .await?
+                .ok_or_else(|| ServiceError::SandboxAddressMissing {
+                    node: node_name.to_owned(),
+                })?,
+        )
+    } else {
+        None
+    };
     let image_guard = lease_image(model_kind, &node_image.version).await;
     if node_image.kind() == data::NodeKind::Container {
         let repo = validate_container_repo(
@@ -419,6 +435,7 @@ async fn load_node(
         data_interface_count,
         image_guard,
         sandbox_base,
+        sandbox_address,
     })
 }
 

@@ -3,7 +3,7 @@ use std::net::Ipv4Addr;
 use askama::Template;
 
 use shared::data::{Ztp, ZtpRecord};
-use template::DnsmasqTemplate;
+use template::{DnsmasqTemplate, SandboxHostRecord};
 
 // ============================================================================
 // Expected configs
@@ -76,6 +76,7 @@ fn render(ztp: Ztp) -> String {
             ztp,
             ssh_port: Some(22),
         }],
+        sandbox_hosts: Vec::new(),
     };
     t.render().expect("template renders")
 }
@@ -127,4 +128,48 @@ fn boot_server_021_a_name_without_a_domain_is_answered_and_never_forwarded() {
         output.lines().any(|line| line == "domain-needed"),
         "{output}"
     );
+}
+
+#[test]
+fn boot_server_022_a_sandbox_s_own_addresses_are_named_after_its_node_with_sbx() {
+    let t = DnsmasqTemplate {
+        tftp_server_ipv4: "172.20.0.1".to_string(),
+        gateway_ipv4: "172.20.0.1".to_string(),
+        dhcp_start: "172.20.0.100".to_string(),
+        dhcp_end: "172.20.0.200".to_string(),
+        gateway_ipv6: None,
+        dhcp6_start: None,
+        dhcp6_end: None,
+        dns_ipv6: None,
+        ztp_records: Vec::new(),
+        sandbox_hosts: vec![
+            SandboxHostRecord {
+                node_name: "srl1".to_string(),
+                ipv4: Ipv4Addr::new(172, 20, 0, 23),
+                ipv6: Some("fd00::17".parse().unwrap()),
+            },
+            SandboxHostRecord {
+                node_name: "ceos1".to_string(),
+                ipv4: Ipv4Addr::new(172, 20, 0, 24),
+                ipv6: None,
+            },
+        ],
+    };
+    let output = t.render().unwrap();
+    let records: Vec<&str> = output
+        .lines()
+        .filter(|line| line.starts_with("host-record="))
+        .collect();
+    assert_eq!(
+        records,
+        [
+            "host-record=srl1-sbx,172.20.0.23",
+            "host-record=srl1-sbx.sherpa.lab.local,172.20.0.23",
+            "host-record=srl1-sbx,fd00::17",
+            "host-record=srl1-sbx.sherpa.lab.local,fd00::17",
+            "host-record=ceos1-sbx,172.20.0.24",
+            "host-record=ceos1-sbx.sherpa.lab.local,172.20.0.24",
+        ]
+    );
+    assert!(!output.contains("dhcp-host="));
 }

@@ -254,6 +254,12 @@ pub enum ServiceError {
     )]
     SandboxBaseDiskMissing { version: String, path: PathBuf },
 
+    #[error(
+        "Node '{node}' runs in a sandbox that has no management address of its own; destroy the \
+         lab and bring it up again"
+    )]
+    SandboxAddressMissing { node: String },
+
     #[error("Sandbox {name} failed: {reason}")]
     SandboxFailed { name: String, reason: String },
 
@@ -762,6 +768,7 @@ impl ServiceError {
             | Self::SecretsMountMissing { .. }
             | Self::ControllerNotRedeployable { .. }
             | Self::ClusterMembershipChanged { .. }
+            | Self::SandboxAddressMissing { .. }
             | Self::LabExists { .. }
             | Self::LabIdCollision { .. } => Some(ServiceCategory::Conflict),
             Self::Invalid(_)

@@ -48,7 +48,7 @@ pub use cloudbase_init::{
 };
 pub use crypt::{CryptHash, crypt_hash};
 pub use cumulus_linux::CumulusLinuxZtpTemplate;
-pub use dnsmasq::DnsmasqTemplate;
+pub use dnsmasq::{DnsmasqTemplate, SandboxHostRecord};
 pub use domain::{
     DomainTemplate, DomainTuning, SandboxDomainTemplate, SandboxManagement, SandboxNic,
     UnikernelDomainTemplate,
@@ -65,7 +65,7 @@ pub use paloalto_panos::{PaloAltoPanosBootstrapTemplate, PaloAltoPanosZtpTemplat
 pub use sandbox::{
     GuestAddress, GuestInterface, NodeScript, SANDBOX_CONFIG_DRIVE_LABEL,
     SANDBOX_CONFIG_DRIVE_MOUNT, SANDBOX_CONFIG_DRIVE_USER_DATA, SANDBOX_MANAGEMENT_INTERFACE,
-    SandboxGuest, WritableVolume, store_vm_ignition_json,
+    SandboxGuest, SandboxOwnNic, WritableVolume, store_vm_ignition_json,
 };
 pub use sonic_linux::{
     SonicLinuxContainerInitTemplate, SonicLinuxContainerSupervisordTemplate,

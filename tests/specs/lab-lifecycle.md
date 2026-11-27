@@ -72,6 +72,7 @@ Cases 005 to 012 are the lab's lease in the server: an operation (up, down, resu
 | 007 | The gateway, the lab router and the other infrastructure addresses are apart from each other and from the node block | unit |
 | 008 | A configured management range too small for one lab is refused, in IPv4 and IPv6 | unit |
 | 009 | The management network a lab's nodes are configured with spans the lab's /24 and /64, from the gateway to the end of each, with the lab router as its boot server | unit |
+| 010 | Each sandbox takes an address of its own after the nodes', in node index order, in IPv4 and IPv6, and one past the node block is refused | unit |
 
 Labs brought up at once getting distinct ranges is `lab_concurrency_003`. Whether nodes reach each other on the management network is `management_network` in [links and bridges](links-and-bridges.md).
 

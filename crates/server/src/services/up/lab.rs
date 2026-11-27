@@ -23,7 +23,9 @@ use super::readiness::{NodesReady, ReadinessInputs, wait_for_nodes, write_secret
 use super::records::{NodeRecords, create_node_records, store_ssh_usernames};
 use super::runtime::{SandboxNodes, create_sandboxes, create_unikernels, create_vms};
 use super::services::{LabServices, ServiceInputs, record_ready_workers, start_lab_services};
-use super::ztp::{ConfigInputs, NodeConfigs, configure_nodes, start_boot_container};
+use super::ztp::{
+    ConfigInputs, NodeConfigs, SandboxAddress, configure_nodes, start_boot_container,
+};
 use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_host_access, require_lab_starter};
 use crate::daemon::state::AppState;
@@ -643,6 +645,31 @@ impl LabUp<'_> {
         Ok(links)
     }
 
+    /// Write the boot server's config, with the nodes' records and the sandboxes' own addresses,
+    /// and start its container (phase 9).
+    async fn start_boot_server(
+        &mut self,
+        ztp_dir: &str,
+        network: &LabNetwork,
+        ztp_records: &[data::ZtpRecord],
+        sandbox_addresses: &[SandboxAddress],
+    ) -> Result<()> {
+        self.start_phase(
+            data::UpPhase::BootContainers,
+            "Creating boot containers and ZTP files".to_string(),
+        )?;
+        start_boot_container(
+            &self.build,
+            ztp_dir,
+            &network.mgmt_net,
+            ztp_records,
+            sandbox_addresses,
+        )
+        .await?;
+        self.phase_done("Sherpa Router");
+        Ok(())
+    }
+
     /// Configure every node (phase 8), start the boot container (phase 9), clone the disks
     /// (phase 10), create the VM and unikernel domains (phase 11), attach the eBPF redirect on
     /// VM-to-VM links (11b), and set the isolated bridges down (11c).
@@ -666,6 +693,7 @@ impl LabUp<'_> {
             domains,
             unikernel_domains,
             lab_clusters,
+            sandbox_addresses,
         } = configure_nodes(
             &self.build,
             &ConfigInputs {
@@ -685,12 +713,8 @@ impl LabUp<'_> {
         .await?;
         self.phase_done("ZtpGeneration");
 
-        self.start_phase(
-            data::UpPhase::BootContainers,
-            "Creating boot containers and ZTP files".to_string(),
-        )?;
-        start_boot_container(&self.build, &ztp_dir, &network.mgmt_net, &ztp_records).await?;
-        self.phase_done("Sherpa Router");
+        self.start_boot_server(&ztp_dir, network, &ztp_records, &sandbox_addresses)
+            .await?;
 
         self.start_phase(data::UpPhase::DiskCloning, "Cloning disks".to_string())?;
         let boot_dirs: Vec<PathBuf> = records
@@ -718,7 +742,7 @@ impl LabUp<'_> {
                 host: SandboxHost {
                     docker: Arc::clone(self.build.docker_conn),
                     qemu: Arc::clone(self.build.qemu),
-                    base: self.plan.sandbox_base.clone(),
+                    base: self.plan.sandbox_base.take(),
                     store_locks: self.build.docker_store_locks.clone(),
                     progress: self.build.progress.clone(),
                 },
@@ -729,6 +753,7 @@ impl LabUp<'_> {
                 veths: &links.p2p_container_veths,
                 mgmt_net: &network.mgmt_net,
                 dns: &network.dns,
+                sandbox_addresses: &sandbox_addresses,
             },
         )
         .await?;
@@ -736,7 +761,6 @@ impl LabUp<'_> {
         create_unikernels(&self.build, unikernel_domains).await?;
         // Every disk and domain exists; stop holding the disk images.
         self.plan.image_guards.clear();
-        self.plan.sandbox_base = None;
 
         // Now that libvirt has created the tap devices, attach eBPF redirect programs to wire
         // up P2p links between VMs. A link with a container end is attached once that

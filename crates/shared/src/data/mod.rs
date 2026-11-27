@@ -53,8 +53,8 @@ pub use console::ConsoleCheck;
 pub use container::{ContainerImage, ContainerMount, ContainerNetworkAttachment};
 pub use cpu::{CpuFeature, CpuFeaturePolicy, CpuModels};
 pub use db::{
-    BridgeMember, DbBridge, DbCpuPins, DbLab, DbLink, DbLoginAttempt, DbNode, DbSession,
-    DbSessionUser, DbUser, NodeResources, ReadyCheck, SessionChannel,
+    BridgeMember, DbBridge, DbCpuPins, DbLab, DbLink, DbLoginAttempt, DbNode, DbSandboxAddress,
+    DbSession, DbSessionUser, DbUser, NodeResources, ReadyCheck, SessionChannel,
 };
 pub use destroy::{DestroyError, DestroyRequest, DestroyResponse, DestroySummary};
 pub use disk::{

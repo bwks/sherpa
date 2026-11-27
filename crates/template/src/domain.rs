@@ -127,11 +127,13 @@ pub struct UnikernelDomainTemplate {
     pub reserved_network: String,
 }
 
-/// A sandbox's management NIC: a virtio NIC on the lab's management network.
+/// A sandbox's NICs on the lab's management network, virtio: the node's management NIC and the
+/// sandbox's own.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SandboxManagement {
     pub network: String,
     pub mac: String,
+    pub own_mac: String,
 }
 
 /// A sandbox's data interface: a virtio NIC whose host side is the tap `tap`, on private bridge

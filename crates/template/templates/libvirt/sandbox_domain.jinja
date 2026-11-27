@@ -56,6 +56,12 @@
       <source network='{{ management.network }}'/>
       <model type='virtio'/>
     </interface>
+
+    <interface type='network'>
+      <mac address='{{ management.own_mac }}'/>
+      <source network='{{ management.network }}'/>
+      <model type='virtio'/>
+    </interface>
     {% endif %}
 
     {% for nic in nics %}

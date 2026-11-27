@@ -1,8 +1,10 @@
 #!/bin/bash
-# Names this sandbox's NICs as the network OS expects, each found by its MAC in the interfaces
-# sherpad listed, gives the management NIC the node's addresses and default routes, and gives
-# each data interface on no link a veth with the interface's fixed MAC, whose peer stays down in
-# a namespace of its own, so the interface has no carrier.
+# Moves the sandbox's own NIC into a network namespace the network OS does not see and gives it
+# the sandbox's addresses and default routes, names this sandbox's other NICs as the network OS
+# expects, each found by its MAC in the interfaces sherpad listed, gives the management NIC the
+# node's addresses and default routes, and gives each data interface on no link a veth with the
+# interface's fixed MAC, whose peer stays down in a namespace of its own, so the interface has no
+# carrier.
 # Runs once per boot, before Docker starts: the node's container runs in the VM's network
 # namespace, and its network OS owns the interfaces from then on. A failure is reported to
 # sherpad, and Docker does not start the container.
@@ -10,6 +12,7 @@ set -eEu
 
 WAIT_SECONDS=60
 UNWIRED_NETNS=sherpa-unwired
+SANDBOX_NETNS={{ crate::sandbox::SANDBOX_NETNS }}
 
 fail() {
   {{ crate::sandbox::REPORT_SCRIPT_PATH }} "failed: interfaces: $1" || true
@@ -32,6 +35,32 @@ nic_of() {
   done
   return 1
 }
+
+# Before the other NICs are named, so none takes the name the kernel gave this one.
+{
+  read -r mac
+  dev=$(nic_of "$mac") || fail "no NIC with MAC $mac for the sandbox after $WAIT_SECONDS seconds"
+  if [ ! -e "/run/netns/$SANDBOX_NETNS" ]; then
+    ip netns add "$SANDBOX_NETNS"
+  fi
+  ip link set dev "$dev" down
+  ip link set dev "$dev" netns "$SANDBOX_NETNS"
+  ip -n "$SANDBOX_NETNS" link set dev "$dev" name {{ crate::sandbox::SANDBOX_NIC }}
+  ip -n "$SANDBOX_NETNS" link set dev lo up
+  ip -n "$SANDBOX_NETNS" link set dev {{ crate::sandbox::SANDBOX_NIC }} up
+  while read -r address gateway; do
+    case "$address" in
+      *:*)
+        ip -n "$SANDBOX_NETNS" -6 addr replace "$address" dev {{ crate::sandbox::SANDBOX_NIC }} nodad
+        ip -n "$SANDBOX_NETNS" -6 route replace default via "$gateway" dev {{ crate::sandbox::SANDBOX_NIC }}
+        ;;
+      *)
+        ip -n "$SANDBOX_NETNS" addr replace "$address" dev {{ crate::sandbox::SANDBOX_NIC }}
+        ip -n "$SANDBOX_NETNS" route replace default via "$gateway" dev {{ crate::sandbox::SANDBOX_NIC }}
+        ;;
+    esac
+  done
+} < {{ crate::sandbox::SANDBOX_NIC_FILE }}
 
 # A temporary name first, so a NIC never takes a name another NIC still has.
 index=0

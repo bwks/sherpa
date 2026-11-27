@@ -22,6 +22,10 @@ pub const SANDBOX_STATUS_CHANNEL: &str = "org.sherpa.status";
 pub const SANDBOX_MANAGEMENT_INTERFACE: &str = "eth0";
 /// The terminal of a sandbox's serial console.
 pub const SANDBOX_CONSOLE_TTY: &str = "ttyS0";
+/// The network namespace of the sandbox's own NIC, which the network OS does not see.
+pub const SANDBOX_NETNS: &str = "sherpa-sandbox";
+/// The name of the sandbox's own NIC in its network namespace.
+pub const SANDBOX_NIC: &str = "sbx0";
 
 const CONTAINERD_CONFIG: &str = include_str!("../templates/sandbox/containerd.toml");
 const CONTAINERD_CONFIG_PATH: &str = "/etc/containerd/config.toml";
@@ -34,6 +38,7 @@ const CONTAINER_FILE: &str = "/etc/sherpa/container";
 const INTERFACES_FILE: &str = "/etc/sherpa/interfaces";
 const PLACEHOLDERS_FILE: &str = "/etc/sherpa/placeholders";
 const MANAGEMENT_FILE: &str = "/etc/sherpa/management";
+const SANDBOX_NIC_FILE: &str = "/etc/sherpa/sandbox-nic";
 const CONSOLE_COMMAND_FILE: &str = "/etc/sherpa/console";
 const CREATE_FILE: &str = "/etc/sherpa/create";
 const WRITABLE_FILE: &str = "/etc/sherpa/writable";
@@ -85,6 +90,13 @@ pub struct GuestAddress {
     pub gateway: IpAddr,
 }
 
+/// The sandbox's own NIC on the lab's management network, found by its MAC, and its addresses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SandboxOwnNic {
+    pub mac: String,
+    pub addresses: Vec<GuestAddress>,
+}
+
 /// A writable volume of a sandbox's container: its source on the config drive and its path in
 /// the container.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,6 +113,7 @@ pub struct SandboxGuest<'a> {
     pub interfaces: &'a [GuestInterface],
     pub placeholders: &'a [GuestInterface],
     pub management: &'a [GuestAddress],
+    pub own_nic: &'a SandboxOwnNic,
     pub console_command: &'a [&'a str],
     pub create_args: &'a [String],
     pub writable: &'a [WritableVolume],
@@ -195,6 +208,15 @@ struct InterfacesFile<'a> {
 #[derive(Template)]
 #[template(path = "sandbox/management.jinja", ext = "txt")]
 struct ManagementFile<'a> {
+    addresses: &'a [GuestAddress],
+}
+
+/// The sandbox's own NIC: its MAC on the first line, then one `address/prefix gateway` line per
+/// address.
+#[derive(Template)]
+#[template(path = "sandbox/sandbox-nic.jinja", ext = "txt")]
+struct SandboxNicFile<'a> {
+    mac: &'a str,
     addresses: &'a [GuestAddress],
 }
 
@@ -296,6 +318,15 @@ impl SandboxGuest<'_> {
                 FILE_MODE,
                 &ManagementFile {
                     addresses: self.management,
+                }
+                .render()?,
+            ),
+            IgnitionFile::root(
+                SANDBOX_NIC_FILE,
+                FILE_MODE,
+                &SandboxNicFile {
+                    mac: &self.own_nic.mac,
+                    addresses: &self.own_nic.addresses,
                 }
                 .render()?,
             ),

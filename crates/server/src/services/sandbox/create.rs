@@ -14,9 +14,9 @@ use tokio::task;
 use tracing::instrument;
 
 use container::ContainerSpec;
-use shared::data::{Dns, ModelKind, SherpaNetwork};
+use shared::data::{DbSandboxAddress, Dns, ModelKind, SherpaNetwork};
 use shared::konst::SHERPA_STORAGE_POOL_PATH;
-use template::{SandboxDomainTemplate, SandboxGuest, SandboxManagement};
+use template::{SandboxDomainTemplate, SandboxGuest, SandboxManagement, SandboxOwnNic};
 
 use super::base::SandboxBase;
 use super::guest::{
@@ -64,6 +64,7 @@ pub(crate) struct SandboxCreate {
     pub(crate) mgmt_net: SherpaNetwork,
     pub(crate) ipv4: Ipv4Addr,
     pub(crate) ipv6: Option<Ipv6Addr>,
+    pub(crate) own_address: DbSandboxAddress,
 }
 
 /// A disk a sandbox's domain boots with, made before the domain is defined.
@@ -113,6 +114,14 @@ pub(crate) async fn create_sandbox(
         interfaces: &nics.interfaces,
         placeholders: &nics.placeholders,
         management: &management_addresses(&create.mgmt_net, create.ipv4, create.ipv6),
+        own_nic: &SandboxOwnNic {
+            mac: create.own_address.mac.clone(),
+            addresses: management_addresses(
+                &create.mgmt_net,
+                create.own_address.ipv4,
+                create.own_address.ipv6,
+            ),
+        },
         console_command: console_command(create.model_kind),
         create_args: &create_args,
         writable: &volumes.writable,
@@ -139,6 +148,7 @@ pub(crate) async fn create_sandbox(
         management: Some(SandboxManagement {
             network: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{}", create.lab_id),
             mac: nics.management_mac,
+            own_mac: create.own_address.mac.clone(),
         }),
         nics: nics.nics,
         status_socket: status_socket.clone(),
@@ -203,7 +213,7 @@ mod tests {
     use tokio::time;
     use virt::network::Network;
 
-    use shared::data::{ContainerNetworkAttachment, NetworkV4, NodeKind, NodeModel};
+    use shared::data::{ContainerNetworkAttachment, NetworkV4, NodeKind, NodeModel, RecordId};
     use shared::konst::{SHERPA_IMAGES_PATH, VM_DISK_FILENAME};
     use shared::util::default_dns;
 
@@ -359,6 +369,12 @@ mod tests {
                     mgmt_net: self.network.network.clone(),
                     ipv4: Ipv4Addr::new(198, 18, 250, 23),
                     ipv6: None,
+                    own_address: DbSandboxAddress {
+                        node: RecordId::new("node", "sonic1"),
+                        ipv4: Ipv4Addr::new(198, 18, 250, 24),
+                        ipv6: None,
+                        mac: "52:54:00:5b:00:01".to_owned(),
+                    },
                 },
             )
             .await

@@ -10,7 +10,8 @@ use tempfile::TempDir;
 use shared::util::base64_decode;
 use template::{
     GuestAddress, GuestInterface, NodeScript, SANDBOX_CONFIG_DRIVE_MOUNT, SandboxDomainTemplate,
-    SandboxGuest, SandboxManagement, SandboxNic, WritableVolume, store_vm_ignition_json,
+    SandboxGuest, SandboxManagement, SandboxNic, SandboxOwnNic, WritableVolume,
+    store_vm_ignition_json,
 };
 
 // ============================================================================
@@ -55,6 +56,21 @@ fn node_config() -> Value {
                 gateway: "fd00:b0d1:0:1::1".parse().unwrap(),
             },
         ],
+        own_nic: &SandboxOwnNic {
+            mac: "52:54:00:AB:00:09".to_owned(),
+            addresses: vec![
+                GuestAddress {
+                    address: "172.31.0.30".parse().unwrap(),
+                    prefix_length: 24,
+                    gateway: "172.31.0.1".parse().unwrap(),
+                },
+                GuestAddress {
+                    address: "fd00:b0d1:0:1::1e".parse().unwrap(),
+                    prefix_length: 64,
+                    gateway: "fd00:b0d1:0:1::1".parse().unwrap(),
+                },
+            ],
+        },
         console_command: &["Cli"],
         create_args: &create_args,
         writable: &[WritableVolume {
@@ -262,6 +278,7 @@ fn domain() -> SandboxDomainTemplate {
         management: Some(SandboxManagement {
             network: "sherpa-management-abc12345".to_owned(),
             mac: "52:54:00:00:00:01".to_owned(),
+            own_mac: "52:54:00:00:00:09".to_owned(),
         }),
         nics: vec![
             SandboxNic {
@@ -325,11 +342,41 @@ fn sandbox_002_each_data_interface_is_a_tap_named_like_its_link_end() {
          <target dev='tpa1-abc12345'/>"
     ));
     assert!(xml.contains("<target dev='tpb2-abc12345'/>"));
-    assert_eq!(xml.matches("<interface ").count(), 4);
+    assert_eq!(xml.matches("<interface ").count(), 5);
     assert!(xml.contains(
         "<interface type='network'><mac address='52:54:00:00:00:01'/>\
          <source network='sherpa-management-abc12345'/>"
     ));
+}
+
+#[test]
+fn sandbox_070_the_sandbox_has_a_nic_of_its_own_on_the_management_network() {
+    let xml = compact(&domain().render().unwrap());
+    assert!(xml.contains(
+        "<interface type='network'><mac address='52:54:00:00:00:09'/>\
+         <source network='sherpa-management-abc12345'/><model type='virtio'/></interface>"
+    ));
+}
+
+#[test]
+fn sandbox_071_before_its_other_nics_are_named_the_guest_moves_its_own_nic_out_of_the_network_oss_namespace()
+ {
+    let config = node_config();
+    assert_eq!(
+        file_text(&config, "/etc/sherpa/sandbox-nic"),
+        "52:54:00:ab:00:09\n172.31.0.30/24 172.31.0.1\nfd00:b0d1:0:1::1e/64 fd00:b0d1:0:1::1\n"
+    );
+    let links = file_text(&config, "/opt/sherpa/links");
+    let moved = links
+        .find(r#"ip link set dev "$dev" netns "$SANDBOX_NETNS""#)
+        .unwrap();
+    assert!(moved < links.find(r#"name "sln$index""#).unwrap());
+    assert!(links.contains("SANDBOX_NETNS=sherpa-sandbox\n"));
+    assert!(links.contains(r#"ip -n "$SANDBOX_NETNS" addr replace "$address" dev sbx0"#));
+    assert!(
+        links.contains(r#"ip -n "$SANDBOX_NETNS" route replace default via "$gateway" dev sbx0"#)
+    );
+    assert!(links.contains("done\n} < /etc/sherpa/sandbox-nic\n"));
 }
 
 #[test]

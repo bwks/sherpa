@@ -29,7 +29,7 @@ flowchart LR
     S -->|reads| SOCK
   end
   subgraph V[Flatcar VM NODE-LAB]
-    LK[sherpa-links.service: names the NICs, addresses eth0, makes the interfaces on no link] --> DK[dockerd]
+    LK[sherpa-links.service: moves sbx0 into netns sherpa-sandbox, names the NICs, addresses eth0, makes the interfaces on no link] --> DK[dockerd]
     DK --> N[sherpa-node.service: creates the container once, starts it, reports]
     N --> C[node container, --privileged, --network host]
     CON[sherpa-console.service on ttyS0: docker exec CLI] --> C
@@ -39,6 +39,7 @@ flowchart LR
   ISO[(NODE-LAB.iso, label config-2: Ignition and the container's volumes)] --> V
   V ---|virtio NIC| T1
   V ---|virtio NIC eth0| M
+  V ---|virtio NIC sbx0, netns sherpa-sandbox| M
   V ---|serial ttyS0, virtio-serial org.sherpa.status| SOCK
 ```
 
@@ -188,10 +189,11 @@ The two overlays hold everything the node writes, so a saved config survives `do
 `resume`. Redeploy and destroy delete them.
 
 The domain is `template::SandboxDomainTemplate` (`templates/libvirt/sandbox_domain.jinja`): q35,
-`host-passthrough` CPU, no video and no balloon; SeaBIOS booting the first disk;
-the two overlays on virtio; the config drive on SATA; the management NIC on the lab's management
-network; one virtio NIC per data interface on a link or bridge, its tap named like the node's
-link end; a virtio RNG; the status channel; and the serial console on the node's console socket.
+`host-passthrough` CPU, no video and no balloon; SeaBIOS booting the first disk; the two overlays
+on virtio; the config drive on SATA; the management NIC and the sandbox's own NIC on the lab's
+management network; one virtio NIC per data interface on a link or bridge, its tap named like the
+node's link end; a virtio RNG; the status channel; and the serial console on the node's console
+socket.
 
 ## Links
 
@@ -246,6 +248,26 @@ SR Linux looks up `matelink` at each rsyslogd start, three of them in the commit
 config, and the commit fails with `Unacceptable syslog configuration` when it takes over about
 60 s.
 
+### The sandbox's own address
+
+The VM has a second NIC on the lab's management network, with a MAC of its own, which the network
+OS never sees. Before it names the other NICs, `links.sh` moves it into the network namespace
+`sherpa-sandbox` as `sbx0` and gives it the sandbox's own addresses and default routes through the
+lab's gateway, from `/etc/sherpa/sandbox-nic`; the container runs in the VM's first namespace.
+
+- **Addresses.** In a lab of N nodes the kth sandbox, in node index order, takes the node block's
+  address of node N + k, in IPv4 and in IPv6 when the lab has it
+  (`util::sandbox_management_host_offset`): the sandboxes' addresses follow the nodes'. A lab
+  whose nodes and sandboxes together need more than the block's 234 addresses is refused
+  (`TopologyError::TooManyAddresses`).
+- **Recorded** in `sandbox_address` with the NIC's MAC when `up` gives the node its addresses,
+  before the boot server's config is written; `down`, `resume` and `redeploy` keep them, and
+  `redeploy` refuses a sandbox node without one before it tears anything down
+  (`ServiceError::SandboxAddressMissing`). Destroy gives them back with the node.
+- **Named** `<node>-sbx` and `<node>-sbx.<lab domain>` on the lab's boot server, IPv4 and IPv6
+  (`boot_server_022`). A node named so is refused (`TopologyError::SandboxNameTaken`).
+- Nothing listens on the address yet; it answers ping from the server and from the lab's nodes.
+
 ## Console
 
 The serial console is on the node's console socket, which the console relay serves as for any
@@ -298,3 +320,5 @@ its limit.
   then falls back to the next config, and the node has no `dev` login.
 - `frr_linux` and the `juniper_evolved` container run privileged on the server's Docker.
 - Nothing removes a Docker store when its image is deleted or imported again.
+- Each sandbox takes a node block address of its own, so a lab with sandboxes has fewer than 234
+  nodes.

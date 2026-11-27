@@ -52,6 +52,14 @@ pub(super) struct NodeConfigs {
     pub(super) domains: Vec<template::DomainTemplate>,
     pub(super) unikernel_domains: Vec<template::UnikernelDomainTemplate>,
     pub(super) lab_clusters: Vec<LabCluster>,
+    pub(super) sandbox_addresses: Vec<SandboxAddress>,
+}
+
+/// The own management addresses of the sandbox of node `node_name`.
+#[derive(Clone, Debug)]
+pub(super) struct SandboxAddress {
+    pub(super) node_name: String,
+    pub(super) address: data::DbSandboxAddress,
 }
 
 /// The lab's node configuration in progress: the CA that signs node certificates, and the
@@ -63,6 +71,9 @@ struct Configuring<'a, 'b> {
     certs_dir: String,
     ztp_records: Vec<data::ZtpRecord>,
     clone_disks: Vec<data::CloneDisk>,
+    node_count: u16,
+    sandbox_ranks: HashMap<String, u16>,
+    sandbox_addresses: Vec<SandboxAddress>,
 }
 
 /// Give every node its management addresses, every container and VM its TLS certificate, and
@@ -97,6 +108,10 @@ pub(super) async fn configure_nodes(
         certs_dir,
         ztp_records: Vec::new(),
         clone_disks: Vec::new(),
+        node_count: u16::try_from(inputs.node_setup_data.len())
+            .context("The lab has more nodes than it can number")?,
+        sandbox_ranks: sandbox_ranks(container_nodes),
+        sandbox_addresses: Vec::new(),
     };
     let mut container_settings = HashMap::new();
     for node in container_nodes.iter_mut() {
@@ -122,6 +137,7 @@ pub(super) async fn configure_nodes(
         lab_ca,
         ztp_records,
         clone_disks,
+        sandbox_addresses,
         ..
     } = configuring;
     Ok(NodeConfigs {
@@ -133,7 +149,22 @@ pub(super) async fn configure_nodes(
         domains,
         unikernel_domains,
         lab_clusters,
+        sandbox_addresses,
     })
+}
+
+/// The rank of each of `container_nodes` that runs in a sandbox, from 1 in node index order,
+/// which places its sandbox's own address after the nodes' addresses.
+fn sandbox_ranks(container_nodes: &[topology::NodeExpanded]) -> HashMap<String, u16> {
+    let mut sandboxes: Vec<&topology::NodeExpanded> = container_nodes
+        .iter()
+        .filter(|node| node.model_kind.runs_in_sandbox())
+        .collect();
+    sandboxes.sort_by_key(|node| node.index);
+    (1..=u16::MAX)
+        .zip(sandboxes)
+        .map(|(rank, node)| (node.name.clone(), rank))
+        .collect()
 }
 
 impl Configuring<'_, '_> {
@@ -199,6 +230,31 @@ impl Configuring<'_, '_> {
             .transpose()
     }
 
+    /// Give the sandbox of node `name`, the `rank`th of the lab, its own management addresses,
+    /// after the nodes' addresses, and its NIC's MAC, and record them.
+    async fn assign_sandbox_address(&mut self, name: &str, rank: u16) -> Result<()> {
+        let mgmt_net = self.inputs.mgmt_net;
+        let offset = util::sandbox_management_host_offset(self.node_count, rank)?;
+        let address = data::DbSandboxAddress {
+            node: self
+                .record_id(name)?
+                .with_context(|| format!("Node '{name}' has no record"))?,
+            ipv4: util::get_ipv4_addr(&mgmt_net.v4.prefix, offset)?,
+            ipv6: mgmt_net
+                .v6
+                .as_ref()
+                .map(|v6| util::get_ipv6_addr(&v6.prefix, offset))
+                .transpose()?,
+            mac: util::random_mac(KVM_OUI),
+        };
+        db::create_sandbox_address(self.build.db, &address).await?;
+        self.sandbox_addresses.push(SandboxAddress {
+            node_name: name.to_owned(),
+            address,
+        });
+        Ok(())
+    }
+
     async fn record_mac(&self, name: &str, mac_address: &str) -> Result<()> {
         if let Some(record_id) = self.record_id(name)? {
             db::update_node_mgmt_mac(self.build.db, record_id, mac_address).await?;
@@ -223,6 +279,9 @@ impl Configuring<'_, '_> {
         decode_ztp_config(node)?;
         let node_image = self.image(node)?;
         let ipv4 = self.assign_addresses(node).await?;
+        if let Some(&rank) = self.sandbox_ranks.get(&node.name) {
+            self.assign_sandbox_address(&node.name, rank).await?;
+        }
         let cert_paths = self.issue_certificate(node, ipv4)?;
         let ztp_result = node_ops::generate_container_ztp(
             node,
@@ -519,6 +578,7 @@ pub(super) async fn start_boot_container(
     ztp_dir: &str,
     mgmt_net: &data::SherpaNetwork,
     ztp_records: &[data::ZtpRecord],
+    sandbox_addresses: &[SandboxAddress],
 ) -> Result<()> {
     let LabBuild {
         lab_id,
@@ -541,21 +601,27 @@ pub(super) async fn start_boot_container(
         "Created ZTP directories"
     );
 
-    write_dnsmasq_config(&dnsmasq_dir, mgmt_net, ztp_records)?;
+    let sandbox_hosts: Vec<template::SandboxHostRecord> = sandbox_addresses
+        .iter()
+        .map(|sandbox| boot_server::sandbox_host_record(&sandbox.node_name, &sandbox.address))
+        .collect();
+    write_dnsmasq_config(&dnsmasq_dir, mgmt_net, ztp_records, &sandbox_hosts)?;
     boot_server::run_boot_container(docker_conn, lab_id, ztp_dir, mgmt_net).await
 }
 
-/// Write the dnsmasq config, with a DHCP host entry for each node. Only the config is mounted
-/// in the boot container: dnsmasq keeps its leases inside it.
+/// Write the dnsmasq config, with a DHCP host entry for each node and the names of the
+/// sandboxes' own addresses. Only the config is mounted in the boot container: dnsmasq keeps its
+/// leases inside it.
 #[instrument(skip_all, level = "debug")]
 fn write_dnsmasq_config(
     dnsmasq_dir: &str,
     mgmt_net: &data::SherpaNetwork,
     ztp_records: &[data::ZtpRecord],
+    sandbox_hosts: &[template::SandboxHostRecord],
 ) -> Result<()> {
     util::create_file(
         &format!("{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}"),
-        boot_server::render_dnsmasq_config(mgmt_net, ztp_records)?,
+        boot_server::render_dnsmasq_config(mgmt_net, ztp_records, sandbox_hosts)?,
     )
 }
 
@@ -606,6 +672,7 @@ mod tests {
         write_dnsmasq_config(
             dir.path().to_str().unwrap(),
             &management_network(&subnets()).unwrap(),
+            &[],
             &[],
         )
         .unwrap();
