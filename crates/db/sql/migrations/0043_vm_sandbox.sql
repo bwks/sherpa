@@ -1,7 +1,4 @@
--- The record of a node's sandbox: the management address the sandbox has of its own, beside its
--- node's, and the MAC of the VM's NIC in a network namespace its network OS does not see, named
--- `<node>-sbx` on the lab's boot server. `up` records it with the node, `down`, `resume` and
--- `redeploy` keep it, and it goes when the node or its lab is deleted.
+-- Create the vm_sandbox table: each sandboxed node's sandbox VM address and MAC.
 CREATE TABLE vm_sandbox (
     node TEXT PRIMARY KEY REFERENCES node(id) ON DELETE CASCADE,
     ipv4 TEXT NOT NULL,
