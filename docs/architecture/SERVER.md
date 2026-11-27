@@ -309,7 +309,8 @@ before any node starts (`boot_server::ensure_router_running`), as nodes take the
 names from it, creating it again with `run_boot_container`, as `up` does, when it is gone. Neither
 the router nor the Tailscale gateway has a Docker restart policy, and sherpad starts neither when
 it starts, so a server reboot leaves both stopped until the lab is resumed. A whole-lab resume
-enrolls a gateway that is not connected.
+enrolls a gateway that is not connected and refuses one that is gone, as only `up` creates a
+gateway with a fresh identity.
 
 ### Image service architecture
 

@@ -546,6 +546,12 @@ pub enum ServiceError {
     )]
     LabRouterConfigMissing { container: String, path: String },
 
+    #[error(
+        "The lab's Tailscale gateway {container} is gone, so no node was started; destroy the \
+         lab and run up again"
+    )]
+    TailscaleGatewayMissing { container: String },
+
     #[error("{what} failed: {}", failures.join("; "))]
     TasksFailed {
         what: &'static str,
@@ -751,7 +757,8 @@ impl ServiceError {
             | Self::LabIdCollision { .. }
             | Self::LabRouterBusy { .. }
             | Self::LabRouterNotStarted { .. }
-            | Self::LabRouterConfigMissing { .. } => Some(ServiceCategory::Conflict),
+            | Self::LabRouterConfigMissing { .. }
+            | Self::TailscaleGatewayMissing { .. } => Some(ServiceCategory::Conflict),
             Self::Invalid(_)
             | Self::DevicePasswordRefused { .. }
             | Self::DevicePasswordSameAsLogin

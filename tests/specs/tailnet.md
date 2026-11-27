@@ -77,7 +77,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `tailnet_suspend`: down takes the gateway off the tailnet and resume enrolls it again
 
-**Statement:** a whole-lab down logs the gateway out of the tailnet when its daemon holds an identity and stops it, and reports a logout that fails as a failure; a whole-lab resume of a lab whose gateway is not connected logs out any identity the gateway kept and enrolls it as a new device, with the key the client sends when the variable is set, before any node starts, and stops the gateway again when the enrollment fails; a whole-lab resume leaves a connected gateway as it is and needs no key; stopping, resuming or redeploying one node leaves the gateway as it is.
+**Statement:** a whole-lab down logs the gateway out of the tailnet when its daemon holds an identity and stops it, and reports a logout that fails as a failure; a whole-lab resume of a lab whose gateway is not connected logs out any identity the gateway kept and enrolls it as a new device, with the key the client sends when the variable is set, before any node starts, and stops the gateway again when the enrollment fails; a whole-lab resume leaves a connected gateway as it is and needs no key; a whole-lab resume of a lab whose gateway is gone is refused, as only a new up creates one; stopping, resuming or redeploying one node leaves the gateway as it is.
 **Relied on by:** the user; the tailnet's admin, who expects no device for a lab that is down. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -108,6 +108,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 024 | Down of a running gateway whose daemon holds no identity stops it without a logout and reports it stopped (mock Docker) | unit |
 | 025 | After `sherpa down --node` on every node, a whole-lab `sherpa resume` with the variable unset succeeds, and the gateway is the same tailnet device as before (real tailnet) | e2e |
 | 026 | The web UI's labs list, the admin's list and the lab's page offer a lab with a gateway no start: a disabled start that says to resume the lab with `sherpa resume` in its lab folder, and stop as for any lab; a lab without a gateway offers start | unit |
+| 027 | A whole-lab resume of a lab whose gateway container is gone is refused before any node starts, naming the gateway and saying to destroy the lab and run up again; a stopped gateway is not refused (mock Docker) | unit |
 
 ## `tailnet_removal`: destroy takes the gateway and its identity away, and only its own
 

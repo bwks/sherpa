@@ -282,7 +282,8 @@ async fn resume_router(
 }
 
 /// Enroll the lab's Tailscale gateway as a new device on a whole-lab resume when it is not
-/// connected; otherwise report its current status.
+/// connected; otherwise report its current status. A whole-lab resume of a lab whose gateway is
+/// gone is refused.
 #[instrument(skip_all, fields(lab_id = %db_lab.lab_id), level = "debug")]
 async fn resume_tailscale(
     state: &AppState,
@@ -292,6 +293,9 @@ async fn resume_tailscale(
     tailscale_auth_key: Option<&TailnetAuthKey>,
     progress: Option<&ProgressSender>,
 ) -> Result<Option<TailnetStatus>> {
+    if node_name.is_none() {
+        super::tailscale::require_gateway(&state.docker, db_lab).await?;
+    }
     let status = super::tailscale::inspect(state, db_lab).await;
     let auth_key_env = definition
         .and_then(|definition| definition.tailscale.as_ref())
