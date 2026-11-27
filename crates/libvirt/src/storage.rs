@@ -20,34 +20,27 @@ use virt::storage_vol::StorageVol;
 use crate::names::is_lab_volume;
 use crate::size::gib_to_bytes;
 
+/// A QCOW2 volume of `capacity` bytes at `destination`, defined from `templates/qcow2.xml`.
 #[derive(Template)]
-#[template(path = "blank.xml", ext = "xml", escape = "xml")]
-struct BlankVolume<'a> {
-    name: &'a str,
-    destination: &'a str,
-    capacity: u64,
+#[template(path = "qcow2.xml", ext = "xml", escape = "xml")]
+pub(crate) struct Qcow2Volume<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) destination: &'a str,
+    pub(crate) capacity: u64,
 }
 
-/// A storage volume's XML, as far as its name, path and backing file.
+/// A storage volume's XML, as far as its name and backing file.
 #[derive(Debug, Deserialize)]
 struct VolumeXml {
     name: String,
-    target: VolumeTargetXml,
     #[serde(rename = "backingStore")]
     backing_store: Option<BackingStoreXml>,
-}
-
-/// A volume's `<target>`: the path of its file.
-#[derive(Debug, Deserialize)]
-struct VolumeTargetXml {
-    path: String,
 }
 
 /// A volume in the Sherpa storage pool built on a backing file: an overlay disk and its base.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BackedVolume {
     pub name: String,
-    pub path: PathBuf,
     pub backing_file: PathBuf,
 }
 
@@ -209,7 +202,6 @@ fn backed_volume(xml: &str) -> Result<Option<BackedVolume>> {
         .and_then(|backing| backing.path)
         .map(|path| BackedVolume {
             name: volume.name,
-            path: PathBuf::from(volume.target.path),
             backing_file: PathBuf::from(path),
         }))
 }
@@ -257,7 +249,7 @@ pub fn overlay_on_image<'a>(
 /// the volume.
 #[instrument(level = "debug", skip(conn))]
 pub fn create_blank_qcow2(conn: &Connect, dst: &str, size_gb: u16) -> Result<()> {
-    let xml = BlankVolume {
+    let xml = Qcow2Volume {
         name: new_volume_name(dst)?,
         destination: dst,
         capacity: gib_to_bytes(size_gb),
@@ -324,7 +316,6 @@ mod tests {
             backed_volume(overlay).unwrap(),
             Some(BackedVolume {
                 name: "srx1-lab-hdd.qcow2".to_owned(),
-                path: PathBuf::from("/opt/sherpa/libvirt/images/srx1-lab-hdd.qcow2"),
                 backing_file: PathBuf::from("/opt/sherpa/images/juniper_vsrxv3/23.2/virtioa.qcow2"),
             })
         );

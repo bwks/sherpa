@@ -92,9 +92,8 @@ pub(crate) fn ensure_image_has_no_overlays(
     }
 }
 
-/// Delete `boot_disk`, the sandbox boot disk made from an image that is being deleted or
-/// replaced and has passed [`ensure_image_has_no_overlays`], when it is there. Sandboxes make
-/// it again from the image they boot.
+/// Delete `boot_disk` when it is there, the sandbox boot disk made from an image that is being
+/// deleted or replaced and has passed [`ensure_image_has_no_overlays`].
 ///
 /// # Errors
 ///
@@ -369,7 +368,6 @@ mod tests {
     fn backed(name: &str, backing_file: &Path) -> BackedVolume {
         BackedVolume {
             name: name.to_owned(),
-            path: PathBuf::from("/pool").join(name),
             backing_file: backing_file.to_path_buf(),
         }
     }

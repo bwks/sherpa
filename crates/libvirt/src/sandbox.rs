@@ -16,19 +16,10 @@ use virt::storage_vol::StorageVol;
 
 use crate::error::LibvirtError;
 use crate::qcow2::read_qcow2_metadata;
-use crate::storage::{new_volume_name, refresh_pool};
+use crate::storage::{Qcow2Volume, new_volume_name, refresh_pool};
 
 /// The pause between two checks of whether a domain has stopped.
 const STOPPED_POLL: Duration = Duration::from_secs(1);
-
-/// A standalone QCOW2 volume copied from another, defined from `templates/flat.xml`.
-#[derive(Template)]
-#[template(path = "flat.xml", ext = "xml", escape = "xml")]
-struct FlatVolume<'a> {
-    name: &'a str,
-    destination: &'a str,
-    capacity: u64,
-}
 
 /// Wait until domain `name` has stopped, for up to `timeout`.
 ///
@@ -58,8 +49,7 @@ pub fn wait_until_stopped(conn: &Connect, name: &str, timeout: Duration) -> Resu
 }
 
 /// Copy pool volume `src` with what its backing chain holds into the new standalone QCOW2
-/// volume `dst`, which the group can read, as sherpad builds overlays on it. The volume is
-/// created exclusively; an existing destination is never changed.
+/// volume `dst`, created exclusively and readable by the group, as sherpad builds overlays on it.
 ///
 /// # Errors
 ///
@@ -78,7 +68,7 @@ pub fn flatten_disk(conn: &Connect, src: &str, dst: &str) -> Result<()> {
         .get_info()
         .with_context(|| format!("Cannot read the size of volume {src}"))?
         .capacity;
-    let xml = FlatVolume {
+    let xml = Qcow2Volume {
         name,
         destination: dst,
         capacity,

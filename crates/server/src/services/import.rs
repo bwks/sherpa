@@ -1607,7 +1607,6 @@ mod tests {
         fs::write(&disk, &base).unwrap();
         let pool = TestPool::of(vec![BackedVolume {
             name: "node-lab-hdd.qcow2".to_owned(),
-            path: PathBuf::from("/pool/node-lab-hdd.qcow2"),
             backing_file: disk.clone(),
         }]);
         let database = schema_db().await;
@@ -1639,7 +1638,6 @@ mod tests {
         fs::write(&disk, b"base").unwrap();
         let pool = TestPool::of(vec![BackedVolume {
             name: "node-lab-hdd.qcow2".to_owned(),
-            path: PathBuf::from("/pool/node-lab-hdd.qcow2"),
             backing_file: disk,
         }]);
         let database = schema_db().await;
@@ -1844,7 +1842,6 @@ mod tests {
         let url = serve_image(b"another image", true).await;
         let pool = TestPool::of(vec![BackedVolume {
             name: "node-lab-hdd.qcow2".to_owned(),
-            path: PathBuf::from("/pool/node-lab-hdd.qcow2"),
             backing_file: disk.clone(),
         }]);
         let database = schema_db().await;
