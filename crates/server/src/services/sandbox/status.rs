@@ -10,7 +10,7 @@ use tokio::net::UnixStream;
 use tokio::time;
 use tracing::instrument;
 
-use crate::services::error::ServiceError;
+use crate::services::error::{SandboxFailure, ServiceError};
 
 /// How long the status socket has to accept a connection once its domain has started.
 const CONNECT_WAIT: Duration = Duration::from_secs(10);
@@ -64,19 +64,21 @@ impl Status {
     ///
     /// # Errors
     ///
-    /// Fails with [`ServiceError::SandboxFailed`] when the VM reported a failure or another
+    /// Fails with [`SandboxFailure::Reported`] when the VM reported a failure or another
     /// status.
     pub(super) fn expect(self, expected: &Self, name: &str) -> Result<(), ServiceError> {
         match self {
             status if status == *expected => Ok(()),
-            Self::Failed(reason) => Err(ServiceError::SandboxFailed {
+            Self::Failed(reason) => Err(SandboxFailure::Reported {
                 name: name.to_owned(),
                 reason,
-            }),
-            other => Err(ServiceError::SandboxFailed {
+            }
+            .into()),
+            other => Err(SandboxFailure::Reported {
                 name: name.to_owned(),
                 reason: format!("it reported {other:?}, not {expected:?}"),
-            }),
+            }
+            .into()),
         }
     }
 }
@@ -176,9 +178,10 @@ impl StatusWatch {
     /// Add `bytes` read from the stream; none means the stream ended.
     fn receive(&mut self, bytes: &[u8]) -> Result<(), ServiceError> {
         if bytes.is_empty() {
-            return Err(ServiceError::SandboxStatusClosed {
+            return Err(SandboxFailure::StatusClosed {
                 name: self.name.clone(),
-            });
+            }
+            .into());
         }
         self.received += bytes.len();
         self.pending.extend_from_slice(bytes);
@@ -215,20 +218,22 @@ impl StatusWatch {
             return Err(self.too_long());
         }
         if self.received > MAX_BYTES_BEFORE_STATUS {
-            return Err(ServiceError::SandboxStatusFlood {
+            return Err(SandboxFailure::StatusFlood {
                 name: self.name.clone(),
                 limit: MAX_BYTES_BEFORE_STATUS,
-            });
+            }
+            .into());
         }
         Ok(None)
     }
 
     /// The error of a status line longer than `MAX_LINE_BYTES`.
     fn too_long(&self) -> ServiceError {
-        ServiceError::SandboxStatusTooLong {
+        SandboxFailure::StatusTooLong {
             name: self.name.clone(),
             limit: MAX_LINE_BYTES,
         }
+        .into()
     }
 }
 
@@ -274,7 +279,7 @@ mod tests {
             .unwrap_err();
         assert!(matches!(
             &failed,
-            ServiceError::SandboxFailed { reason, .. } if reason == "cannot load the image: short read"
+            ServiceError::SandboxFailure(SandboxFailure::Reported { reason, .. }) if reason == "cannot load the image: short read"
         ));
         assert!(Status::Loaded.expect(&Status::Started, "c1-lab").is_err());
     }
@@ -291,7 +296,9 @@ mod tests {
         assert!(
             matches!(
                 error.downcast_ref::<ServiceError>(),
-                Some(ServiceError::SandboxStatusTooLong { limit: 4096, .. })
+                Some(ServiceError::SandboxFailure(
+                    SandboxFailure::StatusTooLong { limit: 4096, .. }
+                ))
             ),
             "{error:#}"
         );
@@ -311,7 +318,9 @@ mod tests {
         assert!(
             matches!(
                 error.downcast_ref::<ServiceError>(),
-                Some(ServiceError::SandboxStatusFlood { .. })
+                Some(ServiceError::SandboxFailure(
+                    SandboxFailure::StatusFlood { .. }
+                ))
             ),
             "{error:#}"
         );
@@ -357,7 +366,9 @@ mod tests {
         assert!(
             matches!(
                 error.downcast_ref::<ServiceError>(),
-                Some(ServiceError::SandboxStatusClosed { .. })
+                Some(ServiceError::SandboxFailure(
+                    SandboxFailure::StatusClosed { .. }
+                ))
             ),
             "{error:#}"
         );

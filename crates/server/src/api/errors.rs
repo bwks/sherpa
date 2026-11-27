@@ -252,6 +252,7 @@ mod tests {
     use axum::response::IntoResponse;
     use shared::error::{CpuPinConflict, CpuPinRole};
 
+    use crate::services::error::SandboxFailure;
     use crate::validate::MemoryShortage;
 
     /// The reference in `message`, which must be the answer to an unexpected error.
@@ -303,10 +304,10 @@ mod tests {
     #[tokio::test]
     async fn api_errors_027_a_rest_sandbox_failure_is_answered_502_with_the_reason_the_vm_reported()
     {
-        let failure = ServiceError::SandboxFailed {
+        let failure = ServiceError::SandboxFailure(SandboxFailure::Reported {
             name: "srl1-abc12345".to_owned(),
             reason: "cannot create the container: No such image: srl:26".to_owned(),
-        };
+        });
         let err = Error::new(failure.clone()).context("Failed to redeploy node srl1");
         let response = ApiError::from(err).into_response();
         assert_eq!(response.status(), StatusCode::BAD_GATEWAY);

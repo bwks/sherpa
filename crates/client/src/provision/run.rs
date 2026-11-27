@@ -14,7 +14,7 @@ use topology::validate::validate_provisioners;
 use topology::{Manifest, Node, Provisioner};
 
 use super::output::NodeOutput;
-use super::ssh::{provision, wait_for_node};
+use super::ssh::{provision, read_node_provisioners, wait_for_node};
 use super::transport::SshTarget;
 use crate::error::ClientError;
 use crate::ssh_client::SshAccess;
@@ -139,6 +139,8 @@ async fn provision_target(lab: &LabRun<'_>, node: &Node, output: &mut NodeOutput
     provision_node(&target, node, lab.manifest_dir, lab.timeout, output).await
 }
 
+/// Read every ssh provisioner of the node from the client, then wait for the node and run
+/// them in order, stopping at the first that fails. Container provisioners are the server's.
 async fn provision_node(
     target: &SshTarget,
     node: &Node,
@@ -146,19 +148,16 @@ async fn provision_node(
     timeout: Duration,
     output: &mut NodeOutput,
 ) -> Result<()> {
+    let provisioners = read_node_provisioners(
+        node.provisioners.as_deref().unwrap_or_default(),
+        manifest_dir,
+    )?;
     let session = wait_for_node(target, timeout).await?;
     let mut outcome = Ok(());
-    for provisioner in node.provisioners.as_deref().unwrap_or_default() {
-        match provisioner {
-            Provisioner::Ssh(ssh) => {
-                outcome = provision(&session, ssh, manifest_dir, output).await;
-                if outcome.is_err() {
-                    break;
-                }
-            }
-            Provisioner::Container(_) => {
-                tracing::debug!(node = %node.name, "Container provisioner is applied by the server");
-            }
+    for client_files in &provisioners {
+        outcome = provision(&session, client_files, output).await;
+        if outcome.is_err() {
+            break;
         }
     }
     session.close().await;

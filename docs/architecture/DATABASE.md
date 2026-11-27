@@ -129,7 +129,7 @@ nodes' `mgmt_ipv4`, so the plan does not repeat them.
 A lab's definition is every parameter of the manifest it was deployed from, as the user wrote it:
 once the lab is deployed, the database is the server's record of it, and the server keeps no copy
 of the manifest anywhere else. No file contents and no resolved values are stored. The client
-resolves `ztp.config` and `$VAR` values before it sends the manifest, so it sends the parts it
+resolves `ztp.config` and `${NAME}` values before it sends the manifest, so it sends the parts it
 changes, as written, beside it (`topology::ManifestAsWritten`). The contents of the files and
 scripts a node names are never manifest keys: the client sends them beside the manifest too, by
 node name (`topology::NodeFileContents`), and the server puts them into the nodes

@@ -202,17 +202,21 @@ pub enum ClientError {
     #[error("Invalid environment variable '{entry}' for node '{node}': must be KEY=VALUE format")]
     InvalidEnvironmentEntry { entry: String, node: String },
 
-    #[error("Environment variable '{variable}' referenced in node '{node}' is not set")]
-    UnsetEnvironmentVariable { variable: String, node: String },
+    #[error("Node '{node}': environment variable '{key}'")]
+    EnvironmentValue { key: String, node: String },
 
     #[error("Cannot read provisioner file {}", path.display())]
     ProvisionerFileUnreadable { path: PathBuf },
 
-    #[error("line {line}: {variable} is not set in this environment")]
-    UnsetEnvFileVariable { line: usize, variable: String },
+    #[error("Env file {}, line {line}: {key}", path.display())]
+    EnvFileValue {
+        path: PathBuf,
+        line: usize,
+        key: String,
+    },
 
-    #[error("Env file {}", path.display())]
-    EnvFile { path: PathBuf },
+    #[error("Env file {}, line {line} is not KEY=value, a comment or blank", path.display())]
+    EnvFileNotAssignment { path: PathBuf, line: usize },
 
     #[error(
         "{node_name} at {address} is not reachable from this machine ({cause}). Use --ssh-jump \
@@ -229,6 +233,9 @@ pub enum ClientError {
         path.display()
     )]
     NoLabSshConfig { path: PathBuf },
+
+    #[error("{host} did not finish cloud-init within the ready timeout of {timeout_secs}s")]
+    CloudInitTimeout { host: String, timeout_secs: u64 },
 
     #[error(
         "{failed} of {total} nodes were not provisioned; fix the problem, then run `sherpa \

@@ -19,7 +19,6 @@ log-facility=/var/log/dnsmasq.log
 
 port=53
 server=172.20.0.1
-# A name without a domain that is not a node's is not found, never forwarded
 domain-needed
 domain=sherpa.lab.local
 

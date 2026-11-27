@@ -10,8 +10,8 @@ use topology::validate::{
     check_link_impairments, check_links_to_itself, check_node_kind_settings, check_node_model_kind,
     check_node_names, check_node_ztp, check_node_ztp_config, check_nonzero_node_settings,
     check_ptx_platform, check_ready_timeout, check_text_file_modes, check_vm_tuning,
-    validate_environment_variables, validate_provisioners, validate_tailscale,
-    validate_talos_clusters,
+    validate_environment_variable_values, validate_environment_variables, validate_provisioners,
+    validate_tailscale, validate_talos_clusters,
 };
 use topology::{Manifest, process_manifest_bridges, process_manifest_links};
 
@@ -64,7 +64,8 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
 
     println!("→ Checking environment variables...");
     validate_environment_variables(&manifest.nodes)?;
-    println!("  ✓ Environment variable keys are valid");
+    validate_environment_variable_values(&manifest.nodes)?;
+    println!("  ✓ Environment variable keys and values are valid");
 
     println!("→ Checking each node's kind...");
     for node in &manifest.nodes {
@@ -206,6 +207,33 @@ nodes = [
                 error.downcast_ref::<TopologyError>(),
                 Some(TopologyError::EnvironmentVariableKeyNotAName { key, node })
                     if key == "BAD-KEY" && node == "dev01"
+            ),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn boot_settings_010_sherpa_validate_refuses_an_environment_variable_value_with_a_bare_dollar()
+    {
+        let path = write_temp_manifest(
+            "env-value",
+            r#"
+name = "env-lab"
+
+nodes = [
+  { name = "dev01", model = "ubuntu_linux", environment_variables = ["TOKEN=$GH_TOKEN"] },
+]
+"#,
+        );
+        let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
+        fs::remove_file(path).ok();
+
+        let error = result.unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<TopologyError>(),
+                Some(TopologyError::EnvironmentVariableValue { key, node })
+                    if key == "TOKEN" && node == "dev01"
             ),
             "{error:#}"
         );

@@ -19,7 +19,7 @@ use super::download::download;
 use super::manifest_processing::check_manifest;
 use super::outcome::print_link_reports;
 use super::progress::print_status;
-use super::up::resolve_manifest_files;
+use super::up::resolve_client_inputs;
 
 /// Redeploy a single node: destroy and recreate with fresh ZTP, then run its provisioners,
 /// reaching it through the Sherpa server when `ssh_jump` is set.
@@ -45,7 +45,7 @@ pub async fn redeploy(
     // As written, before the files and variables are resolved: what the server stores.
     let as_written = serde_json::to_value(manifest.as_written())
         .context("Failed to serialize the manifest as written to JSON")?;
-    resolve_manifest_files(&mut manifest, manifest_path)?;
+    resolve_client_inputs(&mut manifest, manifest_path)?;
 
     // Always sent, so a node whose container provisioner was removed loses its secret files.
     let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));

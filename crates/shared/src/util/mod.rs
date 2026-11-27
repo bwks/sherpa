@@ -3,6 +3,7 @@ mod dns;
 mod emoji;
 mod encode;
 mod env;
+mod env_value;
 mod file_system;
 mod host;
 mod interface;
@@ -27,6 +28,8 @@ pub use dns::default_dns;
 pub use emoji::{Emoji, emoji_success, emoji_warning};
 pub use encode::{base64_decode, base64_decode_bytes, base64_encode, base64_encode_bytes};
 pub use env::get_server_url;
+pub use env_value::resolve_env_value;
+pub(crate) use env_value::value_parts;
 #[cfg(unix)]
 pub use file_system::{
     copy_file_with_permissions, copy_to_dos_image, copy_to_ext4_image, create_config_archive,

@@ -213,9 +213,9 @@ flattened. A guest's write waits until a reader is connected, for up to 60 s.
 
 sherpad connects as soon as it has started the domain (`StatusWatch::connect`) and reads up to
 the first status (`StatusWatch::next`). `failed: REASON` fails the node with that reason
-(`ServiceError::SandboxFailed`): each step of `links.sh`, `node.sh` and `store.sh` that fails
+(`SandboxFailure::Reported`): each step of `links.sh`, `node.sh` and `store.sh` that fails
 reports, with Docker's or the command's own message. A VM that stops before it reports fails
-with `ServiceError::SandboxStatusClosed`. These failures, and the two status limits below, have
+with `SandboxFailure::StatusClosed`. These failures, and the two status limits below, have
 the category `ServiceCategory::Failed`, so the caller is told the reason: `up` lists it with the
 node, and a `redeploy` over RPC, REST (`502`, `NODE_FAILED`) or the web UI answers with it. On later boots, after down and resume, nobody reads the
 channel, and the report gives up.
@@ -223,9 +223,9 @@ channel, and the report gives up.
 The channel is the guest's, and a privileged container can write to it, so sherpad reads it as
 untrusted input:
 
-- A line longer than 4 KiB fails the node (`ServiceError::SandboxStatusTooLong`) once that much
+- A line longer than 4 KiB fails the node (`SandboxFailure::StatusTooLong`) once that much
   has arrived without a newline; more than 64 KiB without a status fails it
-  (`ServiceError::SandboxStatusFlood`).
+  (`SandboxFailure::StatusFlood`).
 - Control characters are dropped from every line, and a failure's reason is cut to 512
   characters, before it reaches a log, an error or the CLI.
 - Only the first line that is no status is logged, cut to 80 characters.

@@ -6,7 +6,7 @@ use shared::util::{Emoji, term_msg_surround, term_msg_underline};
 
 use crate::table::{
     render_bridges_table, render_devices_table, render_lab_info_table, render_links_table,
-    render_tailnet_table,
+    render_router_table, render_tailnet_table,
 };
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
@@ -32,6 +32,9 @@ pub async fn inspect(
 
     let lab_info_table = render_lab_info_table(&inspect_data.lab_info);
     println!("{}", lab_info_table);
+    if let Some(router) = &inspect_data.router {
+        println!("{}", render_router_table(router));
+    }
     // A lab being created or destroyed, or left so, says what to do with it.
     if let Err(not_ready) = inspect_data.lab_phase.ensure_ready() {
         println!("{} Not ready: {not_ready}", Emoji::Warning);
