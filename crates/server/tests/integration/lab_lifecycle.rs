@@ -1047,7 +1047,7 @@ async fn scanned_alpine_lab(
     let lab_name = format!("{prefix}{:06}", process::id() % 1_000_000);
     let nodes: Vec<serde_json::Value> = (1..=count)
         .map(|index| {
-            json!({ "name": format!("live{index}"), "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] }, "interfaces": { "data_count": 0 } })
+            json!({ "name": format!("live{index}"), "model": "generic", "kind": "container", "container": { "commands": ["sleep", "600"] } })
         })
         .collect();
     let manifest = json!({ "name": lab_name, "nodes": nodes });
