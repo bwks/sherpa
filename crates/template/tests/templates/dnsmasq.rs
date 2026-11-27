@@ -19,6 +19,7 @@ log-facility=/var/log/dnsmasq.log
 
 port=53
 server=172.20.0.1
+domain-needed
 domain=sherpa.lab.local
 
 # DHCP
@@ -115,5 +116,14 @@ fn boot_server_006_a_node_with_ztp_off_keeps_its_lease_and_gets_no_boot_option()
     assert_eq!(
         output,
         EXPECTED_DNSMASQ_TFTP.replace("dhcp-option=tag:sw01-tag,67,sw01.cfg\n", "")
+    );
+}
+
+#[test]
+fn boot_server_021_a_name_without_a_domain_is_answered_and_never_forwarded() {
+    let output = render(Ztp::Tftp);
+    assert!(
+        output.lines().any(|line| line == "domain-needed"),
+        "{output}"
     );
 }
