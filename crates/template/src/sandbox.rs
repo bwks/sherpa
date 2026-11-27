@@ -1,5 +1,5 @@
 //! The Ignition configs of sandboxes, the Flatcar VMs that each run one container node, and of
-//! the VMs that make their boot disks and Docker stores. See `docs/architecture/SANDBOX.md`.
+//! the VMs that make their boot disks and Docker stores (`docs/architecture/SANDBOX.md`).
 
 use std::net::IpAddr;
 
@@ -259,29 +259,6 @@ impl NodeScript {
     }
 }
 
-impl IgnitionUnit {
-    /// Unit `name`, masked.
-    #[must_use]
-    pub fn masked(name: &str) -> Self {
-        Self {
-            name: name.to_owned(),
-            mask: Some(true),
-            ..Default::default()
-        }
-    }
-
-    /// Unit `name` with `contents`, enabled.
-    #[must_use]
-    pub fn enabled(name: &str, contents: &str) -> Self {
-        Self {
-            name: name.to_owned(),
-            enabled: Some(true),
-            contents: Some(contents.to_owned()),
-            ..Default::default()
-        }
-    }
-}
-
 impl SandboxGuest<'_> {
     /// The Ignition config of the sandbox's first boot, as JSON.
     ///
@@ -403,8 +380,8 @@ pub fn store_vm_ignition_json() -> Result<String> {
 }
 
 /// The Ignition config of the VM that makes the sandboxes' boot disk, as JSON: only the
-/// sandboxes' kernel arguments. Flatcar writes them to the disk's OEM partition and reboots
-/// before Ignition changes anything else, and that reboot stops the VM.
+/// sandboxes' kernel arguments, which Flatcar writes to the disk's OEM partition before a reboot
+/// that stops the VM.
 ///
 /// # Errors
 ///

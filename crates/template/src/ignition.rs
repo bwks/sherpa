@@ -329,6 +329,27 @@ pub struct IgnitionUnit {
 }
 
 impl IgnitionUnit {
+    /// Unit `name`, masked.
+    #[must_use]
+    pub fn masked(name: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            mask: Some(true),
+            ..Default::default()
+        }
+    }
+
+    /// Unit `name` with `contents`, enabled.
+    #[must_use]
+    pub fn enabled(name: &str, contents: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            enabled: Some(true),
+            contents: Some(contents.to_owned()),
+            ..Default::default()
+        }
+    }
+
     /// Mount the container data disk at `/media/container`.
     #[must_use]
     pub fn mount_container_disk() -> Self {

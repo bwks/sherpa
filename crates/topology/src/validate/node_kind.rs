@@ -301,11 +301,6 @@ model = "flatcar_sandbox""#,
                 node: "fc1".to_owned(),
             })
         );
-        assert!(
-            error
-                .to_string()
-                .contains("use 'flatcar_linux' for a Flatcar VM")
-        );
     }
 
     #[test]

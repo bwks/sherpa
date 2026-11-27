@@ -160,7 +160,7 @@ struct Subinterface {
     ipv6: SubinterfaceIp,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct SubinterfaceIp {
     #[serde(rename = "admin-state")]
     admin_state: String,
@@ -168,7 +168,7 @@ struct SubinterfaceIp {
     dhcp_client: DhcpClient,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct DhcpClient {}
 
 // ============================================================================
@@ -322,20 +322,18 @@ fn dns_servers(dns: &Dns) -> Vec<String> {
     servers
 }
 
-/// `mgmt0.0`, with a DHCP client for IPv4 and for IPv6. In a container, SR Linux's DHCP client
-/// takes the addresses `mgmt0` has when it starts, the ones the runtime gave `eth0`, and moves
-/// them from SR Linux's base namespace to `mgmt0.0`, so the node keeps the management addresses
-/// Sherpa gave it and they are on one interface only.
+/// `mgmt0.0`, whose DHCP clients for IPv4 and IPv6 move the addresses `mgmt0` has at start, the
+/// ones Sherpa gave `eth0`, onto it, so they are on one interface only.
 fn management_subinterface() -> Subinterface {
-    let dhcp = || SubinterfaceIp {
+    let dhcp = SubinterfaceIp {
         admin_state: "enable".to_string(),
         dhcp_client: DhcpClient {},
     };
     Subinterface {
         index: 0,
         admin_state: "enable".to_string(),
-        ipv4: dhcp(),
-        ipv6: dhcp(),
+        ipv4: dhcp.clone(),
+        ipv6: dhcp,
     }
 }
 

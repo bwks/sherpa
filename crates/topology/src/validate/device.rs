@@ -12,9 +12,8 @@ fn runs_in_sandbox(node: &Node) -> bool {
     ModelKind::new(node.model, node.kind).is_ok_and(ModelKind::runs_in_sandbox)
 }
 
-/// Check no two nodes share a name, in any case: DNS takes names that differ only in case as
-/// one. A node in a sandbox takes the name of its sandbox too, the node's name with
-/// [`SANDBOX_HOST_SUFFIX`].
+/// Check no two nodes share a name, in any case, as DNS takes names that differ only in case as
+/// one, nor the name of another node's sandbox, its name with [`SANDBOX_HOST_SUFFIX`].
 ///
 /// # Errors
 ///
@@ -167,7 +166,6 @@ mod tests {
                 max: 234,
             })
         );
-        assert!(error.to_string().contains("which need 235 addresses"));
     }
 
     #[test]

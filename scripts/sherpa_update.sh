@@ -823,8 +823,7 @@ install_blank_disk_tools() {
 SANDBOX_IMAGE_TOOLS=(bunzip2)
 SANDBOX_IMAGE_PACKAGES=(bzip2)
 
-# Install the package of the sandbox image tool when it is missing: servers installed by a release
-# before sandboxes may lack it.
+# Install the package of the sandbox image tool when it is missing.
 install_sandbox_image_tools() {
     local tool
     for tool in "${SANDBOX_IMAGE_TOOLS[@]}"; do
