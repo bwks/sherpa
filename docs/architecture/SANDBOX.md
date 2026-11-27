@@ -363,8 +363,9 @@ Before `sbx0` is up it turns off router advertisements and SLAAC on it (`accept_
 ### Debug SSH
 
 The sandbox's own sshd is for people debugging the sandbox: `ssh core@<node>-sbx` from the server
-or anywhere the lab's management network is reached. `ssh <node>` still reaches the network OS on
-the node's address. Nothing in sherpad uses it.
+or anywhere the lab's management network is reached, and through the `<node>-sbx.<lab id>` host
+of the lab's SSH config (`ssh_config_hosts_010`). `ssh <node>` still reaches the network OS on the
+node's address. Nothing in sherpad uses it.
 
 - **Where.** Flatcar's `sshd.service`, enabled, with a drop-in
   (`templates/sandbox/sshd.service.conf.jinja`) that orders it after `sherpa-links` and runs it in
@@ -381,7 +382,8 @@ the node's address. Nothing in sherpad uses it.
   (`SandboxCreate::ssh_keys`): Sherpa has no lab key. `core` is in Flatcar's `docker`, `systemd-journal` and `wheel` groups, so `docker ps`,
   `journalctl` and `sudo` work.
 - **Host keys.** sshd makes them at its first start, on the sandbox's disk, so they last across
-  down and resume and are new after a redeploy. sherpad records none.
+  down and resume and are new after a redeploy. sherpad records none: the SSH config's
+  `<node>-sbx` host checks none.
 - **Unseen by the network OS.** The container has its own PID namespace and runs in the VM's first
   network namespace, so it sees neither sshd nor `sbx0`.
 

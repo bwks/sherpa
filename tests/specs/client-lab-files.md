@@ -61,7 +61,7 @@ Cases 006 and 007 read the file's access list when they run on Windows, so they 
 
 ## `ssh_config_hosts`: the lab's SSH config has a host for each node, logging in as its owner
 
-**Statement:** the lab's SSH config has one host for each node that takes SSH, named by its address, `<node>.<lab-id>` and `<node>.<lab-id>.sherpa.lab.local`, that logs in with the node's recorded login, or else as the lab's owner, with the user's own keys, and works from any folder.
+**Statement:** the lab's SSH config has one host for each node that takes SSH, named by its address, `<node>.<lab-id>` and `<node>.<lab-id>.sherpa.lab.local`, that logs in with the node's recorded login, or else as the lab's owner, with the user's own keys, and works from any folder. Each sandbox has a host of its own, `<node>-sbx.<lab-id>`, logging in as `core`.
 **Relied on by:** the user's `ssh`, `scp` and tools built on them; `sherpa ssh`; provisioners. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -75,6 +75,8 @@ Cases 006 and 007 read the file's access list when they run on Windows, so they 
 | 007 | The saved config names the lab's known hosts file by its full path in the lab folder, and every other line is as the server sent it | unit |
 | 008 | On Windows, a host whose key is not checked names `NUL` as its known hosts file (no test yet) | unit |
 | 009 | A lab folder with a space in its path names its known hosts file in double quotes, which ssh reads as one file | unit |
+| 010 | A sandbox with an address of its own has one host, named by that address, `<node>-sbx.<lab-id>` and `<node>-sbx.<lab-id>.sherpa.lab.local`, at that address on port 22, logging in as `core`, its host key not checked, after the nodes' hosts | unit |
+| 011 | From the user's machine, on Linux and on Windows, `ssh <node>-sbx.<lab-id>` logs in to the sandbox as `core` and `ssh <node>.<lab-id>` to the network OS (no test yet) | e2e |
 
 The config has no jump host: `ssh_access_001`. Which nodes are given the owner's login is `owner_login` in [accounts-and-auth.md](accounts-and-auth.md).
 

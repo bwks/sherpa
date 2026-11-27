@@ -1,17 +1,28 @@
+use std::net::Ipv4Addr;
+
 use anyhow::{Context, Result};
 use askama::Template;
 use tracing::instrument;
 
 use shared::data::{
-    DbNode, LabInfo, ModelKind, NodeConfig, NodeHostKey, NodeSshUsername, RecordId, Ztp, ZtpRecord,
+    DbNode, DbSandboxNode, LabInfo, ModelKind, NodeConfig, NodeHostKey, NodeSshUsername, RecordId,
+    Ztp, ZtpRecord,
 };
-use shared::konst::{SHERPA_DOMAIN_NAME, SHERPA_KNOWN_HOSTS_FILE, SSH_PORT};
-use template::{KnownHostsEntry, KnownHostsTemplate, SshConfigTemplate, SshHostConfig};
+use shared::konst::{SANDBOX_HOST_SUFFIX, SHERPA_DOMAIN_NAME, SHERPA_KNOWN_HOSTS_FILE, SSH_PORT};
+use template::{
+    KnownHostsEntry, KnownHostsTemplate, SANDBOX_LOGIN, SshConfigTemplate, SshHostConfig,
+};
 
 /// A lab's SSH files, as sent to the client. They are never saved on the server.
 pub(crate) struct LabSshFiles {
     pub ssh_config: String,
     pub known_hosts: String,
+}
+
+/// A sandbox's own SSH host: the name of its node and the sandbox's own IPv4 address.
+pub(crate) struct SandboxSshHost {
+    pub node_name: String,
+    pub ipv4: Ipv4Addr,
 }
 
 /// Record the host key `node` offered. Returns whether it replaced a different key, which
@@ -38,8 +49,8 @@ pub(crate) async fn record_node_host_key(
 }
 
 /// The lab's SSH config and `known_hosts` file, built from the database: its nodes'
-/// addresses, whether their images have SSH, and the host keys recorded for them, with
-/// `lab_info` for the SSH accounts. Nothing is saved: the client gets them from `up` and
+/// addresses, whether their images have SSH, the host keys recorded for them and the sandboxes'
+/// own addresses, with `lab_info` for the SSH accounts. Nothing is saved: the client gets them from `up` and
 /// `download`. Every node is reached directly; a jump through the server is the client's to
 /// add (`--ssh-jump`, or `ssh -J`).
 #[instrument(skip(db, lab_info), fields(lab_id = %lab_info.id), level = "debug")]
@@ -61,7 +72,31 @@ pub(crate) async fn lab_ssh_files(
         .await
         .context("Failed to load node images for the SSH configuration")?;
     let records = saved_node_ssh_records(&nodes, &images)?;
-    render_lab_ssh_files(&records, lab_info, &node_host_keys(&nodes))
+    let sandbox_nodes = db::list_sandbox_nodes(db, lab_record_id)
+        .await
+        .context("Failed to load sandbox records for the SSH configuration")?;
+    let sandboxes = sandbox_ssh_hosts(&nodes, &sandbox_nodes);
+    render_lab_ssh_files(&records, &sandboxes, lab_info, &node_host_keys(&nodes))
+}
+
+/// The SSH hosts of the sandboxes recorded in `sandbox_nodes`, named by their nodes in `nodes`,
+/// in the order of `sandbox_nodes`.
+fn sandbox_ssh_hosts(nodes: &[DbNode], sandbox_nodes: &[DbSandboxNode]) -> Vec<SandboxSshHost> {
+    sandbox_nodes
+        .iter()
+        .filter_map(|sandbox| {
+            let node = nodes
+                .iter()
+                .find(|node| node.id.as_ref() == Some(&sandbox.node));
+            if node.is_none() {
+                tracing::debug!(node = %sandbox.node, "Sandbox record of a node not in the lab");
+            }
+            node.map(|node| SandboxSshHost {
+                node_name: node.name.clone(),
+                ipv4: sandbox.ipv4,
+            })
+        })
+        .collect()
 }
 
 /// SSH records for a lab's saved nodes: every node with a management address, with SSH
@@ -117,11 +152,13 @@ pub(crate) fn node_host_keys(nodes: &[DbNode]) -> Vec<NodeHostKey> {
 /// Render the lab's SSH config and `known_hosts` file.
 pub(crate) fn render_lab_ssh_files(
     records: &[ZtpRecord],
+    sandboxes: &[SandboxSshHost],
     lab_info: &LabInfo,
     host_keys: &[NodeHostKey],
 ) -> Result<LabSshFiles> {
     let template = build_ssh_config(
         records,
+        sandboxes,
         &lab_info.ssh_usernames,
         host_keys,
         &lab_info.id,
@@ -142,10 +179,13 @@ pub(crate) fn render_lab_ssh_files(
 /// Resolve each node's login and aliases before passing data to the renderer. A node logs in
 /// with its recorded login, else as the lab's owner, `owner`, and is reached directly, with
 /// no jump host. No node names an identity file: each logs in with the owner's own keys. Nodes with
-/// a recorded host key are checked strictly against the lab's `known_hosts` file.
-#[instrument(level = "debug", skip(records, ssh_usernames, host_keys))]
+/// a recorded host key are checked strictly against the lab's `known_hosts` file. Each sandbox in
+/// `sandboxes` follows as `<node>-sbx`, logging in as `core` on its own address, its host key not
+/// checked.
+#[instrument(level = "debug", skip(records, sandboxes, ssh_usernames, host_keys))]
 pub(crate) fn build_ssh_config(
     records: &[ZtpRecord],
+    sandboxes: &[SandboxSshHost],
     ssh_usernames: &[NodeSshUsername],
     host_keys: &[NodeHostKey],
     lab_id: &str,
@@ -173,6 +213,19 @@ pub(crate) fn build_ssh_config(
                     .then(|| SHERPA_KNOWN_HOSTS_FILE.to_owned()),
             })
         })
+        .chain(sandboxes.iter().map(|sandbox| {
+            let name = format!("{}{SANDBOX_HOST_SUFFIX}", sandbox.node_name);
+            SshHostConfig {
+                aliases: format!(
+                    "{} {name}.{lab_id} {name}.{lab_id}.{SHERPA_DOMAIN_NAME}",
+                    sandbox.ipv4
+                ),
+                hostname: sandbox.ipv4,
+                port: SSH_PORT,
+                username: SANDBOX_LOGIN.to_owned(),
+                known_hosts_file: None,
+            }
+        }))
         .collect();
     SshConfigTemplate { hosts }
 }
@@ -235,7 +288,7 @@ mod tests {
             node_name: "router".to_owned(),
             username: "admin".to_owned(),
         }];
-        let config = build_ssh_config(&records(), &usernames, &[], "abcd1234", "alice");
+        let config = build_ssh_config(&records(), &[], &usernames, &[], "abcd1234", "alice");
         assert_eq!(config.hosts[0].username, "alice");
         assert_eq!(config.hosts[1].username, "admin");
         assert_eq!(
@@ -415,5 +468,70 @@ mod tests {
         .concat();
         assert_eq!(files.ssh_config, expected_config);
         assert_eq!(files.known_hosts, "172.31.1.10 ssh-ed25519 AAAAC3vm1\n");
+    }
+
+    #[tokio::test]
+    async fn ssh_config_hosts_010_a_sandbox_has_a_host_of_its_own_logging_in_as_core_unchecked() {
+        let (db, lab) = lab_with(&[
+            ("srl1", NodeModel::NokiaSrlinux),
+            ("vm1", NodeModel::AlpineLinux),
+        ])
+        .await;
+        let lab_record_id = lab.id.clone().unwrap();
+        let nodes = db::list_nodes_by_lab(&db, lab_record_id.clone())
+            .await
+            .unwrap();
+        for (name, address) in [("srl1", "172.31.1.10"), ("vm1", "172.31.1.11")] {
+            let node = nodes.iter().find(|node| node.name == name).unwrap();
+            db::update_node_mgmt_ipv4(&db, node.id.clone().unwrap(), address)
+                .await
+                .unwrap();
+        }
+        let srl1 = nodes.iter().find(|node| node.name == "srl1").unwrap();
+        db::update_node_host_key(
+            &db,
+            srl1.id.clone().unwrap(),
+            Some("ssh-ed25519 AAAAC3srl1"),
+        )
+        .await
+        .unwrap();
+        db::create_sandbox_node(
+            &db,
+            &DbSandboxNode {
+                node: srl1.id.clone().unwrap(),
+                ipv4: "172.31.1.12".parse().unwrap(),
+                ipv6: Some("fd00::c".parse().unwrap()),
+                mac: "52:54:00:00:00:09".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+        let lab_info = lab_info::load_lab_info(&db, &lab).await.unwrap();
+
+        let files = lab_ssh_files(&db, &lab_record_id, &lab_info).await.unwrap();
+
+        let expected_config = [
+            host(
+                "172.31.1.10 srl1.lab-0001 srl1.lab-0001.sherpa.lab.local",
+                "172.31.1.10",
+                "alice",
+                true,
+            ),
+            host(
+                "172.31.1.11 vm1.lab-0001 vm1.lab-0001.sherpa.lab.local",
+                "172.31.1.11",
+                "alice",
+                false,
+            ),
+            host(
+                "172.31.1.12 srl1-sbx.lab-0001 srl1-sbx.lab-0001.sherpa.lab.local",
+                "172.31.1.12",
+                "core",
+                false,
+            ),
+        ]
+        .concat();
+        assert_eq!(files.ssh_config, expected_config);
+        assert_eq!(files.known_hosts, "172.31.1.10 ssh-ed25519 AAAAC3srl1\n");
     }
 }
