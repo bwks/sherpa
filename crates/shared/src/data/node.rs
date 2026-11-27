@@ -87,6 +87,7 @@ pub enum NodeModel {
     NixosLinux,
     KaliLinux,
     FlatcarLinux,
+    FlatcarSandbox,
     SonicLinux,
     TalosLinux,
 
@@ -178,6 +179,7 @@ impl fmt::Display for NodeModel {
             NodeModel::NixosLinux => write!(f, "nixos_linux"),
             NodeModel::KaliLinux => write!(f, "kali_linux"),
             NodeModel::FlatcarLinux => write!(f, "flatcar_linux"),
+            NodeModel::FlatcarSandbox => write!(f, "flatcar_sandbox"),
             NodeModel::TalosLinux => write!(f, "talos_linux"),
             NodeModel::SonicLinux => write!(f, "sonic_linux"),
 
@@ -281,6 +283,7 @@ impl FromStr for NodeModel {
             "nixos_linux" => Ok(NodeModel::NixosLinux),
             "kali_linux" => Ok(NodeModel::KaliLinux),
             "flatcar_linux" => Ok(NodeModel::FlatcarLinux),
+            "flatcar_sandbox" => Ok(NodeModel::FlatcarSandbox),
             "talos_linux" => Ok(NodeModel::TalosLinux),
             "sonic_linux" => Ok(NodeModel::SonicLinux),
 
@@ -436,6 +439,7 @@ impl NodeModel {
             | NodeModel::NixosLinux
             | NodeModel::KaliLinux
             | NodeModel::FlatcarLinux
+            | NodeModel::FlatcarSandbox
             | NodeModel::TalosLinux
             | NodeModel::DevboxWindows
             | NodeModel::WindowsServer
@@ -1987,6 +1991,19 @@ impl NodeConfig {
                 ..node_base::cloud_init_vm_settings()
             }),
             ..node_base::cloud_init_vm(NodeModel::FlatcarLinux)
+        }
+    }
+    /// Flatcar's `OpenStack` image, which sandboxes boot and is no node of its own.
+    #[must_use]
+    pub fn flatcar_sandbox() -> NodeConfig {
+        NodeConfig {
+            settings: KindSettings::VirtualMachine(VmSettings {
+                ztp: ZtpSettings {
+                    method: Ztp::Disabled,
+                },
+                ..node_base::cloud_init_vm_settings()
+            }),
+            ..node_base::cloud_init_vm(NodeModel::FlatcarSandbox)
         }
     }
     #[must_use]

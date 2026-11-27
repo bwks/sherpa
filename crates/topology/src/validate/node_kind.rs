@@ -5,7 +5,7 @@ use shared::data::kind_settings::{
     self, ALL, CONTAINER, CONTAINER_GROUP, KindSetting, UNIKERNEL, UNIKERNEL_GROUP, VM,
     VM_AND_CONTAINER, VM_AND_UNIKERNEL, VM_GROUP,
 };
-use shared::data::{NodeConfig, Ztp};
+use shared::data::{NodeConfig, NodeModel, Ztp};
 use shared::validators::effective_ztp;
 
 /// The first-boot configs that take `text_files`: cloud-init (cloud-init and cloudbase-init)
@@ -16,14 +16,21 @@ const STARTUP_SCRIPTS_ZTP: &[Ztp] = &[Ztp::CloudInit];
 /// The first-boot configs that take `systemd_units`: Ignition.
 const SYSTEMD_UNITS_ZTP: &[Ztp] = &[Ztp::Ignition];
 
-/// Check that a node's `kind`, when it sets one, is a kind its model takes. A node that sets
-/// none takes its model's default kind; `generic` has none, so its nodes must set one.
+/// Check that a node's model is a node model, and that its `kind`, when it sets one, is a kind
+/// its model takes. A node that sets none takes its model's default kind; `generic` has none, so
+/// its nodes must set one.
 ///
 /// # Errors
 ///
-/// Fails when the node sets a kind its model does not take, or sets none for a model without a
-/// default kind, naming the kinds the model takes.
+/// Fails when the node's model is `flatcar_sandbox`, the sandbox base image, when it sets a kind
+/// its model does not take, or sets none for a model without a default kind, naming the kinds
+/// the model takes.
 pub fn check_node_model_kind(node: &Node) -> Result<()> {
+    if node.model == NodeModel::FlatcarSandbox {
+        bail!(TopologyError::SandboxBaseModel {
+            node: node.name.clone(),
+        });
+    }
     if node.kind.is_none() && node.model.default_kind().is_none() {
         bail!(TopologyError::KindMissing {
             node: node.name.clone(),
@@ -278,6 +285,26 @@ kind = "{}"
                 model: NodeModel::UbuntuLinux,
                 other: None,
             }
+        );
+    }
+
+    #[test]
+    fn node_kind_010_a_flatcar_sandbox_node_is_refused_pointing_to_flatcar_linux() {
+        let node = manifest_node(
+            r#"name = "fc1"
+model = "flatcar_sandbox""#,
+        );
+        let error = check_node_model_kind(&node).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<TopologyError>(),
+            Some(&TopologyError::SandboxBaseModel {
+                node: "fc1".to_owned(),
+            })
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("use 'flatcar_linux' for a Flatcar VM")
         );
     }
 

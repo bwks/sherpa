@@ -176,6 +176,7 @@ impl ModelKind {
                 NodeKind::VirtualMachine | NodeKind::Unikernel => NodeConfig::sonic_linux_vm(),
             },
             NodeModel::FlatcarLinux => NodeConfig::flatcar_linux(),
+            NodeModel::FlatcarSandbox => NodeConfig::flatcar_sandbox(),
             NodeModel::TalosLinux => NodeConfig::talos_linux(),
 
             // BSD
@@ -292,7 +293,8 @@ impl ModelKind {
             | NodeModel::CiscoIol
             | NodeModel::CiscoIoll2
             | NodeModel::FrrLinux => &[Ztp::Volume],
-            NodeModel::GitlabCe
+            NodeModel::FlatcarSandbox
+            | NodeModel::GitlabCe
             | NodeModel::ForgejoForge
             | NodeModel::SurrealDb
             | NodeModel::MysqlDb

@@ -96,6 +96,12 @@ pub enum TopologyError {
     NodeModelKind { node: String },
 
     #[error(
+        "Manifest - node: '{node}' has model 'flatcar_sandbox', the base image sandboxes boot, \
+         which is no node model; use 'flatcar_linux' for a Flatcar VM"
+    )]
+    SandboxBaseModel { node: String },
+
+    #[error(
         "Manifest - node: '{node}' sets no `kind`, which '{model}' needs; set it to one of: {}",
         joined(kinds)
     )]

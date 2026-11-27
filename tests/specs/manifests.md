@@ -118,6 +118,7 @@ The server runs these at up before anything is created (`lab_preflight_002`). Th
 | 007 | Every model is taken by the name it is shown as, from a manifest, from JSON and on the command line | unit |
 | 008 | A model name Sherpa does not know is refused by its parse with an error that carries the name; from a manifest the error's span is the name, from JSON it is refused as data, and on the command line the error is an invalid value that carries the name | unit |
 | 009 | A `--model` option lists every model name as a possible value | unit |
+| 010 | A node of model `flatcar_sandbox`, the sandbox base image, is refused, pointing to `flatcar_linux` for a Flatcar VM | unit |
 
 ## `node_settings`: a node sets only what its kind and its model take
 
