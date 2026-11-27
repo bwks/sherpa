@@ -13,7 +13,8 @@ use anyhow::{Context, Result, anyhow, bail};
 use askama::Template;
 use jato::{Auth, ConnectOptions, Hop, HostKeyPolicy, Node, Session};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
-use tokio::{net, task, time};
+use tokio::net::TcpStream;
+use tokio::{task, time};
 use tracing::instrument;
 
 use crate::konst::{
@@ -4095,11 +4096,10 @@ pub(crate) async fn finish_management_checksums(
 // Node Readiness Check
 // ============================================================================
 
-/// Check if a node is ready by attempting a TCP connection to its readiness port, given
-/// [`PORT_READY_CONNECT_TIMEOUT_MS`] to be accepted.
+/// Check if a node is ready by attempting a TCP connection to its readiness port.
 pub async fn check_node_port_ready(ip: &str, port: u16) -> Result<bool> {
     let address: SocketAddr = format!("{ip}:{port}").parse()?;
-    let connect = net::TcpStream::connect(address);
+    let connect = TcpStream::connect(address);
     Ok(matches!(
         time::timeout(
             Duration::from_millis(PORT_READY_CONNECT_TIMEOUT_MS),
@@ -4171,7 +4171,7 @@ pub async fn ssh_identification(ip: &str, port: u16) -> Result<Option<String>> {
 /// Read lines from the SSH server at `address` until its identification line, the first that
 /// starts with `SSH-`.
 async fn read_ssh_identification(address: SocketAddr) -> io::Result<Option<String>> {
-    let stream = net::TcpStream::connect(address).await?;
+    let stream = TcpStream::connect(address).await?;
     let mut lines = BufReader::new(stream.take(SSH_IDENTIFICATION_MAX_BYTES)).lines();
     while let Some(line) = lines.next_line().await? {
         if line.starts_with("SSH-") {
