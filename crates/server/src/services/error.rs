@@ -238,10 +238,7 @@ pub enum ServiceError {
     )]
     NodeImageNotFound { node: String, model_kind: ModelKind },
 
-    #[error(
-        "Sandbox base image {} is missing; the install and update scripts download it",
-        path.display()
-    )]
+    #[error("Sandbox base image {} is missing", path.display())]
     SandboxBaseImageMissing { path: PathBuf },
 
     #[error("The sandbox kernel {} has no /usr hash", path.display())]

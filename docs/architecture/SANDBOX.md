@@ -49,13 +49,8 @@ flowchart LR
   Ignition reads its config from a config drive, and its kernel,
   `flatcar_production_image.vmlinuz`, which sandboxes boot directly.
 - The release is `FLATCAR_SANDBOX_VERSION` in `crates/server/src/services/sandbox/base.rs`, and
-  `SANDBOX_FLATCAR_VERSION` with the SHA-512s Flatcar publishes in the "sandbox image" section of
-  `scripts/sherpa_install.sh` and `scripts/sherpa_update.sh`. `dev/check-sandbox-image.sh` fails
-  when the two scripts' sections differ or their version is not sherpad's.
-- `ensure_sandbox_image` downloads both files as `sherpa`, checks each against its SHA-512, and
-  puts them at `/opt/sherpa/images/sandbox/flatcar-VERSION.qcow2` and `flatcar-VERSION.vmlinuz`,
-  mode `0644`. A file already there is never changed. The update installs `bzip2` when
-  `bunzip2` is missing.
+  the two files are `/opt/sherpa/images/sandbox/flatcar-VERSION.qcow2` and
+  `flatcar-VERSION.vmlinuz`.
 - `up` and `redeploy` refuse a lab with a sandbox before creating anything when either file is
   missing (`ServiceError::SandboxBaseImageMissing`).
 

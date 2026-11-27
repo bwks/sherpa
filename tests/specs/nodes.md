@@ -108,7 +108,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 051 | Both VMs report their status, and the store VM loads its image archive | unit |
 | 052 | The config drive holds the Ignition config and each volume's file or folder, and a missing volume source fails it | unit |
 | 053 | A failure the VM reports fails it with the reason, and a status other than the one awaited fails it | unit |
-| 054 | The update installs `bzip2` when `bunzip2` is missing, and nothing otherwise | unit (bats) |
+| 054 | Retired: the server is not given the sandbox base image by the install and update scripts; it is imported as `flatcar_sandbox` | — |
 | 055 | A sandbox whose container cannot be started is failed by `up` with the reason the VM reports, well before the readiness wait ends | integration |
 | 056 | A data interface on a private bridge is a bridge interface of the domain, so libvirt puts its tap on the bridge at every start | unit |
 | 057 | A first boot whose copy of the writable volumes into the container fails removes the container, starts nothing and reports why | unit |
