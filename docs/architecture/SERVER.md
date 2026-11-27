@@ -304,6 +304,13 @@ Resume acts on each node from its runtime alone (`start_step`), and its `StartOu
 text, decides which nodes get their links back and are waited for. `down` asks VMs to shut down
 before it forces them off, as forcing lost recent writes on VMs without a guest agent.
 
+Lab infrastructure containers come back only with their lab. Resume brings the lab's router back
+before any node starts (`boot_server::ensure_router_running`), as nodes take their addresses and
+names from it, creating it again with `run_boot_container`, as `up` does, when it is gone. Neither
+the router nor the Tailscale gateway has a Docker restart policy, and sherpad starts neither when
+it starts, so a server reboot leaves both stopped until the lab is resumed. A whole-lab resume
+enrolls a gateway that is not connected.
+
 ### Image service architecture
 
 `delete_image` holds the image's lock through its checks and the delete, and asks libvirt for disks'
