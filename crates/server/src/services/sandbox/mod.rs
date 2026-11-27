@@ -1,8 +1,6 @@
-//! Sandboxes: the container models that need root-like privileges each run in a Flatcar VM of
-//! their own, on that VM's Docker, so the privileges reach the VM's kernel and not the server's.
-//! sherpad configures the VM with Ignition and a config drive, and a unit in the VM starts the
-//! container and reports how that went. Each VM boots an overlay of a boot disk made once per
-//! base image version. See `docs/architecture/SANDBOX.md`.
+//! Sandboxes: the container models that need root-like privileges each run on the Docker of a
+//! Flatcar VM of their own, which Ignition and a config drive configure
+//! (`docs/architecture/SANDBOX.md`).
 
 mod base;
 mod boot;
@@ -15,5 +13,6 @@ mod sweep;
 pub(crate) use base::{SandboxBase, sandbox_base};
 pub(crate) use boot::BootDisk;
 pub(crate) use create::{SANDBOX_MEMORY_OVERHEAD_MIB, SandboxCreate, SandboxHost, create_sandbox};
+pub(crate) use guest::DRIVE_VOLUME_DEPTH;
 pub(crate) use status::StatusWatch;
 pub(crate) use sweep::remove_unfinished_builds;

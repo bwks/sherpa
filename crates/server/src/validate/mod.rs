@@ -13,6 +13,7 @@ mod memory;
 mod node_image;
 mod node_secrets;
 mod provisioner;
+mod sandbox_volume;
 mod service_account;
 mod tailscale_gateway;
 mod version;
@@ -31,6 +32,7 @@ pub use memory::{
 pub use node_image::{validate_image_version, validate_node_image_update};
 pub use node_secrets::{validate_node_secrets, validate_secret_files};
 pub use provisioner::reject_provisioners;
+pub use sandbox_volume::{sandbox_volume_sources, validate_sandbox_volumes};
 pub use service_account::validate_service_account;
 pub use tailscale_gateway::validate_tailscale_gateway_settings;
 pub use version::{validate_and_resolve_node_versions, validate_container_repo};

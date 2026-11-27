@@ -51,8 +51,8 @@ if [ ! -e "{{ created }}" ]; then
     --header "Content-Type: application/json" --data-binary "@{{ body }}") ||
     fail "cannot create the container: $output"
   echo "created the container in $(elapsed_ms "$begin") ms" >&2
-  # The files only, made writable: the folders they go into keep their owner and mode, and
-  # Docker makes any that are missing.
+  # The files and the empty folders only, made writable: the folders files go into keep their
+  # owner and mode, and Docker makes any that are missing.
   stage="$work/stage"
   mkdir "$stage"
   while read -r source destination; do
@@ -61,7 +61,7 @@ if [ ! -e "{{ created }}" ]; then
   done < "{{ writable }}"
   chmod -R u+w "$stage"
   begin=$EPOCHREALTIME
-  if ! output=$( (cd "$stage" && find . -type f -print0 |
+  if ! output=$( (cd "$stage" && find . \( -type f -o -type d -empty \) -print0 |
     tar --null --no-recursion --owner=0 --group=0 -cf - -T - |
     docker_api 200 PUT "/containers/$name/archive?path=/" \
       --header "Content-Type: application/x-tar" --data-binary @-) 2>&1); then

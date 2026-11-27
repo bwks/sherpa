@@ -35,7 +35,7 @@ use crate::auth::policy::require_lab_owner;
 use crate::daemon::state::AppState;
 use crate::daemon::storage::restrict_dir;
 use crate::konst::{CONSOLE_GROUP, CONSOLE_LAB_DIR_MODE, SHERPA_CONSOLE_DIR, UNIX_SOCKET_PATH_MAX};
-use crate::services::error::{ServiceCategory, ServiceError};
+use crate::services::error::{SandboxRefusal, ServiceCategory, ServiceError};
 
 /// A node console sherpad relays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -194,10 +194,11 @@ fn console_refusal(
     kind: ConsoleKind,
 ) -> Option<ServiceError> {
     let reason = match (model_kind.runs_as(), kind) {
-        (NodeKind::VirtualMachine, ConsoleKind::Vnc) if model_kind.runs_in_sandbox() => format!(
-            "{node_name} runs in a sandbox, which has a serial console only. Use 'sherpa \
-             console {node_name}' instead."
-        ),
+        (NodeKind::VirtualMachine, ConsoleKind::Vnc) if model_kind.runs_in_sandbox() => {
+            return Some(ServiceError::Sandbox(SandboxRefusal::VncConsole {
+                node: node_name.to_owned(),
+            }));
+        }
         (NodeKind::Container, _) => format!(
             "{node_name} is a container, and containers have no {kind}. Connect with 'sherpa \
              ssh {node_name}' instead."
@@ -428,11 +429,9 @@ mod tests {
         let ceos = ModelKind::new(NodeModel::AristaEos, Some(NodeKind::Container)).unwrap();
         assert_eq!(
             console_refusal("ceos1", ceos, ConsoleKind::Vnc),
-            Some(ServiceError::Invalid(
-                "ceos1 runs in a sandbox, which has a serial console only. Use 'sherpa console \
-                 ceos1' instead."
-                    .to_owned()
-            ))
+            Some(ServiceError::Sandbox(SandboxRefusal::VncConsole {
+                node: "ceos1".to_owned()
+            }))
         );
         assert_eq!(console_refusal("ceos1", ceos, ConsoleKind::Serial), None);
         let frr = ModelKind::new(NodeModel::FrrLinux, Some(NodeKind::Container)).unwrap();

@@ -14,7 +14,7 @@ use crate::auth::policy::require_host_access;
 use crate::daemon::state::AppState;
 use crate::konst::LAB_CERTS_DIR;
 use crate::services::admission::{self, Admission};
-use crate::services::error::ServiceError;
+use crate::services::error::{SandboxRefusal, ServiceError};
 use crate::services::guest_account::{self, GuestAccount};
 use crate::services::image_lifecycle::{
     ImageLease, check_container_image, lease_image, validate_disk_method,
@@ -28,7 +28,8 @@ use crate::services::talos;
 use crate::services::up::process_manifest_nodes;
 use crate::tls::lab_ca::{self, LabCa};
 use crate::validate::{
-    reject_provisioners, validate_container_repo, validate_node_secrets, validate_node_ztp,
+    reject_provisioners, sandbox_volume_sources, validate_container_repo, validate_node_secrets,
+    validate_node_ztp, validate_sandbox_volumes,
 };
 
 use libvirt::QemuConnection;
@@ -334,8 +335,8 @@ async fn stored_talos_clusters(
 /// disk method checked against it, and a container's image resolved and checked as `up` does:
 /// the target node's `image` is set to the repo it is created from. The image is found as `up`
 /// finds it, by the node's model, kind and manifest `version`, or else their default, so a
-/// node whose manifest names another version is rebuilt from that version. A node in a sandbox
-/// gets the sandbox base image and its sandbox's own address. The model and kind cannot change,
+/// node whose manifest names another version is rebuilt from that version, a node in a sandbox
+/// with the sandbox base image and its sandbox's own address. The model and kind cannot change,
 /// and unikernels cannot be redeployed.
 #[instrument(skip_all, fields(%lab_id, node_name = %target_node.name), level = "debug")]
 async fn load_node(
@@ -396,13 +397,16 @@ async fn load_node(
         Some(
             db::find_sandbox_address(db, &node_record_id)
                 .await?
-                .ok_or_else(|| ServiceError::SandboxAddressMissing {
-                    node: node_name.to_owned(),
+                .ok_or_else(|| {
+                    ServiceError::Sandbox(SandboxRefusal::AddressMissing {
+                        node: node_name.to_owned(),
+                    })
                 })?,
         )
     } else {
         None
     };
+    validate_sandbox_volumes(sandbox_volume_sources(target_node, &node_image)).await?;
     let image_guard = lease_image(model_kind, &node_image.version).await;
     if node_image.kind() == data::NodeKind::Container {
         let repo = validate_container_repo(

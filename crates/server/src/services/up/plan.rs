@@ -15,7 +15,10 @@ use crate::services::image_lifecycle::{
 };
 use crate::services::progress::ProgressSender;
 use crate::services::sandbox::{self, SandboxBase};
-use crate::validate::{validate_and_resolve_node_versions, validate_node_ztp};
+use crate::validate::{
+    sandbox_volume_sources, validate_and_resolve_node_versions, validate_node_ztp,
+    validate_sandbox_volumes,
+};
 
 use shared::data;
 use shared::data::{NodeCpuPins, NodeKind, NodeSshUsername, StatusKind};
@@ -112,8 +115,10 @@ pub(super) async fn plan_lab(
         .map(data::NodeConfig::model_kind)
         .collect::<Result<Vec<_>>>()?;
     let sandbox_base = sandbox::sandbox_base(db, &config.images_dir, &model_kinds).await?;
+    let mut volume_sources = Vec::new();
     for node in &nodes_expanded {
         let image = get_node_image(node.model_kind, node.version.as_deref(), &node_images)?;
+        volume_sources.extend(sandbox_volume_sources(node, &image));
         validate_disk_method(
             &node.name,
             node.boot_disk.clone_method,
@@ -137,6 +142,8 @@ pub(super) async fn plan_lab(
                 .await?;
         }
     }
+
+    validate_sandbox_volumes(volume_sources).await?;
 
     let ssh_usernames = node_logins(&owner_account, &nodes_expanded, &node_images, progress)?;
 

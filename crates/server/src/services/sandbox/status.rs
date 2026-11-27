@@ -1,6 +1,5 @@
-//! What a sandbox, or a Docker store VM, reports on its status channel: a virtio-serial port
-//! whose host side is a socket QEMU binds. The guest writes one line, `started`, `loaded` or
-//! `failed: REASON`, and sherpad reads it. A guest's write waits until sherpad has connected.
+//! What a sandbox, or a Docker store VM, reports on its status channel, a virtio-serial port
+//! whose host side is a socket QEMU binds: one line, `started`, `loaded` or `failed: REASON`.
 
 use std::io::ErrorKind;
 use std::time::{Duration, Instant};

@@ -153,11 +153,10 @@ fn setting(config: &Value, unit_name: &str, section: &str, key: &str) -> String 
     )
 }
 
-/// A stand-in for curl talking to the guest's Docker: it logs each request's method and URL,
-/// keeps the body a create sends and the archive an upload sends, has a container once `create`
-/// has made it until a `DELETE` removes it, and answers as Docker does. While `FAIL_CREATE` or
-/// `FAIL_ARCHIVE` is set, Docker refuses that request with a message; while `RUNNING` is set,
-/// Docker's restart policy has already started the container.
+/// A stand-in for curl talking to the guest's Docker, which logs each request's method and URL,
+/// keeps what a create or an upload sends, has a container from a create until a `DELETE`, and
+/// answers as Docker does, refusing a create or an upload with a message while `FAIL_CREATE` or
+/// `FAIL_ARCHIVE` is set and answering a start as done while `RUNNING` is set.
 const FAKE_CURL: &str = r#"#!/bin/bash
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -838,6 +837,41 @@ fn sandbox_058_a_container_a_first_boot_left_without_its_volumes_is_created_agai
     );
     assert!(guest.has("state/created"));
     assert_eq!(guest.reports(), ["started"]);
+}
+
+#[test]
+fn sandbox_095_a_writable_volumes_empty_folders_are_copied_into_the_container_with_its_files() {
+    let guest = FakeGuest::new();
+    let certs = guest.dir.path().join("certs");
+    fs::create_dir_all(certs.join("sub")).unwrap();
+    fs::create_dir(certs.join("empty")).unwrap();
+    fs::write(certs.join("sub/ca.crt"), "CA").unwrap();
+    let writable = fs::read_to_string(guest.path("writable")).unwrap();
+    fs::write(
+        guest.path("writable"),
+        format!("{writable}{} /etc/certs\n", certs.display()),
+    )
+    .unwrap();
+    assert!(guest.boot(&[]));
+    let listing = Command::new("tar")
+        .arg("-tf")
+        .arg(guest.path("copied.tar"))
+        .output()
+        .unwrap();
+    let mut entries: Vec<String> = String::from_utf8(listing.stdout)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    entries.sort();
+    assert_eq!(
+        entries,
+        [
+            "./etc/certs/empty/",
+            "./etc/certs/sub/ca.crt",
+            "./etc/opt/srlinux/config.json",
+        ]
+    );
 }
 
 #[test]

@@ -87,9 +87,6 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 029 | SR Linux's management address answers after up, after down and resume, and after a redeploy (no test yet) | e2e |
 | 030 | A Docker store is named by the image's ID, and an ID that is not a SHA-256 gets none | unit |
 | 031 | The VM that makes a Docker store has no NICs and no console, and its image archive is a read-only disk | unit |
-| 032 | Retired: sandboxes boot through Flatcar's bootloader, and sherpad sets no kernel command line | — |
-| 033 | Retired: sandboxes boot through Flatcar's bootloader, and sherpad reads no kernel | — |
-| 034 | Retired: Flatcar's bootloader sets the kernel console, and Flatcar runs Ignition on the first boot only | — |
 | 035 | Each data interface on no link is listed with its fixed MAC, for the guest to make a veth whose peer is down in a namespace of its own | unit |
 | 036 | Docker keeps its data on the Docker store disk, which the store's VM formats and a sandbox mounts | unit |
 | 037 | Destroy takes a sandbox's Docker disk and never a Docker store | unit |
@@ -97,8 +94,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 039 | A sandbox's first boot does not rebuild the library cache or the hardware database | unit |
 | 040 | Docker in a sandbox listens on its local socket only and sets up no iptables rules | unit |
 | 041 | containerd in a sandbox runs without the CRI plugins, on its usual socket | unit |
-| 042 | Retired: Flatcar's bootloader sets the root filesystem's mount options | — |
-| 044 | A sandbox's container is created from the Engine API body a container on the server's Docker gets for the same spec, with only these changed: the VM's network namespace, no Docker network endpoints, the lab's name servers and domain, its hostname resolving to loopback and Docker's `unless-stopped` restart policy | unit |
+| 044 | A sandbox's container is created from the Engine API body a container on the server's Docker gets for the same spec, with only these changed: no memory, swap or CPU limits, the VM's network namespace, no Docker network endpoints, the lab's name servers and domain, its hostname resolving to loopback and Docker's `unless-stopped` restart policy | unit |
 | 045 | A sandbox's management NIC is given the node's IPv4 address, and its IPv6 address when the node and the lab's network have one, each with the network's prefix length and its gateway, as Docker gives a container on the network | unit |
 | 046 | Before Docker starts, the guest is given the management addresses and a default route through each gateway on `eth0` | unit |
 | 047 | A node in a sandbox answers SSH on its management IPv4 and IPv6 addresses with ZTP on, with ZTP off, and with a config of its own that sets no management address, after up, resume and redeploy (no test yet) | e2e |
@@ -108,7 +104,6 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 051 | Both VMs report their status, and the store VM loads its image archive | unit |
 | 052 | The config drive holds the Ignition config, the container's body and each volume's file or folder, and a missing volume source fails it | unit |
 | 053 | A failure the VM reports fails it with the reason, and a status other than the one awaited fails it | unit |
-| 054 | Retired: the scripts download no sandbox base image; it is imported as `flatcar_sandbox`, and `bzip2` is `sandbox_068` | — |
 | 055 | A sandbox whose container cannot be started is failed by `up` with the reason the VM reports, well before the readiness wait ends | integration |
 | 056 | A data interface on a private bridge is a bridge interface of the domain, so libvirt puts its tap on the bridge at every start | unit |
 | 057 | A first boot whose copy of the writable volumes into the container fails removes the container, starts nothing and reports why | unit |
@@ -117,7 +112,6 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 060 | A status line longer than 4 KiB fails the VM once that much has arrived, without reading the rest | unit |
 | 061 | More than 64 KiB of lines that are no status fails the VM | unit |
 | 062 | A failure's reason has its control characters dropped and is cut to 512 characters | unit |
-| 063 | Retired: Flatcar runs Ignition on the first boot only, and sherpad never defines a sandbox's domain again | — |
 | 064 | Up reads a sandbox's status as it polls, with no task of its own: a status sent is seen at a later poll, none yet is no status, and a closed channel fails the node | unit |
 | 065 | A store build's VM disk, config drive, image archive and partial store are the build's, a store is not, and the build's status socket is in no lab's folder | unit |
 | 066 | At its start sherpad removes what an unfinished store build left (the store VM, its volumes, staging folder and status socket) and keeps the stores | integration |
@@ -139,6 +133,14 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 082 | A boot whose container Docker's restart policy has already started reports it started | unit |
 | 083 | The guest calls Docker's Engine API at the version sherpad's Docker client uses, on the VM's Docker socket | unit |
 | 084 | A redeploy whose sandbox fails is answered with the reason its VM reported, Docker's message, and the node is failed | integration |
+| 089 | A boot disk or Docker store build whose operation stops waiting for it holds the disk's lock until it ends, so the next build of the disk waits for it | unit |
+| 090 | Up and redeploy refuse a sandbox node's volume whose source is or holds a symlink, naming it, before any VM is made | unit |
+| 091 | Up and redeploy refuse a sandbox node's volume whose source holds a special file, naming it, before any VM is made | unit |
+| 092 | Up and redeploy refuse a sandbox node's volume whose source has a folder more than four levels below it, naming it, before any VM is made | unit |
+| 093 | Up and redeploy refuse a sandbox node's volume whose source holds a file of 4 GiB or more, naming it, before any VM is made | unit |
+| 094 | Up and redeploy refuse a sandbox node's volume whose source holds a name longer than 31 characters, naming it, before any VM is made | unit |
+| 095 | A writable volume's empty folders are made in the container with its files | unit |
+| 096 | Down and resume refuse a node whose model runs in a sandbox but which was made before it ran in one, saying to destroy the lab and bring it up again | integration |
 
 ## `node_ready`: a node is running only once its ready check passes
 

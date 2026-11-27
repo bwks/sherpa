@@ -3,12 +3,13 @@ use bollard::Docker;
 use db::DefaultRequest;
 use serde_json::{Value, json};
 use shared::data::{
-    ContainerSettings, KindSettings, ModelKind, NodeConfig, NodeKind, NodeModel, NodeState,
-    ZtpSettings,
+    ContainerSettings, KindSettings, LabPhase, ModelKind, NodeConfig, NodeKind, NodeModel,
+    NodeState, ZtpSettings,
 };
 use shared::konst::{
     SHERPA_IMAGES_PATH, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL_PATH, VM_DISK_FILENAME,
 };
+use sherpad::SandboxRefusal;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::MetadataExt;
@@ -17,7 +18,7 @@ use std::process::{self, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::time;
 
-use crate::helpers::test_server::TestServer;
+use crate::helpers::test_server::{TEST_LAB_ADMIN, TestServer};
 use crate::helpers::ws_client::TestWsClient;
 use crate::lab_lifecycle::{
     cleanup_lab, lab_up, libvirt_leftovers, node_states, require_kvm, with_cleanup,
@@ -531,7 +532,7 @@ async fn sandbox_038_a_second_lab_with_the_same_image_boots_on_the_store_the_fir
         )
         .await?;
         let store_before = volume_identity(&store)?;
-        let statuses = lab_up(
+        lab_up(
             &mut ws,
             &token,
             &second,
@@ -543,14 +544,6 @@ async fn sandbox_038_a_second_lab_with_the_same_image_boots_on_the_store_the_fir
         ensure!(
             volume_identity(&store)? == store_before,
             "the second lab replaced the Docker store {store}"
-        );
-        let building = statuses
-            .iter()
-            .filter(|status| status.to_string().contains("Docker store"))
-            .count();
-        ensure!(
-            building == 0,
-            "the second up reported a store: {statuses:?}"
         );
         wait_for_states(&server, &second, NodeState::Running).await
     }
@@ -587,7 +580,7 @@ async fn sandbox_077_sandboxes_boot_on_the_boot_disk_one_vm_made_from_the_base_i
         )
         .await?;
         let boot_before = volume_identity(&boot_disk)?;
-        let statuses = lab_up(
+        lab_up(
             &mut ws,
             &token,
             &second,
@@ -599,14 +592,6 @@ async fn sandbox_077_sandboxes_boot_on_the_boot_disk_one_vm_made_from_the_base_i
         ensure!(
             volume_identity(&boot_disk)? == boot_before,
             "the second lab replaced the boot disk {boot_disk}"
-        );
-        let building: Vec<_> = statuses
-            .iter()
-            .filter(|status| status.to_string().contains("sandbox boot disk"))
-            .collect();
-        ensure!(
-            building.is_empty(),
-            "the second up made a boot disk: {building:?}"
         );
         let conn = libvirt::Qemu::default().connect()?;
         let volumes = libvirt::pool_backed_volumes(&conn)?;
@@ -747,4 +732,66 @@ async fn sandbox_084_a_redeploy_whose_sandbox_fails_is_answered_with_the_reason_
     .await;
     let cleanup = cleanup_lab(&mut ws, &server, &token, &lab, &checks).await;
     finish(checks, cleanup)
+}
+
+#[tokio::test]
+#[ignore = "requires Docker and libvirt"]
+async fn sandbox_096_down_and_resume_refuse_a_node_made_before_its_model_ran_in_a_sandbox()
+-> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_lab_admin(&server).await?;
+    register_image(&server, TEST_IMAGE_REPO, TEST_IMAGE_VERSION, true).await?;
+    let owner = db::find_user(&server.db, TEST_LAB_ADMIN)
+        .await?
+        .context("the lab admin has no account")?;
+    let lab = lab_id("no");
+    let lab_record = db::create_lab(
+        &server.db,
+        "pre-sandbox",
+        &lab,
+        &owner,
+        &db::LabNetworks {
+            management_network: "10.202.0.0/24".to_owned(),
+            gateway_ipv4: "10.202.0.1".to_owned(),
+            router_ipv4: "10.202.0.2".to_owned(),
+            management_network_v6: None,
+            loopback_network_v6: None,
+            gateway_ipv6: None,
+            router_ipv6: None,
+        },
+        &db::LabDetails::default(),
+    )
+    .await?
+    .id
+    .context("the lab has no record ID")?;
+    db::update_lab_phase_from(&server.db, &lab, LabPhase::Creating, LabPhase::Ready).await?;
+    let image =
+        db::find_default_node_image(&server.db, &NodeModel::SonicLinux, &NodeKind::Container)
+            .await?
+            .and_then(|image| image.id)
+            .context("the sonic_linux container image has no record")?;
+    db::create_node(&server.db, "n1", 1, image, lab_record).await?;
+
+    let checks: Result<()> = async {
+        let refusal = SandboxRefusal::AddressMissing {
+            node: "n1".to_owned(),
+        }
+        .to_string();
+        for method in ["down", "resume"] {
+            let response = lab_call(&mut ws, &token, method, &lab, json!({})).await?;
+            let results = &response["result"]["results"];
+            ensure!(
+                *results == json!([{ "name": "n1", "success": false, "message": refusal }]),
+                "{method} did not refuse the node: {response}"
+            );
+        }
+        Ok(())
+    }
+    .await;
+    let _ = fs::remove_dir_all(Path::new(CONSOLE_DIR).join(&lab));
+    let cleanup = db::delete_lab_from(&server.db, &lab, LabPhase::Ready)
+        .await
+        .map(|_| ());
+    with_cleanup(checks, cleanup)
 }

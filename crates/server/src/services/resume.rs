@@ -22,7 +22,7 @@ use super::console;
 use super::error::Unexpected;
 use super::lab_definition::stored_definition;
 use super::lab_lifecycle;
-use super::lab_nodes::load_target_nodes;
+use super::lab_nodes::{load_target_nodes, refuse_nodes_without_sandbox};
 use super::lab_operations::{self, LabOperation, Operation};
 use super::node_lifecycle::{self, query_runtimes};
 use super::node_ops::{self, VmReadiness};
@@ -119,6 +119,8 @@ pub async fn start_lab_nodes(
 
     let (target_nodes, node_images) =
         load_target_nodes(&state.db, lab_record_id.clone(), lab_id, node_name).await?;
+    let (target_nodes, mut immediate_results) =
+        refuse_nodes_without_sandbox(&state.db, &lab_record_id, target_nodes, &node_images).await?;
 
     // Stopped VMs and unikernels must fit in the server's memory before any node starts.
     let admission = admit_stopped_nodes(state, ctx, lab_id, &target_nodes).await?;
@@ -143,7 +145,6 @@ pub async fn start_lab_nodes(
 
     // Build futures for all node operations concurrently
     let mut futures = Vec::new();
-    let mut immediate_results = Vec::new();
 
     for node in &target_nodes {
         let device_name = format!("{}-{}", node.name, lab_id);

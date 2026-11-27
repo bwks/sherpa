@@ -730,25 +730,11 @@ fn add_container_volumes(
     cert_paths: Option<&NodeCertPaths>,
     volumes: &mut Vec<data::ContainerMount>,
 ) {
-    let drops_manifest_volumes = setting == data::Ztp::Volume
-        || matches!(
-            node.model_kind.model(),
-            data::NodeModel::GitlabCe
-                | data::NodeModel::SurrealDb
-                | data::NodeModel::HashicorpVault
-        );
-    if let Some(node_volumes) = node
-        .container
-        .as_ref()
-        .and_then(|container| container.volumes.as_ref())
-        && !drops_manifest_volumes
-    {
-        volumes.extend(
-            node_volumes
-                .iter()
-                .map(|v| data::ContainerMount::writable(&v.src, &v.dst)),
-        );
-    }
+    volumes.extend(
+        manifest_volumes(node, setting)
+            .iter()
+            .map(|v| data::ContainerMount::writable(&v.src, &v.dst)),
+    );
     // Add TLS certificate volume mounts if cert paths are provided
     if let Some(certs) = cert_paths {
         volumes.extend([
@@ -756,6 +742,29 @@ fn add_container_volumes(
             data::ContainerMount::read_only(&certs.node_cert, format!("{NODE_CERTS_DIR}/node.crt")),
             data::ContainerMount::read_only(&certs.node_key, format!("{NODE_CERTS_DIR}/node.key")),
         ]);
+    }
+}
+
+/// The manifest's `container.volumes` of `node` its container is given with ZTP `setting`: none
+/// with volume ZTP or for a model whose generated volumes replace them.
+pub fn manifest_volumes(
+    node: &topology::NodeExpanded,
+    setting: data::Ztp,
+) -> &[topology::VolumeMount] {
+    let drops_manifest_volumes = setting == data::Ztp::Volume
+        || matches!(
+            node.model_kind.model(),
+            data::NodeModel::GitlabCe
+                | data::NodeModel::SurrealDb
+                | data::NodeModel::HashicorpVault
+        );
+    match node
+        .container
+        .as_ref()
+        .and_then(|container| container.volumes.as_deref())
+    {
+        Some(volumes) if !drops_manifest_volumes => volumes,
+        _ => &[],
     }
 }
 

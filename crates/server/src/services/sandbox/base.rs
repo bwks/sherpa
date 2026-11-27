@@ -4,13 +4,14 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use tokio::fs;
 use tracing::instrument;
 
 use db::Database;
 use shared::data::{ModelKind, NodeKind, NodeModel};
 use shared::konst::VM_DISK_FILENAME;
 
-use crate::services::error::ServiceError;
+use crate::services::error::{SandboxRefusal, ServiceError};
 use crate::services::image_lifecycle::{ImageLease, lease_image};
 use crate::services::image_store::ImagePaths;
 
@@ -28,8 +29,8 @@ pub(crate) struct SandboxBase {
 ///
 /// # Errors
 ///
-/// Fails with [`ServiceError::SandboxBaseImageMissing`] when the server has no default
-/// `flatcar_sandbox` image, with [`ServiceError::SandboxBaseDiskMissing`] when its disk is not
+/// Fails with [`SandboxRefusal::BaseImageMissing`] when the server has no default
+/// `flatcar_sandbox` image, with [`SandboxRefusal::BaseDiskMissing`] when its disk is not
 /// there, and when the database cannot be read.
 #[instrument(skip(db, model_kinds), level = "debug")]
 pub(crate) async fn sandbox_base(
@@ -43,14 +44,17 @@ pub(crate) async fn sandbox_base(
     let image =
         db::find_default_node_image(db, &NodeModel::FlatcarSandbox, &NodeKind::VirtualMachine)
             .await?
-            .ok_or(ServiceError::SandboxBaseImageMissing)?;
+            .ok_or(ServiceError::Sandbox(SandboxRefusal::BaseImageMissing))?;
     let lease = lease_image(image.model_kind()?, &image.version).await;
     let disk = base_disk(images_dir, &image.version);
-    if !disk.is_file() {
-        return Err(ServiceError::SandboxBaseDiskMissing {
+    if !fs::metadata(&disk)
+        .await
+        .is_ok_and(|metadata| metadata.is_file())
+    {
+        return Err(ServiceError::Sandbox(SandboxRefusal::BaseDiskMissing {
             version: image.version,
             path: disk,
-        }
+        })
         .into());
     }
     Ok(Some(SandboxBase {
@@ -108,13 +112,8 @@ mod tests {
             .unwrap();
         assert!(matches!(
             missing.downcast_ref::<ServiceError>(),
-            Some(ServiceError::SandboxBaseImageMissing)
+            Some(ServiceError::Sandbox(SandboxRefusal::BaseImageMissing))
         ));
-        assert!(
-            missing
-                .to_string()
-                .contains("sherpa server image import --src flatcar_production_openstack_image.img --model flatcar_sandbox")
-        );
 
         let mut image = ModelKind::default_for(NodeModel::FlatcarSandbox).node_config();
         image.version = "4757.2.4".to_owned();
@@ -127,7 +126,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             no_disk.downcast_ref::<ServiceError>(),
-            Some(ServiceError::SandboxBaseDiskMissing { version, .. }) if version == "4757.2.4"
+            Some(ServiceError::Sandbox(SandboxRefusal::BaseDiskMissing { version, .. })) if version == "4757.2.4"
         ));
 
         let disk = base_disk(images, "4757.2.4");

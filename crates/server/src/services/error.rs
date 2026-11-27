@@ -238,27 +238,8 @@ pub enum ServiceError {
     )]
     NodeImageNotFound { node: String, model_kind: ModelKind },
 
-    #[error(
-        "The arista_eos container, nokia_srlinux and the sonic_linux container run in a sandbox, \
-         which boots the flatcar_sandbox image, and the server has none. Download \
-         flatcar_production_openstack_image.img.bz2 from Flatcar's stable channel, unpack it with \
-         bunzip2 and import it with 'sherpa server image import --src \
-         flatcar_production_openstack_image.img --model flatcar_sandbox --version <version> \
-         --default'"
-    )]
-    SandboxBaseImageMissing,
-
-    #[error(
-        "The flatcar_sandbox image {version} has no disk at {}; import it again",
-        path.display()
-    )]
-    SandboxBaseDiskMissing { version: String, path: PathBuf },
-
-    #[error(
-        "Node '{node}' runs in a sandbox that has no management address of its own; destroy the \
-         lab and bring it up again"
-    )]
-    SandboxAddressMissing { node: String },
+    #[error(transparent)]
+    Sandbox(#[from] SandboxRefusal),
 
     #[error("Sandbox {name} failed: {reason}")]
     SandboxFailed { name: String, reason: String },
@@ -623,6 +604,63 @@ pub enum ServiceCategory {
     Failed,
 }
 
+/// Why an operation refuses a node that runs in a sandbox, or the sandbox it needs.
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum SandboxRefusal {
+    #[error(
+        "The arista_eos container, nokia_srlinux and the sonic_linux container run in a sandbox, \
+         which boots the flatcar_sandbox image, and the server has none. Download \
+         flatcar_production_openstack_image.img.bz2 from Flatcar's stable channel, unpack it with \
+         bunzip2 and import it with 'sherpa server image import --src \
+         flatcar_production_openstack_image.img --model flatcar_sandbox --version <version> \
+         --default'"
+    )]
+    BaseImageMissing,
+
+    #[error(
+        "The flatcar_sandbox image {version} has no disk at {}; import it again",
+        path.display()
+    )]
+    BaseDiskMissing { version: String, path: PathBuf },
+
+    #[error(
+        "Node '{node}' was made before its model ran in a sandbox and has none; destroy the lab \
+         and bring it up again"
+    )]
+    AddressMissing { node: String },
+
+    #[error(
+        "Node '{node}' runs in a sandbox, whose config drive cannot carry volume source {}: {refusal}",
+        path.display()
+    )]
+    VolumeRefused {
+        node: String,
+        path: PathBuf,
+        refusal: SandboxVolumeRefusal,
+    },
+
+    #[error(
+        "{node} runs in a sandbox, which has a serial console only. Use 'sherpa console {node}' \
+         instead."
+    )]
+    VncConsole { node: String },
+}
+
+/// Why a sandbox's config drive cannot carry a file or folder of a volume's source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum SandboxVolumeRefusal {
+    #[error("it is a symlink, which is not followed")]
+    Symlink,
+    #[error("it is neither a file nor a folder")]
+    SpecialFile,
+    #[error("it is a folder more than {limit} levels below the volume")]
+    TooDeep { limit: usize },
+    #[error("it is 4 GiB or larger")]
+    TooLarge,
+    #[error("its name is longer than {limit} characters")]
+    NameTooLong { limit: usize },
+}
+
 /// Why `version` is not an image of `model_kind`: it has none, or the versions it has.
 fn version_refusal(model_kind: ModelKind, version: &str, available: &[String]) -> String {
     let (model, kind) = (model_kind.model(), model_kind.kind());
@@ -720,6 +758,18 @@ pub fn caller_message(error: &anyhow::Error, failure: &str) -> String {
     }
 }
 
+impl SandboxRefusal {
+    /// The kind of refusal this is.
+    #[must_use]
+    pub fn category(&self) -> ServiceCategory {
+        match self {
+            Self::BaseImageMissing | Self::BaseDiskMissing { .. } => ServiceCategory::NotFound,
+            Self::AddressMissing { .. } => ServiceCategory::Conflict,
+            Self::VolumeRefused { .. } | Self::VncConsole { .. } => ServiceCategory::Invalid,
+        }
+    }
+}
+
 impl ServiceError {
     /// Find a `ServiceError` the caller is told of anywhere in an error chain: a refusal, or a
     /// node failure with its reason.
@@ -751,13 +801,12 @@ impl ServiceError {
         match self {
             Self::NotFound(_)
             | Self::NodeImageNotFound { .. }
-            | Self::SandboxBaseImageMissing
-            | Self::SandboxBaseDiskMissing { .. }
             | Self::VersionNotFound { .. }
             | Self::DiskImageNotFound { .. }
             | Self::ImageVersionNotFound { .. }
             | Self::DefaultImageNotFound { .. } => Some(ServiceCategory::NotFound),
             Self::Denied(_) => Some(ServiceCategory::Denied),
+            Self::Sandbox(refusal) => Some(refusal.category()),
             Self::Conflict(_)
             | Self::NotWebRedeployable { .. }
             | Self::ContainerRepoMissing { .. }
@@ -772,7 +821,6 @@ impl ServiceError {
             | Self::SecretsMountMissing { .. }
             | Self::ControllerNotRedeployable { .. }
             | Self::ClusterMembershipChanged { .. }
-            | Self::SandboxAddressMissing { .. }
             | Self::LabExists { .. }
             | Self::LabIdCollision { .. } => Some(ServiceCategory::Conflict),
             Self::Invalid(_)

@@ -2,8 +2,9 @@
 
 The container models that need root-like privileges to boot, `arista_ceos` (`arista_eos`
 container), `nokia_srlinux` and the `sonic_linux` container, each run in a Flatcar Container
-Linux VM of their own. Inside it, Docker runs the node's image unmodified with `--privileged` and
-the settings a container on the server gets, in the VM's network namespace, so the network OS has
+Linux VM of their own. Inside it, Docker runs the node's image unmodified, privileged
+(`HostConfig.Privileged`) and with the settings a container on the server gets, in the VM's
+network namespace, so the network OS has
 the VM's NICs as its own interfaces. A privileged container that escapes reaches that VM's
 kernel, not the server's.
 
@@ -57,8 +58,8 @@ flowchart LR
   (`TopologyError::SandboxBaseModel`), pointing to `flatcar_linux` for a Flatcar VM.
 - `up` and `redeploy` look the image up while they plan (`base::sandbox_base`), before creating
   anything, and refuse a lab with a sandbox when there is no default `flatcar_sandbox` image
-  (`ServiceError::SandboxBaseImageMissing`, which says how to import one) or its disk is missing
-  (`ServiceError::SandboxBaseDiskMissing`). The image is leased, as a node's image is, until the
+  (`SandboxRefusal::BaseImageMissing`, which says how to import one) or its disk is missing
+  (`SandboxRefusal::BaseDiskMissing`). The image is leased, as a node's image is, until the
   sandboxes' disks exist; from then on their overlays on its boot disk keep it from being
   deleted or replaced.
 
@@ -87,7 +88,10 @@ A sandbox boots an overlay of it, so it boots with them from its first boot on, 
 
 - **Made** at the first `up` or `redeploy` with a sandbox after the version is imported
   (`boot::ensure_boot_disk`), before the Docker store, one at a time per version
-  (`SandboxDiskLocks` in `AppState`). `sherpa-flatcar-sandbox.VERSION`, a Flatcar VM with no
+  (`SandboxDiskLocks` in `AppState`). The build runs in a task of its own that holds the
+  version's lock until the build ends, so an operation that stops waiting for it, such as a
+  dropped request, leaves the build to finish, and the next one waits for it
+  (`SandboxDiskLocks::build`, `sandbox_089`). `sherpa-flatcar-sandbox.VERSION`, a Flatcar VM with no
   NICs, console or status channel, boots `sherpa-flatcar-sandbox.VERSION-hdd.qcow2`, an overlay on
   the base image, with a config drive whose Ignition config sets only `kernelArguments`
   (`template::boot_vm_ignition_json`). Flatcar applies kernel arguments in the initrd, before
@@ -119,11 +123,18 @@ staged in `LAB_DIR/NODE/config-drive` and removed again):
 - `sherpa/container.json`: the body Docker's Engine API creates the container from (see
   Container), as serde writes bollard's `ContainerCreateBody`.
 - `sherpa/volumes/N`: the file or folder of the container's Nth volume, copied from the server:
-  the generated config, startup files, certificates and secret files.
+  the generated config, startup files, certificates, secret files and the manifest's
+  `container.volumes`.
+
+`up` and `redeploy` check the source of each of the manifest's volumes of a sandbox node while
+they plan, before any VM is made (`validate::validate_sandbox_volumes`), and refuse one that the
+drive cannot carry with `SandboxRefusal::VolumeRefused`, which names the path and why (see
+Limits): the copy follows no symlink, and ISO 9660 allows eight folder levels, of which the drive
+takes four above a volume, names of up to 31 characters, and files under 4 GiB.
 
 The VM mounts the drive read-only at `/media/config`. A read-only volume is mounted into the
-container from the drive. A writable one is uploaded into the container as a tar archive when the
-container is created, as a network OS may replace the file, which it cannot do to a bind-mounted
+container from the drive. A writable one, its files and its empty folders, is uploaded into the container as a tar
+archive when the container is created, as a network OS may replace the file, which it cannot do to a bind-mounted
 file (SR Linux saves its config by renaming a new file over it). What it writes stays in the
 container's layer, on the VM's Docker disk, across down and resume.
 
@@ -170,6 +181,7 @@ mounted from the config drive, and sets only:
 - `HostConfig.Dns` and `DnsSearch`: the lab's name servers, IPv4 then IPv6, and its domain;
 - `HostConfig.ExtraHosts`: the hostname at `127.0.1.1`;
 - `HostConfig.RestartPolicy` `unless-stopped`;
+- no `HostConfig.Memory`, `MemorySwap` or `NanoCpus`: the VM is the container's limit;
 - no `NetworkingConfig`: no Docker network endpoints.
 
 `node.sh` sends the body to the VM's Docker socket, `/run/docker.sock`, with `curl`, at the
@@ -180,7 +192,7 @@ the base image supports:
 |---|---|---|
 | Remove a container an unfinished first boot left | `DELETE /containers/NAME?force=true` | `204`, or `404` when there is none |
 | Create | `POST /containers/create?name=NAME`, the body from the config drive | `201` |
-| Copy the writable volumes in | `PUT /containers/NAME/archive?path=/`, a tar of their files, owned by root | `200` |
+| Copy the writable volumes in | `PUT /containers/NAME/archive?path=/`, a tar of their files and empty folders, owned by root | `200` |
 | Start | `POST /containers/NAME/start` | `204`, or `304` when its restart policy started it already |
 
 Any other answer fails the boot with Docker's `message` (read with `jq`), as `failed: REASON` on
@@ -223,7 +235,8 @@ Docker data has the image loaded, which every sandbox of the image boots an over
 - **Name.** `flatcar-docker-ID.qcow2` in the storage pool, `ID` the first 16 hex digits of the
   image's ID on the server's Docker, so an image imported again gets a store of its own.
 - **Made** at the first `up` or `redeploy` that needs it (`store::ensure_docker_store`), one at a
-  time per store (`SandboxDiskLocks` in `AppState`). sherpad writes `docker save` of the image to
+  time per store, in a task that holds the store's lock until the build ends, as a boot disk's
+  build does (`SandboxDiskLocks` in `AppState`). sherpad writes `docker save` of the image to
   `flatcar-docker-ID.tar` in the storage pool, padded to whole sectors, and starts
   `sherpa-flatcar-docker-ID`: a Flatcar VM with no NICs and no console, on an overlay of the boot
   disk, with an empty 32 GiB `flatcar-docker-ID.qcow2.part` as its Docker disk, which its
@@ -311,8 +324,9 @@ A node is ready once SSH answers on its management address, except a cEOS node w
 Sherpa generates and an SR Linux node with a config of its own, which are ready once their VM
 reports the container started, unless `ready_check.port` says otherwise (`node_ready_036`).
 
-The VM has no resolver, so the container gets the lab's name servers and domain (`--dns`,
-`--dns-search`), and its hostname resolves to `127.0.1.1` (`--add-host`). The lab's name server,
+The VM has no resolver, so the container gets the lab's name servers and domain
+(`HostConfig.Dns`, `HostConfig.DnsSearch`), and its hostname resolves to `127.0.1.1`
+(`HostConfig.ExtraHosts`). The lab's name server,
 its boot server, answers a name without a domain that is not a node's as not found and never
 forwards it (`domain-needed`, `boot_server_021`): the server's resolver may never answer one.
 SR Linux looks up `matelink` at each rsyslogd start, three of them in the commit of its startup
@@ -337,15 +351,17 @@ Before `sbx0` is up it turns off router advertisements and SLAAC on it (`accept_
 - **Recorded** in `sandbox_address` with the NIC's MAC when `up` gives the node its addresses,
   before the boot server's config is written; `down`, `resume` and `redeploy` keep them, and
   `redeploy` refuses a sandbox node without one before it tears anything down
-  (`ServiceError::SandboxAddressMissing`). Destroy gives them back with the node.
-- **Named** `<node>-sbx` and `<node>-sbx.<lab domain>` on the lab's boot server, IPv4 and IPv6
-  (`boot_server_022`). A node named so is refused (`TopologyError::SandboxNameTaken`).
+  (`SandboxRefusal::AddressMissing`). Destroy gives them back with the node.
+- **Named** `<node>-sbx` and `<node>-sbx.<lab domain>` on the lab's boot server, IPv4 and IPv6,
+  and its IPv4 address is reserved for the NIC's MAC with a DHCP host entry, so the boot server
+  never leases it to another client, while the sandbox is down too (`boot_server_022`). A node named so is refused (`TopologyError::SandboxNameTaken`).
 - Nothing listens on the address yet; it answers ping from the server and from the lab's nodes.
 
 ## Console
 
 The serial console is on the node's console socket, which the console relay serves as for any
-VM, so `sherpa console` works for these nodes; their VNC console is refused. `console.sh` waits
+VM, so `sherpa console` works for these nodes; their VNC console is refused
+(`SandboxRefusal::VncConsole`). `console.sh` waits
 for Enter, waits for the container to run, gives the line a size, and runs `docker exec -it` of
 the model's CLI (`Cli`, `sr_cli`, `bash` for SONiC). systemd starts it again when the CLI exits.
 
@@ -363,7 +379,10 @@ the model's CLI (`Cli`, `sr_cli`, `bash` for SONiC). systemd starts it again whe
 - **Down, resume, status, scanner, console.** These nodes run as VMs (`ModelKind::runs_as`):
   `down` shuts the domain down over ACPI, which stops Docker and the container cleanly; `resume`
   starts the domain, `sherpa-node` starts the container again with what it wrote, and the links
-  are re-attached.
+  are re-attached. A node of these models that has no recorded sandbox address was made before
+  its model ran in a sandbox, as a container on the server's Docker: `down` and `resume` refuse
+  it with `SandboxRefusal::AddressMissing`, which says to destroy the lab and bring it up
+  again (`sandbox_096`).
 - **Redeploy.** Removes the VM and its volumes as a VM's (`destroy_vm_node`), generates the
   node's config again, and creates the VM again with a new config drive and new overlays; it waits
   for the VM's status up to the manifest's `ready_timeout`, in the redeploy itself.
@@ -376,13 +395,16 @@ the model's CLI (`Cli`, `sr_cli`, `bash` for SONiC). systemd starts it again whe
 
 A sandbox gets the manifest's or the image's `memory` with 1024 MiB on top
 (`SANDBOX_MEMORY_OVERHEAD_MIB`), and the manifest's or image's `cpu.count`
-(`planned_resources`); admission counts that. In the VM the container has no limits: the VM is
-its limit.
+(`planned_resources`); admission counts that. In the VM the container has no limits
+(`sandbox_create_body` clears them): the VM is its limit.
 
 ## Limits
 
 - A volume's source is read when the config drive is written: a change on the server is not seen
   until a redeploy, and what the container writes to a writable volume stays in the VM.
+- A volume's source may hold no symlink, which is refused rather than followed, no special file
+  (FIFO, socket or device), no folder more than four levels below it, no file of 4 GiB or more,
+  and no name longer than 31 characters (`sandbox_090` to `sandbox_094`).
 - Secret files are on the config drive in the storage pool, not in RAM, until destroy or redeploy.
 - A container that exits after its VM reported it started is restarted by Docker; sherpad sees
   only that its ready port stops answering.

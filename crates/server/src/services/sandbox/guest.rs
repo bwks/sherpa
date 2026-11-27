@@ -25,6 +25,8 @@ use crate::services::p2p_links::ContainerVeth;
 
 /// The folder on the config drive that holds the container's volumes, one per mount.
 const DRIVE_VOLUMES_DIR: &str = "sherpa/volumes";
+/// The ISO 9660 level of a volume on the config drive, counting the drive's root as 1.
+pub(crate) const DRIVE_VOLUME_DEPTH: usize = 4;
 
 /// The interfaces of a sandbox: its NICs, the management NIC first, the data interfaces on no
 /// link, which the guest makes, and the data NICs of the domain.
@@ -338,10 +340,14 @@ mod tests {
 
     #[test]
     fn sandbox_013_the_console_runs_each_models_cli() {
-        let kind = |model| ModelKind::new(model, Some(NodeKind::Container)).unwrap();
-        assert_eq!(console_command(kind(NodeModel::AristaEos)), ["Cli"]);
-        assert_eq!(console_command(kind(NodeModel::NokiaSrlinux)), ["sr_cli"]);
-        assert_eq!(console_command(kind(NodeModel::SonicLinux)), ["bash"]);
+        for (model, cli) in [
+            (NodeModel::AristaEos, "Cli"),
+            (NodeModel::NokiaSrlinux, "sr_cli"),
+            (NodeModel::SonicLinux, "bash"),
+        ] {
+            let model_kind = ModelKind::new(model, Some(NodeKind::Container)).unwrap();
+            assert_eq!(console_command(model_kind), [cli]);
+        }
     }
 
     #[test]

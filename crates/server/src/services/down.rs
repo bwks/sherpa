@@ -25,7 +25,7 @@ use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 use crate::services::error::Unexpected;
 use crate::services::lab_lifecycle;
-use crate::services::lab_nodes::load_target_nodes;
+use crate::services::lab_nodes::{load_target_nodes, refuse_nodes_without_sandbox};
 use crate::services::lab_operations::{self, Operation};
 use crate::services::node_lifecycle;
 use crate::services::talos;
@@ -134,13 +134,14 @@ pub async fn shutdown_lab_nodes(
         Unexpected::log(&error, "Failed to load the lab's Talos clusters").to_string()
     });
     let (target_nodes, node_images) =
-        load_target_nodes(&state.db, lab_record_id, lab_id, node_name).await?;
+        load_target_nodes(&state.db, lab_record_id.clone(), lab_id, node_name).await?;
+    let (target_nodes, mut immediate_results) =
+        refuse_nodes_without_sandbox(&state.db, &lab_record_id, target_nodes, &node_images).await?;
 
     // Talos cluster controllers stop last: workers drain through the Kubernetes API, which
     // runs on the controllers.
     let mut first_wave = Vec::new();
     let mut last_wave = Vec::new();
-    let mut immediate_results = Vec::new();
 
     for node in &target_nodes {
         let device_name = format!("{}-{}", node.name, lab_id);

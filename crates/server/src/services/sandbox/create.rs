@@ -29,7 +29,7 @@ use super::store::ensure_docker_store;
 use crate::daemon::sandbox_disks::SandboxDiskLocks;
 use crate::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
 use crate::services::console;
-use crate::services::error::ServiceError;
+use crate::services::error::{SandboxRefusal, ServiceError};
 use crate::services::node_resources::domain_name;
 use crate::services::p2p_links::ContainerVeth;
 use crate::services::progress::ProgressSender;
@@ -109,7 +109,7 @@ pub(crate) async fn create_sandbox(
     let base = host
         .base
         .as_ref()
-        .ok_or(ServiceError::SandboxBaseImageMissing)?;
+        .ok_or(ServiceError::Sandbox(SandboxRefusal::BaseImageMissing))?;
     let boot_disk = ensure_boot_disk(host, base).await?;
     let store = ensure_docker_store(host, &boot_disk, &create.spec.image).await?;
     let device = domain_name(&create.node_name, &create.lab_id);
@@ -136,15 +136,21 @@ pub(crate) async fn create_sandbox(
         writable: &volumes.writable,
     }
     .ignition_json()?;
-    let config_drive = write_config_drive(
-        &Path::new(&create.lab_dir)
-            .join(&create.node_name)
-            .join(CONFIG_DRIVE_STAGE),
-        &config_drive_name(&device),
-        &ignition,
-        Some(&container_body),
-        &volumes.drive,
-    )?;
+    let stage = Path::new(&create.lab_dir)
+        .join(&create.node_name)
+        .join(CONFIG_DRIVE_STAGE);
+    let drive = config_drive_name(&device);
+    let config_drive = task::spawn_blocking(move || {
+        write_config_drive(
+            &stage,
+            &drive,
+            &ignition,
+            Some(&container_body),
+            &volumes.drive,
+        )
+    })
+    .await
+    .context("The sandbox config drive write panicked")??;
     let status_socket =
         console::lab_socket(&create.lab_id, &format!("{}.status", create.node_index))?;
     let domain = SandboxDomainTemplate {
@@ -215,6 +221,7 @@ pub(super) async fn start_domain(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::time::Duration;
 
     use ipnet::Ipv4Net;
@@ -228,8 +235,6 @@ mod tests {
     use shared::util::default_dns;
 
     use super::*;
-    use std::fs;
-
     use crate::konst::{SHERPA_CONSOLE_DIR, SHERPA_SANDBOX_RUN_DIR};
     use crate::services::image_lifecycle::lease_image;
     use crate::services::node_ops;

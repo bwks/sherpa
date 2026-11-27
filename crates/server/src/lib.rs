@@ -18,4 +18,4 @@ pub(crate) mod tls;
 pub mod user;
 pub(crate) mod validate;
 
-pub use services::error::{ServiceCategory, ServiceError};
+pub use services::error::{SandboxRefusal, ServiceCategory, ServiceError};

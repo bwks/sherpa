@@ -14,7 +14,7 @@ use super::context::Redeploy;
 use super::ready::{ReadyWait, ready_wait, wait_until_ready};
 use crate::konst::{SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR};
 use crate::services::container_networks;
-use crate::services::error::ServiceError;
+use crate::services::error::{SandboxRefusal, ServiceError};
 use crate::services::keycloak;
 use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle::{self, query_runtimes};
@@ -186,9 +186,9 @@ pub(super) async fn redeploy_sandbox(
             ipv4: redeploy.ipv4,
             ipv6: redeploy.target_node.ipv6_address,
             own_address: redeploy.sandbox_address.clone().ok_or_else(|| {
-                ServiceError::SandboxAddressMissing {
+                ServiceError::Sandbox(SandboxRefusal::AddressMissing {
                     node: node_name.clone(),
-                }
+                })
             })?,
         },
     )
