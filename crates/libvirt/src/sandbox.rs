@@ -16,7 +16,7 @@ use virt::storage_vol::StorageVol;
 
 use crate::error::LibvirtError;
 use crate::qcow2::read_qcow2_metadata;
-use crate::storage::{Qcow2Volume, new_volume_name, refresh_pool};
+use crate::storage::{BASE_VOLUME_MODE, QcowVolume, new_volume_name, refresh_pool};
 
 /// The pause between two checks of whether a domain has stopped.
 const STOPPED_POLL: Duration = Duration::from_secs(1);
@@ -68,10 +68,12 @@ pub fn flatten_disk(conn: &Connect, src: &str, dst: &str) -> Result<()> {
         .get_info()
         .with_context(|| format!("Cannot read the size of volume {src}"))?
         .capacity;
-    let xml = Qcow2Volume {
+    let xml = QcowVolume {
         name,
         destination: dst,
         capacity,
+        mode: BASE_VOLUME_MODE,
+        backing: None,
     }
     .render()
     .context("Cannot render standalone volume XML")?;

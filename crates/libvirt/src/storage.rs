@@ -20,13 +20,21 @@ use virt::storage_vol::StorageVol;
 use crate::names::is_lab_volume;
 use crate::size::gib_to_bytes;
 
-/// A QCOW2 volume of `capacity` bytes at `destination`, defined from `templates/qcow2.xml`.
+/// Mode of a volume sherpad builds overlays on: a Docker store and a sandbox boot disk. libvirt
+/// leaves it owned by `libvirt-qemu:kvm`, and sherpad, in group `kvm` but not the owner, reads
+/// its QCOW2 header to put an overlay on it.
+pub(crate) const BASE_VOLUME_MODE: &str = "0640";
+
+/// A QCOW2 volume of `capacity` bytes at `destination` with permission bits `mode`, an overlay
+/// of the QCOW2 file `backing` when set, defined from `templates/volume.xml`.
 #[derive(Template)]
-#[template(path = "qcow2.xml", ext = "xml", escape = "xml")]
-pub(crate) struct Qcow2Volume<'a> {
+#[template(path = "volume.xml", ext = "xml", escape = "xml")]
+pub(crate) struct QcowVolume<'a> {
     pub(crate) name: &'a str,
     pub(crate) destination: &'a str,
     pub(crate) capacity: u64,
+    pub(crate) mode: &'a str,
+    pub(crate) backing: Option<&'a str>,
 }
 
 /// A storage volume's XML, as far as its name and backing file.
@@ -240,8 +248,8 @@ pub fn overlay_on_image<'a>(
     Ok(None)
 }
 
-/// Create an empty sparse QCOW2 disk of `size_gb` GiB at `dst`, never changing an existing
-/// destination.
+/// Create an empty sparse QCOW2 disk of `size_gb` GiB at `dst`, mode `BASE_VOLUME_MODE`, never
+/// changing an existing destination.
 ///
 /// # Errors
 ///
@@ -249,10 +257,12 @@ pub fn overlay_on_image<'a>(
 /// the volume.
 #[instrument(level = "debug", skip(conn))]
 pub fn create_blank_qcow2(conn: &Connect, dst: &str, size_gb: u16) -> Result<()> {
-    let xml = Qcow2Volume {
+    let xml = QcowVolume {
         name: new_volume_name(dst)?,
         destination: dst,
         capacity: gib_to_bytes(size_gb),
+        mode: BASE_VOLUME_MODE,
+        backing: None,
     }
     .render()
     .context("Cannot render blank volume XML")?;
@@ -303,6 +313,33 @@ pub(crate) fn ensure_destination_absent(path: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sandbox_099_a_blank_disk_is_a_qcow2_volume_of_its_size_with_no_backing_store_readable_by_its_group()
+     {
+        let xml = QcowVolume {
+            name: "sherpa-docker-store.partial.qcow2",
+            destination: "/opt/sherpa/libvirt/images/sherpa-docker-store.partial.qcow2",
+            capacity: gib_to_bytes(2),
+            mode: BASE_VOLUME_MODE,
+            backing: None,
+        }
+        .render()
+        .unwrap();
+        assert_eq!(
+            xml,
+            "<volume type='file'>
+  <name>sherpa-docker-store.partial.qcow2</name>
+  <capacity unit='bytes'>2147483648</capacity>
+  <allocation unit='bytes'>0</allocation>
+  <target>
+    <path>/opt/sherpa/libvirt/images/sherpa-docker-store.partial.qcow2</path>
+    <format type='qcow2'/>
+    <permissions><mode>0640</mode></permissions>
+  </target>
+</volume>"
+        );
+    }
 
     #[test]
     fn image_delete_008_a_disks_backing_file_is_read_from_its_volume_xml() {

@@ -147,6 +147,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 096 | Down and resume refuse a node whose model runs in a sandbox but which was made before it ran in one, saying to destroy the lab and bring it up again | integration |
 | 097 | The sandboxes' host keys are read all at once, so sandboxes whose sshd does not answer add one probe's wait to up and to a scan, not one each, and a key that cannot be recorded leaves the others recorded | unit |
 | 098 | Up reads no host key from the sandbox of a node that failed, and reads the others' | unit |
+| 099 | A blank disk, which a Docker store is made in, is a QCOW2 volume of its size with no backing store, mode `0640`, so sherpad, in its owner's group, reads its header to put each node's overlay on it | unit |
 
 ## `node_ready`: a node is running only once its ready check passes
 
