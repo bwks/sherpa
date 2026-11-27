@@ -16,6 +16,7 @@ use virt::storage_pool::StoragePool;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
+use crate::services::boot_server;
 use crate::services::lab_info;
 use crate::services::node_lifecycle;
 use crate::services::node_ops;
@@ -55,6 +56,10 @@ async fn inspect_lab_inner(
     let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
 
     let tailscale = super::tailscale::inspect(state, &db_lab).await;
+    let router = boot_server::router_status(
+        lab_id,
+        container::container_state(&state.docker, &boot_server::router_name(lab_id)).await,
+    );
 
     let lab_record_id = db_lab
         .id
@@ -149,6 +154,7 @@ async fn inspect_lab_inner(
 
     Ok(InspectResponse {
         tailscale,
+        router: Some(router),
         lab_info,
         lab_state: LabState::derive(&node_states),
         lab_phase: db_lab.phase,

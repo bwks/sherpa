@@ -1,8 +1,9 @@
-//! Lab tables: a lab's info, nodes, devices, links, bridges, provisioning results and
+//! Lab tables: a lab's info, router, nodes, devices, links, bridges, provisioning results and
 //! Tailscale gateway.
 
 use shared::data::{
-    BridgeInfo, DeviceInfo, LabInfo, LinkInfo, LinkState, NodeInfo, ProvisionResult, TailnetStatus,
+    BridgeInfo, DeviceInfo, LabInfo, LabRouterStatus, LinkInfo, LinkState, NodeInfo,
+    ProvisionResult, TailnetStatus,
 };
 use shared::util::{TableLayout, render_table};
 use tracing::instrument;
@@ -254,6 +255,24 @@ pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
     )
 }
 
+/// Renders a two-column table of the lab's router: its container and the container's state.
+#[must_use]
+pub fn render_router_table(router: &LabRouterStatus) -> String {
+    let rows = [
+        ["Container".to_owned(), router.container.clone()],
+        ["State".to_owned(), router.state.to_string()],
+    ];
+    render_table(
+        LAB_INFO_HEADERS,
+        &rows,
+        &TableLayout {
+            title: Some("Lab Router"),
+            header_row: false,
+            ..TableLayout::default()
+        },
+    )
+}
+
 /// Shows connection and approval separately; connected does not imply reachable. The table is
 /// bounded to 80 characters, and the details column wraps first so the labels stay readable.
 #[instrument(skip(status), level = "debug")]
@@ -286,8 +305,8 @@ mod tests {
 
     use super::*;
     use shared::data::{
-        BridgeKind, NodeKind, NodeModel, NodeState, ProvisionStatus, RouteApproval, TailnetState,
-        VaultSealed,
+        BridgeKind, LabRouterState, NodeKind, NodeModel, NodeState, ProvisionStatus, RouteApproval,
+        TailnetState, VaultSealed,
     };
 
     #[test]
@@ -476,6 +495,39 @@ mod tests {
         let sealed = table.find("Vault sealed: no saved unseal key").unwrap();
         assert!(vault01 < sealed && sealed < vault02, "{table}");
         assert_eq!(table.matches("Vault sealed").count(), 1, "{table}");
+    }
+
+    #[test]
+    fn cli_tables_014_the_lab_router_table_gives_the_routers_container_and_its_state() {
+        let router = |state| LabRouterStatus {
+            container: "sherpa-router-039ab286".to_string(),
+            state,
+        };
+        let expected = "\
+┌────────────────────────────────────┐
+│             Lab Router             │
+├───────────┬────────────────────────┤
+│ Container │ sherpa-router-039ab286 │
+├───────────┼────────────────────────┤
+│ State     │ exited (255)           │
+└───────────┴────────────────────────┘";
+        assert_eq!(
+            render_router_table(&router(LabRouterState::Exited {
+                exit_code: Some(255)
+            })),
+            expected
+        );
+        for (state, shown) in [
+            (LabRouterState::Running, "│ State     │ running"),
+            (LabRouterState::Missing, "│ State     │ missing"),
+            (
+                LabRouterState::Unknown,
+                "│ State     │ unknown: Docker did not answer",
+            ),
+        ] {
+            let table = render_router_table(&router(state));
+            assert!(table.contains(shown), "{table}");
+        }
     }
 
     #[test]

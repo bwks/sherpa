@@ -66,10 +66,11 @@ Inspect prints no status of the lab as a whole. The Tailscale table of a lab wit
 | 011 | The Links table gives each link's two nodes and interfaces, its type and its state, as `attached`, `peer down: <node>`, `failed: <reason>` or `not checked` | unit |
 | 012 | The Bridges table gives each bridge's name, its network and its nodes, separated by commas (no test yet) | unit |
 | 013 | The Nodes table `sherpa up` prints names each node `<name>.<lab_id>` with its management address, `<address>:<port>` to connect to, its model and kind, and `-` for a node with no address | unit |
+| 014 | The Lab Router table `sherpa inspect` prints under the Lab Info table gives the router's container and its state: `running`, `paused`, `exited (<code>)`, `missing`, or `unknown` when Docker did not answer | unit |
 
 ## `lab_details`: what the server reports about a lab is its records as they are now
 
-**Statement:** the server answers `sherpa inspect`, `GET /api/v1/labs/{id}` and the web UI's lab and node pages alike from the lab's records as they are now: the lab's details and owner, each node with its model, kind, addresses, vCPUs, memory and disks, each link and bridge by its nodes' names, and the lab's status and phase.
+**Statement:** the server answers `sherpa inspect`, `GET /api/v1/labs/{id}` and the web UI's lab and node pages alike from the lab's records as they are now: the lab's details and owner, each node with its model, kind, addresses, vCPUs, memory and disks, each link and bridge by its nodes' names, and the lab's status and phase; `sherpa inspect` and the API also give the state of the lab's router container.
 **Relied on by:** the user, the web UI, scripts reading the JSON. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -81,6 +82,7 @@ Inspect prints no status of the lab as a whole. The Tailscale table of a lab wit
 | 005 | The answer holds no password, token or key: of a lab's accounts only each node's login name (no test yet) | integration |
 | 006 | An answer from a server that sends no phase reads as a `ready` lab (no test yet) | unit |
 | 007 | With libvirt unreachable, or its storage pool missing, the lab is not reported at all, a lab of containers included (no test yet) | integration |
+| 008 | The lab's router is reported by its container's name with the state Docker reports: running, paused, exited with its exit code, another Docker status by name, missing when there is no container, and unknown when Docker does not answer | unit |
 
 Each node's state in the answer is `node_state_004` to `009`, each link's state `link_state_006`, the gateway's status `tailnet_status`.
 

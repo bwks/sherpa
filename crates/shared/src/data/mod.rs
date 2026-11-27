@@ -73,7 +73,10 @@ pub use import::{
     SetDefaultImageRequest, SetDefaultImageResponse, ShowImageRequest, ShowImageResponse,
     SkippedModel,
 };
-pub use inspect::{BridgeInfo, DeviceInfo, InspectRequest, InspectResponse, LinkInfo, VaultSealed};
+pub use inspect::{
+    BridgeInfo, DeviceInfo, InspectRequest, InspectResponse, LabRouterState, LabRouterStatus,
+    LinkInfo, VaultSealed,
+};
 pub use interface::{
     AristaEosContainerInt, AristaEosVmInt, ArubaAoscxInt, CiscoAsaInt, CiscoCat8000Int,
     CiscoCat9000Int, CiscoCsr1000Int, CiscoFtdInt, CiscoIolInt, CiscoIosInt, CiscoIosl2Int,

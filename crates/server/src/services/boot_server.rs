@@ -20,13 +20,14 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use anyhow::{Context, Result, ensure};
 use askama::Template;
 use bollard::Docker;
+use bollard::secret::{ContainerState, ContainerStateStatusEnum};
 use tracing::instrument;
 
 use container::ContainerSpec;
 use db::Database;
 use shared::data::{
-    self, ContainerNetworkAttachment, DbLab, DbNode, Halt, NodeConfig, NodeKind, RecordId, Runtime,
-    Ztp, ZtpRecord,
+    self, ContainerNetworkAttachment, DbLab, DbNode, Halt, LabRouterState, LabRouterStatus,
+    NodeConfig, NodeKind, RecordId, Runtime, Ztp, ZtpRecord,
 };
 use shared::konst::{
     BOOT_SERVER_HTTP_ROOT, BOOT_SERVER_TFTP_ROOT, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
@@ -465,6 +466,36 @@ async fn create_router(db: &Database, docker: &Docker, lab: &DbLab) -> Result<()
     .await
 }
 
+/// The router of lab `lab_id` and its state, from what Docker reported of its container:
+/// `state`, `None` when the container is gone, or the error Docker answered with.
+pub(crate) fn router_status(
+    lab_id: &str,
+    state: Result<Option<ContainerState>>,
+) -> LabRouterStatus {
+    let state = match state {
+        Ok(None) => LabRouterState::Missing,
+        Ok(Some(state)) => match state.status {
+            Some(ContainerStateStatusEnum::RUNNING) => LabRouterState::Running,
+            Some(ContainerStateStatusEnum::PAUSED) => LabRouterState::Paused,
+            Some(ContainerStateStatusEnum::EXITED) => LabRouterState::Exited {
+                exit_code: state.exit_code,
+            },
+            Some(status) => LabRouterState::Other {
+                status: status.to_string(),
+            },
+            None => LabRouterState::Unknown,
+        },
+        Err(error) => {
+            tracing::warn!(lab_id = %lab_id, error = ?error, "Cannot query Docker for the lab's router");
+            LabRouterState::Unknown
+        }
+    };
+    LabRouterStatus {
+        container: router_name(lab_id),
+        state,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use shared::data::{ModelKind, NodeModel};
@@ -556,6 +587,48 @@ mod tests {
         assert_eq!(
             busy.to_string(),
             "The lab's router sherpa-router-test1234 is restarting; resume the lab again shortly"
+        );
+    }
+
+    #[test]
+    fn lab_details_008_the_labs_router_is_reported_with_its_containers_state() {
+        let reported = |status, exit_code| {
+            router_status(
+                "test1234",
+                Ok(Some(ContainerState {
+                    status: Some(status),
+                    exit_code,
+                    ..ContainerState::default()
+                })),
+            )
+            .state
+        };
+        assert_eq!(
+            reported(ContainerStateStatusEnum::EXITED, Some(255)),
+            LabRouterState::Exited {
+                exit_code: Some(255)
+            }
+        );
+        assert_eq!(
+            reported(ContainerStateStatusEnum::RUNNING, Some(0)),
+            LabRouterState::Running
+        );
+        assert_eq!(
+            reported(ContainerStateStatusEnum::PAUSED, Some(0)),
+            LabRouterState::Paused
+        );
+        assert_eq!(
+            reported(ContainerStateStatusEnum::DEAD, Some(137)),
+            LabRouterState::Other {
+                status: "dead".to_string()
+            }
+        );
+        let missing = router_status("test1234", Ok(None));
+        assert_eq!(missing.container, "sherpa-router-test1234");
+        assert_eq!(missing.state, LabRouterState::Missing);
+        assert_eq!(
+            router_status("test1234", Err(anyhow::anyhow!("Docker is down"))).state,
+            LabRouterState::Unknown
         );
     }
 
