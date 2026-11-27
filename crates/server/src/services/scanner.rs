@@ -141,11 +141,11 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
     let vm_sandboxes = db::list_vm_sandboxes(&state.db, lab_record_id)
         .await
         .context("Failed to list sandbox records for lab")?;
-    for sandbox in keyless_running_sandboxes(&scanned, &vm_sandboxes, snapshot) {
-        if let Err(error) = ssh_config::capture_sandbox_host_key(&state.db, sandbox).await {
-            tracing::warn!(node = %sandbox.node, error = %format!("{error:#}"), "Failed to record the sandbox host key");
-        }
-    }
+    ssh_config::capture_sandbox_host_keys(
+        &state.db,
+        &keyless_running_sandboxes(&scanned, &vm_sandboxes, snapshot),
+    )
+    .await;
     let vault_checks = read_vault_seals(state, lab, &scanned, snapshot).await;
 
     if let Some(observed) = lab_operations::try_observe(&lab.lab_id) {

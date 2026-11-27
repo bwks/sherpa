@@ -2,6 +2,7 @@ use std::net::Ipv4Addr;
 
 use anyhow::{Context, Result};
 use askama::Template;
+use futures::future::join_all;
 use tracing::instrument;
 
 use shared::data::{
@@ -77,6 +78,31 @@ pub(crate) async fn capture_sandbox_host_key(
         tracing::info!("Recorded sandbox host key");
     }
     Ok(())
+}
+
+/// Read and record the host keys of the sandboxes recorded in `vm_sandboxes`
+/// (`capture_sandbox_host_key`), all of them at once, so sandboxes whose sshd does not answer add
+/// one probe's wait, not one each. A key that cannot be recorded is logged, and the others are still recorded.
+#[instrument(skip_all, fields(sandboxes = vm_sandboxes.len()), level = "debug")]
+pub(crate) async fn capture_sandbox_host_keys(db: &db::Database, vm_sandboxes: &[&DbVmSandbox]) {
+    probe_sandboxes(vm_sandboxes, |sandbox| {
+        capture_sandbox_host_key(db, sandbox)
+    })
+    .await;
+}
+
+/// Run `probe` on every sandbox in `vm_sandboxes` at once, and log each that fails.
+async fn probe_sandboxes<'a, F, Fut>(vm_sandboxes: &[&'a DbVmSandbox], probe: F)
+where
+    F: Fn(&'a DbVmSandbox) -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    let results = join_all(vm_sandboxes.iter().map(|sandbox| probe(sandbox))).await;
+    for (sandbox, result) in vm_sandboxes.iter().zip(results) {
+        if let Err(error) = result {
+            tracing::warn!(node = %sandbox.node, error = %format!("{error:#}"), "Failed to record the sandbox host key");
+        }
+    }
 }
 
 /// The lab's SSH config and `known_hosts` file, built from the database: its nodes'
@@ -302,6 +328,11 @@ pub(crate) fn build_known_hosts(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    use tokio::time::sleep;
+
     use super::*;
     use shared::data::ReadyCheck;
     use shared::data::{NodeModel, NodeState};
@@ -649,6 +680,45 @@ mod tests {
             files.known_hosts,
             "172.31.1.10 ssh-ed25519 AAAAsrl1\n172.31.1.11 ssh-ed25519 AAAAsrl2\n\
              172.31.1.12 ssh-ed25519 AAAAsbx1\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn sandbox_097_sandboxes_host_keys_are_read_at_once_and_one_failure_leaves_the_others() {
+        const PROBE: Duration = Duration::from_millis(400);
+        let vm_sandboxes: Vec<DbVmSandbox> = (0..4u8)
+            .map(|index| DbVmSandbox {
+                node: RecordId::new("node", format!("sbx{index}")),
+                ipv4: Ipv4Addr::new(172, 31, 1, 20 + index),
+                ipv6: None,
+                mac: format!("52:54:00:00:00:0{index}"),
+                ssh_host_key: None,
+            })
+            .collect();
+        let refs: Vec<&DbVmSandbox> = vm_sandboxes.iter().collect();
+        let recorded = Mutex::new(Vec::new());
+
+        let started = Instant::now();
+        probe_sandboxes(&refs, |sandbox| {
+            let recorded = &recorded;
+            async move {
+                sleep(PROBE).await;
+                if sandbox.ipv4 == Ipv4Addr::new(172, 31, 1, 21) {
+                    anyhow::bail!("database refused the key");
+                }
+                recorded.lock().unwrap().push(sandbox.ipv4);
+                Ok(())
+            }
+        })
+        .await;
+        let elapsed = started.elapsed();
+
+        assert!(elapsed < PROBE * 2, "probes took {elapsed:?}");
+        let mut recorded = recorded.into_inner().unwrap();
+        recorded.sort();
+        assert_eq!(
+            recorded,
+            [20, 22, 23].map(|host| Ipv4Addr::new(172, 31, 1, host))
         );
     }
 }
