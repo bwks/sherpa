@@ -51,8 +51,8 @@ flowchart LR
   image (`flatcar_production_openstack_image.img.bz2`, unpacked with `bunzip2`), whose Ignition
   reads its config from a config drive. The user imports it as any VM image, with
   `sherpa server image import --model flatcar_sandbox`, and sandboxes boot the default version,
-  `IMAGES/flatcar_sandbox/VERSION/virtioa.qcow2`. The install and update scripts install
-  `bzip2` for the unpacking and download no image. Sandboxes boot no overlay of the image itself
+  `IMAGES/flatcar_sandbox/VERSION/virtioa.qcow2`. The installer installs `bzip2` for the
+  unpacking, and neither the install nor the update script downloads an image. Sandboxes boot no overlay of the image itself
   but of its boot disk (see Boot disk); the image is never changed.
 - `flatcar_sandbox` is no node model: a manifest node of it is refused
   (`TopologyError::SandboxBaseModel`), pointing to `flatcar_linux` for a Flatcar VM.
