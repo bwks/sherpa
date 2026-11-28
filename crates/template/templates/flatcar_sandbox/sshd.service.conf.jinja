@@ -1,0 +1,6 @@
+[Unit]
+Wants={{ crate::flatcar_sandbox::LINKS_UNIT }}
+After={{ crate::flatcar_sandbox::LINKS_UNIT }}
+
+[Service]
+NetworkNamespacePath=/run/netns/{{ crate::flatcar_sandbox::SANDBOX_NETNS }}

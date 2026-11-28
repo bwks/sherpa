@@ -9,7 +9,7 @@ use shared::data::{
     NumaMemoryMode, QemuCommand, UnikernelBootMode, WatchdogAction, cpuset,
 };
 
-use crate::sandbox::SANDBOX_IMAGE_ARCHIVE_SERIAL;
+use crate::flatcar_sandbox::{SANDBOX_IMAGE_ARCHIVE_SERIAL, SANDBOX_STATUS_CHANNEL};
 
 /// A virtio-serial channel of a domain: the QEMU guest agent's, or the sandbox status channel
 /// bound to its socket.
@@ -100,6 +100,17 @@ pub struct DomainTemplate {
     pub vnc_socket: Option<String>,
     pub tuning: DomainTuning,
     pub watchdog: Option<WatchdogAction>,
+}
+
+impl Channel {
+    /// The name the guest sees the channel by, under `/dev/virtio-ports/`.
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::GuestAgent => "org.qemu.guest_agent.0",
+            Self::Status(_) => SANDBOX_STATUS_CHANNEL,
+        }
+    }
 }
 
 impl fmt::Display for SmbiosSerial {

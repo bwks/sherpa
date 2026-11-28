@@ -108,9 +108,9 @@ container's layer, on the VM's Docker disk, across down and resume.
 ## First boot
 
 Ignition's JSON is generated at run time (`template::SandboxGuest::ignition_json`). Its units,
-drop-ins, scripts and guest files are Askama templates in `crates/template/templates/sandbox/`,
-which take their paths, labels, port names and MTU from the constants in
-`crates/template/src/sandbox.rs`. It sets:
+drop-ins, scripts and guest files are Askama templates in
+`crates/template/templates/flatcar_sandbox/`, which take their paths, labels, port names and MTU
+from the constants in `crates/template/src/flatcar_sandbox.rs`. It sets:
 
 - The kernel's console log level, 4 (see Boot), in the sandbox only.
 - Updates and reboots off (`IgnitionFile::disable_updates`, `update-engine` and `locksmithd`
@@ -411,7 +411,7 @@ of the lab's SSH config (`ssh_config_hosts_010`). `ssh <node>` still reaches the
 node's address. Nothing in sherpad logs in through it; sherpad only reads its host key.
 
 - **Where.** Flatcar's `sshd.service`, enabled, with a drop-in
-  (`templates/sandbox/sshd.service.conf.jinja`) that orders it after `sherpa-links` and runs it in
+  (`templates/flatcar_sandbox/sshd.service.conf.jinja`) that orders it after `sherpa-links` and runs it in
   `sherpa-sandbox` (`NetworkNamespacePath=`), the namespace of `sbx0`. It listens on port 22 of
   the sandbox's own IPv4 and IPv6 addresses only (`ListenAddress`): nothing else listens in that
   namespace, so the port is the usual one, and the network OS, in the VM's first namespace, keeps
@@ -419,7 +419,7 @@ node's address. Nothing in sherpad logs in through it; sherpad only reads its ho
   sshd start; before that, there is no namespace, and sshd does not start.
 - **Who.** `core` only (`AllowUsers`), by key only (`AuthenticationMethods publickey`, password
   and keyboard-interactive off, the latter as Flatcar's PAM would otherwise take one), never
-  root, from `/etc/ssh/sshd_config.d/00-sherpa.conf` (`templates/sandbox/sshd.conf.jinja`), which
+  root, from `/etc/ssh/sshd_config.d/00-sherpa.conf` (`templates/flatcar_sandbox/sshd.conf.jinja`), which
   sshd reads before Flatcar's own drop-ins there, and the first value of a setting wins.
   Ignition gives `core`, which has no password, the lab owner's keys
   (`SandboxCreate::ssh_keys`): Sherpa has no lab key. `core` is in Flatcar's `docker`, `systemd-journal` and `wheel` groups, so `docker ps`,

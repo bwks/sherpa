@@ -1,0 +1,14 @@
+[Unit]
+Description=The node's container
+Requires=docker.service {{ crate::flatcar_sandbox::LINKS_UNIT }}
+After=docker.service {{ crate::flatcar_sandbox::LINKS_UNIT }}
+RequiresMountsFor={{ crate::flatcar_sandbox::SANDBOX_CONFIG_DRIVE_MOUNT }}
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart={{ crate::flatcar_sandbox::NODE_SCRIPT_PATH }}
+
+[Install]
+WantedBy=multi-user.target
+

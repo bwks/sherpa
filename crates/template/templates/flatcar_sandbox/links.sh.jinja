@@ -4,10 +4,10 @@ set -eEu
 
 WAIT_SECONDS=60
 UNWIRED_NETNS=sherpa-unwired
-SANDBOX_NETNS={{ crate::sandbox::SANDBOX_NETNS }}
+SANDBOX_NETNS={{ crate::flatcar_sandbox::SANDBOX_NETNS }}
 
 FAIL_PREFIX="interfaces: "
-source {{ crate::sandbox::REPORT_SCRIPT_PATH }}
+source {{ crate::flatcar_sandbox::REPORT_SCRIPT_PATH }}
 
 # The name of the NIC with MAC $1, once the kernel has it.
 nic_of() {
@@ -44,21 +44,21 @@ add_addresses() {
 
 # The sandbox's own NIC goes into a namespace the network OS does not see, before the other NICs
 # are named, so none takes the name the kernel gave it.
-read -r mac < {{ crate::sandbox::SANDBOX_NIC_FILE }}
+read -r mac < {{ crate::flatcar_sandbox::SANDBOX_NIC_FILE }}
 dev=$(nic_of "$mac") || fail "no NIC with MAC $mac for the sandbox after $WAIT_SECONDS seconds"
 if [ ! -e "/run/netns/$SANDBOX_NETNS" ]; then
   ip netns add "$SANDBOX_NETNS"
 fi
 ip link set dev "$dev" down
 ip link set dev "$dev" netns "$SANDBOX_NETNS"
-ip -n "$SANDBOX_NETNS" link set dev "$dev" name {{ crate::sandbox::SANDBOX_NIC }}
+ip -n "$SANDBOX_NETNS" link set dev "$dev" name {{ crate::flatcar_sandbox::SANDBOX_NIC }}
 ip -n "$SANDBOX_NETNS" link set dev lo up
 # Before it is up, so it never takes an address from a router advertisement.
 ip netns exec "$SANDBOX_NETNS" sysctl -q -w \
-  net.ipv6.conf.{{ crate::sandbox::SANDBOX_NIC }}.accept_ra=0 \
-  net.ipv6.conf.{{ crate::sandbox::SANDBOX_NIC }}.autoconf=0
-ip -n "$SANDBOX_NETNS" link set dev {{ crate::sandbox::SANDBOX_NIC }} up
-add_addresses "$SANDBOX_NETNS" {{ crate::sandbox::SANDBOX_NIC }} < {{ crate::sandbox::SANDBOX_NIC_ADDRESSES_FILE }}
+  net.ipv6.conf.{{ crate::flatcar_sandbox::SANDBOX_NIC }}.accept_ra=0 \
+  net.ipv6.conf.{{ crate::flatcar_sandbox::SANDBOX_NIC }}.autoconf=0
+ip -n "$SANDBOX_NETNS" link set dev {{ crate::flatcar_sandbox::SANDBOX_NIC }} up
+add_addresses "$SANDBOX_NETNS" {{ crate::flatcar_sandbox::SANDBOX_NIC }} < {{ crate::flatcar_sandbox::SANDBOX_NIC_ADDRESSES_FILE }}
 
 # A temporary name first, so a NIC never takes a name another NIC still has.
 index=0
@@ -68,15 +68,15 @@ while read -r mac want; do
   ip link set dev "$dev" down
   ip addr flush dev "$dev"
   ip link set dev "$dev" name "sln$index"
-done < {{ crate::sandbox::INTERFACES_FILE }}
+done < {{ crate::flatcar_sandbox::INTERFACES_FILE }}
 index=0
 while read -r mac want; do
   index=$((index + 1))
   ip link set dev "sln$index" name "$want"
   ip link set dev "$want" up
-done < {{ crate::sandbox::INTERFACES_FILE }}
+done < {{ crate::flatcar_sandbox::INTERFACES_FILE }}
 
-add_addresses "" {{ crate::sandbox::SANDBOX_MANAGEMENT_INTERFACE }} < {{ crate::sandbox::MANAGEMENT_FILE }}
+add_addresses "" {{ crate::flatcar_sandbox::SANDBOX_MANAGEMENT_INTERFACE }} < {{ crate::flatcar_sandbox::MANAGEMENT_FILE }}
 
 # A data interface on no link is a veth whose peer stays down in a namespace of its own, so it
 # has no carrier.
@@ -89,5 +89,5 @@ while read -r mac want; do
   ip link add "$want" address "$mac" mtu {{ shared::konst::MTU_JUMBO_NET }} type veth \
     peer name "unw$index" mtu {{ shared::konst::MTU_JUMBO_NET }} netns "$UNWIRED_NETNS"
   ip link set dev "$want" up
-done < {{ crate::sandbox::PLACEHOLDERS_FILE }}
+done < {{ crate::flatcar_sandbox::PLACEHOLDERS_FILE }}
 

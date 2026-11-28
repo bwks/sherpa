@@ -136,7 +136,7 @@ pub struct SandboxGuest<'a> {
 
 /// The script that creates the node's container on its first boot and starts it on every boot.
 #[derive(Debug, Template)]
-#[template(path = "sandbox/node.sh.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/node.sh.jinja", ext = "txt")]
 pub struct NodeScript {
     pub api_version: String,
     pub socket: String,
@@ -149,57 +149,57 @@ pub struct NodeScript {
 
 /// The sysctl file that sets a sandbox's console log level.
 #[derive(Template)]
-#[template(path = "sandbox/console-loglevel.conf.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/console-loglevel.conf.jinja", ext = "txt")]
 struct ConsoleLogLevel;
 
 /// Docker's drop-in in a sandbox.
 #[derive(Template)]
-#[template(path = "sandbox/docker.conf.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/docker.conf.jinja", ext = "txt")]
 struct DockerOptions;
 
 /// containerd's config in a sandbox.
 #[derive(Template)]
-#[template(path = "sandbox/containerd.toml.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/containerd.toml.jinja", ext = "txt")]
 struct ContainerdConfig;
 
 /// containerd's drop-in in a sandbox.
 #[derive(Template)]
-#[template(path = "sandbox/containerd.conf.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/containerd.conf.jinja", ext = "txt")]
 struct ContainerdOptions;
 
 /// The mount unit of the Docker store disk.
 #[derive(Template)]
-#[template(path = "sandbox/docker-store.mount.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/docker-store.mount.jinja", ext = "txt")]
 struct DockerStoreMount;
 
 /// The mount unit of the config drive.
 #[derive(Template)]
-#[template(path = "sandbox/config-drive.mount.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/config-drive.mount.jinja", ext = "txt")]
 struct ConfigDriveMount;
 
 /// The unit that names and addresses the NICs.
 #[derive(Template)]
-#[template(path = "sandbox/sherpa-links.service.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/sherpa-links.service.jinja", ext = "txt")]
 struct LinksUnit;
 
 /// The unit that starts the node's container.
 #[derive(Template)]
-#[template(path = "sandbox/sherpa-node.service.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/sherpa-node.service.jinja", ext = "txt")]
 struct NodeUnit;
 
 /// The unit of the network OS CLI on the serial console.
 #[derive(Template)]
-#[template(path = "sandbox/sherpa-console.service.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/sherpa-console.service.jinja", ext = "txt")]
 struct ConsoleUnit;
 
 /// The unit that loads the image archive into a Docker store.
 #[derive(Template)]
-#[template(path = "sandbox/sherpa-store.service.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/sherpa-store.service.jinja", ext = "txt")]
 struct StoreUnit;
 
 /// The config of the sandbox's own sshd, listening on `listen` only.
 #[derive(Template)]
-#[template(path = "sandbox/sshd.conf.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/sshd.conf.jinja", ext = "txt")]
 struct SshdConfig<'a> {
     listen: &'a [SocketAddr],
 }
@@ -207,42 +207,42 @@ struct SshdConfig<'a> {
 /// sshd's drop-in, which runs it in the sandbox's own network namespace once that has its
 /// addresses.
 #[derive(Template)]
-#[template(path = "sandbox/sshd.service.conf.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/sshd.service.conf.jinja", ext = "txt")]
 struct SshdOptions;
 
 /// The script that names and addresses the NICs.
 #[derive(Template)]
-#[template(path = "sandbox/links.sh.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/links.sh.jinja", ext = "txt")]
 struct LinksScript;
 
 /// The script of the serial console.
 #[derive(Template)]
-#[template(path = "sandbox/console.sh.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/console.sh.jinja", ext = "txt")]
 struct ConsoleScript;
 
 /// The script that writes a status line to the status channel `channel`, and that the other
 /// scripts source for `fail`.
 #[derive(Debug, Template)]
-#[template(path = "sandbox/report.sh.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/report.sh.jinja", ext = "txt")]
 pub struct ReportScript {
     pub channel: String,
 }
 
 /// The script that loads the image archive into a Docker store.
 #[derive(Template)]
-#[template(path = "sandbox/store.sh.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/store.sh.jinja", ext = "txt")]
 struct StoreScript;
 
 /// The NICs or veths the guest names or makes, one `mac name` line each.
 #[derive(Template)]
-#[template(path = "sandbox/interfaces.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/interfaces.jinja", ext = "txt")]
 struct InterfacesFile<'a> {
     interfaces: &'a [GuestInterface],
 }
 
 /// The addresses of a NIC, one `address/prefix gateway` line each.
 #[derive(Template)]
-#[template(path = "sandbox/addresses.jinja", ext = "txt")]
+#[template(path = "flatcar_sandbox/addresses.jinja", ext = "txt")]
 struct AddressesFile<'a> {
     addresses: &'a [GuestAddress],
 }
