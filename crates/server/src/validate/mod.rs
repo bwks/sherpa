@@ -35,6 +35,8 @@ pub use provisioner::reject_provisioners;
 pub use sandbox_volume::{sandbox_volume_sources, validate_sandbox_volumes};
 pub use service_account::validate_service_account;
 pub use tailscale_gateway::validate_tailscale_gateway_settings;
-pub use version::{validate_and_resolve_node_versions, validate_container_repo};
+pub use version::{
+    validate_and_resolve_node_versions, validate_container_repo, validate_sandbox_image,
+};
 pub use web_redeploy::check_web_redeployable;
 pub use ztp::validate_node_ztp;

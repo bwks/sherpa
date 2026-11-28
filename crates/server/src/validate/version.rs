@@ -6,7 +6,7 @@ use shared::data::{KindSettings, ModelKind, NodeConfig, NodeKind, NodeModel};
 use shared::util::image_filename;
 use topology::Node;
 
-use crate::services::error::{ServiceError, VERSION_CHECK_FAILED};
+use crate::services::error::{SandboxRefusal, ServiceError, VERSION_CHECK_FAILED};
 
 /// Validate and resolve node versions and images
 ///
@@ -90,12 +90,13 @@ pub fn validate_and_resolve_node_versions(
         // Step 4: Check image/disk existence based on node kind
         match node_image.kind() {
             NodeKind::Container => {
-                let repo = node_images
-                    .iter()
-                    .find(|c| {
-                        c.model == node.model && c.kind() == kind && c.version == resolved_version
-                    })
-                    .and_then(|c| c.container_repo(node.image.as_deref()));
+                let record = node_images.iter().find(|c| {
+                    c.model == node.model && c.kind() == kind && c.version == resolved_version
+                });
+                if let Some(record) = record {
+                    validate_sandbox_image(&node.name, model_kind, node.image.as_deref(), record)?;
+                }
+                let repo = record.and_then(|c| c.container_repo(node.image.as_deref()));
                 updated_node.image = Some(validate_container_repo(
                     &node.name,
                     node.model,
@@ -163,6 +164,41 @@ pub fn validate_container_repo(
     })
 }
 
+/// Refuse sandbox node `node_name` of `model_kind` whose manifest `image` names a repo other than
+/// the one recorded for its image `image`: a sandbox runs the imported image of its model and
+/// version, whose Docker store is keyed by them. A node that runs in no sandbox, one with no
+/// manifest `image` or the recorded repo, and an image with no recorded repo pass.
+///
+/// # Errors
+///
+/// Fails with [`SandboxRefusal::ImageOverride`] naming the node, both repos and the image's model
+/// and version.
+pub fn validate_sandbox_image(
+    node_name: &str,
+    model_kind: ModelKind,
+    manifest_image: Option<&str>,
+    image: &NodeConfig,
+) -> Result<()> {
+    if !model_kind.runs_in_sandbox() {
+        return Ok(());
+    }
+    let (Some(manifest_image), Some(recorded)) = (manifest_image, image.container_repo(None))
+    else {
+        return Ok(());
+    };
+    if manifest_image == recorded {
+        return Ok(());
+    }
+    Err(ServiceError::Sandbox(SandboxRefusal::ImageOverride {
+        node: node_name.to_owned(),
+        image: manifest_image.to_owned(),
+        recorded,
+        model: image.model,
+        version: image.version.clone(),
+    })
+    .into())
+}
+
 /// Validate disk image file exists on filesystem for VMs and unikernels.
 fn validate_disk_image(
     node_name: &str,
@@ -198,6 +234,7 @@ fn validate_disk_image(
 mod tests {
     use super::*;
     use shared::data::ContainerSettings;
+    use std::slice;
 
     /// An image of `model` as `kind` at `version`, not the default; a container's repo is
     /// `test-repo`.
@@ -451,6 +488,45 @@ mod tests {
                 version: "17".to_owned(),
             })
         );
+    }
+
+    #[test]
+    fn sandbox_108_a_sandbox_node_whose_manifest_image_is_another_repo_is_refused_naming_both() {
+        let mut config =
+            create_test_node_image(NodeModel::AristaEos, "4.35.1F", NodeKind::Container);
+        set_repo(&mut config, Some("localrepo/arista_ceos"));
+        config.default = true;
+        let node = |image: Option<&str>| Node {
+            image: image.map(str::to_string),
+            ..create_test_container("ceos1", NodeModel::AristaEos, Some("4.35.1F"))
+        };
+
+        let error = validate_and_resolve_node_versions(
+            &[node(Some("mirror.example/ceos"))],
+            slice::from_ref(&config),
+            "/tmp/images",
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error.downcast_ref::<ServiceError>(),
+            Some(&ServiceError::Sandbox(SandboxRefusal::ImageOverride {
+                node: "ceos1".to_owned(),
+                image: "mirror.example/ceos".to_owned(),
+                recorded: "localrepo/arista_ceos".to_owned(),
+                model: NodeModel::AristaEos,
+                version: "4.35.1F".to_owned(),
+            }))
+        );
+        for image in [None, Some("localrepo/arista_ceos")] {
+            let resolved = validate_and_resolve_node_versions(
+                &[node(image)],
+                slice::from_ref(&config),
+                "/tmp/images",
+            )
+            .unwrap();
+            assert_eq!(resolved[0].image.as_deref(), Some("localrepo/arista_ceos"));
+        }
     }
 
     /// The image a container node of `model` resolves to when its version was pulled from

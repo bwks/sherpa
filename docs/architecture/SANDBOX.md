@@ -245,7 +245,12 @@ sequenceDiagram
 
 - **Name.** `IMAGES/MODEL/sandbox/VERSION/virtiob.qcow2`, keyed by the node image's model and
   version, such as `arista_eos/sandbox/4.35.0F/virtiob.qcow2` for cEOS 4.35.0F (`Store::path`,
-  `sandbox_105`). The version `sandbox` is refused on import and pull (`image_import_028`), and
+  `sandbox_105`). A sandbox runs the imported image of its model and version, the repo its image
+  record names: `up` and `redeploy` refuse, while they plan and before creating anything, a
+  sandbox node whose manifest `image` names another repo (`validate::validate_sandbox_image`,
+  `SandboxRefusal::ImageOverride`, which names the node, both repos and the model and version,
+  `sandbox_108`). Nodes that run in no sandbox keep the manifest's `image` over the recorded
+  repo. The version `sandbox` is refused on import and pull (`image_import_028`), and
   the image scan skips the `sandbox` folder (`image_scan_022`).
 - **Made** at the first `up` or `redeploy` that needs it (`store::ensure_docker_store`), one at a
   time per store, in a task that holds the store's lock until the build ends
@@ -505,9 +510,6 @@ A sandbox gets the manifest's or the image's `memory` with 1024 MiB on top
   its rsyslogd restarts take over about 60 s, as when the lab's name server does not answer; it
   then falls back to the next config, and the node has no `dev` login.
 - `frr_linux` and the `juniper_evolved` container run privileged on the server's Docker.
-- A Docker store is keyed by its model and version, not by the image: two nodes of one model and
-  version whose manifests name different `image` repos share the store the first made, and the
-  other's container is not in it, so its VM reports Docker's `No such image`.
 - The kernel prints its boot messages on the serial console, the network OS's, until
   `systemd-sysctl` sets the console log level, unless the base image has the `quiet` edit; each
   character is a VM exit, which costs most in a nested VM.

@@ -656,6 +656,20 @@ pub enum SandboxRefusal {
          instead."
     )]
     VncConsole { node: String },
+
+    #[error(
+        "Node '{node}' runs in a sandbox, which runs the imported {model} {version} image, \
+         {recorded}, and its manifest image is another repo, {image}. Remove the node's 'image', \
+         or pull that repo as a version of its own with 'sherpa server image pull --model \
+         {model} --repo {image}:<tag>' and set the node's 'version' to it"
+    )]
+    ImageOverride {
+        node: String,
+        image: String,
+        recorded: String,
+        model: NodeModel,
+        version: String,
+    },
 }
 
 /// Why a sandbox's config drive cannot carry a file or folder of a volume's source.
@@ -793,7 +807,9 @@ impl SandboxRefusal {
         match self {
             Self::BaseImageMissing | Self::BaseDiskMissing { .. } => ServiceCategory::NotFound,
             Self::AddressMissing { .. } => ServiceCategory::Conflict,
-            Self::VolumeRefused { .. } | Self::VncConsole { .. } => ServiceCategory::Invalid,
+            Self::VolumeRefused { .. } | Self::VncConsole { .. } | Self::ImageOverride { .. } => {
+                ServiceCategory::Invalid
+            }
         }
     }
 }

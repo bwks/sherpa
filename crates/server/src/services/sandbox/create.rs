@@ -445,11 +445,10 @@ mod tests {
                 let _ = libvirt::delete_disk(&conn, &volume);
             }
             let _ = console::remove_console_dir(Path::new(SHERPA_CONSOLE_DIR), self.lab_id);
-            // The store of the test's own version, made by root here.
-            let paths = ImagePaths::installed();
-            let store = paths.sandbox_store_dir(NodeModel::SonicLinux, self.lab_id);
-            let _ = fs::remove_dir_all(&store);
-            if let Some(models_stores) = store.parent() {
+            let test_version_store =
+                ImagePaths::installed().sandbox_store_dir(NodeModel::SonicLinux, self.lab_id);
+            let _ = fs::remove_dir_all(&test_version_store);
+            if let Some(models_stores) = test_version_store.parent() {
                 let _ = fs::remove_dir(models_stores);
             }
             // Made by root here, the folder would refuse sherpad later; empty, it is made again.

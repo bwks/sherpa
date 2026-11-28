@@ -150,6 +150,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 105 | A Docker store is keyed by its model and version: `virtiob.qcow2` in the version's folder of the model's `sandbox` folder in the images folder, such as `arista_eos/sandbox/4.35.0F/virtiob.qcow2` | unit |
 | 106 | A finished store is moved from the storage pool to its folder, made with the images folder's mode, and has an imported image's mode | unit |
 | 107 | A store that cannot be renamed to its folder is copied beside its path and renamed onto it, so it is never seen half written, and a failed copy leaves nothing | unit |
+| 108 | Up refuses a sandbox node whose manifest `image` is another repo than its image record's while it plans, before creating anything, naming the node, both repos and the model and version; the recorded repo, or no `image`, is taken (redeploy refuses it with the same check) | unit |
 
 ## `node_ready`: a node is running only once its ready check passes
 
