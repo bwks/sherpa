@@ -650,7 +650,7 @@ fn sandbox_100_a_sandboxs_domain_carries_the_tuning_its_node_gives_it() {
     ));
     assert!(xml.contains("<numatune><memory mode='strict' nodeset='0'/></numatune>"));
     assert!(xml.contains(
-        "<driver name='qemu' type='qcow2' cache='none' io='native' iothread='1'/>\
+        "<driver name='qemu' type='qcow2'cache='none'io='native'iothread='1'/>\
          <source file='/opt/sherpa/libvirt/images/ceos1-abc12345-hdd.qcow2'/>"
     ));
     // The management NIC and each data NIC take the queues; the sandbox's own NIC none.

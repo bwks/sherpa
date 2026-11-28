@@ -127,7 +127,10 @@ fn test_domain_has_a_virtio_scsi_controller_only_for_scsi_disks() {
     // libvirt takes an I/O thread only on a virtio disk, so a SCSI disk's is on its controller.
     template.tuning.io_thread_cpuset = Some("2".to_string());
     let xml = template.render().unwrap();
-    assert!(xml.contains("<driver name='qemu' type='qcow2'/>"), "{xml}");
+    assert!(
+        xml.contains("<driver name='qemu' type='qcow2'\n      />"),
+        "{xml}"
+    );
     assert!(
         xml.contains(
             "<controller type='scsi' index='0' model='virtio-scsi'>\n      <driver iothread='1'/>"
@@ -324,7 +327,7 @@ fn vm_tuning_018_pinning_gives_the_domains_vcpu_pins_emulator_pin_and_one_pinned
         "{xml}"
     );
     assert!(
-        xml.contains("<driver name='qemu' type='qcow2' iothread='1'/>"),
+        xml.contains("<driver name='qemu' type='qcow2'\n        iothread='1'\n      />"),
         "{xml}"
     );
 }
@@ -383,7 +386,9 @@ fn vm_tuning_022_boot_disk_cache_and_io_are_on_the_domains_disk_driver() {
     domain.tuning.disk_io = Some(DiskIo::IoUring);
     let xml = domain.render().expect("renders domain XML");
     assert!(
-        xml.contains("<driver name='qemu' type='qcow2' cache='none' io='io_uring'/>"),
+        xml.contains(
+            "<driver name='qemu' type='qcow2'\n        cache='none'\n        io='io_uring'\n      />"
+        ),
         "{xml}"
     );
 }

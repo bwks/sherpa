@@ -5338,7 +5338,7 @@ echo "$*" >> '{}'
         let xml = domain.render().unwrap();
         assert_eq!(domain.video_model, VideoModel::Virtio);
         assert!(domain.video_vram.is_none());
-        assert!(xml.contains("<model type='virtio' heads='1'/>"));
+        assert!(xml.contains("<model type='virtio'\n        heads='1'\n      />"));
         assert!(xml.contains("OVMF_CODE_4M.fd"));
         assert!(xml.find("<boot dev='cdrom'/>").unwrap() < xml.find("<boot dev='hd'/>").unwrap());
         assert_eq!(config.ztp(), data::Ztp::CloudInit);
