@@ -107,9 +107,9 @@ container's layer, on the VM's Docker disk, across down and resume.
 ## First boot
 
 Ignition's JSON is generated at run time (`template::SandboxGuest::ignition_json`). Its units,
-drop-ins, scripts and guest files are Askama templates in `crates/template/templates/sandbox/`,
-which take their paths, labels, port names and MTU from the constants in
-`crates/template/src/sandbox.rs`. It sets:
+drop-ins, scripts and guest files are Askama templates in
+`crates/template/templates/flatcar_sandbox/`, which take their paths, labels, port names and MTU
+from the constants in `crates/template/src/flatcar_sandbox.rs`. It sets:
 
 - The kernel's console log level, 4 (see Boot), in the sandbox only.
 - Updates and reboots off (`IgnitionFile::disable_updates`, `update-engine` and `locksmithd`

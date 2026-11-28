@@ -2,8 +2,8 @@
 # Opens the node's network OS CLI on the VM's serial console once Enter is pressed.
 set -eu
 
-name=$(cat {{ crate::sandbox::CONTAINER_FILE }})
-mapfile -t command < {{ crate::sandbox::CONSOLE_COMMAND_FILE }}
+name=$(cat {{ crate::flatcar_sandbox::CONTAINER_FILE }})
+mapfile -t command < {{ crate::flatcar_sandbox::CONSOLE_COMMAND_FILE }}
 echo
 echo "$(hostname) console: press Enter to open the network OS CLI"
 read -r _

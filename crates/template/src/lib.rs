@@ -16,6 +16,7 @@ mod crypt;
 mod cumulus_linux;
 mod dnsmasq;
 mod domain;
+mod flatcar_sandbox;
 mod frr;
 mod guest_yaml;
 mod ignition;
@@ -23,7 +24,6 @@ mod juniper_junos;
 mod mikrotik_routeros;
 mod nokia_srlinux;
 mod paloalto_panos;
-mod sandbox;
 mod sonic_linux;
 mod ssh;
 mod talos;
@@ -53,6 +53,12 @@ pub use domain::{
     BootDevice, Channel, DomainTemplate, DomainTuning, FlatcarDomain, MemballoonModel, RngBackend,
     SandboxDomain, SmbiosSerial, UnikernelDomainTemplate, UsbController, VideoModel,
 };
+pub use flatcar_sandbox::{
+    GuestAddress, GuestInterface, NodeScript, ReportScript, SANDBOX_CONFIG_DRIVE_LABEL,
+    SANDBOX_CONFIG_DRIVE_MOUNT, SANDBOX_CONFIG_DRIVE_USER_DATA, SANDBOX_CONTAINER_BODY,
+    SANDBOX_IMAGE_ARCHIVE_SERIAL, SANDBOX_MANAGEMENT_INTERFACE, SandboxGuest, SandboxOwnNic,
+    WritableVolume, store_vm_ignition_json,
+};
 pub use frr::{FrrDaemonsTemplate, FrrStartupTemplate, FrrZtpTemplate};
 pub use ignition::{
     FileMode, IgnitionConfig, IgnitionDirectory, IgnitionFile, IgnitionFileContents,
@@ -62,12 +68,6 @@ pub use juniper_junos::JunipervJunosZtpTemplate;
 pub use mikrotik_routeros::MikrotikRouterosZtpTemplate;
 pub use nokia_srlinux::build_srlinux_config;
 pub use paloalto_panos::{PaloAltoPanosBootstrapTemplate, PaloAltoPanosZtpTemplate};
-pub use sandbox::{
-    GuestAddress, GuestInterface, NodeScript, ReportScript, SANDBOX_CONFIG_DRIVE_LABEL,
-    SANDBOX_CONFIG_DRIVE_MOUNT, SANDBOX_CONFIG_DRIVE_USER_DATA, SANDBOX_CONTAINER_BODY,
-    SANDBOX_IMAGE_ARCHIVE_SERIAL, SANDBOX_MANAGEMENT_INTERFACE, SandboxGuest, SandboxOwnNic,
-    WritableVolume, store_vm_ignition_json,
-};
 pub use sonic_linux::{
     SonicLinuxContainerInitTemplate, SonicLinuxContainerSupervisordTemplate,
     SonicLinuxUserTemplate, SonicLinuxZtp,

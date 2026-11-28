@@ -5,7 +5,7 @@ After=docker.service
 
 [Service]
 Type=oneshot
-ExecStart={{ crate::sandbox::STORE_SCRIPT_PATH }}
+ExecStart={{ crate::flatcar_sandbox::STORE_SCRIPT_PATH }}
 
 [Install]
 WantedBy=multi-user.target

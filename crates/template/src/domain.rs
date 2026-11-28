@@ -9,7 +9,7 @@ use shared::data::{
     NumaMemoryMode, QemuCommand, UnikernelBootMode, WatchdogAction, cpuset,
 };
 
-use crate::sandbox::{SANDBOX_IMAGE_ARCHIVE_SERIAL, SANDBOX_STATUS_CHANNEL};
+use crate::flatcar_sandbox::{SANDBOX_IMAGE_ARCHIVE_SERIAL, SANDBOX_STATUS_CHANNEL};
 
 /// A virtio-serial channel of a domain: the QEMU guest agent's, or the sandbox status channel
 /// bound to its socket.
