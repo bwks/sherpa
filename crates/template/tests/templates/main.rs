@@ -15,6 +15,7 @@ mod cloudbase_init;
 mod cumulus_linux;
 mod dnsmasq;
 mod domain;
+mod flatcar_sandbox;
 mod frr;
 mod ignition;
 mod juniper_junos;

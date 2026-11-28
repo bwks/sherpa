@@ -57,6 +57,22 @@ pub fn node_management_host_offset(node_index: u16) -> Result<u32> {
     Ok(offset)
 }
 
+/// Management host offset of sandbox `rank` (1-based, in node index order) of a lab of
+/// `node_count` nodes: the sandboxes' own addresses follow the nodes' in the lab node block.
+///
+/// # Errors
+///
+/// Fails when the sandbox's address is past the end of the node address range.
+pub fn sandbox_management_host_offset(node_count: u16, rank: u16) -> Result<u32> {
+    node_count
+        .checked_add(rank)
+        .context("The sandbox has no management address")
+        .and_then(node_management_host_offset)
+        .with_context(|| {
+            format!("Sandbox {rank} of a lab of {node_count} nodes has no management address")
+        })
+}
+
 /// Whether `subnet` overlaps any of `networks`: either contains the other's network address.
 #[must_use]
 pub fn ipv4_overlaps_any(subnet: &Ipv4Net, networks: &[Ipv4Net]) -> bool {
@@ -324,6 +340,15 @@ mod tests {
         let base = Ipv6Addr::from_str("fd00:b00b::").unwrap().to_bits();
         let addr = Ipv6Addr::from_bits(base + (u128::from(index) << 64));
         Ipv6Net::new(addr, 64).unwrap()
+    }
+
+    #[test]
+    fn lab_addressing_010_sandboxes_take_addresses_after_the_nodes_and_one_past_is_refused() {
+        assert_eq!(sandbox_management_host_offset(3, 1).unwrap(), 24);
+        assert_eq!(sandbox_management_host_offset(3, 2).unwrap(), 25);
+        assert_eq!(sandbox_management_host_offset(117, 117).unwrap(), 254);
+        assert!(sandbox_management_host_offset(118, 117).is_err());
+        assert!(sandbox_management_host_offset(u16::MAX, 1).is_err());
     }
 
     #[test]

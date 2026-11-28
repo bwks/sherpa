@@ -23,8 +23,11 @@ pub(super) async fn destroy_node(redeploy: &Redeploy<'_>) -> Result<()> {
         StatusKind::Progress,
     );
 
-    match redeploy.node_image.kind() {
-        data::NodeKind::VirtualMachine => {
+    match (
+        redeploy.node_image.kind(),
+        redeploy.target_node.model_kind.runs_in_sandbox(),
+    ) {
+        (data::NodeKind::VirtualMachine, _) | (data::NodeKind::Container, true) => {
             node_ops::destroy_vm_node(
                 redeploy.qemu_conn.clone(),
                 node_name,
@@ -34,10 +37,10 @@ pub(super) async fn destroy_node(redeploy: &Redeploy<'_>) -> Result<()> {
             )
             .await?;
         }
-        data::NodeKind::Container => {
+        (data::NodeKind::Container, false) => {
             node_ops::destroy_container_node(&redeploy.state.docker, node_name, lab_id).await?;
         }
-        data::NodeKind::Unikernel => {
+        (data::NodeKind::Unikernel, _) => {
             return Err(ServiceError::Invalid(
                 "Redeploy not supported for unikernel nodes".to_owned(),
             )

@@ -176,6 +176,7 @@ impl ModelKind {
                 NodeKind::VirtualMachine | NodeKind::Unikernel => NodeConfig::sonic_linux_vm(),
             },
             NodeModel::FlatcarLinux => NodeConfig::flatcar_linux(),
+            NodeModel::FlatcarSandbox => NodeConfig::flatcar_sandbox(),
             NodeModel::TalosLinux => NodeConfig::talos_linux(),
 
             // BSD
@@ -292,7 +293,8 @@ impl ModelKind {
             | NodeModel::CiscoIol
             | NodeModel::CiscoIoll2
             | NodeModel::FrrLinux => &[Ztp::Volume],
-            NodeModel::GitlabCe
+            NodeModel::FlatcarSandbox
+            | NodeModel::GitlabCe
             | NodeModel::ForgejoForge
             | NodeModel::SurrealDb
             | NodeModel::MysqlDb
@@ -321,6 +323,28 @@ impl ModelKind {
         self.model == NodeModel::JuniperEvolved && self.kind == NodeKind::Container
     }
 
+    /// Whether a container of this model runs in a Flatcar VM of its own, on that VM's Docker,
+    /// instead of on the server's: the built-in models that need root-like privileges to boot.
+    #[must_use]
+    pub fn runs_in_sandbox(self) -> bool {
+        self.kind == NodeKind::Container
+            && matches!(
+                self.model,
+                NodeModel::AristaEos | NodeModel::NokiaSrlinux | NodeModel::SonicLinux
+            )
+    }
+
+    /// The kind of node sherpad runs a node of this model and kind as: a container that runs in
+    /// a sandbox runs as its VM's domain, every other node as its own kind.
+    #[must_use]
+    pub fn runs_as(self) -> NodeKind {
+        if self.runs_in_sandbox() {
+            NodeKind::VirtualMachine
+        } else {
+            self.kind
+        }
+    }
+
     /// Whether the host must finish the checksums of packets it sends to a container of this
     /// model, so transmit checksum offload goes off on the host end of its veths. IOL reads its
     /// interfaces through packet sockets, which hand it a packet whose checksum a veth left for
@@ -330,11 +354,10 @@ impl ModelKind {
         matches!(self.model, NodeModel::CiscoIol | NodeModel::CiscoIoll2)
     }
 
-    /// The TCP port that shows a node of this model and kind is ready, when the manifest sets
-    /// none: SSH for a virtual machine, or the Talos API for Talos Linux, which has no SSH.
-    /// The `sonic_linux` container has SSH too: Sherpa's start script starts its SSH server last, once
-    /// the switch is up and its config loaded. `None` for any other container or a unikernel,
-    /// which is ready once it runs.
+    /// The TCP port that shows a node of this model and kind is ready when the manifest sets
+    /// none: SSH for a virtual machine and a container that runs in a sandbox, the Talos API for
+    /// Talos Linux, which has no SSH, and `None` for any other container or a unikernel, which is
+    /// ready once it runs.
     #[must_use]
     pub fn ready_port(self) -> Option<u16> {
         match self.kind {
@@ -342,7 +365,7 @@ impl ModelKind {
                 NodeModel::TalosLinux => TALOS_API_PORT,
                 _ => SSH_PORT,
             }),
-            NodeKind::Container if self.model == NodeModel::SonicLinux => Some(SSH_PORT),
+            NodeKind::Container if self.runs_in_sandbox() => Some(SSH_PORT),
             NodeKind::Container | NodeKind::Unikernel => None,
         }
     }
@@ -396,6 +419,27 @@ mod tests {
     use serde_json::error::Category;
 
     use super::*;
+
+    #[test]
+    fn sandbox_017_the_three_models_containers_run_in_sandboxes_and_run_as_vms() {
+        for model in [
+            NodeModel::AristaEos,
+            NodeModel::NokiaSrlinux,
+            NodeModel::SonicLinux,
+        ] {
+            let container = ModelKind::new(model, Some(NodeKind::Container)).unwrap();
+            assert!(container.runs_in_sandbox(), "{model}");
+            assert_eq!(container.runs_as(), NodeKind::VirtualMachine, "{model}");
+        }
+        for model in [NodeModel::FrrLinux, NodeModel::CiscoIol, NodeModel::Generic] {
+            let container = ModelKind::new(model, Some(NodeKind::Container)).unwrap();
+            assert!(!container.runs_in_sandbox(), "{model}");
+            assert_eq!(container.runs_as(), NodeKind::Container, "{model}");
+        }
+        let veos = ModelKind::default_for(NodeModel::AristaEos);
+        assert!(!veos.runs_in_sandbox());
+        assert_eq!(veos.runs_as(), NodeKind::VirtualMachine);
+    }
 
     #[test]
     fn node_kind_004_a_model_and_kind_from_json_are_refused_when_the_model_does_not_take_it() {

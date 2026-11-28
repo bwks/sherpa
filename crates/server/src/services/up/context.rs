@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use bollard::Docker;
 
+use crate::daemon::sandbox_disks::SandboxDiskLocks;
 use crate::services::progress::ProgressSender;
 
 use db::Database;
@@ -20,5 +21,6 @@ pub(super) struct LabBuild<'a> {
     pub(super) qemu_conn: &'a Arc<QemuConnection>,
     pub(super) qemu: &'a Arc<Qemu>,
     pub(super) config: &'a Config,
+    pub(super) sandbox_disk_locks: &'a SandboxDiskLocks,
     pub(super) progress: &'a ProgressSender,
 }

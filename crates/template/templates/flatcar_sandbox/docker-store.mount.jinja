@@ -1,0 +1,13 @@
+[Unit]
+Description=Docker store
+Before=containerd.service docker.service
+
+[Mount]
+What=/dev/disk/by-label/{{ crate::flatcar_sandbox::DOCKER_STORE_LABEL }}
+Where={{ crate::flatcar_sandbox::DOCKER_DATA_DIR }}
+Type=ext4
+Options=noinit_itable
+
+[Install]
+RequiredBy=containerd.service docker.service
+

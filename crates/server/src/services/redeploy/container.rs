@@ -4,24 +4,28 @@
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
+use tokio::time;
 use tracing::instrument;
 
 use super::context::Redeploy;
 use super::ready::{ReadyWait, ready_wait, wait_until_ready};
 use crate::konst::{SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR};
 use crate::services::container_networks;
+use crate::services::error::{SandboxRefusal, ServiceError};
 use crate::services::keycloak;
 use crate::services::lab_operations::LabOperation;
 use crate::services::node_lifecycle::{self, query_runtimes};
-use crate::services::node_ops::{self, ContainerZtpResult, LabZtp};
+use crate::services::node_ops::{self, ContainerSettings, ContainerZtpResult, LabZtp};
 use crate::services::node_secrets::secrets_for_redeploy;
 use crate::services::p2p_links::{
     ContainerNode, ContainerVeth, KernelHost, LabLinks, RecreatedEnd, container_veths,
     data_interface_indices, follow_started_links, node_bridge_interfaces, node_links,
     reattach_node_links, report_links,
 };
+use crate::services::sandbox::{self, SandboxCreate, SandboxHost};
 use crate::services::talos;
 use crate::services::vault;
 use crate::tls::lab_ca::NodeCertPaths;
@@ -71,47 +75,15 @@ pub(super) async fn redeploy_container(
     } = plan_data_interfaces(redeploy).await?;
     let db = &redeploy.state.db;
 
-    let mgmt_attachment = data::ContainerNetworkAttachment {
-        name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
-        ipv4_address: Some(redeploy.ipv4.to_string()),
-        ipv6_address: None,
-        linux_interface_name: None,
-        admin_down: false,
-    };
-
-    // Secret files are replaced, removed or kept, and mounted from RAM.
-    let mut volumes = ztp_result.volumes;
-    if let Some(dir) = secrets_for_redeploy(
-        Path::new(SHERPA_SECRETS_DIR),
-        lab_id,
-        node_name,
-        redeploy.secrets.as_deref(),
-    )
-    .with_context(|| format!("Cannot write secret files for node '{node_name}'"))?
-    {
-        volumes.push(format!("{}:{CONTAINER_SECRETS_DIR}:ro", dir.display()));
-    }
-
     let has_disabled = additional_networks.iter().any(|n| n.admin_down);
     let is_running = node_ops::start_container_node(
         &redeploy.state.docker,
         &redeploy.state.qemu,
         ContainerSpec {
-            name: container_name.clone(),
-            // The node name, as its own config names it; Docker's default is the ID.
-            hostname: Some(node_name.to_owned()),
-            image: container::image_reference(&ztp_result.image, &redeploy.node_image.version),
-            env_vars: ztp_result.env_vars,
-            volumes,
-            capabilities: ztp_result.capabilities,
-            management_network: mgmt_attachment,
             additional_networks,
-            commands: ztp_result.commands,
-            privileged: ztp_result.privileged,
-            shm_size: ztp_result.shm_size,
-            user: ztp_result.user,
             memory_mib: redeploy.db_node.memory.map(u64::from),
             cpu_count: redeploy.db_node.cpu_count,
+            ..redeployed_container_spec(redeploy, ztp_result.settings)?
         },
         redeploy.target_node.model_kind,
         redeploy.progress,
@@ -136,7 +108,19 @@ pub(super) async fn redeploy_container(
         network::set_link_state(&isolated.bridge_name, false).await?;
     }
 
-    let link_reports = attach_links(redeploy, &lab_links, container_name, p2p_veths).await;
+    let link_reports = if p2p_veths.is_empty() {
+        Vec::new()
+    } else {
+        attach_links(
+            redeploy,
+            &lab_links,
+            RecreatedEnd::Container {
+                container: container_name,
+                veths: p2p_veths,
+            },
+        )
+        .await
+    };
 
     match ready_wait(&redeploy.db_node.ready_check) {
         ReadyWait::Port(_) => {
@@ -156,27 +140,176 @@ pub(super) async fn redeploy_container(
     Ok(link_reports)
 }
 
-/// Make the redeployed container's veths, attach its links, and report each link's state.
+/// Configure a container that runs in a sandbox again, create its VM with its link ends as
+/// taps, wait for the VM to start its container, re-attach its links, and wait for it as
+/// `redeploy_container` does (stages 4 and 5), returning its links' states.
+#[instrument(skip_all, fields(lab_id = %redeploy.lab_id, node_name = %redeploy.node_name), level = "debug")]
+pub(super) async fn redeploy_sandbox(
+    redeploy: &mut Redeploy<'_>,
+    cert_paths: &NodeCertPaths,
+) -> Result<Vec<LinkReport>> {
+    let ztp_result = configure_container(redeploy, cert_paths)?;
+    let node_name = redeploy.node_name.clone();
+    let _ = redeploy.progress.send_status(
+        format!("Creating the VM of node: {node_name}"),
+        StatusKind::Progress,
+    );
+    let db = &redeploy.state.db;
+    let lab_links = LabLinks::load(db, &redeploy.lab_id, &redeploy.lab_record_id).await?;
+    let mut watch = sandbox::create_sandbox(
+        &SandboxHost {
+            docker: Arc::clone(&redeploy.state.docker),
+            qemu: Arc::clone(&redeploy.state.qemu),
+            qemu_bin: redeploy.state.config.qemu_bin.clone(),
+            base: redeploy.sandbox_base.clone(),
+            disk_locks: redeploy.state.sandbox_disk_locks.clone(),
+            progress: redeploy.progress.clone(),
+        },
+        SandboxCreate {
+            lab_id: redeploy.lab_id.clone(),
+            lab_dir: redeploy.lab_dir.clone(),
+            node_name: node_name.clone(),
+            node_index: redeploy.db_node.index,
+            model_kind: redeploy.target_node.model_kind,
+            version: redeploy
+                .target_node
+                .version
+                .clone()
+                .context("The node has no image version")?,
+            spec: redeployed_container_spec(redeploy, ztp_result.settings)?,
+            dns: redeploy.dns.clone(),
+            memory: redeploy
+                .db_node
+                .memory
+                .context("The node has no memory recorded")?,
+            vcpus: redeploy
+                .db_node
+                .cpu_count
+                .context("The node has no vCPUs recorded")?,
+            tuning: sandbox::sandbox_tuning(&redeploy.target_node),
+            veths: sandbox_link_ends(redeploy, &lab_links).await?,
+            mgmt_net: redeploy.mgmt_net.clone(),
+            ipv4: redeploy.ipv4,
+            ipv6: redeploy.target_node.ipv6_address,
+            own_address: redeploy.vm_sandbox.clone().ok_or_else(|| {
+                ServiceError::Sandbox(SandboxRefusal::AddressMissing {
+                    node: node_name.clone(),
+                })
+            })?,
+        },
+    )
+    .await?;
+    let timeout = redeploy.ready_timeout();
+    time::timeout(timeout, watch.wait_started())
+        .await
+        .with_context(|| {
+            format!(
+                "Sandbox {node_name} did not start its container within {} seconds",
+                timeout.as_secs()
+            )
+        })??;
+    node_lifecycle::record(
+        db,
+        redeploy.operation,
+        &redeploy.node_record_id,
+        OperationEvent::Launched,
+    )
+    .await?;
+    let link_reports = attach_links(redeploy, &lab_links, RecreatedEnd::Domain).await;
+    match ready_wait(&redeploy.db_node.ready_check) {
+        ReadyWait::Port(_) => wait_until_ready(redeploy).await?,
+        ReadyWait::Skipped | ReadyWait::Running => {
+            node_lifecycle::record(
+                db,
+                redeploy.operation,
+                &redeploy.node_record_id,
+                OperationEvent::Ready,
+            )
+            .await?;
+        }
+    }
+    Ok(link_reports)
+}
+
+/// The container a redeployed node runs, from its generated `settings` with its secret files,
+/// replaced, removed or kept, mounted from RAM.
+///
+/// # Errors
+///
+/// Fails when the secret files cannot be written.
+fn redeployed_container_spec(
+    redeploy: &Redeploy<'_>,
+    mut settings: ContainerSettings,
+) -> Result<ContainerSpec> {
+    let node_name = redeploy.node_name.as_str();
+    if let Some(dir) = secrets_for_redeploy(
+        Path::new(SHERPA_SECRETS_DIR),
+        &redeploy.lab_id,
+        node_name,
+        redeploy.secrets.as_deref(),
+    )
+    .with_context(|| format!("Cannot write secret files for node '{node_name}'"))?
+    {
+        settings.volumes.push(data::ContainerMount::read_only(
+            dir.display().to_string(),
+            CONTAINER_SECRETS_DIR,
+        ));
+    }
+    Ok(node_ops::container_spec(
+        &redeploy.lab_id,
+        node_name,
+        &redeploy.node_image.version,
+        settings,
+        data::ContainerNetworkAttachment {
+            name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{}", redeploy.lab_id),
+            ipv4_address: Some(redeploy.ipv4.to_string()),
+            ipv6_address: None,
+            linux_interface_name: None,
+            admin_down: false,
+        },
+    ))
+}
+
+/// The link ends of a sandbox being redeployed: a tap for each of its data interfaces when it
+/// is on a link or bridge, else none.
+async fn sandbox_link_ends(
+    redeploy: &Redeploy<'_>,
+    lab_links: &LabLinks,
+) -> Result<Vec<ContainerVeth>> {
+    let links = node_links(lab_links.links(), &redeploy.node_record_id);
+    let bridge_interfaces = node_bridge_interfaces(
+        &db::list_bridges(&redeploy.state.db, &redeploy.lab_record_id).await?,
+        &redeploy.node_record_id,
+    );
+    if links.is_empty() && bridge_interfaces.is_empty() {
+        return Ok(vec![]);
+    }
+    container_veths(
+        &ContainerNode {
+            lab_id: &redeploy.lab_id,
+            name: &redeploy.node_name,
+            index: redeploy.db_node.index,
+            model_kind: redeploy.target_node.model_kind,
+            record: &redeploy.node_record_id,
+        },
+        &links,
+        &bridge_interfaces,
+        data_interface_indices(
+            &redeploy.node_image,
+            redeploy.data_interface_count,
+            &redeploy.node_name,
+        )?,
+    )
+}
+
+/// Make the redeployed node's link ends `end`, attach its links, and report each link's state.
 async fn attach_links(
     redeploy: &Redeploy<'_>,
     lab_links: &LabLinks,
-    container_name: String,
-    veths: Vec<ContainerVeth>,
+    end: RecreatedEnd,
 ) -> Vec<LinkReport> {
-    if veths.is_empty() {
-        return vec![];
-    }
     let host = KernelHost::new(&redeploy.state.docker, &redeploy.state.qemu);
-    let outcomes = reattach_node_links(
-        &host,
-        lab_links,
-        &redeploy.node_record_id,
-        RecreatedEnd::Container {
-            container: container_name,
-            veths,
-        },
-    )
-    .await;
+    let outcomes = reattach_node_links(&host, lab_links, &redeploy.node_record_id, end).await;
     let reports = report_links(
         &host,
         lab_links,

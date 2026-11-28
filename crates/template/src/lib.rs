@@ -16,6 +16,7 @@ mod crypt;
 mod cumulus_linux;
 mod dnsmasq;
 mod domain;
+mod flatcar_sandbox;
 mod frr;
 mod guest_yaml;
 mod ignition;
@@ -47,8 +48,17 @@ pub use cloudbase_init::{
 };
 pub use crypt::{CryptHash, crypt_hash};
 pub use cumulus_linux::CumulusLinuxZtpTemplate;
-pub use dnsmasq::DnsmasqTemplate;
-pub use domain::{DomainTemplate, DomainTuning, UnikernelDomainTemplate};
+pub use dnsmasq::{DnsmasqTemplate, SandboxHostRecord};
+pub use domain::{
+    BootDevice, Channel, DomainTemplate, DomainTuning, FlatcarDomain, MemballoonModel, RngBackend,
+    SandboxDomain, SmbiosSerial, UnikernelDomainTemplate, UsbController, VideoModel,
+};
+pub use flatcar_sandbox::{
+    GuestAddress, GuestInterface, NodeScript, ReportScript, SANDBOX_CONFIG_DRIVE_LABEL,
+    SANDBOX_CONFIG_DRIVE_MOUNT, SANDBOX_CONFIG_DRIVE_USER_DATA, SANDBOX_CONTAINER_BODY,
+    SANDBOX_IMAGE_ARCHIVE_SERIAL, SANDBOX_MANAGEMENT_INTERFACE, SandboxGuest, SandboxOwnNic,
+    WritableVolume, store_vm_ignition_json,
+};
 pub use frr::{FrrDaemonsTemplate, FrrStartupTemplate, FrrZtpTemplate};
 pub use ignition::{
     FileMode, IgnitionConfig, IgnitionDirectory, IgnitionFile, IgnitionFileContents,

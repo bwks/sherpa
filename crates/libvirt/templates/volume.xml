@@ -5,10 +5,12 @@
   <target>
     <path>{{ destination }}</path>
     <format type='qcow2'/>
-    <permissions><mode>0600</mode></permissions>
+    <permissions><mode>{{ mode }}</mode>{% if let Some(owner) = owner %}<owner>{{ owner.uid }}</owner><group>{{ owner.gid }}</group>{% endif %}</permissions>
   </target>
+{%- if let Some(backing) = backing %}
   <backingStore>
     <path>{{ backing }}</path>
     <format type='qcow2'/>
   </backingStore>
+{%- endif %}
 </volume>

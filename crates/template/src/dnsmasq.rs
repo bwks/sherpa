@@ -1,9 +1,22 @@
+use std::net::{Ipv4Addr, Ipv6Addr};
+
 use askama::Template;
 
 use shared::data::{Ztp, ZtpRecord};
 use shared::konst::{
-    BOOT_SERVER_LEASES_FILE, BOOT_SERVER_TFTP_ROOT, HTTP_PORT, SHERPA_DOMAIN_NAME,
+    BOOT_SERVER_LEASES_FILE, BOOT_SERVER_TFTP_ROOT, HTTP_PORT, SANDBOX_HOST_SUFFIX,
+    SHERPA_DOMAIN_NAME,
 };
+
+/// The own management and MAC addresses of the sandbox of node `node_name`, which the boot
+/// server names `<node_name>-sbx` and reserves.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SandboxHostRecord {
+    pub node_name: String,
+    pub ipv4: Ipv4Addr,
+    pub ipv6: Option<Ipv6Addr>,
+    pub mac: String,
+}
 
 #[derive(Template)]
 #[template(path = "dnsmasq/config.jinja", ext = "txt")]
@@ -17,6 +30,7 @@ pub struct DnsmasqTemplate {
     pub dhcp6_end: Option<String>,
     pub dns_ipv6: Option<String>,
     pub ztp_records: Vec<ZtpRecord>,
+    pub sandbox_hosts: Vec<SandboxHostRecord>,
 }
 
 impl DnsmasqTemplate {

@@ -29,9 +29,9 @@ const ISO_SYSTEM_AREA_SECTORS: u32 = 16;
 /// ahead past the end of the data.
 const ISO_PADDING_SECTORS: u32 = 150;
 /// Directory levels ISO 9660 allows, the root included.
-const ISO_MAX_DEPTH: usize = 8;
+pub const ISO_MAX_DEPTH: usize = 8;
 /// Longest primary-tree name, before the `.` and `;1` the writer adds.
-const ISO_MAX_NAME_BYTES: usize = 31;
+pub const ISO_MAX_NAME_BYTES: usize = 31;
 /// Longest Joliet name, in UTF-16 code units.
 const ISO_MAX_JOLIET_UNITS: usize = 64;
 /// Longest volume label. Joliet's label field holds 16 UTF-16 code units, and labels are ASCII.

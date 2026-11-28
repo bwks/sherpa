@@ -83,6 +83,16 @@ impl<'a> Cells<'a> {
         }
     }
 
+    pub(crate) fn optional_ipv6(&mut self, field: &str) -> Result<Option<Ipv6Addr>> {
+        match self.optional_text(field)? {
+            None => Ok(None),
+            Some(text) => text
+                .parse()
+                .map(Some)
+                .with_context(|| format!("Database field {field} is not an IPv6 address: {text}")),
+        }
+    }
+
     /// An address stored as its bytes: 4 for IPv4, 16 for IPv6.
     pub(crate) fn ip_address(&mut self, field: &str) -> Result<IpAddr> {
         match self.next(field)? {

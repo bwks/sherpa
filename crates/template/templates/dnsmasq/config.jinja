@@ -51,4 +51,14 @@ dhcp-host={{ record.mac_address }},{{ record.ipv4_address }},{{ record.node_name
 {%-     endfor %}
 {%-   endif %}
 {%- endfor %}
+{%- for host in sandbox_hosts %}
+# {{ host.node_name }}{{ SANDBOX_HOST_SUFFIX }}
+host-record={{ host.node_name }}{{ SANDBOX_HOST_SUFFIX }},{{ host.ipv4 }}
+host-record={{ host.node_name }}{{ SANDBOX_HOST_SUFFIX }}.{{ SHERPA_DOMAIN_NAME }},{{ host.ipv4 }}
+{%-   if let Some(ipv6) = host.ipv6 %}
+host-record={{ host.node_name }}{{ SANDBOX_HOST_SUFFIX }},{{ ipv6 }}
+host-record={{ host.node_name }}{{ SANDBOX_HOST_SUFFIX }}.{{ SHERPA_DOMAIN_NAME }},{{ ipv6 }}
+{%-   endif %}
+dhcp-host={{ host.mac }},{{ host.ipv4 }}
+{%- endfor %}
 {# END #}

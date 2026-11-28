@@ -28,14 +28,14 @@ use libvirt::{
     ConsoleSockets, SerialConsole, VncConsole, move_consoles_to_sockets, serial_console,
     vnc_console,
 };
-use shared::data::NodeKind;
+use shared::data::{ModelKind, NodeKind};
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_owner;
 use crate::daemon::state::AppState;
 use crate::daemon::storage::restrict_dir;
 use crate::konst::{CONSOLE_GROUP, CONSOLE_LAB_DIR_MODE, SHERPA_CONSOLE_DIR, UNIX_SOCKET_PATH_MAX};
-use crate::services::error::{ServiceCategory, ServiceError};
+use crate::services::error::{SandboxRefusal, ServiceCategory, ServiceError};
 
 /// A node console sherpad relays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -66,26 +66,29 @@ pub fn console_dir(root: &Path, lab_id: &str) -> PathBuf {
 /// the domain.
 pub fn console_sockets(lab_id: &str, node_index: u16) -> Result<ConsoleSockets> {
     Ok(ConsoleSockets {
-        serial: socket_path(lab_id, node_index, ConsoleKind::Serial)?,
-        vnc: socket_path(lab_id, node_index, ConsoleKind::Vnc)?,
+        serial: lab_socket(
+            lab_id,
+            &format!("{node_index}.{}", ConsoleKind::Serial.suffix()),
+        )?,
+        vnc: lab_socket(
+            lab_id,
+            &format!("{node_index}.{}", ConsoleKind::Vnc.suffix()),
+        )?,
     })
 }
 
-/// The `kind` console socket of the node with index `node_index` in lab `lab_id`.
+/// The socket `file` in lab `lab_id`'s console folder, where a domain of the lab binds it.
 ///
 /// # Errors
 ///
-/// Fails when the path is longer than a UNIX socket path can be.
-fn socket_path(lab_id: &str, node_index: u16, kind: ConsoleKind) -> Result<String> {
-    let path = format!(
-        "{SHERPA_CONSOLE_DIR}/{lab_id}/{node_index}.{}",
-        kind.suffix()
-    );
+/// Fails when the path is longer than a UNIX socket path can be, as libvirt would refuse to
+/// start the domain.
+pub fn lab_socket(lab_id: &str, file: &str) -> Result<String> {
+    let path = format!("{SHERPA_CONSOLE_DIR}/{lab_id}/{file}");
     if path.len() > UNIX_SOCKET_PATH_MAX {
         bail!(
-            "The {kind} socket of node {node_index} in lab '{lab_id}' would be {path}, {} bytes, \
-             longer than the {UNIX_SOCKET_PATH_MAX} a UNIX socket path can be. Use a shorter lab \
-             ID.",
+            "The socket {path} in lab '{lab_id}' would be {} bytes, longer than the \
+             {UNIX_SOCKET_PATH_MAX} a UNIX socket path can be. Use a shorter lab ID.",
             path.len()
         );
     }
@@ -173,28 +176,40 @@ pub async fn console_target(
         .await
         .context("Failed to read the node's image")?
         .ok_or_else(|| anyhow!("Node '{node_name}' has no image"))?;
-    match (image.kind(), kind) {
-        (NodeKind::Container, _) => {
-            return Err(ServiceError::Invalid(format!(
-                "{node_name} is a container, and containers have no {kind}. Connect with \
-                 'sherpa ssh {node_name}' instead."
-            ))
-            .into());
-        }
-        (NodeKind::Unikernel, ConsoleKind::Vnc) => {
-            return Err(ServiceError::Invalid(format!(
-                "{node_name} is a unikernel, and unikernels have no VNC console. Use 'sherpa \
-                 console {node_name}' instead."
-            ))
-            .into());
-        }
-        (NodeKind::VirtualMachine | NodeKind::Unikernel, _) => {}
+    let model_kind = image.model_kind()?;
+    if let Some(refusal) = console_refusal(node_name, model_kind, kind) {
+        return Err(refusal.into());
     }
     Ok(ConsoleTarget {
         lab_id: lab_id.to_owned(),
         node_name: node_name.to_owned(),
         domain: format!("{node_name}-{lab_id}"),
     })
+}
+
+/// Why node `node_name` of `model_kind` has no `kind` console, or `None` when it has one.
+fn console_refusal(
+    node_name: &str,
+    model_kind: ModelKind,
+    kind: ConsoleKind,
+) -> Option<ServiceError> {
+    let reason = match (model_kind.runs_as(), kind) {
+        (NodeKind::VirtualMachine, ConsoleKind::Vnc) if model_kind.runs_in_sandbox() => {
+            return Some(ServiceError::Sandbox(SandboxRefusal::VncConsole {
+                node: node_name.to_owned(),
+            }));
+        }
+        (NodeKind::Container, _) => format!(
+            "{node_name} is a container, and containers have no {kind}. Connect with 'sherpa \
+             ssh {node_name}' instead."
+        ),
+        (NodeKind::Unikernel, ConsoleKind::Vnc) => format!(
+            "{node_name} is a unikernel, and unikernels have no VNC console. Use 'sherpa \
+             console {node_name}' instead."
+        ),
+        _ => return None,
+    };
+    Some(ServiceError::Invalid(reason))
 }
 
 /// The socket of `target`'s `kind` console, as its running domain was started with it.
@@ -406,7 +421,22 @@ mod tests {
     use crate::services::node_lifecycle::tests::lab_of;
     use db::{DefaultRequest, upsert_node_image};
     use nix::unistd::{self, Group};
-    use shared::data::{ModelKind, NodeModel};
+    use shared::data::NodeModel;
+
+    #[test]
+    fn console_refusal_011_a_sandboxes_vnc_console_is_refused_pointing_to_sherpa_console_and_its_serial_console_is_not()
+     {
+        let ceos = ModelKind::new(NodeModel::AristaEos, Some(NodeKind::Container)).unwrap();
+        assert_eq!(
+            console_refusal("ceos1", ceos, ConsoleKind::Vnc),
+            Some(ServiceError::Sandbox(SandboxRefusal::VncConsole {
+                node: "ceos1".to_owned()
+            }))
+        );
+        assert_eq!(console_refusal("ceos1", ceos, ConsoleKind::Serial), None);
+        let frr = ModelKind::new(NodeModel::FrrLinux, Some(NodeKind::Container)).unwrap();
+        assert!(console_refusal("frr1", frr, ConsoleKind::Serial).is_some());
+    }
 
     #[test]
     fn console_sockets_006_destroy_removes_the_console_folder_and_a_folder_already_gone_is_no_error()

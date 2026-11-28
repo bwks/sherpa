@@ -187,8 +187,10 @@ conflict) carry the message the user is shown; a refusal a test or caller tells 
 variant, which carries the values it is about as fields and builds its message from them, as the
 memory (`MemoryShortage`) and CPU pin refusals do. `ServiceError::category` maps every variant to
 the kind of refusal a transport answers with (`ServiceCategory`: not found, denied, conflict,
-invalid), so each transport picks its status from the category and a new variant cannot miss its
-code. A variant whose category is `None`, such as a startup or `sherpad` command failure, is not a
+invalid), or to `Failed` for a node failure whose reason the caller is told (a sandbox's reported
+failure or broken status channel: RPC server error, REST `502` `NODE_FAILED`), so each transport
+picks its status from the category and a new variant cannot miss its code. A variant whose
+category is `None`, such as a startup or `sherpad` command failure, is not a
 refusal: `ServiceError::find` skips it and the caller is not told of it. A refusal of what the
 user sent or of the current state is typed where it is raised, or where a validator that refuses
 only user input is called, with its full wording. Anything else is `Unexpected`: `Unexpected::log`

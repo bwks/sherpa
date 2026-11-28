@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, bail};
 
+use crate::konst::SANDBOX_STORE_DIR;
 use crate::services::error::ServiceError;
 use shared::data::{ModelKind, NodeConfig};
 use shared::error::SharedError;
@@ -56,12 +57,20 @@ fn validate_interface_mtu(mtu: u16) -> Result<()> {
 /// Check an image version, which names the image's folder and its container tag.
 ///
 /// A version is 1 to 64 letters, digits, `.`, `_`, `+` or `-`, starting with a letter or digit,
-/// so it can never be a path such as `..` or `a/b`.
+/// so it can never be a path such as `..` or `a/b`. It is never `sandbox`, the folder of a
+/// model's sandbox Docker stores beside its version folders.
 ///
 /// # Errors
 ///
 /// Fails with `ServiceError::Invalid` when `version` breaks the rule.
 pub fn validate_image_version(version: &str) -> Result<()> {
+    if version == SANDBOX_STORE_DIR {
+        return Err(ServiceError::Invalid(format!(
+            "Image version '{version}' is not allowed: the images folder keeps a model's sandbox \
+             Docker stores in its '{SANDBOX_STORE_DIR}' folder. Use another version."
+        ))
+        .into());
+    }
     let starts_well = version
         .chars()
         .next()
@@ -120,6 +129,18 @@ mod tests {
             too_long.as_str(),
         ] {
             assert!(validate_image_version(version).is_err(), "{version:?}");
+        }
+    }
+
+    #[test]
+    fn image_import_028_the_version_sandbox_the_folder_of_a_models_stores_is_refused() {
+        let error = validate_image_version("sandbox").unwrap_err();
+        assert!(
+            error.to_string().contains("sandbox Docker stores"),
+            "{error}"
+        );
+        for version in ["Sandbox", "sandbox1", "sandbox-1"] {
+            assert!(validate_image_version(version).is_ok(), "{version}");
         }
     }
 

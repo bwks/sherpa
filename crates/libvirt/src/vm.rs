@@ -9,9 +9,11 @@ use tracing::instrument;
 
 use virt::connect::Connect;
 use virt::domain::Domain;
+use virt::error::ErrorNumber;
 use virt::storage_pool::StoragePool;
 use virt::storage_vol::StorageVol;
 use virt::stream::Stream;
+use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
 use shared::konst::{SHERPA_STORAGE_POOL, STORAGE_VOLUME_MODE};
 
@@ -187,6 +189,47 @@ pub fn delete_disk(conn: &Connect, disk_name: &str) -> Result<()> {
     vol.delete(0)
         .with_context(|| format!("Cannot delete volume '{disk_name}'"))?;
     Ok(())
+}
+
+/// Stop domain `name` if it runs and undefine it with its NVRAM, counting a domain already gone
+/// as removed so a retried teardown succeeds.
+///
+/// # Errors
+///
+/// Fails when libvirt cannot look the domain up, stop it or undefine it.
+#[instrument(level = "debug", skip(conn))]
+pub fn remove_domain(conn: &Connect, name: &str) -> Result<()> {
+    let domain = match Domain::lookup_by_name(conn, name) {
+        Ok(domain) => domain,
+        Err(error) if error.code() == ErrorNumber::NoDomain => return Ok(()),
+        Err(error) => return Err(error).with_context(|| format!("Cannot look up domain {name}")),
+    };
+    if domain
+        .is_active()
+        .with_context(|| format!("Cannot read whether domain {name} runs"))?
+    {
+        domain
+            .destroy()
+            .with_context(|| format!("Cannot stop domain {name}"))?;
+    }
+    domain
+        .undefine_flags(VIR_DOMAIN_UNDEFINE_NVRAM)
+        .with_context(|| format!("Cannot undefine domain {name}"))?;
+    Ok(())
+}
+
+/// The names of every domain libvirt has, running or not.
+///
+/// # Errors
+///
+/// Fails when libvirt cannot list the domains or read a name.
+#[instrument(level = "debug", skip(conn))]
+pub fn list_domain_names(conn: &Connect) -> Result<Vec<String>> {
+    conn.list_all_domains(0)
+        .context("Cannot list domains")?
+        .iter()
+        .map(|domain| domain.get_name().context("Cannot read a domain's name"))
+        .collect()
 }
 
 /// Define a persistent virtual machine from `xml` and start it. A VM that fails to start stays

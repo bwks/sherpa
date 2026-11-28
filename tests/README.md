@@ -147,7 +147,7 @@ tests. Run the crates you need:
 
 sherpad's integration tests are one test binary, `integration`
 (`crates/server/tests/integration/`), with a module per area: `account_lockout`, `auth`, `image_management`,
-`lab_authorization`, `lab_lifecycle`, `security`, `user_management` and `websocket`. Run one
+`lab_authorization`, `lab_lifecycle`, `sandboxes`, `security`, `user_management` and `websocket`. Run one
 area by its module path, and run root tests from the built binary so root never writes to
 `target/`:
 

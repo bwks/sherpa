@@ -238,6 +238,12 @@ pub enum ServiceError {
     )]
     NodeImageNotFound { node: String, model_kind: ModelKind },
 
+    #[error(transparent)]
+    Sandbox(#[from] SandboxRefusal),
+
+    #[error(transparent)]
+    SandboxFailure(#[from] SandboxFailure),
+
     #[error(
         "{prefix}: Version validation failed for node: {node} (model: {model}): {}",
         version_refusal(*model_kind, version, available),
@@ -599,13 +605,102 @@ pub enum ServiceError {
     },
 }
 
-/// The kind of refusal a transport answers a [`ServiceError`] with.
+/// The kind of refusal, or of node failure the caller is told the reason of, a transport
+/// answers a [`ServiceError`] with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServiceCategory {
     NotFound,
     Denied,
     Conflict,
     Invalid,
+    Failed,
+}
+
+/// Why an operation refuses a node that runs in a sandbox, or the sandbox it needs.
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum SandboxRefusal {
+    #[error(
+        "The arista_eos container, nokia_srlinux and the sonic_linux container run in a sandbox, \
+         which boots the flatcar_sandbox image, and the server has none. Download \
+         flatcar_production_openstack_image.img.bz2 from Flatcar's stable channel, unpack it with \
+         bunzip2 and import it with 'sherpa server image import --src \
+         flatcar_production_openstack_image.img --model flatcar_sandbox --version <version> \
+         --default'"
+    )]
+    BaseImageMissing,
+
+    #[error(
+        "The flatcar_sandbox image {version} has no disk at {}; import it again",
+        path.display()
+    )]
+    BaseDiskMissing { version: String, path: PathBuf },
+
+    #[error(
+        "Node '{node}' was made before its model ran in a sandbox and has none; destroy the lab \
+         and bring it up again"
+    )]
+    AddressMissing { node: String },
+
+    #[error(
+        "Node '{node}' runs in a sandbox, whose config drive cannot carry volume source {}: {refusal}",
+        path.display()
+    )]
+    VolumeRefused {
+        node: String,
+        path: PathBuf,
+        refusal: SandboxVolumeRefusal,
+    },
+
+    #[error(
+        "{node} runs in a sandbox, which has a serial console only. Use 'sherpa console {node}' \
+         instead."
+    )]
+    VncConsole { node: String },
+
+    #[error(
+        "Node '{node}' runs in a sandbox, which runs the imported {model} {version} image, \
+         {recorded}, and its manifest image is another repo, {image}. Remove the node's 'image', \
+         or pull that repo as a version of its own with 'sherpa server image pull --model \
+         {model} --repo {image}:<tag>' and set the node's 'version' to it"
+    )]
+    ImageOverride {
+        node: String,
+        image: String,
+        recorded: String,
+        model: NodeModel,
+        version: String,
+    },
+}
+
+/// Why a sandbox's config drive cannot carry a file or folder of a volume's source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum SandboxVolumeRefusal {
+    #[error("it is a symlink, which is not followed")]
+    Symlink,
+    #[error("it is neither a file nor a folder")]
+    SpecialFile,
+    #[error("it is a folder more than {limit} levels below the volume")]
+    TooDeep { limit: usize },
+    #[error("it is 4 GiB or larger")]
+    TooLarge,
+    #[error("its name is longer than {limit} characters")]
+    NameTooLong { limit: usize },
+}
+
+/// How a sandbox failed to run its node, from what it reported on its status channel.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum SandboxFailure {
+    #[error("Sandbox {name} failed: {reason}")]
+    Reported { name: String, reason: String },
+
+    #[error("Sandbox {name} closed its status channel without reporting")]
+    StatusClosed { name: String },
+
+    #[error("Sandbox {name} sent a status line longer than {limit} bytes")]
+    StatusTooLong { name: String, limit: usize },
+
+    #[error("Sandbox {name} sent more than {limit} bytes on its status channel without a status")]
+    StatusFlood { name: String, limit: usize },
 }
 
 /// Why `version` is not an image of `model_kind`: it has none, or the versions it has.
@@ -705,8 +800,23 @@ pub fn caller_message(error: &anyhow::Error, failure: &str) -> String {
     }
 }
 
+impl SandboxRefusal {
+    /// The kind of refusal this is.
+    #[must_use]
+    pub fn category(&self) -> ServiceCategory {
+        match self {
+            Self::BaseImageMissing | Self::BaseDiskMissing { .. } => ServiceCategory::NotFound,
+            Self::AddressMissing { .. } => ServiceCategory::Conflict,
+            Self::VolumeRefused { .. } | Self::VncConsole { .. } | Self::ImageOverride { .. } => {
+                ServiceCategory::Invalid
+            }
+        }
+    }
+}
+
 impl ServiceError {
-    /// Find a `ServiceError` that refuses the request anywhere in an error chain.
+    /// Find a `ServiceError` the caller is told of anywhere in an error chain: a refusal, or a
+    /// node failure with its reason.
     #[must_use]
     pub fn find(error: &anyhow::Error) -> Option<&ServiceError> {
         error
@@ -728,7 +838,8 @@ impl ServiceError {
         message
     }
 
-    /// The kind of refusal this is, or `None` for a failure the caller is not told of.
+    /// The kind of refusal this is, `Failed` for a node failure whose reason the caller is told,
+    /// or `None` for a failure the caller is not told of.
     #[must_use]
     pub fn category(&self) -> Option<ServiceCategory> {
         match self {
@@ -739,6 +850,7 @@ impl ServiceError {
             | Self::ImageVersionNotFound { .. }
             | Self::DefaultImageNotFound { .. } => Some(ServiceCategory::NotFound),
             Self::Denied(_) => Some(ServiceCategory::Denied),
+            Self::Sandbox(refusal) => Some(refusal.category()),
             Self::Conflict(_)
             | Self::NotWebRedeployable { .. }
             | Self::ContainerRepoMissing { .. }
@@ -796,6 +908,7 @@ impl ServiceError {
             | Self::TalosVersionUnsupported { .. }
             | Self::RequestUnreadable { .. }
             | Self::ManifestCheckFailed { .. } => Some(ServiceCategory::Invalid),
+            Self::SandboxFailure(_) => Some(ServiceCategory::Failed),
             Self::OvercommitPercentTooLow { .. }
             | Self::NotServiceAccount { .. }
             | Self::TailscaleImageInvalid

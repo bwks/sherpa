@@ -3,6 +3,16 @@
 //! tree such as `daemon`, lives in that service or tree.
 
 pub(crate) const SHERPA_BLANK_DISK_DIR: &str = "blank_disk";
+/// Folder of a model's sandbox Docker stores in its images folder, one folder per version below
+/// it: `IMAGES/<model>/sandbox/<version>/`.
+pub(crate) const SANDBOX_STORE_DIR: &str = "sandbox";
+/// File name of a sandbox Docker store in its version folder.
+pub(crate) const SANDBOX_STORE_FILENAME: &str = "virtiob.qcow2";
+/// Mode of every folder under the images folder: `sherpa` and its group, who import images, may
+/// write.
+pub(crate) const IMAGE_FOLDER_MODE: u32 = 0o775;
+/// Mode of an image file under the images folder: `sherpa` and its group may read and replace it.
+pub(crate) const IMAGE_FILE_MODE: u32 = 0o660;
 pub(crate) const SHERPA_CONFIG_FILE_PATH: &str = "/opt/sherpa/config/sherpa.toml";
 pub(crate) const SHERPA_SERVER_CERT_PATH: &str = "/opt/sherpa/.certs/server.crt";
 pub(crate) const SHERPA_MANAGEMENT_NETWORK_NAME: &str = "sherpa-management";
@@ -51,6 +61,9 @@ pub(crate) const SHERPA_SECRETS_DIR: &str = "/run/sherpa/secrets";
 /// Folder of the labs' serial console sockets, one folder per lab below it. On disk, not under
 /// `/run`, so a domain defined with its socket here still starts after the server reboots.
 pub(crate) const SHERPA_CONSOLE_DIR: &str = "/opt/sherpa/run/console";
+/// Folder of the status sockets of the VMs that make sandbox Docker stores, which belong to no
+/// lab.
+pub(crate) const SHERPA_SANDBOX_RUN_DIR: &str = "/opt/sherpa/run/sandbox";
 /// Group of the console folders. libvirt binds the serial sockets as root; the QEMU user
 /// (`libvirt-qemu`) is in it, and so is `sherpa`, which connects to them.
 pub(crate) const CONSOLE_GROUP: &str = "kvm";

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Sherpa's start script for a SONiC container. It waits for the node's data interfaces, which
-# Sherpa attaches after the container starts, then hands over to the image's supervisord.
+# Sherpa's start script for a SONiC container. It waits for the node's data interfaces, then
+# hands over to the image's supervisord.
 # The container keeps its filesystem across a restart, so each step is safe to run again.
 {%- if let Some(owner) = owner %}
 

@@ -84,8 +84,9 @@ impl RouterOutcome {
     }
 }
 
-/// The lab's dnsmasq config: DHCP and DNS for the management network `mgmt_net`, and a DHCP
-/// host entry, with its boot options, for each of `ztp_records`.
+/// The lab's dnsmasq config: DHCP and DNS for the management network `mgmt_net`, a DHCP host
+/// entry, with its boot options, for each of `ztp_records`, and the names and reservations of
+/// `sandbox_hosts`.
 ///
 /// # Errors
 ///
@@ -93,6 +94,7 @@ impl RouterOutcome {
 pub(crate) fn render_dnsmasq_config(
     mgmt_net: &data::SherpaNetwork,
     ztp_records: &[ZtpRecord],
+    sandbox_hosts: &[template::SandboxHostRecord],
 ) -> Result<String> {
     let template = template::DnsmasqTemplate {
         tftp_server_ipv4: mgmt_net.v4.boot_server.to_string(),
@@ -123,8 +125,23 @@ pub(crate) fn render_dnsmasq_config(
             .transpose()?,
         dns_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.boot_server.to_string()),
         ztp_records: ztp_records.to_vec(),
+        sandbox_hosts: sandbox_hosts.to_vec(),
     };
     Ok(template.render()?)
+}
+
+/// The boot server's names and DHCP reservation for the own addresses of the sandbox of node
+/// `node_name`.
+pub(crate) fn sandbox_host_record(
+    node_name: &str,
+    sandbox: &data::DbVmSandbox,
+) -> template::SandboxHostRecord {
+    template::SandboxHostRecord {
+        node_name: node_name.to_owned(),
+        ipv4: sandbox.ipv4,
+        ipv6: sandbox.ipv6,
+        mac: sandbox.mac.clone(),
+    }
 }
 
 /// The DHCP host records of a lab's `nodes`, as `up` makes them: containers, then VMs, then
@@ -221,8 +238,8 @@ pub(crate) fn rewrite_dnsmasq_config(path: &str, config: &str) -> Result<bool> {
 }
 
 /// Bring the boot server of lab `lab_id` up to date after its node `redeployed.node_name` was
-/// configured again: render the dnsmasq config from the lab's nodes, with the redeployed node's
-/// new record, and when it differs from the one in the lab folder `lab_dir` (the node's boot
+/// configured again: render the dnsmasq config from the lab's nodes and `vm_sandbox` rows, with
+/// the redeployed node's new record, and when it differs from the one in the lab folder `lab_dir` (the node's boot
 /// options changed with its ZTP method, or the lab was made by an older release) write it and
 /// create the lab's boot container again. Returns whether it was recreated.
 ///
@@ -276,7 +293,21 @@ pub(crate) async fn refresh_boot_server(
             method,
         });
     }
-    let config = render_dnsmasq_config(mgmt_net, &lab_ztp_records(&nodes, redeployed)?)?;
+    let names: HashMap<&RecordId, &str> = nodes
+        .iter()
+        .filter_map(|node| Some((node.record.id.as_ref()?, node.record.name.as_str())))
+        .collect();
+    let sandbox_hosts: Vec<template::SandboxHostRecord> = db::list_vm_sandboxes(db, lab_record_id)
+        .await
+        .context("Failed to list the lab's VM sandboxes")?
+        .iter()
+        .filter_map(|address| Some(sandbox_host_record(names.get(&address.node)?, address)))
+        .collect();
+    let config = render_dnsmasq_config(
+        mgmt_net,
+        &lab_ztp_records(&nodes, redeployed)?,
+        &sandbox_hosts,
+    )?;
     let path = format!("{lab_dir}/{ZTP_DIR}/{DNSMASQ_DIR}/{DNSMASQ_CONFIG_FILE}");
     if !rewrite_dnsmasq_config(&path, &config)? {
         return Ok(false);
@@ -304,9 +335,15 @@ fn boot_container_spec(
         image: CONTAINER_DNSMASQ_REPO.to_owned(),
         env_vars: vec![format!("DNS1={}", mgmt_net.v4.first), "DNS2=".to_owned()],
         volumes: vec![
-            format!("{ztp_dir}/{DNSMASQ_DIR}/{DNSMASQ_CONFIG_FILE}:/etc/{DNSMASQ_CONFIG_FILE}"),
-            format!("{ztp_dir}/{TFTP_DIR}:{BOOT_SERVER_TFTP_ROOT}"),
-            format!("{ztp_dir}/{NODE_CONFIGS_DIR}:{BOOT_SERVER_HTTP_ROOT}"),
+            data::ContainerMount::writable(
+                format!("{ztp_dir}/{DNSMASQ_DIR}/{DNSMASQ_CONFIG_FILE}"),
+                format!("/etc/{DNSMASQ_CONFIG_FILE}"),
+            ),
+            data::ContainerMount::writable(format!("{ztp_dir}/{TFTP_DIR}"), BOOT_SERVER_TFTP_ROOT),
+            data::ContainerMount::writable(
+                format!("{ztp_dir}/{NODE_CONFIGS_DIR}"),
+                BOOT_SERVER_HTTP_ROOT,
+            ),
         ],
         capabilities: BOOT_CONTAINER_CAPABILITIES
             .iter()
@@ -565,7 +602,12 @@ mod tests {
     }
 
     fn config(redeployed: &ZtpRecord) -> String {
-        render_dnsmasq_config(&mgmt_net(), &lab_ztp_records(&lab(), redeployed).unwrap()).unwrap()
+        render_dnsmasq_config(
+            &mgmt_net(),
+            &lab_ztp_records(&lab(), redeployed).unwrap(),
+            &[],
+        )
+        .unwrap()
     }
 
     const EVO_TFTP: &str = "dhcp-option=tag:evo-tag,67,evo.conf";
@@ -717,16 +759,16 @@ mod tests {
         let served: Vec<&str> = spec
             .volumes
             .iter()
-            .filter(|volume| served_over_http(volume.split(':').nth(1).unwrap()))
-            .map(String::as_str)
+            .filter(|volume| served_over_http(&volume.destination))
+            .map(|volume| volume.source.as_str())
             .collect();
 
-        assert_eq!(served, ["/labs/abcd1234/ztp/configs:/opt/ztp"]);
+        assert_eq!(served, ["/labs/abcd1234/ztp/configs"]);
     }
 
     #[test]
     fn boot_server_009_the_tftp_root_and_leases_are_outside_the_http_root() {
-        let config = render_dnsmasq_config(&mgmt_net(), &[]).unwrap();
+        let config = render_dnsmasq_config(&mgmt_net(), &[], &[]).unwrap();
         let value = |key: &str| {
             config
                 .lines()

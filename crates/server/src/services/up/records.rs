@@ -122,6 +122,7 @@ pub(super) async fn create_node_records(
                 node.model_kind,
                 &node.ready_check,
                 effective_ztp(node.ztp.method, &node_image),
+                node.ztp.config.is_some(),
             ),
         )
         .await?;

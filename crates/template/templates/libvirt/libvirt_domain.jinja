@@ -4,29 +4,29 @@
   <name>{{ name }}</name>
 
   <vcpu placement='static'>{{ cpu_count }}</vcpu>
-  {% if tuning.io_thread_cpuset.is_some() %}
+  {%- if tuning.io_thread_cpuset.is_some() %}
   <iothreads>1</iothreads>
-  {% endif %}
-  {% if tuning.has_cputune() %}
+  {%- endif %}
+  {%- if tuning.has_cputune() %}
   <cputune>
-    {% for cpu in tuning.cpu_pinning %}
+    {%- for cpu in tuning.cpu_pinning %}
     <vcpupin vcpu='{{ loop.index0 }}' cpuset='{{ cpu }}'/>
-    {% endfor %}
-    {% if let Some(cpuset) = tuning.qemu_cpuset %}
+    {%- endfor %}
+    {%- if let Some(cpuset) = tuning.qemu_cpuset %}
     <emulatorpin cpuset='{{ cpuset }}'/>
-    {% endif %}
-    {% if let Some(cpuset) = tuning.io_thread_cpuset %}
+    {%- endif %}
+    {%- if let Some(cpuset) = tuning.io_thread_cpuset %}
     <iothreadpin iothread='1' cpuset='{{ cpuset }}'/>
-    {% endif %}
+    {%- endif %}
   </cputune>
-  {% endif %}
+  {%- endif %}
 
   <memory unit='MiB'>{{ memory }}</memory>
-  {% if let Some(node) = tuning.numa_node %}
+  {%- if let Some(node) = tuning.numa_node %}
   <numatune>
     <memory mode='{{ tuning.numa_memory_mode }}' nodeset='{{ node }}'/>
   </numatune>
-  {% endif %}
+  {%- endif %}
 
   <resource>
     <partition>/machine</partition>
@@ -36,7 +36,7 @@
     <acpi/>
     <apic/>
     <pae/>
-    {% if is_windows %}
+    {%- if is_windows %}
     <hyperv mode='custom'>
       <relaxed state='on'/>
       <vapic state='on'/>
@@ -49,42 +49,40 @@
       <tlbflush state='on'/>
       <ipi state='on'/>
     </hyperv>
-    {% endif %}
+    {%- endif %}
   </features>
 
-  {% match cpu_model %}
-  {%   when CpuModels::HostModel %}
+  {%- match cpu_model %}
+  {%- when CpuModels::HostModel | CpuModels::HostPassthrough %}
   <cpu mode='{{ cpu_model }}'>
-  {%   when CpuModels::HostPassthrough %}
-  <cpu mode='{{ cpu_model }}'>
-  {%   else %}
+  {%- else %}
   <!-- Match any other cpu model -->
   <cpu>
     <model>{{ cpu_model }}</model>
-  {% endmatch %}
-    {% if let Some(topology) = tuning.cpu_topology %}
+  {%- endmatch %}
+    {%- if let Some(topology) = tuning.cpu_topology %}
     <topology sockets='{{ topology.sockets }}' dies='1' cores='{{ topology.cores }}' threads='{{ topology.threads }}'/>
-    {% endif %}
-    {% if vmx_enabled %}
+    {%- endif %}
+    {%- if vmx_enabled %}
     <feature name="vmx" policy="require"/>
-    {% endif %}
-    {% for feat in cpu_features %}
+    {%- endif %}
+    {%- for feat in cpu_features %}
     <feature name="{{ feat.name }}" policy="{{ feat.policy }}"/>
-    {% endfor %}
+    {%- endfor %}
   </cpu>
 
-  {% if is_windows %}
+  {%- if is_windows %}
   <clock offset='localtime'>
     <timer name='hypervclock' present='yes'/>
     <timer name='hpet' present='no'/>
   </clock>
-  {% else %}
+  {%- else %}
   <clock offset='utc'>
     <timer name='rtc' tickpolicy='catchup'/>
     <timer name='pit' tickpolicy='delay'/>
     <timer name='hpet' present='no'/>
   </clock>
-  {% endif %}
+  {%- endif %}
 
   <on_poweroff>destroy</on_poweroff>
   <on_reboot>restart</on_reboot>
@@ -93,111 +91,144 @@
   <os>
     <type arch='{{ cpu_architecture }}' machine='{{ machine_type }}'>hvm</type>
     <bootmenu enable='no'/>
+    {%- if smbios_serial.is_some() %}
     <smbios mode='sysinfo'/>
-    <boot dev='cdrom'/>
-    <boot dev='hd'/>
-    {% match bios %}
-    {%   when BiosTypes::Uefi %}
+    {%- endif %}
+    {%- for device in boot_devices %}
+    <boot dev='{{ device }}'/>
+    {%- endfor %}
+    {%- match bios %}
+    {%- when BiosTypes::Uefi %}
     <loader readonly='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE_4M.fd</loader>
     <nvram>/var/lib/libvirt/qemu/nvram/{{ name|uppercase }}_VARS.fd</nvram>
-    {%   when BiosTypes::SeaBios %}
+    {%- when BiosTypes::SeaBios %}
     <!-- SeaBios - No stanza required -->
-    {% endmatch %}
+    {%- endmatch %}
   </os>
 
+  {%- if let Some(serial) = smbios_serial %}
   <sysinfo type='smbios'>
     <system>
-      <entry name='serial'>ds=nocloud</entry>
+      <entry name='serial'>{{ serial }}</entry>
     </system>
   </sysinfo>
-  {% if let Some(path) = ignition_config %}
+  {%- endif %}
 
+  {%- if let Some(path) = ignition_config %}
   <sysinfo type='fwcfg'>
     <entry name='opt/org.flatcar-linux/config' file='{{ path }}'/>
   </sysinfo>
-  {% endif %}
+  {%- endif %}
 
   <pm>
     <suspend-to-mem enabled='no'/>
     <suspend-to-disk enabled='no'/>
   </pm>
 
-  {% for cmd in qemu_commands %}
+  {%- for cmd in qemu_commands %}
   <ns0:commandline>
     <ns0:arg value='{{ cmd.param }}'/>
     <ns0:arg value='{{ cmd.value }}'/>
   </ns0:commandline>
-  {% endfor %}
+  {%- endfor %}
 
   <devices>
-
     <emulator>{{ qemu_bin }}</emulator>
 
-    {% for disk in disks %}
-    {%   match disk.target_bus %}
-    {%     when DiskBuses::Usb %}
+    {%- for disk in disks %}
+    {%-   match disk.target_bus %}
+    {%-   when DiskBuses::Usb %}
     <disk type='file' device='disk'>
       <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'/>
       <source file='{{ disk.src_file }}'/>
       <target dev='{{ disk.target_dev }}' bus='{{ disk.target_bus }}' removable='on'/>
       <address type='usb'/>
     </disk>
-    {%     else %}
-    {%       match disk.disk_device %}
-    {%         when DiskDevices::Cdrom %}
-
+    {%-   else %}
+    {%-     match disk.disk_device %}
+    {%-     when DiskDevices::Cdrom %}
     <disk type='file' device='cdrom'>
       <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'/>
       <source file='{{ disk.src_file }}'/>
       <target dev='{{ disk.target_dev }}' bus='{{ disk.target_bus }}'/>
       <readonly/>
     </disk>
-    {%         else %}
+    {%-     else %}
     <disk type='file' device='disk'>
-      <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'{% if let Some(cache) = tuning.disk_cache %} cache='{{ cache }}'{% endif %}{% if let Some(io) = tuning.disk_io %} io='{{ io }}'{% endif %}{% if tuning.io_thread_cpuset.is_some() && disk.target_bus == DiskBuses::Virtio %} iothread='1'{% endif %}/>
+      <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'
+        {%- if let Some(cache) = tuning.disk_cache %}
+        cache='{{ cache }}'
+        {%- endif %}
+        {%- if let Some(io) = tuning.disk_io %}
+        io='{{ io }}'
+        {%- endif %}
+        {%- if tuning.io_thread_cpuset.is_some() && disk.target_bus == DiskBuses::Virtio %}
+        iothread='1'
+        {%- endif %}
+      />
       <source file='{{ disk.src_file }}'/>
       <target dev='{{ disk.target_dev }}' bus='{{ disk.target_bus }}'/>
+      {%- if let Some(serial) = disk.serial %}
+      <serial>{{ serial }}</serial>
+      {%- endif %}
+      {%- if disk.read_only %}
+      <readonly/>
+      {%- endif %}
     </disk>
-    {%      endmatch %}
-    {%   endmatch %}
-    {% endfor %}
+    {%-     endmatch %}
+    {%-   endmatch %}
+    {%- endfor %}
 
+    {%- match usb_controller %}
+    {%- when UsbController::QemuXhci %}
     <controller type='usb' index='0' model='qemu-xhci'>
       <alias name='usb'/>
     </controller>
-    {% if self.has_scsi_disk() %}
-    {%   if tuning.io_thread_cpuset.is_some() %}
+    {%- when UsbController::None %}
+    <controller type='usb' model='none'/>
+    {%- endmatch %}
+
+    {%- if self.has_scsi_disk() %}
+    {%-   if tuning.io_thread_cpuset.is_some() %}
     <controller type='scsi' index='0' model='virtio-scsi'>
       <driver iothread='1'/>
     </controller>
-    {%   else %}
+    {%-   else %}
     <controller type='scsi' index='0' model='virtio-scsi'/>
-    {%   endif %}
-    {% endif %}
+    {%-   endif %}
+    {%- endif %}
 
+    {%- if let Some(socket) = vnc_socket %}
     <graphics type='vnc'>
-      <listen type='socket' socket='{{ vnc_socket }}'/>
+      <listen type='socket' socket='{{ socket }}'/>
     </graphics>
+    {%- endif %}
+
     <video>
-      <model type='{{ video_model }}'{% if let Some(vram) = video_vram %} vram='{{ vram }}'{% endif %} heads='1'/>
+      <model type='{{ video_model }}'
+        {%- if let Some(vram) = video_vram %}
+        vram='{{ vram }}'
+        {%- endif %}
+        {%- if video_model != VideoModel::None %}
+        heads='1'
+        {%- endif %}
+      />
     </video>
 
-    {% for interface in interfaces %}
-    {%   match interface.connection_type %}
-
-    {%     when ConnectionTypes::Management %}
+    {%- for interface in interfaces %}
+    {%-   match interface.connection_type %}
+    {%-   when ConnectionTypes::Management %}
     <interface type='network'>
       <alias name='ua-net-{{ name }}-mgmt-{{ interface.name }}'/>
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ management_network }}'/>
       <model type='{{ management_interface_type }}'/>
-      {% if let Some(queues) = tuning.management_interface_queues %}
+      {%- if let Some(queues) = tuning.management_interface_queues %}
       <driver queues='{{ queues }}'/>
-      {% endif %}
+      {%- endif %}
     </interface>
-
-    {%     when ConnectionTypes::Reserved %}
+    {%-   when ConnectionTypes::Reserved %}
     <interface type='network'>
       <alias name='ua-net-{{ name }}-reserved-{{ interface.name }}'/>
       <mtu size='{{ interface.mtu }}'/>
@@ -206,32 +237,33 @@
       <model type='{{ reserved_interface_type }}'/>
       <link state='up'/>
     </interface>
-
-    {%     when ConnectionTypes::Disabled %}
+    {%-   when ConnectionTypes::Disabled %}
     <interface type='network'>
       <alias name='ua-net-{{ name }}-disabled-{{ interface.name }}'/>
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ isolated_network }}'/>
       <model type='{{ interface_type }}'/>
-      {% if let Some(queues) = tuning.interface_queues %}
+      {%- if let Some(queues) = tuning.interface_queues %}
       <driver queues='{{ queues }}'/>
-      {% endif %}
+      {%- endif %}
       <link state='down'/>
     </interface>
-
-    {%     when ConnectionTypes::PrivateBridge %}
+    {%-   when ConnectionTypes::PrivateBridge %}
     <interface type='bridge'>
       <alias name='ua-net-{{ name }}-shared-bridge-{{ interface.name }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source bridge='{{ interface.name }}'/>
+      {%- if let Some(tap) = interface.tap %}
+      <mtu size='{{ interface.mtu }}'/>
+      <target dev='{{ tap }}'/>
+      {%- endif %}
       <model type='{{ interface_type }}'/>
-      {% if let Some(queues) = tuning.interface_queues %}
+      {%- if let Some(queues) = tuning.interface_queues %}
       <driver queues='{{ queues }}'/>
-      {% endif %}
+      {%- endif %}
     </interface>
-
-    {%     when ConnectionTypes::P2p %}
+    {%-   when ConnectionTypes::P2p %}
     <interface type='ethernet'>
       <alias name='ua-net-{{ name }}-p2p-{{ interface.name }}'/>
       <mtu size='{{ interface.mtu }}'/>
@@ -239,14 +271,23 @@
       <target dev='{{ interface.name }}'/>
       <script path=''/>
       <model type='{{ interface_type }}'/>
-      {% if let Some(queues) = tuning.interface_queues %}
+      {%- if let Some(queues) = tuning.interface_queues %}
       <driver queues='{{ queues }}'/>
-      {% endif %}
+      {%- endif %}
     </interface>
+    {%-   endmatch %}
+    {%- endfor %}
 
-    {%   endmatch %}
-    {% endfor %}
+    {%- if let Some(mac) = sandbox_nic_mac %}
+    <interface type='network'>
+      <alias name='ua-net-{{ name }}-sandbox'/>
+      <mac address='{{ mac }}'/>
+      <source network='{{ management_network }}'/>
+      <model type='virtio'/>
+    </interface>
+    {%- endif %}
 
+    {%- if let Some(serial_socket) = serial_socket %}
     <serial type='unix'>
       <source mode='bind' path='{{ serial_socket }}'/>
       <target type='isa-serial' port='0'>
@@ -254,25 +295,42 @@
       </target>
       <alias name='serial0'/>
     </serial>
-
     <console type='unix'>
       <source mode='bind' path='{{ serial_socket }}'/>
       <target type='serial' port='0'/>
       <alias name='serial0'/>
     </console>
+    {%- endif %}
 
+    {%- for channel in channels %}
+    {%-   match channel %}
+    {%-   when Channel::GuestAgent %}
     <channel type='unix'>
-      <target type='virtio' name='org.qemu.guest_agent.0'/>
+      <target type='virtio' name='{{ channel.name() }}'/>
     </channel>
-{% if let Some(action) = watchdog %}
+    {%-   when Channel::Status(socket) %}
+    <channel type='unix'>
+      <source mode='bind' path='{{ socket }}'/>
+      <target type='virtio' name='{{ channel.name() }}'/>
+    </channel>
+    {%-   endmatch %}
+    {%- endfor %}
+
+    {%- if let Some(action) = watchdog %}
     <watchdog model='i6300esb' action='{{ action }}'/>
-{% endif %}
+    {%- endif %}
 
-    {# <input type='mouse' bus='ps2'/>
-    <input type='keyboard' bus='ps2'/> #}
+    {%- if let Some(backend) = rng %}
+    <rng model='virtio'>
+      <backend model='random'>{{ backend }}</backend>
+    </rng>
+    {%- endif %}
 
-    <memballoon model='virtio'>
-    </memballoon>
-
+    {%- match memballoon %}
+    {%- when MemballoonModel::Virtio %}
+    <memballoon model='virtio'/>
+    {%- when MemballoonModel::None %}
+    <memballoon model='none'/>
+    {%- endmatch %}
   </devices>
 </domain>

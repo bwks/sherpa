@@ -33,6 +33,7 @@ pub(crate) mod p2p_links;
 pub mod progress;
 pub mod redeploy;
 pub mod resume;
+pub(crate) mod sandbox;
 pub mod scanner;
 pub(crate) mod ssh_config;
 pub mod surreal_db;

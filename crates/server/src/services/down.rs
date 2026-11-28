@@ -15,8 +15,8 @@ use virt::connect::Connect;
 use virt::domain::Domain;
 
 use shared::data::{
-    ClusterRole, LabNodeActionResponse, NodeActionResult, NodeConfig, NodeKind, NodeModel,
-    OperationEvent, TailscaleGatewaySettings,
+    ClusterRole, LabNodeActionResponse, ModelKind, NodeActionResult, NodeConfig, NodeKind,
+    NodeModel, OperationEvent, TailscaleGatewaySettings,
 };
 use shared::konst::SHERPA_LABS_PATH;
 
@@ -25,7 +25,7 @@ use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 use crate::services::error::Unexpected;
 use crate::services::lab_lifecycle;
-use crate::services::lab_nodes::load_target_nodes;
+use crate::services::lab_nodes::{load_target_nodes, refuse_nodes_without_sandbox};
 use crate::services::lab_operations::{self, Operation};
 use crate::services::node_lifecycle;
 use crate::services::talos;
@@ -134,13 +134,14 @@ pub async fn shutdown_lab_nodes(
         Unexpected::log(&error, "Failed to load the lab's Talos clusters").to_string()
     });
     let (target_nodes, node_images) =
-        load_target_nodes(&state.db, lab_record_id, lab_id, node_name).await?;
+        load_target_nodes(&state.db, lab_record_id.clone(), lab_id, node_name).await?;
+    let (target_nodes, mut immediate_results) =
+        refuse_nodes_without_sandbox(&state.db, &lab_record_id, target_nodes, &node_images).await?;
 
     // Talos cluster controllers stop last: workers drain through the Kubernetes API, which
     // runs on the controllers.
     let mut first_wave = Vec::new();
     let mut last_wave = Vec::new();
-    let mut immediate_results = Vec::new();
 
     for node in &target_nodes {
         let device_name = format!("{}-{}", node.name, lab_id);
@@ -242,7 +243,11 @@ fn shutdown_method(
         }
     }
     let role = membership.as_ref().map(|(_, role, _)| *role);
-    let route = shutdown_route(node_image.kind(), node_image.model, role);
+    let model_kind = match node_image.model_kind() {
+        Ok(model_kind) => model_kind,
+        Err(error) => return (ShutdownMethod::Unavailable(format!("{error:#}")), role),
+    };
+    let route = shutdown_route(model_kind, role);
     let method = match (route, membership, lookup_error) {
         (_, _, Some(error)) => {
             ShutdownMethod::Unavailable(format!("could not load the node's Talos cluster: {error}"))
@@ -296,11 +301,12 @@ async fn stop_tailscale_gateway(
 }
 
 /// How `down` stops a node, decided from its kind, model and Talos cluster role.
-fn shutdown_route(kind: NodeKind, model: NodeModel, role: Option<ClusterRole>) -> Route {
-    match kind {
+fn shutdown_route(model_kind: ModelKind, role: Option<ClusterRole>) -> Route {
+    match model_kind.kind() {
+        NodeKind::Container if model_kind.runs_in_sandbox() => Route::Acpi,
         NodeKind::Container => Route::Pause,
         NodeKind::Unikernel => Route::PowerOff(UNIKERNEL_POWER_OFF),
-        NodeKind::VirtualMachine if model == NodeModel::TalosLinux => match role {
+        NodeKind::VirtualMachine if model_kind.model() == NodeModel::TalosLinux => match role {
             Some(_) => Route::TalosApi,
             None => Route::PowerOff(TALOS_POWER_OFF),
         },
@@ -556,7 +562,7 @@ mod tests {
             assert_eq!(address, expected_address, "{node}");
             assert_eq!(role, Some(expected_role), "{node}");
             assert_eq!(
-                shutdown_route(NodeKind::VirtualMachine, NodeModel::TalosLinux, role),
+                shutdown_route(ModelKind::default_for(NodeModel::TalosLinux), role),
                 Route::TalosApi,
                 "{node}"
             );
@@ -575,7 +581,7 @@ mod tests {
         assert!(reason.contains("not in a Sherpa-built cluster"), "{reason}");
         assert_eq!(role, None);
         assert_eq!(
-            shutdown_route(NodeKind::VirtualMachine, NodeModel::TalosLinux, None),
+            shutdown_route(ModelKind::default_for(NodeModel::TalosLinux), None),
             Route::PowerOff(reason)
         );
     }
@@ -616,17 +622,22 @@ mod tests {
     #[test]
     fn node_down_001_down_shuts_a_vm_down_powers_a_unikernel_off_and_pauses_a_container() {
         assert_eq!(
-            shutdown_route(NodeKind::VirtualMachine, NodeModel::UbuntuLinux, None),
+            shutdown_route(ModelKind::default_for(NodeModel::UbuntuLinux), None),
             Route::Acpi
         );
         assert_eq!(
-            shutdown_route(NodeKind::Unikernel, NodeModel::NanosUnikernel, None),
+            shutdown_route(ModelKind::default_for(NodeModel::NanosUnikernel), None),
             Route::PowerOff(UNIKERNEL_POWER_OFF)
         );
         assert_eq!(
-            shutdown_route(NodeKind::Container, NodeModel::Generic, None),
+            shutdown_route(
+                ModelKind::new(NodeModel::Generic, Some(NodeKind::Container)).unwrap(),
+                None
+            ),
             Route::Pause
         );
+        let ceos = ModelKind::new(NodeModel::AristaEos, Some(NodeKind::Container)).unwrap();
+        assert_eq!(shutdown_route(ceos, None), Route::Acpi);
     }
 
     #[test]

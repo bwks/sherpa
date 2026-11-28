@@ -9,4 +9,4 @@ mod writer;
 
 // re-export
 pub use error::IsoError;
-pub use writer::create_iso;
+pub use writer::{ISO_MAX_DEPTH, ISO_MAX_NAME_BYTES, create_iso};

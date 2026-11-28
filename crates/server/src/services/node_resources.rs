@@ -8,8 +8,8 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 
 use shared::data::{
-    DbCpuPins, DbNode, LabPhase, NodeConfig, NodeCpuPins, NodeKind, NodeModel, NodeResources,
-    RecordId,
+    DbCpuPins, DbNode, LabPhase, ModelKind, NodeConfig, NodeCpuPins, NodeKind, NodeModel,
+    NodeResources, RecordId,
 };
 use shared::error::{CpuPinConflict, CpuPinRole};
 use shared::konst::JUNIPER_EVOLVED_CONTAINER_OVERHEAD_MIB;
@@ -17,6 +17,7 @@ use virt::connect::Connect;
 
 use crate::auth::context::AuthContext;
 use crate::services::error::ServiceError;
+use crate::services::sandbox::SANDBOX_MEMORY_OVERHEAD_MIB;
 use crate::validate::check_host_resources;
 
 /// The memory, in MiB, an IOL container needs beyond IOL's own (its `-m`) for the launcher and
@@ -47,12 +48,10 @@ struct PinOverlap {
     held: CpuPinRole,
 }
 
-/// The vCPUs and memory a node gets. A VM or unikernel gets the manifest's values, else the image's. A container gets the
-/// manifest's as Docker limits, and is not limited in what the manifest leaves out; the image's
-/// values are not limits. a `juniper_evolved` container sizes its EVO VM from the manifest or image values,
-/// so its container's memory limit is that and its overhead, with no CPU quota, which would
-/// throttle the EVO VM. IOL takes the manifest or image memory as its own, so its container's
-/// limit is that and the launcher's overhead.
+/// The vCPUs and memory a node gets: the manifest's values, else the image's, for a VM, a
+/// unikernel or a container that runs in a sandbox, which gets the VM's overhead on top; and for
+/// any other container the manifest's alone as Docker limits, but the manifest's or image's
+/// memory with the launcher's overhead for `juniper_evolved`, with no CPU quota, and for IOL.
 pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> NodeResources {
     match image.kind() {
         NodeKind::VirtualMachine | NodeKind::Unikernel => NodeResources {
@@ -68,6 +67,16 @@ pub fn planned_resources(node: &topology::NodeExpanded, image: &NodeConfig) -> N
             ),
             ..NodeResources::default()
         },
+        NodeKind::Container if image.model_kind().is_ok_and(ModelKind::runs_in_sandbox) => {
+            NodeResources {
+                cpu_count: Some(node.cpu.count.unwrap_or(image.cpu.count)),
+                memory: Some(
+                    node.memory
+                        .unwrap_or(image.memory)
+                        .saturating_add(SANDBOX_MEMORY_OVERHEAD_MIB),
+                ),
+            }
+        }
         NodeKind::Container
             if matches!(image.model, NodeModel::CiscoIol | NodeModel::CiscoIoll2) =>
         {
@@ -505,6 +514,25 @@ mod tests {
             let sized = planned_resources(&node(Some(2), Some(1024)), &image);
             assert_eq!(sized.memory, Some(1024 + 128), "{model}");
             assert_eq!(sized.cpu_count, Some(2), "{model}");
+        }
+    }
+
+    #[test]
+    fn sandbox_016_a_sandbox_gets_its_containers_memory_and_1024_mb_and_its_vcpus() {
+        for model in [
+            NodeModel::AristaEos,
+            NodeModel::NokiaSrlinux,
+            NodeModel::SonicLinux,
+        ] {
+            let image = ModelKind::new(model, Some(NodeKind::Container))
+                .unwrap()
+                .node_config();
+            let defaults = planned_resources(&node(None, None), &image);
+            assert_eq!(defaults.memory, Some(image.memory + 1024), "{model}");
+            assert_eq!(defaults.cpu_count, Some(image.cpu.count), "{model}");
+            let sized = planned_resources(&node(Some(4), Some(8192)), &image);
+            assert_eq!(sized.memory, Some(8192 + 1024), "{model}");
+            assert_eq!(sized.cpu_count, Some(4), "{model}");
         }
     }
 

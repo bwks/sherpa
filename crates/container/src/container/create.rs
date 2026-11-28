@@ -1,18 +1,20 @@
 use std::collections::HashMap;
+use std::iter;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use bollard::Docker;
 use bollard::models::{
     ContainerCreateBody, ContainerCreateResponse, ContainerStateStatusEnum, EndpointIpamConfig,
-    EndpointSettings, HostConfig, NetworkConnectRequest, NetworkingConfig,
+    EndpointSettings, HostConfig, NetworkConnectRequest, NetworkingConfig, RestartPolicy,
+    RestartPolicyNameEnum,
 };
 use bollard::query_parameters::{
     CreateContainerOptions, InspectContainerOptions, StartContainerOptions,
 };
+use bollard::{API_DEFAULT_VERSION, Docker};
 use tracing::instrument;
 
-use shared::data::ContainerNetworkAttachment;
+use shared::data::{ContainerMount, ContainerNetworkAttachment, Dns};
 use shared::konst::DOCKER_ENDPOINT_IFNAME_OPT;
 
 use super::delete::remove_container;
@@ -25,6 +27,10 @@ const DATA_INTERFACE_SCRIPT: &str = r#"ip link set "$1" promisc on && ip link se
 const DATA_INTERFACE_RETRIES: u32 = 3;
 /// The pause between data interface command attempts.
 const DATA_INTERFACE_RETRY_DELAY: Duration = Duration::from_secs(2);
+/// The network mode of a sandbox's container: the VM's own network namespace.
+const SANDBOX_NETWORK_MODE: &str = "host";
+/// The address a sandbox's container resolves its own hostname to.
+const SANDBOX_HOSTNAME_ADDRESS: &str = "127.0.1.1";
 /// Bytes in a MiB, the unit of a node's memory.
 const BYTES_PER_MIB: u64 = 1024 * 1024;
 /// Docker's CPU quota unit, `NanoCpus`, in billionths of a CPU.
@@ -37,7 +43,7 @@ pub struct ContainerSpec {
     pub hostname: Option<String>,
     pub image: String,
     pub env_vars: Vec<String>,
-    pub volumes: Vec<String>,
+    pub volumes: Vec<ContainerMount>,
     pub capabilities: Vec<String>,
     pub management_network: ContainerNetworkAttachment,
     pub additional_networks: Vec<ContainerNetworkAttachment>,
@@ -191,7 +197,7 @@ fn create_body(spec: ContainerSpec) -> Result<ContainerCreateBody> {
         image: Some(image),
         env: Some(env_vars),
         host_config: Some(HostConfig {
-            binds: Some(volumes),
+            binds: Some(volumes.iter().map(ContainerMount::bind).collect()),
             cap_add: Some(capabilities),
             auto_remove: Some(false),
             privileged: Some(privileged),
@@ -207,6 +213,53 @@ fn create_body(spec: ContainerSpec) -> Result<ContainerCreateBody> {
         user,
         ..Default::default()
     })
+}
+
+/// The body Docker creates a sandbox's container from: `run_container`'s body of `spec` with no
+/// resource limits, in the VM's network namespace instead of on a Docker network, with the lab's
+/// `dns` name servers and domain, its hostname resolving to loopback, and Docker restarting it
+/// unless it was stopped.
+///
+/// # Errors
+///
+/// Fails when the spec's resource limits do not fit Docker's.
+pub fn sandbox_create_body(spec: ContainerSpec, dns: &Dns) -> Result<ContainerCreateBody> {
+    let extra_hosts = spec
+        .hostname
+        .as_ref()
+        .map(|hostname| vec![format!("{hostname}:{SANDBOX_HOSTNAME_ADDRESS}")]);
+    let mut body = create_body(spec)?;
+    let host_config = body.host_config.get_or_insert_default();
+    host_config.memory = None;
+    host_config.memory_swap = None;
+    host_config.nano_cpus = None;
+    host_config.network_mode = Some(SANDBOX_NETWORK_MODE.to_owned());
+    host_config.dns = Some(name_server_addresses(dns));
+    host_config.dns_search = Some(vec![dns.domain.clone()]);
+    host_config.extra_hosts = extra_hosts;
+    host_config.restart_policy = Some(RestartPolicy {
+        name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
+        maximum_retry_count: None,
+    });
+    body.networking_config = None;
+    Ok(body)
+}
+
+/// The Docker Engine API version `run_container` talks to Docker with, such as `1.49`.
+#[must_use]
+pub fn docker_api_version() -> String {
+    API_DEFAULT_VERSION.to_string()
+}
+
+/// The addresses of the lab's name servers, each IPv4 address followed by its IPv6 one.
+fn name_server_addresses(dns: &Dns) -> Vec<String> {
+    dns.name_servers
+        .iter()
+        .flat_map(|server| {
+            iter::once(server.ipv4_address.to_string())
+                .chain(server.ipv6_address.map(|address| address.to_string()))
+        })
+        .collect()
 }
 
 /// The host config of a container's limits: `memory_mib` as a hard limit in bytes, with the
@@ -267,6 +320,8 @@ fn data_interface_command(attachment: &ContainerNetworkAttachment) -> Option<Vec
 mod tests {
     use super::*;
 
+    use shared::data::NameServer;
+
     fn attachment(
         linux_interface_name: Option<&str>,
         admin_down: bool,
@@ -318,5 +373,71 @@ mod tests {
             None
         );
         assert_eq!(data_interface_command(&attachment(None, false)), None);
+    }
+
+    #[test]
+    fn sandbox_044_a_sandbox_container_has_run_containers_body_with_no_limits_in_the_vms_network_namespace_with_the_labs_dns()
+     {
+        let spec = ContainerSpec {
+            name: "sonic1-abc12345".to_owned(),
+            hostname: Some("sonic1".to_owned()),
+            image: "docker-sonic-vs:202511".to_owned(),
+            env_vars: vec!["A=b c".to_owned()],
+            volumes: vec![
+                ContainerMount::read_only("/media/config/sherpa/volumes/0", "/mnt/init.sh"),
+                ContainerMount::writable("/srv/data", "/etc/a,b"),
+            ],
+            capabilities: vec!["NET_ADMIN".to_owned()],
+            management_network: attachment(None, false),
+            additional_networks: Vec::new(),
+            commands: vec!["/usr/bin/start".to_owned(), "--x".to_owned()],
+            privileged: true,
+            shm_size: Some(1 << 30),
+            user: Some("0:0".to_owned()),
+            memory_mib: Some(2048),
+            cpu_count: Some(2),
+        };
+        let dns = Dns {
+            domain: "sherpa.lab.local".to_owned(),
+            name_servers: vec![NameServer {
+                ipv4_address: "172.31.0.2".parse().unwrap(),
+                ipv6_address: Some("fd00::2".parse().unwrap()),
+            }],
+        };
+        let runc = create_body(spec.clone()).unwrap();
+        let mut sandbox = sandbox_create_body(spec, &dns).unwrap();
+
+        assert_eq!(sandbox.networking_config, None);
+        let host_config = sandbox.host_config.as_mut().unwrap();
+        let runc_host_config = runc.host_config.as_ref().unwrap();
+        assert_eq!(
+            (
+                host_config.memory,
+                host_config.memory_swap,
+                host_config.nano_cpus
+            ),
+            (None, None, None)
+        );
+        host_config.memory = runc_host_config.memory;
+        host_config.memory_swap = runc_host_config.memory_swap;
+        host_config.nano_cpus = runc_host_config.nano_cpus;
+        assert_eq!(host_config.network_mode.take().as_deref(), Some("host"));
+        assert_eq!(host_config.dns.take().unwrap(), ["172.31.0.2", "fd00::2"]);
+        assert_eq!(host_config.dns_search.take().unwrap(), ["sherpa.lab.local"]);
+        assert_eq!(
+            host_config.extra_hosts.take().unwrap(),
+            ["sonic1:127.0.1.1"]
+        );
+        assert_eq!(
+            host_config.restart_policy.take(),
+            Some(RestartPolicy {
+                name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
+                maximum_retry_count: None,
+            })
+        );
+        sandbox
+            .networking_config
+            .clone_from(&runc.networking_config);
+        assert_eq!(sandbox, runc);
     }
 }

@@ -14,7 +14,7 @@ use crate::auth::policy::require_host_access;
 use crate::daemon::state::AppState;
 use crate::konst::LAB_CERTS_DIR;
 use crate::services::admission::{self, Admission};
-use crate::services::error::ServiceError;
+use crate::services::error::{SandboxRefusal, ServiceError};
 use crate::services::guest_account::{self, GuestAccount};
 use crate::services::image_lifecycle::{
     ImageLease, check_container_image, lease_image, validate_disk_method,
@@ -23,11 +23,13 @@ use crate::services::lab_definition;
 use crate::services::lab_info;
 use crate::services::lab_operations::LabOperation;
 use crate::services::progress::ProgressSender;
+use crate::services::sandbox::{self, SandboxBase};
 use crate::services::talos;
 use crate::services::up::process_manifest_nodes;
 use crate::tls::lab_ca::{self, LabCa};
 use crate::validate::{
-    reject_provisioners, validate_container_repo, validate_node_secrets, validate_node_ztp,
+    reject_provisioners, sandbox_volume_sources, validate_container_repo, validate_node_secrets,
+    validate_node_ztp, validate_sandbox_image, validate_sandbox_volumes,
 };
 
 use libvirt::QemuConnection;
@@ -71,6 +73,8 @@ pub(super) struct Redeploy<'a> {
     pub(super) owner_account: GuestAccount,
     pub(super) secrets: Option<Vec<data::SecretFile>>,
     pub(super) image_guard: ImageLease,
+    pub(super) sandbox_base: Option<SandboxBase>,
+    pub(super) vm_sandbox: Option<data::DbVmSandbox>,
     pub(super) admission: Admission,
 }
 
@@ -99,6 +103,8 @@ struct LoadedNode {
     node_image: data::NodeConfig,
     data_interface_count: u8,
     image_guard: ImageLease,
+    sandbox_base: Option<SandboxBase>,
+    vm_sandbox: Option<data::DbVmSandbox>,
 }
 
 /// The lab's directory, details, management network, DNS and CA.
@@ -150,6 +156,8 @@ pub(super) async fn load_redeploy<'a>(
         node_image,
         data_interface_count,
         image_guard,
+        sandbox_base,
+        vm_sandbox,
     } = load_node(
         state,
         &lab_record_id,
@@ -219,6 +227,8 @@ pub(super) async fn load_redeploy<'a>(
         secrets,
         definition,
         image_guard,
+        sandbox_base,
+        vm_sandbox,
         admission: admitted,
         lab_id,
         node_name,
@@ -325,8 +335,9 @@ async fn stored_talos_clusters(
 /// disk method checked against it, and a container's image resolved and checked as `up` does:
 /// the target node's `image` is set to the repo it is created from. The image is found as `up`
 /// finds it, by the node's model, kind and manifest `version`, or else their default, so a
-/// node whose manifest names another version is rebuilt from that version. The model and kind
-/// cannot change, and unikernels cannot be redeployed.
+/// node whose manifest names another version is rebuilt from that version, a node in a sandbox
+/// with the sandbox base image and its sandbox's own address. The model and kind cannot change,
+/// and unikernels cannot be redeployed.
 #[instrument(skip_all, fields(%lab_id, node_name = %target_node.name), level = "debug")]
 async fn load_node(
     state: &AppState,
@@ -379,7 +390,30 @@ async fn load_node(
             ))
             .map_err(|error| ServiceError::Invalid(format!("{error:#}")))?;
 
-    let image_guard = lease_image(node_image.model_kind()?, &node_image.version).await;
+    let model_kind = node_image.model_kind()?;
+    let sandbox_base =
+        sandbox::sandbox_base(&state.db, &state.config.images_dir, &[model_kind]).await?;
+    let vm_sandbox = if model_kind.runs_in_sandbox() {
+        Some(
+            db::find_vm_sandbox(db, &node_record_id)
+                .await?
+                .ok_or_else(|| {
+                    ServiceError::Sandbox(SandboxRefusal::AddressMissing {
+                        node: node_name.to_owned(),
+                    })
+                })?,
+        )
+    } else {
+        None
+    };
+    validate_sandbox_volumes(sandbox_volume_sources(target_node, &node_image)).await?;
+    let image_guard = lease_image(model_kind, &node_image.version).await;
+    validate_sandbox_image(
+        node_name,
+        model_kind,
+        target_node.image.as_deref(),
+        &node_image,
+    )?;
     if node_image.kind() == data::NodeKind::Container {
         let repo = validate_container_repo(
             node_name,
@@ -410,6 +444,8 @@ async fn load_node(
         node_image,
         data_interface_count,
         image_guard,
+        sandbox_base,
+        vm_sandbox,
     })
 }
 

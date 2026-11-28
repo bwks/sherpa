@@ -97,6 +97,8 @@ What `sherpa validate` does not check, because only the server knows it: whether
 | 006 | A name containing `supervisor` in any case is refused for every model and kind as reserved, and the error carries the name and the word; a name with only part of it is taken | unit |
 | 007 | Two names that differ only in case are refused, and the error carries both | unit |
 | 008 | A redeploy whose manifest has two node names that differ only in case is refused before any node is torn down, carrying both | unit |
+| 009 | A manifest whose nodes and sandboxes need more addresses than the lab's 234, each sandbox taking one of its own, is refused, and the error carries the counts | unit |
+| 010 | A node named as another node's sandbox, `<node>-sbx` in any case, is refused, and the error carries both | unit |
 
 The server runs these at up before anything is created (`lab_preflight_002`). The lab's own `name` follows the same rule: `lab_settings_006` and `007`.
 
@@ -118,6 +120,7 @@ The server runs these at up before anything is created (`lab_preflight_002`). Th
 | 007 | Every model is taken by the name it is shown as, from a manifest, from JSON and on the command line | unit |
 | 008 | A model name Sherpa does not know is refused by its parse with an error that carries the name; from a manifest the error's span is the name, from JSON it is refused as data, and on the command line the error is an invalid value that carries the name | unit |
 | 009 | A `--model` option lists every model name as a possible value | unit |
+| 010 | A node of model `flatcar_sandbox`, the sandbox base image, is refused, pointing to `flatcar_linux` for a Flatcar VM | unit |
 
 ## `node_settings`: a node sets only what its kind and its model take
 

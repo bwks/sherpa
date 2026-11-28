@@ -15,8 +15,35 @@ use tracing::instrument;
 use virt::connect::Connect;
 use virt::error::ErrorNumber;
 use virt::storage_pool::StoragePool;
+use virt::storage_vol::StorageVol;
 
 use crate::names::is_lab_volume;
+use crate::size::gib_to_bytes;
+
+/// Mode of a blank volume made to be moved to the images folder: an imported image's, which its
+/// owner and group read and write.
+const OWNED_VOLUME_MODE: &str = "0660";
+
+/// The user and group a volume is created for, by their IDs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VolumeOwner {
+    pub uid: u32,
+    pub gid: u32,
+}
+
+/// A QCOW2 volume of `capacity` bytes at `destination` with permission bits `mode`, owned by
+/// `owner` when set, an overlay of the QCOW2 file `backing` when set, defined from
+/// `templates/volume.xml`.
+#[derive(Template)]
+#[template(path = "volume.xml", ext = "xml", escape = "xml")]
+pub(crate) struct QcowVolume<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) destination: &'a str,
+    pub(crate) capacity: u64,
+    pub(crate) mode: &'a str,
+    pub(crate) owner: Option<VolumeOwner>,
+    pub(crate) backing: Option<&'a str>,
+}
 
 /// A storage volume's XML, as far as its name and backing file.
 #[derive(Debug, Deserialize)]
@@ -130,17 +157,27 @@ pub fn refresh_pool(pool: &StoragePool) -> Result<()> {
 /// Fails when the pool cannot be found, refreshed or listed.
 #[instrument(level = "debug", skip(qemu_conn))]
 pub fn list_lab_volumes(qemu_conn: &Connect, lab_id: &str) -> Result<Vec<String>> {
+    Ok(list_pool_volumes(qemu_conn)?
+        .into_iter()
+        .filter(|volume| is_lab_volume(volume, lab_id))
+        .collect())
+}
+
+/// The volumes of the Sherpa storage pool, after refreshing the pool so volumes made outside
+/// libvirt are seen.
+///
+/// # Errors
+///
+/// Fails when the pool cannot be found, refreshed or listed.
+#[instrument(level = "debug", skip(qemu_conn))]
+pub fn list_pool_volumes(qemu_conn: &Connect) -> Result<Vec<String>> {
     let pool = StoragePool::lookup_by_name(qemu_conn, SHERPA_STORAGE_POOL).context(format!(
         "Failed to find storage pool '{SHERPA_STORAGE_POOL}'"
     ))?;
     refresh_pool(&pool)?;
-    let volumes = pool.list_volumes().context(format!(
+    pool.list_volumes().context(format!(
         "Failed to list volumes in pool '{SHERPA_STORAGE_POOL}'"
-    ))?;
-    Ok(volumes
-        .into_iter()
-        .filter(|volume| is_lab_volume(volume, lab_id))
-        .collect())
+    ))
 }
 
 /// Each volume in the Sherpa storage pool that has a backing file, with the file as libvirt
@@ -219,6 +256,66 @@ pub fn overlay_on_image<'a>(
     Ok(None)
 }
 
+/// Create an empty sparse QCOW2 disk of `size_gb` GiB at `dst`, owned by `owner` with mode
+/// `0660`, never changing an existing destination. libvirt hands the disk to QEMU while a domain
+/// runs on it and gives it back to `owner` when the domain stops.
+///
+/// # Errors
+///
+/// Fails when `dst` exists, is relative or is not a UTF-8 file name, or libvirt cannot create
+/// the volume.
+#[instrument(level = "debug", skip(conn))]
+pub fn create_blank_qcow2(
+    conn: &Connect,
+    dst: &str,
+    size_gb: u16,
+    owner: VolumeOwner,
+) -> Result<()> {
+    let xml = QcowVolume {
+        name: new_volume_name(dst)?,
+        destination: dst,
+        capacity: gib_to_bytes(size_gb),
+        mode: OWNED_VOLUME_MODE,
+        owner: Some(owner),
+        backing: None,
+    }
+    .render()
+    .context("Cannot render blank volume XML")?;
+    create_volume(conn, &xml).with_context(|| format!("Cannot create blank QCOW2 disk {dst}"))
+}
+
+/// The file name of a new volume at absolute path `dst`, where nothing exists yet.
+///
+/// # Errors
+///
+/// Fails when `dst` exists, is relative or has no UTF-8 file name.
+pub(crate) fn new_volume_name(dst: &str) -> Result<&str> {
+    ensure_destination_absent(dst)?;
+    let destination = Path::new(dst);
+    ensure!(
+        destination.is_absolute(),
+        "Disk destination must be absolute: {dst}"
+    );
+    destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .with_context(|| format!("Invalid disk file name: {dst}"))
+}
+
+/// Create the volume of volume XML `xml` in the Sherpa storage pool, refreshed first, never
+/// deleting a volume libvirt refuses as a duplicate, which may be another attempt's.
+///
+/// # Errors
+///
+/// Fails when the pool cannot be found or refreshed, or libvirt cannot create the volume.
+pub(crate) fn create_volume(conn: &Connect, xml: &str) -> Result<()> {
+    let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)
+        .with_context(|| format!("Cannot find storage pool '{SHERPA_STORAGE_POOL}'"))?;
+    refresh_pool(&pool)?;
+    StorageVol::create_xml(&pool, xml, 0)?;
+    Ok(())
+}
+
 /// Fail unless nothing exists at `path`. Disks are created exclusively and never replace a file.
 pub(crate) fn ensure_destination_absent(path: &str) -> Result<()> {
     ensure!(
@@ -231,6 +328,34 @@ pub(crate) fn ensure_destination_absent(path: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sandbox_099_a_blank_disk_is_a_qcow2_volume_of_its_size_with_no_backing_store_readable_by_its_group()
+     {
+        let xml = QcowVolume {
+            name: "sherpa-docker-store.partial.qcow2",
+            destination: "/opt/sherpa/libvirt/images/sherpa-docker-store.partial.qcow2",
+            capacity: gib_to_bytes(2),
+            mode: OWNED_VOLUME_MODE,
+            owner: Some(VolumeOwner { uid: 997, gid: 987 }),
+            backing: None,
+        }
+        .render()
+        .unwrap();
+        assert_eq!(
+            xml,
+            "<volume type='file'>
+  <name>sherpa-docker-store.partial.qcow2</name>
+  <capacity unit='bytes'>2147483648</capacity>
+  <allocation unit='bytes'>0</allocation>
+  <target>
+    <path>/opt/sherpa/libvirt/images/sherpa-docker-store.partial.qcow2</path>
+    <format type='qcow2'/>
+    <permissions><mode>0660</mode><owner>997</owner><group>987</group></permissions>
+  </target>
+</volume>"
+        );
+    }
 
     #[test]
     fn image_delete_008_a_disks_backing_file_is_read_from_its_volume_xml() {

@@ -1,0 +1,3 @@
+{% for interface in interfaces -%}
+{{ interface.mac.to_ascii_lowercase() }} {{ interface.name }}
+{% endfor -%}

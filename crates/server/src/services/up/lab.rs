@@ -19,11 +19,11 @@ use super::networks::{
     lab_id_taken, management_network, reserve_lab, set_isolated_bridges_down,
 };
 use super::plan::{CheckedNodes, LabPlan, check_node_images, plan_lab};
-use super::readiness::{NodesReady, ReadinessInputs, wait_for_nodes};
+use super::readiness::{NodesReady, ReadinessInputs, wait_for_nodes, write_secret_mounts};
 use super::records::{NodeRecords, create_node_records, store_ssh_usernames};
-use super::runtime::{create_unikernels, create_vms};
+use super::runtime::{SandboxNodes, create_sandboxes, create_unikernels, create_vms};
 use super::services::{LabServices, ServiceInputs, record_ready_workers, start_lab_services};
-use super::ztp::{ConfigInputs, NodeConfigs, configure_nodes, start_boot_container};
+use super::ztp::{ConfigInputs, NodeConfigs, SandboxRecord, configure_nodes, start_boot_container};
 use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_host_access, require_lab_starter};
 use crate::daemon::state::AppState;
@@ -34,8 +34,9 @@ use crate::services::guest_account::{self, GuestAccount};
 use crate::services::lab_definition;
 use crate::services::lab_lifecycle;
 use crate::services::lab_operations::{self, LabHold, LabOperation, Operation, StopReason};
-use crate::services::node_ops;
+use crate::services::node_ops::{self, ContainerSettings};
 use crate::services::progress::ProgressSender;
+use crate::services::sandbox::{SandboxHost, StatusWatch};
 use crate::services::ssh_config::{self, LabSshFiles};
 use crate::services::surreal_db;
 use crate::services::tailscale;
@@ -92,9 +93,11 @@ struct LabNetwork {
 struct BuiltNodes {
     lab_ca: LabCa,
     ztp_records: Vec<data::ZtpRecord>,
-    container_volumes: HashMap<String, Vec<String>>,
+    container_settings: HashMap<String, ContainerSettings>,
+    secret_mounts: HashMap<String, data::ContainerMount>,
     lab_clusters: Vec<LabCluster>,
     p2p: P2pAttachment,
+    sandbox_watches: HashMap<String, StatusWatch>,
 }
 
 /// What phases 12 and 13 leave for the response.
@@ -191,6 +194,7 @@ pub async fn up_lab(
         qemu_conn: &qemu_conn,
         qemu: &state.qemu,
         config: &state.config,
+        sandbox_disk_locks: &state.sandbox_disk_locks,
         progress: &progress,
     };
     let mut plan = validate(
@@ -419,10 +423,11 @@ fn ensure_no_earlier_attempt(
     lab_id: &str,
     selected_images: &[data::NodeConfig],
 ) -> Result<()> {
-    if selected_images
-        .iter()
-        .all(|image| image.kind() == data::NodeKind::Container)
-    {
+    if selected_images.iter().all(|image| {
+        image
+            .model_kind()
+            .is_ok_and(|kind| kind.runs_as() == data::NodeKind::Container)
+    }) {
         return Ok(());
     }
     if !libvirt::list_lab_volumes(qemu_conn, lab_id)?.is_empty() {
@@ -638,6 +643,31 @@ impl LabUp<'_> {
         Ok(links)
     }
 
+    /// Write the boot server's config, with the nodes' records and the sandboxes' own addresses,
+    /// and start its container (phase 9).
+    async fn start_boot_server(
+        &mut self,
+        ztp_dir: &str,
+        network: &LabNetwork,
+        ztp_records: &[data::ZtpRecord],
+        sandbox_records: &[SandboxRecord],
+    ) -> Result<()> {
+        self.start_phase(
+            data::UpPhase::BootContainers,
+            "Creating boot containers and ZTP files".to_string(),
+        )?;
+        start_boot_container(
+            &self.build,
+            ztp_dir,
+            &network.mgmt_net,
+            ztp_records,
+            sandbox_records,
+        )
+        .await?;
+        self.phase_done("Sherpa Router");
+        Ok(())
+    }
+
     /// Configure every node (phase 8), start the boot container (phase 9), clone the disks
     /// (phase 10), create the VM and unikernel domains (phase 11), attach the eBPF redirect on
     /// VM-to-VM links (11b), and set the isolated bridges down (11c).
@@ -656,11 +686,12 @@ impl LabUp<'_> {
             lab_ca,
             ztp_dir,
             ztp_records,
-            container_volumes,
+            container_settings,
             clone_disks,
             domains,
             unikernel_domains,
             lab_clusters,
+            sandbox_records,
         } = configure_nodes(
             &self.build,
             &ConfigInputs {
@@ -680,12 +711,8 @@ impl LabUp<'_> {
         .await?;
         self.phase_done("ZtpGeneration");
 
-        self.start_phase(
-            data::UpPhase::BootContainers,
-            "Creating boot containers and ZTP files".to_string(),
-        )?;
-        start_boot_container(&self.build, &ztp_dir, &network.mgmt_net, &ztp_records).await?;
-        self.phase_done("Sherpa Router");
+        self.start_boot_server(&ztp_dir, network, &ztp_records, &sandbox_records)
+            .await?;
 
         self.start_phase(data::UpPhase::DiskCloning, "Cloning disks".to_string())?;
         let boot_dirs: Vec<PathBuf> = records
@@ -705,7 +732,30 @@ impl LabUp<'_> {
         self.phase_done("DiskCloning");
 
         self.start_phase(data::UpPhase::VmCreation, "Creating VMs".to_string())?;
+        let secret_mounts = write_secret_mounts(&self.build, self.node_secrets)?;
         create_vms(&self.build, domains).await?;
+        let sandbox_watches = create_sandboxes(
+            &self.build,
+            &SandboxNodes {
+                host: SandboxHost {
+                    docker: Arc::clone(self.build.docker_conn),
+                    qemu: Arc::clone(self.build.qemu),
+                    qemu_bin: self.build.config.qemu_bin.clone(),
+                    base: self.plan.sandbox_base.take(),
+                    disk_locks: self.build.sandbox_disk_locks.clone(),
+                    progress: self.build.progress.clone(),
+                },
+                container_nodes: &records.container_nodes,
+                lab_node_data: &records.lab_node_data,
+                container_settings: &container_settings,
+                secret_mounts: &secret_mounts,
+                veths: &links.p2p_container_veths,
+                mgmt_net: &network.mgmt_net,
+                dns: &network.dns,
+                sandbox_records: &sandbox_records,
+            },
+        )
+        .await?;
         self.phase_done("VmCreation");
         create_unikernels(&self.build, unikernel_domains).await?;
         // Every disk and domain exists; stop holding the disk images.
@@ -731,9 +781,11 @@ impl LabUp<'_> {
         Ok(BuiltNodes {
             lab_ca,
             ztp_records,
-            container_volumes,
+            container_settings,
+            secret_mounts,
             lab_clusters,
             p2p,
+            sandbox_watches,
         })
     }
 
@@ -782,16 +834,17 @@ impl LabUp<'_> {
                 unikernel_nodes: &records.unikernel_nodes,
                 lab_node_data: &records.lab_node_data,
                 ztp_records: &built.ztp_records,
-                container_volumes: &built.container_volumes,
+                container_settings: &built.container_settings,
+                secret_mounts: &built.secret_mounts,
                 container_link_networks: &container_link_networks,
                 p2p_container_veths: &links.p2p_container_veths,
                 p2p_links,
                 links_detailed: &self.plan.links_detailed,
-                node_secrets: self.node_secrets,
                 talos_clusters,
                 timeout: Duration::from_secs(ready_timeout_secs),
             },
             &mut built.p2p,
+            mem::take(&mut built.sandbox_watches),
         )
         .await?;
         self.errors.extend(readiness_errors);

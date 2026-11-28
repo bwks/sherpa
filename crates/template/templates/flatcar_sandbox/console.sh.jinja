@@ -1,0 +1,20 @@
+#!/bin/bash
+# Opens the node's network OS CLI on the VM's serial console once Enter is pressed.
+set -eu
+
+name=$(cat {{ crate::flatcar_sandbox::CONTAINER_FILE }})
+mapfile -t command < {{ crate::flatcar_sandbox::CONSOLE_COMMAND_FILE }}
+echo
+echo "$(hostname) console: press Enter to open the network OS CLI"
+read -r _
+# Until the container exists, Docker says it has no such container; that is the wait.
+until [ "$(docker container inspect -f '{% raw %}{{.State.Running}}{% endraw %}' "$name" 2> /dev/null)" = true ]; do
+  echo "Waiting for the node's container to start..."
+  sleep 2
+done
+# A serial line has no size, and full-screen CLIs draw nothing in a 0x0 terminal.
+if [ "$(stty size)" = "0 0" ]; then
+  stty rows 24 cols 80
+fi
+exec docker exec -it "$name" "${command[@]}"
+

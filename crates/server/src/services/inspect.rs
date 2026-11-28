@@ -197,7 +197,12 @@ async fn devices(
             .ok_or_else(|| anyhow!("Node image not found for node '{}'", node.name))?;
 
         let mut device = device_info(node, node_image, volumes, lab_info);
-        device.state = reported_state(node, node_image.kind(), &lab_info.id, containers.as_ref());
+        device.state = reported_state(
+            node,
+            node_image.model_kind()?.runs_as(),
+            &lab_info.id,
+            containers.as_ref(),
+        );
         device.vault_sealed = vault_seals.get(&node.name).cloned();
         if device.state != node.state {
             tracing::debug!(node = %node.name, recorded = %node.state, reported = %device.state, "Reporting the container's state from Docker");

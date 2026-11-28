@@ -19,6 +19,7 @@ use sherpad::daemon::console_sessions::ConsoleSessions;
 use sherpad::daemon::link_states::LinkStates;
 use sherpad::daemon::metrics::Metrics;
 use sherpad::daemon::run_scanner;
+use sherpad::daemon::sandbox_disks::SandboxDiskLocks;
 use sherpad::daemon::state::AppState;
 use sherpad::daemon::unreadable_ends::UnreadableEnds;
 use sherpad::daemon::vault_seals::VaultSeals;
@@ -84,6 +85,7 @@ impl TestServer {
             unreadable_ends: UnreadableEnds::default(),
             vault_seals: VaultSeals::default(),
             console_sessions: ConsoleSessions::default(),
+            sandbox_disk_locks: SandboxDiskLocks::default(),
         };
 
         if state.config.scanner.enabled {

@@ -185,6 +185,7 @@ mod tests {
                     target.model_kind,
                     &target.ready_check,
                     Ztp::Disabled,
+                    false,
                 ),
             )
             .await

@@ -252,7 +252,7 @@ The session cookie that keeps another site's requests from acting as the user is
 
 ## `api_errors`: a refused or failed request is answered with what went wrong
 
-**Statement:** a request the server refuses or fails is answered with the kind of failure, as a code a client can act on, and a message for the user, which for a request that does not parse is fixed, names at most the path of the field that is wrong and never the value sent; a failure is classified by its error type, never its text: a refusal of a known kind (not found, denied, invalid, conflict, memory, CPU pins) is answered with its own message, and any other failure with `internal error (ref <id>); see the server log`, where `<id>` is a short random reference the server logs at error level with the error's chain; no answer, over RPC, REST or the web UI, carries a file path, libvirt or Docker text, or an error's chain; a failed CLI command prints the answer and exits 1.
+**Statement:** a request the server refuses or fails is answered with the kind of failure, as a code a client can act on, and a message for the user, which for a request that does not parse is fixed, names at most the path of the field that is wrong and never the value sent; a failure is classified by its error type, never its text: a refusal of a known kind (not found, denied, invalid, conflict, memory, CPU pins) is answered with its own message, a node failure of a known kind (a sandbox's) with the reason the node reported, and any other failure with `internal error (ref <id>); see the server log`, where `<id>` is a short random reference the server logs at error level with the error's chain; no answer, over RPC, REST or the web UI, carries a file path, libvirt or Docker text, or an error's chain, except the reason a sandbox's VM reported, which can be Docker's message; a failed CLI command prints the answer and exits 1.
 **Relied on by:** the CLI, the web UI's scripts, users' scripts and clients. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -262,7 +262,7 @@ The session cookie that keeps another site's requests from acting as the user is
 | 003 | Retired: an RPC failure of no known kind no longer carries its chain as context; see 016 | |
 | 004 | An RPC refusal of a known kind keeps its code and its own message, and has no context | unit |
 | 005 | An error code is sent as its JSON-RPC number and read back from it, and a number this version does not know is kept as it came | unit |
-| 006 | Over REST each kind of failure has its status, 401, 403, 404, 400, 409, 507 for memory and 500, in an `error` object with a code and a message (no test yet; the 403, 404 and 409 of single operations are cases of `access_control` and `user_accounts`) | integration |
+| 006 | Over REST each kind of failure has its status, 401, 403, 404, 400, 409, 507 for memory, 502 for a node failure and 500, in an `error` object with a code and a message (no test yet; the 403, 404 and 409 of single operations are cases of `access_control` and `user_accounts`) | integration |
 | 007 | Retired: REST failures are no longer classified by their text; see 002 and 019 | |
 | 008 | A CLI command the server refuses or fails prints the error with its causes and exits 1 (no test at this level yet) | e2e |
 | 009 | RPC parameters that do not parse, for any method, are answered invalid params with the method's message, and the context `the request is not valid at <path>`, such as `password`, `ztp_password` or `files[0].mode`, or `the request is not valid` for a missing top-level field or a field sent with a name that is not plain; never the value sent: a password sent as a number is not in it | unit |
@@ -282,5 +282,7 @@ The session cookie that keeps another site's requests from acting as the user is
 | 023 | A node whose model and kind have no image of its version, or no default image when it sets none, is refused as not found with the model, kind and version, never as an internal error | unit |
 | 024 | The web UI's labs list, when listing is refused with a known kind, such as a user not found, shows the refusal's own message | unit |
 | 025 | The web UI's labs list, when listing fails for no known kind, shows `internal error (ref <id>); see the server log`, and none of its chain | unit |
+| 026 | An RPC sandbox failure is a server error with the reason the VM reported, and no context or data | unit |
+| 027 | Over REST a sandbox failure is answered 502 `NODE_FAILED` with the reason the VM reported | unit |
 
 Exit status 75, for a refusal for memory or held CPUs, and what those refusals carry, are `lab_preflight_007` in [lab-lifecycle.md](lab-lifecycle.md). That a request which does not parse is answered without its secrets is `provisioner_secrecy_004`. The path in the answer to a request that does not parse is given only when each of its segments is an index or a plain name of letters, digits, `_` and `-`, since a map key or an unknown field is what the client sent; serde gives none inside an internally tagged enum, such as the WebSocket message's own fields. A JSON key sent twice is refused as `the request is not valid`.

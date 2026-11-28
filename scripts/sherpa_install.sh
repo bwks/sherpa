@@ -238,6 +238,8 @@ install_system_packages() {
         e2fsprogs
         gzip
         unzip
+        # Unpacking the flatcar_sandbox image: bunzip2
+        bzip2
         # QEMU/KVM/libvirt
         # qemu-kvm is ambiguous on Ubuntu 26.04 (standard and HWE providers).
         qemu-system-x86

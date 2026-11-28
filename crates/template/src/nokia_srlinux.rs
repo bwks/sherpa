@@ -1,10 +1,8 @@
-use std::net::{Ipv4Addr, Ipv6Addr};
-
 use anyhow::Result;
 use serde::Serialize;
 use serde_json::Value;
 
-use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser};
+use shared::data::{Dns, OwnerUser};
 
 /// Factory ACL config extracted from a clean SR Linux v25.10.2 container.
 /// Includes CPM ACL filters (IPv4 + IPv6), policers, and control-plane-traffic
@@ -158,44 +156,20 @@ struct Subinterface {
     index: u32,
     #[serde(rename = "admin-state")]
     admin_state: String,
-    ipv4: SubinterfaceIpv4,
-    ipv6: SubinterfaceIpv6,
+    ipv4: SubinterfaceIp,
+    ipv6: SubinterfaceIp,
 }
 
-#[derive(Serialize)]
-struct SubinterfaceIpv4 {
+#[derive(Clone, Serialize)]
+struct SubinterfaceIp {
     #[serde(rename = "admin-state")]
     admin_state: String,
-    address: Vec<Ipv4Address>,
+    #[serde(rename = "srl_nokia-interfaces-ip-dhcp:dhcp-client")]
+    dhcp_client: DhcpClient,
 }
 
-#[derive(Serialize)]
-struct SubinterfaceIpv6 {
-    #[serde(rename = "admin-state")]
-    admin_state: String,
-    #[serde(
-        rename = "srl_nokia-interfaces-ip-dhcp:dhcp-client",
-        skip_serializing_if = "Option::is_none"
-    )]
-    dhcp_client: Option<DhcpClient>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    address: Option<Vec<Ipv6Address>>,
-}
-
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct DhcpClient {}
-
-#[derive(Serialize)]
-struct Ipv4Address {
-    #[serde(rename = "ip-prefix")]
-    ip_prefix: String,
-}
-
-#[derive(Serialize)]
-struct Ipv6Address {
-    #[serde(rename = "ip-prefix")]
-    ip_prefix: String,
-}
 
 // ============================================================================
 // Network Instance
@@ -245,14 +219,7 @@ struct NiLinux {
 /// # Errors
 ///
 /// Fails when the configuration or the factory ACLs cannot be serialized or parsed.
-pub fn build_srlinux_config(
-    hostname: &str,
-    owner: &OwnerUser,
-    dns: &Dns,
-    mgmt_ipv4: &NetworkV4,
-    mgmt_ipv4_address: Ipv4Addr,
-    mgmt_ipv6: Option<(Ipv6Addr, &NetworkV6)>,
-) -> Result<String> {
+pub fn build_srlinux_config(hostname: &str, owner: &OwnerUser, dns: &Dns) -> Result<String> {
     let users = vec![owner_aaa_user(owner)];
     let dns_servers = dns_servers(dns);
 
@@ -303,11 +270,7 @@ pub fn build_srlinux_config(
         interface: vec![Interface {
             name: "mgmt0".to_string(),
             admin_state: "enable".to_string(),
-            subinterface: vec![management_subinterface(
-                mgmt_ipv4,
-                mgmt_ipv4_address,
-                mgmt_ipv6,
-            )],
+            subinterface: vec![management_subinterface()],
         }],
         network_instance: vec![management_network_instance()],
     };
@@ -359,38 +322,18 @@ fn dns_servers(dns: &Dns) -> Vec<String> {
     servers
 }
 
-/// `mgmt0.0`, with its static IPv4 address, and its static IPv6 address or else one by DHCP.
-fn management_subinterface(
-    mgmt_ipv4: &NetworkV4,
-    mgmt_ipv4_address: Ipv4Addr,
-    mgmt_ipv6: Option<(Ipv6Addr, &NetworkV6)>,
-) -> Subinterface {
-    let ipv4 = SubinterfaceIpv4 {
+/// `mgmt0.0`, whose DHCP clients for IPv4 and IPv6 move the addresses `mgmt0` has at start, the
+/// ones Sherpa gave `eth0`, onto it, so they are on one interface only.
+fn management_subinterface() -> Subinterface {
+    let dhcp = SubinterfaceIp {
         admin_state: "enable".to_string(),
-        address: vec![Ipv4Address {
-            ip_prefix: format!("{}/{}", mgmt_ipv4_address, mgmt_ipv4.prefix_length),
-        }],
-    };
-
-    let ipv6 = match mgmt_ipv6 {
-        Some((addr, v6)) => SubinterfaceIpv6 {
-            admin_state: "enable".to_string(),
-            dhcp_client: None,
-            address: Some(vec![Ipv6Address {
-                ip_prefix: format!("{}/{}", addr, v6.prefix_length),
-            }]),
-        },
-        None => SubinterfaceIpv6 {
-            admin_state: "enable".to_string(),
-            dhcp_client: Some(DhcpClient {}),
-            address: None,
-        },
+        dhcp_client: DhcpClient {},
     };
     Subinterface {
         index: 0,
         admin_state: "enable".to_string(),
-        ipv4,
-        ipv6,
+        ipv4: dhcp.clone(),
+        ipv6: dhcp,
     }
 }
 

@@ -25,6 +25,7 @@ pub mod session;
 mod sql;
 pub mod talos;
 pub mod user;
+pub mod vm_sandbox;
 
 pub use connect::{Database, open, open_in_memory};
 pub use cpu_pin::{CpuPinTaken, claim_cpu_pins, list_cpu_pins, retain_cpu_pins};
@@ -35,6 +36,7 @@ pub use shared::data::{
     DbBridge, DbCpuPins, DbLab, DbLink, DbLoginAttempt, DbNode, DbSession, DbSessionUser, DbUser,
     NodeConfig, SessionChannel,
 };
+pub use vm_sandbox::{create_vm_sandbox, find_vm_sandbox, list_vm_sandboxes};
 
 // Helper functions for extracting IDs safely
 pub use helpers::{get_image_id, get_lab_id, get_node_id, get_user_id};

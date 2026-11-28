@@ -14,7 +14,11 @@ use crate::services::image_lifecycle::{
     ImageLease, check_container_image, lease_image, validate_disk_method,
 };
 use crate::services::progress::ProgressSender;
-use crate::validate::{validate_and_resolve_node_versions, validate_node_ztp};
+use crate::services::sandbox::{self, SandboxBase};
+use crate::validate::{
+    sandbox_volume_sources, validate_and_resolve_node_versions, validate_node_ztp,
+    validate_sandbox_volumes,
+};
 
 use shared::data;
 use shared::data::{NodeCpuPins, NodeKind, NodeSshUsername, StatusKind};
@@ -37,6 +41,7 @@ pub(super) struct LabPlan {
     pub(super) nodes_expanded: Vec<topology::NodeExpanded>,
     pub(super) selected_images: Vec<data::NodeConfig>,
     pub(super) image_guards: Vec<ImageLease>,
+    pub(super) sandbox_base: Option<SandboxBase>,
     pub(super) container_image_guards: Vec<ImageLease>,
     pub(super) owner_account: GuestAccount,
     pub(super) ssh_usernames: Vec<NodeSshUsername>,
@@ -105,8 +110,15 @@ pub(super) async fn plan_lab(
         image_guards,
         container_image_guards,
     } = lease_images(db, &nodes_expanded, &node_images).await?;
+    let model_kinds = selected_images
+        .iter()
+        .map(data::NodeConfig::model_kind)
+        .collect::<Result<Vec<_>>>()?;
+    let sandbox_base = sandbox::sandbox_base(db, &config.images_dir, &model_kinds).await?;
+    let mut volume_sources = Vec::new();
     for node in &nodes_expanded {
         let image = get_node_image(node.model_kind, node.version.as_deref(), &node_images)?;
+        volume_sources.extend(sandbox_volume_sources(node, &image));
         validate_disk_method(
             &node.name,
             node.boot_disk.clone_method,
@@ -131,6 +143,8 @@ pub(super) async fn plan_lab(
         }
     }
 
+    validate_sandbox_volumes(volume_sources).await?;
+
     let ssh_usernames = node_logins(&owner_account, &nodes_expanded, &node_images, progress)?;
 
     let (links_detailed, bridges_detailed) = process_links(manifest, &nodes_expanded, lab_id)
@@ -151,6 +165,7 @@ pub(super) async fn plan_lab(
         nodes_expanded,
         selected_images,
         image_guards,
+        sandbox_base,
         container_image_guards,
         owner_account,
         ssh_usernames,

@@ -1,0 +1,12 @@
+[Unit]
+Description=Load the node image into the Docker store
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart={{ crate::flatcar_sandbox::STORE_SCRIPT_PATH }}
+
+[Install]
+WantedBy=multi-user.target
+

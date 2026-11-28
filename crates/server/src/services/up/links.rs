@@ -474,8 +474,8 @@ pub(super) struct P2pAttachment {
     pub(super) attached: HashSet<u16>,
 }
 
-/// Attach the eBPF redirect on every P2p link whose ends are both VM or unikernel taps, which
-/// exist once libvirt has created the domains (phase 11b).
+/// Attach the eBPF redirect on every P2p link whose ends are both VM, sandbox or unikernel
+/// taps, which exist once libvirt has created the domains (phase 11b).
 #[instrument(skip_all, fields(lab_id = %build.lab_id))]
 pub(super) async fn attach_vm_links(
     build: &LabBuild<'_>,
@@ -483,8 +483,10 @@ pub(super) async fn attach_vm_links(
     p2p_container_veths: &[P2pContainerVeth],
     links_detailed: &[topology::LinkDetailed],
 ) -> Result<P2pAttachment> {
+    // A sandbox's ends are taps, made with its domain.
     let container_host_veths: HashSet<&str> = p2p_container_veths
         .iter()
+        .filter(|veth| !veth.veth.model_kind.runs_in_sandbox())
         .map(|veth| veth.veth.host_veth.as_str())
         .collect();
     let ready_ends = p2p_links

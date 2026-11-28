@@ -1,28 +1,17 @@
 use std::fs;
-use std::path::Path;
 use std::time::Instant;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use askama::Template;
+use shared::konst::STORAGE_VOLUME_MODE;
 use tracing::instrument;
 use virt::connect::Connect;
-use virt::storage_pool::StoragePool;
-use virt::storage_vol::StorageVol;
 
 use crate::qcow2::read_qcow2_metadata;
-use crate::storage::{ensure_destination_absent, refresh_pool};
-use shared::konst::SHERPA_STORAGE_POOL;
+use crate::storage::{QcowVolume, create_volume, new_volume_name};
 
-#[derive(Template)]
-#[template(path = "overlay.xml", ext = "xml", escape = "xml")]
-struct OverlayVolume<'a> {
-    name: &'a str,
-    destination: &'a str,
-    backing: &'a str,
-    capacity: u64,
-}
-
-/// Create a sparse QCOW2 boot disk with an absolute, explicit QCOW2 backing store.
+/// Create a sparse QCOW2 boot disk, mode `STORAGE_VOLUME_MODE`, with an absolute, explicit QCOW2
+/// backing store.
 /// The volume is created exclusively; existing destinations are never changed.
 ///
 /// # Errors
@@ -35,31 +24,19 @@ pub fn create_overlay(conn: &Connect, src: &str, dst: &str, size_gb: Option<u16>
     let start = Instant::now();
     let backing = fs::canonicalize(src).context("Cannot resolve overlay base")?;
     let capacity = read_qcow2_metadata(&backing)?.overlay_capacity(size_gb)?;
-    ensure_destination_absent(dst)?;
-    let destination = Path::new(dst);
-    ensure!(
-        destination.is_absolute(),
-        "Overlay destination must be absolute"
-    );
-    let name = destination
-        .file_name()
-        .and_then(|name| name.to_str())
-        .context("Invalid overlay filename")?;
+    let name = new_volume_name(dst)?;
     let backing = backing.to_str().context("Overlay base path is not UTF-8")?;
-    let xml = OverlayVolume {
+    let xml = QcowVolume {
         name,
         destination: dst,
-        backing,
         capacity,
+        mode: STORAGE_VOLUME_MODE,
+        owner: None,
+        backing: Some(backing),
     }
     .render()
     .context("Cannot render overlay volume XML")?;
-    let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)
-        .context("Cannot find overlay storage pool")?;
-    refresh_pool(&pool).context("Cannot refresh overlay storage pool")?;
-    // Libvirt rejects a duplicate volume name atomically. Never delete a volume
-    // after create_xml fails: it may belong to a concurrent or previous attempt.
-    StorageVol::create_xml(&pool, &xml, 0)
+    create_volume(conn, &xml)
         .with_context(|| format!("Cannot create QCOW2 overlay {dst} backed by {backing}"))?;
     tracing::info!(
         disk_creation_seconds = start.elapsed().as_secs_f64(),
@@ -73,10 +50,14 @@ pub fn create_overlay(conn: &Connect, src: &str, dst: &str, size_gb: Option<u16>
 mod tests {
     use std::env;
     use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
     use std::process::{self, Command, Output};
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use shared::konst::SHERPA_STORAGE_POOL_PATH;
+    use anyhow::ensure;
+    use shared::konst::{SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH};
+    use virt::storage_pool::StoragePool;
+    use virt::storage_vol::StorageVol;
     use virt::stream::Stream;
 
     use super::*;

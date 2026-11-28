@@ -32,6 +32,20 @@ mod tests {
     const LAB_ID: &str = "fecb1a12";
 
     #[test]
+    fn sandbox_037_a_sandboxes_docker_disk_is_the_labs_and_a_docker_store_is_no_labs() {
+        assert!(is_lab_volume("ceos1-fecb1a12-docker.qcow2", LAB_ID));
+        assert!(!is_lab_volume("flatcar-docker-0123fecb1a12.qcow2", LAB_ID));
+        assert!(!is_lab_volume(
+            "flatcar-docker-01234567fecb1a12.qcow2",
+            LAB_ID
+        ));
+        assert!(!is_lab_volume(
+            "flatcar-docker-01234567fecb1a12.qcow2.part",
+            LAB_ID
+        ));
+    }
+
+    #[test]
     fn lab_volumes_are_matched_by_their_whole_name() {
         for volume in [
             "dev-fecb1a12.qcow2",

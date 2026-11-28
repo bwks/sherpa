@@ -1,11 +1,13 @@
 //! The nodes a lab action works on: the whole lab, or one node of it.
 
+use std::collections::HashSet;
+
 use anyhow::{Context, Result};
 use tracing::instrument;
 
-use shared::data::{DbNode, NodeConfig, RecordId};
+use shared::data::{DbNode, ModelKind, NodeActionResult, NodeConfig, RecordId};
 
-use crate::services::error::ServiceError;
+use crate::services::error::{SandboxRefusal, ServiceError};
 
 /// The lab's nodes, or only `node_name` when one is given, and their images. A named node that
 /// is not in the lab is an error.
@@ -42,4 +44,41 @@ pub(crate) async fn load_target_nodes(
         .await
         .context("Failed to batch fetch node images")?;
     Ok((target_nodes, node_images))
+}
+
+/// `nodes` without those whose model runs in a sandbox but that lab `lab_record_id` has no
+/// sandbox recorded for, as they were made before their model ran in one, and a refusal of each.
+#[instrument(skip_all, level = "debug")]
+pub(crate) async fn refuse_nodes_without_sandbox(
+    db: &db::Database,
+    lab_record_id: &RecordId,
+    nodes: Vec<DbNode>,
+    node_images: &[NodeConfig],
+) -> Result<(Vec<DbNode>, Vec<NodeActionResult>)> {
+    let sandboxes: HashSet<RecordId> = db::list_vm_sandboxes(db, lab_record_id)
+        .await?
+        .into_iter()
+        .map(|sandbox| sandbox.node)
+        .collect();
+    let (refused, kept): (Vec<DbNode>, Vec<DbNode>) = nodes.into_iter().partition(|node| {
+        node_images
+            .iter()
+            .find(|image| image.id.as_ref() == Some(&node.image))
+            .and_then(|image| image.model_kind().ok())
+            .is_some_and(ModelKind::runs_in_sandbox)
+            && node.id.as_ref().is_none_or(|id| !sandboxes.contains(id))
+    });
+    let refusals = refused
+        .into_iter()
+        .map(|node| NodeActionResult {
+            message: SandboxRefusal::AddressMissing {
+                node: node.name.clone(),
+            }
+            .to_string(),
+            name: node.name,
+            success: false,
+            links: Vec::new(),
+        })
+        .collect();
+    Ok((kept, refusals))
 }

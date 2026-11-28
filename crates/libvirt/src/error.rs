@@ -28,4 +28,10 @@ pub enum LibvirtError {
 
     #[error("Cannot parse the domain XML: it ends inside an element")]
     DomainXmlEndsInsideElement,
+
+    #[error("Cannot write the domain XML")]
+    DomainXmlWrite,
+
+    #[error("Domain {name} did not stop within {seconds} seconds")]
+    StopTimedOut { name: String, seconds: u64 },
 }

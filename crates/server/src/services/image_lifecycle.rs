@@ -1,3 +1,5 @@
+use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
@@ -56,6 +58,57 @@ pub(crate) fn ensure_image_has_no_overlays(
         .into()),
         None => Ok(()),
     }
+}
+
+/// Refuse to delete or import again the container image whose sandbox Docker store is in
+/// `store_dir` while a disk of `pool`, running or stopped, is built on the store. A version with
+/// no store passes. The caller holds the image's lifecycle lock through the check and the change.
+///
+/// # Errors
+///
+/// Fails with [`ServiceError::ImageHasOverlay`] when a disk is built on the store, carrying the
+/// disk, and otherwise when the pool's disks or their bases cannot be read.
+#[instrument(level = "debug", skip(pool))]
+pub(crate) fn ensure_store_has_no_overlays(
+    pool: &impl BackedVolumes,
+    store_dir: &Path,
+) -> Result<()> {
+    if !store_dir.is_dir() {
+        return Ok(());
+    }
+    ensure_image_has_no_overlays(pool, store_dir)
+}
+
+/// Remove the sandbox Docker store folder `store_dir` of a container image version that is
+/// deleted or imported again and has passed [`ensure_store_has_no_overlays`], then the model's
+/// store folder when that leaves it empty. A store already gone counts as removed.
+///
+/// # Errors
+///
+/// Fails when the store folder cannot be removed.
+#[instrument(level = "debug")]
+pub(crate) fn remove_sandbox_store(store_dir: &Path) -> Result<()> {
+    match fs::remove_dir_all(store_dir) {
+        Ok(()) => tracing::info!(path = %store_dir.display(), "Removed the sandbox Docker store"),
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("Cannot remove {}", store_dir.display()));
+        }
+    }
+    if let Some(stores) = store_dir.parent() {
+        match fs::remove_dir(stores) {
+            Ok(()) => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    ErrorKind::NotFound | ErrorKind::DirectoryNotEmpty
+                ) => {}
+            Err(error) => {
+                tracing::warn!(path = %stores.display(), %error, "Failed to remove the empty sandbox store folder");
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The model and kind an image request names: its kind, or the model's default kind when it
@@ -319,6 +372,58 @@ mod tests {
                 image_dir: version.clone(),
             })
         );
+    }
+
+    /// The sandbox Docker store folder of version `version` of `arista_eos` under `images`,
+    /// made with a store in it.
+    fn store(images: &Path, version: &str) -> PathBuf {
+        let dir = images.join("arista_eos/sandbox").join(version);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("virtiob.qcow2"), "store").unwrap();
+        dir
+    }
+
+    #[test]
+    fn image_delete_021_a_container_versions_sandbox_store_is_removed_and_no_other_folder() {
+        let root = tempdir().unwrap();
+        let removed = store(root.path(), "4.35.0F");
+        let kept = store(root.path(), "4.35.1F");
+        let vm_version = root.path().join("arista_eos/4.35.0F");
+        fs::create_dir_all(&vm_version).unwrap();
+        fs::write(vm_version.join(VM_DISK_FILENAME), "vm").unwrap();
+
+        ensure_store_has_no_overlays(&TestPool::default(), &removed).unwrap();
+        remove_sandbox_store(&removed).unwrap();
+
+        assert!(!removed.exists());
+        assert!(kept.join("virtiob.qcow2").is_file());
+        assert!(vm_version.join(VM_DISK_FILENAME).is_file());
+        remove_sandbox_store(&kept).unwrap();
+        assert!(!root.path().join("arista_eos/sandbox").exists());
+        assert!(vm_version.is_dir());
+        remove_sandbox_store(&kept).unwrap();
+        ensure_store_has_no_overlays(&TestPool::default(), &kept).unwrap();
+    }
+
+    #[test]
+    fn image_delete_022_a_lab_disk_on_a_container_versions_sandbox_store_stops_its_removal() {
+        let root = tempdir().unwrap();
+        let dir = store(root.path(), "4.35.0F");
+        let pool = TestPool(Mutex::new(vec![backed(
+            "ceos1-lab-docker.qcow2",
+            &dir.join("virtiob.qcow2"),
+        )]));
+
+        let error = ensure_store_has_no_overlays(&pool, &dir).unwrap_err();
+
+        assert_eq!(
+            ServiceError::find(&error),
+            Some(&ServiceError::ImageHasOverlay {
+                disk: "ceos1-lab-docker.qcow2".to_owned(),
+                image_dir: dir.clone(),
+            })
+        );
+        assert!(dir.join("virtiob.qcow2").is_file());
     }
 
     #[test]

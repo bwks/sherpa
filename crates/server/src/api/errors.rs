@@ -43,6 +43,10 @@ pub enum ApiError {
         conflict: CpuPinConflict,
     },
 
+    NodeFailed {
+        message: String,
+    },
+
     InternalError(Unexpected),
 }
 
@@ -122,6 +126,7 @@ impl ApiError {
             ApiError::BadRequest { .. } => StatusCode::BAD_REQUEST,
             ApiError::Conflict { .. } | ApiError::CpuPinsHeld { .. } => StatusCode::CONFLICT,
             ApiError::InsufficientMemory { .. } => StatusCode::INSUFFICIENT_STORAGE,
+            ApiError::NodeFailed { .. } => StatusCode::BAD_GATEWAY,
             ApiError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -136,6 +141,7 @@ impl ApiError {
             ApiError::Conflict { .. } => "CONFLICT",
             ApiError::InsufficientMemory { .. } => "INSUFFICIENT_MEMORY",
             ApiError::CpuPinsHeld { .. } => "CPU_PINS_HELD",
+            ApiError::NodeFailed { .. } => "NODE_FAILED",
             ApiError::InternalError(_) => "INTERNAL_ERROR",
         }
     }
@@ -162,6 +168,7 @@ impl From<ApiError> for ErrorResponse {
             ApiError::CpuPinsHeld { message, conflict } => {
                 (message, None, serde_json::to_value(conflict).ok())
             }
+            ApiError::NodeFailed { message } => (message, None, None),
             ApiError::InternalError(unexpected) => (unexpected.to_string(), None, None),
         };
         ErrorResponse {
@@ -192,7 +199,7 @@ pub fn stream_error_event(error: &anyhow::Error) -> Value {
 }
 
 /// Convert a typed service refusal to `ApiError`: 400, 403, 404, 409 (a conflict, or CPU pins
-/// held) or 507.
+/// held) or 507, or a node failure with its reason to 502.
 impl From<&ServiceError> for ApiError {
     fn from(err: &ServiceError) -> Self {
         match err {
@@ -211,6 +218,9 @@ impl From<&ServiceError> for ApiError {
                 }
                 Some(ServiceCategory::Conflict) => ApiError::conflict(refusal.message()),
                 Some(ServiceCategory::Invalid) => ApiError::bad_request(refusal.message()),
+                Some(ServiceCategory::Failed) => ApiError::NodeFailed {
+                    message: refusal.message(),
+                },
                 None => ApiError::internal(refusal.clone(), "API request failed"),
             },
         }
@@ -242,6 +252,7 @@ mod tests {
     use axum::response::IntoResponse;
     use shared::error::{CpuPinConflict, CpuPinRole};
 
+    use crate::services::error::SandboxFailure;
     use crate::validate::MemoryShortage;
 
     /// The reference in `message`, which must be the answer to an unexpected error.
@@ -288,6 +299,22 @@ mod tests {
             json["error"]["details"],
             "Node 'r9' not found in lab 'abc12345'"
         );
+    }
+
+    #[tokio::test]
+    async fn api_errors_027_a_rest_sandbox_failure_is_answered_502_with_the_reason_the_vm_reported()
+    {
+        let failure = ServiceError::SandboxFailure(SandboxFailure::Reported {
+            name: "srl1-abc12345".to_owned(),
+            reason: "cannot create the container: No such image: srl:26".to_owned(),
+        });
+        let err = Error::new(failure.clone()).context("Failed to redeploy node srl1");
+        let response = ApiError::from(err).into_response();
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"]["code"], "NODE_FAILED");
+        assert_eq!(json["error"]["message"], failure.to_string());
     }
 
     #[test]

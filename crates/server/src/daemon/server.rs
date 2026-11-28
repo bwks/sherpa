@@ -36,10 +36,11 @@ use crate::auth::session;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::pidfile::{SHERPAD_LOG_FILE_PATH, open_log_file};
 use crate::daemon::state::AppState;
-use crate::konst::SHERPA_CONFIG_FILE_PATH;
+use crate::konst::{SHERPA_CONFIG_FILE_PATH, SHERPA_SANDBOX_RUN_DIR};
 use crate::services::console;
 use crate::services::lab_lifecycle::{self, Recovery};
 use crate::services::node_resources;
+use crate::services::sandbox;
 use crate::services::scanner::run_scanner;
 use crate::tls::{CertificateManager, server_addresses};
 use shared::data::{Config, OtelConfig};
@@ -205,6 +206,29 @@ fn init_meter_provider(otel_config: &OtelConfig) -> Result<SdkMeterProvider> {
     Ok(provider)
 }
 
+/// Clear what an earlier run of sherpad left on the host that nothing will finish, logging any
+/// failure: unfinished sandbox Docker store builds, and consoles of stopped nodes still on TCP.
+async fn remove_stale_host_state(state: &AppState) {
+    // Nothing builds a sandbox disk yet: remove what builds sherpad stopped during left.
+    if let Err(error) =
+        sandbox::remove_unfinished_builds(&state.qemu, Path::new(SHERPA_SANDBOX_RUN_DIR)).await
+    {
+        tracing::warn!(
+            error = %format!("{error:#}"),
+            "Cannot remove what unfinished sandbox disk builds left"
+        );
+    }
+
+    // Domains defined before consoles moved behind sherpad listen on TCP: those shut off come
+    // up on their socket at their next start; those running are refused a console until then.
+    if let Err(error) = console::move_stopped_consoles(state).await {
+        tracing::warn!(
+            error = %format!("{error:#}"),
+            "Cannot move the consoles of stopped nodes to their sockets"
+        );
+    }
+}
+
 /// Run the sherpad server
 pub async fn run_server(foreground: bool) -> Result<()> {
     // Load configuration before tracing init so OTel can be configured
@@ -268,14 +292,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         .await
         .context("Failed to check the stored CPU pins")?;
 
-    // Domains defined before consoles moved behind sherpad listen on TCP: those shut off come
-    // up on their socket at their next start; those running are refused a console until then.
-    if let Err(error) = console::move_stopped_consoles(&state).await {
-        tracing::warn!(
-            error = %format!("{error:#}"),
-            "Cannot move the consoles of stopped nodes to their sockets"
-        );
-    }
+    remove_stale_host_state(&state).await;
 
     // Set up shutdown cancellation token for background services
     let cancel_token = CancellationToken::new();

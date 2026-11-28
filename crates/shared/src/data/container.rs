@@ -39,3 +39,40 @@ pub struct ContainerNetworkAttachment {
     pub linux_interface_name: Option<String>,
     pub admin_down: bool,
 }
+
+/// A file or folder on the server bind-mounted into a container.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContainerMount {
+    pub source: String,
+    pub destination: String,
+    pub read_only: bool,
+}
+
+impl ContainerMount {
+    /// Mount `source` at `destination`, read-only.
+    #[must_use]
+    pub fn read_only(source: impl Into<String>, destination: impl Into<String>) -> Self {
+        Self {
+            source: source.into(),
+            destination: destination.into(),
+            read_only: true,
+        }
+    }
+
+    /// Mount `source` at `destination`, writable.
+    #[must_use]
+    pub fn writable(source: impl Into<String>, destination: impl Into<String>) -> Self {
+        Self {
+            source: source.into(),
+            destination: destination.into(),
+            read_only: false,
+        }
+    }
+
+    /// Docker's bind form of the mount, `source:destination`, with `:ro` when read-only.
+    #[must_use]
+    pub fn bind(&self) -> String {
+        let suffix = if self.read_only { ":ro" } else { "" };
+        format!("{}:{}{suffix}", self.source, self.destination)
+    }
+}

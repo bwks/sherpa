@@ -162,7 +162,7 @@ Cases 001 to 024 are each the whole config of one model, for a lab with IPv4 onl
 | 017 | FRR: the start script, which installs and starts the SSH server and makes the owner's account | unit |
 | 018 | Junos, the one config vRouter, vSwitch, vSRX, vEvolved and cEvolved get | unit |
 | 019 | MikroTik RouterOS | unit |
-| 020 | Nokia SR Linux; with no IPv6 in the lab its management interface asks for an IPv6 address by DHCP | unit |
+| 020 | Nokia SR Linux: its management interface has a DHCP client for IPv4 and IPv6, which takes the addresses the runtime gave it | unit |
 | 021 | Nokia SR Linux: the management network instance and its ACL | unit |
 | 022 | Palo Alto PAN-OS: `init-cfg.txt` | unit |
 | 023 | Palo Alto PAN-OS: `bootstrap.xml` | unit |
@@ -203,9 +203,9 @@ Cases 001 to 024 are each the whole config of one model, for a lab with IPv4 onl
 | 007 | Arista vEOS in a lab with IPv6 has its IPv6 address and default route | unit |
 | 008 | Cisco IOSv in a lab with IPv6 | unit |
 | 009 | Cisco IOL in a lab with IPv6 | unit |
-| 010 | Nokia SR Linux in a lab with IPv6 has both addresses and asks for none by DHCP | unit |
+| 010 | Retired: SR Linux's config sets no address, its DHCP client takes the ones the sandbox gives `eth0`; see `generated_config_020` and `sandbox_046` | — |
 | 011 | The configs of AOS-CX, ASAv, cEOS, IOSvL2, IOS XE, IOS XR, ISE, NX-OS, Cumulus Linux, FRR, Junos, RouterOS and PAN-OS in a lab with IPv6 have the node's IPv6 address and default route (no test yet) | unit |
-| 012 | A SONiC container's config has no management port or address: Docker gives the container its address | unit |
+| 012 | A SONiC container's config has no management port or address: the sandbox gives `eth0` its addresses | unit |
 | 013 | An OpenBSD node's `network-config` has no IPv6 address in a lab with IPv6 (no test yet) | unit |
 | 014 | A VM answers on the management address Sherpa recorded for it once it has booted (no test yet) | e2e |
 | 015 | Cisco FTDv in a lab with IPv6 has its IPv6 address, prefix length and gateway, set manually | unit |
@@ -300,7 +300,8 @@ Cases 001 to 014 render the model's config with device passwords that between th
 | 018 | A redeploy onto another method removes the node's TFTP and HTTP files, and no other node's | unit |
 | 019 | A redeploy keeps the files of the method the node has | unit |
 | 020 | After the boot server is recreated, the lab's nodes keep their addresses and resolve each other (no test yet) | e2e |
-| 021 | The boot server answers a name without a domain that is not a node's as not found itself and never forwards it, so a node that resolves through it, such as a VM, does not wait on the server's resolver, which may not answer one | unit |
+| 021 | The boot server answers a name without a domain that is not a node's as not found itself and never forwards it, so a node that resolves through it does not wait on the server's resolver, which may not answer one: SR Linux looks up `matelink` at each rsyslogd start | unit |
+| 022 | A sandbox's own IPv4 and IPv6 addresses are named `<node>-sbx`, with and without the lab domain, and its IPv4 address is reserved for its MAC address by a DHCP host entry | unit |
 
 ## `config_privacy`: a node's config on the server is read only by Sherpa
 

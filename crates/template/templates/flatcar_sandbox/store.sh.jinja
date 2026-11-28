@@ -1,0 +1,12 @@
+#!/bin/bash
+# Loads the node image's archive into this VM's Docker, the Docker store being made, and powers off.
+set -eEu
+
+ARCHIVE=/dev/disk/by-id/virtio-{{ crate::flatcar_sandbox::SANDBOX_IMAGE_ARCHIVE_SERIAL }}
+
+source {{ crate::flatcar_sandbox::REPORT_SCRIPT_PATH }}
+
+output=$(docker load --input "$ARCHIVE" 2>&1) || fail "cannot load the image: $output"
+report loaded
+systemctl --no-block poweroff
+
