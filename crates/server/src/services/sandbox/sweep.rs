@@ -1,5 +1,4 @@
-//! Removing what Docker store builds that never finished left, which a restart of sherpad or a
-//! dropped operation can stop.
+//! Remove what unfinished Docker store builds left.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -13,15 +12,7 @@ use tracing::instrument;
 
 use super::store;
 
-/// Remove what unfinished store builds left, run at sherpad's start before anything can build
-/// one: each build's VM, its volumes (the VM's disk and config drive, the image archive and the
-/// partial store), and each staging folder and status socket in `run_dir`, but no store, and
-/// nothing of a node.
-///
-/// # Errors
-///
-/// Fails when libvirt cannot list or remove the domains or volumes, or a file cannot be
-/// removed.
+/// Remove the VMs, volumes, staging folders and status sockets that unfinished store builds left.
 #[instrument(skip(qemu))]
 pub(crate) async fn remove_unfinished_builds(qemu: &Arc<Qemu>, run_dir: &Path) -> Result<()> {
     let qemu = Arc::clone(qemu);
@@ -52,8 +43,7 @@ pub(crate) async fn remove_unfinished_builds(qemu: &Arc<Qemu>, run_dir: &Path) -
     Ok(())
 }
 
-/// Remove the staging folders and status sockets of builds in `dir`, and return their names; a
-/// missing folder holds none.
+/// Remove the build staging folders and status sockets in `dir` and return their paths.
 fn remove_build_files(dir: &Path) -> Result<Vec<String>> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,

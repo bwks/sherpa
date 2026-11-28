@@ -454,9 +454,15 @@ fn store_vm_domain() -> DomainTemplate {
     )
 }
 
-/// The domain XML with whitespace between elements removed, so elements read as one string.
+/// The domain XML on one line, with no whitespace between elements and one space between attributes.
 fn compact(xml: &str) -> String {
-    xml.lines().map(str::trim).collect()
+    xml.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace("> <", "><")
+        .replace(" />", "/>")
 }
 
 // ============================================================================
@@ -650,7 +656,7 @@ fn sandbox_100_a_sandboxs_domain_carries_the_tuning_its_node_gives_it() {
     ));
     assert!(xml.contains("<numatune><memory mode='strict' nodeset='0'/></numatune>"));
     assert!(xml.contains(
-        "<driver name='qemu' type='qcow2'cache='none'io='native'iothread='1'/>\
+        "<driver name='qemu' type='qcow2' cache='none' io='native' iothread='1'/>\
          <source file='/opt/sherpa/libvirt/images/ceos1-abc12345-hdd.qcow2'/>"
     ));
     // The management NIC and each data NIC take the queues; the sandbox's own NIC none.
@@ -910,7 +916,7 @@ fn sandbox_011_the_serial_console_runs_the_network_os_cli() {
 fn sandbox_104_the_kernel_prints_only_errors_on_the_console_once_the_sandboxs_root_is_up() {
     assert_eq!(
         file_text(&node_config(), "/etc/sysctl.d/10-sherpa-console.conf"),
-        "kernel.printk = 4 4 1 7"
+        "kernel.printk = 4 4 1 7\n"
     );
     assert!(
         store_config()["storage"]["files"]
