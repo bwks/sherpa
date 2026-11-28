@@ -26,10 +26,12 @@ use shared::util::{file_exists, image_filename};
 use tracing::instrument;
 
 use crate::daemon::state::AppState;
+use crate::konst::SANDBOX_STORE_DIR;
 use crate::services::container_scan::{ScanTarget, plan_container_scan, tagged_versions};
 use crate::services::error::{ServiceError, Unexpected};
 use crate::services::image_lifecycle::{
-    BackedVolumes, ensure_image_has_no_overlays, image_model_kind, lock_image,
+    BackedVolumes, ensure_image_has_no_overlays, ensure_store_has_no_overlays, image_model_kind,
+    lock_image, remove_sandbox_store,
 };
 use crate::services::image_store::{ExistingDisk, ImagePaths, PlacedDisk, StagedDisk};
 use crate::services::progress::ProgressSender;
@@ -132,7 +134,8 @@ pub async fn import_image(
     result
 }
 
-/// Load a container image's tar archive into the Docker daemon and record `db_config`.
+/// Load a container image's tar archive into the Docker daemon and record `db_config`, removing
+/// the version's sandbox Docker store first, which is refused while a lab disk is built on it.
 #[instrument(skip_all, fields(model = %request.model, version = %request.version), level = "debug")]
 async fn import_container_image(
     request: &ImportRequest,
@@ -148,6 +151,9 @@ async fn import_container_image(
         "Importing container image from tar archive"
     );
 
+    let store_dir = ImagePaths::installed().sandbox_store_dir(request.model, &request.version);
+    ensure_store_has_no_overlays(state.qemu.as_ref(), &store_dir)?;
+    remove_sandbox_store(&store_dir)?;
     let _ = progress.send_status(
         format!("Loading container image from tar archive: {}", request.src),
         StatusKind::Progress,
@@ -536,16 +542,16 @@ async fn scan_disk_images(
             }
             let model_kind = ModelKind::new(model, Some(kind))?;
             let mut scan = ModelScan::new(&state.db, model_kind, "node_image").await?;
-            scan_version_dirs(state, &mut scan, &model_dir, request.dry_run, tally).await?;
+            scan_version_dirs(&state.db, &mut scan, &model_dir, request.dry_run, tally).await?;
         }
     }
     Ok(())
 }
 
 /// Scan a model directory's version subdirectories for its disk image. Symlinked directories
-/// are skipped.
+/// and the folder of the model's sandbox Docker stores are skipped.
 async fn scan_version_dirs(
-    state: &AppState,
+    database: &Database,
     scan: &mut ModelScan,
     model_dir: &str,
     dry_run: bool,
@@ -582,6 +588,9 @@ async fn scan_version_dirs(
         }
 
         let version = version_entry.file_name().to_string_lossy().to_string();
+        if version == SANDBOX_STORE_DIR {
+            continue;
+        }
         let filename = image_filename(&scan.config.settings).with_context(|| {
             format!(
                 "{} is a container image, which has no disk",
@@ -602,7 +611,7 @@ async fn scan_version_dirs(
         }
 
         scan_version(
-            &state.db,
+            database,
             scan,
             version,
             Some(PathBuf::from(disk_path)),
@@ -1811,5 +1820,39 @@ mod tests {
 
         assert!(recorded(&database, "scan-race").await.is_none());
         assert_eq!(tally.total_imported, 0);
+    }
+
+    #[tokio::test]
+    async fn image_scan_022_a_models_sandbox_store_folder_is_not_taken_for_a_version() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = test_paths(root.path());
+        for version in ["1", SANDBOX_STORE_DIR] {
+            let disk = disk_path(&paths, version);
+            fs::create_dir_all(disk.parent().unwrap()).unwrap();
+            fs::write(&disk, b"image").unwrap();
+        }
+        let database = schema_db().await;
+        let mut scan = ModelScan::new(
+            &database,
+            ModelKind::default_for(NodeModel::UbuntuLinux),
+            "node_image",
+        )
+        .await
+        .unwrap();
+        let mut tally = ScanTally::default();
+        let model_dir = paths.images.join(NodeModel::UbuntuLinux.to_string());
+
+        scan_version_dirs(
+            &database,
+            &mut scan,
+            model_dir.to_str().unwrap(),
+            false,
+            &mut tally,
+        )
+        .await
+        .unwrap();
+
+        assert!(recorded(&database, "1").await.is_some());
+        assert!(recorded(&database, SANDBOX_STORE_DIR).await.is_none());
     }
 }

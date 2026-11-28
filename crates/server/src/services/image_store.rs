@@ -22,6 +22,8 @@ use shared::data::NodeModel;
 use shared::konst::SHERPA_IMAGES_PATH;
 use tracing::instrument;
 
+use crate::konst::SANDBOX_STORE_DIR;
+
 /// Suffix of the file an image is written to before it is renamed into place.
 const PARTIAL_SUFFIX: &str = ".partial";
 
@@ -43,6 +45,14 @@ impl ImagePaths {
     /// The directory of one image version.
     pub(crate) fn version_dir(&self, model: NodeModel, version: &str) -> PathBuf {
         self.images.join(model.to_string()).join(version)
+    }
+
+    /// The directory of the sandbox Docker store of one container image version.
+    pub(crate) fn sandbox_store_dir(&self, model: NodeModel, version: &str) -> PathBuf {
+        self.images
+            .join(model.to_string())
+            .join(SANDBOX_STORE_DIR)
+            .join(version)
     }
 }
 

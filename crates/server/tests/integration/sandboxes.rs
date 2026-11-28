@@ -1,5 +1,4 @@
 use anyhow::{Context, Result, bail, ensure};
-use bollard::Docker;
 use db::{DefaultRequest, LabDetails};
 use serde_json::{Value, json};
 use shared::data::{
@@ -13,7 +12,7 @@ use sherpad::SandboxRefusal;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::MetadataExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::time;
@@ -295,22 +294,22 @@ fn bridge_ports(bridge: &str) -> Result<Vec<String>> {
 /// What identifies the file of storage pool volume `volume`: its inode and creation time, which
 /// a file made again does not keep.
 fn volume_identity(volume: &str) -> Result<(u64, SystemTime)> {
-    let metadata = fs::metadata(format!("{SHERPA_STORAGE_POOL_PATH}/{volume}"))
-        .with_context(|| format!("Volume {volume} is missing"))?;
+    file_identity(Path::new(&format!("{SHERPA_STORAGE_POOL_PATH}/{volume}")))
+}
+
+/// What identifies the file at `path`: its inode and creation time.
+fn file_identity(path: &Path) -> Result<(u64, SystemTime)> {
+    let metadata = fs::metadata(path).with_context(|| format!("{} is missing", path.display()))?;
     Ok((metadata.ino(), metadata.created()?))
 }
 
-/// The Docker store volume of image `image`, named by the first 16 hex digits of its ID.
-async fn store_volume(image: &str) -> Result<String> {
-    let docker = Docker::connect_with_local_defaults()?;
-    let id = docker
-        .inspect_image(image)
-        .await
-        .with_context(|| format!("Image {image} is not in Docker"))?
-        .id
-        .with_context(|| format!("Image {image} has no ID"))?;
-    let digits = id.strip_prefix("sha256:").unwrap_or(&id);
-    Ok(format!("flatcar-docker-{}.qcow2", &digits[..16]))
+/// The Docker store of the test image, in its model's sandbox folder of the images folder.
+fn store_path() -> PathBuf {
+    Path::new(SHERPA_IMAGES_PATH)
+        .join(NodeModel::SonicLinux.to_string())
+        .join("sandbox")
+        .join(TEST_IMAGE_VERSION)
+        .join("virtiob.qcow2")
 }
 
 /// The ifindex of interface `name`.
@@ -434,7 +433,7 @@ async fn sandbox_026_destroy_leaves_no_domain_volume_tap_or_console_folder_and_k
     let (server, mut ws, token) = start().await?;
     let lab = lab_id("nd");
     let manifest = lab_manifest(&lab, &p2p_link());
-    let store = store_volume(&format!("{TEST_IMAGE_REPO}:{TEST_IMAGE_VERSION}")).await?;
+    let store = store_path();
 
     let checks: Result<()> = async {
         lab_up(&mut ws, &token, &lab, &manifest, UP_TIMEOUT).await?;
@@ -446,7 +445,7 @@ async fn sandbox_026_destroy_leaves_no_domain_volume_tap_or_console_folder_and_k
             Path::new(&format!("{CONSOLE_DIR}/{lab}")).exists(),
             "up made no console folder"
         );
-        let store_before = volume_identity(&store)?;
+        let store_before = file_identity(&store)?;
 
         lab_call(&mut ws, &token, "destroy", &lab, json!({})).await?;
 
@@ -455,8 +454,9 @@ async fn sandbox_026_destroy_leaves_no_domain_volume_tap_or_console_folder_and_k
         let host = host_leftovers(&server, &lab).await?;
         ensure!(host.is_empty(), "destroy left {host:?} on the host");
         ensure!(
-            volume_identity(&store)? == store_before,
-            "destroy changed the Docker store {store}"
+            file_identity(&store)? == store_before,
+            "destroy changed the Docker store {}",
+            store.display()
         );
         Ok(())
     }
@@ -520,7 +520,7 @@ async fn sandbox_038_a_second_lab_with_the_same_image_boots_on_the_store_the_fir
     let (server, mut ws, token) = start().await?;
     let first = lab_id("na");
     let second = lab_id("nc");
-    let store = store_volume(&format!("{TEST_IMAGE_REPO}:{TEST_IMAGE_VERSION}")).await?;
+    let store = store_path();
 
     let checks: Result<()> = async {
         lab_up(
@@ -531,7 +531,7 @@ async fn sandbox_038_a_second_lab_with_the_same_image_boots_on_the_store_the_fir
             UP_TIMEOUT,
         )
         .await?;
-        let store_before = volume_identity(&store)?;
+        let store_before = file_identity(&store)?;
         lab_up(
             &mut ws,
             &token,
@@ -542,8 +542,9 @@ async fn sandbox_038_a_second_lab_with_the_same_image_boots_on_the_store_the_fir
         .await?;
 
         ensure!(
-            volume_identity(&store)? == store_before,
-            "the second lab replaced the Docker store {store}"
+            file_identity(&store)? == store_before,
+            "the second lab replaced the Docker store {}",
+            store.display()
         );
         wait_for_states(&server, &second, NodeState::Running).await
     }

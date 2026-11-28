@@ -9,7 +9,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use askama::Template;
 use bollard::Docker;
-use libvirt::Qemu;
+use libvirt::{Qemu, VolumeOwner};
 use tokio::task;
 use tracing::instrument;
 
@@ -57,6 +57,7 @@ pub(crate) struct SandboxCreate {
     pub(crate) node_name: String,
     pub(crate) node_index: u16,
     pub(crate) model_kind: ModelKind,
+    pub(crate) version: String,
     pub(crate) spec: ContainerSpec,
     pub(crate) dns: Dns,
     pub(crate) memory: u16,
@@ -71,8 +72,15 @@ pub(crate) struct SandboxCreate {
 
 /// A disk a sandbox's domain boots with, made before the domain is defined.
 pub(super) enum DomainDisk {
-    Overlay { base: String, path: String },
-    Blank { path: String, size_gb: u16 },
+    Overlay {
+        base: String,
+        path: String,
+    },
+    Blank {
+        path: String,
+        size_gb: u16,
+        owner: VolumeOwner,
+    },
 }
 
 /// The storage pool path of volume `volume`.
@@ -123,7 +131,14 @@ pub(crate) async fn create_sandbox(
         .base
         .as_ref()
         .ok_or(ServiceError::Sandbox(SandboxRefusal::BaseImageMissing))?;
-    let store = ensure_docker_store(host, &base.disk, &create.spec.image).await?;
+    let store = ensure_docker_store(
+        host,
+        &base.disk,
+        create.model_kind.model(),
+        &create.version,
+        &create.spec.image,
+    )
+    .await?;
     let device = domain_name(&create.node_name, &create.lab_id);
     let nics = guest_nics(create.model_kind, &create.veths)?;
     let volumes = guest_volumes(&create.spec.volumes);
@@ -221,8 +236,12 @@ pub(super) async fn start_domain(
                 DomainDisk::Overlay { base, path } => {
                     libvirt::create_overlay(&conn, base, path, None)?;
                 }
-                DomainDisk::Blank { path, size_gb } => {
-                    libvirt::create_blank_qcow2(&conn, path, *size_gb)?;
+                DomainDisk::Blank {
+                    path,
+                    size_gb,
+                    owner,
+                } => {
+                    libvirt::create_blank_qcow2(&conn, path, *size_gb, *owner)?;
                 }
             }
         }
@@ -251,6 +270,7 @@ mod tests {
     use super::*;
     use crate::konst::{SHERPA_CONSOLE_DIR, SHERPA_SANDBOX_RUN_DIR};
     use crate::services::image_lifecycle::lease_image;
+    use crate::services::image_store::ImagePaths;
     use crate::services::node_ops;
 
     /// A lab's management network `198.18.250.0/24`, removed when dropped.
@@ -391,6 +411,7 @@ mod tests {
                     node_index: 1,
                     model_kind: ModelKind::new(NodeModel::SonicLinux, Some(NodeKind::Container))
                         .unwrap(),
+                    version: self.lab_id.to_owned(),
                     spec,
                     dns: default_dns(&self.network.network),
                     memory: 1024,
@@ -424,6 +445,13 @@ mod tests {
                 let _ = libvirt::delete_disk(&conn, &volume);
             }
             let _ = console::remove_console_dir(Path::new(SHERPA_CONSOLE_DIR), self.lab_id);
+            // The store of the test's own version, made by root here.
+            let paths = ImagePaths::installed();
+            let store = paths.sandbox_store_dir(NodeModel::SonicLinux, self.lab_id);
+            let _ = fs::remove_dir_all(&store);
+            if let Some(models_stores) = store.parent() {
+                let _ = fs::remove_dir(models_stores);
+            }
             // Made by root here, the folder would refuse sherpad later; empty, it is made again.
             let _ = fs::remove_dir(SHERPA_SANDBOX_RUN_DIR);
         }

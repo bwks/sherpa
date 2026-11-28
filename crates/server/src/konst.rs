@@ -3,6 +3,16 @@
 //! tree such as `daemon`, lives in that service or tree.
 
 pub(crate) const SHERPA_BLANK_DISK_DIR: &str = "blank_disk";
+/// Folder of a model's sandbox Docker stores in its images folder, one folder per version below
+/// it: `IMAGES/<model>/sandbox/<version>/`.
+pub(crate) const SANDBOX_STORE_DIR: &str = "sandbox";
+/// File name of a sandbox Docker store in its version folder.
+pub(crate) const SANDBOX_STORE_FILENAME: &str = "virtiob.qcow2";
+/// Mode of every folder under the images folder: `sherpa` and its group, who import images, may
+/// write.
+pub(crate) const IMAGE_FOLDER_MODE: u32 = 0o775;
+/// Mode of an image file under the images folder: `sherpa` and its group may read and replace it.
+pub(crate) const IMAGE_FILE_MODE: u32 = 0o660;
 pub(crate) const SHERPA_CONFIG_FILE_PATH: &str = "/opt/sherpa/config/sherpa.toml";
 pub(crate) const SHERPA_SERVER_CERT_PATH: &str = "/opt/sherpa/.certs/server.crt";
 pub(crate) const SHERPA_MANAGEMENT_NETWORK_NAME: &str = "sherpa-management";

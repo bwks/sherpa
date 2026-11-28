@@ -20,13 +20,20 @@ use virt::storage_vol::StorageVol;
 use crate::names::is_lab_volume;
 use crate::size::gib_to_bytes;
 
-/// Mode of a volume sherpad builds overlays on: a Docker store and a sandbox boot disk. libvirt
-/// leaves it owned by `libvirt-qemu:kvm`, and sherpad, in group `kvm` but not the owner, reads
-/// its QCOW2 header to put an overlay on it.
-pub(crate) const BASE_VOLUME_MODE: &str = "0640";
+/// Mode of a blank volume made to be moved to the images folder: an imported image's, which its
+/// owner and group read and write.
+const OWNED_VOLUME_MODE: &str = "0660";
 
-/// A QCOW2 volume of `capacity` bytes at `destination` with permission bits `mode`, an overlay
-/// of the QCOW2 file `backing` when set, defined from `templates/volume.xml`.
+/// The user and group a volume is created for, by their IDs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VolumeOwner {
+    pub uid: u32,
+    pub gid: u32,
+}
+
+/// A QCOW2 volume of `capacity` bytes at `destination` with permission bits `mode`, owned by
+/// `owner` when set, an overlay of the QCOW2 file `backing` when set, defined from
+/// `templates/volume.xml`.
 #[derive(Template)]
 #[template(path = "volume.xml", ext = "xml", escape = "xml")]
 pub(crate) struct QcowVolume<'a> {
@@ -34,6 +41,7 @@ pub(crate) struct QcowVolume<'a> {
     pub(crate) destination: &'a str,
     pub(crate) capacity: u64,
     pub(crate) mode: &'a str,
+    pub(crate) owner: Option<VolumeOwner>,
     pub(crate) backing: Option<&'a str>,
 }
 
@@ -248,20 +256,27 @@ pub fn overlay_on_image<'a>(
     Ok(None)
 }
 
-/// Create an empty sparse QCOW2 disk of `size_gb` GiB at `dst`, mode `BASE_VOLUME_MODE`, never
-/// changing an existing destination.
+/// Create an empty sparse QCOW2 disk of `size_gb` GiB at `dst`, owned by `owner` with mode
+/// `0660`, never changing an existing destination. libvirt hands the disk to QEMU while a domain
+/// runs on it and gives it back to `owner` when the domain stops.
 ///
 /// # Errors
 ///
 /// Fails when `dst` exists, is relative or is not a UTF-8 file name, or libvirt cannot create
 /// the volume.
 #[instrument(level = "debug", skip(conn))]
-pub fn create_blank_qcow2(conn: &Connect, dst: &str, size_gb: u16) -> Result<()> {
+pub fn create_blank_qcow2(
+    conn: &Connect,
+    dst: &str,
+    size_gb: u16,
+    owner: VolumeOwner,
+) -> Result<()> {
     let xml = QcowVolume {
         name: new_volume_name(dst)?,
         destination: dst,
         capacity: gib_to_bytes(size_gb),
-        mode: BASE_VOLUME_MODE,
+        mode: OWNED_VOLUME_MODE,
+        owner: Some(owner),
         backing: None,
     }
     .render()
@@ -321,7 +336,8 @@ mod tests {
             name: "sherpa-docker-store.partial.qcow2",
             destination: "/opt/sherpa/libvirt/images/sherpa-docker-store.partial.qcow2",
             capacity: gib_to_bytes(2),
-            mode: BASE_VOLUME_MODE,
+            mode: OWNED_VOLUME_MODE,
+            owner: Some(VolumeOwner { uid: 997, gid: 987 }),
             backing: None,
         }
         .render()
@@ -335,7 +351,7 @@ mod tests {
   <target>
     <path>/opt/sherpa/libvirt/images/sherpa-docker-store.partial.qcow2</path>
     <format type='qcow2'/>
-    <permissions><mode>0640</mode></permissions>
+    <permissions><mode>0660</mode><owner>997</owner><group>987</group></permissions>
   </target>
 </volume>"
         );

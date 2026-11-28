@@ -83,6 +83,8 @@ fn remove_build_files(dir: &Path) -> Result<Vec<String>> {
 
 #[cfg(test)]
 mod tests {
+    use libvirt::VolumeOwner;
+    use nix::unistd::{getegid, geteuid};
     use tempfile::TempDir;
     use virt::connect::Connect;
     use virt::domain::Domain;
@@ -107,15 +109,18 @@ mod tests {
     async fn sandbox_074_the_start_sweep_keeps_a_nodes_domain_and_volumes_named_like_a_builds() {
         let qemu = Arc::new(Qemu::default());
         let conn = qemu.connect().unwrap();
-        let node = "sherpa-flatcar-docker-5ee75ee75ee75ee7-st074074";
+        let node = "sherpa-store-st074074";
         let volumes = [
             format!("{node}-hdd.qcow2"),
             format!("{node}-docker.qcow2"),
-            "flatcar-docker-5ee75ee75ee75ee7-st074074-hdd.qcow2".to_owned(),
-            "flatcar-sandbox-st074074-hdd.qcow2".to_owned(),
+            format!("{node}.iso"),
         ];
+        let owner = VolumeOwner {
+            uid: geteuid().as_raw(),
+            gid: getegid().as_raw(),
+        };
         for volume in &volumes {
-            libvirt::create_blank_qcow2(&conn, &pool_path(volume), 1).unwrap();
+            libvirt::create_blank_qcow2(&conn, &pool_path(volume), 1, owner).unwrap();
         }
         define_domain(&conn, node);
         let run = TempDir::new().unwrap();
