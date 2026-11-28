@@ -39,7 +39,10 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 024 | An upload by `POST /api/v1/images/upload` whose version holds `/` or `..` is answered 400, and writes nothing outside the temp folder | integration |
 | 025 | An upload by `POST /api/v1/images/upload` without its version or file, with an unknown model or with a kind the model does not take, is answered 400 | integration |
 | 026 | An import or upload refused because lab disks are built on the version's file is a conflict, answered 409 over REST | unit |
-| 027 | Importing a `flatcar_sandbox` version over a file of another size replaces it and deletes the sandbox boot disk made from it, and no other version's | unit |
+| 027 | Retired: sandboxes boot on the base image itself, which has no disk made from it | — |
+| 028 | The version `sandbox`, the folder of a model's sandbox Docker stores, is refused, saying so | unit |
+| 029 | Importing or pulling a container version again removes its sandbox Docker store folder, and neither the model's version folder nor another version's store (no test yet) | e2e |
+| 030 | Importing or pulling a container version again is refused while a lab disk is built on its sandbox Docker store, carrying the disk, and the store is kept (no test yet) | e2e |
 
 ## `image_download`: a VM image is downloaded whole from a URL
 
@@ -114,6 +117,7 @@ Only an Ubuntu release, downloaded without `--url`, publishes a SHA-256 (its `SH
 | 019 | The CLI lists each image found with its status, and each skipped model with the reason | unit |
 | 020 | A scan that fails to record a version it found exits non-zero with an error that carries each such version, after the table lists every row | unit |
 | 021 | A scan that records, would record or already has every version it found exits 0 | unit |
+| 022 | A model's `sandbox` folder, which holds its Docker stores, is not taken for a version | unit |
 
 ## `image_default`: each model and kind with images has one default version
 
@@ -136,7 +140,7 @@ Only an Ubuntu release, downloaded without `--url`, publishes a SHA-256 (its `SH
 
 ## `image_delete`: delete removes an image, unless something uses it
 
-**Statement:** delete removes an image's record and its file or Docker image, with the sandbox boot disk made from a `flatcar_sandbox` image, and is refused while a lab disk built on the image or on that boot disk, a running container or a node uses the image.
+**Statement:** delete removes an image's record and its file or Docker image, with a container version's sandbox Docker store, and is refused while a lab disk built on the image or on that store, a running container or a node uses the image.
 **Relied on by:** the admin, every lab built from the image. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -159,8 +163,10 @@ Only an Ubuntu release, downloaded without `--url`, publishes a SHA-256 (its `SH
 | 016 | A delete waits for an up that is building a disk on the image, and is then refused by that disk | unit |
 | 017 | Operations on one image version run one at a time, and another version is not held up | unit |
 | 018 | An up whose image was deleted before it built anything is refused, with nothing created (no test yet) | integration |
-| 019 | Deleting a `flatcar_sandbox` version deletes the sandbox boot disk made from it, and no other version's | unit |
-| 020 | A lab disk built on the sandbox boot disk of a `flatcar_sandbox` version stops its delete, and the refusal carries that disk | unit |
+| 019 | Retired: sandboxes boot on the base image itself, which has no disk made from it | — |
+| 020 | Retired: sandboxes boot on the base image itself, which has no disk made from it | — |
+| 021 | Deleting a container version removes its sandbox Docker store folder, and the model's `sandbox` folder with its last store, and neither the model's version folder nor another version's store | unit |
+| 022 | A lab disk built on a container version's sandbox Docker store stops its delete, and the refusal carries the disk | unit |
 
 ## `image_list`: list and show report the recorded images
 
