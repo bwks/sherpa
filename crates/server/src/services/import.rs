@@ -29,8 +29,7 @@ use crate::daemon::state::AppState;
 use crate::services::container_scan::{ScanTarget, plan_container_scan, tagged_versions};
 use crate::services::error::{ServiceError, Unexpected};
 use crate::services::image_lifecycle::{
-    BackedVolumes, ensure_image_has_no_overlays, image_model_kind, lock_image, remove_boot_disk,
-    sandbox_boot_disk,
+    BackedVolumes, ensure_image_has_no_overlays, image_model_kind, lock_image,
 };
 use crate::services::image_store::{ExistingDisk, ImagePaths, PlacedDisk, StagedDisk};
 use crate::services::progress::ProgressSender;
@@ -238,13 +237,7 @@ async fn import_disk_image(
         }
         existing => {
             if existing == ExistingDisk::Different {
-                prepare_disk_replacement(
-                    pool,
-                    &version_dir,
-                    &version_disk,
-                    sandbox_boot_disk(request.model, &request.version).as_deref(),
-                    progress,
-                )?;
+                ensure_disk_replaceable(pool, &version_dir, &version_disk, progress)?;
             }
             Some(copy_disk_into_place(request, &version_dir, &version_disk, progress).await?)
         }
@@ -283,17 +276,14 @@ async fn import_disk_image(
 }
 
 /// Refuse to replace `version_disk`, which differs from the source, while lab disks are built on
-/// it or on `boot_disk`, the sandbox boot disk made from it when it is the sandbox base image;
-/// otherwise delete that boot disk, which sandboxes make again from the new image, and say that
-/// the disk is being replaced.
-fn prepare_disk_replacement(
+/// it; otherwise say that it is being replaced.
+fn ensure_disk_replaceable(
     pool: &impl BackedVolumes,
     version_dir: &Path,
     version_disk: &Path,
-    boot_disk: Option<&str>,
     progress: &ProgressSender,
 ) -> Result<()> {
-    ensure_image_has_no_overlays(pool, version_dir, boot_disk).map_err(|error| {
+    ensure_image_has_no_overlays(pool, version_dir).map_err(|error| {
         if let Some(ServiceError::ImageHasOverlay { disk, image_dir }) = ServiceError::find(&error)
         {
             ServiceError::DiskReplaceBlocked {
@@ -310,10 +300,6 @@ fn prepare_disk_replacement(
             ))
         }
     })?;
-    if let Some(boot_disk) = boot_disk {
-        remove_boot_disk(pool, boot_disk)
-            .context("Cannot delete the sandbox boot disk of the image")?;
-    }
     let _ = progress.send_status(
         "Image on disk differs from the source, replacing it".to_string(),
         StatusKind::Info,
@@ -1150,13 +1136,7 @@ async fn download_disk_image(
         }
         existing => {
             if existing == ExistingDisk::Different {
-                prepare_disk_replacement(
-                    pool,
-                    &version_dir,
-                    &version_disk,
-                    sandbox_boot_disk(request.model, &request.version).as_deref(),
-                    progress,
-                )?;
+                ensure_disk_replaceable(pool, &version_dir, &version_disk, progress)?;
             }
             let _ = progress.send_status(
                 format!(
@@ -1389,34 +1369,12 @@ mod tests {
         }
     }
 
-    /// A storage pool of these volumes, whose files are in its folder, for tests.
-    struct TestPool {
-        volumes: Vec<BackedVolume>,
-        dir: PathBuf,
-    }
-
-    impl TestPool {
-        /// A pool of `volumes` in no folder.
-        fn of(volumes: Vec<BackedVolume>) -> Self {
-            Self {
-                volumes,
-                dir: PathBuf::from("/nonexistent/pool"),
-            }
-        }
-    }
+    /// A storage pool of these volumes, for tests.
+    struct TestPool(Vec<BackedVolume>);
 
     impl BackedVolumes for TestPool {
         fn backed_volumes(&self) -> Result<Vec<BackedVolume>> {
-            Ok(self.volumes.clone())
-        }
-
-        fn volume_path(&self, name: &str) -> PathBuf {
-            self.dir.join(name)
-        }
-
-        fn delete_volume(&self, name: &str) -> Result<()> {
-            fs::remove_file(self.volume_path(name))?;
-            Ok(())
+            Ok(self.0.clone())
         }
     }
 
@@ -1439,7 +1397,7 @@ mod tests {
         source: &Path,
         version: &str,
     ) -> Result<ImportResponse> {
-        import_disk_on(database, paths, &TestPool::of(Vec::new()), source, version).await
+        import_disk_on(database, paths, &TestPool(Vec::new()), source, version).await
     }
 
     async fn import_disk_on(
@@ -1550,51 +1508,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn image_import_027_a_flatcar_sandbox_file_of_another_size_replaces_the_version_and_deletes_its_boot_disk()
-     {
-        let root = tempfile::tempdir().unwrap();
-        let paths = test_paths(root.path());
-        let source = root.path().join("source.qcow2");
-        fs::write(&source, b"another image").unwrap();
-        let (mut request, mut config) = disk_import(&source, "1");
-        request.model = NodeModel::FlatcarSandbox;
-        config = NodeConfig {
-            version: config.version,
-            ..ModelKind::default_for(NodeModel::FlatcarSandbox).node_config()
-        };
-        let disk = paths
-            .version_dir(NodeModel::FlatcarSandbox, "1")
-            .join(image_filename(&config.settings).unwrap());
-        fs::create_dir_all(disk.parent().unwrap()).unwrap();
-        fs::write(&disk, b"base").unwrap();
-        let pool = TestPool {
-            volumes: Vec::new(),
-            dir: root.path().join("pool"),
-        };
-        fs::create_dir_all(&pool.dir).unwrap();
-        for boot_disk in ["flatcar-sandbox.1.qcow2", "flatcar-sandbox.2.qcow2"] {
-            fs::write(pool.dir.join(boot_disk), b"boot disk").unwrap();
-        }
-        let database = schema_db().await;
-
-        import_disk_image(
-            &request,
-            config,
-            DefaultRequest::Keep,
-            &database,
-            &paths,
-            &pool,
-            &quiet_progress(),
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(fs::read(&disk).unwrap(), b"another image");
-        assert!(!pool.dir.join("flatcar-sandbox.1.qcow2").exists());
-        assert!(pool.dir.join("flatcar-sandbox.2.qcow2").is_file());
-    }
-
-    #[tokio::test]
     async fn image_import_010_a_file_of_another_size_with_lab_disks_built_on_it_is_refused_and_kept()
      {
         let root = tempfile::tempdir().unwrap();
@@ -1605,7 +1518,7 @@ mod tests {
         fs::create_dir_all(disk.parent().unwrap()).unwrap();
         let base = b"base".to_vec();
         fs::write(&disk, &base).unwrap();
-        let pool = TestPool::of(vec![BackedVolume {
+        let pool = TestPool(vec![BackedVolume {
             name: "node-lab-hdd.qcow2".to_owned(),
             backing_file: disk.clone(),
         }]);
@@ -1636,7 +1549,7 @@ mod tests {
         let disk = disk_path(&paths, "1");
         fs::create_dir_all(disk.parent().unwrap()).unwrap();
         fs::write(&disk, b"base").unwrap();
-        let pool = TestPool::of(vec![BackedVolume {
+        let pool = TestPool(vec![BackedVolume {
             name: "node-lab-hdd.qcow2".to_owned(),
             backing_file: disk,
         }]);
@@ -1714,7 +1627,7 @@ mod tests {
         url: String,
         sha256: Option<String>,
     ) -> Result<ImportResponse> {
-        download_disk_on(database, paths, &TestPool::of(Vec::new()), url, sha256, "1").await
+        download_disk_on(database, paths, &TestPool(Vec::new()), url, sha256, "1").await
     }
 
     /// Put `contents` at version `1`'s image path, as a file an earlier run left.
@@ -1840,7 +1753,7 @@ mod tests {
         let paths = test_paths(root.path());
         let disk = existing_disk(&paths, b"base");
         let url = serve_image(b"another image", true).await;
-        let pool = TestPool::of(vec![BackedVolume {
+        let pool = TestPool(vec![BackedVolume {
             name: "node-lab-hdd.qcow2".to_owned(),
             backing_file: disk.clone(),
         }]);

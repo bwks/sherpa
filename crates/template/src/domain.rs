@@ -54,13 +54,6 @@ pub enum MemballoonModel {
     None,
 }
 
-/// What libvirt does with a domain whose guest reboots.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RebootAction {
-    Restart,
-    Destroy,
-}
-
 /// A device a domain's firmware boots from, in the domain's boot order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BootDevice {
@@ -68,8 +61,7 @@ pub enum BootDevice {
     Hd,
 }
 
-/// The domain of a VM: a VM node, a sandbox, or a VM that makes a sandbox's boot disk or Docker
-/// store.
+/// The domain of a VM: a VM node, a sandbox, or a VM that makes a sandbox's Docker store.
 #[derive(Debug, Template)]
 #[template(path = "libvirt/libvirt_domain.jinja", ext = "xml", escape = "xml")]
 pub struct DomainTemplate {
@@ -83,7 +75,6 @@ pub struct DomainTemplate {
     pub qemu_bin: String,
     pub bios: BiosTypes,
     pub boot_devices: Vec<BootDevice>,
-    pub on_reboot: RebootAction,
     pub smbios_serial: Option<SmbiosSerial>,
     pub disks: Vec<NodeDisk>,
     pub interfaces: Vec<Interface>,
@@ -142,15 +133,6 @@ impl fmt::Display for MemballoonModel {
         f.write_str(match self {
             Self::Virtio => "virtio",
             Self::None => "none",
-        })
-    }
-}
-
-impl fmt::Display for RebootAction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Restart => "restart",
-            Self::Destroy => "destroy",
         })
     }
 }
@@ -227,8 +209,8 @@ impl DomainTuning {
     }
 }
 
-/// A Flatcar VM Sherpa runs for a node, a sandbox or a VM that makes a sandbox's boot disk or
-/// Docker store: booted through Flatcar's bootloader from `disk`, with its config drive.
+/// A Flatcar VM Sherpa runs for a node, a sandbox or a VM that makes a sandbox's Docker store:
+/// booted through Flatcar's bootloader from `disk`, with its config drive.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlatcarDomain {
     pub name: String,
@@ -279,14 +261,6 @@ pub struct UnikernelDomainTemplate {
 }
 
 impl FlatcarDomain {
-    /// The domain of the VM that makes the sandboxes' boot disk, which its first reboot stops.
-    #[must_use]
-    pub fn boot_vm(self) -> DomainTemplate {
-        let mut domain = self.domain(Vec::new());
-        domain.on_reboot = RebootAction::Destroy;
-        domain
-    }
-
     /// The domain of the VM that makes a Docker store on the empty disk `docker_disk` from the
     /// image archive `archive`, a read-only disk it finds by its serial, and reports on its status
     /// channel at `status_socket`.
@@ -351,7 +325,6 @@ impl FlatcarDomain {
             qemu_bin: self.qemu_bin,
             bios: BiosTypes::SeaBios,
             boot_devices: vec![BootDevice::Hd],
-            on_reboot: RebootAction::Restart,
             smbios_serial: None,
             disks: all,
             interfaces: Vec::new(),

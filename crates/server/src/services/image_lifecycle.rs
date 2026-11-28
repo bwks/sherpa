@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context, Result};
@@ -9,10 +9,9 @@ use tracing::instrument;
 
 use libvirt::{BackedVolume, Qemu};
 use shared::data::{DiskImageCloneMethod, ModelKind, NodeConfig, NodeKind, NodeModel};
-use shared::konst::{SHERPA_STORAGE_POOL_PATH, VM_DISK_FILENAME};
+use shared::konst::VM_DISK_FILENAME;
 
 use crate::services::error::ServiceError;
-use crate::services::sandbox::BootDisk;
 
 /// The volumes of the storage pool built on a backing file, each an overlay disk and its base:
 /// what decides whether an image is in use by a lab disk, running or stopped.
@@ -23,16 +22,6 @@ pub(crate) trait BackedVolumes {
     ///
     /// Fails when they cannot be read: a dependency that cannot be determined is an error.
     fn backed_volumes(&self) -> Result<Vec<BackedVolume>>;
-
-    /// The path of volume `name` of the pool.
-    fn volume_path(&self, name: &str) -> PathBuf;
-
-    /// Delete volume `name` of the pool.
-    ///
-    /// # Errors
-    ///
-    /// Fails when the volume cannot be deleted.
-    fn delete_volume(&self, name: &str) -> Result<()>;
 }
 
 /// libvirt reads each volume's backing file, which sherpad cannot: the disks are `0600` and
@@ -42,47 +31,24 @@ impl BackedVolumes for Qemu {
         let qemu_conn = self.connect()?;
         libvirt::pool_backed_volumes(&qemu_conn)
     }
-
-    fn volume_path(&self, name: &str) -> PathBuf {
-        Path::new(SHERPA_STORAGE_POOL_PATH).join(name)
-    }
-
-    fn delete_volume(&self, name: &str) -> Result<()> {
-        let qemu_conn = self.connect()?;
-        libvirt::delete_disk(&qemu_conn, name)
-    }
-}
-
-/// The sandbox boot disk volume made from version `version` of model `model`'s image: only the
-/// sandbox base image has one.
-pub(crate) fn sandbox_boot_disk(model: NodeModel, version: &str) -> Option<String> {
-    (model == NodeModel::FlatcarSandbox).then(|| BootDisk::of(version).volume())
 }
 
 /// Refuse to delete or replace the image in `version_dir` while a disk of `pool`, running or
-/// stopped, is built on it or on `boot_disk`, the sandbox boot disk made from it when it is the
-/// sandbox base image. The caller holds the image's lifecycle lock through the check and the
-/// change.
+/// stopped, is built on it. The caller holds the image's lifecycle lock through the check and
+/// the change.
 ///
 /// # Errors
 ///
-/// Fails with [`ServiceError::ImageHasOverlay`] when a disk is built on the image or its boot
-/// disk, carrying the disk, and otherwise when the pool's disks or their bases cannot be read.
+/// Fails with [`ServiceError::ImageHasOverlay`] when a disk is built on the image, carrying the
+/// disk, and
+/// otherwise when the pool's disks or their bases cannot be read.
 #[instrument(level = "debug", skip(pool))]
 pub(crate) fn ensure_image_has_no_overlays(
     pool: &impl BackedVolumes,
     version_dir: &Path,
-    boot_disk: Option<&str>,
 ) -> Result<()> {
     let volumes = pool.backed_volumes()?;
-    let mut overlay = libvirt::overlay_on_image(&volumes, version_dir)?;
-    if let Some(boot_disk) = boot_disk.map(|name| pool.volume_path(name))
-        && overlay.is_none()
-        && boot_disk.is_file()
-    {
-        overlay = libvirt::overlay_on_image(&volumes, &boot_disk)?;
-    }
-    match overlay {
+    match libvirt::overlay_on_image(&volumes, version_dir)? {
         Some(volume) => Err(ServiceError::ImageHasOverlay {
             disk: volume.name.clone(),
             image_dir: version_dir.to_owned(),
@@ -90,21 +56,6 @@ pub(crate) fn ensure_image_has_no_overlays(
         .into()),
         None => Ok(()),
     }
-}
-
-/// Delete `boot_disk` when it is there, the sandbox boot disk made from an image that is being
-/// deleted or replaced and has passed [`ensure_image_has_no_overlays`].
-///
-/// # Errors
-///
-/// Fails when the boot disk cannot be deleted.
-#[instrument(level = "debug", skip(pool))]
-pub(crate) fn remove_boot_disk(pool: &impl BackedVolumes, boot_disk: &str) -> Result<()> {
-    if pool.volume_path(boot_disk).is_file() {
-        pool.delete_volume(boot_disk)?;
-        tracing::info!(disk = %boot_disk, "Deleted the sandbox boot disk of the image");
-    }
-    Ok(())
 }
 
 /// The model and kind an image request names: its kind, or the model's default kind when it
@@ -324,44 +275,12 @@ mod tests {
     }
 
     /// A storage pool of these volumes, which a test may add to, for tests.
-    struct TestPool {
-        volumes: Mutex<Vec<BackedVolume>>,
-        dir: PathBuf,
-    }
-
-    impl TestPool {
-        /// A pool of `volumes` in no folder.
-        fn of(volumes: Vec<BackedVolume>) -> Self {
-            Self::in_dir(volumes, PathBuf::from("/nonexistent/pool"))
-        }
-
-        /// A pool of `volumes` whose files are in `dir`.
-        fn in_dir(volumes: Vec<BackedVolume>, dir: PathBuf) -> Self {
-            Self {
-                volumes: Mutex::new(volumes),
-                dir,
-            }
-        }
-    }
-
-    impl Default for TestPool {
-        fn default() -> Self {
-            Self::of(Vec::new())
-        }
-    }
+    #[derive(Default)]
+    struct TestPool(Mutex<Vec<BackedVolume>>);
 
     impl BackedVolumes for TestPool {
         fn backed_volumes(&self) -> Result<Vec<BackedVolume>> {
-            Ok(self.volumes.lock().unwrap().clone())
-        }
-
-        fn volume_path(&self, name: &str) -> PathBuf {
-            self.dir.join(name)
-        }
-
-        fn delete_volume(&self, name: &str) -> Result<()> {
-            fs::remove_file(self.volume_path(name))?;
-            Ok(())
+            Ok(self.0.lock().unwrap().clone())
         }
     }
 
@@ -388,11 +307,11 @@ mod tests {
      {
         let root = tempdir().unwrap();
         let (version, other) = two_versions(root.path());
-        let pool = TestPool::of(vec![
+        let pool = TestPool(Mutex::new(vec![
             backed("vm2-lab-hdd.qcow2", &other.join(VM_DISK_FILENAME)),
             backed("vm1-lab-hdd.qcow2", &version.join(VM_DISK_FILENAME)),
-        ]);
-        let error = ensure_image_has_no_overlays(&pool, &version, None).unwrap_err();
+        ]));
+        let error = ensure_image_has_no_overlays(&pool, &version).unwrap_err();
         assert_eq!(
             ServiceError::find(&error),
             Some(&ServiceError::ImageHasOverlay {
@@ -403,67 +322,15 @@ mod tests {
     }
 
     #[test]
-    fn image_delete_019_a_sandbox_boot_disk_made_from_the_image_does_not_stop_the_delete_and_is_deleted_with_it()
-     {
-        let root = tempdir().unwrap();
-        let (version, other) = two_versions(root.path());
-        let pool_dir = root.path().join("pool");
-        fs::create_dir_all(&pool_dir).unwrap();
-        for boot_disk in ["flatcar-sandbox.24.04.qcow2", "flatcar-sandbox.22.04.qcow2"] {
-            fs::write(pool_dir.join(boot_disk), "boot disk").unwrap();
-        }
-        let pool = TestPool::in_dir(
-            vec![backed("vm2-lab-hdd.qcow2", &other.join(VM_DISK_FILENAME))],
-            pool_dir.clone(),
-        );
-
-        ensure_image_has_no_overlays(&pool, &version, Some("flatcar-sandbox.24.04.qcow2")).unwrap();
-        remove_boot_disk(&pool, "flatcar-sandbox.24.04.qcow2").unwrap();
-
-        assert!(!pool_dir.join("flatcar-sandbox.24.04.qcow2").exists());
-        assert!(pool_dir.join("flatcar-sandbox.22.04.qcow2").is_file());
-        assert_eq!(
-            sandbox_boot_disk(NodeModel::FlatcarSandbox, "24.04").as_deref(),
-            Some("flatcar-sandbox.24.04.qcow2")
-        );
-        assert_eq!(sandbox_boot_disk(NodeModel::UbuntuLinux, "24.04"), None);
-    }
-
-    #[test]
-    fn image_delete_020_a_lab_disk_on_the_images_sandbox_boot_disk_stops_the_delete_and_the_refusal_carries_that_disk()
-     {
-        let root = tempdir().unwrap();
-        let (version, _) = two_versions(root.path());
-        let pool_dir = root.path().join("pool");
-        fs::create_dir_all(&pool_dir).unwrap();
-        let boot_path = pool_dir.join("flatcar-sandbox.24.04.qcow2");
-        fs::write(&boot_path, "boot disk").unwrap();
-        let pool = TestPool::in_dir(vec![backed("ceos1-lab-hdd.qcow2", &boot_path)], pool_dir);
-
-        let error =
-            ensure_image_has_no_overlays(&pool, &version, Some("flatcar-sandbox.24.04.qcow2"))
-                .unwrap_err();
-
-        assert_eq!(
-            ServiceError::find(&error),
-            Some(&ServiceError::ImageHasOverlay {
-                disk: "ceos1-lab-hdd.qcow2".to_owned(),
-                image_dir: version.clone(),
-            })
-        );
-        assert!(boot_path.is_file());
-    }
-
-    #[test]
     fn image_delete_007_a_lab_disk_built_on_another_image_does_not_stop_the_delete() {
         let root = tempdir().unwrap();
         let (version, other) = two_versions(root.path());
-        let pool = TestPool::of(vec![backed(
+        let pool = TestPool(Mutex::new(vec![backed(
             "vm2-lab-hdd.qcow2",
             &other.join(VM_DISK_FILENAME),
-        )]);
-        assert!(ensure_image_has_no_overlays(&pool, &version, None).is_ok());
-        assert!(ensure_image_has_no_overlays(&TestPool::default(), &version, None).is_ok());
+        )]));
+        assert!(ensure_image_has_no_overlays(&pool, &version).is_ok());
+        assert!(ensure_image_has_no_overlays(&TestPool::default(), &version).is_ok());
     }
 
     #[test]
@@ -476,8 +343,8 @@ mod tests {
         fs::write(version.join(VM_DISK_FILENAME), "base").unwrap();
         symlink(&new, root.path().join("arista_veos")).unwrap();
         let old_path = root.path().join("arista_veos/4.33").join(VM_DISK_FILENAME);
-        let pool = TestPool::of(vec![backed("veos1-lab-hdd.qcow2", &old_path)]);
-        assert!(ensure_image_has_no_overlays(&pool, &version, None).is_err());
+        let pool = TestPool(Mutex::new(vec![backed("veos1-lab-hdd.qcow2", &old_path)]));
+        assert!(ensure_image_has_no_overlays(&pool, &version).is_err());
     }
 
     #[test]
@@ -488,23 +355,15 @@ mod tests {
             fn backed_volumes(&self) -> Result<Vec<BackedVolume>> {
                 anyhow::bail!("libvirt is down")
             }
-
-            fn volume_path(&self, name: &str) -> PathBuf {
-                PathBuf::from("/nonexistent/pool").join(name)
-            }
-
-            fn delete_volume(&self, _name: &str) -> Result<()> {
-                anyhow::bail!("libvirt is down")
-            }
         }
         let root = tempdir().unwrap();
         let (version, _) = two_versions(root.path());
-        assert!(ensure_image_has_no_overlays(&Unreadable, &version, None).is_err());
-        let orphan = TestPool::of(vec![backed(
+        assert!(ensure_image_has_no_overlays(&Unreadable, &version).is_err());
+        let orphan = TestPool(Mutex::new(vec![backed(
             "orphan-hdd.qcow2",
             &root.path().join("gone").join(VM_DISK_FILENAME),
-        )]);
-        assert!(ensure_image_has_no_overlays(&orphan, &version, None).is_err());
+        )]));
+        assert!(ensure_image_has_no_overlays(&orphan, &version).is_err());
     }
 
     #[tokio::test]
@@ -552,11 +411,11 @@ mod tests {
                 "concurrent-overlay-test",
             )
             .await;
-            ensure_image_has_no_overlays(scan_pool.as_ref(), &scan_version, None)
+            ensure_image_has_no_overlays(scan_pool.as_ref(), &scan_version)
         });
         task::yield_now().await;
         assert!(!deletion.is_finished());
-        pool.volumes
+        pool.0
             .lock()
             .unwrap()
             .push(backed("new-overlay.qcow2", &base));

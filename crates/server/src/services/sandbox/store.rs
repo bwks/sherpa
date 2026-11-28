@@ -90,7 +90,7 @@ impl Store {
         format!("{STORE_VM_PREFIX}{}", self.id)
     }
 
-    /// The VM's disk, an overlay on the boot disk.
+    /// The VM's disk, an overlay on the base image.
     fn vm_disk(&self) -> String {
         format!("{}{VM_DISK_SUFFIX}", self.vm())
     }
@@ -143,7 +143,7 @@ pub(super) fn is_build_file(name: &str) -> bool {
         || (name.starts_with("store-") && name.ends_with(".status"))
 }
 
-/// The path of the Docker store of image `image`, made first, by a VM on boot disk `boot_disk`,
+/// The path of the Docker store of image `image`, made first, by a VM on base image `base`,
 /// when there is none.
 ///
 /// # Errors
@@ -152,7 +152,7 @@ pub(super) fn is_build_file(name: &str) -> bool {
 #[instrument(skip(host), level = "debug")]
 pub(super) async fn ensure_docker_store(
     host: &SandboxHost,
-    boot_disk: &str,
+    base: &str,
     image: &str,
 ) -> Result<String> {
     let id = host
@@ -172,16 +172,16 @@ pub(super) async fn ensure_docker_store(
                     StatusKind::Waiting,
                 );
             },
-            build_store(host.clone(), boot_disk.to_owned(), image.to_owned(), store),
+            build_store(host.clone(), base.to_owned(), image.to_owned(), store),
         )
         .await
 }
 
-/// The path of `store` of image `image`, made by a VM on boot disk `boot_disk` when there is
+/// The path of `store` of image `image`, made by a VM on base image `base` when there is
 /// none, run while its lock is held.
 async fn build_store(
     host: SandboxHost,
-    boot_disk: String,
+    base: String,
     image: String,
     store: Store,
 ) -> Result<String> {
@@ -200,7 +200,7 @@ async fn build_store(
         ),
         StatusKind::Progress,
     );
-    let made = make_store(&host, &boot_disk, &image, &store).await;
+    let made = make_store(&host, &base, &image, &store).await;
     if let Err(removal) = remove_store_vm(&host, &store, made.is_err()).await {
         tracing::warn!(store = %store.volume(), error = %removal, "Cannot remove the VM that made a Docker store");
     }
@@ -216,9 +216,9 @@ async fn build_store(
     Ok(path)
 }
 
-/// Make `store` of image `image`: write the image's archive, boot a Flatcar VM on boot disk
-/// `boot_disk` that loads it into an empty disk and powers off, and wait until it has.
-async fn make_store(host: &SandboxHost, boot_disk: &str, image: &str, store: &Store) -> Result<()> {
+/// Make `store` of image `image`: write the image's archive, boot a Flatcar VM on base image
+/// `base` that loads it into an empty disk and powers off, and wait until it has.
+async fn make_store(host: &SandboxHost, base: &str, image: &str, store: &Store) -> Result<()> {
     remove_store_vm(host, store, true).await?;
     let archive = pool_path(&store.archive());
     write_image_archive(host, image, &archive).await?;
@@ -252,7 +252,7 @@ async fn make_store(host: &SandboxHost, boot_disk: &str, image: &str, store: &St
     .with_context(|| format!("Cannot render the domain of VM {vm}"))?;
     let disks = vec![
         DomainDisk::Overlay {
-            base: boot_disk.to_owned(),
+            base: base.to_owned(),
             path: disk,
         },
         DomainDisk::Blank {

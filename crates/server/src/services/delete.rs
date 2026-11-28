@@ -3,7 +3,7 @@ use db::ImageInUse;
 use tracing::instrument;
 
 use crate::services::image_lifecycle::{
-    ensure_image_has_no_overlays, image_model_kind, lock_image, remove_boot_disk, sandbox_boot_disk,
+    ensure_image_has_no_overlays, image_model_kind, lock_image,
 };
 use crate::services::image_store::ImagePaths;
 use shared::data::{DeleteImageRequest, DeleteImageResponse, NodeKind};
@@ -56,21 +56,15 @@ pub async fn delete_image(
     let image_file =
         image_filename(&node_image.settings).map(|filename| version_dir.join(filename));
     if kind != NodeKind::Container {
-        let boot_disk = sandbox_boot_disk(request.model, &request.version);
-        ensure_image_has_no_overlays(state.qemu.as_ref(), &version_dir, boot_disk.as_deref())
-            .map_err(|error| {
-                if ServiceError::find(&error).and_then(ServiceError::category)
-                    == Some(ServiceCategory::Conflict)
-                {
-                    ServiceError::Conflict(format!("Cannot safely delete image: {error}")).into()
-                } else {
-                    error.context("Cannot safely delete image")
-                }
-            })?;
-        if let Some(boot_disk) = &boot_disk {
-            remove_boot_disk(state.qemu.as_ref(), boot_disk)
-                .context("Cannot delete the sandbox boot disk of the image")?;
-        }
+        ensure_image_has_no_overlays(state.qemu.as_ref(), &version_dir).map_err(|error| {
+            if ServiceError::find(&error).and_then(ServiceError::category)
+                == Some(ServiceCategory::Conflict)
+            {
+                ServiceError::Conflict(format!("Cannot safely delete image: {error}")).into()
+            } else {
+                error.context("Cannot safely delete image")
+            }
+        })?;
     }
     // The Docker image Sherpa recorded for a container image: its repo at its version.
     let docker_reference = node_image

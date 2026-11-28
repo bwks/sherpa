@@ -55,8 +55,7 @@ use template::{
     BootDevice, Channel, CiscoFxosFirewallMode, CloudInitNetwork, CloudInitResolvConf,
     CloudbaseInitNetwork, CryptHash, DomainTuning, FileMode, IgnitionConfig, IgnitionFile,
     IgnitionFileContents, IgnitionFileSystem, IgnitionUnit, MemballoonModel,
-    MikrotikRouterosZtpTemplate, RebootAction, SmbiosSerial, SonicLinuxZtp, UsbController,
-    VideoModel,
+    MikrotikRouterosZtpTemplate, SmbiosSerial, SonicLinuxZtp, UsbController, VideoModel,
 };
 use topology::{NodeReadyCheck, SystemdUnitData};
 use virt::domain::Domain;
@@ -3731,7 +3730,6 @@ pub fn build_domain_template(
         vmx_enabled: vm.cpu.vmx,
         bios: vm.machine.bios.clone(),
         boot_devices: vec![BootDevice::Cdrom, BootDevice::Hd],
-        on_reboot: RebootAction::Restart,
         smbios_serial: Some(SmbiosSerial::NoCloud),
         disks: parts.disks,
         interfaces: parts.interfaces,
