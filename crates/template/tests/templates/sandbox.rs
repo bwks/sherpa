@@ -17,7 +17,7 @@ use shared::util::base64_decode;
 use template::{
     DomainTemplate, DomainTuning, FlatcarDomain, GuestAddress, GuestInterface, NodeScript,
     ReportScript, SANDBOX_CONFIG_DRIVE_MOUNT, SANDBOX_CONTAINER_BODY, SANDBOX_LOGIN, SandboxDomain,
-    SandboxGuest, SandboxOwnNic, WritableVolume, boot_vm_ignition_json, store_vm_ignition_json,
+    SandboxGuest, SandboxOwnNic, WritableVolume, store_vm_ignition_json,
 };
 
 const OWNER_KEYS: [&str; 2] = [
@@ -461,15 +461,6 @@ fn store_vm_domain() -> DomainTemplate {
     )
 }
 
-fn boot_vm_domain() -> DomainTemplate {
-    flatcar_vm(
-        "sherpa-flatcar-sandbox.4757.2.4",
-        "/opt/sherpa/libvirt/images/flatcar-sandbox.4757.2.4.qcow2.part",
-        "/opt/sherpa/libvirt/images/flatcar-sandbox.4757.2.4.iso",
-    )
-    .boot_vm()
-}
-
 /// The domain XML with whitespace between elements removed, so elements read as one string.
 fn compact(xml: &str) -> String {
     xml.lines().map(str::trim).collect()
@@ -622,43 +613,6 @@ fn sandbox_031_a_docker_store_vm_has_no_nics_and_no_console_and_its_image_archiv
 }
 
 #[test]
-fn sandbox_076_the_boot_disk_vm_sets_only_the_kernel_arguments_and_its_first_reboot_stops_it() {
-    let config: Value = serde_json::from_str(&boot_vm_ignition_json().unwrap()).unwrap();
-    assert_eq!(
-        config["kernelArguments"]["shouldExist"],
-        serde_json::json!(["quiet"])
-    );
-    assert_eq!(config["storage"]["files"], serde_json::json!([]));
-    assert_eq!(config["systemd"]["units"], serde_json::json!([]));
-    assert_eq!(config["passwd"]["users"], serde_json::json!([]));
-    assert!(node_config().get("kernelArguments").is_none());
-
-    let xml = compact(&boot_vm_domain().render().unwrap());
-    assert!(xml.contains("<on_reboot>destroy</on_reboot>"));
-    assert!(
-        compact(&domain().render().unwrap()).contains("<on_reboot>restart</on_reboot>"),
-        "a sandbox's reboot restarts it"
-    );
-    assert!(xml.contains(
-        "<source file='/opt/sherpa/libvirt/images/flatcar-sandbox.4757.2.4.qcow2.part'/>\
-         <target dev='vda' bus='virtio'/>"
-    ));
-    assert!(xml.contains(
-        "<source file='/opt/sherpa/libvirt/images/flatcar-sandbox.4757.2.4.iso'/>\
-         <target dev='sda' bus='sata'/><readonly/>"
-    ));
-    for absent in [
-        "<interface ",
-        "<serial ",
-        "<console ",
-        "<channel ",
-        "<kernel>",
-    ] {
-        assert!(!xml.contains(absent), "{absent}");
-    }
-}
-
-#[test]
 fn sandbox_048_the_vm_has_its_serial_console_on_the_nodes_socket_and_its_status_channel() {
     let xml = compact(&domain().render().unwrap());
     assert!(xml.contains(
@@ -726,8 +680,8 @@ fn sandbox_100_a_sandboxs_domain_carries_the_tuning_its_node_gives_it() {
 }
 
 #[test]
-fn sandbox_101_the_sandbox_store_and_boot_vms_have_no_vnc_guest_agent_usb_balloon_or_nocloud() {
-    for domain in [domain(), store_vm_domain(), boot_vm_domain()] {
+fn sandbox_101_the_sandbox_and_store_vm_have_no_vnc_guest_agent_usb_balloon_or_nocloud() {
+    for domain in [domain(), store_vm_domain()] {
         let xml = compact(&domain.render().unwrap());
         for absent in [
             "<graphics",
@@ -758,8 +712,8 @@ fn sandbox_101_the_sandbox_store_and_boot_vms_have_no_vnc_guest_agent_usb_balloo
 }
 
 #[test]
-fn sandbox_102_the_sandbox_store_and_boot_vms_boot_their_disk_only_never_the_config_drive() {
-    for domain in [domain(), store_vm_domain(), boot_vm_domain()] {
+fn sandbox_102_the_sandbox_and_store_vm_boot_their_disk_only_never_the_config_drive() {
+    for domain in [domain(), store_vm_domain()] {
         let xml = compact(&domain.render().unwrap());
         assert!(
             xml.contains(
@@ -1028,6 +982,21 @@ fn sandbox_011_the_serial_console_runs_the_network_os_cli() {
     assert_eq!(
         setting(&config, "sherpa-console.service", "Service", "TTYPath"),
         "/dev/ttyS0"
+    );
+}
+
+#[test]
+fn sandbox_104_the_kernel_prints_only_errors_on_the_console_once_the_sandboxs_root_is_up() {
+    assert_eq!(
+        file_text(&node_config(), "/etc/sysctl.d/10-sherpa-console.conf"),
+        "kernel.printk = 4 4 1 7"
+    );
+    assert!(
+        store_config()["storage"]["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|file| file["path"] != "/etc/sysctl.d/10-sherpa-console.conf")
     );
 }
 

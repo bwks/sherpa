@@ -1,5 +1,5 @@
-//! One lock per disk that a VM makes once for sandboxes, a boot disk or a Docker store, so the
-//! sandboxes that need it wait for the one VM that makes it (`docs/architecture/SANDBOX.md`).
+//! One lock per Docker store, the disk a VM makes once for sandboxes, so the sandboxes that need
+//! it wait for the one VM that makes it (`docs/architecture/SANDBOX.md`).
 
 use std::sync::Arc;
 

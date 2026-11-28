@@ -21,9 +21,8 @@ drive, and a unit in the VM starts the container and reports how that went on a 
 flowchart LR
   subgraph host[Sherpa server]
     S[sherpad] -->|libvirt: domain, overlays, config drive| L[libvirtd]
-    D[(server Docker: node image)] -->|docker save, once per image| ST[(flatcar-docker-ID.qcow2, the image's Docker store)]
-    B[(flatcar_sandbox/VERSION/virtioa.qcow2, the imported base)] -->|once per version: kernel arguments, copied| BD[(flatcar-sandbox.VERSION.qcow2, the boot disk)]
-    BD --> O[(NODE-LAB-hdd.qcow2 overlay)]
+    D[(server Docker: node image)] -->|docker save, once per version| ST[(IMAGES/MODEL/sandbox/VERSION/virtiob.qcow2, the version's Docker store)]
+    B[(IMAGES/flatcar_sandbox/VERSION/virtioa.qcow2, the imported base)] --> O[(NODE-LAB-hdd.qcow2 overlay)]
     ST --> OD[(NODE-LAB-docker.qcow2 overlay)]
     T1[tap tpaN-LAB] <-->|eBPF redirect, netem| T2[tap of the peer node]
     M[brm-LAB bridge, lab management network]
@@ -49,20 +48,18 @@ flowchart LR
 ## Base image
 
 - The base image is a node model of its own, `flatcar_sandbox`: Flatcar stable's OpenStack
-  image (`flatcar_production_openstack_image.img.bz2`, unpacked with `bunzip2`), whose Ignition
-  reads its config from a config drive. The user imports it as any VM image, with
-  `sherpa server image import --model flatcar_sandbox`, and sandboxes boot the default version,
-  `IMAGES/flatcar_sandbox/VERSION/virtioa.qcow2`. The install and update scripts install
-  `bzip2` for the unpacking and download no image. Sandboxes boot no overlay of the image itself
-  but of its boot disk (see Boot disk); the image is never changed.
+  image, whose Ignition reads its config from a config drive. The user imports it as any VM
+  image, with `sherpa server image import --model flatcar_sandbox`, and sandboxes and Docker
+  store VMs boot overlays of the default version, `IMAGES/flatcar_sandbox/VERSION/virtioa.qcow2`.
+  sherpad never changes the image.
 - `flatcar_sandbox` is no node model: a manifest node of it is refused
   (`TopologyError::SandboxBaseModel`), pointing to `flatcar_linux` for a Flatcar VM.
 - `up` and `redeploy` look the image up while they plan (`base::sandbox_base`), before creating
   anything, and refuse a lab with a sandbox when there is no default `flatcar_sandbox` image
   (`SandboxRefusal::BaseImageMissing`, which says how to import one) or its disk is missing
   (`SandboxRefusal::BaseDiskMissing`). The image is leased, as a node's image is, until the
-  sandboxes' disks exist; from then on their overlays on its boot disk keep it from being
-  deleted or replaced.
+  sandboxes' disks exist; from then on their overlays on it keep it from being deleted or
+  replaced.
 
 ## Boot
 
@@ -72,66 +69,17 @@ boot GRUB finds the first-boot flag in the image's EFI partition, and Ignition r
 clears it, so a later boot (`resume`) does not run Ignition again. sherpad defines the domain
 once and never changes it.
 
-GRUB gives the kernel `console=ttyS0`, the network OS's serial console, and the sandboxes' kernel
-arguments, `quiet` (`template::SANDBOX_KERNEL_ARGUMENTS`), from the boot disk's OEM partition. The
-kernel prints only errors there, from its start on and after boot too: console log level 4, so
+GRUB gives the kernel `console=ttyS0`, the network OS's serial console, and the kernel arguments
+in the image's OEM partition's `grub.cfg`. sherpad adds none. The user docs
+(`nodes/linux/flatcar-sandbox.md` in sherpa-docs) describe an optional edit of the image the user
+makes before importing it, which adds `quiet` there.
+
+Once the root file system is up, `systemd-sysctl` sets the kernel's console log level to 4, the
+level `quiet` gives, from `/etc/sysctl.d/10-sherpa-console.conf`
+(`template::SANDBOX_CONSOLE_LOGLEVEL`): the kernel then prints only errors on the console, so
 kernel info messages, such as interface renames and bridge port states, never mix into the
-network OS CLI; they are in the VM's kernel log. The console's emulated
-serial port takes VM exits for each character, which cost most in a nested VM: printing the
-kernel's boot messages there takes about 20 s of a sandbox's first boot and 15 s of a resume on a
-dev server.
-
-## Boot disk
-
-`flatcar-sandbox.VERSION.qcow2` in the storage pool: the base image with the sandboxes' kernel
-arguments in its OEM partition's `grub.cfg`, which GRUB reads before it builds the command line.
-A sandbox boots an overlay of it, so it boots with them from its first boot on, with no reboot.
-
-```mermaid
-sequenceDiagram
-  participant S as sherpad
-  participant L as libvirt
-  participant V as boot VM sherpa-flatcar-sandbox.VERSION
-  S->>S: take the version's lock (SandboxDiskLocks::build), done if the boot disk exists
-  S->>S: config drive with an Ignition config of only kernelArguments
-  S->>L: overlay -hdd.qcow2 on the base image, define and start the domain (on_reboot destroy)
-  L->>V: boot through Flatcar's GRUB
-  V->>V: Ignition in the initrd writes the kernel arguments to the OEM partition's grub.cfg
-  V->>L: reboot
-  L->>L: on_reboot destroy stops the domain
-  S->>L: wait_until_stopped, up to 10 minutes
-  S->>L: flatten_disk: the overlay with the base image into flatcar-sandbox.VERSION.qcow2.part
-  S->>L: remove the VM, its disk and its config drive
-  S->>S: rename the .part to flatcar-sandbox.VERSION.qcow2
-```
-
-- **Made** at the first `up` or `redeploy` with a sandbox after the version is imported
-  (`boot::ensure_boot_disk`), before the Docker store, one at a time per version
-  (`SandboxDiskLocks` in `AppState`). The build runs in a task of its own that holds the
-  version's lock until the build ends, so an operation that stops waiting for it, such as a
-  dropped request, leaves the build to finish, and the next one waits for it
-  (`SandboxDiskLocks::build`, `sandbox_089`). `sherpa-flatcar-sandbox.VERSION`, a Flatcar VM with no
-  NICs, console or status channel, boots `sherpa-flatcar-sandbox.VERSION-hdd.qcow2`, an overlay on
-  the base image, with a config drive whose Ignition config sets only `kernelArguments`
-  (`template::boot_vm_ignition_json`). Flatcar applies kernel arguments in the initrd, before
-  Ignition touches the root filesystem or clears the first-boot flag: it writes them to the OEM
-  partition's `grub.cfg` and reboots. The domain's `on_reboot` is `destroy`, so that reboot stops
-  the VM, about 30 s after it started on a dev server. sherpad waits for the domain to stop (up to
-  10 minutes), copies the overlay with the base image into the standalone
-  `flatcar-sandbox.VERSION.qcow2.part` through libvirt (`libvirt::flatten_disk`, mode `0640`, as a
-  Docker store, since sherpad reads its header to put each node's overlay on it), removes the VM,
-  its disk and config drive, and renames the copy to the boot disk, so a boot disk that exists is
-  complete. The user sees a progress message while it is made.
-- **Changed** from the base image only in the GPT, the EFI partition's file system and the OEM
-  partition, which that first boot wrote; the root partition is untouched and the first-boot flag
-  is still set. The boot disk is about the size of the base image.
-- **Swept** with the Docker store builds at sherpad's start: every `sherpa-flatcar-sandbox.*`
-  domain and volume and `flatcar-sandbox.*.qcow2.part` volume, and their staging folders; boot
-  disks are kept. No node's domain or volume has a `.` in its name before its suffix.
-- **Deleted** with its version: deleting the `flatcar_sandbox` version, or importing it again
-  over a file of another size, deletes the boot disk (`image_lifecycle::remove_boot_disk`), which
-  the next `up` makes from the new image. A lab disk built on the boot disk refuses both, as a
-  lab disk built on any image does (`ImageHasOverlay`).
+network OS CLI; they are in the VM's kernel log. Before that, while the kernel and the initrd
+boot, it prints at the log level of its command line: everything, unless the image has `quiet`.
 
 ## Config drive
 
@@ -164,6 +112,7 @@ drop-ins, scripts and guest files are Askama templates in `crates/template/templ
 which take their paths, labels, port names and MTU from the constants in
 `crates/template/src/sandbox.rs`. It sets:
 
+- The kernel's console log level, 4 (see Boot), in the sandbox only.
 - Updates and reboots off (`IgnitionFile::disable_updates`, `update-engine` and `locksmithd`
   masked); no console login (the serial getty masked) and no SSH but the sandbox's own sshd
   (see Debug SSH): Flatcar's `sshd.socket` and `sshd-vsock.socket` are masked, and the Docker
@@ -230,7 +179,7 @@ journal.
 ## Status
 
 Each VM has a virtio-serial port, `org.sherpa.status`, whose host side is a socket QEMU binds:
-`NODE_INDEX.status` in the lab's console folder for a sandbox, and `store-ID.status` in
+`NODE_INDEX.status` in the lab's console folder for a sandbox, and `store-HASH.status` in
 `/opt/sherpa/run/sandbox` (`SHERPA_SANDBOX_RUN_DIR`, `sherpa:kvm`, mode `2770`) for a Docker
 store VM, which belongs to no lab. `report.sh` writes one line to it: `started`, `loaded` or `failed: REASON`, newlines
 flattened. A guest's write waits until a reader is connected, for up to 60 s.
@@ -239,7 +188,7 @@ flattened. A guest's write waits until a reader is connected, for up to 60 s.
 sequenceDiagram
   participant R as report.sh in the VM
   participant P as virtio-serial port org.sherpa.status
-  participant Q as socket INDEX.status or store-ID.status
+  participant Q as socket INDEX.status or store-HASH.status
   participant W as StatusWatch in sherpad
   W->>Q: connect once the domain is started, retried every 200 ms for up to 10 s
   R->>P: one line: started, loaded or failed: REASON, newlines flattened
@@ -273,64 +222,86 @@ untrusted input:
 
 ## Docker stores
 
-The node's image is not copied into each sandbox. Each image has a Docker store: a disk whose
-Docker data has the image loaded, which every sandbox of the image boots an overlay of.
+The node's image is not copied into each sandbox. Each container image version has a Docker
+store: a disk whose Docker data has the image loaded, which every sandbox of the version boots
+an overlay of.
 
 ```mermaid
 sequenceDiagram
   participant S as sherpad
   participant D as server Docker
   participant L as libvirt
-  participant V as store VM sherpa-flatcar-docker-ID
-  S->>S: take the store's lock, done if flatcar-docker-ID.qcow2 exists
+  participant V as store VM sherpa-store.MODEL.VERSION
+  S->>S: take the store's lock, done if IMAGES/MODEL/sandbox/VERSION/virtiob.qcow2 exists
   S->>D: docker save of the image
-  D-->>S: the archive, written to flatcar-docker-ID.tar, padded to whole sectors
+  D-->>S: the archive, written to sherpa-store.MODEL.VERSION.tar in the pool, padded to whole sectors
   S->>S: config drive: Docker, sherpa-store.service, the store disk to format
-  S->>L: overlay on the boot disk, empty 32 GiB .qcow2.part, archive disk (serial sherpa-image, read-only), define and start
-  S->>V: StatusWatch::connect on store-ID.status
+  S->>L: overlay on the base image, empty 32 GiB .qcow2.part owned by sherpad, archive disk (serial sherpa-image, read-only), define and start
+  S->>V: StatusWatch::connect on store-HASH.status
   V->>V: Ignition formats the store disk, mounted at /var/lib/docker, Docker starts
   V->>V: sherpa-store: docker load from /dev/disk/by-id/virtio-sherpa-image
   V->>S: loaded, on org.sherpa.status (awaited up to 30 minutes)
   V->>V: systemctl poweroff
   S->>L: wait_until_stopped, up to 120 s
   S->>L: remove the VM, its disk, its config drive and the archive
-  S->>S: rename the .part to flatcar-docker-ID.qcow2
+  S->>S: make IMAGES/MODEL/sandbox/VERSION, move the .part there as virtiob.qcow2
 ```
 
-- **Name.** `flatcar-docker-ID.qcow2` in the storage pool, `ID` the first 16 hex digits of the
-  image's ID on the server's Docker, so an image imported again gets a store of its own.
+- **Name.** `IMAGES/MODEL/sandbox/VERSION/virtiob.qcow2`, keyed by the node image's model and
+  version, such as `arista_eos/sandbox/4.35.0F/virtiob.qcow2` for cEOS 4.35.0F (`Store::path`,
+  `sandbox_105`). A sandbox runs the imported image of its model and version, the repo its image
+  record names: `up` and `redeploy` refuse, while they plan and before creating anything, a
+  sandbox node whose manifest `image` names another repo (`validate::validate_sandbox_image`,
+  `SandboxRefusal::ImageOverride`, which names the node, both repos and the model and version,
+  `sandbox_108`). Nodes that run in no sandbox keep the manifest's `image` over the recorded
+  repo. The version `sandbox` is refused on import and pull (`image_import_028`), and
+  the image scan skips the `sandbox` folder (`image_scan_022`).
 - **Made** at the first `up` or `redeploy` that needs it (`store::ensure_docker_store`), one at a
-  time per store, in a task that holds the store's lock until the build ends, as a boot disk's
-  build does (`SandboxDiskLocks` in `AppState`). sherpad writes `docker save` of the image to
-  `flatcar-docker-ID.tar` in the storage pool, padded to whole sectors, and starts
-  `sherpa-flatcar-docker-ID`: a Flatcar VM with no NICs and no console, on an overlay of the boot
-  disk, with an empty 32 GiB `flatcar-docker-ID.qcow2.part` as its Docker disk, which its
-  Ignition formats, and the archive as a read-only raw disk with serial `sherpa-image`.
-  `sherpa-store.service` runs `docker load` from that disk, reports `loaded`, and powers the VM
-  off. sherpad waits for the report, then for the domain to stop, removes the VM, its disks and
-  the archive, and renames the disk to the store, so a store that exists is complete. The user
-  sees a progress message while a store is made, and another while waiting for a store another
-  operation is making.
+  time per store, in a task that holds the store's lock until the build ends
+  (`SandboxDiskLocks` in `AppState`, `sandbox_089`), while the operation holds the container
+  image's lease, so the version is neither deleted nor imported again during the build. The
+  build is in the storage pool: sherpad writes `docker save` of the image to
+  `sherpa-store.MODEL.VERSION.tar`, padded to whole sectors, and starts
+  `sherpa-store.MODEL.VERSION`: a Flatcar VM with no NICs and no console, on an overlay of the
+  base image, with an empty 32 GiB `sherpa-store.MODEL.VERSION.qcow2.part` as its Docker disk,
+  which its Ignition formats, and the archive as a read-only raw disk with serial
+  `sherpa-image`. The `.part` is created for sherpad's user and group with mode `0660`, an
+  imported image's (`sandbox_099`); libvirt hands it to QEMU while the VM runs and gives it back
+  when it stops. `sherpa-store.service` runs `docker load` from that disk, reports `loaded`, and
+  powers the VM off. sherpad waits for the report, then for the domain to stop, and removes the
+  VM, its disk, its config drive and the archive. The user sees a progress message while a
+  store is made, and another while waiting for a store another operation is making.
+- **Placed.** sherpad makes `IMAGES/MODEL/sandbox/VERSION/`, giving it and `sandbox/` mode
+  `0775`, the images folder's, and renames the `.part` into it as `virtiob.qcow2` with mode
+  `0660`, the modes `sherpad doctor` sets (`sandbox_106`). When it does not own the `.part` or
+  the folder is on another filesystem, it copies the `.part` to `virtiob.qcow2.part` beside it,
+  writes it to disk and renames that onto `virtiob.qcow2` (`sandbox_107`), then deletes the pool
+  volume. A store that exists is complete.
 - **Swept.** A build sherpad stopped during, or whose operation was dropped, leaves its VM and
-  files. At its start, before it takes requests, sherpad removes every `sherpa-flatcar-docker-ID`
-  domain, every pool volume a build makes (the VM's disk `sherpa-flatcar-docker-ID-hdd.qcow2` and
-  config drive `sherpa-flatcar-docker-ID.iso`, `flatcar-docker-ID.tar` and
-  `flatcar-docker-ID.qcow2.part`), and the staging folders of their config drives and the store
-  status sockets in `/opt/sherpa/run/sandbox` (`sweep::remove_unfinished_builds`, with the boot
-  disk builds); stores are kept. A name is a build's only when `ID` is 16 hex digits and the name
-  ends there or in one of those suffixes, so a node named like a store VM keeps its domain and
-  disks.
+  files. At its start, before it takes requests, sherpad removes every `sherpa-store.*`
+  domain, every pool volume a build makes (`sherpa-store.MODEL.VERSION-hdd.qcow2`,
+  `sherpa-store.MODEL.VERSION.iso`, `.tar` and `.qcow2.part`), and the staging folders of their
+  config drives and the store status sockets in `/opt/sherpa/run/sandbox`
+  (`sweep::remove_unfinished_builds`, `sandbox_066`). No node's domain or volume has a `.` in its
+  name before its suffix, so none is taken for a build's (`sandbox_065`, `sandbox_074`). A status
+  socket is named by a hash of the build's name, `store-HASH.status`, as a version is too long
+  for a socket path.
 - **Used.** A sandbox's Docker disk is `NODE-LAB-docker.qcow2`, a qcow2 overlay on the store,
   mounted at `/var/lib/docker` with `noinit_itable`.
-- **Kept.** Stores belong to no lab: destroy never deletes one (`sandbox_037`).
+- **Kept and removed.** Stores belong to no lab: destroy never deletes one (`sandbox_037`).
+  Importing or pulling the container version again, or deleting it, removes its
+  `sandbox/VERSION/` folder, and `sandbox/` with the model's last store
+  (`image_lifecycle::remove_sandbox_store`, `image_delete_021`); a lab disk on the store, running
+  or stopped, refuses both (`ensure_store_has_no_overlays`, `ImageHasOverlay`,
+  `image_delete_022`). Neither touches `IMAGES/MODEL/VERSION/` or another version's store.
 
 ## Per node
 
 | What | Where | Removed by |
 |---|---|---|
 | Domain `NODE-LAB` | libvirt, persistent | destroy (lab suffix), redeploy, rollback |
-| Disk, a qcow2 overlay on the boot disk | storage pool, `NODE-LAB-hdd.qcow2` | destroy (lab volume suffix), redeploy |
-| Docker disk, a qcow2 overlay on the image's Docker store | storage pool, `NODE-LAB-docker.qcow2` | destroy (lab volume suffix), redeploy |
+| Disk, a qcow2 overlay on the base image | storage pool, `NODE-LAB-hdd.qcow2` | destroy (lab volume suffix), redeploy |
+| Docker disk, a qcow2 overlay on the image version's Docker store | storage pool, `NODE-LAB-docker.qcow2` | destroy (lab volume suffix), redeploy |
 | Config drive | storage pool, `NODE-LAB.iso` | destroy, redeploy |
 | Serial console and status sockets | lab console folder, `INDEX.serial`, `INDEX.status` | destroy (console folder) |
 
@@ -338,8 +309,8 @@ The two overlays hold everything the node writes, so a saved config survives `do
 `resume`. Redeploy and destroy delete them.
 
 The domain is rendered from `template::DomainTemplate` (`templates/libvirt/libvirt_domain.jinja`),
-the VM nodes' template, as is the domain of the boot disk VM and of a Docker store VM.
-`template::FlatcarDomain` builds all three (`sandbox`, `store_vm`, `boot_vm`): q35,
+the VM nodes' template, as is the domain of a Docker store VM. `template::FlatcarDomain` builds
+both (`sandbox`, `store_vm`): q35,
 `host-passthrough` CPU, SeaBIOS booting the first disk only, so it never tries the config drive
 (`sandbox_102`); the disks on virtio; the config drive on SATA, read-only; a virtio RNG; no VNC,
 guest agent channel, USB controller (a controller of model `none`, without which libvirt adds
@@ -351,8 +322,7 @@ its node's `DomainTuning` (`sandbox::sandbox_tuning`, `sandbox_100`), from the s
 VM's comes from. A container node refuses the VM tuning settings
 (`check_node_kind_settings`), so a sandbox has no tuning today. Every NIC keeps the MAC the guest
 names it by (`sandbox_103`). A Docker store VM adds the empty store disk and the image archive, a
-read-only disk with the serial `sherpa-image`, and the status channel; the boot disk VM adds
-nothing, and its `on_reboot` is `destroy`.
+read-only disk with the serial `sherpa-image`, and the status channel.
 
 ## Links
 
@@ -488,9 +458,9 @@ sequenceDiagram
   participant C as node container
   U->>S: up
   S->>S: plan: sandbox_base, refusals (no flatcar_sandbox image or disk, volumes a config drive cannot carry), admission
-  S->>S: phase 11, each sandbox in parallel: ensure_boot_disk and ensure_docker_store when missing
+  S->>S: phase 11, each sandbox in parallel: ensure_docker_store when missing
   S->>S: config drive NODE-LAB.iso: Ignition, the container body, its volumes
-  S->>L: overlays NODE-LAB-hdd.qcow2 on the boot disk and NODE-LAB-docker.qcow2 on the store, define and start the domain
+  S->>L: overlays NODE-LAB-hdd.qcow2 on the base image and NODE-LAB-docker.qcow2 on the store, define and start the domain
   S->>V: StatusWatch::connect on INDEX.status
   par the guest boots
     V->>V: GRUB, first boot: Ignition writes the files and units
@@ -536,8 +506,7 @@ sequenceDiagram
 ```
 
 - **Up.** Phase 11 creates each sandbox, in parallel with the others (`create_sandboxes`, after
-  the VMs): the base image's boot disk and the image's Docker store when there is none, the
-  config drive with the node's
+  the VMs): the image version's Docker store when there is none, the config drive with the node's
   container and secret files, the two overlays, the domain, and the connection to its status
   channel (`StatusWatch`). No task reads the channel: readiness (phase 13) reads what has arrived
   at each poll (`StatusWatch::started`), records the node launched once its VM reports `started`,
@@ -584,11 +553,10 @@ A sandbox gets the manifest's or the image's `memory` with 1024 MiB on top
   its rsyslogd restarts take over about 60 s, as when the lab's name server does not answer; it
   then falls back to the next config, and the node has no `dev` login.
 - `frr_linux` and the `juniper_evolved` container run privileged on the server's Docker.
-- Nothing removes a Docker store when its image is deleted or imported again.
-- The boot VM stopping is what tells sherpad the kernel arguments are written: a VM that crashes
-  in the initrd stops too, and its boot disk boots sandboxes that print the kernel's boot
-  messages until the version is deleted, or imported again over a file of another size, and the
-  next `up` makes a new boot disk.
-- A boot disk takes about the base image's size in the storage pool per imported version.
+- The kernel prints its boot messages on the serial console, the network OS's, until
+  `systemd-sysctl` sets the console log level, unless the base image has the `quiet` edit; each
+  character is a VM exit, which costs most in a nested VM.
+- A copy of a store that sherpad stopped during is left as `virtiob.qcow2.part` in its folder,
+  which the next build of the store writes over.
 - Each sandbox takes a node block address of its own, so a lab with sandboxes has fewer than 234
   nodes.

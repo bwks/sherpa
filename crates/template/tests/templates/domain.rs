@@ -7,7 +7,7 @@ use shared::data::{
     QemuCommand, WatchdogAction,
 };
 use template::{
-    BootDevice, Channel, DomainTemplate, DomainTuning, MemballoonModel, RebootAction, SmbiosSerial,
+    BootDevice, Channel, DomainTemplate, DomainTuning, MemballoonModel, SmbiosSerial,
     UsbController, VideoModel,
 };
 
@@ -27,7 +27,6 @@ fn base_domain_template() -> DomainTemplate {
         qemu_bin: "/usr/bin/qemu-system-x86_64".to_string(),
         bios: BiosTypes::SeaBios,
         boot_devices: vec![BootDevice::Cdrom, BootDevice::Hd],
-        on_reboot: RebootAction::Restart,
         smbios_serial: Some(SmbiosSerial::NoCloud),
         disks: vec![NodeDisk {
             disk_device: DiskDevices::File,

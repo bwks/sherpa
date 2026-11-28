@@ -125,6 +125,10 @@ fn sandbox_create(
         node_name: name.clone(),
         node_index: node.index,
         model_kind: node.model_kind,
+        version: container
+            .version
+            .clone()
+            .with_context(|| format!("Node '{name}' has no image version"))?,
         spec: container_spec(
             build.lab_id,
             container,

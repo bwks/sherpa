@@ -3,7 +3,8 @@ use db::ImageInUse;
 use tracing::instrument;
 
 use crate::services::image_lifecycle::{
-    ensure_image_has_no_overlays, image_model_kind, lock_image, remove_boot_disk, sandbox_boot_disk,
+    ensure_image_has_no_overlays, ensure_store_has_no_overlays, image_model_kind, lock_image,
+    remove_sandbox_store,
 };
 use crate::services::image_store::ImagePaths;
 use shared::data::{DeleteImageRequest, DeleteImageResponse, NodeKind};
@@ -22,8 +23,9 @@ use crate::validate::validate_image_version;
 /// is deleted, and the folder only once it is empty.
 ///
 /// A VM or unikernel image is refused while a disk of the storage pool, running or stopped, is
-/// built on it; a container image while a running container runs it. Any image a node records
-/// is refused by the database.
+/// built on it; a container image while a running container runs it or a disk is built on its
+/// sandbox Docker store, which is deleted with it. Any image a node records is refused by the
+/// database.
 #[instrument(skip(state), fields(model = %request.model, version = %request.version))]
 pub async fn delete_image(
     request: DeleteImageRequest,
@@ -52,26 +54,25 @@ pub async fn delete_image(
         .into());
     };
 
-    let version_dir = ImagePaths::installed().version_dir(request.model, &request.version);
+    let paths = ImagePaths::installed();
+    let version_dir = paths.version_dir(request.model, &request.version);
     let image_file =
         image_filename(&node_image.settings).map(|filename| version_dir.join(filename));
-    if kind != NodeKind::Container {
-        let boot_disk = sandbox_boot_disk(request.model, &request.version);
-        ensure_image_has_no_overlays(state.qemu.as_ref(), &version_dir, boot_disk.as_deref())
-            .map_err(|error| {
-                if ServiceError::find(&error).and_then(ServiceError::category)
-                    == Some(ServiceCategory::Conflict)
-                {
-                    ServiceError::Conflict(format!("Cannot safely delete image: {error}")).into()
-                } else {
-                    error.context("Cannot safely delete image")
-                }
-            })?;
-        if let Some(boot_disk) = &boot_disk {
-            remove_boot_disk(state.qemu.as_ref(), boot_disk)
-                .context("Cannot delete the sandbox boot disk of the image")?;
-        }
+    let store_dir = (kind == NodeKind::Container)
+        .then(|| paths.sandbox_store_dir(request.model, &request.version));
+    match &store_dir {
+        Some(store_dir) => ensure_store_has_no_overlays(state.qemu.as_ref(), store_dir),
+        None => ensure_image_has_no_overlays(state.qemu.as_ref(), &version_dir),
     }
+    .map_err(|error| {
+        if ServiceError::find(&error).and_then(ServiceError::category)
+            == Some(ServiceCategory::Conflict)
+        {
+            ServiceError::Conflict(format!("Cannot safely delete image: {error}")).into()
+        } else {
+            error.context("Cannot safely delete image")
+        }
+    })?;
     // The Docker image Sherpa recorded for a container image: its repo at its version.
     let docker_reference = node_image
         .container_repo(None)
@@ -100,6 +101,11 @@ pub async fn delete_image(
     .await?;
     if let Some(promoted) = &promoted {
         tracing::info!(model = %request.model, version = %promoted.version, "Made the newest remaining version the default");
+    }
+    if let Some(store_dir) = &store_dir
+        && let Err(error) = remove_sandbox_store(store_dir)
+    {
+        tracing::error!(error = %format!("{error:#}"), "Failed to remove the sandbox Docker store");
     }
     let image_deleted = match &docker_reference {
         Some(reference) => match container::remove_image(&state.docker, reference).await {

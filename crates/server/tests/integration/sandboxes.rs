@@ -1,7 +1,5 @@
 use anyhow::{Context, Result, bail, ensure};
-use bollard::Docker;
 use db::{DefaultRequest, LabDetails};
-use libvirt::Qemu;
 use serde_json::{Value, json};
 use shared::data::{
     ContainerSettings, KindSettings, LabPhase, ModelKind, NodeConfig, NodeKind, NodeModel,
@@ -14,7 +12,7 @@ use sherpad::SandboxRefusal;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::MetadataExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::time;
@@ -296,22 +294,22 @@ fn bridge_ports(bridge: &str) -> Result<Vec<String>> {
 /// What identifies the file of storage pool volume `volume`: its inode and creation time, which
 /// a file made again does not keep.
 fn volume_identity(volume: &str) -> Result<(u64, SystemTime)> {
-    let metadata = fs::metadata(format!("{SHERPA_STORAGE_POOL_PATH}/{volume}"))
-        .with_context(|| format!("Volume {volume} is missing"))?;
+    file_identity(Path::new(&format!("{SHERPA_STORAGE_POOL_PATH}/{volume}")))
+}
+
+/// What identifies the file at `path`: its inode and creation time.
+fn file_identity(path: &Path) -> Result<(u64, SystemTime)> {
+    let metadata = fs::metadata(path).with_context(|| format!("{} is missing", path.display()))?;
     Ok((metadata.ino(), metadata.created()?))
 }
 
-/// The Docker store volume of image `image`, named by the first 16 hex digits of its ID.
-async fn store_volume(image: &str) -> Result<String> {
-    let docker = Docker::connect_with_local_defaults()?;
-    let id = docker
-        .inspect_image(image)
-        .await
-        .with_context(|| format!("Image {image} is not in Docker"))?
-        .id
-        .with_context(|| format!("Image {image} has no ID"))?;
-    let digits = id.strip_prefix("sha256:").unwrap_or(&id);
-    Ok(format!("flatcar-docker-{}.qcow2", &digits[..16]))
+/// The Docker store of the test image, in its model's sandbox folder of the images folder.
+fn store_path() -> PathBuf {
+    Path::new(SHERPA_IMAGES_PATH)
+        .join(NodeModel::SonicLinux.to_string())
+        .join("sandbox")
+        .join(TEST_IMAGE_VERSION)
+        .join("virtiob.qcow2")
 }
 
 /// The ifindex of interface `name`.
@@ -435,7 +433,7 @@ async fn sandbox_026_destroy_leaves_no_domain_volume_tap_or_console_folder_and_k
     let (server, mut ws, token) = start().await?;
     let lab = lab_id("nd");
     let manifest = lab_manifest(&lab, &p2p_link());
-    let store = store_volume(&format!("{TEST_IMAGE_REPO}:{TEST_IMAGE_VERSION}")).await?;
+    let store = store_path();
 
     let checks: Result<()> = async {
         lab_up(&mut ws, &token, &lab, &manifest, UP_TIMEOUT).await?;
@@ -447,7 +445,7 @@ async fn sandbox_026_destroy_leaves_no_domain_volume_tap_or_console_folder_and_k
             Path::new(&format!("{CONSOLE_DIR}/{lab}")).exists(),
             "up made no console folder"
         );
-        let store_before = volume_identity(&store)?;
+        let store_before = file_identity(&store)?;
 
         lab_call(&mut ws, &token, "destroy", &lab, json!({})).await?;
 
@@ -456,8 +454,9 @@ async fn sandbox_026_destroy_leaves_no_domain_volume_tap_or_console_folder_and_k
         let host = host_leftovers(&server, &lab).await?;
         ensure!(host.is_empty(), "destroy left {host:?} on the host");
         ensure!(
-            volume_identity(&store)? == store_before,
-            "destroy changed the Docker store {store}"
+            file_identity(&store)? == store_before,
+            "destroy changed the Docker store {}",
+            store.display()
         );
         Ok(())
     }
@@ -521,7 +520,7 @@ async fn sandbox_038_a_second_lab_with_the_same_image_boots_on_the_store_the_fir
     let (server, mut ws, token) = start().await?;
     let first = lab_id("na");
     let second = lab_id("nc");
-    let store = store_volume(&format!("{TEST_IMAGE_REPO}:{TEST_IMAGE_VERSION}")).await?;
+    let store = store_path();
 
     let checks: Result<()> = async {
         lab_up(
@@ -532,7 +531,7 @@ async fn sandbox_038_a_second_lab_with_the_same_image_boots_on_the_store_the_fir
             UP_TIMEOUT,
         )
         .await?;
-        let store_before = volume_identity(&store)?;
+        let store_before = file_identity(&store)?;
         lab_up(
             &mut ws,
             &token,
@@ -543,95 +542,9 @@ async fn sandbox_038_a_second_lab_with_the_same_image_boots_on_the_store_the_fir
         .await?;
 
         ensure!(
-            volume_identity(&store)? == store_before,
-            "the second lab replaced the Docker store {store}"
-        );
-        wait_for_states(&server, &second, NodeState::Running).await
-    }
-    .await;
-    let cleanup = cleanup_lab(&mut ws, &server, &token, &first, &checks).await;
-    let cleanup_second = cleanup_lab(&mut ws, &server, &token, &second, &checks).await;
-    finish(checks, cleanup.and(cleanup_second))
-}
-
-#[tokio::test]
-#[ignore = "requires KVM, libvirt, Docker, the sandbox base image and root"]
-async fn sandbox_077_sandboxes_boot_on_the_boot_disk_one_vm_made_from_the_base_image_and_a_second_lab_reuses_it()
--> Result<()> {
-    let (server, mut ws, token) = start().await?;
-    let first = lab_id("nk");
-    let second = lab_id("nl");
-    let base = db::find_default_node_image(
-        &server.db,
-        &NodeModel::FlatcarSandbox,
-        &NodeKind::VirtualMachine,
-    )
-    .await?
-    .context("the server has no default flatcar_sandbox image")?;
-    let boot_disk = format!("flatcar-sandbox.{}.qcow2", base.version);
-    let boot_path = format!("{SHERPA_STORAGE_POOL_PATH}/{boot_disk}");
-
-    let checks: Result<()> = async {
-        lab_up(
-            &mut ws,
-            &token,
-            &first,
-            &lab_manifest(&first, &json!({})),
-            UP_TIMEOUT,
-        )
-        .await?;
-        let boot_before = volume_identity(&boot_disk)?;
-        lab_up(
-            &mut ws,
-            &token,
-            &second,
-            &lab_manifest(&second, &json!({})),
-            UP_TIMEOUT,
-        )
-        .await?;
-
-        ensure!(
-            volume_identity(&boot_disk)? == boot_before,
-            "the second lab replaced the boot disk {boot_disk}"
-        );
-        let conn = Qemu::default().connect()?;
-        let volumes = libvirt::pool_backed_volumes(&conn)?;
-        let backing_of = |name: &str| {
-            volumes
-                .iter()
-                .find(|volume| volume.name == name)
-                .map(|volume| volume.backing_file.clone())
-        };
-        let boot_backing = libvirt::read_qcow2_metadata(Path::new(&boot_path))?.backing_file;
-        ensure!(
-            boot_backing.is_none() && backing_of(&boot_disk).is_none(),
-            "{boot_disk} is not standalone: it is backed by {boot_backing:?}"
-        );
-        for lab in [&first, &second] {
-            for node in ["n1", "n2"] {
-                let disk = format!("{node}-{lab}-hdd.qcow2");
-                ensure!(
-                    backing_of(&disk).as_deref() == Some(Path::new(&boot_path)),
-                    "{disk} is not an overlay on {boot_path}: {:?}",
-                    backing_of(&disk)
-                );
-            }
-        }
-        let vm = format!("sherpa-flatcar-sandbox.{}", base.version);
-        let build = [
-            format!("{vm}-hdd.qcow2"),
-            format!("{vm}.iso"),
-            format!("{boot_disk}.part"),
-            vm,
-        ];
-        let present: Vec<String> = libvirt::list_pool_volumes(&conn)?
-            .into_iter()
-            .chain(libvirt::list_domain_names(&conn)?)
-            .collect();
-        let build_left: Vec<&String> = build.iter().filter(|name| present.contains(name)).collect();
-        ensure!(
-            build_left.is_empty(),
-            "the boot disk build left {build_left:?}"
+            file_identity(&store)? == store_before,
+            "the second lab replaced the Docker store {}",
+            store.display()
         );
         wait_for_states(&server, &second, NodeState::Running).await
     }

@@ -207,8 +207,7 @@ fn init_meter_provider(otel_config: &OtelConfig) -> Result<SdkMeterProvider> {
 }
 
 /// Clear what an earlier run of sherpad left on the host that nothing will finish, logging any
-/// failure: unfinished sandbox boot disk and Docker store builds, and consoles of stopped nodes
-/// still on TCP.
+/// failure: unfinished sandbox Docker store builds, and consoles of stopped nodes still on TCP.
 async fn remove_stale_host_state(state: &AppState) {
     // Nothing builds a sandbox disk yet: remove what builds sherpad stopped during left.
     if let Err(error) =

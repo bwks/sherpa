@@ -31,6 +31,7 @@ pub fn create_overlay(conn: &Connect, src: &str, dst: &str, size_gb: Option<u16>
         destination: dst,
         capacity,
         mode: STORAGE_VOLUME_MODE,
+        owner: None,
         backing: Some(backing),
     }
     .render()

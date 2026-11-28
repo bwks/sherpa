@@ -13,11 +13,15 @@ use db::DefaultRequest;
 
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
-use crate::services::image_lifecycle::{image_model_kind, lock_image};
+use crate::services::image_lifecycle::{
+    ensure_store_has_no_overlays, image_model_kind, lock_image, remove_sandbox_store,
+};
+use crate::services::image_store::ImagePaths;
 use crate::services::progress::ProgressSender;
 use crate::validate::validate_image_version;
 
-/// Pull a container image from an OCI registry via Docker and import to DB
+/// Pull a container image from an OCI registry via Docker and import to DB, removing the
+/// version's sandbox Docker store first, which is refused while a lab disk is built on it.
 #[instrument(skip(state, progress), fields(model = %request.model, repo = ?request.repo, tag = %request.tag))]
 pub async fn pull_container_image(
     request: ContainerPullRequest,
@@ -44,6 +48,10 @@ pub async fn pull_container_image(
         tag = %request.tag,
         "Pulling container image"
     );
+
+    let store_dir = ImagePaths::installed().sandbox_store_dir(request.model, &request.tag);
+    ensure_store_has_no_overlays(state.qemu.as_ref(), &store_dir)?;
+    remove_sandbox_store(&store_dir)?;
 
     container::pull_image(&repo, &request.tag, |msg| {
         let _ = progress.send_status(msg.to_string(), StatusKind::Progress);

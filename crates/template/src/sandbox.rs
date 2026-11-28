@@ -1,5 +1,5 @@
 //! The Ignition configs of sandboxes, the Flatcar VMs that each run one container node, and of
-//! the VMs that make their boot disks and Docker stores (`docs/architecture/SANDBOX.md`).
+//! the VMs that make their Docker stores (`docs/architecture/SANDBOX.md`).
 
 use std::net::{IpAddr, SocketAddr};
 
@@ -9,7 +9,7 @@ use askama::Template;
 use shared::konst::SSH_PORT;
 
 use crate::ignition::{
-    IgnitionConfig, IgnitionFile, IgnitionFileSystem, IgnitionUnit, IgnitionUser, KernelArguments,
+    IgnitionConfig, IgnitionFile, IgnitionFileSystem, IgnitionUnit, IgnitionUser,
 };
 
 /// The volume label Flatcar's Ignition looks for on a config drive.
@@ -32,12 +32,13 @@ pub const SANDBOX_CONSOLE_TTY: &str = "ttyS0";
 pub const SANDBOX_NETNS: &str = "sherpa-sandbox";
 /// The name of the sandbox's own NIC in its network namespace.
 pub const SANDBOX_NIC: &str = "sbx0";
-/// The kernel arguments a sandbox boots with beyond those of Flatcar's bootloader: the kernel
-/// prints only errors on the serial console, the network OS's.
-pub const SANDBOX_KERNEL_ARGUMENTS: [&str; 1] = ["quiet"];
+/// The kernel's console log level in a sandbox once its root file system is up, the one `quiet`
+/// gives: the kernel prints only errors on the serial console, the network OS's.
+pub const SANDBOX_CONSOLE_LOGLEVEL: u8 = 4;
 /// The only login on the sandbox's own sshd.
 pub const SANDBOX_LOGIN: &str = "core";
 
+const CONSOLE_LOGLEVEL_PATH: &str = "/etc/sysctl.d/10-sherpa-console.conf";
 const CONTAINERD_CONFIG_PATH: &str = "/etc/containerd/config.toml";
 const DOCKER_DROP_IN_PATH: &str = "/etc/systemd/system/docker.service.d/10-sherpa.conf";
 const CONTAINERD_DROP_IN_PATH: &str = "/etc/systemd/system/containerd.service.d/10-sherpa.conf";
@@ -145,6 +146,11 @@ pub struct NodeScript {
     pub report: String,
     pub created: String,
 }
+
+/// The sysctl file that sets a sandbox's console log level.
+#[derive(Template)]
+#[template(path = "sandbox/console-loglevel.conf.jinja", ext = "txt")]
+struct ConsoleLogLevel;
 
 /// Docker's drop-in in a sandbox.
 #[derive(Template)]
@@ -337,6 +343,7 @@ impl SandboxGuest<'_> {
                 &NodeScript::guest(self.docker_api_version).render()?,
             ),
             IgnitionFile::root(CONSOLE_SCRIPT_PATH, SCRIPT_MODE, &ConsoleScript.render()?),
+            IgnitionFile::root(CONSOLE_LOGLEVEL_PATH, FILE_MODE, &ConsoleLogLevel.render()?),
         ]);
         files.extend(self.sshd_files()?);
         let mut units = docker_units()?;
@@ -421,21 +428,6 @@ pub fn store_vm_ignition_json() -> Result<String> {
         }],
     )
     .to_json_pretty()
-}
-
-/// The Ignition config of the VM that makes the sandboxes' boot disk, as JSON: only the
-/// sandboxes' kernel arguments, which Flatcar writes to the disk's OEM partition before a reboot
-/// that stops the VM.
-///
-/// # Errors
-///
-/// Fails when the config cannot be serialized.
-pub fn boot_vm_ignition_json() -> Result<String> {
-    let mut config = IgnitionConfig::new(vec![], vec![], vec![], vec![], vec![], vec![]);
-    config.kernel_arguments = Some(KernelArguments {
-        should_exist: SANDBOX_KERNEL_ARGUMENTS.map(str::to_owned).to_vec(),
-    });
-    config.to_json_pretty()
 }
 
 /// The files of Docker and containerd, of updates off, and of the status report, in every

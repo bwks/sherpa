@@ -29,7 +29,7 @@ use crate::services::up::process_manifest_nodes;
 use crate::tls::lab_ca::{self, LabCa};
 use crate::validate::{
     reject_provisioners, sandbox_volume_sources, validate_container_repo, validate_node_secrets,
-    validate_node_ztp, validate_sandbox_volumes,
+    validate_node_ztp, validate_sandbox_image, validate_sandbox_volumes,
 };
 
 use libvirt::QemuConnection;
@@ -408,6 +408,12 @@ async fn load_node(
     };
     validate_sandbox_volumes(sandbox_volume_sources(target_node, &node_image)).await?;
     let image_guard = lease_image(model_kind, &node_image.version).await;
+    validate_sandbox_image(
+        node_name,
+        model_kind,
+        target_node.image.as_deref(),
+        &node_image,
+    )?;
     if node_image.kind() == data::NodeKind::Container {
         let repo = validate_container_repo(
             node_name,

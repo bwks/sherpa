@@ -173,6 +173,11 @@ pub(super) async fn redeploy_sandbox(
             node_name: node_name.clone(),
             node_index: redeploy.db_node.index,
             model_kind: redeploy.target_node.model_kind,
+            version: redeploy
+                .target_node
+                .version
+                .clone()
+                .context("The node has no image version")?,
             spec: redeployed_container_spec(redeploy, ztp_result.settings)?,
             dns: redeploy.dns.clone(),
             memory: redeploy

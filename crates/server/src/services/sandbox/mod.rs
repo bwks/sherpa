@@ -3,7 +3,6 @@
 //! (`docs/architecture/SANDBOX.md`).
 
 mod base;
-mod boot;
 mod create;
 mod guest;
 mod status;
@@ -11,7 +10,6 @@ mod store;
 mod sweep;
 
 pub(crate) use base::{SandboxBase, sandbox_base};
-pub(crate) use boot::BootDisk;
 pub(crate) use create::{
     SANDBOX_MEMORY_OVERHEAD_MIB, SandboxCreate, SandboxHost, create_sandbox, sandbox_tuning,
 };

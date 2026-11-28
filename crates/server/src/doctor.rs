@@ -12,12 +12,12 @@ use tracing::instrument;
 use shared::konst::SHERPA_IMAGES_PATH;
 use shared::util::term_msg_surround;
 
-use crate::konst::SHERPA_BLANK_DISK_DIR;
+use crate::konst::{IMAGE_FILE_MODE, IMAGE_FOLDER_MODE, SHERPA_BLANK_DISK_DIR};
 
-/// Every folder under the images folder: `sherpa` and its group, who import images, may write.
-const IMAGE_FOLDER_MODE: Mode = Mode::from_bits_truncate(0o775);
-/// Any other file under the images folder: `sherpa` and its group may read and replace it.
-const IMAGE_FILE_MODE: Mode = Mode::from_bits_truncate(0o660);
+/// Every folder under the images folder.
+const FOLDER_MODE: Mode = Mode::from_bits_truncate(IMAGE_FOLDER_MODE);
+/// Any other file under the images folder.
+const FILE_MODE: Mode = Mode::from_bits_truncate(IMAGE_FILE_MODE);
 /// A blank disk template: only sherpad, as `sherpa`, its owner, reads it, to copy it.
 const BLANK_DISK_FILE_MODE: Mode = Mode::from_bits_truncate(0o400);
 /// How a folder under the images folder is opened: to read, and never through a symlink.
@@ -34,7 +34,7 @@ const FOLDER_OPEN_FLAGS: OFlag = OFlag::O_RDONLY
 pub fn doctor(images: bool) -> Result<()> {
     if images {
         term_msg_surround("Fixing node image permissions");
-        for link in fix_image_permissions(Path::new(SHERPA_IMAGES_PATH), IMAGE_FILE_MODE)? {
+        for link in fix_image_permissions(Path::new(SHERPA_IMAGES_PATH), FILE_MODE)? {
             println!("Skipped symlink {}", link.display());
         }
     }
@@ -56,7 +56,7 @@ fn fix_image_permissions(path: &Path, file_mode: Mode) -> Result<Vec<PathBuf>> {
     Ok(links)
 }
 
-/// Set the open `folder` at `path` to `IMAGE_FOLDER_MODE` and its entries to the image modes,
+/// Set the open `folder` at `path` to `FOLDER_MODE` and its entries to the image modes,
 /// adding each symlink found to `links`.
 fn fix_folder(
     mut folder: Dir,
@@ -64,7 +64,7 @@ fn fix_folder(
     file_mode: Mode,
     links: &mut Vec<PathBuf>,
 ) -> Result<()> {
-    fchmod(&folder, IMAGE_FOLDER_MODE)
+    fchmod(&folder, FOLDER_MODE)
         .with_context(|| format!("Failed to set the mode of {}", path.display()))?;
     let file_mode = if path.file_name() == Some(OsStr::new(SHERPA_BLANK_DISK_DIR)) {
         BLANK_DISK_FILE_MODE
@@ -135,7 +135,7 @@ mod tests {
         fs::write(&blank_disk, "disk").unwrap();
         fs::set_permissions(&blank_disk, Permissions::from_mode(0o660)).unwrap();
 
-        fix_image_permissions(images.path(), IMAGE_FILE_MODE).unwrap();
+        fix_image_permissions(images.path(), FILE_MODE).unwrap();
 
         for folder in [images.path(), &version, &blank_disks] {
             assert_eq!(mode(folder), 0o775, "{}", folder.display());
@@ -161,7 +161,7 @@ mod tests {
         fs::write(&image, "image").unwrap();
         fs::set_permissions(&image, Permissions::from_mode(0o644)).unwrap();
 
-        let links = fix_image_permissions(&images, IMAGE_FILE_MODE).unwrap();
+        let links = fix_image_permissions(&images, FILE_MODE).unwrap();
 
         assert_eq!(links, vec![link]);
         assert_eq!(mode(&outside), 0o600);

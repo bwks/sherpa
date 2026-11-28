@@ -1,4 +1,4 @@
-//! Creating a sandbox: its config drive, its disks on the boot disk and its image's Docker
+//! Creating a sandbox: its config drive, its disks on the base image and its image's Docker
 //! store, and its domain, and watching for the status it reports once it has started its
 //! container.
 
@@ -9,7 +9,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use askama::Template;
 use bollard::Docker;
-use libvirt::Qemu;
+use libvirt::{Qemu, VolumeOwner};
 use tokio::task;
 use tracing::instrument;
 
@@ -19,7 +19,6 @@ use shared::konst::SHERPA_STORAGE_POOL_PATH;
 use template::{DomainTuning, FlatcarDomain, SandboxDomain, SandboxGuest, SandboxOwnNic};
 
 use super::base::SandboxBase;
-use super::boot::ensure_boot_disk;
 use super::guest::{
     console_command, guest_container_body, guest_nics, guest_volumes, management_addresses,
     write_config_drive,
@@ -58,6 +57,7 @@ pub(crate) struct SandboxCreate {
     pub(crate) node_name: String,
     pub(crate) node_index: u16,
     pub(crate) model_kind: ModelKind,
+    pub(crate) version: String,
     pub(crate) spec: ContainerSpec,
     pub(crate) dns: Dns,
     pub(crate) memory: u16,
@@ -73,8 +73,15 @@ pub(crate) struct SandboxCreate {
 
 /// A disk a sandbox's domain boots with, made before the domain is defined.
 pub(super) enum DomainDisk {
-    Overlay { base: String, path: String },
-    Blank { path: String, size_gb: u16 },
+    Overlay {
+        base: String,
+        path: String,
+    },
+    Blank {
+        path: String,
+        size_gb: u16,
+        owner: VolumeOwner,
+    },
 }
 
 /// The storage pool path of volume `volume`.
@@ -82,7 +89,7 @@ pub(super) fn pool_path(volume: &str) -> String {
     format!("{SHERPA_STORAGE_POOL_PATH}/{volume}")
 }
 
-/// The storage pool volume of sandbox `device`'s disk, an overlay on the boot disk.
+/// The storage pool volume of sandbox `device`'s disk, an overlay on the base image.
 fn disk_name(device: &str) -> String {
     format!("{device}-hdd.qcow2")
 }
@@ -113,7 +120,7 @@ pub(crate) fn sandbox_tuning(node: &topology::NodeExpanded) -> DomainTuning {
 ///
 /// # Errors
 ///
-/// Fails when the base image is missing, the boot disk or the image's store cannot be made, the
+/// Fails when the base image is missing, the image's store cannot be made, the
 /// config drive cannot be written, or libvirt cannot create the disks or define and start the
 /// domain.
 #[instrument(skip(host, create), fields(lab_id = %create.lab_id, node_name = %create.node_name))]
@@ -125,8 +132,14 @@ pub(crate) async fn create_sandbox(
         .base
         .as_ref()
         .ok_or(ServiceError::Sandbox(SandboxRefusal::BaseImageMissing))?;
-    let boot_disk = ensure_boot_disk(host, base).await?;
-    let store = ensure_docker_store(host, &boot_disk, &create.spec.image).await?;
+    let store = ensure_docker_store(
+        host,
+        &base.disk,
+        create.model_kind.model(),
+        &create.version,
+        &create.spec.image,
+    )
+    .await?;
     let device = domain_name(&create.node_name, &create.lab_id);
     let nics = guest_nics(create.model_kind, &create.veths)?;
     let volumes = guest_volumes(&create.spec.volumes);
@@ -193,7 +206,7 @@ pub(crate) async fn create_sandbox(
     .with_context(|| format!("Cannot render the domain of sandbox {device}"))?;
     let disks = vec![
         DomainDisk::Overlay {
-            base: boot_disk,
+            base: base.disk.clone(),
             path: disk,
         },
         DomainDisk::Overlay {
@@ -225,8 +238,12 @@ pub(super) async fn start_domain(
                 DomainDisk::Overlay { base, path } => {
                     libvirt::create_overlay(&conn, base, path, None)?;
                 }
-                DomainDisk::Blank { path, size_gb } => {
-                    libvirt::create_blank_qcow2(&conn, path, *size_gb)?;
+                DomainDisk::Blank {
+                    path,
+                    size_gb,
+                    owner,
+                } => {
+                    libvirt::create_blank_qcow2(&conn, path, *size_gb, *owner)?;
                 }
             }
         }
@@ -255,6 +272,7 @@ mod tests {
     use super::*;
     use crate::konst::{SHERPA_CONSOLE_DIR, SHERPA_SANDBOX_RUN_DIR};
     use crate::services::image_lifecycle::lease_image;
+    use crate::services::image_store::ImagePaths;
     use crate::services::node_ops;
 
     /// A lab's management network `198.18.250.0/24`, removed when dropped.
@@ -326,7 +344,6 @@ mod tests {
                 .unwrap()
                 .to_owned(),
             _lease: lease_image(model_kind, &version).await,
-            version,
         }
     }
 
@@ -396,6 +413,7 @@ mod tests {
                     node_index: 1,
                     model_kind: ModelKind::new(NodeModel::SonicLinux, Some(NodeKind::Container))
                         .unwrap(),
+                    version: self.lab_id.to_owned(),
                     spec,
                     dns: default_dns(&self.network.network),
                     memory: 1024,
@@ -431,6 +449,12 @@ mod tests {
                 let _ = libvirt::delete_disk(&conn, &volume);
             }
             let _ = console::remove_console_dir(Path::new(SHERPA_CONSOLE_DIR), self.lab_id);
+            let test_version_store =
+                ImagePaths::installed().sandbox_store_dir(NodeModel::SonicLinux, self.lab_id);
+            let _ = fs::remove_dir_all(&test_version_store);
+            if let Some(models_stores) = test_version_store.parent() {
+                let _ = fs::remove_dir(models_stores);
+            }
             // Made by root here, the folder would refuse sherpad later; empty, it is made again.
             let _ = fs::remove_dir(SHERPA_SANDBOX_RUN_DIR);
         }
