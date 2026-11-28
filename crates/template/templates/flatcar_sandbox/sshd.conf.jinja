@@ -1,0 +1,11 @@
+# The sandbox's own sshd, for debugging the sandbox: the core login by key only, on the sandbox's
+# own addresses only, in the network namespace the network OS does not see.
+PermitRootLogin no
+AllowUsers {{ crate::flatcar_sandbox::SANDBOX_LOGIN }}
+AuthenticationMethods publickey
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+{% for address in listen -%}
+ListenAddress {{ address }}
+{% endfor -%}

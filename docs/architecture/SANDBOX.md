@@ -34,6 +34,7 @@ flowchart LR
     DK --> N[sherpa-node.service: creates the container once over the Engine API, starts it, reports]
     N --> C[node container, privileged, host network mode]
     CON[sherpa-console.service on ttyS0: docker exec CLI] --> C
+    LK --> SSH[sshd.service in netns sherpa-sandbox: core by key, port 22 of sbx0's addresses]
   end
   O --> V
   OD -->|/var/lib/docker| V
@@ -113,8 +114,10 @@ from the constants in `crates/template/src/flatcar_sandbox.rs`. It sets:
 
 - The kernel's console log level, 4 (see Boot), in the sandbox only.
 - Updates and reboots off (`IgnitionFile::disable_updates`, `update-engine` and `locksmithd`
-  masked); no login (no users, `sshd` and its sockets and the serial getty masked); none of the
-  image's OpenStack metadata units.
+  masked); no console login (the serial getty masked) and no SSH but the sandbox's own sshd
+  (see Debug SSH): Flatcar's `sshd.socket` and `sshd-vsock.socket` are masked, and the Docker
+  store VM masks `sshd.service` too and has no login; none of the image's OpenStack metadata
+  units.
 - No network of the VM's own: `systemd-networkd`, its socket and its varlink sockets are masked,
   so nothing addresses, raises or renames an interface after `sherpa-links` (see Links): the
   network OS owns every interface.
@@ -139,6 +142,7 @@ from the constants in `crates/template/src/flatcar_sandbox.rs`. It sets:
 | `sherpa-links.service` | once per boot, before Docker | `links.sh`: names the NICs, addresses `eth0`, makes the interfaces on no link |
 | `sherpa-node.service` | once per boot, after Docker and `sherpa-links` | `node.sh`: until `/var/lib/sherpa/created` exists, removes any container an earlier boot left, creates the container, copies the writable volumes into it and then writes that marker, removing the container when the copy fails; on every boot starts it, and reports (see Container) |
 | `sherpa-console.service` | on `ttyS0`, restarted when it exits | `console.sh`: the network OS CLI (see Console) |
+| `sshd.service` | Flatcar's, after `sherpa-links`, in the namespace `sherpa-sandbox` | the sandbox's own sshd (see Debug SSH) |
 | `var-lib-docker.mount` | before containerd and Docker | mounts the Docker disk, `noinit_itable` |
 | `media-config.mount` | at boot | mounts the config drive |
 
@@ -397,7 +401,41 @@ Before `sbx0` is up it turns off router advertisements and SLAAC on it (`accept_
 - **Named** `<node>-sbx` and `<node>-sbx.<lab domain>` on the lab's boot server, IPv4 and IPv6,
   and its IPv4 address is reserved for the NIC's MAC with a DHCP host entry, so the boot server
   never leases it to another client, while the sandbox is down too (`boot_server_022`). A node named so is refused (`TopologyError::SandboxNameTaken`).
-- Nothing listens on the address yet; it answers ping from the server and from the lab's nodes.
+- It answers ping from the server and from the lab's nodes, and SSH (see Debug SSH).
+
+### Debug SSH
+
+The sandbox's own sshd is for people debugging the sandbox: `ssh core@<node>-sbx` from the server
+or anywhere the lab's management network is reached, and through the `<node>-sbx.<lab id>` host
+of the lab's SSH config (`ssh_config_hosts_010`). `ssh <node>` still reaches the network OS on the
+node's address. Nothing in sherpad logs in through it; sherpad only reads its host key.
+
+- **Where.** Flatcar's `sshd.service`, enabled, with a drop-in
+  (`templates/flatcar_sandbox/sshd.service.conf.jinja`) that orders it after `sherpa-links` and runs it in
+  `sherpa-sandbox` (`NetworkNamespacePath=`), the namespace of `sbx0`. It listens on port 22 of
+  the sandbox's own IPv4 and IPv6 addresses only (`ListenAddress`): nothing else listens in that
+  namespace, so the port is the usual one, and the network OS, in the VM's first namespace, keeps
+  its own port 22 on `eth0`. A failure of `sherpa-links` after it has set up `sbx0` still lets
+  sshd start; before that, there is no namespace, and sshd does not start.
+- **Who.** `core` only (`AllowUsers`), by key only (`AuthenticationMethods publickey`, password
+  and keyboard-interactive off, the latter as Flatcar's PAM would otherwise take one), never
+  root, from `/etc/ssh/sshd_config.d/00-sherpa.conf` (`templates/flatcar_sandbox/sshd.conf.jinja`), which
+  sshd reads before Flatcar's own drop-ins there, and the first value of a setting wins.
+  Ignition gives `core`, which has no password, the lab owner's keys
+  (`SandboxCreate::ssh_keys`): Sherpa has no lab key. `core` is in Flatcar's `docker`, `systemd-journal` and `wheel` groups, so `docker ps`,
+  `journalctl` and `sudo` work.
+- **Host keys.** sshd makes them at its first start, on the sandbox's disk, so they last across
+  down and resume and are new after a redeploy. sherpad reads the key sshd offers as it reads a
+  node's (`node_ops::check_node_ssh_ready`) and records it in `vm_sandbox.ssh_host_key`
+  (`ssh_config::capture_sandbox_host_key`): `up` once its nodes are ready, before it builds the
+  SSH files, and `redeploy`, which clears the key before it tears the VM down, once the new VM is
+  ready. A sandbox whose sshd has not answered by then is read by the scanner, once its node is
+  `Running` and its VM runs, until a key is recorded. `down` and `resume` keep the key. The lab's
+  known hosts file lists it by the sandbox's own IPv4 address, and the `<node>-sbx` host checks it
+  strictly, as a node's host does (`node_host_keys_018`); until a key is recorded, the host checks
+  none.
+- **Unseen by the network OS.** The container has its own PID namespace and runs in the VM's first
+  network namespace, so it sees neither sshd nor `sbx0`.
 
 ## Console
 
@@ -427,6 +465,7 @@ sequenceDiagram
   par the guest boots
     V->>V: GRUB, first boot: Ignition writes the files and units
     V->>V: sherpa-links: sbx0 into sherpa-sandbox, names the NICs, addresses eth0, unwired veths
+    V->>V: sshd starts in sherpa-sandbox, makes its host keys
     V->>V: Docker starts on the store overlay
     V->>C: sherpa-node: remove a leftover, create from the body, copy the writable volumes, write the marker, start
     V->>S: started, or failed: REASON
@@ -434,6 +473,8 @@ sequenceDiagram
     S->>L: phase 11b: attach_vm_links on the taps
   end
   S->>S: phase 13 readiness: reads the channel at each poll, then SSH on the management address, or started alone (node_ready_036)
+  S->>V: read sshd's host key on the sandbox's own address, all sandboxes at once, but a failed node's (sandbox_097, sandbox_098)
+  S->>S: record it in vm_sandbox.ssh_host_key, then the lab's SSH config and known hosts
   S-->>U: the node is ready, or failed with the VM's reason
 ```
 
@@ -448,18 +489,20 @@ sequenceDiagram
   U->>S: down
   S->>L: ACPI shutdown
   V->>V: Docker stops the container, the VM powers off
-  Note over L,V: kept: the domain, the config drive, both overlays (the container, what it wrote, the marker /var/lib/sherpa/created) and the vm_sandbox row
+  Note over L,V: kept: the domain, the config drive, both overlays (the container, what it wrote, the marker /var/lib/sherpa/created, sshd's host keys) and the vm_sandbox row with its ssh_host_key
   U->>S: resume
   S->>S: refuse a node with no vm_sandbox row (sandbox_096), admission
   S->>L: start the domain
-  V->>V: no Ignition, again on every boot: sherpa-links, Docker, sherpa-node only starts the container, the console
+  V->>V: no Ignition, again on every boot: sherpa-links, sshd with the same host keys, Docker, sherpa-node only starts the container, the console
   V--)S: started, which nobody reads, and the report gives up after 60 s
   S->>L: re-attach the links
   S->>S: readiness on the node's ready check
   U->>S: redeploy
+  S->>S: clear vm_sandbox.ssh_host_key
   S->>L: remove the domain and its volumes (destroy_vm_node), the vm_sandbox row stays
   S->>L: a new config drive and new overlays, define and start the domain, as up does
   V->>S: started, awaited up to the ready_timeout
+  S->>V: read the new sshd's host key and record it
 ```
 
 - **Up.** Phase 11 creates each sandbox, in parallel with the others (`create_sandboxes`, after

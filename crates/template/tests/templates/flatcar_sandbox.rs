@@ -16,9 +16,14 @@ use shared::data::{
 use shared::util::base64_decode;
 use template::{
     DomainTemplate, DomainTuning, FlatcarDomain, GuestAddress, GuestInterface, NodeScript,
-    ReportScript, SANDBOX_CONFIG_DRIVE_MOUNT, SANDBOX_CONTAINER_BODY, SandboxDomain, SandboxGuest,
-    SandboxOwnNic, WritableVolume, store_vm_ignition_json,
+    ReportScript, SANDBOX_CONFIG_DRIVE_MOUNT, SANDBOX_CONTAINER_BODY, SANDBOX_LOGIN, SandboxDomain,
+    SandboxGuest, SandboxOwnNic, WritableVolume, store_vm_ignition_json,
 };
+
+const OWNER_KEYS: [&str; 2] = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOwner1",
+    "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQOwner2",
+];
 
 // ============================================================================
 // Helpers
@@ -32,6 +37,7 @@ fn interface(mac: &str, name: &str) -> GuestInterface {
 }
 
 fn node_config() -> Value {
+    let ssh_keys = OWNER_KEYS.map(str::to_owned);
     let json = SandboxGuest {
         hostname: "ceos1",
         container: "ceos1-abc12345",
@@ -70,6 +76,7 @@ fn node_config() -> Value {
                 },
             ],
         },
+        ssh_keys: &ssh_keys,
         console_command: &["Cli"],
         docker_api_version: "1.49",
         writable: &[WritableVolume {
@@ -731,7 +738,8 @@ fn sandbox_102_the_sandbox_and_store_vm_boot_their_disk_only_never_the_config_dr
 // ============================================================================
 
 #[test]
-fn sandbox_008_updates_reboots_and_logins_are_off_in_the_sandbox() {
+fn sandbox_085_updates_reboots_flatcars_ssh_sockets_and_the_getty_are_off_and_the_store_vm_has_no_ssh()
+ {
     for config in [node_config(), store_config()] {
         assert_eq!(
             file(&config, "/etc/flatcar/update.conf")["contents"]["source"],
@@ -742,13 +750,84 @@ fn sandbox_008_updates_reboots_and_logins_are_off_in_the_sandbox() {
             "locksmithd.service",
             "sshd.socket",
             "sshd-vsock.socket",
-            "sshd.service",
             "serial-getty@ttyS0.service",
         ] {
             assert_eq!(unit(&config, name)["mask"], true, "{name}");
         }
-        assert_eq!(config["passwd"]["users"], serde_json::json!([]));
     }
+    let store = store_config();
+    assert_eq!(unit(&store, "sshd.service")["mask"], true);
+    assert_eq!(store["passwd"]["users"], serde_json::json!([]));
+}
+
+#[test]
+fn sandbox_086_the_sandboxs_sshd_runs_in_its_own_namespace_on_its_own_addresses_and_takes_core_by_key_only()
+ {
+    let config = node_config();
+    let sshd = unit(&config, "sshd.service");
+    assert_eq!(sshd["enabled"], true);
+    assert!(sshd.get("mask").is_none());
+    let drop_in = file_text(&config, "/etc/systemd/system/sshd.service.d/10-sherpa.conf");
+    assert_eq!(
+        ini(&drop_in),
+        [
+            ("Unit", "Wants", "sherpa-links.service"),
+            ("Unit", "After", "sherpa-links.service"),
+            (
+                "Service",
+                "NetworkNamespacePath",
+                "/run/netns/sherpa-sandbox"
+            ),
+        ]
+        .map(|(section, key, value)| (
+            section.to_owned(),
+            key.to_owned(),
+            value.to_owned()
+        ))
+    );
+    assert_eq!(
+        file(&config, "/etc/ssh/sshd_config.d/00-sherpa.conf")["mode"],
+        0o600
+    );
+    let settings: Vec<(String, String)> =
+        file_text(&config, "/etc/ssh/sshd_config.d/00-sherpa.conf")
+            .lines()
+            .filter(|line| !line.starts_with('#') && !line.is_empty())
+            .map(|line| {
+                let (key, value) = line.split_once(' ').unwrap();
+                (key.to_owned(), value.to_owned())
+            })
+            .collect();
+    let values = |key: &str| -> Vec<&str> {
+        settings
+            .iter()
+            .filter(|(name, _)| name == key)
+            .map(|(_, value)| value.as_str())
+            .collect()
+    };
+    assert_eq!(
+        values("ListenAddress"),
+        ["172.31.0.30:22", "[fd00:b0d1:0:1::1e]:22"]
+    );
+    assert_eq!(values("Port"), [] as [&str; 0]);
+    assert_eq!(values("AllowUsers"), [SANDBOX_LOGIN]);
+    assert_eq!(values("AuthenticationMethods"), ["publickey"]);
+    assert_eq!(values("PasswordAuthentication"), ["no"]);
+    assert_eq!(values("KbdInteractiveAuthentication"), ["no"]);
+    assert_eq!(values("PermitEmptyPasswords"), ["no"]);
+    assert_eq!(values("PermitRootLogin"), ["no"]);
+}
+
+#[test]
+fn sandbox_087_the_sandboxs_core_login_has_the_owners_keys_and_no_password() {
+    assert_eq!(
+        node_config()["passwd"]["users"],
+        serde_json::json!([{
+            "name": "core",
+            "sshAuthorizedKeys": OWNER_KEYS,
+            "groups": [],
+        }])
+    );
 }
 
 #[test]

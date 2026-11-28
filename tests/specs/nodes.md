@@ -58,7 +58,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 
 ## `sandbox`: a privileged network OS container runs in a VM of its own
 
-**Statement:** an `arista_eos`, `nokia_srlinux` or `sonic_linux` container node runs privileged on the Docker of a Flatcar VM of its own, which a unit in the VM starts from what sherpad put on the VM's config drive, boots on an overlay of the base image and on an overlay of its image version's Docker store in the images folder instead of copying the image, reports a failure with its reason, and has its links, management addresses, console, saved config and lifecycle as a node's.
+**Statement:** an `arista_eos`, `nokia_srlinux` or `sonic_linux` container node runs privileged on the Docker of a Flatcar VM of its own, which a unit in the VM starts from what sherpad put on the VM's config drive, boots on an overlay of the base image and on an overlay of its image version's Docker store in the images folder instead of copying the image, reports a failure with its reason, has its links, management addresses, console, saved config and lifecycle as a node's, and gives the lab owner an SSH login of its own on the sandbox's own address, which the network OS does not see.
 **Relied on by:** the server's owner (a node's privileges reach its VM, not the server), the user. **Priority:** P0.
 
 | Case | What it shows | Level |
@@ -66,7 +66,7 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 001 | The sandbox boots its overlay disk on the base image through the image's own bootloader, with its Docker store overlay and its config drive read-only | unit |
 | 002 | Each data interface on a link or bridge is a tap named like its link end, and the management NIC is on the lab's management network | unit |
 | 005 | Values in the domain XML are escaped | unit |
-| 008 | Updates, update reboots, SSH and console logins are off in the sandbox and the Docker store VM | unit |
+| 008 | Retired: the sandbox has an SSH login of its own; see 085, 086 and 087 | — |
 | 010 | Before Docker starts, the guest names each NIC, the management NIC `eth0`, by its lowercase MAC, and the VM runs no network manager | unit |
 | 011 | The serial console runs the network OS CLI | unit |
 | 012 | The container's volumes go on the config drive: a read-only one is mounted from the drive, a writable one is copied into the container when it is created | unit |
@@ -133,6 +133,10 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 082 | A boot whose container Docker's restart policy has already started reports it started | unit |
 | 083 | The guest calls Docker's Engine API at the version sherpad's Docker client uses, on the VM's Docker socket | unit |
 | 084 | A redeploy whose sandbox fails is answered with the reason its VM reported, Docker's message, and the node is failed | integration |
+| 085 | Updates, update reboots, Flatcar's SSH sockets and the serial getty are off in the sandbox and the Docker store VM, and the store VM has no SSH server and no login | unit |
+| 086 | The sandbox's own sshd runs in the sandbox's own network namespace once `sherpa-links` has set it up, listens on port 22 of the sandbox's own addresses only, and takes `core` by key only, never root | unit |
+| 087 | The sandbox's `core` login has the lab owner's keys and no password | unit |
+| 088 | `ssh core@<node>-sbx`, and `core@` each of the sandbox's own addresses, reaches the sandbox with the owner's key and runs `docker ps` and `journalctl` after up, down and resume, and redeploy, a password and root are refused, `ssh` to the node reaches the network OS, and the network OS sees no sshd or NIC of the sandbox (no test yet) | e2e |
 | 089 | A Docker store build whose operation stops waiting for it holds the store's lock until it ends, so the next build of the store waits for it | unit |
 | 090 | Up and redeploy refuse a sandbox node's volume whose source is or holds a symlink, naming it, before any VM is made | unit |
 | 091 | Up and redeploy refuse a sandbox node's volume whose source holds a special file, naming it, before any VM is made | unit |
@@ -141,6 +145,8 @@ Each behaviour lists its cases. A case is one test, whose name is its ID: `<beha
 | 094 | Up and redeploy refuse a sandbox node's volume whose source holds a name longer than 31 characters, naming it, before any VM is made | unit |
 | 095 | A writable volume's empty folders are made in the container with its files | unit |
 | 096 | Down and resume refuse a node whose model runs in a sandbox but which was made before it ran in one, saying to destroy the lab and bring it up again | integration |
+| 097 | The sandboxes' host keys are read all at once, so sandboxes whose sshd does not answer add one probe's wait to up and to a scan, not one each, and a key that cannot be recorded leaves the others recorded | unit |
+| 098 | Up reads no host key from the sandbox of a node that failed, and reads the others' | unit |
 | 099 | A blank disk, which a Docker store is made in, is a QCOW2 volume of its size with no backing store, owned by sherpad with an imported image's mode, `0660`, so it is moved to the images folder as it is | unit |
 | 100 | A sandbox's domain carries the CPU pins, NUMA node, disk cache and I/O and interface queues of its node's tuning, as a VM's does, with no queues on the sandbox's own NIC, and no tuning when the node has none | unit |
 | 101 | The sandbox and the Docker store VM have no VNC, guest agent channel, USB controller, `ds=nocloud` sysinfo, video or memory balloon | unit |

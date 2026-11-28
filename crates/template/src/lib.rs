@@ -56,8 +56,8 @@ pub use domain::{
 pub use flatcar_sandbox::{
     GuestAddress, GuestInterface, NodeScript, ReportScript, SANDBOX_CONFIG_DRIVE_LABEL,
     SANDBOX_CONFIG_DRIVE_MOUNT, SANDBOX_CONFIG_DRIVE_USER_DATA, SANDBOX_CONTAINER_BODY,
-    SANDBOX_IMAGE_ARCHIVE_SERIAL, SANDBOX_MANAGEMENT_INTERFACE, SandboxGuest, SandboxOwnNic,
-    WritableVolume, store_vm_ignition_json,
+    SANDBOX_IMAGE_ARCHIVE_SERIAL, SANDBOX_LOGIN, SANDBOX_MANAGEMENT_INTERFACE, SandboxGuest,
+    SandboxOwnNic, WritableVolume, store_vm_ignition_json,
 };
 pub use frr::{FrrDaemonsTemplate, FrrStartupTemplate, FrrZtpTemplate};
 pub use ignition::{

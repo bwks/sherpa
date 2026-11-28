@@ -127,13 +127,14 @@ pub struct DbCpuPins {
 }
 
 /// A sandbox's own record, as the `vm_sandbox` table stores it: its node, its own management
-/// addresses and the MAC of its NIC.
+/// addresses, the MAC of its NIC and the SSH host key its sshd offers, once recorded.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DbVmSandbox {
     pub node: RecordId,
     pub ipv4: Ipv4Addr,
     pub ipv6: Option<Ipv6Addr>,
     pub mac: String,
+    pub ssh_host_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

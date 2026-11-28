@@ -36,7 +36,9 @@ pub use shared::data::{
     DbBridge, DbCpuPins, DbLab, DbLink, DbLoginAttempt, DbNode, DbSession, DbSessionUser, DbUser,
     NodeConfig, SessionChannel,
 };
-pub use vm_sandbox::{create_vm_sandbox, find_vm_sandbox, list_vm_sandboxes};
+pub use vm_sandbox::{
+    create_vm_sandbox, find_vm_sandbox, list_vm_sandboxes, update_vm_sandbox_host_key,
+};
 
 // Helper functions for extracting IDs safely
 pub use helpers::{get_image_id, get_lab_id, get_node_id, get_user_id};

@@ -246,6 +246,7 @@ impl Configuring<'_, '_> {
                 .map(|v6| util::get_ipv6_addr(&v6.prefix, offset))
                 .transpose()?,
             mac: util::random_mac(KVM_OUI),
+            ssh_host_key: None,
         };
         db::create_vm_sandbox(self.build.db, &record).await?;
         self.sandbox_records.push(SandboxRecord {

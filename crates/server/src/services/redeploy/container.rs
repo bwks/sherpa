@@ -26,6 +26,7 @@ use crate::services::p2p_links::{
     reattach_node_links, report_links,
 };
 use crate::services::sandbox::{self, SandboxCreate, SandboxHost};
+use crate::services::ssh_config;
 use crate::services::talos;
 use crate::services::vault;
 use crate::tls::lab_ca::NodeCertPaths;
@@ -141,8 +142,9 @@ pub(super) async fn redeploy_container(
 }
 
 /// Configure a container that runs in a sandbox again, create its VM with its link ends as
-/// taps, wait for the VM to start its container, re-attach its links, and wait for it as
-/// `redeploy_container` does (stages 4 and 5), returning its links' states.
+/// taps, wait for the VM to start its container, re-attach its links, wait for it as
+/// `redeploy_container` does (stages 4 and 5), and record the host key of the new VM's sshd,
+/// returning its links' states.
 #[instrument(skip_all, fields(lab_id = %redeploy.lab_id, node_name = %redeploy.node_name), level = "debug")]
 pub(super) async fn redeploy_sandbox(
     redeploy: &mut Redeploy<'_>,
@@ -196,6 +198,7 @@ pub(super) async fn redeploy_sandbox(
                     node: node_name.clone(),
                 })
             })?,
+            ssh_keys: redeploy.owner_account.ssh_keys.clone(),
         },
     )
     .await?;
@@ -227,6 +230,11 @@ pub(super) async fn redeploy_sandbox(
             )
             .await?;
         }
+    }
+    if let Some(sandbox) = &redeploy.vm_sandbox
+        && let Err(error) = ssh_config::capture_sandbox_host_key(db, sandbox).await
+    {
+        tracing::warn!(error = %format!("{error:#}"), "Failed to record the sandbox host key");
     }
     Ok(link_reports)
 }

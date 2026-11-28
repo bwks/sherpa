@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use shared::data::{
-    DbBridge, DbLab, DbNode, LabPhase, ModelKind, NodeKind, NodeModel, NodeState, Observation,
-    Probe, RecordId, Runtime,
+    DbBridge, DbLab, DbNode, DbVmSandbox, LabPhase, ModelKind, NodeKind, NodeModel, NodeState,
+    Observation, Probe, RecordId, Runtime,
 };
 use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
 use tokio::time;
@@ -138,6 +138,14 @@ async fn scan_lab(state: &AppState, lab: &DbLab, snapshot: &Runtimes) -> Result<
         let probe = probe_node(&state.db, node.node, port).await;
         probes.insert(node.node.name.clone(), probe);
     }
+    let vm_sandboxes = db::list_vm_sandboxes(&state.db, lab_record_id)
+        .await
+        .context("Failed to list sandbox records for lab")?;
+    ssh_config::capture_sandbox_host_keys(
+        &state.db,
+        &keyless_running_sandboxes(&scanned, &vm_sandboxes, snapshot),
+    )
+    .await;
     let vault_checks = read_vault_seals(state, lab, &scanned, snapshot).await;
 
     if let Some(observed) = lab_operations::try_observe(&lab.lab_id) {
@@ -547,6 +555,27 @@ fn probe_port(node: &ScannedNode<'_>, running: bool) -> Option<u16> {
     (running && (unready || keyless)).then_some(port)
 }
 
+/// The sandbox records in `vm_sandboxes` with no host key recorded whose nodes are `Running` and
+/// shown running in `snapshot`, so their sshd is read for one. A node an operation is building,
+/// such as a redeploy, is left to that operation.
+fn keyless_running_sandboxes<'a>(
+    scanned: &[ScannedNode<'_>],
+    vm_sandboxes: &'a [DbVmSandbox],
+    snapshot: &Runtimes,
+) -> Vec<&'a DbVmSandbox> {
+    vm_sandboxes
+        .iter()
+        .filter(|sandbox| sandbox.ssh_host_key.is_none())
+        .filter(|sandbox| {
+            scanned.iter().any(|node| {
+                node.node.id.as_ref() == Some(&sandbox.node)
+                    && node.node.state == NodeState::Running
+                    && snapshot.runtime_of(node.kind, &node.runtime_name) == Some(Runtime::Running)
+            })
+        })
+        .collect()
+}
+
 /// What the scanner's observation says of a node's readiness: a node whose stored check is
 /// probed is ready only when its probe answered this cycle; a node with no port, or a skipped
 /// check, has no probe, so running counts as ready.
@@ -596,6 +625,7 @@ mod tests {
     use bollard::secret::ContainerStateStatusEnum;
     use shared::data::{NodeModel, ReadyCheck};
     use tempfile::TempDir;
+    use virt::sys::{VIR_DOMAIN_RUNNING, VIR_DOMAIN_SHUTOFF};
 
     use crate::services::node_ops::tests::TestSshd;
     use crate::services::p2p_links::fake::FakeHost;
@@ -806,6 +836,54 @@ mod tests {
             probe_port(&scanned(&keyless, NodeKind::VirtualMachine), true),
             Some(SSH_PORT)
         );
+    }
+
+    #[test]
+    fn node_host_keys_020_a_running_sandbox_with_no_recorded_key_is_read_for_one() {
+        let sandbox_node = |name: &str, state: NodeState| DbNode {
+            id: Some(RecordId::new("node", name)),
+            name: name.to_string(),
+            ..db_node(state, true)
+        };
+        let nodes = [
+            sandbox_node("keyless", NodeState::Running),
+            sandbox_node("keyed", NodeState::Running),
+            sandbox_node("building", NodeState::Building),
+            sandbox_node("stopped", NodeState::Running),
+        ];
+        let scanned: Vec<ScannedNode<'_>> = nodes
+            .iter()
+            .map(|node| ScannedNode {
+                node,
+                kind: NodeKind::VirtualMachine,
+                model: Some(NodeModel::NokiaSrlinux),
+                runtime_name: format!("{}-lab", node.name),
+            })
+            .collect();
+        let vm_sandboxes: Vec<DbVmSandbox> = nodes
+            .iter()
+            .enumerate()
+            .map(|(index, node)| DbVmSandbox {
+                node: node.id.clone().unwrap(),
+                ipv4: Ipv4Addr::new(172, 31, 1, 20 + u8::try_from(index).unwrap()),
+                ipv6: None,
+                mac: format!("52:54:00:00:00:0{index}"),
+                ssh_host_key: (node.name == "keyed").then(|| "ssh-ed25519 AAAA".to_string()),
+            })
+            .collect();
+        let snapshot = Runtimes {
+            domains: Some(HashMap::from([
+                ("keyless-lab".to_string(), VIR_DOMAIN_RUNNING),
+                ("keyed-lab".to_string(), VIR_DOMAIN_RUNNING),
+                ("building-lab".to_string(), VIR_DOMAIN_RUNNING),
+                ("stopped-lab".to_string(), VIR_DOMAIN_SHUTOFF),
+            ])),
+            containers: Some(HashMap::new()),
+        };
+
+        let probed = keyless_running_sandboxes(&scanned, &vm_sandboxes, &snapshot);
+
+        assert_eq!(probed, vec![&vm_sandboxes[0]]);
     }
 
     #[tokio::test]

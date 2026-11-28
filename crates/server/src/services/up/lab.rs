@@ -753,6 +753,7 @@ impl LabUp<'_> {
                 mgmt_net: &network.mgmt_net,
                 dns: &network.dns,
                 sandbox_records: &sandbox_records,
+                ssh_keys: &self.plan.owner_account.ssh_keys,
             },
         )
         .await?;
@@ -848,6 +849,15 @@ impl LabUp<'_> {
         )
         .await?;
         self.errors.extend(readiness_errors);
+
+        let vm_sandboxes = db::list_vm_sandboxes(self.build.db, &records.lab_record_id)
+            .await
+            .context("Failed to list the lab's sandbox records")?;
+        ssh_config::capture_sandbox_host_keys(
+            self.build.db,
+            &unfailed_sandboxes(&vm_sandboxes, &nodes, &records.lab_node_data),
+        )
+        .await;
 
         // The SSH files for the response, with the host keys recorded as nodes became ready.
         let ssh_files =
@@ -1033,10 +1043,33 @@ async fn roll_back_failed_up(
     }
 }
 
+/// The sandboxes recorded in `vm_sandboxes` whose nodes are not failed in `nodes`, the states
+/// readiness reported; a failed node's sandbox is not probed for its host key.
+fn unfailed_sandboxes<'a>(
+    vm_sandboxes: &'a [data::DbVmSandbox],
+    nodes: &[data::NodeInfo],
+    lab_node_data: &[data::LabNodeData],
+) -> Vec<&'a data::DbVmSandbox> {
+    vm_sandboxes
+        .iter()
+        .filter(|sandbox| {
+            let failed = lab_node_data
+                .iter()
+                .find(|node| node.record.id.as_ref() == Some(&sandbox.node))
+                .and_then(|node| nodes.iter().find(|info| info.name == node.name))
+                .is_some_and(|info| info.status == data::NodeState::Failed);
+            !failed
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
+    use std::net::Ipv4Addr;
+
     use super::*;
     use crate::api::request_parse::InvalidRequest;
+    use shared::data::{DbNode, ModelKind, NodeKind, NodeModel, NodeState, ReadyCheck, RecordId};
 
     #[test]
     fn api_errors_014_an_up_whose_manifest_does_not_parse_names_the_path_never_the_value() {
@@ -1058,6 +1091,70 @@ mod tests {
                     path: Some("nodes[0].model".to_owned())
                 },
             })
+        );
+    }
+
+    #[test]
+    fn sandbox_098_up_reads_no_host_key_from_a_failed_nodes_sandbox() {
+        let node_data = |name: &str| data::LabNodeData {
+            name: name.to_owned(),
+            model_kind: ModelKind::default_for(NodeModel::AristaEos),
+            index: 1,
+            record: DbNode {
+                id: Some(RecordId::new("node", name)),
+                name: name.to_owned(),
+                image: RecordId::new("node_image", "x"),
+                index: 1,
+                lab: RecordId::new("lab", "x"),
+                mgmt_ipv4: None,
+                mgmt_ipv6: None,
+                mgmt_mac: None,
+                state: NodeState::Building,
+                cpu_count: None,
+                memory: None,
+                ssh_host_key: None,
+                ready_check: ReadyCheck::default(),
+                ssh_username: None,
+            },
+        };
+        let info = |name: &str, status: NodeState| data::NodeInfo {
+            name: name.to_owned(),
+            kind: NodeKind::Container,
+            model: NodeModel::AristaEos,
+            status,
+            ip_address: None,
+            ssh_port: None,
+        };
+        let names = ["ceos1", "ceos2", "ceos3"];
+        let lab_node_data: Vec<data::LabNodeData> = names.into_iter().map(node_data).collect();
+        let nodes = [
+            info("ceos1", NodeState::Running),
+            info("ceos2", NodeState::Failed),
+            info("ceos3", NodeState::Starting),
+        ];
+        let vm_sandboxes: Vec<data::DbVmSandbox> = names
+            .into_iter()
+            .zip(20u8..)
+            .map(|(name, host)| data::DbVmSandbox {
+                node: RecordId::new("node", name),
+                ipv4: Ipv4Addr::new(172, 31, 1, host),
+                ipv6: None,
+                mac: format!("52:54:00:00:00:{host}"),
+                ssh_host_key: None,
+            })
+            .collect();
+
+        let probed: Vec<&RecordId> = unfailed_sandboxes(&vm_sandboxes, &nodes, &lab_node_data)
+            .into_iter()
+            .map(|sandbox| &sandbox.node)
+            .collect();
+
+        assert_eq!(
+            probed,
+            [
+                &RecordId::new("node", "ceos1"),
+                &RecordId::new("node", "ceos3")
+            ]
         );
     }
 }

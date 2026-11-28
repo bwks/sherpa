@@ -61,7 +61,7 @@ Cases 006 and 007 read the file's access list when they run on Windows, so they 
 
 ## `ssh_config_hosts`: the lab's SSH config has a host for each node, logging in as its owner
 
-**Statement:** the lab's SSH config has one host for each node that takes SSH, named by its address, `<node>.<lab-id>` and `<node>.<lab-id>.sherpa.lab.local`, that logs in with the node's recorded login, or else as the lab's owner, with the user's own keys, and works from any folder.
+**Statement:** the lab's SSH config has one host for each node that takes SSH, named by its address, `<node>.<lab-id>` and `<node>.<lab-id>.sherpa.lab.local`, that logs in with the node's recorded login, or else as the lab's owner, with the user's own keys, and works from any folder. Each sandbox has a host of its own, `<node>-sbx.<lab-id>`, logging in as `core`.
 **Relied on by:** the user's `ssh`, `scp` and tools built on them; `sherpa ssh`; provisioners. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -75,6 +75,8 @@ Cases 006 and 007 read the file's access list when they run on Windows, so they 
 | 007 | The saved config names the lab's known hosts file by its full path in the lab folder, and every other line is as the server sent it | unit |
 | 008 | On Windows, a host whose key is not checked names `NUL` as its known hosts file (no test yet) | unit |
 | 009 | A lab folder with a space in its path names its known hosts file in double quotes, which ssh reads as one file | unit |
+| 010 | A sandbox with an address of its own has one host, named by that address, `<node>-sbx.<lab-id>` and `<node>-sbx.<lab-id>.sherpa.lab.local`, at that address on port 22, logging in as `core`, after the nodes' hosts | unit |
+| 011 | From the user's machine, on Linux and on Windows, `ssh <node>-sbx.<lab-id>` logs in to the sandbox as `core` and `ssh <node>.<lab-id>` to the network OS (no test yet) | e2e |
 
 The config has no jump host: `ssh_access_001`. Which nodes are given the owner's login is `owner_login` in [accounts-and-auth.md](accounts-and-auth.md).
 
@@ -118,7 +120,7 @@ The config has no jump host: `ssh_access_001`. Which nodes are given the owner's
 
 ## `node_host_keys`: nodes are checked against the host keys the server recorded
 
-**Statement:** the server records the SSH host key each node offers when it becomes ready, the lab's known hosts file lists the recorded keys by node address, and a node with a recorded key is checked against it strictly, so the user is never asked to confirm a node's key; when a node's key is not the one saved, `sherpa ssh` and provisioners fetch the lab's keys from the server and connect once more.
+**Statement:** the server records the SSH host key each node offers when it becomes ready, and the key each sandbox's own sshd offers once it answers, the lab's known hosts file lists the recorded keys by node and sandbox address, and a node with a recorded key is checked against it strictly, so the user is never asked to confirm a node's key; when a node's key is not the one saved, `sherpa ssh` and provisioners fetch the lab's keys from the server and connect once more.
 **Relied on by:** the user, `sherpa ssh`, provisioners, `ssh` and tools that use the lab's known hosts file. **Priority:** P1.
 
 | Case | What it shows | Level |
@@ -140,6 +142,10 @@ The config has no jump host: `ssh_access_001`. Which nodes are given the owner's
 | 015 | A key that differs from the recorded one replaces it and is logged as changed, and the same key is not written again (no test yet) | unit |
 | 016 | The server reads a node's key again only for a virtual machine that takes SSH, and a node that is not ready on SSH keeps its recorded key (no test yet) | integration |
 | 017 | The known hosts file names a key by its node's address | unit |
+| 018 | A sandbox's recorded key is named by the sandbox's own address, after the nodes' keys, and its `<node>-sbx` host is checked strictly; a sandbox with no key recorded is not checked | unit |
+| 019 | A sandbox's key is kept in its sandbox record, is no other sandbox's, can be replaced and cleared, and is refused for a node with no sandbox record | integration |
+| 020 | The scanner reads the key of a sandbox with none recorded whose node is running, and of no other sandbox | unit |
+| 021 | After up, the sandbox's key in `.sherpa/ssh/known_hosts` is the host key on its disk; after down and resume it is the same, after `sherpa redeploy` it is the new VM's, and `ssh <node>-sbx.<lab-id>` logs in each time with no question and no host key error (no test yet) | e2e |
 
 A resumed VM keeping its host keys is `lab_down_resume_003`. The readiness checks that offer a key are `node_ready_013`, `033` and `034` in [nodes.md](nodes.md). Only the lab's owner is given its host keys: `access_control_010`.
 
